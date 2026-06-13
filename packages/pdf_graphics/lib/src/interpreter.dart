@@ -160,12 +160,26 @@ class _ActiveSoftMask {
 /// shadings, patterns, soft masks, Type3 fonts, and annotation
 /// appearance streams.
 class PdfInterpreter {
-  PdfInterpreter({required this.cos, required this.device});
+  PdfInterpreter(
+      {required this.cos, required this.device, bool scanImagesOnly = false})
+      : _scanImages = scanImagesOnly;
 
   final CosDocument cos;
   final PdfDevice device;
 
   static const _maxFormDepth = 16;
+
+  // When true, the interpreter only walks the content to discover image draw
+  // requests — it skips the image-free build work (path segment lists, glyph
+  // outlines, colour/ICC conversion, shadings, text runs, and the no-op device
+  // paint calls). Every image source — image/form XObjects, inline images,
+  // Type3 glyph procs, tiling patterns, soft-mask groups — reaches the device
+  // through `_run`, which runs on this same instance, so the flag is inherited
+  // by every nested stream and the discovered image set is identical to a full
+  // interpretation. It lets a render's decode-collect pass cost a fraction of a
+  // pass instead of a redundant second full interpretation (see
+  // PdfPageRenderer.renderPicture).
+  final bool _scanImages;
 
   var _state = _GraphicsState();
   final List<_GraphicsState> _stateStack = [];
@@ -189,6 +203,13 @@ class PdfInterpreter {
   double _startX = 0, _startY = 0;
   PdfFillRule? _pendingClip;
 
+  // While scanning for images we don't build the segment list — only the
+  // current path's page-space bounding box, which is all a tiling-pattern fill
+  // needs to bound its tile loop (over-estimating the box only runs extra
+  // tiles, never misses an image). Reset after each paint, like _segments.
+  double _scanMinX = double.infinity, _scanMinY = double.infinity;
+  double _scanMaxX = double.negativeInfinity, _scanMaxY = double.negativeInfinity;
+
   // text matrices
   PdfMatrix _textMatrix = PdfMatrix.identity;
   PdfMatrix _lineMatrix = PdfMatrix.identity;
@@ -200,13 +221,21 @@ class PdfInterpreter {
   bool _textClipPending = false;
   final List<PdfPathSegment> _textClipSegments = [];
 
-  void drawPage(PdfPage page) {
+  void drawPage(PdfPage page) =>
+      drawPageOperations(page, ContentStreamParser.parse(page.contentBytes()));
+
+  /// Runs an already-parsed page content stream. Parsing (and the underlying
+  /// stream decompression) dominates rendering on graphics-rich pages, so a
+  /// renderer that interprets a page more than once — e.g. the image-collect
+  /// pass and the paint pass in PdfPageRenderer.renderPicture — parses the
+  /// content once and feeds the same [operations] to both passes.
+  void drawPageOperations(PdfPage page, List<ContentOperation> operations) {
     _state = _GraphicsState();
     _visibilityStack.clear();
     _pageBox = page.mediaBox;
     device.save();
     try {
-      _run(ContentStreamParser.parse(page.contentBytes()), page.resources, 0);
+      _run(operations, page.resources, 0);
       final mask = _state.softMask;
       if (mask != null) _finalizeSoftMask(mask);
     } finally {
@@ -771,17 +800,25 @@ class PdfInterpreter {
           _state.strokeColor =
               PdfColor.cmyk(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3));
         case 'cs':
+          // Selecting a fill space clears the pattern (tracked while scanning);
+          // the space's tint/ICC machinery only matters for resolving colours,
+          // which scanning skips.
+          _state.fillPattern = null;
+          if (_scanImages) break;
           _state.fillComponents = _componentsOf(resources, o);
           _state.fillTintTransform = _tintTransformOf(resources, o);
           _state.fillCalibrated = _calibratedColorSpaceOf(resources, o);
           _state.fillIcc = _iccProfileOf(resources, o);
-          _state.fillPattern = null;
         case 'CS':
+          if (_scanImages) break;
           _state.strokeComponents = _componentsOf(resources, o);
           _state.strokeTintTransform = _tintTransformOf(resources, o);
           _state.strokeCalibrated = _calibratedColorSpaceOf(resources, o);
           _state.strokeIcc = _iccProfileOf(resources, o);
         case 'sc' || 'scn':
+          // The fill pattern is tracked even while scanning — a tiling pattern
+          // fill runs the cell content (which can draw images). The resolved
+          // fill colour, though, is never needed when only collecting images.
           _state.fillPattern = null;
           if (o.isNotEmpty && o.last is CosName) {
             _state.fillPattern =
@@ -790,11 +827,13 @@ class PdfInterpreter {
               for (final v in o)
                 if (v is CosInteger || v is CosReal) _numOf(v),
             ];
-          } else {
+          } else if (!_scanImages) {
             _state.fillColor = _tintedColor(_state.fillTintTransform,
                 _state.fillCalibrated, _state.fillIcc, o, _state.fillColor);
           }
         case 'SC' || 'SCN':
+          // Stroke colour never affects which images are drawn.
+          if (_scanImages) break;
           if (o.isNotEmpty && o.last is CosName) {
             // stroke patterns: approximate with the pattern's average color
             final color = _patternAverageColor(
@@ -893,7 +932,8 @@ class PdfInterpreter {
           if (_contentVisible) _drawInlineImage(o);
 
         case 'sh':
-          if (_contentVisible) _applyShading(resources, o);
+          // Shadings are gradients/meshes — never images.
+          if (_contentVisible && !_scanImages) _applyShading(resources, o);
 
         // --- marked content, compatibility, Type3 metrics ---
         case 'BDC':
@@ -1054,18 +1094,35 @@ class PdfInterpreter {
   void _moveTo(double x, double y) {
     _currentX = _startX = x;
     _currentY = _startY = y;
+    if (_scanImages) {
+      _scanPoint(_state.ctm.transformX(x, y), _state.ctm.transformY(x, y));
+      return;
+    }
     _addPoint(x, y, (px, py) => _segments.add(PdfMoveTo(px, py)));
   }
 
   void _lineTo(double x, double y) {
     _currentX = x;
     _currentY = y;
+    if (_scanImages) {
+      _scanPoint(_state.ctm.transformX(x, y), _state.ctm.transformY(x, y));
+      return;
+    }
     _addPoint(x, y, (px, py) => _segments.add(PdfLineTo(px, py)));
   }
 
   void _curveTo(
       double x1, double y1, double x2, double y2, double x3, double y3) {
     final m = _state.ctm;
+    if (_scanImages) {
+      // The Bézier hull (control points included) bounds the curve.
+      _scanPoint(m.transformX(x1, y1), m.transformY(x1, y1));
+      _scanPoint(m.transformX(x2, y2), m.transformY(x2, y2));
+      _scanPoint(m.transformX(x3, y3), m.transformY(x3, y3));
+      _currentX = x3;
+      _currentY = y3;
+      return;
+    }
     _segments.add(PdfCubicTo(
       m.transformX(x1, y1),
       m.transformY(x1, y1),
@@ -1079,12 +1136,50 @@ class PdfInterpreter {
   }
 
   void _closePath() {
-    _segments.add(const PdfClosePath());
+    // In scan mode the box already covers every point; nothing to add.
+    if (!_scanImages) _segments.add(const PdfClosePath());
     _currentX = _startX;
     _currentY = _startY;
   }
 
+  void _scanPoint(double px, double py) {
+    if (px < _scanMinX) _scanMinX = px;
+    if (py < _scanMinY) _scanMinY = py;
+    if (px > _scanMaxX) _scanMaxX = px;
+    if (py > _scanMaxY) _scanMaxY = py;
+  }
+
+  void _resetScanBox() {
+    _scanMinX = _scanMinY = double.infinity;
+    _scanMaxX = _scanMaxY = double.negativeInfinity;
+  }
+
   void _paint({PdfFillRule? fill, bool stroke = false}) {
+    // Image scan: no segment list was built. Only a tiling pattern fill draws
+    // images (its cell content can), and it just needs the fill area's bounds
+    // to know which tiles to run — so hand it the path's bounding box as a
+    // rectangle. Solid/shading fills, strokes, and clips draw no images.
+    if (_scanImages) {
+      final pattern = _state.fillPattern;
+      if (fill != null &&
+          _contentVisible &&
+          _isTilingPattern(pattern) &&
+          _scanMinX <= _scanMaxX) {
+        _fillWithPattern(
+            PdfPath([
+              PdfMoveTo(_scanMinX, _scanMinY),
+              PdfLineTo(_scanMaxX, _scanMinY),
+              PdfLineTo(_scanMaxX, _scanMaxY),
+              PdfLineTo(_scanMinX, _scanMaxY),
+              const PdfClosePath(),
+            ]),
+            fill,
+            pattern!);
+      }
+      _pendingClip = null;
+      _resetScanBox();
+      return;
+    }
     final path = PdfPath(_segments);
     if (!path.isEmpty && _contentVisible) {
       if (fill != null) {
@@ -1515,8 +1610,12 @@ class PdfInterpreter {
     final buffer = StringBuffer();
     final emScale = size * _state.horizontalScale;
     // a non-null (possibly empty-outlined) glyph list tells devices the font
-    // is embedded, so they must not substitute
-    final glyphs = (font.hasOutlines || font.isType3) && emScale != 0
+    // is embedded, so they must not substitute. In image-scan mode we never
+    // emit the run, so skip building outlines — but the Type3 loop below still
+    // runs each glyph's CharProc (a content stream that can draw images).
+    final glyphs = !_scanImages &&
+            (font.hasOutlines || font.isType3) &&
+            emScale != 0
         ? <PdfGlyphPlacement>[]
         : null;
     // Vertical writing mode (§9.7.4.3): glyphs stack downward. The pen advances
@@ -1560,7 +1659,7 @@ class PdfInterpreter {
       }
     }
 
-    if (size != 0 && _contentVisible) {
+    if (size != 0 && _contentVisible && !_scanImages) {
       // text rendering matrix: em space → page space (§9.4.4).
       // Mode 3 (invisible) still emits the run — flagged, so painting
       // devices skip it — because it IS the text of OCR'd scans, and

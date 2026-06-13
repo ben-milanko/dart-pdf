@@ -38,9 +38,19 @@ class PdfPageRenderer {
       bool Function(PdfAnnotation)? skipAnnotation}) async {
     final cos = page.document.cos;
 
+    // Parsing the content stream (and decompressing it) dominates rendering on
+    // graphics-rich pages, and the page is interpreted twice here — once to
+    // discover images to decode, once to paint. Parse it once and feed both.
+    final pageOps = ContentStreamParser.parse(page.contentBytes());
+
+    // Discover the images to decode with a scan-only interpretation: it walks
+    // the same content (so it sees every image — including those drawn by
+    // Type3 glyphs and tiling patterns) but skips the path/text/colour/shading
+    // build work, so the collect walk is a fraction of the paint walk.
     final collector = ImageCollector();
-    final collecting = PdfInterpreter(cos: cos, device: collector)
-      ..drawPage(page);
+    final collecting =
+        PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
+          ..drawPageOperations(page, pageOps);
     if (annotations) collecting.drawAnnotations(page, skip: skipAnnotation);
     final images = await decodeImages(cos, collector.streams);
 
@@ -82,7 +92,7 @@ class PdfPageRenderer {
 
     final painting = PdfInterpreter(
         cos: cos, device: CanvasPdfDevice(canvas, images: images))
-      ..drawPage(page);
+      ..drawPageOperations(page, pageOps);
     if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
     return recorder.endRecording();
   }
@@ -97,7 +107,7 @@ class PdfPageRenderer {
     final cos = page.document.cos;
 
     final collector = ImageCollector();
-    PdfInterpreter(cos: cos, device: collector)
+    PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
         .drawAnnotation(page, annotation);
     final images = await decodeImages(cos, collector.streams);
 
