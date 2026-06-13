@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -22,6 +23,25 @@ class CanvasPdfDevice implements PdfDevice {
   /// Decoded images keyed by [pdfImageKey] — stream identity for XObjects,
   /// value identity for inline images.
   final Map<Object, ui.Image> images;
+
+  /// Process-wide cache of laid-out substituted-text painters. Shaping is the
+  /// dominant paint-pass cost and the same runs recur across pages and
+  /// re-renders, so this is shared by every render (like the decoded-image
+  /// cache). Clear it under memory pressure with [clearTextLayoutCache].
+  static final _textCache = _TextLayoutCache();
+
+  /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
+  /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
+  /// outline cache), so it needs no bound and frees with the font.
+  static final _glyphPaths = Expando<ui.Path>('glyphUiPaths');
+
+  /// Drops every cached text layout (memory pressure / tests). The
+  /// decoded-image cache ([PdfImageCache]) is separate.
+  static void clearTextLayoutCache() => _textCache.clear();
+
+  /// Number of cached text layouts — test hook.
+  @visibleForTesting
+  static int get debugTextLayoutCacheLength => _textCache.length;
 
   BlendMode _blend = BlendMode.srcOver;
 
@@ -370,20 +390,19 @@ class CanvasPdfDevice implements PdfDevice {
     // and scaled down 100x (TextPainter quality degrades at tiny sizes; the
     // run transform already encodes the real size).
     const renderSize = 100.0;
-    // Measure with a plain fill painter to derive width/baseline.
-    final measure = TextPainter(
-      text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final baseline =
-        measure.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    // Shaping the run is the single largest cost in the paint pass and the
+    // same (text, font, colour) recur heavily within and across pages — reuse
+    // a cached laid-out painter (immutable, repaints at any transform) and its
+    // metrics. The plain painter doubles as the fill painter in the common
+    // no-gradient case, exactly as the un-cached path did.
+    final layout = _measureLayout(run);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
     // unflip: the page transform is y-up, text rasterizes y-down
     final targetWidth = run.width * renderSize;
-    final scaleX = run.width > 0 && measure.width > 0
-        ? targetWidth / measure.width
+    final scaleX = run.width > 0 && layout.width > 0
+        ? targetWidth / layout.width
         : 1.0;
 
     // Fill painter (modes 0/2/4/6), with a gradient shader when present.
@@ -403,8 +422,11 @@ class CanvasPdfDevice implements PdfDevice {
             ..blendMode = _elementBlend;
         }
       }
+      // A gradient run's shader depends on this run's own transform, so it
+      // can't be cached — build it fresh. The cached painter serves every
+      // plain fill.
       fillPainter = foreground == null
-          ? measure
+          ? layout.painter
           : (TextPainter(
               text: TextSpan(
                   text: run.text, style: _styleFor(run, foreground: foreground)),
@@ -436,10 +458,33 @@ class CanvasPdfDevice implements PdfDevice {
     }
 
     canvas.scale(scaleX / renderSize, -1 / renderSize);
-    fillPainter?.paint(canvas, Offset(0, -baseline));
-    strokePainter?.paint(canvas, Offset(0, -baseline));
+    fillPainter?.paint(canvas, Offset(0, -layout.baseline));
+    strokePainter?.paint(canvas, Offset(0, -layout.baseline));
     canvas.restore();
   }
+
+  /// A laid-out painter (+ width/baseline) for a substituted-font run, served
+  /// from the process-wide cache. The key is (text, font, colour) — everything
+  /// [_styleFor] reads — so the cached painter and its metrics are exact.
+  _TextLayout _measureLayout(PdfTextRun run) {
+    final c = run.color;
+    final key = '${run.text} ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue}';
+    return _textCache.get(key, () {
+      final painter = TextPainter(
+        text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final baseline =
+          painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+      return _TextLayout(painter, painter.width, baseline);
+    });
+  }
+
+  /// The em-space [ui.Path] for a glyph outline, built once per outline
+  /// instance and memoized by identity. Glyph outlines fill nonzero.
+  static ui.Path _glyphUiPath(PdfPath outline) =>
+      _glyphPaths[outline] ??= _toUiPath(outline, PdfFillRule.nonzero);
 
   /// Draws real glyph outlines from the embedded font. The run transform
   /// maps em space (y-up) to page space, so no unflip is needed.
@@ -448,8 +493,13 @@ class CanvasPdfDevice implements PdfDevice {
     for (final glyph in run.glyphs!) {
       final outline = glyph.outline;
       if (outline == null) continue;
+      // The em-space ui.Path of a glyph is identical at every occurrence —
+      // the font engine hands back the same outline instance per glyph — so
+      // build it once and only re-transform it into place (a fast native op),
+      // skipping the per-glyph rebuild from PdfPath segments. The cache is keyed
+      // by outline identity and GC-tied to the font's own outline lifetime.
       path.addPath(
-        _toUiPath(outline, PdfFillRule.nonzero).transform(
+        _glyphUiPath(outline).transform(
           _toFloat64(PdfMatrix.translation(glyph.offset, glyph.offsetY)
               .concat(run.transform)),
         ),
@@ -667,4 +717,48 @@ class CanvasPdfDevice implements PdfDevice {
         0, 0, 1, 0, //
         m.e, m.f, 0, 1,
       ]);
+}
+
+/// A laid-out substituted-text painter plus the metrics the renderer needs.
+/// The painter's paragraph is immutable after layout and repaints at any
+/// canvas transform, so one entry serves every occurrence of the run; width
+/// and baseline are constant for a given (text, font, colour) so the per-run
+/// horizontal squeeze (scaleX) and baseline offset are recomputed cheaply.
+class _TextLayout {
+  _TextLayout(this.painter, this.width, this.baseline);
+  final TextPainter painter;
+  final double width;
+  final double baseline;
+}
+
+/// Bounded LRU over [_TextLayout], keyed by a (text, font, colour) string.
+/// Insertion order is the LRU order; a hit re-inserts to mark it most-recent.
+class _TextLayoutCache {
+  static const _maxEntries = 2048;
+  final _entries = <String, _TextLayout>{};
+
+  /// Returns the cached layout for [key], building (and caching) it with
+  /// [build] on a miss. Evicts the least-recently-used entries past the cap.
+  _TextLayout get(String key, _TextLayout Function() build) {
+    final hit = _entries.remove(key);
+    if (hit != null) {
+      _entries[key] = hit; // touch → most-recently-used
+      return hit;
+    }
+    final created = build();
+    _entries[key] = created;
+    while (_entries.length > _maxEntries) {
+      _entries.remove(_entries.keys.first)!.painter.dispose();
+    }
+    return created;
+  }
+
+  void clear() {
+    for (final entry in _entries.values) {
+      entry.painter.dispose();
+    }
+    _entries.clear();
+  }
+
+  int get length => _entries.length;
 }
