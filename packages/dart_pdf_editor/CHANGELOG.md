@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pluggable OCR: `PdfOcrEngine` (a host-supplied recognizer — ML Kit,
+  Tesseract WASM, a cloud API; none ships in-tree) plus
+  `PdfEditor.applyOcr(pageIndex, engine)`, which rasterizes the page, runs
+  the engine, and injects an invisible selectable/searchable text layer.
+  `PdfOcrPageImage.userSpaceRect` maps the engine's pixel boxes back to PDF
+  user space (crop box and /Rotate aware).
 - Reopen documents where the user left them: `PdfViewport` (a
   resolution-independent scroll-position + zoom snapshot),
   `PdfViewerController.captureViewport`/`restoreViewport`,
@@ -30,6 +36,10 @@ Initial release.
   Catmull-Rom smoothing)/shapes/free text/notes/stamps/signatures,
   select/move/resize/rotate with live previews, slicing eraser,
   clipboard, undo/redo as incremental saves.
+- Measurement tools: distance/perimeter/area annotations with scale
+  calibration (`PdfMeasurementScale`, `showPdfScaleDialog`, persisted in
+  preferences) and a live readout chip that rides the cursor for mouse
+  and floats above the finger for touch/stylus.
 - Form filling UI: text, checkbox, radio, choice, button images, plus
   field administration, flattening, and a form-field highlight wash
   (`PdfViewer.highlightFormFields`, on by default).

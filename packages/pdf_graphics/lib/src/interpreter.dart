@@ -224,11 +224,12 @@ class PdfInterpreter {
   ///
   /// Hidden and NoView annotations are skipped, as are Popups — those are
   /// only shown by a viewer when their parent note is opened.
-  void drawAnnotations(PdfPage page) {
+  void drawAnnotations(PdfPage page, {bool Function(PdfAnnotation)? skip}) {
     _pageBox = page.mediaBox;
     for (final annotation in page.annotations) {
       if (annotation.isHidden || annotation.isNoView) continue;
       if (annotation.subtype == 'Popup') continue;
+      if (skip != null && skip(annotation)) continue;
       final form = annotation.normalAppearance;
       if (form == null) {
         _drawFallbackAnnotation(annotation);
@@ -869,6 +870,11 @@ class PdfInterpreter {
             for (final item in (o[0] as CosArray).items) {
               if (item is CosString) {
                 _showText(item.bytes);
+              } else if (_state.font?.isVertical ?? false) {
+                // Vertical writing: the adjustment moves the pen along y.
+                final shift = -_numOf(item) / 1000 * _state.fontSize;
+                _textMatrix =
+                    PdfMatrix.translation(0, shift).concat(_textMatrix);
               } else {
                 final shift = -_numOf(item) /
                     1000 *
@@ -1513,22 +1519,45 @@ class PdfInterpreter {
     final glyphs = (font.hasOutlines || font.isType3) && emScale != 0
         ? <PdfGlyphPlacement>[]
         : null;
-    var advance = 0.0; // in unscaled text-space units
+    // Vertical writing mode (§9.7.4.3): glyphs stack downward. The pen advances
+    // along y by the vertical displacement, and each glyph is shifted by its
+    // position vector so the column centres on the baseline.
+    final vertical = font.isVertical;
+    final hScale = _state.horizontalScale == 0 ? 1.0 : _state.horizontalScale;
+    var advance = 0.0; // text-space along the writing direction (x or y)
     for (final code in codes) {
       buffer.write(font.charFor(code));
-      glyphs?.add(PdfGlyphPlacement(
-        offset: advance / emScale,
-        outline: font.outlineFor(code),
-      ));
+      if (glyphs != null) {
+        if (vertical) {
+          final v = font.verticalOriginOf(code);
+          glyphs.add(PdfGlyphPlacement(
+            // run.transform scales x by size*Th but the position vector scales
+            // by size only, so divide x back out by Th; y is in em directly.
+            offset: -v.x / hScale,
+            offsetY: size == 0 ? 0 : advance / size - v.y,
+            outline: font.outlineFor(code),
+          ));
+        } else {
+          glyphs.add(PdfGlyphPlacement(
+            offset: emScale == 0 ? 0 : advance / emScale,
+            outline: font.outlineFor(code),
+          ));
+        }
+      }
       if (font.isType3 &&
           _state.renderMode != 3 &&
           _state.renderMode != 7 &&
           size != 0) {
         _drawType3Glyph(font, code, advance);
       }
-      var tx = font.widthOf(code) * size + _state.charSpacing;
-      if (!font.isCid && code == 0x20) tx += _state.wordSpacing;
-      advance += tx * _state.horizontalScale;
+      if (vertical) {
+        // Tc applies along the writing direction; Tw only to single-byte 0x20.
+        advance += font.verticalAdvanceOf(code) * size + _state.charSpacing;
+      } else {
+        var tx = font.widthOf(code) * size + _state.charSpacing;
+        if (!font.isCid && code == 0x20) tx += _state.wordSpacing;
+        advance += tx * _state.horizontalScale;
+      }
     }
 
     if (size != 0 && _contentVisible) {
@@ -1555,7 +1584,7 @@ class PdfInterpreter {
           _appendTransformedPath(
             _textClipSegments,
             outline,
-            PdfMatrix.translation(g.offset, 0).concat(transform),
+            PdfMatrix.translation(g.offset, g.offsetY).concat(transform),
           );
         }
       }
@@ -1563,6 +1592,8 @@ class PdfInterpreter {
       if (text.trim().isNotEmpty || glyphs != null) {
         final fillText =
             mode == 0 || mode == 2 || mode == 4 || mode == 6;
+        final strokeText =
+            mode == 1 || mode == 2 || mode == 5 || mode == 6;
         final pattern = fillText ? _state.fillPattern : null;
         // A tiling pattern can't be flattened to a gradient (shading patterns
         // can — see _gradientOfPattern). Paint it through the glyph outlines as
@@ -1570,21 +1601,43 @@ class PdfInterpreter {
         // the solid fill colour showing through. Needs embedded outlines; a
         // substituted font falls back to the solid fill colour.
         var paintedAsTiling = false;
-        if (glyphs != null && _isTilingPattern(pattern)) {
+        if (fillText && glyphs != null && _isTilingPattern(pattern)) {
           final glyphPath = _glyphOutlinePath(glyphs, transform);
           if (glyphPath != null) {
             _fillWithPattern(glyphPath, PdfFillRule.nonzero, pattern!);
             paintedAsTiling = true;
           }
         }
+        // Embedded outlines keep the historical fill-only rendering: the
+        // device has the real glyph shapes and stroke modes on embedded fonts
+        // are a separate concern (and would shift many pinned baselines).
+        // Substituted text — which the device draws by filling a system font —
+        // honours stroke modes, so outlined display text actually outlines.
+        final embedded = glyphs != null;
+        // On a substituted font we have no outlines to clip a tiling pattern
+        // through, so the fill would otherwise collapse to a bogus solid
+        // colour. When the mode also strokes, drop that fill and let the
+        // outline read instead (what conforming viewers show — the sparse
+        // pattern barely fills); keep the solid fallback when there's no
+        // stroke so fill-only text never vanishes.
+        var doFill = fillText && !paintedAsTiling;
+        if (!embedded && doFill && strokeText && _isTilingPattern(pattern)) {
+          doFill = false;
+        }
+        final k = _state.ctm.scaleFactor;
         device.drawText(PdfTextRun(
           text: text,
           transform: transform,
-          color: mode == 1 || mode == 5
+          color: embedded && (mode == 1 || mode == 5)
               ? _state.strokeColor
               : _state.fillColor,
-          gradient: fillText ? _gradientOfPattern(pattern) : null,
-          width: advance / emScale,
+          fill: embedded ? true : doFill,
+          strokeColor: !embedded && strokeText ? _state.strokeColor : null,
+          strokeWidth: _state.stroke.width <= 0 ? k : _state.stroke.width * k,
+          gradient: (embedded ? fillText : doFill)
+              ? _gradientOfPattern(pattern)
+              : null,
+          width: emScale == 0 ? 0 : advance / emScale,
           fontName: font.baseFont,
           fontSize: size,
           glyphs: glyphs,
@@ -1592,7 +1645,12 @@ class PdfInterpreter {
         ));
       }
     }
-    _textMatrix = PdfMatrix.translation(advance, 0).concat(_textMatrix);
+    // The pen advances along the writing direction: x for horizontal text,
+    // y (downward, advance is negative) for vertical.
+    _textMatrix = (vertical
+            ? PdfMatrix.translation(0, advance)
+            : PdfMatrix.translation(advance, 0))
+        .concat(_textMatrix);
   }
 
   /// Executes a Type3 glyph procedure: a tiny content stream in glyph space,
@@ -1712,7 +1770,7 @@ class PdfInterpreter {
       final outline = g.outline;
       if (outline == null) continue;
       _appendTransformedPath(segments, outline,
-          PdfMatrix.translation(g.offset, 0).concat(transform));
+          PdfMatrix.translation(g.offset, g.offsetY).concat(transform));
     }
     return segments.isEmpty ? null : PdfPath(segments);
   }
@@ -1939,14 +1997,20 @@ class PdfInterpreter {
     // at Do applies to the group's result, and resets inside (§11.6.6) —
     // otherwise an inner `gs` back to ca 1.0 would erase the group alpha
     final groupAlpha = _state.fillAlpha;
-    final isGroup = cos.resolve(xobject.dictionary['Group']) is CosDictionary;
-    final groupLayer = isGroup && groupAlpha < 1;
+    final groupDict = cos.resolve(xobject.dictionary['Group']);
+    final isGroup = groupDict is CosDictionary;
+    // A knockout group (/K true, §11.4.5) needs its own layer so each
+    // element can composite against the group's initial backdrop, even when
+    // the group itself paints at full alpha.
+    final knockout =
+        isGroup && cos.resolve(groupDict['K']) == const CosBoolean(true);
+    final groupLayer = isGroup && (groupAlpha < 1 || knockout);
 
     final outerMask = _state.softMask;
     _stateStack.add(_GraphicsState.from(_state));
     device.save();
     if (groupLayer) {
-      device.beginGroup(groupAlpha);
+      device.beginGroup(groupAlpha, knockout: knockout);
       _state.fillAlpha = 1;
       _state.strokeAlpha = 1;
     }
