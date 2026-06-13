@@ -250,6 +250,88 @@ void main() {
     });
   });
 
+  group('pencil-mode finger pan', () {
+    ScrollPosition scrollPosition(WidgetTester tester) =>
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+
+    // A single-finger upward drag with explicit timestamps (TestGesture
+    // stamps every event t=0 otherwise, which reads as zero velocity).
+    Future<(TestGesture, Duration)> swipeUp(WidgetTester tester) async {
+      var stamp = Duration.zero;
+      final g = await tester.startGesture(view(300, 600),
+          kind: PointerDeviceKind.touch);
+      for (var i = 0; i < 6; i++) {
+        stamp += const Duration(milliseconds: 16);
+        await g.moveBy(const Offset(0, -40), timeStamp: stamp);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      return (g, stamp);
+    }
+
+    testWidgets('a finger scrolls when ink is armed and finger drawing is off',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester, pages: 4);
+      editing.tool = PdfEditTool.ink;
+      // the state the first Apple Pencil touch leaves behind: pen draws,
+      // fingers scroll
+      editing.fingerDrawsInk = false;
+      await tester.pump();
+
+      final (g, stamp) = await swipeUp(tester);
+      expect(scrollPosition(tester).pixels, greaterThan(100));
+      // the finger panned the page; it did NOT draw
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await g.up(timeStamp: stamp + const Duration(milliseconds: 16));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('a finger draws (does not scroll) when finger drawing is on',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester, pages: 4);
+      editing.tool = PdfEditTool.ink;
+      expect(editing.fingerDrawsInk, isTrue);
+      await tester.pump();
+
+      final (g, stamp) = await swipeUp(tester);
+      // finger-draws mode: the stroke is raw-driven, the page stays put
+      expect(scrollPosition(tester).pixels, 0);
+      await g.up(timeStamp: stamp + const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(editing.document.page(0).annotations, hasLength(1));
+    });
+
+    testWidgets('a touch during a pen stroke is a palm, not a pan',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester, pages: 4);
+      editing.tool = PdfEditTool.ink;
+      editing.fingerDrawsInk = false;
+      await tester.pump();
+
+      final pen = await tester.startGesture(view(200, 500),
+          kind: PointerDeviceKind.stylus);
+      await pen.moveBy(const Offset(10, 0));
+      await tester.pump();
+      // the palm rests and "drags" while the pen draws: it must not pan
+      final palm = await tester.startGesture(view(350, 600),
+          kind: PointerDeviceKind.touch);
+      for (var i = 0; i < 4; i++) {
+        await palm.moveBy(const Offset(0, -40));
+        await tester.pump();
+      }
+      expect(scrollPosition(tester).pixels, 0);
+
+      await pen.up();
+      await palm.up();
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(editing.document.page(0).annotations, hasLength(1));
+    });
+  });
+
   group('eraser', () {
     test('inkAnnotationAt demands proximity to the strokes, not the rect',
         () async {

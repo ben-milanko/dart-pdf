@@ -204,6 +204,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int? _rawPointer;
   bool _rawErasing = false;
 
+  // raw-driven finger pan: with the ink/eraser tool armed and finger
+  // drawing OFF (Apple Pencil mode), a finger must still scroll the
+  // document. The list's physics are NeverScrollable while a tool is
+  // armed and touch is excluded from the overlay's gesture arena, so a
+  // single finger reaches neither — it would do nothing. This raw path
+  // pans the viewer instead (the pen keeps drawing via [_rawPointer], so
+  // the two never collide). A touch landing during an active pen stroke
+  // is a palm and is ignored (gated on `_rawPointer == null`); a second
+  // finger bails to the viewer's pinch-zoom recognizer.
+  int? _panPointer;
+  Offset? _panLast;
+  VelocityTracker? _panVelocity;
+
   /// Concurrent touch pointers on this page. A second finger landing
   /// mid-gesture aborts it (see [_bailActiveGesture]) instead of feeding
   /// both fingers' positions into one stroke.
@@ -386,6 +399,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : null;
 
   bool get _drawTool => _tool == PdfEditTool.ink || _tool == PdfEditTool.eraser;
+
+  /// A finger should pan the viewer (not draw): the draw tool is armed
+  /// but finger-drawing is off, so touch is reserved for scrolling.
+  bool get _fingerPansViewport =>
+      _drawTool &&
+      !_controller.fingerDrawsInk &&
+      widget.onPanViewport != null;
   bool get _polyTool =>
       _tool == PdfEditTool.polyline || _tool == PdfEditTool.polygon;
 
@@ -460,6 +480,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
       }
+    } else if (_panPointer == null &&
+        _rawPointer == null &&
+        event.kind == PointerDeviceKind.touch &&
+        _fingerPansViewport) {
+      // pencil mode, single finger, no pen stroke in flight: pan the
+      // viewer. A move drives [onPanViewport]; lift hands the velocity
+      // to [onPanViewportEnd] for a fling, exactly like a select-mode
+      // empty-area touch drag.
+      _panPointer = event.pointer;
+      _panLast = event.localPosition;
+      _panVelocity = VelocityTracker.withKind(event.kind)
+        ..addPosition(event.timeStamp, event.localPosition);
     }
   }
 
@@ -468,6 +500,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (pressure != null) _pointerPressure = pressure;
     if (_controller.isPickingColor) {
       _updatePickPreview(event.localPosition);
+      return;
+    }
+    if (event.pointer == _panPointer) {
+      final last = _panLast;
+      if (last != null) {
+        widget.onPanViewport?.call(event.localPosition - last);
+      }
+      _panLast = event.localPosition;
+      _panVelocity?.addPosition(event.timeStamp, event.localPosition);
       return;
     }
     if (event.pointer != _rawPointer) return;
@@ -490,6 +531,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _gestureBailed = true;
     _rawPointer = null;
     _rawErasing = false;
+    // a second finger landed: stop panning so the viewer's pinch-zoom
+    // recognizer takes both touches (no fling — the gesture isn't a pan)
+    _panPointer = null;
+    _panLast = null;
+    _panVelocity = null;
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -523,6 +569,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (event.kind == PointerDeviceKind.touch) {
       _touchPointers.remove(event.pointer);
       if (_touchPointers.isEmpty) _gestureBailed = false;
+    }
+    if (event.pointer == _panPointer) {
+      final velocity = canceled
+          ? Velocity.zero
+          : (_panVelocity?.getVelocity() ?? Velocity.zero);
+      _panPointer = null;
+      _panLast = null;
+      _panVelocity = null;
+      if (!canceled) widget.onPanViewportEnd?.call(velocity);
+      return;
     }
     if (event.pointer != _rawPointer) return;
     _rawPointer = null;
