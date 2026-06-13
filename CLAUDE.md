@@ -1714,3 +1714,46 @@ colour washes over white" — 0x80FF0000 reads ~(255,127,127) not
 The rest of the handoff (PdfMarkupStore `colourLocked` computed,
 TraxProjectSettings/`toHexWithAlpha`, copy-type opacity-slider UI) is
 trax-repo work, not here.
+
+Interactive form fill in reading mode (Ben: "users need to enter text
+into form fields, and interact with check boxes, buttons, drop-downs"):
+filling was already complete behind the form-AUTHORING tool
+(`PdfEditTool.form`) — this surfaces it in plain reading / default mode
+so a reader clicks a field and types, the way Acrobat/Chrome/Preview do,
+with no tool to arm. `FormInteractionLayer` (editing_form_layer.dart) is
+mounted per page by `_PdfViewerPage` over the editing overlay: it places
+a per-field `GestureDetector` tap target over each visible widget rect
+(from `PdfEditingController.formWidgetsOn(page)`), so only the field
+rects are hit-testable — the rest of the page still scrolls, selects
+text, and follows links. Tap routing reuses the controller fills
+(setFormFieldText / toggleFormCheckBox / setFormRadioValue /
+setFormChoiceValue / setFormButtonImage); text fields open an inline
+`TextField` (key 'pdf-form-text-editor', /DA font+size, multiline,
+Enter/blur/tap-outside commit, Escape cancels via its own
+CallbackShortcuts), the committed value freezes as a pageColor-washed
+afterimage until the new raster lands (same `rasterCurrent` signal the
+overlay uses). Gating: `PdfViewer.interactiveForms` (default true) +
+`showAnnotations`; active only when `editing == null` (reader) or the
+tool is null/select — a drawing or the form-authoring tool owns the
+whole page, so the layer leaves the tree (suppressed, not just inert).
+Two controller channels: the editor passes `editing:` (fills persist as
+revisions, onDocumentChanged fires); the read-only reader passes the new
+`PdfViewer.formController:` (a standalone session — forms fill but
+annotation move/resize/delete never turn on), `formController = editing
+?? widget.formController`. The viewer's focus-steal and the inner
+overlay-Stack gate both consult `editing ?? formController`
+(`_textEditController`) so the reader's inline editor keeps focus and
+the layer mounts without an `editing` controller. `PdfReader` gained
+`PdfReaderFeatures.fillForms` (default true) and now wraps its viewer in
+a `ListenableBuilder(_session)` so a fill's revision repaints (filled
+values live in the session for the widget's life; surfacing them as
+bytes needs PdfEditorView). Tests: editing_form_interactive_test.dart
+(11 — text/checkbox/radio/dropdown fills with no tool armed, reader path
+via formController, Escape cancel, interactiveForms:false + drawing-tool
+suppression + select-tool keeps it, PdfReader mounts/omits the layer).
+Gotchas: a commit tap must land inside the 800x600 viewport — view(450,
+620) not view(450,300) (y=643px is off-screen, the tap silently misses
+and the editor never closes); the choice /V stores the EXPORT value ('L'
+not 'Large'); don't tap-test suppression with the ink tool armed (the
+dot's 800ms auto-commit timer trips !timersPending) — assert the layer's
+absence with find.byType(FormInteractionLayer) instead.

@@ -2017,6 +2017,40 @@ class PdfEditingController extends ChangeNotifier {
     return null;
   }
 
+  /// Every visible form-field widget shown on [pageIndex], paired with
+  /// its field and the widget's index within that field (a radio group
+  /// has one entry per button, and [PdfFormField.widgetOnState] says
+  /// which state each selects). The reader's interactive form layer
+  /// places a tap target over each entry's [PdfAnnotation.rect].
+  ///
+  /// Hidden / no-view widgets are skipped — they don't render, so they
+  /// take no taps. Resolved against the per-revision page cache and
+  /// [acroForm]; the returned fields die with the next revision.
+  List<(PdfFormField field, int widgetIndex, PdfAnnotation widget)>
+      formWidgetsOn(int pageIndex) {
+    final form = acroForm;
+    if (form == null) return const [];
+    final annotations = _page(pageIndex).annotations;
+    final result =
+        <(PdfFormField, int, PdfAnnotation)>[];
+    for (final annotation in annotations) {
+      if (annotation.subtype != 'Widget' ||
+          annotation.isHidden ||
+          annotation.isNoView) {
+        continue;
+      }
+      for (final field in form.fields) {
+        final widgets = field.widgets;
+        for (var w = 0; w < widgets.length; w++) {
+          if (identical(widgets[w], annotation.dict)) {
+            result.add((field, w, annotation));
+          }
+        }
+      }
+    }
+    return result;
+  }
+
   /// The pages a field's widgets are displayed on, or null when any
   /// widget's page is unknown (then every page's render stamp bumps).
   List<int>? _fieldPages(String name) {

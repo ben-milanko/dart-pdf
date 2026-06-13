@@ -12,6 +12,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'editing/editing_controller.dart';
+import 'editing/editing_form_layer.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
@@ -287,6 +288,7 @@ class PdfViewer extends StatefulWidget {
     this.onAction,
     this.pageOverlayBuilder,
     this.editing,
+    this.formController,
     this.editingTextPrompt,
     this.annotationMenuBuilder,
     this.formImagePicker,
@@ -299,6 +301,7 @@ class PdfViewer extends StatefulWidget {
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.highlightFormFields = true,
+    this.interactiveForms = true,
     this.pagePreviews = true,
   });
 
@@ -328,6 +331,14 @@ class PdfViewer extends StatefulWidget {
   /// notifies. Because edits are incremental updates, a swap to the next
   /// revision keeps the scroll position and zoom.
   final PdfEditingController? editing;
+
+  /// Enables interactive form filling without the full editing surface —
+  /// for the read-only reader, which lets users fill fields but not move
+  /// or delete annotations. The controller owns the document revisions
+  /// (filling produces one), so [document] must track its current
+  /// revision, the same as [editing]. Ignored when [editing] is set (that
+  /// controller drives both) or [interactiveForms] is false.
+  final PdfEditingController? formController;
 
   /// How the editing tools ask for annotation text (free text, notes,
   /// stamps). Defaults to [showPdfTextPrompt], a Material dialog.
@@ -386,6 +397,19 @@ class PdfViewer extends StatefulWidget {
   /// automatically while [showAnnotations] is false (the fields aren't
   /// rendered, so boxes would mark nothing).
   final bool highlightFormFields;
+
+  /// Whether form fields can be filled in directly, the way Acrobat,
+  /// Chrome, and Preview let you — click a text field and type, tap a
+  /// check box or radio button, pick from a drop-down — with no editing
+  /// tool to arm. Requires an [editing] controller (filling produces a
+  /// revision); active in reading and annotation-selection modes, and
+  /// suppressed while a drawing or the form-authoring tool is armed (that
+  /// tool owns field creation and the field context menu). Tap targets
+  /// cover only the field rects, so the rest of the page still scrolls,
+  /// selects text, and follows links. Off automatically while
+  /// [showAnnotations] is false. The signature/logo push-button fill runs
+  /// [formImagePicker] when one is supplied.
+  final bool interactiveForms;
 
   /// Low-resolution page previews under fast scrolling, the way desktop
   /// editors show them: pages whose full render is deferred (the
@@ -1453,6 +1477,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _clearSelection();
   }
 
+  /// The controller behind any in-place text editor — the editing
+  /// session, or (in the reader) the standalone form-fill controller.
+  PdfEditingController? get _textEditController =>
+      widget.editing ?? widget.formController;
+
   void _onPointerDown(PointerDownEvent event) {
     _suppressTap = false;
     _lastPointerKind = event.kind;
@@ -1465,7 +1494,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // clicking anywhere — including editing overlays — focuses the viewer
     // and its keyboard shortcuts. Not while an in-place text editor is
     // typing, though: stealing its focus on every click would close it.
-    if (widget.editing?.isEditingText != true) _focusNode.requestFocus();
+    if (_textEditController?.isEditingText != true) _focusNode.requestFocus();
     if (event.kind != PointerDeviceKind.mouse) {
       _wordDrag = false;
       return;
@@ -2211,6 +2240,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 formFields: widget.highlightFormFields && widget.showAnnotations
                     ? _formFieldRects(index)
                     : const [],
+                interactiveForms:
+                    widget.interactiveForms && widget.showAnnotations,
                 scale: _renderScale,
                 settleGeneration: _settleGeneration,
                 matches: _controller._matchesOn(index),
@@ -2221,6 +2252,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 textSelection: _textSelectionOn(index),
                 overlayBuilder: widget.pageOverlayBuilder,
                 editing: editing,
+                formController: editing ?? widget.formController,
                 editingTextPrompt:
                     widget.editingTextPrompt ?? showPdfTextPrompt,
                 formImagePicker: widget.formImagePicker,
@@ -2484,6 +2516,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.pageColor,
     required this.showAnnotations,
     required this.formFields,
+    required this.interactiveForms,
     required this.scale,
     required this.settleGeneration,
     required this.matches,
@@ -2492,6 +2525,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.textSelection,
     required this.overlayBuilder,
     required this.editing,
+    required this.formController,
     required this.editingTextPrompt,
     required this.formImagePicker,
     required this.onPanViewport,
@@ -2512,6 +2546,10 @@ class _PdfViewerPage extends StatefulWidget {
   /// Empty when the highlight is off (or annotations are hidden).
   final List<PdfRect> formFields;
 
+  /// Whether the interactive form-fill layer is mounted (see
+  /// [PdfViewer.interactiveForms]); needs [editing] and [showAnnotations].
+  final bool interactiveForms;
+
   final double scale;
   final int settleGeneration;
   final List<PdfTextMatch> matches;
@@ -2524,6 +2562,12 @@ class _PdfViewerPage extends StatefulWidget {
 
   final PdfPageOverlayBuilder? overlayBuilder;
   final PdfEditingController? editing;
+
+  /// The controller driving interactive form fill — [editing] in the
+  /// editor, or a standalone session in the read-only reader (so forms
+  /// fill without enabling annotation editing). Null disables it.
+  final PdfEditingController? formController;
+
   final PdfTextPrompt editingTextPrompt;
   final PdfFormImagePicker? formImagePicker;
   final void Function(Offset delta) onPanViewport;
@@ -2578,6 +2622,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
     // (dropping its rendered image: a white flash)
     final builder = widget.overlayBuilder;
     final editing = widget.editing;
+    final formController = widget.formController;
     final textSelection = widget.textSelection;
     return Stack(children: [
       PdfPageView(
@@ -2616,7 +2661,10 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
           ),
         ),
       ),
-      if (builder != null || editing != null || textSelection != null)
+      if (builder != null ||
+          editing != null ||
+          (formController != null && widget.interactiveForms) ||
+          textSelection != null)
         Positioned.fill(
           child: LayoutBuilder(builder: (context, constraints) {
             final geometry = PdfPageGeometry(
@@ -2660,6 +2708,35 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             ),
                           ),
                         ),
+                ),
+              // direct form fill: a per-field tap layer in reading /
+              // selection modes (the form-authoring tool owns fields
+              // itself, drawing tools own the whole page). It sits over
+              // the editing overlay so a field tap beats a select-mode
+              // marquee, but covers only the field rects. The reader
+              // drives this without an [editing] controller, so it never
+              // enables annotation move/resize.
+              if (formController != null && widget.interactiveForms)
+                Positioned.fill(
+                  child: ListenableBuilder(
+                    listenable: formController,
+                    builder: (context, _) {
+                      final tool = editing?.tool;
+                      final active = editing == null ||
+                          tool == null ||
+                          tool == PdfEditTool.select;
+                      return active
+                          ? FormInteractionLayer(
+                              controller: formController,
+                              pageIndex: widget.index,
+                              geometry: geometry,
+                              pageColor: widget.pageColor,
+                              rasterCurrent: _rastered,
+                              formImagePicker: widget.formImagePicker,
+                            )
+                          : const SizedBox.shrink();
+                    },
+                  ),
                 ),
               // touch text selection chrome rides topmost — it only
               // shows in reader mode (tool disarmed), so it never
