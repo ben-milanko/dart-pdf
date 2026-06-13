@@ -146,8 +146,14 @@ class _JpxParser {
           _readQuant(p + 5, length - 3, quant);
           qcdPerComponent[c] = quant;
         case 0xFF90: // SOT
-          final tileIndex = view.getUint16(p + 6);
-          var tileLength = view.getUint32(p + 8);
+          // SOT fields from the marker (T.800 A.4.2): Lsot @+2, Isot @+4,
+          // Psot @+6. Reading Psot at +8 (off by two) only ever read "rest of
+          // codestream" for single tile-part files — which is the right chunk
+          // there — but on a multi-tile-part tile it swallowed every later
+          // tile-part's SOT/SOD markers into the packet bitstream, desyncing
+          // tier-2 into garbage coefficients (issue3371.pdf: 6 tile-parts).
+          final tileIndex = view.getUint16(p + 4);
+          var tileLength = view.getUint32(p + 6);
           if (tileLength == 0) tileLength = data.length - p;
           // the tile part runs from SOT to SOT+Psot; data follows SOD
           var q = p + 2 + length;
