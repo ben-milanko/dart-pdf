@@ -11,6 +11,142 @@ import 'pdf_viewer.dart';
 
 const double pdfShellCompactWidth = 700;
 
+/// Whether the shell is narrow enough that side panels should give way to
+/// bottom sheets — a phone, or a small window. Below [pdfShellCompactWidth]
+/// a docked 280px panel would crowd the page out, so the shells float the
+/// panels (and the thumbnail strip) up from the bottom instead.
+bool pdfShellUseBottomSheets(BoxConstraints constraints) =>
+    constraints.maxWidth.isFinite && constraints.maxWidth < pdfShellCompactWidth;
+
+/// Fraction of the content area a single bottom-sheet panel rises to when
+/// it is the only one open; several share the area evenly.
+const double _pdfShellSheetHeightFactor = 0.55;
+
+/// Lays the active panel [sheets] out as bottom sheets, stacked above one
+/// another and anchored to the bottom of the content area. The space above
+/// the topmost sheet stays clear, so the page underneath keeps scrolling
+/// and taking taps. Returns a [Positioned] — drop it straight into the
+/// content [Stack] (only when [sheets] is non-empty).
+Widget pdfShellBottomSheets(List<Widget> sheets) {
+  return Positioned.fill(
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        // each sheet rises to a fraction of the area; the whole stack is
+        // capped at the area height so two open sheets share it rather than
+        // overflowing off the top
+        final maxSheet = constraints.maxHeight * _pdfShellSheetHeightFactor;
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: constraints.maxHeight),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final sheet in sheets)
+                  Flexible(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: maxSheet),
+                      child: sheet,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+/// The chrome around a side panel presented as a bottom sheet on a small
+/// screen: rounded top, a drag handle that swipes down to dismiss, and a
+/// titled header with a close button. The panel [child] fills the rest.
+class PdfPanelBottomSheet extends StatelessWidget {
+  const PdfPanelBottomSheet({
+    super.key,
+    required this.title,
+    required this.onClose,
+    required this.child,
+    this.closeKey,
+  });
+
+  /// The panel's name, shown in the header.
+  final String title;
+
+  /// Dismisses the sheet — the shells turn the panel's visibility
+  /// preference off.
+  final VoidCallback onClose;
+
+  /// The panel itself, built in its bottom-sheet layout (full width, no
+  /// side resize grip).
+  final Widget child;
+
+  /// A key for the close button, for tests.
+  final Key? closeKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      elevation: 8,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // the handle and header swipe down to dismiss, the Material
+          // bottom-sheet idiom
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragEnd: (details) {
+              if ((details.primaryVelocity ?? 0) > 200) onClose();
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: 2),
+                  child: Container(
+                    width: 32,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(title,
+                            style: Theme.of(context).textTheme.titleSmall),
+                      ),
+                      IconButton(
+                        key: closeKey,
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Close',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: onClose,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+}
+
 /// Persists a viewer's scroll position and zoom per document, so the
 /// shells reopen a document where the user left it.
 ///

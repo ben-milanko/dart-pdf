@@ -1895,3 +1895,44 @@ and the editor never closes); the choice /V stores the EXPORT value ('L'
 not 'Large'); don't tap-test suppression with the ink tool armed (the
 dot's 800ms auto-commit timer trips !timersPending) — assert the layer's
 absence with find.byType(FormInteractionLayer) instead.
+
+Bottom-sheet panels on small screens (Ben: "the panels and strips should
+be bottom sheets on small screens"): below `pdfShellCompactWidth` (700,
+the existing compact threshold) the shells float the side panels and the
+thumbnail strip up from the bottom instead of docking them — a docked
+280px panel crowds the page out on a phone. `pdfShellUseBottomSheets(
+constraints)` + `pdfShellBottomSheets(sheets)` + `PdfPanelBottomSheet`
+all live in shell_chrome.dart (package-private). Each panel
+(PdfThumbnailSidebar/PdfAnnotationSidebar/PdfAnnotationPropertiesPanel/
+PdfSearchResultsPanel) gained a `bottomSheet` bool (default false): when
+true it fills its parent (no fixed-width SizedBox), drops the side resize
+grip, and the scrollbar/list clearance loses the grip width — factored
+through local `showGrip`/`onLeftEdge` flags so the grip-side scrollbar
+inset goes to 0. The thumbnail strip is the exception: it keeps its
+preferred-width tile column `Center`ed in the wider sheet rather than
+stretching one giant thumbnail to phone width (raster resolution, reorder,
+and delete all keep working unchanged); a grid/horizontal strip was
+rejected as too invasive for `_PageTile`'s AspectRatio layout.
+`PdfPanelBottomSheet` is the chrome: rounded top, a drag handle that
+swipes down to dismiss (onVerticalDragEnd primaryVelocity > 200) plus a
+titled header with a close button (keys 'pdf-shell-<panel>-sheet-close');
+`pdfShellBottomSheets` lays the active sheets out in a bottom-anchored
+Column (Positioned.fill + Align.bottomCenter, so the clear area above
+keeps scrolling/tapping the page through to the viewer), each `Flexible`
++ capped at 0.55 of the content height — one sheet rises to 55%, several
+share the area evenly without overflowing off the top. The shells build
+panel closures `panel({required bool bottomSheet})` and switch on
+`useSheets`: docked panels go in the Row (`!useSheets`), sheet-wrapped
+ones go in `pdfShellBottomSheets`; closing a sheet flips the panel's
+visibility preference off (showThumbnailSidebar/showAnnotationSidebar/
+showPropertiesPanel/showSearchResultsPanel). PdfEditorView hides the
+floating toolbar while a sheet is open (`features.toolbar &&
+sheets.isEmpty`) since the sheet covers the bottom; PdfReader (thumbnails
+only) grew a Stack around its viewer Row to host the overlay. The
+thumbnail compact default (`pdfShellShowThumbnailSidebar` — closed on
+compact unless an explicit pref) is unchanged; an explicit on shows the
+strip as a sheet. Tests: pdf_shell_test.dart +4 (compact toggles open a
+sheet, the close button hides it + clears the pref, wide stays docked
+with a resize grip, the reader strip is a sheet). Gotcha: the default
+800x600 test surface is ABOVE 700, so existing shell tests stay docked
+untouched; `compactScreen` (600x800) drives the sheet path.
