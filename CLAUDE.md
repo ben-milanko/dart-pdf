@@ -1781,3 +1781,39 @@ the State (didUpdateWidget, NOT initState) so initialViewport is skipped
 strip's raster loop never settles without runAsync, so the shell test
 turns thumbnails off and uses bounded pumps (no pumpAndSettle/
 pumpEventQueue).
+
+OCR / ingestion / Document-AI seams (interfaces, not engines — none ship
+in-tree): three pluggable layers landed. (1) OCR: pure-COS injection
+`PdfEditor.injectTextLayer(pageIndex, spans)` (ocr_editor.dart, part of
+editor.dart) writes each `PdfOcrSpan` (text + user-space PdfRect bounds +
+confidence) as one BT/Tj at render mode 3 (invisible) — font size = box
+height, baseline = bottom + 0.25·h, and a `Tz` horizontal scale stretching
+the run's natural width (measureStandardText) onto the box width, so the
+em box (0.75 ascent / −0.25 descent the extraction quad reconstructs) lands
+exactly on `bounds` — selection/search highlights track the word. Wrapped
+in q/Q so Tr/Tz don't leak; embeds a WinAnsi base-14 font with explicit
+/Widths (`_ensureOcrFont`, reused only when shaped exactly like ours, else
+the interpreter's measurement skews the boxes). The interpreter already
+emits mode-3 runs flagged `invisible` and CanvasPdfDevice early-returns on
+them, so the layer is selectable/searchable/extractable but paints nothing.
+The raster-facing half is in dart_pdf_editor (needs ui.Image, so it can't
+sit in pdf_document below the layering line): `PdfOcrEngine` (abstract,
+raster→spans), `PdfOcrPageImage` (the rendered page + geometry;
+`userSpaceRect(pixelRect)` inverts the SAME transform renderPicture builds
+— crop box + /Rotate aware — via PdfMatrix), and
+`PdfEditor.applyOcr(pageIndex, engine)` = renderImage → engine.recognize →
+injectTextLayer. (2) Images→PDF: `PdfImageDocument.fromImages/fromImageBytes`
+(image_pdf.dart) — one page per PNG/JPEG via CosDocumentBuilder +
+PdfEmbeddableImage (lives in pdf_document, not on the builder, because
+pdf_cos knows nothing about image embedding); page sized image-px·72/dpi.
+toXObject(builder.add) registers the SMask first (lower obj number) — fine.
+(3) Seams: `PdfImportSource` (pdf_document, Office/DOCX→PDF bytes,
+host-provided, interface only) + `PdfDocumentContext.of(document)`
+(pdf_graphics document_ai.dart — concrete read adapter: per-page reflow
+text, fields with values, annotation summaries, toJson/toPromptText) and
+abstract `PdfDocumentActionSink` (the write side, host-provided). Tests:
+pdf_graphics ocr_layer_test.dart (selectable/searchable + rect on bounds +
+invisible flag via a recording device) and document_ai_test.dart;
+pdf_document image_pdf_test.dart + import_source_test.dart; dart_pdf_editor
+ocr_test.dart (userSpaceRect mapping; applyOcr with a fake engine —
+invisible proven by the OCR'd raster being byte-identical to the original).

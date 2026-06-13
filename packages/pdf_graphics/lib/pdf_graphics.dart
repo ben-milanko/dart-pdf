@@ -5,6 +5,7 @@ library;
 
 export 'src/color.dart';
 export 'src/calibrated_color.dart';
+export 'src/document_ai.dart';
 export 'package:pdf_cos/pdf_cos.dart'
     show ContentOperation, ContentStreamParser;
 export 'src/device.dart';
