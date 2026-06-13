@@ -3,8 +3,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// The editing overlay's preview painter, read through a dynamic cast
+/// (the painter class is private to the library).
+dynamic overlayPainter(WidgetTester tester) => tester
+    .widget<CustomPaint>(find
+        .descendant(
+            of: find.byType(EditingPageOverlay),
+            matching: find.byType(CustomPaint))
+        .first)
+    .painter;
 
 void main() {
   const editorKey = ValueKey('pdf-freetext-editor');
@@ -458,16 +469,12 @@ void main() {
       expect(text.data, 'Wrap me please');
       expect(text.style!.fontSize, closeTo(16 * scale, 0.01));
 
-      // a wash backing covers the RESTING box so the original rendering
-      // isn't visible poking out where the preview no longer covers it
-      const washKey = ValueKey('pdf-text-resize-wash');
-      expect(find.byKey(washKey), findsOneWidget);
-      final washRect = tester.getRect(find.byKey(washKey));
-      final previewRect = tester.getRect(find.byKey(previewKey));
-      // the drag narrowed the box, so the resting box's right side is now
-      // exposed by the preview — the wash must still cover it
-      expect(washRect.width, closeTo(200 * scale, 0.5));
-      expect(washRect.right, greaterThan(previewRect.right + 1));
+      // the painter lifts the original off the page: it hides the RESTING
+      // box (the original footprint) so the dragged preview isn't doubled
+      // up with the old rendering. The hide rect spans the resting box.
+      final painter = overlayPainter(tester);
+      expect(painter.resizeHideRect, isNotNull);
+      expect((painter.resizeHideRect as Rect).width, closeTo(200 * scale, 0.5));
 
       await gesture.up();
       await tester.pump();
@@ -484,7 +491,7 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('the resize wash backing is opaque paper, not the box fill',
+    testWidgets('the resize preview lifts the box, transparent over the page',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing
@@ -501,15 +508,18 @@ void main() {
       await gesture.moveTo(view(220, 600));
       await tester.pump();
 
-      // the backing that hides the original box must be OPAQUE blank paper
-      // (white here) — never the box's fill, or a shrink would leave the
-      // old fill in the revealed strip, and never translucent, or the old
-      // border/text would bleed through
-      final wash = tester.widget<ColoredBox>(find.descendant(
-          of: find.byKey(const ValueKey('pdf-text-resize-wash')),
-          matching: find.byType(ColoredBox)));
-      expect(wash.color.a, 1.0);
-      expect(wash.color, const Color(0xFFFFFFFF));
+      // the preview itself carries only the box's own fill — it is
+      // otherwise transparent, so the page content behind shows through
+      // (the original is hidden by the painter's lift layer, not a wash)
+      final box = tester.widget<Container>(
+          find.byKey(const ValueKey('pdf-text-resize-preview')));
+      expect(box.color, const Color(0xFFFFEB3B));
+
+      // the lift fallback (until the async clean render lands) is OPAQUE
+      // blank paper, never translucent — the original must never flash
+      final painter = overlayPainter(tester);
+      expect((painter.resizeHideWash as Color).a, 1.0);
+      expect(painter.resizeHideWash, const Color(0xFFFFFFFF));
 
       await gesture.up();
       await tester.pump();

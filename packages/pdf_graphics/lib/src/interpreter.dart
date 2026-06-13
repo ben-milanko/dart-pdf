@@ -224,11 +224,12 @@ class PdfInterpreter {
   ///
   /// Hidden and NoView annotations are skipped, as are Popups — those are
   /// only shown by a viewer when their parent note is opened.
-  void drawAnnotations(PdfPage page) {
+  void drawAnnotations(PdfPage page, {bool Function(PdfAnnotation)? skip}) {
     _pageBox = page.mediaBox;
     for (final annotation in page.annotations) {
       if (annotation.isHidden || annotation.isNoView) continue;
       if (annotation.subtype == 'Popup') continue;
+      if (skip != null && skip(annotation)) continue;
       final form = annotation.normalAppearance;
       if (form == null) {
         _drawFallbackAnnotation(annotation);

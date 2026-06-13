@@ -229,6 +229,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int? _vertexHandle;
   List<Offset>? _vertexPoints;
 
+  // the "lift" model behind a free-text resize: the page rendered WITHOUT
+  // the dragged annotation, drawn clipped to the resting box so the
+  // original reads as gone (the page content behind shows through) while
+  // the re-wrapped preview floats on top. Rendered async on resize start;
+  // until it lands, an opaque-paper wash stands in so the original never
+  // flashes. [_resizeCleanFor] is the lifted annotation's identity, so a
+  // stale render from an earlier drag is discarded.
+  ui.Picture? _resizeCleanPicture;
+  Object? _resizeCleanFor;
+
   // rubber-band selection (mouse drags on empty page area)
   Offset? _marqueeStart;
   Offset? _marqueeCurrent;
@@ -469,6 +479,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _signatureDrag = false;
       _signaturePreview = null;
     });
+    _clearResizeClean();
     // earlier strokes waiting in the buffer get their auto-commit back
     _controller.cancelInkStroke();
   }
@@ -813,6 +824,52 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }));
   }
 
+  /// Renders the page WITHOUT the annotation being resized, so a free-text
+  /// resize can show the page content behind it (the "lift" model) rather
+  /// than wash an opaque rectangle over the original. Kicked off once per
+  /// resize-drag start; the result is reused for the whole drag (the page
+  /// behind doesn't change). Until it lands [_resizeCleanPicture] is null
+  /// and the painter falls back to an opaque-paper wash, so the original
+  /// never flashes through.
+  Future<void> _renderResizeClean() async {
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null) return;
+    final key = annotation.dict; // stable CosDictionary identity this revision
+    final name = annotation.name;
+    _resizeCleanFor = key;
+    final document = _controller.document;
+    try {
+      final picture = await PdfPageRenderer.renderPicture(
+        _controller.pageAt(widget.pageIndex),
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+        skipAnnotation: (a) =>
+            identical(a.dict, key) || (name != null && a.name == name),
+      );
+      // discard if the drag ended, the selection changed, or the document
+      // moved under us — a stale clean page would hide the wrong thing
+      if (!mounted ||
+          !identical(_resizeCleanFor, key) ||
+          !identical(_controller.document, document)) {
+        picture.dispose();
+        return;
+      }
+      setState(() {
+        _resizeCleanPicture?.dispose();
+        _resizeCleanPicture = picture;
+      });
+    } catch (_) {
+      // any render failure just leaves the opaque-paper wash fallback up
+    }
+  }
+
+  /// Drops the lifted clean-page picture once a resize drag ends.
+  void _clearResizeClean() {
+    _resizeCleanPicture?.dispose();
+    _resizeCleanPicture = null;
+    _resizeCleanFor = null;
+  }
+
   @override
   void dispose() {
     if (_textEditRect != null) _controller.setEditingText(false);
@@ -822,6 +879,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.dispose();
     _ghost?.dispose();
     _afterGhost?.dispose();
+    _resizeCleanPicture?.dispose();
     _flashController.dispose();
     super.dispose();
   }
@@ -1234,6 +1292,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _moveStart = position;
           _moveCurrent = position;
         });
+        // lift the box off the page for a re-wrapping (free-text) resize:
+        // render the page without it so the preview floats over the real
+        // content behind, not an opaque wash
+        if (_textResizeStyle != null) _renderResizeClean();
         return;
       }
       if (chrome != null && _hitsRotateHandle(chrome.$1, resting, position)) {
@@ -1428,6 +1490,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _viewportPanning = false;
       _signatureDrag = false;
     });
+    // the in-flight lift is done; the afterimage covers the commit gap
+    _clearResizeClean();
 
     if (panned) {
       // momentum: the fling continues in the viewer, which owns the
@@ -2317,6 +2381,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     rotation: restingRotation + (rotating ? _rotateDelta : 0),
                     ghostRotation: rotating ? _rotateDelta : 0,
                     ghostLocalAngle: _resizeHandle != null ? _resizeAngle : 0,
+                    // free-text resize lift: hide the original box's
+                    // footprint with the page rendered without it (or an
+                    // opaque-paper wash until that lands)
+                    resizeClean: wrapResize != null ? _resizeCleanPicture : null,
+                    resizeHideRect: wrapResize != null ? _resizeFrom : null,
+                    resizeHideAngle: _resizeAngle,
+                    resizeHideWash: Color.alphaBlend(
+                        widget.pageColor, const Color(0xFFFFFFFF)),
                     extraInk: extraInk,
                     fadeRects: [
                       ..._eraseRects.values,
@@ -2359,28 +2431,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 ),
               ),
               // a free-text resize in flight: the text re-wrapped to the
-              // dragged box at its committed size, over a wash hiding the
-              // old rendering — never the ghost's stretched glyphs.
-              // The wash backing first covers the RESTING box (_resizeFrom)
-              // with OPAQUE blank paper (pageColor over white, matching the
-              // renderer's translucent-page handling) so the original box —
-              // text AND its border/fill — is fully hidden, and the strip a
-              // shrink reveals reads as bare paper rather than the old fill.
-              // The preview's own wash then handles any grown area.
-              if (wrapResize != null) ...[
-                Positioned.fromRect(
-                  key: const ValueKey('pdf-text-resize-wash'),
-                  rect: _resizeFrom!,
-                  child: IgnorePointer(
-                    child: Transform.rotate(
-                      angle: _resizeAngle,
-                      child: ColoredBox(
-                        color: Color.alphaBlend(
-                            widget.pageColor, const Color(0xFFFFFFFF)),
-                      ),
-                    ),
-                  ),
-                ),
+              // dragged box at its committed size — never the ghost's
+              // stretched glyphs. The original box is hidden by the
+              // painter's lift layer (the page rendered without it), so
+              // this preview is TRANSPARENT save for the box's own fill:
+              // the page content behind it shows through, Acrobat-style.
+              if (wrapResize != null)
                 _wrappedTextBox(
                   key: const ValueKey('pdf-text-resize-preview'),
                   rect: _resizeRect!,
@@ -2388,11 +2444,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   font: wrapResize.font,
                   size: wrapResize.size,
                   color: wrapResize.color,
-                  background: wrapResize.fill ??
-                      widget.pageColor.withValues(alpha: 0.92),
+                  background: wrapResize.fill,
                   rotation: _resizeAngle,
                 ),
-              ],
               // a just-committed text edit, frozen until the page raster
               // catches up (same wash the inline editor painted over old
               // renderings, so nothing shows through meanwhile)
@@ -2581,6 +2635,10 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.rotation,
     required this.ghostRotation,
     this.ghostLocalAngle = 0,
+    this.resizeClean,
+    this.resizeHideRect,
+    this.resizeHideAngle = 0,
+    this.resizeHideWash = const Color(0xFFFFFFFF),
     required this.extraInk,
     this.fadeRects = const [],
     this.fadeColor = const Color(0x00000000),
@@ -2649,6 +2707,19 @@ class _EditingPreviewPainter extends CustomPainter {
   /// [ghostFrom]/[ghostTo] are then local boxes and the ghost scales
   /// along the rotated axes instead of stretching page-axis rects.
   final double ghostLocalAngle;
+
+  /// The free-text resize "lift": the page rendered without the dragged
+  /// box ([resizeClean], page raster space at 1 unit = 1 point), clipped
+  /// to that box's original footprint [resizeHideRect] (a view rect, spun
+  /// by [resizeHideAngle]) so the page content behind it shows through
+  /// instead of the original. A null [resizeClean] falls back to an opaque
+  /// [resizeHideWash] (blank paper) until the async render lands, so the
+  /// original never flashes. Painted before the chrome and the floating
+  /// re-wrapped preview, so both sit on top.
+  final ui.Picture? resizeClean;
+  final Rect? resizeHideRect;
+  final double resizeHideAngle;
+  final Color resizeHideWash;
 
   /// Stroke sets beyond the pending ink: committed-ink afterimages and
   /// the signature tool's live preview.
@@ -2882,6 +2953,36 @@ class _EditingPreviewPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // a free-text resize lifts the dragged box off the page: hide its
+    // ORIGINAL footprint with the page rendered without it (the content
+    // behind shows through) — or, until that async render lands, an opaque
+    // paper wash. Drawn first so the chrome and the floating re-wrapped
+    // preview paint on top.
+    final hideRect = resizeHideRect;
+    if (hideRect != null) {
+      canvas.save();
+      if (resizeHideAngle != 0) {
+        canvas.translate(hideRect.center.dx, hideRect.center.dy);
+        canvas.rotate(resizeHideAngle);
+        canvas.translate(-hideRect.center.dx, -hideRect.center.dy);
+      }
+      // a hair of inflation swallows the original border's anti-aliased edge
+      final clip = hideRect.inflate(1);
+      canvas.clipRect(clip);
+      final clean = resizeClean;
+      if (clean != null) {
+        // the clean page shares the ghost's raster space (1 unit = 1
+        // point), so scaling by the view scale lands it on the page
+        canvas.save();
+        canvas.scale(geometry.scale);
+        canvas.drawPicture(clean);
+        canvas.restore();
+      } else {
+        canvas.drawRect(clip, Paint()..color = resizeHideWash);
+      }
+      canvas.restore();
+    }
+
     // the wash goes under every stroke preview: the eraser's sliced
     // remainders (and any other pending ink) paint at full strength
     // over their faded originals
@@ -3140,6 +3241,10 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.rotation != rotation ||
       oldDelegate.ghostRotation != ghostRotation ||
       oldDelegate.ghostLocalAngle != ghostLocalAngle ||
+      oldDelegate.resizeClean != resizeClean ||
+      oldDelegate.resizeHideRect != resizeHideRect ||
+      oldDelegate.resizeHideAngle != resizeHideAngle ||
+      oldDelegate.resizeHideWash != resizeHideWash ||
       _inkChanged(oldDelegate.extraInk, extraInk) ||
       !listEquals(oldDelegate.fadeRects, fadeRects) ||
       oldDelegate.fadeColor != fadeColor ||
