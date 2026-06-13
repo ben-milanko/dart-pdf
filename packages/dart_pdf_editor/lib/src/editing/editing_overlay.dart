@@ -277,6 +277,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   double _textEditSize = 14; // pt
   Color _textEditColor = const Color(0xFF000000);
   Color? _textEditFill; // the box background the commit will paint
+  // resting view-space rotation of the box being edited (radians,
+  // clockwise positive): nonzero only when editing already-rotated text,
+  // so the inline editor and afterimage sit on the artwork instead of
+  // snapping back to horizontal
+  double _textEditRotation = 0;
 
   // form-tool text fill: when set, the inline editor commits into this
   // field's /V instead of creating a free-text annotation
@@ -1330,9 +1335,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final annotation = existing ? _controller.selectedAnnotation : null;
     final parsed = annotation?.freeTextStyle;
     final annotationColor = parsed?.color ?? annotation?.color;
+    // an already-rotated box edits in its rotated frame: take the chrome's
+    // un-rotated box + resting angle so the editor (and the committed
+    // afterimage) ride the artwork, not its axis-aligned bounds
+    var rect = viewRect;
+    var rotation = 0.0;
+    if (existing) {
+      final chrome = _selectionChrome;
+      if (chrome != null && chrome.$2 != 0) {
+        rect = chrome.$1;
+        rotation = chrome.$2;
+      }
+    }
     _textEditText.text = existing ? (_controller.selectedText ?? '') : '';
     setState(() {
-      _textEditRect = viewRect;
+      _textEditRect = rect;
+      _textEditRotation = rotation;
       _textEditExisting = existing;
       _textEditTool = _tool;
       _textEditFont = style?.font ?? _controller.fontFamily;
@@ -1368,6 +1386,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.text = field.value ?? '';
     setState(() {
       _textEditRect = _geometry.toViewRect(rect);
+      _textEditRotation = 0;
       _textEditExisting = false;
       _textEditTool = _tool;
       _textEditFieldName = field.name;
@@ -1423,6 +1442,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final size = _textEditSize;
     final color = _textEditColor;
     final fill = _textEditFill;
+    final rotation = _textEditRotation;
     _closeTextEditor();
     final before = _controller.document;
     if (existing) {
@@ -1445,7 +1465,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       color: color,
       fill: fill,
       washed: existing,
-      rotation: 0,
+      rotation: rotation,
     );
     _afterDocument = _controller.document;
   }
@@ -3003,69 +3023,74 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               if (_textEditRect != null)
                 Positioned.fromRect(
                   rect: _textEditRect!.inflate(2),
-                  child: CallbackShortcuts(
-                    bindings: {
-                      const SingleActivator(LogicalKeyboardKey.escape):
-                          _cancelTextEdit,
-                      const SingleActivator(LogicalKeyboardKey.enter,
-                          meta: true): _commitTextEdit,
-                      const SingleActivator(LogicalKeyboardKey.enter,
-                          control: true): _commitTextEdit,
-                    },
-                    child: Container(
-                      // the chrome border lives in the inflate(2) gutter
-                      // and paints as a FOREGROUND decoration: a regular
-                      // decoration border adds itself to the padding, and
-                      // any net inset shifts the text when the editor
-                      // opens — content must sit exactly on the box
-                      padding: const EdgeInsets.all(2),
-                      // the box's own fill when it has one; otherwise wash
-                      // the paper color over what's underneath: faint for a
-                      // fresh box, near-opaque when editing existing text
-                      // so the old rendering doesn't show through
-                      color: _textEditFill ??
-                          widget.pageColor.withValues(
-                              alpha: _textEditExisting ? 0.92 : 0.3),
-                      foregroundDecoration: BoxDecoration(
-                        border: Border.all(
-                            color: PdfViewerTheme.of(context)
-                                    .annotationChromeColor ??
-                                const Color(0xFF1E88E5),
-                            width: 1.5 * _chromeScale),
-                      ),
-                      child: TextField(
-                        key: ValueKey(_textEditFieldName == null
-                            ? 'pdf-freetext-editor'
-                            : 'pdf-form-text-editor'),
-                        controller: _textEditText,
-                        focusNode: _textEditFocus,
-                        autofocus: true,
-                        // single-line form fields edit single-line: Enter
-                        // commits instead of inserting a newline
-                        maxLines:
-                            _textEditFieldName == null || _textEditMultiline
-                                ? null
-                                : 1,
-                        expands:
-                            _textEditFieldName == null || _textEditMultiline,
-                        onSubmitted: (_) => _commitTextEdit(),
-                        textAlignVertical:
-                            _textEditFieldName == null || _textEditMultiline
-                                ? TextAlignVertical.top
-                                : TextAlignVertical.center,
-                        cursorColor: _textEditColor,
-                        // mirrors the committed appearance: same size in view
-                        // pixels, same 1.2 leading, matching family and color
-                        style: TextStyle(
-                          color: _textEditColor,
-                          fontSize: _textEditSize * _geometry.scale,
-                          height: 1.2,
-                          fontFamily: _uiFamily(_textEditFont),
+                  // identity at angle 0; spins the box about its center
+                  // onto the resting rotation when editing rotated text
+                  child: Transform.rotate(
+                    angle: _textEditRotation,
+                    child: CallbackShortcuts(
+                      bindings: {
+                        const SingleActivator(LogicalKeyboardKey.escape):
+                            _cancelTextEdit,
+                        const SingleActivator(LogicalKeyboardKey.enter,
+                            meta: true): _commitTextEdit,
+                        const SingleActivator(LogicalKeyboardKey.enter,
+                            control: true): _commitTextEdit,
+                      },
+                      child: Container(
+                        // the chrome border lives in the inflate(2) gutter
+                        // and paints as a FOREGROUND decoration: a regular
+                        // decoration border adds itself to the padding, and
+                        // any net inset shifts the text when the editor
+                        // opens — content must sit exactly on the box
+                        padding: const EdgeInsets.all(2),
+                        // the box's own fill when it has one; otherwise wash
+                        // the paper color over what's underneath: faint for a
+                        // fresh box, near-opaque when editing existing text
+                        // so the old rendering doesn't show through
+                        color: _textEditFill ??
+                            widget.pageColor.withValues(
+                                alpha: _textEditExisting ? 0.92 : 0.3),
+                        foregroundDecoration: BoxDecoration(
+                          border: Border.all(
+                              color: PdfViewerTheme.of(context)
+                                      .annotationChromeColor ??
+                                  const Color(0xFF1E88E5),
+                              width: 1.5 * _chromeScale),
                         ),
-                        decoration: InputDecoration(
-                          isCollapsed: true,
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.all(3 * _geometry.scale),
+                        child: TextField(
+                          key: ValueKey(_textEditFieldName == null
+                              ? 'pdf-freetext-editor'
+                              : 'pdf-form-text-editor'),
+                          controller: _textEditText,
+                          focusNode: _textEditFocus,
+                          autofocus: true,
+                          // single-line form fields edit single-line: Enter
+                          // commits instead of inserting a newline
+                          maxLines:
+                              _textEditFieldName == null || _textEditMultiline
+                                  ? null
+                                  : 1,
+                          expands:
+                              _textEditFieldName == null || _textEditMultiline,
+                          onSubmitted: (_) => _commitTextEdit(),
+                          textAlignVertical:
+                              _textEditFieldName == null || _textEditMultiline
+                                  ? TextAlignVertical.top
+                                  : TextAlignVertical.center,
+                          cursorColor: _textEditColor,
+                          // mirrors the committed appearance: same size in view
+                          // pixels, same 1.2 leading, matching family and color
+                          style: TextStyle(
+                            color: _textEditColor,
+                            fontSize: _textEditSize * _geometry.scale,
+                            height: 1.2,
+                            fontFamily: _uiFamily(_textEditFont),
+                          ),
+                          decoration: InputDecoration(
+                            isCollapsed: true,
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.all(3 * _geometry.scale),
+                          ),
                         ),
                       ),
                     ),

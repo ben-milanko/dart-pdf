@@ -2236,7 +2236,12 @@ class PdfEditingController extends ChangeNotifier {
       double? borderWidth}) {
     if (_selected.isEmpty) return;
     final page = _selected.last.$1;
-    final rect = annotation.rect;
+    // a rotated text box flattens to horizontal under plain remove +
+    // re-add (addFreeText/addStamp/addNote bake a horizontal matrix), so
+    // re-create it in its un-rotated local frame and re-apply the resting
+    // rotation afterwards — the same shape resizeAnnotationLocal uses.
+    final rotation = _appearanceRotationOf(annotation);
+    final rect = rotation == 0 ? annotation.rect : _localFrameOf(annotation);
     final color = annotation.color;
     final by = annotation.author; // a text edit doesn't change ownership
     final nm = annotation.name; // ... nor identity (sync tracks /NM)
@@ -2267,6 +2272,14 @@ class PdfEditingController extends ChangeNotifier {
           e.addNote(page, rect.left, rect.top, text,
               color: color ?? 0xFFD100, author: by, name: nm);
       }
+      // spin the freshly horizontal box back onto the resting rotation:
+      // the just-added annotation is the last /Annots entry
+      if (rotation != 0) {
+        final added = _document.page(page).annotations;
+        if (added.isNotEmpty) {
+          e.rotateAnnotation(page, added.last, rotation * 180 / math.pi);
+        }
+      }
     }, pages: [page]);
     // the rewritten annotation lands in the last /Annots slot — keep it
     // selected so consecutive restyles (a settings popup) stay anchored
@@ -2277,6 +2290,34 @@ class PdfEditingController extends ChangeNotifier {
         ..add((page, annotations.length - 1));
       notifyListeners();
     }
+  }
+
+  /// The page-space rotation baked into [annotation]'s appearance (radians
+  /// CCW, derived from its appearance quad), or 0 when it carries no
+  /// rotation or has no appearance stream.
+  static double _appearanceRotationOf(PdfAnnotation annotation) {
+    final quad = annotation.appearanceQuad;
+    if (quad == null) return 0;
+    final dx = quad[1].$1 - quad[0].$1;
+    final dy = quad[1].$2 - quad[0].$2;
+    if (dx == 0 && dy == 0) return 0;
+    final angle = math.atan2(dy, dx);
+    return angle.abs() < 0.005 ? 0 : angle;
+  }
+
+  /// The un-rotated local box of a rotated [annotation]: its appearance
+  /// quad's edge lengths about the quad center — the frame the text is
+  /// re-created in before [PdfEditor.rotateAnnotation] spins it back.
+  static PdfRect _localFrameOf(PdfAnnotation annotation) {
+    final quad = annotation.appearanceQuad!;
+    final (llx, lly) = quad[0];
+    final (lrx, lry) = quad[1];
+    final (urx, ury) = quad[2];
+    final (ulx, uly) = quad[3];
+    final cx = (llx + urx) / 2, cy = (lly + ury) / 2;
+    final w = math.sqrt((lrx - llx) * (lrx - llx) + (lry - lly) * (lry - lly));
+    final h = math.sqrt((ulx - llx) * (ulx - llx) + (uly - lly) * (uly - lly));
+    return PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
   }
 
   // ---------------------------------------------------------------------
