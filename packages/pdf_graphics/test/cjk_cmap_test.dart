@@ -71,6 +71,13 @@ void main() {
       expect(cmap.split(bytes), [0x41, 0x8EB1, 0xC6FC]);
     });
 
+    test('consumes the SS3 (0x8F) JIS X 0212 prefix without decoding it', () {
+      // 0x8F + two trailing bytes is one (unmapped) code, then 'A'.
+      final bytes = Uint8List.fromList([0x8F, 0xA1, 0xA1, 0x41]);
+      expect(cmap.split(bytes), [0x8FA1, 0x41]);
+      expect(cmap.unicode(0x8FA1), isEmpty);
+    });
+
     test('maps codes to Unicode', () {
       expect(cmap.unicode(0x41), 'A');
       expect(cmap.unicode(0xC6FC), '日');
@@ -108,7 +115,9 @@ void main() {
       expect(Big5Cmap.handles('GBK-EUC-H'), isFalse);
     });
 
-    test('maps double-byte codes', () {
+    test('splits and maps double-byte codes', () {
+      final bytes = Uint8List.fromList([0x41, 0xA4, 0xA4, 0xA4, 0xE5]);
+      expect(cmap.split(bytes), [0x41, 0xA4A4, 0xA4E5]);
       expect(cmap.unicode(0xA4A4), '中');
       expect(cmap.unicode(0xA4E5), '文');
     });
@@ -123,7 +132,9 @@ void main() {
       expect(UhcCmap.handles('UniKS-UCS2-H'), isFalse);
     });
 
-    test('maps double-byte codes', () {
+    test('splits and maps double-byte codes', () {
+      final bytes = Uint8List.fromList([0x41, 0xC7, 0xD1, 0xB1, 0xDB]);
+      expect(cmap.split(bytes), [0x41, 0xC7D1, 0xB1DB]);
       expect(cmap.unicode(0xC7D1), '한');
       expect(cmap.unicode(0xB1DB), '글');
     });
