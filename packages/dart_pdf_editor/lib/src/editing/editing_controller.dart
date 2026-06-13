@@ -450,6 +450,19 @@ class PdfEditingController extends ChangeNotifier {
 
   set dashedStroke(bool value) => preferences.dashedStroke = value;
 
+  /// The line ending new /Line and /PolyLine annotations carry at their
+  /// start vertex (§12.5.6.7). Persisted.
+  PdfLineEnding get lineStartEnding => preferences.lineStartEnding;
+
+  set lineStartEnding(PdfLineEnding value) =>
+      preferences.lineStartEnding = value;
+
+  /// The line ending new /Line and /PolyLine annotations carry at their
+  /// end vertex (§12.5.6.7). Persisted.
+  PdfLineEnding get lineEndEnding => preferences.lineEndEnding;
+
+  set lineEndEnding(PdfLineEnding value) => preferences.lineEndEnding = value;
+
   /// The background fill new text boxes get, or null for none (the
   /// default — a bare text box, like before). Persisted.
   Color? get textFillColor => preferences.textFillColor;
@@ -752,6 +765,10 @@ class PdfEditingController extends ChangeNotifier {
           author: author),
       pages: [pageIndex]);
 
+  /// Adds a line from [start] to [end]. With [arrow] the end carries a
+  /// closed arrowhead (the dedicated arrow tool); otherwise the start and
+  /// end endings come from the persisted [PdfEditingPreferences]
+  /// ([lineStartEnding] / [lineEndEnding]).
   void addLine(int pageIndex, (double, double) start, (double, double) end,
           {bool arrow = false}) =>
       apply(
@@ -760,7 +777,11 @@ class PdfEditingController extends ChangeNotifier {
               strokeWidth: preferences.strokeWidth,
               opacity: preferences.opacity,
               dashed: preferences.dashedStroke,
-              endEnding: arrow ? PdfLineEnding.closedArrow : PdfLineEnding.none,
+              startEnding:
+                  arrow ? PdfLineEnding.none : preferences.lineStartEnding,
+              endEnding: arrow
+                  ? PdfLineEnding.closedArrow
+                  : preferences.lineEndEnding,
               author: author),
           pages: [pageIndex]);
 
@@ -770,6 +791,8 @@ class PdfEditingController extends ChangeNotifier {
           strokeWidth: preferences.strokeWidth,
           opacity: preferences.opacity,
           dashed: preferences.dashedStroke,
+          startEnding: preferences.lineStartEnding,
+          endEnding: preferences.lineEndEnding,
           author: author),
       pages: [pageIndex]);
 
@@ -1704,6 +1727,39 @@ class PdfEditingController extends ChangeNotifier {
       return;
     }
     apply((e) => e.reshapeLineAnnotation(_selected.last.$1, annotation, points),
+        pages: [_selected.last.$1]);
+  }
+
+  /// Whether the single selected annotation is a /Line or /PolyLine whose
+  /// endings can be set ([setSelectedLineEndings]).
+  bool get canSetLineEndings {
+    final annotation = selectedAnnotation;
+    return _selected.length == 1 &&
+        annotation != null &&
+        (annotation.subtype == 'Line' || annotation.subtype == 'PolyLine') &&
+        annotation.normalAppearance != null;
+  }
+
+  /// The start/end line endings of the selected /Line or /PolyLine, or
+  /// null when no such single annotation is selected — for the ending
+  /// picker to show.
+  (PdfLineEnding, PdfLineEnding)? get selectedLineEndings {
+    final annotation = selectedAnnotation;
+    if (annotation == null || _selected.length != 1) return null;
+    return pdfLineEndings(annotation);
+  }
+
+  /// Swaps the start and/or end ending of the selected /Line or
+  /// /PolyLine in place — one revision, one undo, and the annotation
+  /// keeps its /Annots slot and object number. Pass null for an axis to
+  /// leave it unchanged.
+  void setSelectedLineEndings(
+      {PdfLineEnding? start, PdfLineEnding? end}) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canSetLineEndings) return;
+    apply(
+        (e) => e.setLineEndings(_selected.last.$1, annotation,
+            startEnding: start, endEnding: end),
         pages: [_selected.last.$1]);
   }
 

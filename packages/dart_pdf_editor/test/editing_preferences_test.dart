@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfLineEnding;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,6 +22,8 @@ void main() {
       a.colorPickerFormat = PdfColorFormat.cmyk;
       a.highlightFormFields = false;
       a.showReflowView = true;
+      a.lineStartEnding = PdfLineEnding.circle;
+      a.lineEndEnding = PdfLineEnding.closedArrow;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -36,6 +39,8 @@ void main() {
       expect(b.colorPickerFormat, PdfColorFormat.cmyk);
       expect(b.highlightFormFields, isFalse);
       expect(b.showReflowView, isTrue);
+      expect(b.lineStartEnding, PdfLineEnding.circle);
+      expect(b.lineEndEnding, PdfLineEnding.closedArrow);
     });
 
     test('empty storage leaves the defaults', () async {
@@ -52,6 +57,8 @@ void main() {
       expect(prefs.showAnnotationSidebar, isFalse);
       expect(prefs.author, isNull);
       expect(prefs.colorPickerFormat, PdfColorFormat.hex);
+      expect(prefs.lineStartEnding, PdfLineEnding.none);
+      expect(prefs.lineEndEnding, PdfLineEnding.none);
       expect(prefs.highlightFormFields, isTrue);
       expect(prefs.showReflowView, isFalse);
     });

@@ -33,14 +33,55 @@ List<((double, double), (double, double))> pdfInkCurveControls(
   ];
 }
 
-/// Line ending styles supported by [PdfEditor.addLine].
+/// Line ending styles (§12.5.6.7, Table 176) drawn at a /Line or
+/// /PolyLine endpoint by [PdfEditor.addLine] / [PdfEditor.addPolyLine].
+///
+/// [pdfName] is the /LE name written to (and read back from) the
+/// dictionary. The geometry of each shape is produced by the appearance
+/// generator: closed shapes ([square], [circle], [diamond],
+/// [closedArrow], [rClosedArrow]) are filled, the rest stroked; the
+/// `r*` variants point the opposite way along the line.
 enum PdfLineEnding {
   none('None'),
-  closedArrow('ClosedArrow');
+  square('Square'),
+  circle('Circle'),
+  diamond('Diamond'),
+  openArrow('OpenArrow'),
+  closedArrow('ClosedArrow'),
+  butt('Butt'),
+  rOpenArrow('ROpenArrow'),
+  rClosedArrow('RClosedArrow'),
+  slash('Slash');
 
   const PdfLineEnding(this.pdfName);
 
   final String pdfName;
+
+  /// The matching ending for a /LE name, or [none] when unknown.
+  static PdfLineEnding fromName(String name) => values.firstWhere(
+        (ending) => ending.pdfName == name,
+        orElse: () => none,
+      );
+}
+
+/// The start/end line endings recorded on [annotation]'s /LE entry, or
+/// null when it is not a /Line or /PolyLine. Each defaults to
+/// [PdfLineEnding.none] when absent or unrecognized. Lets UI read the
+/// current endings without an editor instance (mirrors
+/// [pdfCanRestyleAnnotation]).
+(PdfLineEnding, PdfLineEnding)? pdfLineEndings(PdfAnnotation annotation) {
+  if (annotation.subtype != 'Line' && annotation.subtype != 'PolyLine') {
+    return null;
+  }
+  final le = annotation.document.cos.resolve(annotation.dict['LE']);
+  PdfLineEnding read(int index) {
+    if (le is! CosArray || le.length <= index) return PdfLineEnding.none;
+    final name = annotation.document.cos.resolve(le[index]);
+    if (name is! CosName) return PdfLineEnding.none;
+    return PdfLineEnding.fromName(name.value);
+  }
+
+  return (read(0), read(1));
 }
 
 /// Slices ink [strokes] with one stamp of a circular eraser swept from
@@ -803,14 +844,12 @@ extension PdfAnnotationEditing on PdfEditor {
       throw ArgumentError.value(end, 'end', 'must differ from start');
     }
     final points = [start, end];
-    final arrowPoints = <(double, double)>[
-      if (startEnding == PdfLineEnding.closedArrow)
-        ..._arrowHead(start, end, strokeWidth),
-      if (endEnding == PdfLineEnding.closedArrow)
-        ..._arrowHead(end, start, strokeWidth),
+    final endingPoints = <(double, double)>[
+      ..._endingExtent(startEnding, start, end, strokeWidth),
+      ..._endingExtent(endEnding, end, start, strokeWidth),
     ];
     final rect = _pointBounds(
-        [...points, ...arrowPoints], strokeWidth + (dashed ? strokeWidth : 0));
+        [...points, ...endingPoints], strokeWidth + (dashed ? strokeWidth : 0));
     final gs = _alphaState(opacity);
     final w = _lineContent(points,
         strokeColor: strokeColor,
@@ -838,7 +877,10 @@ extension PdfAnnotationEditing on PdfEditor {
         name: name);
   }
 
-  /// Adds a /PolyLine annotation through [vertices].
+  /// Adds a /PolyLine annotation through [vertices]. Per §12.5.6.7 a
+  /// /PolyLine may carry /LE endings on its first and last vertex —
+  /// [startEnding] is drawn at `vertices.first` (pointing back toward
+  /// `vertices[1]`), [endEnding] at `vertices.last`.
   void addPolyLine(
     int pageIndex,
     List<(double, double)> vertices, {
@@ -846,6 +888,8 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth = 2,
     double opacity = 1,
     bool dashed = false,
+    PdfLineEnding startEnding = PdfLineEnding.none,
+    PdfLineEnding endEnding = PdfLineEnding.none,
     String? contents,
     String? author,
     String? name,
@@ -853,7 +897,12 @@ extension PdfAnnotationEditing on PdfEditor {
     if (vertices.length < 2) {
       throw ArgumentError.value(vertices, 'vertices', 'must have 2+ points');
     }
-    final rect = _pointBounds(vertices, strokeWidth);
+    final endingPoints = <(double, double)>[
+      ..._endingExtent(startEnding, vertices.first, vertices[1], strokeWidth),
+      ..._endingExtent(
+          endEnding, vertices.last, vertices[vertices.length - 2], strokeWidth),
+    ];
+    final rect = _pointBounds([...vertices, ...endingPoints], strokeWidth);
     final gs = _alphaState(opacity);
     final w = _lineContent(vertices,
         strokeColor: strokeColor,
@@ -861,9 +910,15 @@ extension PdfAnnotationEditing on PdfEditor {
         dashed: dashed,
         closed: false,
         fillColor: null,
+        startEnding: startEnding,
+        endEnding: endEnding,
         hasAlpha: gs != null);
     final dict = _markupDict('PolyLine', rect, strokeColor, contents, author)
       ..['Vertices'] = _pointArray(vertices)
+      ..['LE'] = CosArray([
+        CosName(startEnding.pdfName),
+        CosName(endEnding.pdfName),
+      ])
       ..['BS'] = _borderStyle(strokeWidth, dashed: dashed);
     _addAnnotation(
         pageIndex, dict, _form(rect, w, resources: _resources(extGState: gs)),
@@ -1224,16 +1279,15 @@ extension PdfAnnotationEditing on PdfEditor {
     final dashed = annotation.borderDash != null;
     final fill = subtype == 'Polygon' ? annotation.interiorColor : null;
     final endings = _lineEndings(annotation);
-    final arrowPoints = subtype == 'Line'
-        ? <(double, double)>[
-            if (endings.$1 == PdfLineEnding.closedArrow)
-              ..._arrowHead(points[0], points[1], width),
-            if (endings.$2 == PdfLineEnding.closedArrow)
-              ..._arrowHead(points[1], points[0], width),
-          ]
-        : const <(double, double)>[];
+    final endingPoints = subtype == 'Polygon'
+        ? const <(double, double)>[]
+        : <(double, double)>[
+            ..._endingExtent(endings.$1, points.first, points[1], width),
+            ..._endingExtent(
+                endings.$2, points.last, points[points.length - 2], width),
+          ];
     final rect =
-        _pointBounds([...points, ...arrowPoints], width + (dashed ? width : 0));
+        _pointBounds([...points, ...endingPoints], width + (dashed ? width : 0));
     final form = annotation.normalAppearance;
     final gs = _alphaState(form == null ? 1 : _appearanceOpacity(form));
     final w = _lineContent(points,
@@ -1267,6 +1321,44 @@ extension PdfAnnotationEditing on PdfEditor {
       });
     }
     _markAnnotationChanged(pageIndex, dict);
+  }
+
+  /// Sets the /LE line endings of a /Line or /PolyLine in place, keeping
+  /// the annotation's object number and /Annots slot. The appearance,
+  /// /Rect, and BBox regenerate from the current geometry with the new
+  /// endings; pass null for an axis to leave it unchanged. A no-op (and
+  /// returns false) for any other subtype, or when nothing changes.
+  bool setLineEndings(
+    int pageIndex,
+    PdfAnnotation annotation, {
+    PdfLineEnding? startEnding,
+    PdfLineEnding? endEnding,
+  }) {
+    final subtype = annotation.subtype;
+    if (subtype != 'Line' && subtype != 'PolyLine') return false;
+    final current = _lineEndings(annotation);
+    final start = startEnding ?? current.$1;
+    final end = endEnding ?? current.$2;
+    if (start == current.$1 && end == current.$2) return false;
+    final List<(double, double)> points;
+    if (subtype == 'Line') {
+      final line = annotation.line;
+      if (line == null) return false;
+      points = [line.$1, line.$2];
+    } else {
+      final vertices = annotation.vertices;
+      if (vertices == null || vertices.length < 2) return false;
+      points = vertices;
+    }
+    annotation.dict['LE'] = CosArray([
+      CosName(start.pdfName),
+      CosName(end.pdfName),
+    ]);
+    // re-wrap: the dict's /LE just changed under the caller's instance, and
+    // reshape reads the endings back through a fresh parse
+    reshapeLineAnnotation(
+        pageIndex, PdfAnnotation.fromDict(document, annotation.dict), points);
+    return true;
   }
 
   /// Sets [annotation]'s /Contents text in place.
@@ -1673,23 +1765,12 @@ extension PdfAnnotationEditing on PdfEditor {
     return true;
   }
 
-  (PdfLineEnding, PdfLineEnding) _lineEndings(PdfAnnotation annotation) {
-    if (annotation.subtype != 'Line') {
-      return (PdfLineEnding.none, PdfLineEnding.none);
-    }
-    final le = document.cos.resolve(annotation.dict['LE']);
-    PdfLineEnding read(int index) {
-      if (le is! CosArray || le.length <= index) return PdfLineEnding.none;
-      final name = document.cos.resolve(le[index]);
-      if (name is! CosName) return PdfLineEnding.none;
-      return PdfLineEnding.values.firstWhere(
-        (ending) => ending.pdfName == name.value,
-        orElse: () => PdfLineEnding.none,
-      );
-    }
-
-    return (read(0), read(1));
-  }
+  /// The endings recorded on [annotation]'s /LE entry — both
+  /// [PdfLineEnding.none] for subtypes that carry no endings
+  /// (/Polygon is closed; /PolyLine endings apply to its first and last
+  /// vertex per §12.5.6.7).
+  (PdfLineEnding, PdfLineEnding) _lineEndings(PdfAnnotation annotation) =>
+      pdfLineEndings(annotation) ?? (PdfLineEnding.none, PdfLineEnding.none);
 
   /// Restyles [annotation] in place: new colors, stroke width, or
   /// opacity at its current geometry, with the appearance regenerated —
@@ -2303,41 +2384,182 @@ extension PdfAnnotationEditing on PdfEditor {
       w.stroke();
     }
     if (dashed) w.dash(const []);
-    if (startEnding == PdfLineEnding.closedArrow) {
-      _drawArrowHead(w, points.first, points[1], strokeColor, strokeWidth);
-    }
-    if (endEnding == PdfLineEnding.closedArrow) {
-      _drawArrowHead(
-          w, points.last, points[points.length - 2], strokeColor, strokeWidth);
+    if (points.length >= 2) {
+      _drawEnding(w, startEnding, points.first, points[1], strokeColor,
+          strokeWidth);
+      _drawEnding(w, endEnding, points.last, points[points.length - 2],
+          strokeColor, strokeWidth);
     }
     return w;
   }
 
-  void _drawArrowHead(ContentWriter w, (double, double) tip,
-      (double, double) from, int color, double strokeWidth) {
-    final head = _arrowHead(tip, from, strokeWidth);
-    w
-      ..fillColor(color)
-      ..moveTo(tip.$1, tip.$2)
-      ..lineTo(head[0].$1, head[0].$2)
-      ..lineTo(head[1].$1, head[1].$2)
-      ..closePath()
-      ..fill();
-  }
-
-  List<(double, double)> _arrowHead(
-      (double, double) tip, (double, double) from, double strokeWidth) {
+  /// One line-ending shape (§12.5.6.7, Table 176) at endpoint [tip], with
+  /// the line arriving from [from]. The shape is oriented along the
+  /// segment: `u` points from the tip back into the line body, `p` is the
+  /// left-hand perpendicular. Closed shapes are returned with
+  /// `filled: true`; [PdfLineEnding.circle] additionally sets `isCircle`
+  /// (the [vertices] are then its four cardinal extent points, used for
+  /// bounds, and [radius]/[center] drive the Bézier draw).
+  ///
+  /// `r*` variants reverse the arrow direction (apex points into the line
+  /// instead of out of it). Returns null for [PdfLineEnding.none].
+  ({
+    List<(double, double)> vertices,
+    bool closed,
+    bool filled,
+    bool isCircle,
+    (double, double) center,
+    double radius,
+  })? _endingPath(PdfLineEnding kind, (double, double) tip,
+      (double, double) from, double strokeWidth) {
+    if (kind == PdfLineEnding.none) return null;
     final dx = from.$1 - tip.$1;
     final dy = from.$2 - tip.$2;
     final len = math.sqrt(dx * dx + dy * dy);
-    if (len < 1e-9) return [tip, tip];
-    final ux = dx / len, uy = dy / len;
-    final size = math.max(10.0, strokeWidth * 5);
-    final half = size * 0.38;
-    final bx = tip.$1 + ux * size;
-    final by = tip.$2 + uy * size;
+    final ux = len < 1e-9 ? 1.0 : dx / len;
+    final uy = len < 1e-9 ? 0.0 : dy / len;
     final px = -uy, py = ux;
-    return [(bx + px * half, by + py * half), (bx - px * half, by - py * half)];
+    final s = math.max(10.0, strokeWidth * 5);
+    (double, double) at(double along, double across) =>
+        (tip.$1 + ux * along + px * across, tip.$2 + uy * along + py * across);
+    switch (kind) {
+      case PdfLineEnding.closedArrow:
+      case PdfLineEnding.openArrow:
+        final hw = s * 0.38;
+        return (
+          // barb, apex (tip), barb — closed for the filled arrow
+          vertices: [at(s, hw), tip, at(s, -hw)],
+          closed: kind == PdfLineEnding.closedArrow,
+          filled: kind == PdfLineEnding.closedArrow,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.rClosedArrow:
+      case PdfLineEnding.rOpenArrow:
+        final hw = s * 0.38;
+        return (
+          // reversed: apex points into the line, barbs sit on the endpoint
+          vertices: [at(0, hw), at(s, 0), at(0, -hw)],
+          closed: kind == PdfLineEnding.rClosedArrow,
+          filled: kind == PdfLineEnding.rClosedArrow,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.diamond:
+        final r = s * 0.45;
+        return (
+          vertices: [at(r, 0), at(0, r), at(-r, 0), at(0, -r)],
+          closed: true,
+          filled: true,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.square:
+        final h = s * 0.35;
+        return (
+          vertices: [at(h, h), at(h, -h), at(-h, -h), at(-h, h)],
+          closed: true,
+          filled: true,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.circle:
+        final r = s * 0.4;
+        return (
+          vertices: [(tip.$1 + r, tip.$2), (tip.$1, tip.$2 + r),
+            (tip.$1 - r, tip.$2), (tip.$1, tip.$2 - r)],
+          closed: true,
+          filled: true,
+          isCircle: true,
+          center: tip,
+          radius: r,
+        );
+      case PdfLineEnding.butt:
+        final h = s * 0.45;
+        return (
+          vertices: [at(0, h), at(0, -h)],
+          closed: false,
+          filled: false,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.slash:
+        // a short line ~30° clockwise from perpendicular (60° from the
+        // line itself): rotate the line direction u by 60° CCW
+        final h = s * 0.5;
+        const c = 0.5, sn = 0.8660254037844387; // cos 60°, sin 60°
+        final sx = ux * c - uy * sn, sy = ux * sn + uy * c;
+        return (
+          vertices: [
+            (tip.$1 + sx * h, tip.$2 + sy * h),
+            (tip.$1 - sx * h, tip.$2 - sy * h),
+          ],
+          closed: false,
+          filled: false,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.none:
+        return null;
+    }
+  }
+
+  void _drawEnding(ContentWriter w, PdfLineEnding kind, (double, double) tip,
+      (double, double) from, int color, double strokeWidth) {
+    final shape = _endingPath(kind, tip, from, strokeWidth);
+    if (shape == null) return;
+    if (shape.isCircle) {
+      _drawCircle(w, shape.center, shape.radius);
+      w
+        ..fillColor(color)
+        ..fill();
+      return;
+    }
+    w.moveTo(shape.vertices.first.$1, shape.vertices.first.$2);
+    for (final (x, y) in shape.vertices.skip(1)) {
+      w.lineTo(x, y);
+    }
+    if (shape.filled) {
+      w
+        ..closePath()
+        ..fillColor(color)
+        ..fill();
+    } else {
+      if (shape.closed) w.closePath();
+      w
+        ..strokeColor(color)
+        ..lineWidth(strokeWidth)
+        ..lineCap(0)
+        ..stroke();
+    }
+  }
+
+  /// Appends a circle of [radius] about [center] as four cubic Béziers.
+  void _drawCircle(ContentWriter w, (double, double) center, double radius) {
+    const k = 0.5522847498307936; // 4/3·(√2−1)
+    final cx = center.$1, cy = center.$2, r = radius, kr = k * radius;
+    w
+      ..moveTo(cx + r, cy)
+      ..curveTo(cx + r, cy + kr, cx + kr, cy + r, cx, cy + r)
+      ..curveTo(cx - kr, cy + r, cx - r, cy + kr, cx - r, cy)
+      ..curveTo(cx - r, cy - kr, cx - kr, cy - r, cx, cy - r)
+      ..curveTo(cx + kr, cy - r, cx + r, cy - kr, cx + r, cy);
+  }
+
+  /// The extreme points an ending [kind] reaches at [tip] (line arriving
+  /// from [from]) — fed into [_pointBounds] so the appearance /Rect and
+  /// BBox cover the ending, not just the line.
+  List<(double, double)> _endingExtent(PdfLineEnding kind, (double, double) tip,
+      (double, double) from, double strokeWidth) {
+    final shape = _endingPath(kind, tip, from, strokeWidth);
+    if (shape == null) return const [];
+    return [tip, ...shape.vertices];
   }
 
   List<double> _dashPattern(double strokeWidth) =>

@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
-import 'package:pdf_document/pdf_document.dart' show PdfStandardFont;
+import 'package:pdf_document/pdf_document.dart'
+    show PdfLineEnding, PdfStandardFont;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'editing_color_picker.dart' show PdfColorFormat;
@@ -50,6 +51,8 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   double _opacity = 1;
   bool _dashedStroke = false;
+  PdfLineEnding _lineStartEnding = PdfLineEnding.none;
+  PdfLineEnding _lineEndEnding = PdfLineEnding.none;
   bool _fingerDrawsInk = true;
   bool _showThumbnailSidebar = true;
   bool _hasShowThumbnailSidebarPreference = false;
@@ -94,6 +97,16 @@ class PdfEditingPreferences extends ChangeNotifier {
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
       _dashedStroke = store.getBool('${_prefix}dashedStroke') ?? _dashedStroke;
+      final lineStart = store.getString('${_prefix}lineStartEnding');
+      if (lineStart != null) {
+        _lineStartEnding =
+            PdfLineEnding.values.asNameMap()[lineStart] ?? _lineStartEnding;
+      }
+      final lineEnd = store.getString('${_prefix}lineEndEnding');
+      if (lineEnd != null) {
+        _lineEndEnding =
+            PdfLineEnding.values.asNameMap()[lineEnd] ?? _lineEndEnding;
+      }
       _fingerDrawsInk =
           store.getBool('${_prefix}fingerDrawsInk') ?? _fingerDrawsInk;
       const thumbnailSidebarKey = '${_prefix}showThumbnailSidebar';
@@ -235,6 +248,28 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _dashedStroke) return;
     _dashedStroke = value;
     _write((s) => s.setBool('${_prefix}dashedStroke', value));
+    notifyListeners();
+  }
+
+  /// The line ending drawn at the *start* of new /Line and /PolyLine
+  /// annotations (§12.5.6.7). Defaults to [PdfLineEnding.none].
+  PdfLineEnding get lineStartEnding => _lineStartEnding;
+
+  set lineStartEnding(PdfLineEnding value) {
+    if (value == _lineStartEnding) return;
+    _lineStartEnding = value;
+    _write((s) => s.setString('${_prefix}lineStartEnding', value.name));
+    notifyListeners();
+  }
+
+  /// The line ending drawn at the *end* of new /Line and /PolyLine
+  /// annotations (§12.5.6.7). Defaults to [PdfLineEnding.none].
+  PdfLineEnding get lineEndEnding => _lineEndEnding;
+
+  set lineEndEnding(PdfLineEnding value) {
+    if (value == _lineEndEnding) return;
+    _lineEndEnding = value;
+    _write((s) => s.setString('${_prefix}lineEndEnding', value.name));
     notifyListeners();
   }
 
