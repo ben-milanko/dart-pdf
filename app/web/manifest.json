@@ -8,6 +8,17 @@
     "description": "dart-pdf Editor — a fully native Flutter PDF editor",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "launch_handler": {
+        "client_mode": "navigate-existing"
+    },
+    "file_handlers": [
+        {
+            "action": "./",
+            "accept": {
+                "application/pdf": [".pdf"]
+            }
+        }
+    ],
     "icons": [
         {
             "src": "icons/Icon-192.png",

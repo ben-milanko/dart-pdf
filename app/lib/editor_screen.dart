@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,8 +11,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'document_tab.dart';
 import 'file_io.dart';
+import 'incoming_file.dart';
 import 'recents.dart';
 import 'settings_screen.dart';
+import 'web_launch.dart';
 import 'welcome_screen.dart';
 
 /// Height of the AppBar's browser-style tab strip.
@@ -22,9 +25,12 @@ const double _tabStripHeight = 42;
 /// (search, page number, panels, toolbar). The screen supplies the edit
 /// sessions, file handling, recents, dirty-state, and app-side wiring.
 class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key, required this.prefs});
+  const EditorScreen({super.key, required this.prefs, this.launchArgs = const []});
 
   final PdfEditingPreferences prefs;
+
+  /// Desktop launch arguments — a `.pdf` path here opens at startup.
+  final List<String> launchArgs;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -35,6 +41,12 @@ class _EditorScreenState extends State<EditorScreen>
   PdfEditingPreferences get _prefs => widget.prefs;
 
   final _recents = RecentsStore();
+  final _incoming = IncomingFileService();
+  StreamSubscription<IncomingFile>? _incomingSub;
+
+  /// True while a file is being dragged over the window (desktop/web).
+  bool _dragging = false;
+
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
 
@@ -49,11 +61,39 @@ class _EditorScreenState extends State<EditorScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _recents.load();
+    // Files the OS opens in the app: the launch file, then any later opens.
+    _incoming.start();
+    _incomingSub = _incoming.files.listen(_openIncoming);
+    _incoming.initialFile().then((file) {
+      if (file != null && mounted) _openIncoming(file);
+    });
+    _openLaunchArgs();
+    // PWA file-handler opens (installed web app); no-op off the web.
+    startWebLaunchQueue(_openIncoming);
+  }
+
+  /// Opens a `.pdf` passed on the command line — how Windows and Linux deliver
+  /// a file association / "open with" at cold start (macOS and mobile use the
+  /// channel instead).
+  void _openLaunchArgs() {
+    if (kIsWeb) return;
+    if (defaultTargetPlatform != TargetPlatform.windows &&
+        defaultTargetPlatform != TargetPlatform.linux) {
+      return;
+    }
+    for (final arg in widget.launchArgs) {
+      if (!arg.toLowerCase().endsWith('.pdf')) continue;
+      final name = arg.split(RegExp(r'[/\\]')).last;
+      _openIncoming(IncomingFile(name: name, path: arg));
+      break; // open only the first file
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _incomingSub?.cancel();
+    _incoming.dispose();
     for (final tab in _tabs) {
       tab.dispose();
     }
@@ -105,6 +145,33 @@ class _EditorScreenState extends State<EditorScreen>
       _openBytes(picked.bytes, picked.name, originPath: picked.path);
     } catch (e) {
       _openError('Open failed', 'Could not open the selected file\n$e');
+    }
+  }
+
+  /// Opens a file the OS handed us (association, share, launch arg).
+  Future<void> _openIncoming(IncomingFile file) async {
+    try {
+      final bytes = file.bytes ?? await readPdfAtPath(file.path!);
+      _openBytes(bytes, file.name, originPath: file.path);
+    } catch (e) {
+      _openError(file.name, 'Could not open ${file.name}\n$e');
+    }
+  }
+
+  /// Opens PDFs dropped onto the window (desktop and web). Non-PDFs are
+  /// ignored; each readable PDF opens in its own tab.
+  Future<void> _onFilesDropped(List<DropItem> items) async {
+    for (final item in items) {
+      if (!item.name.toLowerCase().endsWith('.pdf')) continue;
+      try {
+        final bytes = await item.readAsBytes();
+        // desktop_drop exposes a real path on desktop; on web it's a blob ref
+        // we don't treat as a writable origin.
+        final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
+        _openBytes(bytes, item.name, originPath: path);
+      } catch (e) {
+        _openError(item.name, 'Could not open ${item.name}\n$e');
+      }
     }
   }
 
@@ -276,43 +343,64 @@ class _EditorScreenState extends State<EditorScreen>
               ),
         actions: _buildActions(tab),
       ),
-      body: tab == null
-          ? WelcomeScreen(
-              recents: _recents,
-              onOpen: _pickAndOpen,
-              onOpenRecent: _openRecent,
-            )
-          : tab.error != null
-              ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
-              : tab.isComparison
-                  ? PdfComparisonView(
-                      key: ValueKey(tab),
-                      before: tab.compareBefore!,
-                      after: tab.compareAfter!,
-                    )
-                  : _readOnly
-                      ? PdfReader(
-                          key: ValueKey(tab),
-                          bytes: tab.session!.bytes,
-                          documentId: tab.documentId,
-                          controller: tab.viewer,
-                          preferences: _prefs,
-                          onAction: _onAction,
-                        )
-                      : PdfEditorView(
-                          key: ValueKey(tab),
-                          documentId: tab.documentId,
-                          controller: tab.session,
-                          viewerController: tab.viewer,
-                          onSave: (_) => unawaited(_save(tab)),
-                          onPickPdfToInsert: pickPdfBytes,
-                          onExportPages: (bytes) =>
-                              unawaited(saveBytesAs(context, bytes, tab.title)),
-                          onAction: _onAction,
-                          annotationMenuBuilder: _annotationMenuActions,
-                          formImagePicker: (context, field) => pickImageBytes(),
-                          imagePicker: (context) => pickImageBytes(),
-                        ),
+      body: DropTarget(
+        onDragEntered: (_) => setState(() => _dragging = true),
+        onDragExited: (_) => setState(() => _dragging = false),
+        onDragDone: (detail) {
+          setState(() => _dragging = false);
+          _onFilesDropped(detail.files);
+        },
+        child: Stack(
+          children: [
+            Positioned.fill(child: _buildBody(tab)),
+            if (_dragging) const Positioned.fill(child: _DropOverlay()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(DocumentTab? tab) {
+    if (tab == null) {
+      return WelcomeScreen(
+        recents: _recents,
+        onOpen: _pickAndOpen,
+        onOpenRecent: _openRecent,
+      );
+    }
+    if (tab.error != null) {
+      return Center(child: Text(tab.error!, textAlign: TextAlign.center));
+    }
+    if (tab.isComparison) {
+      return PdfComparisonView(
+        key: ValueKey(tab),
+        before: tab.compareBefore!,
+        after: tab.compareAfter!,
+      );
+    }
+    if (_readOnly) {
+      return PdfReader(
+        key: ValueKey(tab),
+        bytes: tab.session!.bytes,
+        documentId: tab.documentId,
+        controller: tab.viewer,
+        preferences: _prefs,
+        onAction: _onAction,
+      );
+    }
+    return PdfEditorView(
+      key: ValueKey(tab),
+      documentId: tab.documentId,
+      controller: tab.session,
+      viewerController: tab.viewer,
+      onSave: (_) => unawaited(_save(tab)),
+      onPickPdfToInsert: pickPdfBytes,
+      onExportPages: (bytes) =>
+          unawaited(saveBytesAs(context, bytes, tab.title)),
+      onAction: _onAction,
+      annotationMenuBuilder: _annotationMenuActions,
+      formImagePicker: (context, field) => pickImageBytes(),
+      imagePicker: (context) => pickImageBytes(),
     );
   }
 
@@ -502,6 +590,40 @@ class _EditorScreenState extends State<EditorScreen>
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The translucent "drop a PDF here" scrim shown while a file is dragged over
+/// the window.
+class _DropOverlay extends StatelessWidget {
+  const _DropOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      child: Container(
+        color: scheme.primary.withValues(alpha: 0.12),
+        alignment: Alignment.center,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: scheme.primary, width: 2),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.file_download_outlined,
+                  size: 40, color: scheme.primary),
+              const SizedBox(height: 8),
+              const Text('Drop PDF to open'),
+            ],
           ),
         ),
       ),

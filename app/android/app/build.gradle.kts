@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "dev.milanko.dart_pdf_editor_app"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned above the template default: the file_selector/share_plus/
+    // url_launcher plugins must compile against SDK 36.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

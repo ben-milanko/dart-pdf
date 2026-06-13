@@ -31,6 +31,34 @@
 
   <title>dart-pdf Editor</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- File Handling API bridge: when the installed PWA is launched to open a
+       .pdf, buffer the file(s) until the Dart side registers a consumer, then
+       forward each as { name, bytes }. -->
+  <script>
+    (function () {
+      var queued = [];
+      var consumer = null;
+      window.__dartPdfDrainLaunchFiles = function (cb) {
+        consumer = cb;
+        queued.forEach(function (e) { cb(e); });
+        queued = [];
+      };
+      if ('launchQueue' in window && 'LaunchParams' in window &&
+          'files' in LaunchParams.prototype) {
+        window.launchQueue.setConsumer(async function (params) {
+          for (const handle of params.files) {
+            try {
+              const file = await handle.getFile();
+              const buf = await file.arrayBuffer();
+              const entry = { name: file.name, bytes: new Uint8Array(buf) };
+              if (consumer) { consumer(entry); } else { queued.push(entry); }
+            } catch (err) { console.error('launch file error', err); }
+          }
+        });
+      }
+    })();
+  </script>
 </head>
 <body>
   <!--

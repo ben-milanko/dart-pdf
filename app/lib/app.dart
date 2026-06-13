@@ -8,7 +8,10 @@ import 'editor_screen.dart';
 /// editing session shares the same tool styles, panel layout, and viewport
 /// memory.
 class DartPdfEditorApp extends StatefulWidget {
-  const DartPdfEditorApp({super.key});
+  const DartPdfEditorApp({super.key, this.launchArgs = const []});
+
+  /// Command-line arguments the app was launched with (desktop file opens).
+  final List<String> launchArgs;
 
   @override
   State<DartPdfEditorApp> createState() => _DartPdfEditorAppState();
@@ -36,7 +39,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           useMaterial3: true,
         ),
         themeMode: _prefs.themeMode,
-        home: EditorScreen(prefs: _prefs),
+        home: EditorScreen(prefs: _prefs, launchArgs: widget.launchArgs),
       ),
     );
   }
