@@ -1400,8 +1400,18 @@ render expectation. Survey gotcha: PdfDocument.open is lazy — catalog
 and page-tree failures surface at pageCount, so harnesses must guard
 BOTH; the corpus test's unopenable branch pins "CosParseException or
 pageCount == 0". Known gaps the corpus documents but doesn't close:
-predefined CJK CMaps (noembed-sjis/eucjp, issue3521 render blank),
 JBIG2 Huffman/refinement (decode-fails gracefully, image skipped).
+Predefined CJK CMaps are now handled (was a gap): `CjkCmap.forName`
+(pdf_graphics fonts/cjk_cmap.dart) decodes non-embedded Type0 text for
+Shift-JIS (`*-RKSJ-*`), EUC-JP (`EUC-H/V`), GBK/GB2312 (`GB*`/`GBK*`),
+Big5 (`*B5*`), UHC/EUC-KR (`KSC*`), and the Unicode CMaps
+(`Uni*-UCS2/UTF16-*`, code = Unicode directly). Each legacy charset has a
+packed `(code, unicode)` table generated from a Python codec
+(tool/gen_cjk_cmaps.py, same recipe as `_shift_jis_data.dart`); the font
+then has no outlines so the device substitutes a system CJK font. EUC-TW
+(`CNS-EUC`) and EUC-JP's JIS X 0212 (SS3) supplement still fall back to
+the Identity two-byte path. Corpus: noembed-sjis/eucjp + issue3521 now
+paint (dropped from `mayBeBlank`); unit coverage in cjk_cmap_test.dart.
 Batch 5, session 1 (annotation sync surface, for the trax PSPDFKit
 replacement — gaps 1-3 of the feat/pspdfkit assessment): three layers.
 (1) /NM identity: `_addAnnotation` stamps a v4 UUID /NM on every

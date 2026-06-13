@@ -58,12 +58,9 @@ const mayBeBlank = {
   'empty_protected.pdf', // ditto, encrypted
   'extractPages_null_in_array.pdf', // empty page by design
   'freetext_no_appearance.pdf', // no /AP — we render appearances only
-  'issue3521.pdf', // predefined CJK CMap (GBKp-EUC-H) — known gap
   'issue4461.pdf', // /Length 0 content stream
   'issue4684.pdf', // invisible (Tr 3) text only
   'labelled_pages.pdf', // pages are empty by design
-  'noembed-eucjp.pdf', // predefined CJK CMap — known gap
-  'noembed-sjis.pdf', // predefined CJK CMap — known gap
   'operator_list_cycle.pdf', // content cycle resolves to nothing
   'rc_annotation.pdf', // annotation without /AP
 };

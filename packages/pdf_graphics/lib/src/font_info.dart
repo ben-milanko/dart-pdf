@@ -27,7 +27,7 @@ class PdfFontInfo {
     Uint8List? cidToGid,
     bool symbolic = false,
     bool legacyGbk = false,
-    ShiftJisCmap? cjkCmap,
+    CjkCmap? cjkCmap,
     Map<int, String> encodingNames = const {},
     Map<int, int>? cffCodeToGid,
     Map<int, CosStream> type3Procs = const {},
@@ -55,9 +55,10 @@ class PdfFontInfo {
 
   final String? baseFont;
 
-  /// True for Type0 composite fonts. Identity-H/V (the common case) uses
-  /// two-byte codes here; a predefined Shift-JIS (RKSJ) CMap on a non-embedded
-  /// font is decoded via [_cjkCmap]. Other predefined CMaps remain a TODO.
+  /// True for Type0 composite fonts. Identity-H/V (the common case) and
+  /// embedded CMap streams use two-byte codes here; a predefined CJK CMap on a
+  /// non-embedded font (Shift-JIS/EUC-JP, GBK, Big5, UHC, or a `Uni*-UCS2/UTF16`
+  /// CMap) is decoded via [_cjkCmap].
   final bool isCid;
 
   final Map<int, double> _widths;
@@ -83,9 +84,9 @@ class PdfFontInfo {
   final bool _symbolic;
   final bool _legacyGbk;
 
-  /// Decoder for a predefined Shift-JIS (RKSJ) CMap on a non-embedded Type0
-  /// font; null for Identity-H and all embedded composites.
-  final ShiftJisCmap? _cjkCmap;
+  /// Decoder for a predefined CJK CMap on a non-embedded Type0 font; null for
+  /// Identity-H and all embedded composites.
+  final CjkCmap? _cjkCmap;
 
   final Map<int, String> _encodingNames;
 
@@ -152,7 +153,7 @@ class PdfFontInfo {
     Type1Font? type1;
     Uint8List? cidToGid;
     var symbolic = false;
-    ShiftJisCmap? cjkCmap;
+    CjkCmap? cjkCmap;
     var encodingNames = const <int, String>{};
 
     if (isCid) {
@@ -202,11 +203,11 @@ class PdfFontInfo {
       }
       // Predefined CJK CMaps: with no embedded outlines we decode the bytes to
       // Unicode and let the device substitute a system CJK font (the renderer
-      // never had glyphs for these). Only Shift-JIS (RKSJ) is handled so far;
-      // Identity-H and embedded composites keep the two-byte path below.
+      // never had glyphs for these). Identity-H and embedded composites are not
+      // matched and keep the two-byte path below.
       if (trueType == null && cff == null && toUnicode.isEmpty) {
-        if (encoding is CosName && ShiftJisCmap.handles(encoding.value)) {
-          cjkCmap = const ShiftJisCmap();
+        if (encoding is CosName) {
+          cjkCmap = CjkCmap.forName(encoding.value);
         }
       }
     } else {
