@@ -1365,7 +1365,16 @@ extension PdfAnnotationEditing on PdfEditor {
   /// rect (/QuadPoints, /InkList, /L, /Vertices, /CL) are mapped through
   /// the old-rect → new-rect affine, so the annotation's geometry stays
   /// consistent for viewers that regenerate appearances.
-  void resizeAnnotation(int pageIndex, PdfAnnotation annotation, PdfRect to) {
+  ///
+  /// [flipX]/[flipY] mirror the annotation horizontally/vertically — what
+  /// a drag that pulls a resize handle *past* the opposite edge produces.
+  /// For a §12.5.5-stretched appearance the mirror is baked into the form
+  /// /Matrix (about the BBox center, which leaves the BBox→/Rect fit
+  /// untouched) and the point arrays reflect about the /Rect center to
+  /// match; regenerated appearances (shapes, free text, lines) ignore the
+  /// flip — a mirrored rectangle or readable-text box looks the same.
+  void resizeAnnotation(int pageIndex, PdfAnnotation annotation, PdfRect to,
+      {bool flipX = false, bool flipY = false}) {
     final from = annotation.rect;
     if (from.width <= 0 ||
         from.height <= 0 ||
@@ -1373,13 +1382,25 @@ extension PdfAnnotationEditing on PdfEditor {
         to.height <= 0) {
       throw ArgumentError('resizeAnnotation needs non-degenerate rects');
     }
-    _regenerateResizedAppearance(annotation, to);
+    final regenerated = _regenerateResizedAppearance(annotation, to);
+    if (!regenerated && (flipX || flipY)) {
+      final form = annotation.normalAppearance;
+      if (form != null) _flipFormArtwork(form, flipX: flipX, flipY: flipY);
+    }
     final dict = annotation.dict;
     dict['Rect'] = _rectArray(to);
     final sx = to.width / from.width;
     final sy = to.height / from.height;
-    double mapX(double x) => to.left + (x - from.left) * sx;
-    double mapY(double y) => to.bottom + (y - from.bottom) * sy;
+    double mapX(double x) {
+      final t = (x - from.left) * sx;
+      return flipX ? to.right - t : to.left + t;
+    }
+
+    double mapY(double y) {
+      final t = (y - from.bottom) * sy;
+      return flipY ? to.top - t : to.bottom + t;
+    }
+
     for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
       final scaled = _mapPoints(dict[key], mapX, mapY);
       if (scaled != null) dict[key] = scaled;
@@ -1392,6 +1413,30 @@ extension PdfAnnotationEditing on PdfEditor {
       ]);
     }
     _markAnnotationChanged(pageIndex, dict);
+  }
+
+  /// Mirrors [form]'s artwork in place by premultiplying a reflection
+  /// about the BBox center into its /Matrix. The reflection maps the BBox
+  /// onto itself, so a conforming viewer's §12.5.5 BBox→/Rect fit lands
+  /// exactly where it did — only the interior is flipped.
+  void _flipFormArtwork(CosStream form,
+      {required bool flipX, required bool flipY}) {
+    final bbox = pdfRectFrom(document.cos, form.dictionary['BBox']);
+    if (bbox == null) return;
+    final cx = (bbox.left + bbox.right) / 2;
+    final cy = (bbox.bottom + bbox.top) / 2;
+    final reflect = <double>[
+      flipX ? -1.0 : 1.0,
+      0.0,
+      0.0,
+      flipY ? -1.0 : 1.0,
+      flipX ? 2 * cx : 0.0,
+      flipY ? 2 * cy : 0.0,
+    ];
+    final matrix = _mulAffine(reflect, _formMatrix(form));
+    form.dictionary['Matrix'] = CosArray([for (final v in matrix) CosReal(v)]);
+    final formRef = document.cos.referenceTo(form);
+    if (formRef != null) _updater.replaceObject(formRef.objectNumber, form);
   }
 
   /// Rotates [annotation] by [degrees] counterclockwise about the center
@@ -1476,12 +1521,19 @@ extension PdfAnnotationEditing on PdfEditor {
   /// Square/Circle/FreeText regenerate their appearance at [localTo]
   /// (constant stroke width / font size) and re-rotate; every other
   /// subtype scales along its local axes inside the appearance /Matrix.
+  ///
+  /// [flipX]/[flipY] mirror the artwork along the local axes — a handle
+  /// dragged past the opposite edge of the rotated box. For the stretch
+  /// path the mirror folds into the local scale (a negative factor), so
+  /// the /Rect and point arrays stay consistent with the appearance.
   void resizeAnnotationLocal(
-      int pageIndex, PdfAnnotation annotation, PdfRect localTo) {
+      int pageIndex, PdfAnnotation annotation, PdfRect localTo,
+      {bool flipX = false, bool flipY = false}) {
     final quad = annotation.appearanceQuad;
     final theta = quad == null ? 0.0 : _quadRotation(quad);
     if (theta == 0) {
-      resizeAnnotation(pageIndex, annotation, localTo);
+      resizeAnnotation(pageIndex, annotation, localTo,
+          flipX: flipX, flipY: flipY);
       return;
     }
     if (localTo.width <= 0 || localTo.height <= 0) {
@@ -1498,7 +1550,8 @@ extension PdfAnnotationEditing on PdfEditor {
     final fromH =
         math.sqrt((ulx - llx) * (ulx - llx) + (uly - lly) * (uly - lly));
     if (fromW < 1e-9 || fromH < 1e-9) {
-      resizeAnnotation(pageIndex, annotation, localTo);
+      resizeAnnotation(pageIndex, annotation, localTo,
+          flipX: flipX, flipY: flipY);
       return;
     }
 
@@ -1520,12 +1573,16 @@ extension PdfAnnotationEditing on PdfEditor {
     if (form == null || baked == null) {
       // nothing can be rotated without a matrix-carrying appearance;
       // degrade to a page-space resize of the bounds
-      resizeAnnotation(pageIndex, annotation, localTo);
+      resizeAnnotation(pageIndex, annotation, localTo,
+          flipX: flipX, flipY: flipY);
       return;
     }
     final dict = annotation.dict;
-    final sx = localTo.width / fromW;
-    final sy = localTo.height / fromH;
+    // a flip is a negative scale along the local axis — it commutes with
+    // the scale and folds straight in, mirroring both the appearance
+    // /Matrix and the mapped point arrays about the local center
+    final sx = (localTo.width / fromW) * (flipX ? -1 : 1);
+    final sy = (localTo.height / fromH) * (flipY ? -1 : 1);
     final tcx = (localTo.left + localTo.right) / 2;
     final tcy = (localTo.bottom + localTo.top) / 2;
     final cosT = math.cos(theta), sinT = math.sin(theta);

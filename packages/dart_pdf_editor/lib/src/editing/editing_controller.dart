@@ -1672,11 +1672,16 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Resizes the selected annotation so its /Rect becomes [to].
-  void resizeSelected(PdfRect to) {
+  ///
+  /// [flipX]/[flipY] mirror the artwork — what a resize handle dragged
+  /// past the opposite edge produces.
+  void resizeSelected(PdfRect to, {bool flipX = false, bool flipY = false}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canResizeSelected) return;
     if (to.width < 1 || to.height < 1) return;
-    apply((e) => e.resizeAnnotation(_selected.last.$1, annotation, to),
+    apply(
+        (e) => e.resizeAnnotation(_selected.last.$1, annotation, to,
+            flipX: flipX, flipY: flipY),
         pages: [_selected.last.$1]);
   }
 
@@ -1684,12 +1689,16 @@ class PdfEditingController extends ChangeNotifier {
   /// [localTo] rotated by the annotation's resting angle about its
   /// center is where the artwork lands — how the overlay resizes a
   /// rotated selection without shearing it.
-  void resizeSelectedLocal(PdfRect localTo) {
+  ///
+  /// [flipX]/[flipY] mirror the artwork along the local axes.
+  void resizeSelectedLocal(PdfRect localTo,
+      {bool flipX = false, bool flipY = false}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canResizeSelected) return;
     if (localTo.width < 1 || localTo.height < 1) return;
     apply(
-        (e) => e.resizeAnnotationLocal(_selected.last.$1, annotation, localTo),
+        (e) => e.resizeAnnotationLocal(_selected.last.$1, annotation, localTo,
+            flipX: flipX, flipY: flipY),
         pages: [_selected.last.$1]);
   }
 
