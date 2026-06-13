@@ -2362,9 +2362,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               // dragged box at its committed size, over a wash hiding the
               // old rendering — never the ghost's stretched glyphs.
               // The wash backing first covers the RESTING box (_resizeFrom)
-              // so a shrink doesn't leave the original rendering poking out
-              // beyond the smaller preview rect; the preview's own wash then
-              // covers the grown area.
+              // with OPAQUE blank paper (pageColor over white, matching the
+              // renderer's translucent-page handling) so the original box —
+              // text AND its border/fill — is fully hidden, and the strip a
+              // shrink reveals reads as bare paper rather than the old fill.
+              // The preview's own wash then handles any grown area.
               if (wrapResize != null) ...[
                 Positioned.fromRect(
                   key: const ValueKey('pdf-text-resize-wash'),
@@ -2373,8 +2375,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     child: Transform.rotate(
                       angle: _resizeAngle,
                       child: ColoredBox(
-                        color: wrapResize.fill ??
-                            widget.pageColor.withValues(alpha: 0.92),
+                        color: Color.alphaBlend(
+                            widget.pageColor, const Color(0xFFFFFFFF)),
                       ),
                     ),
                   ),

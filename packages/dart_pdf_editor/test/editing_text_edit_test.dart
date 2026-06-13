@@ -484,6 +484,38 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the resize wash backing is opaque paper, not the box fill',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..fontSize = 16
+        ..textFillColor = const Color(0xFFFFEB3B) // a yellow filled box
+        ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Filled box')
+        ..tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      // shrink the box width by dragging the bottom-right handle inward
+      final gesture = await tester.startGesture(view(300, 600));
+      await gesture.moveTo(view(260, 600));
+      await gesture.moveTo(view(220, 600));
+      await tester.pump();
+
+      // the backing that hides the original box must be OPAQUE blank paper
+      // (white here) — never the box's fill, or a shrink would leave the
+      // old fill in the revealed strip, and never translucent, or the old
+      // border/text would bleed through
+      final wash = tester.widget<ColoredBox>(find.descendant(
+          of: find.byKey(const ValueKey('pdf-text-resize-wash')),
+          matching: find.byType(ColoredBox)));
+      expect(wash.color.a, 1.0);
+      expect(wash.color, const Color(0xFFFFFFFF));
+
+      await gesture.up();
+      await tester.pump();
+      await settle(tester);
+    });
+
     testWidgets('a shape resize still previews with the stretch ghost',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
