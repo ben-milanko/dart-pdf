@@ -1,0 +1,32 @@
+# Per-package coverage flags for the dart-pdf workspace. Each package's tests
+# upload under its own flag (see .github/workflows/ci.yml), so the README
+# coverage badges can be scoped per package.
+flag_management:
+  default_rules:
+    carryforward: true
+
+flags:
+  pdf_cos:
+    paths:
+      - packages/pdf_cos/lib
+  pdf_document:
+    paths:
+      - packages/pdf_document/lib
+  pdf_graphics:
+    paths:
+      - packages/pdf_graphics/lib
+  dart_pdf_editor:
+    paths:
+      - packages/dart_pdf_editor/lib
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"

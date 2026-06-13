@@ -54,6 +54,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.maxWidth = 400,
     this.followsViewer = true,
     this.allowPageEditing = true,
+    this.bottomSheet = false,
   });
 
   final PdfEditingController controller;
@@ -93,6 +94,11 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// read-only viewer wants.
   final bool allowPageEditing;
 
+  /// Lays the strip out to fill its parent (full width, no side resize
+  /// grip) for hosting inside a bottom sheet on a small screen, rather
+  /// than as a fixed-width docked column.
+  final bool bottomSheet;
+
   /// How many thumbnails have actually been rasterized — cache misses
   /// only, across all sidebars. Tests assert on the deltas.
   @visibleForTesting
@@ -127,7 +133,9 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// bar never covers a tile. Tiles already pad 12px on their own.
   double get _barClearance =>
       PdfScrollbar.hitExtent +
-      (widget.resizable && widget.side == PdfSidebarSide.left
+      (widget.resizable &&
+              !widget.bottomSheet &&
+              widget.side == PdfSidebarSide.left
           ? PdfSidebarResizeGrip.width
           : 0);
 
@@ -240,7 +248,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   Widget build(BuildContext context) {
     final width = _width;
     final controller = widget.controller;
-    return SizedBox(
+    // a bottom sheet supplies its own width and resize affordance, so the
+    // strip drops the side resize grip; the tile column keeps its preferred
+    // width, centered in the wider sheet rather than stretched
+    final showGrip = widget.resizable && !widget.bottomSheet;
+    final body = SizedBox(
       width: width,
       child: Stack(children: [
         Positioned.fill(
@@ -290,7 +302,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
         Positioned(
           top: 0,
           bottom: 0,
-          right: widget.resizable && widget.side == PdfSidebarSide.left
+          right: showGrip && widget.side == PdfSidebarSide.left
               ? PdfSidebarResizeGrip.width
               : 0,
           child: PdfScrollbar(
@@ -298,7 +310,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
             thumbKey: const ValueKey('pdf-thumbnail-scrollbar-thumb'),
           ),
         ),
-        if (widget.resizable)
+        if (showGrip)
           Positioned(
             top: 0,
             bottom: 0,
@@ -313,6 +325,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
           ),
       ]),
     );
+    return widget.bottomSheet ? Center(child: body) : body;
   }
 }
 

@@ -261,10 +261,18 @@ void main() {
       await sendCtrl(tester, LogicalKeyboardKey.keyC);
       expect(editing.hasAnnotationClipboard, isTrue);
 
+      // move the mouse elsewhere: ⌘V pastes at the cursor, centring the
+      // 150×100 copy on page point (400, 400)
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(view(400, 400));
+      await tester.pump();
+
       await sendCtrl(tester, LogicalKeyboardKey.keyV);
       final annotations = editing.document.page(0).annotations;
       expect(annotations, hasLength(2));
-      expect(annotations[1].rect, const PdfRect(112, 638, 262, 738));
+      expect(annotations[1].rect, const PdfRect(325, 350, 475, 450));
       expect(editing.selectedAnnotationSlots, [(0, 1)]);
       await settle(tester);
     });

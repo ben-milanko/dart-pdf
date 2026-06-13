@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_measure.dart';
 import 'editing_preferences.dart';
+import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 
@@ -480,9 +481,23 @@ class PdfEditingController extends ChangeNotifier {
 
   set opacity(double value) => preferences.opacity = value;
 
-  bool get dashedStroke => preferences.dashedStroke;
+  /// The border line style (solid / dashed / dotted / dash-dot) new shape
+  /// and line annotations are created with. Persisted.
+  PdfLineStyle get lineStyle => preferences.lineStyle;
 
-  set dashedStroke(bool value) => preferences.dashedStroke = value;
+  set lineStyle(PdfLineStyle value) => preferences.lineStyle = value;
+
+  /// Whether new annotations are non-solid — the legacy boolean view of
+  /// [lineStyle] (kept for the drag previews that only show dashed/solid).
+  bool get dashedStroke => preferences.lineStyle != PdfLineStyle.solid;
+
+  set dashedStroke(bool value) =>
+      preferences.lineStyle = value ? PdfLineStyle.dashed : PdfLineStyle.solid;
+
+  /// The `/BS /D` dash array new annotations get, for the current
+  /// [lineStyle] at the current [strokeWidth] — null for a solid border.
+  List<double>? get _lineDashPattern =>
+      preferences.lineStyle.dashArray(preferences.strokeWidth);
 
   /// The line ending new /Line and /PolyLine annotations carry at their
   /// start vertex (§12.5.6.7). Persisted.
@@ -795,6 +810,7 @@ class PdfEditingController extends ChangeNotifier {
           strokeWidth: preferences.strokeWidth,
           fillColor: _rgbOf(preferences.shapeFillColor),
           opacity: preferences.opacity,
+          dashPattern: _lineDashPattern,
           author: author),
       pages: [pageIndex]);
 
@@ -870,6 +886,7 @@ class PdfEditingController extends ChangeNotifier {
           strokeWidth: preferences.strokeWidth,
           fillColor: _rgbOf(preferences.shapeFillColor),
           opacity: preferences.opacity,
+          dashPattern: _lineDashPattern,
           author: author),
       pages: [pageIndex]);
 
@@ -884,7 +901,7 @@ class PdfEditingController extends ChangeNotifier {
               strokeColor: _colorValue,
               strokeWidth: preferences.strokeWidth,
               opacity: preferences.opacity,
-              dashed: preferences.dashedStroke,
+              dashPattern: _lineDashPattern,
               startEnding:
                   arrow ? PdfLineEnding.none : preferences.lineStartEnding,
               endEnding: arrow
@@ -898,7 +915,7 @@ class PdfEditingController extends ChangeNotifier {
           strokeColor: _colorValue,
           strokeWidth: preferences.strokeWidth,
           opacity: preferences.opacity,
-          dashed: preferences.dashedStroke,
+          dashPattern: _lineDashPattern,
           startEnding: preferences.lineStartEnding,
           endEnding: preferences.lineEndEnding,
           author: author),
@@ -908,8 +925,9 @@ class PdfEditingController extends ChangeNotifier {
       (e) => e.addPolygon(pageIndex, points,
           strokeColor: _colorValue,
           strokeWidth: preferences.strokeWidth,
+          fillColor: _rgbOf(preferences.shapeFillColor),
           opacity: preferences.opacity,
-          dashed: preferences.dashedStroke,
+          dashPattern: _lineDashPattern,
           author: author),
       pages: [pageIndex]);
 
@@ -997,7 +1015,7 @@ class PdfEditingController extends ChangeNotifier {
           strokeColor: _colorValue,
           strokeWidth: preferences.strokeWidth,
           opacity: preferences.opacity,
-          dashed: preferences.dashedStroke,
+          dashPattern: _lineDashPattern,
           author: author),
       pages: [pageIndex],
     );
@@ -1917,14 +1935,16 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
-  /// Whether every selected annotation is a fillable shape (Square or
-  /// Circle) — i.e. [restyleSelected]'s `fill` parameter applies to the
-  /// whole selection.
+  /// Whether every selected annotation is a fillable shape (Square,
+  /// Circle, or Polygon) — i.e. [restyleSelected]'s `fill` parameter
+  /// applies to the whole selection.
   bool get canFillSelected =>
       canRestyleSelected &&
       _selected.every((slot) {
         final subtype = _annotationAt(slot)?.subtype;
-        return subtype == 'Square' || subtype == 'Circle';
+        return subtype == 'Square' ||
+            subtype == 'Circle' ||
+            subtype == 'Polygon';
       });
 
   /// The primary selected shape's interior fill, or null when it has none
@@ -1932,6 +1952,29 @@ class PdfEditingController extends ChangeNotifier {
   Color? get selectedShapeFill {
     final rgb = selectedAnnotation?.interiorColor;
     return rgb == null ? null : Color(0xFF000000 | rgb);
+  }
+
+  /// Whether every selected annotation takes a border line style — shapes
+  /// and the line family — so [restyleSelected]'s `lineStyle` applies.
+  bool get canSetLineStyleSelected =>
+      canRestyleSelected &&
+      _selected.every((slot) {
+        final subtype = _annotationAt(slot)?.subtype;
+        return subtype == 'Square' ||
+            subtype == 'Circle' ||
+            subtype == 'Line' ||
+            subtype == 'PolyLine' ||
+            subtype == 'Polygon';
+      });
+
+  /// The primary selected annotation's border line style (for the line-type
+  /// control to display), or null when it isn't a line/shape.
+  PdfLineStyle? get selectedLineStyle {
+    final annotation = selectedAnnotation;
+    if (annotation == null) return null;
+    const styled = {'Square', 'Circle', 'Line', 'PolyLine', 'Polygon'};
+    if (!styled.contains(annotation.subtype)) return null;
+    return PdfLineStyle.ofDashArray(annotation.borderDash);
   }
 
   /// Restyles every selected annotation in place — one revision, one
@@ -1942,11 +1985,16 @@ class PdfEditingController extends ChangeNotifier {
   /// parameters a subtype doesn't have are ignored for it. Returns
   /// whether anything changed.
   bool restyleSelected(
-      {Color? color, (Color?,)? fill, double? strokeWidth, double? opacity}) {
+      {Color? color,
+      (Color?,)? fill,
+      double? strokeWidth,
+      double? opacity,
+      PdfLineStyle? lineStyle}) {
     if (color == null &&
         fill == null &&
         strokeWidth == null &&
-        opacity == null) {
+        opacity == null &&
+        lineStyle == null) {
       return false;
     }
     if (!canRestyleSelected) return false;
@@ -1957,11 +2005,15 @@ class PdfEditingController extends ChangeNotifier {
     if (targets.isEmpty) return false;
     return apply((e) {
       for (final (page, annotation) in targets) {
+        // the dash array scales to the (possibly just-changed) pen width
+        final width = strokeWidth ?? annotation.borderWidth ?? 1;
         e.restyleAnnotation(page, annotation,
             color: _rgbOf(color),
             fillColor: fill == null ? null : (_rgbOf(fill.$1),),
             strokeWidth: strokeWidth,
-            opacity: opacity);
+            opacity: opacity,
+            dashPattern:
+                lineStyle == null ? null : (lineStyle.dashArray(width),));
       }
     }, pages: [for (final (page, _) in targets) page]);
   }
@@ -2029,6 +2081,41 @@ class PdfEditingController extends ChangeNotifier {
         e.moveAnnotation(page, annotation, dx, dy);
       }
     }, pages: [for (final (page, _) in targets) page]);
+  }
+
+  /// Re-homes the single selected annotation onto [targetPage], shifted
+  /// by ([dx], [dy]) in page space — what a move drag dropped over a
+  /// *different* page produces. The annotation leaves its source page and
+  /// is appended to the target page's /Annots, so it draws on top instead
+  /// of staying on its old page (off the crop box, behind the neighbour).
+  /// Its appearance and /NM identity survive (the snapshot keeps them).
+  /// One revision; the re-homed annotation becomes the selection. Returns
+  /// whether it moved. A same-page target falls back to [moveSelected].
+  bool moveSelectedToPage(int targetPage, double dx, double dy) {
+    if (targetPage < 0 || targetPage >= _document.pageCount) return false;
+    if (_selected.length != 1) return false;
+    final slot = _selected.single;
+    if (slot.$1 == targetPage) {
+      moveSelected(dx, dy);
+      return true;
+    }
+    final annotation = _annotationAt(slot);
+    if (annotation == null || !isAnnotationEditable(annotation)) return false;
+    final snapshot =
+        PdfAnnotationSnapshot.capture(_document, annotation, keepName: true);
+    if (snapshot == null) return false; // links/widgets/popups don't move
+    final source = slot.$1;
+    final moved = apply((e) {
+      e.removeAnnotation(source, annotation);
+      e.pasteAnnotation(targetPage, snapshot, dx: dx, dy: dy);
+    }, pages: [source, targetPage]);
+    if (!moved) return false;
+    final total = _page(targetPage).annotations.length;
+    _selected
+      ..clear()
+      ..add((targetPage, total - 1));
+    notifyListeners();
+    return true;
   }
 
   /// Resizes the selected annotation so its /Rect becomes [to].
@@ -2298,7 +2385,12 @@ class PdfEditingController extends ChangeNotifier {
       double? borderWidth}) {
     if (_selected.isEmpty) return;
     final page = _selected.last.$1;
-    final rect = annotation.rect;
+    // a rotated text box flattens to horizontal under plain remove +
+    // re-add (addFreeText/addStamp/addNote bake a horizontal matrix), so
+    // re-create it in its un-rotated local frame and re-apply the resting
+    // rotation afterwards — the same shape resizeAnnotationLocal uses.
+    final rotation = _appearanceRotationOf(annotation);
+    final rect = rotation == 0 ? annotation.rect : _localFrameOf(annotation);
     final color = annotation.color;
     final by = annotation.author; // a text edit doesn't change ownership
     final nm = annotation.name; // ... nor identity (sync tracks /NM)
@@ -2329,6 +2421,14 @@ class PdfEditingController extends ChangeNotifier {
           e.addNote(page, rect.left, rect.top, text,
               color: color ?? 0xFFD100, author: by, name: nm);
       }
+      // spin the freshly horizontal box back onto the resting rotation:
+      // the just-added annotation is the last /Annots entry
+      if (rotation != 0) {
+        final added = _document.page(page).annotations;
+        if (added.isNotEmpty) {
+          e.rotateAnnotation(page, added.last, rotation * 180 / math.pi);
+        }
+      }
     }, pages: [page]);
     // the rewritten annotation lands in the last /Annots slot — keep it
     // selected so consecutive restyles (a settings popup) stay anchored
@@ -2339,6 +2439,34 @@ class PdfEditingController extends ChangeNotifier {
         ..add((page, annotations.length - 1));
       notifyListeners();
     }
+  }
+
+  /// The page-space rotation baked into [annotation]'s appearance (radians
+  /// CCW, derived from its appearance quad), or 0 when it carries no
+  /// rotation or has no appearance stream.
+  static double _appearanceRotationOf(PdfAnnotation annotation) {
+    final quad = annotation.appearanceQuad;
+    if (quad == null) return 0;
+    final dx = quad[1].$1 - quad[0].$1;
+    final dy = quad[1].$2 - quad[0].$2;
+    if (dx == 0 && dy == 0) return 0;
+    final angle = math.atan2(dy, dx);
+    return angle.abs() < 0.005 ? 0 : angle;
+  }
+
+  /// The un-rotated local box of a rotated [annotation]: its appearance
+  /// quad's edge lengths about the quad center — the frame the text is
+  /// re-created in before [PdfEditor.rotateAnnotation] spins it back.
+  static PdfRect _localFrameOf(PdfAnnotation annotation) {
+    final quad = annotation.appearanceQuad!;
+    final (llx, lly) = quad[0];
+    final (lrx, lry) = quad[1];
+    final (urx, ury) = quad[2];
+    final (ulx, uly) = quad[3];
+    final cx = (llx + urx) / 2, cy = (lly + ury) / 2;
+    final w = math.sqrt((lrx - llx) * (lrx - llx) + (lry - lly) * (lry - lly));
+    final h = math.sqrt((ulx - llx) * (ulx - llx) + (uly - lly) * (uly - lly));
+    return PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
   }
 
   // ---------------------------------------------------------------------

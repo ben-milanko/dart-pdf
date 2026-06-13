@@ -130,6 +130,39 @@ void main() {
     picture.dispose();
   });
 
+  test('editing a rotated free text keeps it rotated', () {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..fontSize = 18
+      ..addFreeText(0, const PdfRect(100, 650, 300, 700), 'before')
+      ..selectAnnotation(0, 0)
+      ..rotateSelected(30);
+    addTearDown(editing.dispose);
+
+    double angleOf(PdfAnnotation a) {
+      final quad = a.appearanceQuad!;
+      return math.atan2(quad[1].$2 - quad[0].$2, quad[1].$1 - quad[0].$1);
+    }
+
+    final before = angleOf(editing.document.page(0).annotations.single);
+    expect(before, closeTo(30 * math.pi / 180, 1e-3));
+
+    // editing the text re-creates the box; before the fix that baked a
+    // fresh horizontal matrix and the rotation was lost
+    editing
+      ..selectAnnotation(0, 0)
+      ..setSelectedText('after');
+    final edited = editing.document.page(0).annotations.single;
+    expect(edited.contents, 'after');
+    expect(angleOf(edited), closeTo(before, 1e-3));
+
+    // restyling (font/size) goes through the same path and must keep it too
+    editing
+      ..selectAnnotation(0, 0)
+      ..restyleSelectedText(size: 28);
+    expect(angleOf(editing.document.page(0).annotations.single),
+        closeTo(before, 1e-3));
+  });
+
   group('rotate handle in the viewer', () {
     // 800px viewport over a 612pt page
     const scale = 800 / 612;

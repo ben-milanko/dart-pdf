@@ -541,26 +541,25 @@ void main() {
     expect(content, contains('350 150')); // right extreme of the ellipse
   });
 
-  test('a dashed border falls back to the stretch path', () {
+  test('a dashed shape regenerates on resize, keeping its dash', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
-      ..addSquare(0, const PdfRect(100, 100, 200, 150));
+      ..addSquare(0, const PdfRect(100, 100, 200, 150),
+          dashPattern: const [3]);
     final doc = PdfDocument.open(first.save());
 
     final square = doc.page(0).annotations.single;
-    square.dict['BS'] = CosDictionary({
-      'W': const CosInteger(2),
-      'S': const CosName('D'),
-      'D': CosArray([const CosInteger(3)]),
-    });
+    expect(square.borderDash, [3]);
     final editor = PdfEditor(doc)
       ..resizeAnnotation(0, square, const PdfRect(100, 100, 400, 350));
     final reopened = PdfDocument.open(editor.save());
 
     final resized = reopened.page(0).annotations.single;
     expect(resized.rect, const PdfRect(100, 100, 400, 350));
-    // the appearance still paints the ORIGINAL geometry — the viewer's
-    // BBox→Rect fit stretches it, dashes and all
-    expect(appearanceText(reopened, resized), contains('101 101 98 48 re'));
+    // dashed shapes regenerate at a constant stroke width now (like solid
+    // ones), so the appearance paints the NEW geometry, still dashed
+    final content = appearanceText(reopened, resized);
+    expect(content, contains('101 101 298 248 re'));
+    expect(content, contains('[3] 0 d'));
   });
 
   test('line and arrow annotations carry endpoints and line endings', () {
@@ -568,7 +567,7 @@ void main() {
       e.addLine(0, (100, 100), (200, 140),
           strokeColor: 0x2040A0,
           strokeWidth: 3,
-          dashed: true,
+          dashPattern: const [9, 6],
           endEnding: PdfLineEnding.closedArrow,
           author: 'Ben');
     });
@@ -593,7 +592,7 @@ void main() {
     final doc = roundTrip((e) {
       e.addPolyLine(0, [(100, 100), (140, 130), (180, 110)]);
       e.addPolygon(0, [(220, 100), (260, 140), (300, 100)],
-          fillColor: 0xFFE0E0, dashed: true);
+          fillColor: 0xFFE0E0, dashPattern: const [6, 4]);
     });
 
     final annots = doc.page(0).annotations;
@@ -615,7 +614,9 @@ void main() {
   test('resizing a dashed arrow regenerates with scaled endpoints', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addLine(0, (100, 100), (200, 140),
-          strokeWidth: 3, dashed: true, endEnding: PdfLineEnding.closedArrow);
+          strokeWidth: 3,
+          dashPattern: const [9, 6],
+          endEnding: PdfLineEnding.closedArrow);
     final doc = PdfDocument.open(first.save());
 
     final editor = PdfEditor(doc)
@@ -638,7 +639,9 @@ void main() {
   test('reshaping line annotations rewrites vertices and appearance', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addLine(0, (100, 100), (200, 140),
-          strokeWidth: 3, dashed: true, endEnding: PdfLineEnding.closedArrow)
+          strokeWidth: 3,
+          dashPattern: const [9, 6],
+          endEnding: PdfLineEnding.closedArrow)
       ..addPolyLine(0, [(100, 220), (140, 250), (180, 230)]);
     final doc = PdfDocument.open(first.save());
 

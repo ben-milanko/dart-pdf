@@ -17,11 +17,61 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: dart analyze --fatal-infos
-      - run: dart test
+      - name: Activate coverage tool
+        run: dart pub global activate coverage
+
+      - name: Test pdf_cos
         working-directory: packages/pdf_cos
-      - run: dart test
+        run: |
+          dart test --coverage=coverage
+          dart pub global run coverage:format_coverage \
+            --lcov --in=coverage --out=coverage/lcov.info \
+            --report-on=lib --packages=../../.dart_tool/package_config.json
+      - name: Upload pdf_cos coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/pdf_cos/coverage/lcov.info
+          flags: pdf_cos
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Test pdf_document
         working-directory: packages/pdf_document
-      - run: dart test
+        run: |
+          dart test --coverage=coverage
+          dart pub global run coverage:format_coverage \
+            --lcov --in=coverage --out=coverage/lcov.info \
+            --report-on=lib --packages=../../.dart_tool/package_config.json
+      - name: Upload pdf_document coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/pdf_document/coverage/lcov.info
+          flags: pdf_document
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Test pdf_graphics
         working-directory: packages/pdf_graphics
-      - run: flutter test
+        run: |
+          dart test --coverage=coverage
+          dart pub global run coverage:format_coverage \
+            --lcov --in=coverage --out=coverage/lcov.info \
+            --report-on=lib --packages=../../.dart_tool/package_config.json
+      - name: Upload pdf_graphics coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/pdf_graphics/coverage/lcov.info
+          flags: pdf_graphics
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Test dart_pdf_editor
         working-directory: packages/dart_pdf_editor
+        run: flutter test --coverage
+      - name: Upload dart_pdf_editor coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/dart_pdf_editor/coverage/lcov.info
+          flags: dart_pdf_editor
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

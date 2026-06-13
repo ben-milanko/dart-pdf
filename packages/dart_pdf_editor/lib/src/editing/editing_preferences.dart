@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
 import 'editing_color_picker.dart' show PdfColorFormat;
+import 'line_style.dart';
 import 'editing_measure.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
@@ -53,7 +54,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   double _opacity = 1;
-  bool _dashedStroke = false;
+  PdfLineStyle _lineStyle = PdfLineStyle.solid;
   PdfLineEnding _lineStartEnding = PdfLineEnding.none;
   PdfLineEnding _lineEndEnding = PdfLineEnding.none;
   bool _fingerDrawsInk = true;
@@ -113,7 +114,13 @@ class PdfEditingPreferences extends ChangeNotifier {
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
-      _dashedStroke = store.getBool('${_prefix}dashedStroke') ?? _dashedStroke;
+      final lineStyle = store.getString('${_prefix}lineStyle');
+      if (lineStyle != null) {
+        _lineStyle = PdfLineStyle.values.asNameMap()[lineStyle] ?? _lineStyle;
+      } else if (store.getBool('${_prefix}dashedStroke') ?? false) {
+        // migrate the old boolean dashed-stroke preference
+        _lineStyle = PdfLineStyle.dashed;
+      }
       final lineStart = store.getString('${_prefix}lineStartEnding');
       if (lineStart != null) {
         _lineStartEnding =
@@ -335,13 +342,14 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Whether new line-family annotations use a dashed border style.
-  bool get dashedStroke => _dashedStroke;
+  /// The border line style (solid / dashed / dotted / dash-dot) new shape
+  /// and line annotations are created with. Persisted by enum name.
+  PdfLineStyle get lineStyle => _lineStyle;
 
-  set dashedStroke(bool value) {
-    if (value == _dashedStroke) return;
-    _dashedStroke = value;
-    _write((s) => s.setBool('${_prefix}dashedStroke', value));
+  set lineStyle(PdfLineStyle value) {
+    if (value == _lineStyle) return;
+    _lineStyle = value;
+    _write((s) => s.setString('${_prefix}lineStyle', value.name));
     notifyListeners();
   }
 
