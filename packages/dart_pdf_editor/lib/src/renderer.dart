@@ -28,15 +28,20 @@ class PdfPageRenderer {
   /// [annotations] false leaves the page's annotations (highlights, ink,
   /// stamps, form fields...) out of the render — the clean underlying
   /// page. Display-only, like [pageColor]; the document is untouched.
+  ///
+  /// [skipAnnotation] omits the annotations it matches while keeping the
+  /// rest — the "lift" model behind a live drag/resize preview, so the
+  /// page reads as the artwork minus the one being edited.
   static Future<ui.Picture> renderPicture(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
+      bool annotations = true,
+      bool Function(PdfAnnotation)? skipAnnotation}) async {
     final cos = page.document.cos;
 
     final collector = ImageCollector();
     final collecting = PdfInterpreter(cos: cos, device: collector)
       ..drawPage(page);
-    if (annotations) collecting.drawAnnotations(page);
+    if (annotations) collecting.drawAnnotations(page, skip: skipAnnotation);
     final images = await decodeImages(cos, collector.streams);
 
     final box = page.cropBox;
@@ -78,7 +83,7 @@ class PdfPageRenderer {
     final painting = PdfInterpreter(
         cos: cos, device: CanvasPdfDevice(canvas, images: images))
       ..drawPage(page);
-    if (annotations) painting.drawAnnotations(page);
+    if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
     return recorder.endRecording();
   }
 

@@ -2,11 +2,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
-import 'package:pdf_document/pdf_document.dart' show PdfStandardFont;
+import 'package:pdf_document/pdf_document.dart'
+    show PdfLineEnding, PdfStandardFont;
 
 import '../pdf_viewer.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
+import 'editing_measure.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 import 'text_prompt.dart';
@@ -130,6 +132,27 @@ class PdfEditingToolbar extends StatelessWidget {
     if (controller.tool != null) viewerController.clearSelection();
   }
 
+  /// Opens the scale-calibration dialog and stores the result on the
+  /// controller. Measurements need a scale before they can be placed, so
+  /// arming a measure tool with no scale set opens this automatically.
+  Future<void> _setScale(BuildContext context) async {
+    final scale = await showPdfScaleDialog(context,
+        initial: controller.measurementScale);
+    if (scale != null) controller.measurementScale = scale;
+  }
+
+  Future<void> _armMeasureTool(BuildContext context, PdfEditTool tool) async {
+    if (controller.tool == tool) {
+      controller.tool = null;
+      return;
+    }
+    if (!controller.hasMeasurementScale) {
+      await _setScale(context);
+      if (!controller.hasMeasurementScale) return;
+    }
+    _toggleTool(tool);
+  }
+
   /// Arms the signature tool, collecting a signature first when none is
   /// saved yet. Tapping again while armed disarms, like any tool.
   Future<void> _toggleSignatureTool(BuildContext context) async {
@@ -203,6 +226,39 @@ class PdfEditingToolbar extends StatelessWidget {
       ));
   }
 
+  /// Confirms, then burns the marked redactions. Irreversible — the
+  /// confirm dialog says so, and the burn clears the undo history.
+  Future<void> _applyRedactions(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('pdf-redaction-confirm'),
+        title: const Text('Apply redactions?'),
+        content: const Text(
+            'The marked content will be permanently removed from the '
+            'document. This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey('pdf-redaction-confirm-apply'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final burned = controller.applyRedactions();
+    _flattenToast(
+      context,
+      burned ? 'Redactions applied' : 'No redactions to apply',
+      undoable: false,
+    );
+  }
+
   Future<void> _editSelectedText(BuildContext context) async {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return;
@@ -250,6 +306,22 @@ class PdfEditingToolbar extends StatelessWidget {
                         isSelected: controller.tool == value,
                         onPressed: () => _toggleTool(value),
                       );
+
+            // measure tools arm through a scale check (and a calibration
+            // dialog when none is set yet), unlike the plain tool toggle
+            Widget measureButton(PdfEditTool value, IconData icon, String tip) =>
+                !shows(value)
+                    ? const SizedBox.shrink()
+                    : IconButton(
+                        icon: Icon(icon),
+                        tooltip: tip,
+                        isSelected: controller.tool == value,
+                        onPressed: () => _armMeasureTool(context, value),
+                      );
+
+            final measureArmed = controller.tool == PdfEditTool.measureDistance ||
+                controller.tool == PdfEditTool.measurePerimeter ||
+                controller.tool == PdfEditTool.measureArea;
 
             Widget markupButton(
                     PdfMarkupKind kind, IconData icon, String tip) =>
@@ -415,6 +487,31 @@ class PdfEditingToolbar extends StatelessWidget {
                         : () => _flattenForm(context),
                   ),
                 ],
+                toolButton(PdfEditTool.redact, Icons.gradient,
+                    'Redact — drag a region, then apply'),
+                if (controller.tool == PdfEditTool.redact)
+                  IconButton(
+                    key: const ValueKey('pdf-apply-redactions'),
+                    icon: const Icon(Icons.block),
+                    tooltip: 'Apply redactions (irreversible)',
+                    onPressed: controller.hasRedactionMarks
+                        ? () => _applyRedactions(context)
+                        : null,
+                  ),
+                measureButton(PdfEditTool.measureDistance, Icons.straighten,
+                    'Measure distance'),
+                measureButton(PdfEditTool.measurePerimeter, Icons.timeline,
+                    'Measure perimeter'),
+                measureButton(PdfEditTool.measureArea, Icons.crop_din,
+                    'Measure area'),
+                if (measureArmed)
+                  TextButton.icon(
+                    key: const ValueKey('pdf-measure-scale'),
+                    icon: const Icon(Icons.square_foot, size: 18),
+                    label: Text(controller.measurementScale?.ratioLabel ??
+                        'Set scale…'),
+                    onPressed: () => _setScale(context),
+                  ),
                 if (controller.selectedElement != null) ...[
                   IconButton(
                     icon: const Icon(Icons.delete_outline),
@@ -649,6 +746,72 @@ class _StyleMenuState extends State<_StyleMenu> {
     );
   }
 
+  /// A short human label for a line ending in the picker.
+  static String _endingLabel(PdfLineEnding ending) => switch (ending) {
+        PdfLineEnding.none => 'None',
+        PdfLineEnding.square => 'Square',
+        PdfLineEnding.circle => 'Circle',
+        PdfLineEnding.diamond => 'Diamond',
+        PdfLineEnding.openArrow => 'Open arrow',
+        PdfLineEnding.closedArrow => 'Closed arrow',
+        PdfLineEnding.butt => 'Butt',
+        PdfLineEnding.rOpenArrow => 'Open arrow (rev.)',
+        PdfLineEnding.rClosedArrow => 'Closed arrow (rev.)',
+        PdfLineEnding.slash => 'Slash',
+      };
+
+  /// One line-ending dropdown (start or end), each item previewed with a
+  /// tiny icon of the shape on a short segment. [atEnd] orients the
+  /// preview so the start picker draws its ending on the left.
+  Widget _lineEndingRow({
+    required BuildContext context,
+    required String label,
+    required String keyValue,
+    required bool atEnd,
+    required PdfLineEnding value,
+    required ValueChanged<PdfLineEnding> onChanged,
+  }) {
+    final color = Theme.of(context).colorScheme.onSurface;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(children: [
+        SizedBox(width: 86, child: Text(label)),
+        Expanded(
+          child: DropdownButton<PdfLineEnding>(
+            key: ValueKey(keyValue),
+            isExpanded: true,
+            isDense: true,
+            value: value,
+            items: [
+              for (final ending in PdfLineEnding.values)
+                DropdownMenuItem(
+                  value: ending,
+                  child: Row(children: [
+                    SizedBox(
+                      width: 36,
+                      height: 14,
+                      child: CustomPaint(
+                        painter: _LineEndingPainter(ending,
+                            atEnd: atEnd, color: color),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(_endingLabel(ending),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                  ]),
+                ),
+            ],
+            onChanged: (ending) {
+              if (ending != null) onChanged(ending);
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MenuAnchor(
@@ -672,6 +835,15 @@ class _StyleMenuState extends State<_StyleMenu> {
                 controller.opacity;
             // with a free text selected the rows show its own box style;
             // otherwise the creation defaults
+            // line endings: edit a selected /Line or /PolyLine in place,
+            // else set the creation defaults while a line tool is armed
+            final lineEndingTarget = controller.canSetLineEndings;
+            final showLineEndings = lineEndingTarget ||
+                controller.tool == PdfEditTool.line ||
+                controller.tool == PdfEditTool.polyline;
+            final lineEndings = lineEndingTarget
+                ? controller.selectedLineEndings!
+                : (controller.lineStartEnding, controller.lineEndEnding);
             final restyling = controller.canRestyleSelectedText;
             final boxStyle =
                 restyling ? controller.selectedAnnotation?.freeTextStyle : null;
@@ -749,6 +921,34 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: controller.dashedStroke,
                       onChanged: (value) => controller.dashedStroke = value,
                     ),
+                  if (showLineEndings) ...[
+                    _lineEndingRow(
+                      context: context,
+                      label: 'Line start',
+                      keyValue: 'pdf-line-start-ending',
+                      atEnd: false,
+                      value: lineEndings.$1,
+                      onChanged: (ending) {
+                        controller.lineStartEnding = ending;
+                        if (controller.canSetLineEndings) {
+                          controller.setSelectedLineEndings(start: ending);
+                        }
+                      },
+                    ),
+                    _lineEndingRow(
+                      context: context,
+                      label: 'Line end',
+                      keyValue: 'pdf-line-end-ending',
+                      atEnd: true,
+                      value: lineEndings.$2,
+                      onChanged: (ending) {
+                        controller.lineEndEnding = ending;
+                        if (controller.canSetLineEndings) {
+                          controller.setSelectedLineEndings(end: ending);
+                        }
+                      },
+                    ),
+                  ],
                   _slider(
                     label: 'Font size',
                     value: _draggingFontSize ??
@@ -862,6 +1062,93 @@ class _StyleMenuState extends State<_StyleMenu> {
 }
 
 /// The "no color" swatch's red diagonal slash.
+/// Draws a short segment with [ending] rendered at one end — the preview
+/// icon for the line-ending dropdown. Purely indicative geometry (not the
+/// exact appearance the editor generates), oriented so [atEnd] puts the
+/// ending on the right.
+class _LineEndingPainter extends CustomPainter {
+  const _LineEndingPainter(this.ending, {required this.atEnd, required this.color});
+
+  final PdfLineEnding ending;
+  final bool atEnd;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = Paint()
+      ..color = color
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final fill = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    final cy = size.height / 2;
+    // the tip is the end the shape decorates; the line runs to the far side
+    final tipX = atEnd ? size.width - 2.0 : 2.0;
+    final farX = atEnd ? 2.0 : size.width - 2.0;
+    // unit vector from tip back along the line, and the perpendicular
+    final ux = farX > tipX ? 1.0 : -1.0;
+    final tip = Offset(tipX, cy);
+    canvas.drawLine(Offset(farX, cy), tip, stroke);
+    const s = 6.0; // characteristic size in preview px
+    Offset at(double along, double across) =>
+        Offset(tip.dx + ux * along, cy + across);
+    switch (ending) {
+      case PdfLineEnding.none:
+        break;
+      case PdfLineEnding.closedArrow:
+      case PdfLineEnding.openArrow:
+        final path = Path()
+          ..moveTo(at(s, -s * 0.4).dx, at(s, -s * 0.4).dy)
+          ..lineTo(tip.dx, tip.dy)
+          ..lineTo(at(s, s * 0.4).dx, at(s, s * 0.4).dy);
+        if (ending == PdfLineEnding.closedArrow) {
+          path.close();
+          canvas.drawPath(path, fill);
+        } else {
+          canvas.drawPath(path, stroke);
+        }
+      case PdfLineEnding.rClosedArrow:
+      case PdfLineEnding.rOpenArrow:
+        final path = Path()
+          ..moveTo(at(0, -s * 0.4).dx, at(0, -s * 0.4).dy)
+          ..lineTo(at(s, 0).dx, at(s, 0).dy)
+          ..lineTo(at(0, s * 0.4).dx, at(0, s * 0.4).dy);
+        if (ending == PdfLineEnding.rClosedArrow) {
+          path.close();
+          canvas.drawPath(path, fill);
+        } else {
+          canvas.drawPath(path, stroke);
+        }
+      case PdfLineEnding.diamond:
+        final path = Path()
+          ..moveTo(at(s * 0.5, 0).dx, at(s * 0.5, 0).dy)
+          ..lineTo(at(0, -s * 0.5).dx, at(0, -s * 0.5).dy)
+          ..lineTo(at(-s * 0.5, 0).dx, at(-s * 0.5, 0).dy)
+          ..lineTo(at(0, s * 0.5).dx, at(0, s * 0.5).dy)
+          ..close();
+        canvas.drawPath(path, fill);
+      case PdfLineEnding.square:
+        canvas.drawRect(
+            Rect.fromCenter(center: tip, width: s, height: s), fill);
+      case PdfLineEnding.circle:
+        canvas.drawCircle(tip, s * 0.5, fill);
+      case PdfLineEnding.butt:
+        canvas.drawLine(at(0, -s * 0.5), at(0, s * 0.5), stroke);
+      case PdfLineEnding.slash:
+        canvas.drawLine(
+            Offset(tip.dx - s * 0.3, cy + s * 0.5),
+            Offset(tip.dx + s * 0.3, cy - s * 0.5),
+            stroke);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LineEndingPainter old) =>
+      old.ending != ending || old.atEnd != atEnd || old.color != color;
+}
+
 class _NoneSlashPainter extends CustomPainter {
   const _NoneSlashPainter();
 

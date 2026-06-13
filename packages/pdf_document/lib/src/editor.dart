@@ -11,6 +11,7 @@ import 'content_writer.dart';
 import 'document.dart';
 import 'form.dart';
 import 'image.dart';
+import 'measure.dart';
 import 'page.dart';
 import 'rect.dart';
 
@@ -18,6 +19,7 @@ part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
 part 'annotation_sync.dart';
 part 'content_editor.dart';
+part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
 part 'ocr_editor.dart';
@@ -36,6 +38,11 @@ class PdfEditor {
 
   /// Pages whose original content this session already wrapped in q/Q.
   final Set<CosDictionary> _wrappedPages = {};
+
+  /// The document-default measurement scale, set by
+  /// [PdfAnnotationEditing.setMeasurementScale]; [PdfAnnotationEditing.addMeasurement]
+  /// uses it when no per-annotation override is given.
+  PdfMeasure? _defaultMeasure;
 
   bool get hasChanges => _updater.hasChanges;
 

@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 
 import 'document.dart';
+import 'measure.dart';
 import 'rect.dart';
 
 /// An entry in a page's /Annots array (§12.5).
@@ -169,6 +171,44 @@ class PdfAnnotation {
       points.add((x, y));
     }
     return points;
+  }
+
+  /// The /Measure dictionary (§12.9): the scale and unit formats a
+  /// measurement annotation (Line/PolyLine/Polygon) carries. Null when
+  /// the annotation has no /Measure.
+  PdfMeasure? get measure => PdfMeasure.fromDict(document, dict['Measure']);
+
+  /// The real-world measurement this annotation represents, formatted
+  /// through its /Measure: a distance for /Line, a perimeter (the sum of
+  /// the segment lengths) for /PolyLine, and a shoelace area for
+  /// /Polygon. Null without a /Measure or for other subtypes.
+  String? get measurementText {
+    final m = measure;
+    if (m == null) return null;
+    switch (subtype) {
+      case 'Line':
+        final l = line;
+        if (l == null) return null;
+        final dx = l.$2.$1 - l.$1.$1;
+        final dy = l.$2.$2 - l.$1.$2;
+        return m.formatDistance(math.sqrt(dx * dx + dy * dy));
+      case 'PolyLine':
+        final v = vertices;
+        if (v == null || v.length < 2) return null;
+        var total = 0.0;
+        for (var i = 0; i + 1 < v.length; i++) {
+          final dx = v[i + 1].$1 - v[i].$1;
+          final dy = v[i + 1].$2 - v[i].$2;
+          total += math.sqrt(dx * dx + dy * dy);
+        }
+        return m.formatDistance(total);
+      case 'Polygon':
+        final v = vertices;
+        if (v == null || v.length < 3) return null;
+        return m.formatArea(pdfShoelaceArea(v));
+      default:
+        return null;
+    }
   }
 
   static double? _number(CosObject? value) => switch (value) {

@@ -89,4 +89,54 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await waitFor(tester, fullRaster);
   });
+
+  testWidgets(
+      'a settle that does not change the zoom skips the full-page readback',
+      (tester) async {
+    // Rapid zoom in/out used to fire a fresh full-resolution toImage per
+    // settle even when the resolution was unchanged — uncancellable GPU
+    // readbacks that pile up and freeze the UI on web. A settle now only
+    // re-rasters the page when the effective resolution actually moved.
+    final document = PdfDocument.open(buildClassicPdf());
+    // a stable page object across rebuilds (the viewer passes a cached
+    // list); a fresh page() each build would drop the cached picture
+    final page = document.page(0);
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    var rasters = 0;
+
+    Widget build(double scale, int generation) => MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                scale: scale,
+                settleGeneration: generation,
+                renderScheduler: scheduler,
+                onRasterReady: () => rasters++,
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(build(1, 0));
+    await waitFor(tester, find.byType(RawImage));
+    expect(rasters, 1);
+
+    // a settle with the zoom unchanged (only the detail patch follows the
+    // viewport): no new full-page raster
+    await tester.pumpWidget(build(1, 1));
+    for (var i = 0; i < 5; i++) {
+      await settle(tester);
+    }
+    expect(rasters, 1, reason: 'a same-zoom settle must not re-read the page');
+
+    // a real zoom change re-rasters at the new resolution
+    await tester.pumpWidget(build(2, 2));
+    for (var i = 0; i < 20 && rasters < 2; i++) {
+      await settle(tester);
+    }
+    expect(rasters, 2, reason: 'a zoom change must re-raster the page');
+  });
 }

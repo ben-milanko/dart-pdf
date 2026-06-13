@@ -224,11 +224,12 @@ class PdfInterpreter {
   ///
   /// Hidden and NoView annotations are skipped, as are Popups — those are
   /// only shown by a viewer when their parent note is opened.
-  void drawAnnotations(PdfPage page) {
+  void drawAnnotations(PdfPage page, {bool Function(PdfAnnotation)? skip}) {
     _pageBox = page.mediaBox;
     for (final annotation in page.annotations) {
       if (annotation.isHidden || annotation.isNoView) continue;
       if (annotation.subtype == 'Popup') continue;
+      if (skip != null && skip(annotation)) continue;
       final form = annotation.normalAppearance;
       if (form == null) {
         _drawFallbackAnnotation(annotation);
@@ -1563,6 +1564,8 @@ class PdfInterpreter {
       if (text.trim().isNotEmpty || glyphs != null) {
         final fillText =
             mode == 0 || mode == 2 || mode == 4 || mode == 6;
+        final strokeText =
+            mode == 1 || mode == 2 || mode == 5 || mode == 6;
         final pattern = fillText ? _state.fillPattern : null;
         // A tiling pattern can't be flattened to a gradient (shading patterns
         // can — see _gradientOfPattern). Paint it through the glyph outlines as
@@ -1570,20 +1573,42 @@ class PdfInterpreter {
         // the solid fill colour showing through. Needs embedded outlines; a
         // substituted font falls back to the solid fill colour.
         var paintedAsTiling = false;
-        if (glyphs != null && _isTilingPattern(pattern)) {
+        if (fillText && glyphs != null && _isTilingPattern(pattern)) {
           final glyphPath = _glyphOutlinePath(glyphs, transform);
           if (glyphPath != null) {
             _fillWithPattern(glyphPath, PdfFillRule.nonzero, pattern!);
             paintedAsTiling = true;
           }
         }
+        // Embedded outlines keep the historical fill-only rendering: the
+        // device has the real glyph shapes and stroke modes on embedded fonts
+        // are a separate concern (and would shift many pinned baselines).
+        // Substituted text — which the device draws by filling a system font —
+        // honours stroke modes, so outlined display text actually outlines.
+        final embedded = glyphs != null;
+        // On a substituted font we have no outlines to clip a tiling pattern
+        // through, so the fill would otherwise collapse to a bogus solid
+        // colour. When the mode also strokes, drop that fill and let the
+        // outline read instead (what conforming viewers show — the sparse
+        // pattern barely fills); keep the solid fallback when there's no
+        // stroke so fill-only text never vanishes.
+        var doFill = fillText && !paintedAsTiling;
+        if (!embedded && doFill && strokeText && _isTilingPattern(pattern)) {
+          doFill = false;
+        }
+        final k = _state.ctm.scaleFactor;
         device.drawText(PdfTextRun(
           text: text,
           transform: transform,
-          color: mode == 1 || mode == 5
+          color: embedded && (mode == 1 || mode == 5)
               ? _state.strokeColor
               : _state.fillColor,
-          gradient: fillText ? _gradientOfPattern(pattern) : null,
+          fill: embedded ? true : doFill,
+          strokeColor: !embedded && strokeText ? _state.strokeColor : null,
+          strokeWidth: _state.stroke.width <= 0 ? k : _state.stroke.width * k,
+          gradient: (embedded ? fillText : doFill)
+              ? _gradientOfPattern(pattern)
+              : null,
           width: advance / emScale,
           fontName: font.baseFont,
           fontSize: size,
@@ -1939,14 +1964,20 @@ class PdfInterpreter {
     // at Do applies to the group's result, and resets inside (§11.6.6) —
     // otherwise an inner `gs` back to ca 1.0 would erase the group alpha
     final groupAlpha = _state.fillAlpha;
-    final isGroup = cos.resolve(xobject.dictionary['Group']) is CosDictionary;
-    final groupLayer = isGroup && groupAlpha < 1;
+    final groupDict = cos.resolve(xobject.dictionary['Group']);
+    final isGroup = groupDict is CosDictionary;
+    // A knockout group (/K true, §11.4.5) needs its own layer so each
+    // element can composite against the group's initial backdrop, even when
+    // the group itself paints at full alpha.
+    final knockout =
+        isGroup && cos.resolve(groupDict['K']) == const CosBoolean(true);
+    final groupLayer = isGroup && (groupAlpha < 1 || knockout);
 
     final outerMask = _state.softMask;
     _stateStack.add(_GraphicsState.from(_state));
     device.save();
     if (groupLayer) {
-      device.beginGroup(groupAlpha);
+      device.beginGroup(groupAlpha, knockout: knockout);
       _state.fillAlpha = 1;
       _state.strokeAlpha = 1;
     }
