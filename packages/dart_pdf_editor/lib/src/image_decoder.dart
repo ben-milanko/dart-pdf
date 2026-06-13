@@ -1017,12 +1017,23 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     {List<(int, int)>? colorKey}) {
   final space = cos.resolve(dict['ColorSpace']);
   if (space is! CosArray || space.length < 4) return null;
-  final components = switch (_familyOf(cos, space[1])) {
-    'DeviceRGB' => 3,
-    'DeviceGray' => 1,
-    'DeviceCMYK' => 4,
-    _ => 0,
-  };
+  // A Lab base palette is decoded through the CIE machinery — without this it
+  // falls through to DeviceGray and the L*/a*/b* triples read as three
+  // separate gray samples, banding a smooth gradient into diagonal stripes.
+  // (CalRGB/CalGray keep their existing device decode to avoid baseline churn.)
+  final baseObj = cos.resolve(space[1]);
+  final baseFamily =
+      baseObj is CosArray && baseObj.length > 0 ? cos.resolve(baseObj[0]) : null;
+  final labBase = baseFamily is CosName && baseFamily.value == 'Lab'
+      ? PdfCalibratedColorSpace.parse(cos, baseObj)
+      : null;
+  final components = labBase?.components ??
+      switch (_familyOf(cos, space[1])) {
+        'DeviceRGB' => 3,
+        'DeviceGray' => 1,
+        'DeviceCMYK' => 4,
+        _ => 0,
+      };
   if (components == 0) return null;
   if (bits != 1 && bits != 2 && bits != 4 && bits != 8) return null;
 
@@ -1040,6 +1051,14 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   final palette = Uint8List(paletteCount * 3);
   for (var p = 0; p < paletteCount; p++) {
     final src = p * components;
+    if (labBase != null) {
+      final color = labBase.toSrgbFromSamples(
+          [for (var c = 0; c < components; c++) lookup[src + c]]);
+      palette[p * 3] = (color.red * 255).round().clamp(0, 255);
+      palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
+      palette[p * 3 + 2] = (color.blue * 255).round().clamp(0, 255);
+      continue;
+    }
     switch (components) {
       case 3:
         palette[p * 3] = lookup[src];

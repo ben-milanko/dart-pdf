@@ -335,6 +335,57 @@ void main() {
     });
   });
 
+  testWidgets('indexed Lab palettes decode through the CIE conversion',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Two palette entries as L*a*b* bytes: white (L*=100, a*=b*=0) and
+      // black (L*=0). Before the Lab base was handled, the palette fell
+      // through to DeviceGray and the L/a/b triples were read as separate
+      // gray samples, so index 1 decoded to mid-gray (128) — banding a smooth
+      // gradient into diagonal stripes (issue2761.pdf).
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': CosArray([
+            const CosName('Indexed'),
+            CosArray([
+              const CosName('Lab'),
+              CosDictionary({
+                'WhitePoint': CosArray([
+                  const CosReal(0.9642),
+                  const CosInteger(1),
+                  const CosReal(0.8249),
+                ]),
+                'Range': CosArray([
+                  const CosInteger(-128),
+                  const CosInteger(127),
+                  const CosInteger(-128),
+                  const CosInteger(127),
+                ]),
+              }),
+            ]),
+            const CosInteger(1),
+            // L*=100 a*=0 b*=0 (white), then L*=0 a*=0 b*=0 (black)
+            CosString(Uint8List.fromList([255, 128, 128, 0, 128, 128])),
+          ]),
+        }),
+        Uint8List.fromList([0, 1]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final pixels = await pixelsOf(images[image]!);
+      // index 0: near-white and neutral (R≈G≈B)
+      expect(pixels[0], greaterThan(230));
+      expect((pixels[0] - pixels[1]).abs(), lessThan(16));
+      expect((pixels[1] - pixels[2]).abs(), lessThan(16));
+      // index 1: near-black — the discriminator (the old gray fallback gave 128)
+      expect(pixels[4], lessThan(30));
+      expect(pixels[5], lessThan(30));
+      expect(pixels[6], lessThan(30));
+    });
+  });
+
   testWidgets('color-key /Mask applies to platform-decoded JPEGs',
       (tester) async {
     await tester.runAsync(() async {

@@ -390,9 +390,14 @@ class PdfInterpreter {
   void _drawFallbackInk(PdfAnnotation annotation) {
     final strokes = annotation.inkList;
     if (strokes == null) return;
+    // Ink is freehand: reference viewers (and pdf.js, which generated the
+    // baselines) draw the centreline solid even when /BS carries a dash array,
+    // so drop the dash here — a dashed ink stroke is neither useful nor what
+    // any conforming viewer shows.
     final stroke = _annotationStroke(annotation).copyWith(
       cap: 1,
       join: 1,
+      dashArray: const [],
     );
     for (final points in strokes) {
       if (points.isEmpty) continue;
