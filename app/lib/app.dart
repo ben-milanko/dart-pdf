@@ -1,0 +1,43 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/material.dart';
+
+import 'editor_screen.dart';
+
+/// The dart-pdf Editor application. Owns the device-local UI preferences so
+/// the MaterialApp can follow the persisted light/dark choice and every
+/// editing session shares the same tool styles, panel layout, and viewport
+/// memory.
+class DartPdfEditorApp extends StatefulWidget {
+  const DartPdfEditorApp({super.key});
+
+  @override
+  State<DartPdfEditorApp> createState() => _DartPdfEditorAppState();
+}
+
+class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
+  final _prefs = PdfEditingPreferences();
+
+  @override
+  void dispose() {
+    _prefs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _prefs,
+      builder: (context, _) => MaterialApp(
+        title: 'dart-pdf Editor',
+        theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+        darkTheme: ThemeData(
+          colorSchemeSeed: Colors.indigo,
+          brightness: Brightness.dark,
+          useMaterial3: true,
+        ),
+        themeMode: _prefs.themeMode,
+        home: EditorScreen(prefs: _prefs),
+      ),
+    );
+  }
+}

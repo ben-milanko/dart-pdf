@@ -12,3 +12,4 @@ workspace:
   - packages/dart_pdf_editor
   - packages/dart_pdf_editor/example
   - packages/pdf_test_fixtures
+  - app

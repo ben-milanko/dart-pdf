@@ -1,0 +1,138 @@
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:share_plus/share_plus.dart';
+
+/// One filter, every platform: desktop and web match on the extension,
+/// Android on the MIME type, iOS/macOS on the uniform type identifier —
+/// a type group missing the field a platform filters by throws there.
+const pdfTypeGroup = XTypeGroup(
+  label: 'PDF documents',
+  extensions: ['pdf'],
+  mimeTypes: ['application/pdf'],
+  uniformTypeIdentifiers: ['com.adobe.pdf'],
+);
+
+/// Images accepted by the form tool's push-button fill and the image tool.
+const imageTypeGroup = XTypeGroup(
+  label: 'Images',
+  extensions: ['png', 'jpg', 'jpeg'],
+  mimeTypes: ['image/png', 'image/jpeg'],
+  uniformTypeIdentifiers: ['public.png', 'public.jpeg'],
+);
+
+/// A PDF the user picked to open, or null when the dialog was cancelled.
+class PickedPdf {
+  const PickedPdf(this.name, this.bytes, {this.path});
+
+  final String name;
+  final Uint8List bytes;
+
+  /// The on-disk path on desktop platforms (null on web/mobile, where the
+  /// picker hands back a sandboxed copy). The origin for in-place save.
+  final String? path;
+}
+
+/// Opens the system file picker and reads the chosen PDF. Returns null when
+/// the user cancels. Throws if the file can't be read — callers surface that.
+Future<PickedPdf?> pickPdf() async {
+  final file = await openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+  if (file == null) return null;
+  final bytes = await file.readAsBytes();
+  // file_selector returns the real path on desktop; on web/mobile `path` is
+  // a tmp/sandbox location we don't treat as a writable origin.
+  final path = (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.macOS ||
+              defaultTargetPlatform == TargetPlatform.windows ||
+              defaultTargetPlatform == TargetPlatform.linux))
+      ? file.path
+      : null;
+  return PickedPdf(file.name, bytes, path: path);
+}
+
+/// Picks a PDF and returns just its bytes (null when cancelled) — the source
+/// for "Insert PDF…" and document comparison.
+Future<Uint8List?> pickPdfBytes() async {
+  final file = await openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+  return file?.readAsBytes();
+}
+
+/// Picks an image and returns its bytes — used by the form image picker and
+/// the insert-image tool.
+Future<Uint8List?> pickImageBytes() async {
+  final file = await openFile(acceptedTypeGroups: const [imageTypeGroup]);
+  return file?.readAsBytes();
+}
+
+/// Ensures [name] ends in `.pdf`, falling back to a default stem.
+String ensurePdfName(String name) {
+  var trimmed = name.trim();
+  if (trimmed.isEmpty) trimmed = 'document';
+  if (!trimmed.toLowerCase().endsWith('.pdf')) trimmed = '$trimmed.pdf';
+  return trimmed;
+}
+
+/// The outcome of a save, with a message suitable for a toast (null = the
+/// user cancelled, so say nothing).
+class SaveResult {
+  const SaveResult._(this.message, {this.path});
+
+  /// A user-visible confirmation, or null when the action was cancelled.
+  final String? message;
+
+  /// Where it landed on disk, when that's a stable writable path (desktop
+  /// save dialog). Null for downloads / share-sheet / cancellation.
+  final String? path;
+
+  static const cancelled = SaveResult._(null);
+  factory SaveResult.saved(String path) =>
+      SaveResult._('Saved to $path', path: path);
+  factory SaveResult.downloaded(String name) =>
+      SaveResult._('Downloaded $name');
+  factory SaveResult.shared() => const SaveResult._('Shared');
+  factory SaveResult.failed(Object error) => SaveResult._('Save failed: $error');
+}
+
+/// Save-as with whatever the platform offers: a save dialog on desktop, a
+/// browser download on the web, the share sheet on phones and tablets (where
+/// apps can't write outside their sandbox directly). The origin-aware
+/// "Save in place" path is added in a later phase.
+Future<SaveResult> saveBytesAs(
+  BuildContext context,
+  Uint8List bytes,
+  String suggestedName,
+) async {
+  final name = ensurePdfName(suggestedName);
+  final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
+
+  if (kIsWeb) {
+    await file.saveTo(name);
+    return SaveResult.downloaded(name);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        fileNameOverrides: [name],
+        // required on iPad: the share popover anchors to this rect
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: const [pdfTypeGroup],
+      );
+      if (location == null) return SaveResult.cancelled;
+      try {
+        await file.saveTo(location.path);
+        return SaveResult.saved(location.path);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}

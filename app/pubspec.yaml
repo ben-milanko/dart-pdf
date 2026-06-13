@@ -1,0 +1,36 @@
+name: dart_pdf_editor_app
+description: "dart-pdf Editor — a fully native Flutter PDF editor"
+publish_to: 'none'
+resolution: workspace
+
+# version is the single source of truth for every platform build; CI passes
+# --build-name / --build-number derived from it (see app/RELEASING.md).
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # The PDF engine and editing UI live in the workspace packages.
+  dart_pdf_editor: ^1.0.0
+  pdf_document: ^1.0.0
+
+  # Cross-platform file I/O and OS integration.
+  file_selector: ^1.0.3
+  share_plus: ^13.1.0
+  url_launcher: ^6.3.0
+  shared_preferences: ^2.3.0
+  desktop_drop: ^0.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
