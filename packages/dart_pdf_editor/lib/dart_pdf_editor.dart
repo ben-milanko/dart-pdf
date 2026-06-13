@@ -2,8 +2,12 @@
 library;
 
 export 'src/canvas_device.dart';
+export 'src/comparison/comparison_view.dart';
+export 'src/comparison/document_comparison.dart';
+export 'src/comparison/page_comparison.dart';
 export 'src/editing/editing_color_picker.dart';
 export 'src/editing/editing_controller.dart';
+export 'src/editing/editing_measure.dart';
 export 'src/editing/editing_menu.dart';
 export 'src/editing/editing_panel.dart';
 export 'src/editing/editing_preferences.dart';
@@ -13,6 +17,7 @@ export 'src/editing/editing_signature.dart';
 export 'src/editing/editing_stamps.dart';
 export 'src/editing/editing_thumbnails.dart';
 export 'src/editing/editing_toolbar.dart';
+export 'src/editing/stroke_prediction.dart';
 export 'src/editing/text_prompt.dart';
 export 'src/page_geometry.dart';
 export 'src/page_number_field.dart';
@@ -22,6 +27,7 @@ export 'src/pdf_reader.dart';
 export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
 export 'src/preview_cache.dart';
+export 'src/render_scheduler.dart';
 export 'src/renderer.dart';
 export 'src/search_panel.dart';
 export 'src/scrollbar.dart';

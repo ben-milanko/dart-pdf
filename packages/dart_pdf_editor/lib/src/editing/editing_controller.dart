@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'editing_measure.dart';
 import 'editing_preferences.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
@@ -46,6 +48,19 @@ enum PdfEditTool {
 
   /// Drag to create a sampled closed /Polygon annotation.
   polygon,
+
+  /// Drag a straight segment whose real-world length is shown live and
+  /// stamped as a /Line measurement (§12.9). Needs an active
+  /// [PdfEditingController.measurementScale].
+  measureDistance,
+
+  /// Place a multi-segment /PolyLine measurement whose running real-world
+  /// perimeter (sum of segment lengths) is shown live.
+  measurePerimeter,
+
+  /// Place a closed /Polygon measurement whose real-world area is shown
+  /// live.
+  measureArea,
 
   /// Drag out a box, then type the text shown inside it (/FreeText).
   freeText,
@@ -462,6 +477,19 @@ class PdfEditingController extends ChangeNotifier {
 
   set dashedStroke(bool value) => preferences.dashedStroke = value;
 
+  /// The line ending new /Line and /PolyLine annotations carry at their
+  /// start vertex (§12.5.6.7). Persisted.
+  PdfLineEnding get lineStartEnding => preferences.lineStartEnding;
+
+  set lineStartEnding(PdfLineEnding value) =>
+      preferences.lineStartEnding = value;
+
+  /// The line ending new /Line and /PolyLine annotations carry at their
+  /// end vertex (§12.5.6.7). Persisted.
+  PdfLineEnding get lineEndEnding => preferences.lineEndEnding;
+
+  set lineEndEnding(PdfLineEnding value) => preferences.lineEndEnding = value;
+
   /// The background fill new text boxes get, or null for none (the
   /// default — a bare text box, like before). Persisted.
   Color? get textFillColor => preferences.textFillColor;
@@ -830,6 +858,10 @@ class PdfEditingController extends ChangeNotifier {
           author: author),
       pages: [pageIndex]);
 
+  /// Adds a line from [start] to [end]. With [arrow] the end carries a
+  /// closed arrowhead (the dedicated arrow tool); otherwise the start and
+  /// end endings come from the persisted [PdfEditingPreferences]
+  /// ([lineStartEnding] / [lineEndEnding]).
   void addLine(int pageIndex, (double, double) start, (double, double) end,
           {bool arrow = false}) =>
       apply(
@@ -838,7 +870,11 @@ class PdfEditingController extends ChangeNotifier {
               strokeWidth: preferences.strokeWidth,
               opacity: preferences.opacity,
               dashed: preferences.dashedStroke,
-              endEnding: arrow ? PdfLineEnding.closedArrow : PdfLineEnding.none,
+              startEnding:
+                  arrow ? PdfLineEnding.none : preferences.lineStartEnding,
+              endEnding: arrow
+                  ? PdfLineEnding.closedArrow
+                  : preferences.lineEndEnding,
               author: author),
           pages: [pageIndex]);
 
@@ -848,6 +884,8 @@ class PdfEditingController extends ChangeNotifier {
           strokeWidth: preferences.strokeWidth,
           opacity: preferences.opacity,
           dashed: preferences.dashedStroke,
+          startEnding: preferences.lineStartEnding,
+          endEnding: preferences.lineEndEnding,
           author: author),
       pages: [pageIndex]);
 
@@ -859,6 +897,96 @@ class PdfEditingController extends ChangeNotifier {
           dashed: preferences.dashedStroke,
           author: author),
       pages: [pageIndex]);
+
+  // ---------------------------------------------------------------------
+  // measurements (§12.9)
+
+  /// The active measurement calibration the measure tools stamp onto new
+  /// annotations, or null until [calibrateScale] (or setting
+  /// [measurementScale]) provides one. Persisted with the other
+  /// [preferences].
+  PdfMeasurementScale? get measurementScale => preferences.measurementScale;
+
+  set measurementScale(PdfMeasurementScale? value) =>
+      preferences.measurementScale = value;
+
+  /// Whether a measurement tool can place an annotation right now — i.e. a
+  /// scale has been calibrated.
+  bool get hasMeasurementScale => preferences.measurementScale != null;
+
+  /// Calibrates [measurementScale] from a reference segment between
+  /// [start] and [end] (page-space points) that represents [realLength]
+  /// [unitLabel]s. The classic "two-point calibration" flow.
+  void calibrateScale(
+    (double, double) start,
+    (double, double) end,
+    double realLength,
+    String unitLabel, {
+    String? areaUnitLabel,
+    int precision = 100,
+  }) {
+    final dx = end.$1 - start.$1;
+    final dy = end.$2 - start.$2;
+    final length = math.sqrt(dx * dx + dy * dy);
+    if (length <= 0 || realLength <= 0) return;
+    measurementScale = PdfMeasurementScale.fromReference(
+      pointLength: length,
+      realLength: realLength,
+      unitLabel: unitLabel,
+      areaUnitLabel: areaUnitLabel,
+      precision: precision,
+    );
+  }
+
+  /// The live distance readout for a segment from [start] to [end]
+  /// (page-space points), or null without a scale.
+  String? measuredDistance((double, double) start, (double, double) end) {
+    final scale = measurementScale;
+    if (scale == null) return null;
+    final dx = end.$1 - start.$1;
+    final dy = end.$2 - start.$2;
+    return scale.toMeasure().formatDistance(math.sqrt(dx * dx + dy * dy));
+  }
+
+  /// The live perimeter readout (sum of segment lengths) for a page-space
+  /// polyline through [points], or null without a scale.
+  String? measuredPerimeter(List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 2) return null;
+    var total = 0.0;
+    for (var i = 0; i + 1 < points.length; i++) {
+      final dx = points[i + 1].$1 - points[i].$1;
+      final dy = points[i + 1].$2 - points[i].$2;
+      total += math.sqrt(dx * dx + dy * dy);
+    }
+    return scale.toMeasure().formatDistance(total);
+  }
+
+  /// The live area readout (shoelace) for a page-space polygon through
+  /// [points], or null without a scale or fewer than three points.
+  String? measuredArea(List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 3) return null;
+    return scale.toMeasure().formatArea(pdfShoelaceArea(points));
+  }
+
+  /// Adds a measurement annotation of [kind] through [points] using the
+  /// active [measurementScale]. A no-op without a scale.
+  void addMeasurement(
+      int pageIndex, PdfMeasurementKind kind, List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null) return;
+    apply(
+      (e) => e.addMeasurement(pageIndex, kind, points,
+          measure: scale.toMeasure(),
+          strokeColor: _colorValue,
+          strokeWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
+          dashed: preferences.dashedStroke,
+          author: author),
+      pages: [pageIndex],
+    );
+  }
 
   void addFreeText(int pageIndex, PdfRect rect, String text) => apply(
       (e) => e.addFreeText(pageIndex, rect, text,
@@ -1782,6 +1910,39 @@ class PdfEditingController extends ChangeNotifier {
       return;
     }
     apply((e) => e.reshapeLineAnnotation(_selected.last.$1, annotation, points),
+        pages: [_selected.last.$1]);
+  }
+
+  /// Whether the single selected annotation is a /Line or /PolyLine whose
+  /// endings can be set ([setSelectedLineEndings]).
+  bool get canSetLineEndings {
+    final annotation = selectedAnnotation;
+    return _selected.length == 1 &&
+        annotation != null &&
+        (annotation.subtype == 'Line' || annotation.subtype == 'PolyLine') &&
+        annotation.normalAppearance != null;
+  }
+
+  /// The start/end line endings of the selected /Line or /PolyLine, or
+  /// null when no such single annotation is selected — for the ending
+  /// picker to show.
+  (PdfLineEnding, PdfLineEnding)? get selectedLineEndings {
+    final annotation = selectedAnnotation;
+    if (annotation == null || _selected.length != 1) return null;
+    return pdfLineEndings(annotation);
+  }
+
+  /// Swaps the start and/or end ending of the selected /Line or
+  /// /PolyLine in place — one revision, one undo, and the annotation
+  /// keeps its /Annots slot and object number. Pass null for an axis to
+  /// leave it unchanged.
+  void setSelectedLineEndings(
+      {PdfLineEnding? start, PdfLineEnding? end}) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canSetLineEndings) return;
+    apply(
+        (e) => e.setLineEndings(_selected.last.$1, annotation,
+            startEnding: start, endEnding: end),
         pages: [_selected.last.$1]);
   }
 

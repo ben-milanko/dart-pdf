@@ -148,6 +148,7 @@ class PdfEditorView extends StatefulWidget {
   const PdfEditorView({
     super.key,
     this.bytes,
+    this.documentId,
     this.controller,
     this.viewerController,
     this.preferences,
@@ -174,6 +175,13 @@ class PdfEditorView extends StatefulWidget {
   /// The PDF to edit. The widget owns the session; replacing the bytes
   /// (by identity) opens a fresh session in place.
   final Uint8List? bytes;
+
+  /// A stable identifier for this document, used to remember its scroll
+  /// position and zoom across sessions (persisted in the preferences).
+  /// With [bytes] a key is derived from the content when this is null;
+  /// with an external [controller] (no bytes) pass one explicitly to
+  /// enable the memory — a file path or URL is ideal.
+  final String? documentId;
 
   /// An external edit session, for hosts that drive edits
   /// programmatically (then [bytes] must be null). The host keeps
@@ -251,6 +259,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfEditingController? _ownedSession;
   PdfEditingPreferences? _ownedPrefs;
   PdfViewerController? _ownedViewer;
+  PdfViewportMemory? _viewportMemory;
 
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
@@ -267,10 +276,28 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   PdfEditingPreferences get _prefs => _session.preferences;
 
+  /// A stable key for the open document, or null when there is nothing to
+  /// key a remembered position on — an external controller with no
+  /// [documentId]. With [bytes] one is derived from the content.
+  String? get _documentKey {
+    if (widget.documentId != null) return widget.documentId;
+    final bytes = widget.bytes;
+    return bytes == null ? null : pdfDocumentKey(bytes);
+  }
+
   @override
   void initState() {
     super.initState();
     _openSession();
+    // remember and restore where the user left this document
+    final key = _documentKey;
+    if (key != null) {
+      _viewportMemory = PdfViewportMemory(
+        viewer: _viewer,
+        preferences: _prefs,
+        documentKey: key,
+      );
+    }
   }
 
   void _openSession() {
@@ -300,15 +327,19 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   void didUpdateWidget(PdfEditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.controller != oldWidget.controller ||
-        !identical(widget.bytes, oldWidget.bytes)) {
+        !identical(widget.bytes, oldWidget.bytes) ||
+        widget.documentId != oldWidget.documentId) {
       _closeSession();
       _searchField.clear();
       _openSession();
+      final key = _documentKey;
+      if (key != null) _viewportMemory?.rekey(key);
     }
   }
 
   @override
   void dispose() {
+    _viewportMemory?.dispose();
     _closeSession();
     _ownedPrefs?.dispose();
     _ownedViewer?.dispose();

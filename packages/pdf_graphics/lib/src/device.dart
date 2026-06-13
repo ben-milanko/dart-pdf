@@ -165,7 +165,13 @@ abstract interface class PdfDevice {
   /// group then blends as one object. Non-compositing devices can treat
   /// the pair as a no-op — the group's content still arrives through the
   /// normal callbacks in between.
-  void beginGroup(double alpha);
+  ///
+  /// When [knockout] is true the group is a knockout group (/K true,
+  /// §11.4.5): each top-level element composites with the group's initial
+  /// (transparent) backdrop rather than with the elements painted before
+  /// it, so a later element replaces an earlier one wherever they overlap
+  /// instead of blending over it.
+  void beginGroup(double alpha, {bool knockout = false});
 
   /// Composites the group opened by [beginGroup].
   void endGroup();
