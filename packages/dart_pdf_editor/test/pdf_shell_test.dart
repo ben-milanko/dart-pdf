@@ -484,4 +484,89 @@ void main() {
       expect(viewer.pageColor, const Color(0xFFEEF7EE));
     });
   });
+
+  // On a narrow screen the side panels and the thumbnail strip become
+  // bottom sheets instead of docking and crowding the page out.
+  group('bottom sheets on small screens', () {
+    testWidgets('compact: a toggled panel floats up as a bottom sheet',
+        (tester) async {
+      compactScreen(tester);
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      expect(find.byType(PdfAnnotationSidebar), findsNothing);
+
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-annotations-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      // the panel is present, wrapped in a bottom sheet (its close button)
+      expect(find.byType(PdfAnnotationSidebar), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-annotations-sheet-close')),
+          findsOneWidget);
+      // and it does not dock a side resize grip
+      expect(find.byKey(const ValueKey('pdf-annotation-resize-grip')),
+          findsNothing);
+    });
+
+    testWidgets('compact: the sheet close button hides the panel',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      compactScreen(tester);
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
+
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-properties-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(find.byType(PdfAnnotationPropertiesPanel), findsOneWidget);
+
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-properties-sheet-close')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(find.byType(PdfAnnotationPropertiesPanel), findsNothing);
+      expect(prefs.showPropertiesPanel, isFalse);
+    });
+
+    testWidgets('wide: panels dock to the side, not a bottom sheet',
+        (tester) async {
+      // the default 800x600 test surface is above the compact width
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-annotations-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(find.byType(PdfAnnotationSidebar), findsOneWidget);
+      // docked: a side resize grip, no bottom-sheet chrome
+      expect(find.byKey(const ValueKey('pdf-annotation-resize-grip')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-annotations-sheet-close')),
+          findsNothing);
+    });
+
+    testWidgets('compact reader: the thumbnail strip is a bottom sheet',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      await prefs.ready;
+      addTearDown(prefs.dispose);
+      compactScreen(tester);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(3), preferences: prefs));
+
+      // compact first run starts closed; toggle it on
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-thumbnails-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      expect(find.byType(PdfThumbnailSidebar), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-thumbnails-sheet-close')),
+          findsOneWidget);
+      // the strip's side resize grip is gone in sheet form
+      expect(find.byKey(const ValueKey('pdf-thumbnail-resize-grip')),
+          findsNothing);
+    });
+  });
 }

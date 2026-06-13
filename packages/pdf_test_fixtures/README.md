@@ -1,5 +1,10 @@
 # pdf_test_fixtures
 
+[![pub package](https://img.shields.io/pub/v/pdf_test_fixtures.svg)](https://pub.dev/packages/pdf_test_fixtures)
+[![pub points](https://img.shields.io/pub/points/pdf_test_fixtures)](https://pub.dev/packages/pdf_test_fixtures/score)
+[![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
+
 Programmatic builders for structurally-correct PDF test files, shared by
 the [dart-pdf suite](https://github.com/ben-milanko/dart-pdf)'s test
 suites and useful for testing any PDF tooling.

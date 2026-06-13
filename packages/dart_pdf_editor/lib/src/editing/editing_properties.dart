@@ -7,6 +7,7 @@ import 'editing_controller.dart';
 import 'editing_font_controls.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
+import 'line_style.dart';
 
 /// A panel showing — and editing — the selected annotation's properties.
 ///
@@ -39,6 +40,7 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
     this.minWidth = 200,
     this.maxWidth = 420,
     this.showAuthor = true,
+    this.bottomSheet = false,
   });
 
   final PdfEditingController controller;
@@ -62,6 +64,11 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
   /// annotation's author can't be edited here — for hosts that set the
   /// author programmatically and lock it.
   final bool showAuthor;
+
+  /// Lays the panel out to fill its parent (full width, no side resize
+  /// grip) for hosting inside a bottom sheet on a small screen, rather
+  /// than as a fixed-width docked column.
+  final bool bottomSheet;
 
   @override
   State<PdfAnnotationPropertiesPanel> createState() =>
@@ -384,11 +391,14 @@ class _PdfAnnotationPropertiesPanelState
     return true;
   }
 
-  static const _fillable = {'Square', 'Circle', 'FreeText'};
-  static const _stroked = {'Square', 'Circle', 'Ink'};
+  static const _fillable = {'Square', 'Circle', 'Polygon', 'FreeText'};
+  static const _stroked = {'Square', 'Circle', 'Polygon', 'Ink'};
+  static const _lineStyled = {
+    'Square', 'Circle', 'Line', 'PolyLine', 'Polygon', //
+  };
   static const _translucent = {
-    'Square', 'Circle', 'Ink', 'Highlight', 'Underline', 'StrikeOut',
-    'Squiggly', 'Stamp', //
+    'Square', 'Circle', 'Polygon', 'Ink', 'Highlight', 'Underline',
+    'StrikeOut', 'Squiggly', 'Stamp', //
   };
 
   List<Widget> _styleControls(PdfAnnotation annotation) {
@@ -421,6 +431,29 @@ class _PdfAnnotationPropertiesPanelState
           _controller.restyleSelected(strokeWidth: v);
           setState(() => _draggingStroke = null);
         },
+      ));
+    }
+    if (_allSelected(_lineStyled) && _controller.canSetLineStyleSelected) {
+      children.add(Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(children: [
+          const Expanded(child: Text('Line type')),
+          DropdownButton<PdfLineStyle>(
+            key: const ValueKey('pdf-prop-line-type'),
+            value: _controller.selectedLineStyle ?? PdfLineStyle.solid,
+            isDense: true,
+            items: [
+              for (final style in PdfLineStyle.values)
+                DropdownMenuItem(
+                    value: style,
+                    key: ValueKey('pdf-prop-line-type-${style.name}'),
+                    child: Text(style.label)),
+            ],
+            onChanged: (style) {
+              if (style != null) _controller.restyleSelected(lineStyle: style);
+            },
+          ),
+        ]),
       ));
     }
     if (_allSelected(_translucent)) {
@@ -569,11 +602,9 @@ class _PdfAnnotationPropertiesPanelState
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: _width,
-      child: Stack(children: [
-        Positioned.fill(
-          child: Material(
+    final showGrip = widget.resizable && !widget.bottomSheet;
+    final onLeftEdge = !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    final content = Material(
             color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: ListenableBuilder(
               listenable: _controller,
@@ -594,9 +625,7 @@ class _PdfAnnotationPropertiesPanelState
                     ? _buildSingle(annotation)
                     : _buildMulti(annotation, count);
                 final barClearance = PdfScrollbar.hitExtent +
-                    (widget.resizable && widget.side == PdfSidebarSide.left
-                        ? PdfSidebarResizeGrip.width
-                        : 0);
+                    (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
                 return Stack(children: [
                   ScrollConfiguration(
                     behavior: ScrollConfiguration.of(context)
@@ -610,9 +639,7 @@ class _PdfAnnotationPropertiesPanelState
                     top: 0,
                     bottom: 0,
                     right:
-                        widget.resizable && widget.side == PdfSidebarSide.left
-                            ? PdfSidebarResizeGrip.width
-                            : 0,
+                        showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0,
                     child: PdfScrollbar(
                       scroll: _scroll,
                       thumbKey:
@@ -622,9 +649,13 @@ class _PdfAnnotationPropertiesPanelState
                 ]);
               },
             ),
-          ),
-        ),
-        if (widget.resizable)
+          );
+    if (widget.bottomSheet) return content;
+    return SizedBox(
+      width: _width,
+      child: Stack(children: [
+        Positioned.fill(child: content),
+        if (showGrip)
           Positioned(
             top: 0,
             bottom: 0,

@@ -199,6 +199,7 @@ class PdfSearchResultsPanel extends StatefulWidget {
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 480,
+    this.bottomSheet = false,
   });
 
   final PdfViewerController controller;
@@ -219,6 +220,11 @@ class PdfSearchResultsPanel extends StatefulWidget {
   /// Clamps for the dragged width.
   final double minWidth;
   final double maxWidth;
+
+  /// Lays the panel out to fill its parent (full width, no side resize
+  /// grip) for hosting inside a bottom sheet on a small screen, rather
+  /// than as a fixed-width docked column.
+  final bool bottomSheet;
 
   @override
   State<PdfSearchResultsPanel> createState() => _PdfSearchResultsPanelState();
@@ -309,11 +315,9 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    return SizedBox(
-      width: _width,
-      child: Stack(children: [
-        Positioned.fill(
-          child: Material(
+    final showGrip = widget.resizable && !widget.bottomSheet;
+    final onLeftEdge = !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    final content = Material(
             color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: ListenableBuilder(
               listenable: controller,
@@ -338,9 +342,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                   entries.add((header: null, result: i));
                 }
                 final barClearance = PdfScrollbar.hitExtent +
-                    (widget.resizable && widget.side == PdfSidebarSide.left
-                        ? PdfSidebarResizeGrip.width
-                        : 0);
+                    (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
                 final textTheme = Theme.of(context).textTheme;
                 return Stack(children: [
                   Column(children: [
@@ -391,9 +393,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     top: 0,
                     bottom: 0,
                     right:
-                        widget.resizable && widget.side == PdfSidebarSide.left
-                            ? PdfSidebarResizeGrip.width
-                            : 0,
+                        showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0,
                     child: PdfScrollbar(
                       scroll: _scroll,
                       thumbKey: const ValueKey('pdf-search-scrollbar-thumb'),
@@ -402,9 +402,13 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                 ]);
               },
             ),
-          ),
-        ),
-        if (widget.resizable)
+          );
+    if (widget.bottomSheet) return content;
+    return SizedBox(
+      width: _width,
+      child: Stack(children: [
+        Positioned.fill(child: content),
+        if (showGrip)
           Positioned(
             top: 0,
             bottom: 0,

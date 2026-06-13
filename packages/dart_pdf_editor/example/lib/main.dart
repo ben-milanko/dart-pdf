@@ -400,9 +400,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final tab = _active;
     return Scaffold(
       appBar: AppBar(
-        title: Text(tab == null || tab.title.isEmpty
-            ? 'dart-pdf viewer'
-            : tab.title, overflow: TextOverflow.ellipsis),
+        title: Text(
+            tab == null || tab.title.isEmpty ? 'dart-pdf viewer' : tab.title,
+            overflow: TextOverflow.ellipsis),
         // a browser-style tab strip under the title; hidden until the
         // first document is open
         bottom: _tabs.isEmpty
@@ -466,6 +466,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.compare_arrows),
+            tooltip: 'Compare with another PDF…',
+            onPressed: _compareWith,
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.folder_open),
             tooltip: 'Open PDF in a new tab',
             onPressed: _pickFile,
@@ -478,16 +484,6 @@ class _ViewerScreenState extends State<ViewerScreen> {
             tooltip: 'More actions',
             onSelected: (action) => action(),
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: _compareWith,
-                enabled: _active?.session != null,
-                child: const ListTile(
-                  leading: Icon(Icons.compare_arrows),
-                  title: Text('Compare with another PDF…'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const PopupMenuDivider(),
               PopupMenuItem(
                 value: () => _openLink(_githubUrl),
                 child: const ListTile(
@@ -533,37 +529,37 @@ class _ViewerScreenState extends State<ViewerScreen> {
           : tab.error != null
               ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
               : tab.isComparison
-              ? PdfComparisonView(
-                  key: ValueKey(tab),
-                  before: tab.compareBefore!,
-                  after: tab.compareAfter!,
-                )
-              // the two drop-in widgets carry all the PDF chrome (search,
-              // page number, panels, toolbar) — the app supplies the edit
-              // session, its file handling, and the demo's app-side wiring
-              : _readOnly
-                  ? PdfReader(
+                  ? PdfComparisonView(
                       key: ValueKey(tab),
-                      bytes: tab.session!.bytes,
-                      // a stable id per document so reopening it (across
-                      // app restarts) restores its scroll position and zoom
-                      documentId: tab.title,
-                      controller: tab.viewer,
-                      preferences: _prefs,
-                      onAction: _onAction,
-                      pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
+                      before: tab.compareBefore!,
+                      after: tab.compareAfter!,
                     )
-                  : PdfEditorView(
-                      key: ValueKey(tab),
-                      documentId: tab.title,
-                      controller: tab.session,
-                      viewerController: tab.viewer,
-                      onSave: (saved) => unawaited(_saveAs(saved)),
-                      onAction: _onAction,
-                      pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
-                      annotationMenuBuilder: _annotationMenuActions,
-                      formImagePicker: _pickFormImage,
-                    ),
+                  // the two drop-in widgets carry all the PDF chrome (search,
+                  // page number, panels, toolbar) — the app supplies the edit
+                  // session, its file handling, and the demo's app-side wiring
+                  : _readOnly
+                      ? PdfReader(
+                          key: ValueKey(tab),
+                          bytes: tab.session!.bytes,
+                          // a stable id per document so reopening it (across
+                          // app restarts) restores its scroll position and zoom
+                          documentId: tab.title,
+                          controller: tab.viewer,
+                          preferences: _prefs,
+                          onAction: _onAction,
+                          pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
+                        )
+                      : PdfEditorView(
+                          key: ValueKey(tab),
+                          documentId: tab.title,
+                          controller: tab.session,
+                          viewerController: tab.viewer,
+                          onSave: (saved) => unawaited(_saveAs(saved)),
+                          onAction: _onAction,
+                          pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
+                          annotationMenuBuilder: _annotationMenuActions,
+                          formImagePicker: _pickFormImage,
+                        ),
     );
   }
 

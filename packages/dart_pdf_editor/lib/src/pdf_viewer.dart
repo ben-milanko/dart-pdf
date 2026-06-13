@@ -632,6 +632,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// carry one, and default-mode annotation selection is mouse-only.
   PointerDeviceKind? _lastPointerKind;
 
+  /// The latest pointer location (mouse hover or any pointer-down), in the
+  /// viewer's local space — so a keyboard ⌘V pastes the annotation
+  /// clipboard at the cursor, like the right-click paste does. Null until
+  /// a pointer is seen (touch/keyboard-only paste falls back to cascade).
+  Offset? _lastPointerLocal;
+
   /// A long-press (touch/stylus) word selection is mid-gesture: the
   /// handles and copy chip stay hidden until the finger lifts.
   bool _touchSelecting = false;
@@ -646,6 +652,17 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// A mouse drag that started on empty page area (no text under the
   /// press) grab-pans the document instead of selecting text.
   bool _grabPanning = false;
+
+  /// A Shift+drag in default editing mode (no tool armed, nothing
+  /// selected) rubber-bands a marquee selection of annotations — the
+  /// same gesture the select tool offers, without arming it. The start
+  /// and current points are viewport-local (the selection detector's
+  /// own coordinate space, which the zoom transform maps to screen);
+  /// [_marqueePage] is the page the drag began on, so the box maps to
+  /// one page's user space even if it strays onto a neighbour.
+  Offset? _marqueeStart;
+  Offset? _marqueeCurrent;
+  int? _marqueePage;
 
   /// Set when a raw-pointer gesture (mouse double-click word select) has
   /// consumed the press, so the tap recognizer's late-firing callback for
@@ -1414,6 +1431,51 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     return null;
   }
 
+  /// Resolves a *global* point to the page index and page-space point
+  /// under it — the editing overlay hands a cross-page move drag's drop
+  /// position here. Conversion runs through the list-space render box, so
+  /// the zoom transform is undone for free (same path the text-selection
+  /// handles use).
+  (int, double, double)? _resolvePagePointGlobal(Offset globalPosition) {
+    final box = _listSpaceKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return null;
+    return _pagePointAt(box.globalToLocal(globalPosition));
+  }
+
+  /// The cumulative top offset (list coordinates) of page [index].
+  double _pageTop(int index) {
+    var top = 0.0;
+    for (var i = 0; i < index; i++) {
+      top += _pageHeight(i) + widget.pageSpacing;
+    }
+    return top;
+  }
+
+  /// The laid-out geometry of page [index], or null when it isn't
+  /// measurable yet (no width, junk crop box, out of range).
+  PdfPageGeometry? _pageGeometry(int index) {
+    if (_viewWidth <= 0 || index < 0 || index >= _pages.length) return null;
+    final box = _pages[index].cropBox;
+    if (box.width <= 0 || box.height <= 0) return null;
+    return PdfPageGeometry(
+      cropBox: box,
+      rotation: _pages[index].rotation,
+      viewSize: Size(_viewWidth * _layoutZoom, _pageHeight(index)),
+    );
+  }
+
+  /// Maps a viewport-local offset into page [index]'s view-box
+  /// coordinates (what [PdfPageGeometry] expects), without clamping — a
+  /// marquee dragged past the page edge still maps to sensible (possibly
+  /// out-of-page) user-space coordinates.
+  Offset _toPageView(int index, Offset local) {
+    final pageWidth = _viewWidth * _layoutZoom;
+    return Offset(
+      local.dx - (_viewWidth - pageWidth) / 2,
+      _scroll.offset + local.dy - _pageTop(index),
+    );
+  }
+
   /// Maps a pointer position to a text position. [tolerance] is in page
   /// units; pass infinity to snap to the nearest text while dragging.
   (int, int)? _textPositionAt(Offset local, {required double tolerance}) {
@@ -1607,9 +1669,18 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   void _onHover(PointerHoverEvent event) {
+    _lastPointerLocal = event.localPosition;
     if (_grabPanning) return; // grabbing keeps its cursor mid-drag
+    final editing = widget.editing;
     final MouseCursor cursor;
-    if (_annotationAt(event.localPosition) != null ||
+    if (editing != null &&
+        editing.tool == null &&
+        !editing.isPickingColor &&
+        !editing.hasAnnotationSelection &&
+        HardwareKeyboard.instance.isShiftPressed) {
+      // Shift held in default editing mode: a drag rubber-bands a marquee
+      cursor = SystemMouseCursors.precise;
+    } else if (_annotationAt(event.localPosition) != null ||
         _selectableAnnotationAt(event.localPosition)) {
       cursor = SystemMouseCursors.click;
     } else if (_textPositionAt(event.localPosition, tolerance: 8) != null) {
@@ -1635,11 +1706,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// ⌘X/Ctrl+X: cut the selected annotations (copy + delete).
   void _onCut() => widget.editing?.cutSelectedAnnotations();
 
-  /// ⌘V/Ctrl+V: paste the annotation clipboard onto the current page.
+  /// ⌘V/Ctrl+V: paste the annotation clipboard at the cursor — the page
+  /// and point under the last pointer, like the right-click paste. With
+  /// no pointer seen yet (touch / keyboard-only) it falls back to the
+  /// current page's cascade.
   void _onPaste() {
     final editing = widget.editing;
     if (editing == null || !editing.hasAnnotationClipboard) return;
-    editing.pasteAnnotations(_controller.currentPage);
+    final local = _lastPointerLocal;
+    final point = local == null ? null : _pagePointAt(local);
+    if (point != null) {
+      editing.pasteAnnotations(point.$1, at: (point.$2, point.$3));
+    } else {
+      editing.pasteAnnotations(_controller.currentPage);
+    }
   }
 
   /// ⌘A/Ctrl+A: with the select tool armed (or an annotation selection
@@ -1708,6 +1788,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _onPointerDown(PointerDownEvent event) {
     _suppressTap = false;
     _lastPointerKind = event.kind;
+    _lastPointerLocal = event.localPosition;
     _panFlinger.stop();
     _touchFlinger.stop();
     if (event.kind == PointerDeviceKind.touch) {
@@ -1774,6 +1855,24 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // document out from under its own stroke
     if (_kindDrawsInk(details.kind)) return;
     _focusNode.requestFocus();
+    // Shift+drag in default editing mode (no tool armed, nothing
+    // selected) rubber-bands a marquee selection — the gesture the
+    // select tool offers, without arming it. Shift forces the marquee
+    // over whatever is under the press (text, an annotation, empty
+    // page), so a normal drag still grab-pans or selects text.
+    if (_marqueeShouldStart(details)) {
+      // anchor at the pointer-down position, not where the pan was
+      // recognized past the slop — the box should start under the press
+      final start = _lastMouseDownLocal ?? details.localPosition;
+      final point = _pagePointAt(start);
+      if (point != null) {
+        _marqueePage = point.$1;
+        _marqueeStart = start;
+        setState(() => _marqueeCurrent = details.localPosition);
+        _controller._setSelection('');
+        return;
+      }
+    }
     if (_wordDrag) {
       // double-click-and-drag: anchor on the word under the original
       // press (the drag start has already moved past the touch slop)
@@ -1803,7 +1902,57 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _controller._setSelection('');
   }
 
+  /// Whether [_onSelectionStart] should begin a marquee instead of a
+  /// text selection or grab-pan: a mouse/trackpad drag with Shift held,
+  /// in default editing mode (a tool would own the gesture, and a live
+  /// selection mounts the editing overlay, which marquees itself).
+  bool _marqueeShouldStart(DragStartDetails details) {
+    final editing = widget.editing;
+    if (editing == null ||
+        editing.tool != null ||
+        editing.isPickingColor ||
+        editing.hasAnnotationSelection) {
+      return false;
+    }
+    final kind = details.kind;
+    final mouseLike = kind == null ||
+        kind == PointerDeviceKind.mouse ||
+        kind == PointerDeviceKind.trackpad;
+    return mouseLike && HardwareKeyboard.instance.isShiftPressed;
+  }
+
+  /// Finishes a marquee drag: selects the annotations the box covers on
+  /// the page the drag began on. A box too small to be a deliberate drag
+  /// is treated as a click (no selection change).
+  void _commitMarquee() {
+    final editing = widget.editing;
+    final page = _marqueePage;
+    final start = _marqueeStart;
+    final current = _marqueeCurrent ?? start;
+    setState(() {
+      _marqueeStart = null;
+      _marqueeCurrent = null;
+      _marqueePage = null;
+    });
+    if (editing == null || page == null || start == null || current == null) {
+      return;
+    }
+    final box = Rect.fromPoints(start, current);
+    if (box.width < 4 && box.height < 4) return; // a click, not a drag
+    final geometry = _pageGeometry(page);
+    if (geometry == null || !_scroll.hasClients) return;
+    editing.selectAnnotationsIn(
+      page,
+      geometry.toPageRect(Rect.fromPoints(
+          _toPageView(page, box.topLeft), _toPageView(page, box.bottomRight))),
+    );
+  }
+
   void _onSelectionUpdate(DragUpdateDetails details) {
+    if (_marqueeStart != null) {
+      setState(() => _marqueeCurrent = details.localPosition);
+      return;
+    }
     if (_grabPanning) {
       _grabPanBy(details.delta);
       return;
@@ -1821,6 +1970,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   void _onSelectionEnd(DragEndDetails details) {
+    if (_marqueeStart != null) {
+      _commitMarquee();
+      return;
+    }
     if (!_grabPanning) return;
     _grabPanning = false;
     setState(() => _hoverCursor = SystemMouseCursors.grab);
@@ -2401,6 +2554,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         (Theme.of(context).brightness == Brightness.dark
             ? const Color(0xFF202124)
             : const Color(0xFF404347));
+    // the rubber-band marquee's chrome, matching the editing overlay's
+    final marqueeColor =
+        PdfViewerTheme.of(context).annotationChromeColor ??
+            const Color(0xFF1E88E5);
     return LayoutBuilder(builder: (context, constraints) {
       // _viewWidth still holds the previous layout's width here; a change
       // rescales every page, so pin the reading position before adopting it
@@ -2500,6 +2657,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 onPanViewportEnd: _flingViewport,
                 onShowAnnotationMenu: _showSelectionMenu,
                 onShowFormFieldMenu: _showFormFieldMenu,
+                onResolvePagePoint: _resolvePagePointGlobal,
                 transformScale: _transformScale,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
@@ -2697,12 +2855,34 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                               child: ColoredBox(
                                 key: _listSpaceKey,
                                 color: canvasColor,
-                                // with ctrl/cmd held the list stops claiming wheel
-                                // events, so they reach the InteractiveViewer, which
-                                // zooms around the pointer
-                                child: IgnorePointer(
-                                  ignoring: _zoomModifierDown,
-                                  child: scrollable,
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    // with ctrl/cmd held the list stops claiming
+                                    // wheel events, so they reach the
+                                    // InteractiveViewer, which zooms around the
+                                    // pointer
+                                    IgnorePointer(
+                                      ignoring: _zoomModifierDown,
+                                      child: scrollable,
+                                    ),
+                                    // the Shift+drag marquee, drawn in this
+                                    // (list) space so it tracks the gesture and
+                                    // scales with the zoom transform
+                                    if (_marqueeStart != null &&
+                                        _marqueeCurrent != null)
+                                      Positioned.fill(
+                                        child: IgnorePointer(
+                                          child: CustomPaint(
+                                            painter: _MarqueePainter(
+                                              Rect.fromPoints(_marqueeStart!,
+                                                  _marqueeCurrent!),
+                                              marqueeColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -2750,6 +2930,31 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 }
 
+/// Paints the Shift+drag rubber-band marquee (a translucent fill with a
+/// hairline border), in list space so the zoom transform scales it.
+class _MarqueePainter extends CustomPainter {
+  const _MarqueePainter(this.rect, this.color);
+
+  final Rect rect;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(rect, Paint()..color = color.withAlpha(0x14));
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_MarqueePainter oldDelegate) =>
+      oldDelegate.rect != rect || oldDelegate.color != color;
+}
+
 class _PdfViewerPage extends StatefulWidget {
   const _PdfViewerPage({
     required this.page,
@@ -2773,6 +2978,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onPanViewportEnd,
     required this.onShowAnnotationMenu,
     required this.onShowFormFieldMenu,
+    required this.onResolvePagePoint,
     required this.transformScale,
     required this.renderScheduler,
     required this.previewCache,
@@ -2824,6 +3030,10 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [EditingPageOverlay.onShowFormFieldMenu].
   final void Function(Offset globalPosition, String fieldName)
       onShowFormFieldMenu;
+
+  /// See [EditingPageOverlay.onResolvePagePoint].
+  final (int, double, double)? Function(Offset globalPosition)
+      onResolvePagePoint;
 
   /// The viewer transform's scale — the editing overlay's chrome divides
   /// by it to stay constant-size on screen while zoomed.
@@ -2948,6 +3158,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               onPanViewportEnd: widget.onPanViewportEnd,
                               onShowAnnotationMenu: widget.onShowAnnotationMenu,
                               onShowFormFieldMenu: widget.onShowFormFieldMenu,
+                              onResolvePagePoint: widget.onResolvePagePoint,
                               rasterCurrent: _rastered,
                               zoom: zoom,
                               predictStrokes: widget.predictStrokes,

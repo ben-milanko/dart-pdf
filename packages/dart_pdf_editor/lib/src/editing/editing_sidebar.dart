@@ -48,6 +48,7 @@ class PdfAnnotationSidebar extends StatefulWidget {
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 480,
+    this.bottomSheet = false,
   });
 
   final PdfEditingController controller;
@@ -69,6 +70,11 @@ class PdfAnnotationSidebar extends StatefulWidget {
   /// Clamps for the dragged width.
   final double minWidth;
   final double maxWidth;
+
+  /// Lays the panel out to fill its parent (full width, no side resize
+  /// grip) for hosting inside a bottom sheet on a small screen, rather
+  /// than as a fixed-width docked column.
+  final bool bottomSheet;
 
   @override
   State<PdfAnnotationSidebar> createState() => _PdfAnnotationSidebarState();
@@ -350,11 +356,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: _width,
-      child: Stack(children: [
-        Positioned.fill(
-          child: Material(
+    // a bottom sheet supplies its own width and resize affordance, so the
+    // panel drops the side resize grip and fills its parent
+    final showGrip = widget.resizable && !widget.bottomSheet;
+    final onLeftEdge = !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    final content = Material(
             color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: ListenableBuilder(
               listenable: widget.controller,
@@ -399,9 +405,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 // keep the list clear of the overlay scrollbar's zone so
                 // the bar never covers a tile's trailing button
                 final barClearance = PdfScrollbar.hitExtent +
-                    (widget.resizable && widget.side == PdfSidebarSide.left
-                        ? PdfSidebarResizeGrip.width
-                        : 0);
+                    (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
                 final list = children.isEmpty
                     ? Center(
                         child: Text(listed > 0 && query.isNotEmpty
@@ -419,8 +423,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                         Positioned(
                           top: 0,
                           bottom: 0,
-                          right: widget.resizable &&
-                                  widget.side == PdfSidebarSide.left
+                          right: showGrip && onLeftEdge
                               ? PdfSidebarResizeGrip.width
                               : 0,
                           child: PdfScrollbar(
@@ -444,9 +447,13 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 ]);
               },
             ),
-          ),
-        ),
-        if (widget.resizable)
+          );
+    if (widget.bottomSheet) return content;
+    return SizedBox(
+      width: _width,
+      child: Stack(children: [
+        Positioned.fill(child: content),
+        if (showGrip)
           Positioned(
             top: 0,
             bottom: 0,

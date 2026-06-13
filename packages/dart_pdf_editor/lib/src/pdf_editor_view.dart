@@ -378,6 +378,90 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final pageColor = widget.pageColor ?? prefs.pageColor;
           final showThumbnails =
               pdfShellShowThumbnailSidebar(prefs, constraints);
+          // on a narrow screen the panels float up from the bottom as
+          // sheets instead of docking to the side and crowding the page
+          final useSheets = pdfShellUseBottomSheets(constraints);
+
+          PdfThumbnailSidebar thumbnails({required bool bottomSheet}) =>
+              PdfThumbnailSidebar(
+                key: const ValueKey('pdf-shell-thumbnails'),
+                controller: session,
+                viewerController: _viewer,
+                pageColor: pageColor,
+                showAnnotations: prefs.showAnnotations,
+                allowPageEditing: features.pageEditing,
+                bottomSheet: bottomSheet,
+              );
+          PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
+              PdfSearchResultsPanel(
+                key: const ValueKey('pdf-shell-search-panel'),
+                controller: _viewer,
+                preferences: prefs,
+                bottomSheet: bottomSheet,
+              );
+          PdfAnnotationSidebar annotations({required bool bottomSheet}) =>
+              PdfAnnotationSidebar(
+                key: const ValueKey('pdf-shell-annotations'),
+                controller: session,
+                viewerController: _viewer,
+                bottomSheet: bottomSheet,
+              );
+          PdfAnnotationPropertiesPanel properties({required bool bottomSheet}) =>
+              PdfAnnotationPropertiesPanel(
+                key: const ValueKey('pdf-shell-properties'),
+                controller: session,
+                showAuthor: features.authorEditable,
+                bottomSheet: bottomSheet,
+              );
+
+          final showThumbnailsPanel = features.thumbnails && showThumbnails;
+          final showSearchPanel = features.search &&
+              features.searchResultsPanel &&
+              prefs.showSearchResultsPanel;
+          final showAnnotationsPanel =
+              features.annotationSidebar && prefs.showAnnotationSidebar;
+          final showPropertiesPanel =
+              features.propertiesPanel && prefs.showPropertiesPanel;
+
+          final sheets = !useSheets
+              ? const <Widget>[]
+              : <Widget>[
+                  if (showThumbnailsPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-thumbnails-sheet'),
+                      title: 'Pages',
+                      closeKey:
+                          const ValueKey('pdf-shell-thumbnails-sheet-close'),
+                      onClose: () => prefs.showThumbnailSidebar = false,
+                      child: thumbnails(bottomSheet: true),
+                    ),
+                  if (showSearchPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-search-sheet'),
+                      title: 'Search results',
+                      closeKey: const ValueKey('pdf-shell-search-sheet-close'),
+                      onClose: () => prefs.showSearchResultsPanel = false,
+                      child: searchResults(bottomSheet: true),
+                    ),
+                  if (showAnnotationsPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-annotations-sheet'),
+                      title: 'Annotations',
+                      closeKey:
+                          const ValueKey('pdf-shell-annotations-sheet-close'),
+                      onClose: () => prefs.showAnnotationSidebar = false,
+                      child: annotations(bottomSheet: true),
+                    ),
+                  if (showPropertiesPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-properties-sheet'),
+                      title: 'Properties',
+                      closeKey:
+                          const ValueKey('pdf-shell-properties-sheet-close'),
+                      onClose: () => prefs.showPropertiesPanel = false,
+                      child: properties(bottomSheet: true),
+                    ),
+                ];
           return Column(children: [
             if (features.headerBar)
               PdfShellBar(
@@ -465,56 +549,35 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   // keyed so a panel appearing never recreates the viewer
                   // element (which would reset the reading position)
                   child: Row(children: [
-                    if (features.thumbnails && showThumbnails)
-                  PdfThumbnailSidebar(
-                    key: const ValueKey('pdf-shell-thumbnails'),
-                    controller: session,
-                    viewerController: _viewer,
-                    pageColor: pageColor,
-                    showAnnotations: prefs.showAnnotations,
-                    allowPageEditing: features.pageEditing,
-                  ),
-                if (features.search &&
-                    features.searchResultsPanel &&
-                    prefs.showSearchResultsPanel)
-                  PdfSearchResultsPanel(
-                    key: const ValueKey('pdf-shell-search-panel'),
-                    controller: _viewer,
-                    preferences: prefs,
-                  ),
-                Expanded(
-                  key: const ValueKey('pdf-shell-viewer'),
-                  child: PdfViewer(
-                    document: session.document,
-                    controller: _viewer,
-                    editing: session,
-                    onAction: widget.onAction,
-                    pageOverlayBuilder: widget.pageOverlayBuilder,
-                    annotationMenuBuilder: widget.annotationMenuBuilder,
-                    formImagePicker: widget.formImagePicker,
-                    editingTextPrompt: widget.textPrompt,
-                    initialFit: widget.initialFit,
-                    backgroundColor: widget.backgroundColor,
-                    pageColor: pageColor,
-                    showAnnotations: prefs.showAnnotations,
-                    highlightFormFields: prefs.highlightFormFields,
-                  ),
-                ),
-                if (features.annotationSidebar && prefs.showAnnotationSidebar)
-                  PdfAnnotationSidebar(
-                    key: const ValueKey('pdf-shell-annotations'),
-                    controller: session,
-                    viewerController: _viewer,
-                  ),
-                    if (features.propertiesPanel && prefs.showPropertiesPanel)
-                      PdfAnnotationPropertiesPanel(
-                        key: const ValueKey('pdf-shell-properties'),
-                        controller: session,
-                        showAuthor: features.authorEditable,
+                    if (showThumbnailsPanel && !useSheets)
+                      thumbnails(bottomSheet: false),
+                    if (showSearchPanel && !useSheets)
+                      searchResults(bottomSheet: false),
+                    Expanded(
+                      key: const ValueKey('pdf-shell-viewer'),
+                      child: PdfViewer(
+                        document: session.document,
+                        controller: _viewer,
+                        editing: session,
+                        onAction: widget.onAction,
+                        pageOverlayBuilder: widget.pageOverlayBuilder,
+                        annotationMenuBuilder: widget.annotationMenuBuilder,
+                        formImagePicker: widget.formImagePicker,
+                        editingTextPrompt: widget.textPrompt,
+                        initialFit: widget.initialFit,
+                        backgroundColor: widget.backgroundColor,
+                        pageColor: pageColor,
+                        showAnnotations: prefs.showAnnotations,
+                        highlightFormFields: prefs.highlightFormFields,
                       ),
+                    ),
+                    if (showAnnotationsPanel && !useSheets)
+                      annotations(bottomSheet: false),
+                    if (showPropertiesPanel && !useSheets)
+                      properties(bottomSheet: false),
                   ]),
                 ),
-                if (features.toolbar)
+                if (features.toolbar && sheets.isEmpty)
                   Positioned(
                     left: 0,
                     right: 0,
@@ -535,6 +598,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       trailing: widget.toolbarTrailing,
                     ),
                   ),
+                if (sheets.isNotEmpty) pdfShellBottomSheets(sheets),
               ]),
             ),
           ]);

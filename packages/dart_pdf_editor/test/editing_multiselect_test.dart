@@ -321,6 +321,50 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets(
+        'a shift+drag rubber-bands a selection with no tool armed',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      await addShapes(tester, editing);
+      expect(editing.tool, isNull);
+
+      // hold shift: a drag over both shapes rubber-bands them, the same
+      // gesture the select tool offers but without arming it
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      final gesture = await tester.startGesture(view(80, 730),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(200, 690));
+      await tester.pump();
+      await gesture.moveTo(view(340, 630));
+      await tester.pump();
+      await gesture.up();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+
+      expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
+      expect(editing.tool, isNull, reason: 'no tool got armed');
+      await settle(tester);
+    });
+
+    testWidgets('without shift, a mouse drag on empty area does not marquee',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      await addShapes(tester, editing);
+
+      final gesture = await tester.startGesture(view(80, 730),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(200, 690));
+      await tester.pump();
+      await gesture.moveTo(view(340, 630));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(editing.hasAnnotationSelection, isFalse,
+          reason: 'a plain drag grab-pans, it does not rubber-band');
+      await settle(tester);
+    });
+
     testWidgets('the delete key removes the whole selection as one undo step',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
