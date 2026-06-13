@@ -430,7 +430,12 @@ Uint8List buildAcroFormPdf() {
 /// Builds a minimal TrueType font, unitsPerEm 1000, three glyphs:
 /// 0 = .notdef (empty), 1 = 'A' (triangle, advance 600),
 /// 2 = 'B' (square, advance 1000). The cmap is a (3,1) format 4 table.
-Uint8List buildTestTrueTypeFont() {
+///
+/// Set [includeCmap] false to omit the cmap (a cmap-less embedded subset),
+/// and [includePost] true to add a `post` format 2.0 table naming gid 1 'A'
+/// and gid 2 'B' — together they exercise name-based glyph selection.
+Uint8List buildTestTrueTypeFont(
+    {bool includeCmap = true, bool includePost = false}) {
   final out = BytesBuilder();
 
   Uint8List u16(int v) => Uint8List.fromList([(v >> 8) & 0xFF, v & 0xFF]);
@@ -533,14 +538,25 @@ Uint8List buildTestTrueTypeFont() {
     cmapTable,
   ]);
 
+  // post format 2.0: gid 0 = .notdef (mac index 0), gid 1 = 'A' (index 36),
+  // gid 2 = 'B' (index 37) — all standard Mac names, no Pascal strings.
+  final post = join([
+    u32(0x00020000), u32(0), // version, italicAngle
+    s16(0), s16(0), u32(0), // underline pos/thick, isFixedPitch
+    u32(0), u32(0), u32(0), u32(0), // mem usage
+    u16(3), // numberOfGlyphs
+    u16(0), u16(36), u16(37), // glyphNameIndex
+  ]);
+
   final tables = <(String, Uint8List)>[
-    ('cmap', cmap),
+    if (includeCmap) ('cmap', cmap),
     ('glyf', glyf),
     ('head', head),
     ('hhea', hhea),
     ('hmtx', hmtx),
     ('loca', loca),
     ('maxp', maxp),
+    if (includePost) ('post', post),
   ];
   out.add(u32(0x00010000));
   out.add(u16(tables.length));

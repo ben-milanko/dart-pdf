@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Reopen documents where the user left them: `PdfViewport` (a
+  resolution-independent scroll-position + zoom snapshot),
+  `PdfViewerController.captureViewport`/`restoreViewport`,
+  `PdfViewer.initialViewport`, and per-document persistence in
+  `PdfEditingPreferences` (`viewportFor`/`setViewport`). The `PdfReader`
+  and `PdfEditorView` shells remember and restore each document's
+  position automatically — pass `documentId` for a stable key, or let it
+  derive one from the bytes (`pdfDocumentKey`).
+
 ## 0.1.0
 
 Initial release.

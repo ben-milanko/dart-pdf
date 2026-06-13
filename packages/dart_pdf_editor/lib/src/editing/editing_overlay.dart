@@ -13,6 +13,7 @@ import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
+import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
 /// One page's editing layer: captures the armed tool's gestures in page
@@ -35,6 +36,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onPanViewportEnd,
     this.rasterCurrent = true,
     this.zoom = 1,
+    this.predictStrokes = true,
     this.formImagePicker,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
@@ -81,6 +83,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// (ink, shapes, the drag ghost) scale with the page on purpose.
   final double zoom;
 
+  /// See [PdfViewer.predictStrokes]. When true the in-progress ink layer
+  /// draws a forward-extrapolated lead so the painted line keeps up with
+  /// the pen tip.
+  final bool predictStrokes;
+
   /// Opens the annotation context menu at a global position — the
   /// selection action chip's "more" button and the touch long-press,
   /// which give touch input the menu that mice reach by right-clicking.
@@ -107,6 +114,22 @@ typedef _InkPaint = ({
   List<List<double>?> pressures,
   Color color,
   double strokeWidth,
+});
+
+/// A Square/Circle drawn for a resize preview (or its committed
+/// afterimage). The editor *regenerates* a shape's appearance at the new
+/// rect with a constant stroke width rather than stretching the old one,
+/// so a stretched ghost would thicken the line during the drag and snap
+/// back on commit — this draws the shape the way the commit will, line
+/// width and all. [strokeWidth] is view space; [rotation] view radians.
+typedef _ShapeResize = ({
+  Rect rect,
+  bool ellipse,
+  Color? stroke,
+  double strokeWidth,
+  Color? fill,
+  double rotation,
+  double opacity,
 });
 
 /// Which sides of the selection a resize handle moves: -1 left/top edge,
@@ -155,6 +178,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // ink
   List<(double, double)>? _activeStroke;
   List<double>? _activeStrokePressures;
+
+  /// Repaint signal for the in-progress stroke. Appending a point during a
+  /// pencil/mouse stroke bumps this instead of calling setState, so the
+  /// dedicated active-stroke layer (its own RepaintBoundary) re-rasterizes
+  /// without rebuilding the overlay subtree or the heavy preview painter —
+  /// the difference between a per-point widget rebuild and a per-point
+  /// repaint, which is what the pen latency was paying for. Every mutation
+  /// of [_activeStroke]/[_activeStrokePressures] must call [_bumpActiveStroke]
+  /// (the painter's shouldRepaint stays false — this Listenable is the only
+  /// thing that drives it, including the clear on commit/bail).
+  final ValueNotifier<int> _activeStrokeRepaint = ValueNotifier<int>(0);
+
+  void _bumpActiveStroke() => _activeStrokeRepaint.value++;
 
   /// The latest normalized pressure of the pointer being tracked, or null
   /// for devices that don't report pressure (finger, mouse).
@@ -233,6 +269,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int? _vertexHandle;
   List<Offset>? _vertexPoints;
 
+  // the "lift" model behind a free-text resize: the page rendered WITHOUT
+  // the dragged annotation, drawn clipped to the resting box so the
+  // original reads as gone (the page content behind shows through) while
+  // the re-wrapped preview floats on top. Rendered async on resize start;
+  // until it lands, an opaque-paper wash stands in so the original never
+  // flashes. [_resizeCleanFor] is the lifted annotation's identity, so a
+  // stale render from an earlier drag is discarded.
+  ui.Picture? _resizeCleanPicture;
+  Object? _resizeCleanFor;
+
   // rubber-band selection (mouse drags on empty page area)
   Offset? _marqueeStart;
   Offset? _marqueeCurrent;
@@ -265,6 +311,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   double _afterGhostRotation = 0;
   double _afterGhostLocalAngle = 0;
   ({Rect rect, PdfEditTool tool, Color color, double strokeWidth})? _afterShape;
+  // a just-committed Square/Circle resize, held (constant stroke width)
+  // until the new revision's raster lands — see [_shapeResizeStyle]
+  _ShapeResize? _afterShapeResize;
   ({
     List<Offset> points,
     PdfEditTool tool,
@@ -435,10 +484,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
-        setState(() {
-          _activeStroke = [_geometry.toPagePoint(event.localPosition)];
-          _activeStrokePressures = pressure == null ? null : [pressure];
-        });
+        // no setState: the active stroke lives on its own repaint layer
+        _activeStroke = [_geometry.toPagePoint(event.localPosition)];
+        _activeStrokePressures = pressure == null ? null : [pressure];
+        _bumpActiveStroke();
       }
     }
   }
@@ -454,11 +503,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_rawErasing) {
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
-      setState(() {
-        _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
-        _activeStrokePressures
-            ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      });
+      // hot path: append + repaint the stroke layer only, no rebuild
+      _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
+      _activeStrokePressures
+          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
+      _bumpActiveStroke();
     }
   }
 
@@ -492,6 +541,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _signatureDrag = false;
       _signaturePreview = null;
     });
+    _clearResizeClean();
+    _bumpActiveStroke();
     // earlier strokes waiting in the buffer get their auto-commit back
     _controller.cancelInkStroke();
   }
@@ -521,6 +572,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _activeStroke = null;
       _activeStrokePressures = null;
     });
+    _bumpActiveStroke();
     if (canceled || stroke == null || stroke.isEmpty) {
       _controller.cancelInkStroke();
       return;
@@ -744,6 +796,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhostRotation = 0;
     _afterGhostLocalAngle = 0;
     _afterShape = null;
+    _afterShapeResize = null;
     _afterPath = null;
     _afterText = null;
     _afterSignature = null;
@@ -810,6 +863,42 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
+  /// The selected annotation's style when a resize commit will
+  /// REGENERATE it (Square/Circle) at a constant stroke width — the
+  /// editor's shape regenerate path: an /AP to replace, no cloudy /BE,
+  /// no dashed border, and a stroke or fill to draw. [strokeWidth] is in
+  /// view pixels (the page-space border width scaled), so the preview
+  /// reads at the same weight the commit will, instead of the ghost's
+  /// stretched line. Null leaves the drag on the stretch ghost.
+  ///
+  /// Mirrors `_regenerateResizedAppearance`'s Square/Circle gate exactly,
+  /// so the preview never disagrees with the commit.
+  _ShapeResize? _shapeResizeStyle(Rect rect, double rotation) {
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null ||
+        (annotation.subtype != 'Square' && annotation.subtype != 'Circle') ||
+        annotation.normalAppearance == null) {
+      return null;
+    }
+    // cloudy and dashed borders fall back to the stretch path in the editor
+    if (annotation.dict['BE'] != null || annotation.borderDash != null) {
+      return null;
+    }
+    final width = annotation.borderWidth ?? 1;
+    final stroke = width > 0 ? annotation.color : null;
+    final fill = annotation.interiorColor;
+    if (stroke == null && fill == null) return null;
+    return (
+      rect: rect,
+      ellipse: annotation.subtype == 'Circle',
+      stroke: stroke == null ? null : Color(0xFF000000 | stroke),
+      strokeWidth: width * _geometry.scale,
+      fill: fill == null ? null : Color(0xFF000000 | fill),
+      rotation: rotation,
+      opacity: annotation.appearanceOpacity,
+    );
+  }
+
   /// The selected content element's view rect when it lives on this page.
   Rect? get _selectedElementViewRect {
     if (_controller.selectedElementPage != widget.pageIndex) return null;
@@ -853,6 +942,52 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }));
   }
 
+  /// Renders the page WITHOUT the annotation being resized, so a free-text
+  /// resize can show the page content behind it (the "lift" model) rather
+  /// than wash an opaque rectangle over the original. Kicked off once per
+  /// resize-drag start; the result is reused for the whole drag (the page
+  /// behind doesn't change). Until it lands [_resizeCleanPicture] is null
+  /// and the painter falls back to an opaque-paper wash, so the original
+  /// never flashes through.
+  Future<void> _renderResizeClean() async {
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null) return;
+    final key = annotation.dict; // stable CosDictionary identity this revision
+    final name = annotation.name;
+    _resizeCleanFor = key;
+    final document = _controller.document;
+    try {
+      final picture = await PdfPageRenderer.renderPicture(
+        _controller.pageAt(widget.pageIndex),
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+        skipAnnotation: (a) =>
+            identical(a.dict, key) || (name != null && a.name == name),
+      );
+      // discard if the drag ended, the selection changed, or the document
+      // moved under us — a stale clean page would hide the wrong thing
+      if (!mounted ||
+          !identical(_resizeCleanFor, key) ||
+          !identical(_controller.document, document)) {
+        picture.dispose();
+        return;
+      }
+      setState(() {
+        _resizeCleanPicture?.dispose();
+        _resizeCleanPicture = picture;
+      });
+    } catch (_) {
+      // any render failure just leaves the opaque-paper wash fallback up
+    }
+  }
+
+  /// Drops the lifted clean-page picture once a resize drag ends.
+  void _clearResizeClean() {
+    _resizeCleanPicture?.dispose();
+    _resizeCleanPicture = null;
+    _resizeCleanFor = null;
+  }
+
   @override
   void dispose() {
     if (_textEditRect != null) _controller.setEditingText(false);
@@ -862,7 +997,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.dispose();
     _ghost?.dispose();
     _afterGhost?.dispose();
+    _resizeCleanPicture?.dispose();
     _flashController.dispose();
+    _activeStrokeRepaint.dispose();
     super.dispose();
   }
 
@@ -1193,12 +1330,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
-        setState(() {
-          _activeStroke = [_geometry.toPagePoint(position)];
-          // the first event decides: a pressure device varies the whole
-          // stroke, anything else stays uniform
-          _activeStrokePressures = pressure == null ? null : [pressure];
-        });
+        // no setState: the active stroke lives on its own repaint layer
+        _activeStroke = [_geometry.toPagePoint(position)];
+        // the first event decides: a pressure device varies the whole
+        // stroke, anything else stays uniform
+        _activeStrokePressures = pressure == null ? null : [pressure];
+        _bumpActiveStroke();
       case PdfEditTool.rectangle ||
             PdfEditTool.ellipse ||
             PdfEditTool.line ||
@@ -1278,6 +1415,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _moveStart = position;
           _moveCurrent = position;
         });
+        // lift the box off the page for a re-wrapping (free-text) resize:
+        // render the page without it so the preview floats over the real
+        // content behind, not an opaque wash
+        if (_textResizeStyle != null) _renderResizeClean();
         return;
       }
       if (chrome != null && _hitsRotateHandle(chrome.$1, resting, position)) {
@@ -1417,11 +1558,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     } else if (_moveStart != null) {
       setState(() => _moveCurrent = position);
     } else if (_activeStroke != null) {
-      setState(() {
-        _activeStroke!.add(_geometry.toPagePoint(position));
-        _activeStrokePressures
-            ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      });
+      // hot path: append + repaint the stroke layer only, no rebuild
+      _activeStroke!.add(_geometry.toPagePoint(position));
+      _activeStrokePressures
+          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
+      _bumpActiveStroke();
     } else if (_dragStart != null) {
       setState(() => _dragCurrent = position);
     }
@@ -1472,6 +1613,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _viewportPanning = false;
       _signatureDrag = false;
     });
+    // the in-flight lift is done; the afterimage covers the commit gap
+    _clearResizeClean();
+    _bumpActiveStroke();
 
     if (panned) {
       // momentum: the fling continues in the viewer, which owns the
@@ -1501,6 +1645,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitVertexDrag(vertexPoints);
     } else if (resizeRect != null) {
       final wrapStyle = _textResizeStyle;
+      // captured before the commit: a Square/Circle regenerates at a
+      // constant stroke width, so its afterimage must too (the stretch
+      // ghost would thicken the line until the raster lands)
+      final shapeStyle = _shapeResizeStyle(resizeRect, resizeAngle);
       void commit() => resizeAngle == 0
           ? _controller.resizeSelected(_geometry.toPageRect(resizeRect))
           : _controller.resizeSelectedLocal(_geometry.toPageRect(resizeRect));
@@ -1522,6 +1670,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             washed: true,
             rotation: resizeAngle,
           );
+          _afterDocument = _controller.document;
+        }
+      } else if (shapeStyle != null) {
+        // the commit regenerates the shape at a constant stroke width —
+        // freeze the same constant-width preview the drag showed
+        final before = _controller.document;
+        commit();
+        if (!identical(before, _controller.document)) {
+          _clearAfterimage();
+          _afterShapeResize = shapeStyle;
           _afterDocument = _controller.document;
         }
       } else if (resizeAngle == 0) {
@@ -2267,6 +2425,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
         _resizeHandle != null && _resizeRect != null ? _textResizeStyle : null;
+    // a Square/Circle resize regenerates at a constant stroke width:
+    // preview that (live during the drag, then the frozen afterimage)
+    // instead of the ghost, whose line would stretch and snap back
+    final shapeResize = wrapResize == null &&
+            _resizeHandle != null &&
+            _resizeRect != null
+        ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
+        : _afterShapeResize;
     // strokes beyond the pending ink: the committed-ink afterimage (held
     // until the new raster lands) and the signature tool's live preview
     final committedInk = widget.rasterCurrent
@@ -2405,14 +2571,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     color: _controller.color,
                     strokeWidth: _controller.strokeWidth * _geometry.scale,
                     geometry: _geometry,
-                    strokes: [
-                      ..._controller.strokesOn(widget.pageIndex),
-                      if (_activeStroke != null) _activeStroke!,
-                    ],
-                    pressures: [
-                      ..._controller.strokePressuresOn(widget.pageIndex),
-                      if (_activeStroke != null) _activeStrokePressures,
-                    ],
+                    // the in-progress stroke is NOT here — it rides its own
+                    // RepaintBoundary layer below so each appended point is a
+                    // repaint, not a rebuild of this whole painter
+                    strokes: _controller.strokesOn(widget.pageIndex),
+                    pressures: _controller.strokePressuresOn(widget.pageIndex),
                     dragRect: _dragStart != null && _dragCurrent != null
                         ? Rect.fromPoints(_dragStart!, _dragCurrent!)
                         : null,
@@ -2432,7 +2595,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost: wrapResize == null ? _ghost : null,
+                    ghost:
+                        wrapResize == null && shapeResize == null ? _ghost : null,
+                    shapeResize: shapeResize,
                     ghostFrom: _resizeHandle != null && _resizeAngle != 0
                         ? _resizeFrom
                         : selected,
@@ -2443,6 +2608,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     rotation: restingRotation + (rotating ? _rotateDelta : 0),
                     ghostRotation: rotating ? _rotateDelta : 0,
                     ghostLocalAngle: _resizeHandle != null ? _resizeAngle : 0,
+                    // free-text resize lift: hide the original box's
+                    // footprint with the page rendered without it (or an
+                    // opaque-paper wash until that lands)
+                    resizeClean: wrapResize != null ? _resizeCleanPicture : null,
+                    resizeHideRect: wrapResize != null ? _resizeFrom : null,
+                    resizeHideAngle: _resizeAngle,
+                    resizeHideWash: Color.alphaBlend(
+                        widget.pageColor, const Color(0xFFFFFFFF)),
                     extraInk: extraInk,
                     fadeRects: [
                       ..._eraseRects.values,
@@ -2488,9 +2661,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   size: Size.infinite,
                 ),
               ),
+              // The in-progress pencil/mouse stroke, isolated on its own
+              // RepaintBoundary and repainted via _activeStrokeRepaint. While
+              // a stroke is live nothing above rebuilds, so only this layer
+              // re-rasterizes per appended point — the latency fix.
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _ActiveStrokePainter(this),
+                    size: Size.infinite,
+                  ),
+                ),
+              ),
               // a free-text resize in flight: the text re-wrapped to the
-              // dragged box at its committed size, over a wash hiding the
-              // old rendering — never the ghost's stretched glyphs
+              // dragged box at its committed size — never the ghost's
+              // stretched glyphs. The original box is hidden by the
+              // painter's lift layer (the page rendered without it), so
+              // this preview is TRANSPARENT save for the box's own fill:
+              // the page content behind it shows through, Acrobat-style.
               if (wrapResize != null)
                 _wrappedTextBox(
                   key: const ValueKey('pdf-text-resize-preview'),
@@ -2499,8 +2687,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   font: wrapResize.font,
                   size: wrapResize.size,
                   color: wrapResize.color,
-                  background: wrapResize.fill ??
-                      widget.pageColor.withValues(alpha: 0.92),
+                  background: wrapResize.fill,
                   rotation: _resizeAngle,
                 ),
               // a just-committed text edit, frozen until the page raster
@@ -2668,6 +2855,124 @@ class _EyedropperChip extends StatelessWidget {
   }
 }
 
+/// Paints page-space ink [strokes] with the committed appearance's
+/// Catmull-Rom smoothing and pressure-mapped width. Shared by the heavy
+/// preview painter (buffered/committed strokes) and the lightweight
+/// [_ActiveStrokePainter] (the single in-progress stroke).
+void _paintInkStrokes(
+    Canvas canvas,
+    PdfPageGeometry geometry,
+    List<List<(double, double)>> strokes,
+    List<List<double>?> pressures,
+    Color color,
+    double strokeWidth) {
+  final paint = Paint()
+    ..color = color
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = strokeWidth
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
+
+  for (var s = 0; s < strokes.length; s++) {
+    final stroke = strokes[s];
+    final pressure = s < pressures.length ? pressures[s] : null;
+    if (stroke.isEmpty) continue;
+    if (stroke.length == 1) {
+      final p = geometry.toViewOffset(stroke.single.$1, stroke.single.$2);
+      final width = pressure == null
+          ? strokeWidth
+          : pdfInkStrokeWidth(strokeWidth, pressure.first);
+      canvas.drawCircle(p, width / 2, Paint()..color = color);
+      continue;
+    }
+    // the same Catmull-Rom smoothing the committed appearance uses
+    final controls = pdfInkCurveControls(stroke);
+    if (pressure != null) {
+      // matches the committed appearance: a stroked spline segment per
+      // point pair at its own pressure-mapped width, round caps as the
+      // seams
+      final segment = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < stroke.length - 1; i++) {
+        final (xa, ya) = stroke[i];
+        final ((c1x, c1y), (c2x, c2y)) = controls[i];
+        final a = geometry.toViewOffset(xa, ya);
+        final c1 = geometry.toViewOffset(c1x, c1y);
+        final c2 = geometry.toViewOffset(c2x, c2y);
+        final b = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
+        segment.strokeWidth = pdfInkStrokeWidth(
+            strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
+        canvas.drawPath(
+            Path()
+              ..moveTo(a.dx, a.dy)
+              ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy),
+            segment);
+      }
+      continue;
+    }
+    final start = geometry.toViewOffset(stroke.first.$1, stroke.first.$2);
+    final path = Path()..moveTo(start.dx, start.dy);
+    for (var i = 0; i < stroke.length - 1; i++) {
+      final ((c1x, c1y), (c2x, c2y)) = controls[i];
+      final c1 = geometry.toViewOffset(c1x, c1y);
+      final c2 = geometry.toViewOffset(c2x, c2y);
+      final p = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
+      path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p.dx, p.dy);
+    }
+    canvas.drawPath(path, paint);
+  }
+}
+
+/// The single in-progress pencil/mouse stroke, on its own RepaintBoundary.
+///
+/// Reads the live stroke buffers straight off the overlay state and repaints
+/// only when [_EditingPageOverlayState._activeStrokeRepaint] ticks — so a
+/// pointer-move appends a point and bumps the notifier without rebuilding the
+/// overlay or the heavy [_EditingPreviewPainter]. [shouldRepaint] stays false:
+/// the repaint Listenable is the sole driver (the start, every point, and the
+/// clear on commit/bail all tick it), and the buffers are mutated in place so
+/// the painter always sees the current points.
+class _ActiveStrokePainter extends CustomPainter {
+  _ActiveStrokePainter(this._state)
+      : super(repaint: _state._activeStrokeRepaint);
+
+  final _EditingPageOverlayState _state;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = _state._activeStroke;
+    if (stroke == null || stroke.isEmpty) return;
+    final geometry = _state._geometry;
+    var display = stroke;
+    var pressures = _state._activeStrokePressures;
+    // a forward-extrapolated lead so the line keeps up with the pen tip —
+    // display only, recomputed each repaint (so the next real sample
+    // replaces it) and never folded into the committed stroke
+    if (_state.widget.predictStrokes) {
+      final lead = pdfPredictStrokeLead(stroke);
+      if (lead.isNotEmpty) {
+        display = [...stroke, ...lead];
+        if (pressures != null) {
+          pressures = [...pressures, for (final _ in lead) pressures.last];
+        }
+      }
+    }
+    _paintInkStrokes(
+      canvas,
+      geometry,
+      [display],
+      [pressures],
+      _state._controller.color,
+      _state._controller.strokeWidth * geometry.scale,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ActiveStrokePainter oldDelegate) => false;
+}
+
 class _EditingPreviewPainter extends CustomPainter {
   _EditingPreviewPainter({
     required this.theme,
@@ -2689,10 +2994,15 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.ghost,
     required this.ghostFrom,
     required this.ghostTo,
+    this.shapeResize,
     required this.dragging,
     required this.rotation,
     required this.ghostRotation,
     this.ghostLocalAngle = 0,
+    this.resizeClean,
+    this.resizeHideRect,
+    this.resizeHideAngle = 0,
+    this.resizeHideWash = const Color(0xFFFFFFFF),
     required this.extraInk,
     this.fadeRects = const [],
     this.fadeInk = const [],
@@ -2747,6 +3057,11 @@ class _EditingPreviewPainter extends CustomPainter {
   final ui.Picture? ghost;
   final Rect? ghostFrom;
   final Rect? ghostTo;
+
+  /// A Square/Circle resize preview (or its committed afterimage) drawn
+  /// with a constant stroke width — the shape regenerates rather than
+  /// stretching, so the ghost is suppressed in its favour.
+  final _ShapeResize? shapeResize;
   final bool dragging;
 
   /// The chrome's total rotation (view radians, clockwise positive):
@@ -2762,6 +3077,19 @@ class _EditingPreviewPainter extends CustomPainter {
   /// [ghostFrom]/[ghostTo] are then local boxes and the ghost scales
   /// along the rotated axes instead of stretching page-axis rects.
   final double ghostLocalAngle;
+
+  /// The free-text resize "lift": the page rendered without the dragged
+  /// box ([resizeClean], page raster space at 1 unit = 1 point), clipped
+  /// to that box's original footprint [resizeHideRect] (a view rect, spun
+  /// by [resizeHideAngle]) so the page content behind it shows through
+  /// instead of the original. A null [resizeClean] falls back to an opaque
+  /// [resizeHideWash] (blank paper) until the async render lands, so the
+  /// original never flashes. Painted before the chrome and the floating
+  /// re-wrapped preview, so both sit on top.
+  final ui.Picture? resizeClean;
+  final Rect? resizeHideRect;
+  final double resizeHideAngle;
+  final Color resizeHideWash;
 
   /// Stroke sets beyond the pending ink: committed-ink afterimages and
   /// the signature tool's live preview.
@@ -2846,65 +3174,9 @@ class _EditingPreviewPainter extends CustomPainter {
   /// Paints one set of page-space ink strokes with the committed
   /// appearance's smoothing and pressure mapping.
   void _paintInk(Canvas canvas, List<List<(double, double)>> strokes,
-      List<List<double>?> pressures, Color color, double strokeWidth) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    for (var s = 0; s < strokes.length; s++) {
-      final stroke = strokes[s];
-      final pressure = s < pressures.length ? pressures[s] : null;
-      if (stroke.isEmpty) continue;
-      if (stroke.length == 1) {
-        final p = geometry.toViewOffset(stroke.single.$1, stroke.single.$2);
-        final width = pressure == null
-            ? strokeWidth
-            : pdfInkStrokeWidth(strokeWidth, pressure.first);
-        canvas.drawCircle(p, width / 2, Paint()..color = color);
-        continue;
-      }
-      // the same Catmull-Rom smoothing the committed appearance uses
-      final controls = pdfInkCurveControls(stroke);
-      if (pressure != null) {
-        // matches the committed appearance: a stroked spline segment per
-        // point pair at its own pressure-mapped width, round caps as the
-        // seams
-        final segment = Paint()
-          ..color = color
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round;
-        for (var i = 0; i < stroke.length - 1; i++) {
-          final (xa, ya) = stroke[i];
-          final ((c1x, c1y), (c2x, c2y)) = controls[i];
-          final a = geometry.toViewOffset(xa, ya);
-          final c1 = geometry.toViewOffset(c1x, c1y);
-          final c2 = geometry.toViewOffset(c2x, c2y);
-          final b = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
-          segment.strokeWidth = pdfInkStrokeWidth(
-              strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
-          canvas.drawPath(
-              Path()
-                ..moveTo(a.dx, a.dy)
-                ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy),
-              segment);
-        }
-        continue;
-      }
-      final start = geometry.toViewOffset(stroke.first.$1, stroke.first.$2);
-      final path = Path()..moveTo(start.dx, start.dy);
-      for (var i = 0; i < stroke.length - 1; i++) {
-        final ((c1x, c1y), (c2x, c2y)) = controls[i];
-        final c1 = geometry.toViewOffset(c1x, c1y);
-        final c2 = geometry.toViewOffset(c2x, c2y);
-        final p = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
-        path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p.dx, p.dy);
-      }
-      canvas.drawPath(path, paint);
-    }
-  }
+          List<List<double>?> pressures, Color color, double strokeWidth) =>
+      _paintInkStrokes(
+          canvas, geometry, strokes, pressures, color, strokeWidth);
 
   void _paintShapePreview(
       Canvas canvas, Rect rect, PdfEditTool? tool, Color color, double width) {
@@ -2927,6 +3199,47 @@ class _EditingPreviewPainter extends CustomPainter {
       default:
         canvas.drawRect(rect, paint);
     }
+  }
+
+  /// Draws a Square/Circle at [s.rect] the way the editor regenerates it:
+  /// a constant-width stroke inset by half its width (so it stays inside
+  /// the rect, matching `_shapeContent`), an optional fill, rotated about
+  /// the rect center and dimmed to the appearance's opacity. The
+  /// constant width is the whole point — the ghost would stretch it.
+  void _paintShapeResize(Canvas canvas, _ShapeResize s) {
+    canvas.save();
+    if (s.rotation != 0) {
+      final c = s.rect.center;
+      canvas
+        ..translate(c.dx, c.dy)
+        ..rotate(s.rotation)
+        ..translate(-c.dx, -c.dy);
+    }
+    final layered = s.opacity < 1;
+    if (layered) {
+      canvas.saveLayer(
+          s.rect.inflate(s.strokeWidth + 2),
+          Paint()
+            ..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
+    }
+    final stroking = s.stroke != null && s.strokeWidth > 0;
+    final inset = stroking ? s.strokeWidth / 2 : 0.0;
+    final box = s.rect.deflate(inset);
+    if (s.fill != null && box.width > 0 && box.height > 0) {
+      final paint = Paint()
+        ..color = s.fill!
+        ..style = PaintingStyle.fill;
+      s.ellipse ? canvas.drawOval(box, paint) : canvas.drawRect(box, paint);
+    }
+    if (stroking && box.width > 0 && box.height > 0) {
+      final paint = Paint()
+        ..color = s.stroke!
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = s.strokeWidth;
+      s.ellipse ? canvas.drawOval(box, paint) : canvas.drawRect(box, paint);
+    }
+    if (layered) canvas.restore();
+    canvas.restore();
   }
 
   void _paintPathPreview(Canvas canvas, List<Offset> points, PdfEditTool? tool,
@@ -3001,6 +3314,36 @@ class _EditingPreviewPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // a free-text resize lifts the dragged box off the page: hide its
+    // ORIGINAL footprint with the page rendered without it (the content
+    // behind shows through) — or, until that async render lands, an opaque
+    // paper wash. Drawn first so the chrome and the floating re-wrapped
+    // preview paint on top.
+    final hideRect = resizeHideRect;
+    if (hideRect != null) {
+      canvas.save();
+      if (resizeHideAngle != 0) {
+        canvas.translate(hideRect.center.dx, hideRect.center.dy);
+        canvas.rotate(resizeHideAngle);
+        canvas.translate(-hideRect.center.dx, -hideRect.center.dy);
+      }
+      // a hair of inflation swallows the original border's anti-aliased edge
+      final clip = hideRect.inflate(1);
+      canvas.clipRect(clip);
+      final clean = resizeClean;
+      if (clean != null) {
+        // the clean page shares the ghost's raster space (1 unit = 1
+        // point), so scaling by the view scale lands it on the page
+        canvas.save();
+        canvas.scale(geometry.scale);
+        canvas.drawPicture(clean);
+        canvas.restore();
+      } else {
+        canvas.drawRect(clip, Paint()..color = resizeHideWash);
+      }
+      canvas.restore();
+    }
+
     // the wash goes under every stroke preview: the eraser's sliced
     // remainders (and any other pending ink) paint at full strength
     // over their faded originals. Sliceable ink fades along its own
@@ -3115,6 +3458,8 @@ class _EditingPreviewPainter extends CustomPainter {
           rotation: ghostRotation,
           localAngle: ghostLocalAngle);
     }
+    final shapeResize = this.shapeResize;
+    if (shapeResize != null) _paintShapeResize(canvas, shapeResize);
     if (selection != null) {
       canvas.save();
       if (rotation != 0) {
@@ -3263,10 +3608,15 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.ghost != ghost ||
       oldDelegate.ghostFrom != ghostFrom ||
       oldDelegate.ghostTo != ghostTo ||
+      oldDelegate.shapeResize != shapeResize ||
       oldDelegate.dragging != dragging ||
       oldDelegate.rotation != rotation ||
       oldDelegate.ghostRotation != ghostRotation ||
       oldDelegate.ghostLocalAngle != ghostLocalAngle ||
+      oldDelegate.resizeClean != resizeClean ||
+      oldDelegate.resizeHideRect != resizeHideRect ||
+      oldDelegate.resizeHideAngle != resizeHideAngle ||
+      oldDelegate.resizeHideWash != resizeHideWash ||
       _inkChanged(oldDelegate.extraInk, extraInk) ||
       !listEquals(oldDelegate.fadeRects, fadeRects) ||
       _inkChanged(oldDelegate.fadeInk, fadeInk) ||

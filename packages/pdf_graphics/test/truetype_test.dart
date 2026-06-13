@@ -50,6 +50,19 @@ void main() {
       bytes.setAll(0, 'OTTO'.codeUnits);
       expect(TrueTypeFont.parse(bytes), isNull);
     });
+
+    test('post 2.0 names resolve glyph ids without a cmap', () {
+      // A cmap-less subset reaches its glyphs only by name through the post
+      // table (TrueType_without_cmap.pdf — codes index empty/.notdef glyphs
+      // directly, but "greater"/"i"/... name the real subset gids).
+      final font = TrueTypeFont.parse(
+          buildTestTrueTypeFont(includeCmap: false, includePost: true))!;
+      expect(font.hasCmap, isFalse);
+      expect(font.gidForName('A'), 1);
+      expect(font.gidForName('B'), 2);
+      expect(font.gidForName('.notdef'), 0);
+      expect(font.gidForName('missing'), 0);
+    });
   });
 
   group('embedded font in a document', () {
