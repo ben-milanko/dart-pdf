@@ -16,6 +16,7 @@ import 'editing/editing_form_layer.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
+import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'page_geometry.dart';
 import 'pdf_page_view.dart';
@@ -1840,6 +1841,17 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _controller._setSelection(_selectedText());
   }
 
+  /// A single-key tool shortcut ([pdfEditToolShortcuts]) arms [tool],
+  /// mirroring the toolbar's chips: pressing a tool's key arms it,
+  /// pressing it again drops back to Select. Clears the text selection
+  /// like a toolbar tap does.
+  void _armTool(PdfEditTool tool) {
+    final editing = widget.editing;
+    if (editing == null) return;
+    editing.tool = editing.tool == tool ? PdfEditTool.select : tool;
+    _controller.clearSelection();
+  }
+
   /// Escape backs out of editing state layer by layer before it clears
   /// the text selection: annotation or element selection → pending ink →
   /// armed tool.
@@ -2803,6 +2815,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                       editing.deleteSelected,
                   const SingleActivator(LogicalKeyboardKey.backspace):
                       editing.deleteSelected,
+                  // unmodified single-key tool shortcuts (V select, P pen,
+                  // R rectangle, …) — safe because an open in-place text
+                  // editor disables every binding above
+                  for (final entry in pdfEditToolShortcuts.entries)
+                    SingleActivator(entry.value): () => _armTool(entry.key),
                 },
               },
         child: Focus(

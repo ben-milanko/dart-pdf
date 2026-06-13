@@ -823,12 +823,12 @@ void main() {
       await tester.pump();
       expect(editing.tool, PdfEditTool.rectangle);
       // the strip exposes the group's other tools
-      await tester.tap(find.byTooltip('Ellipse'));
+      await tester.tap(find.byTooltip('Ellipse (O)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ellipse);
       // re-tapping the active tool drops back to Select (not a no-tool
       // limbo) so you can immediately select and move things
-      await tester.tap(find.byTooltip('Ellipse'));
+      await tester.tap(find.byTooltip('Ellipse (O)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
 

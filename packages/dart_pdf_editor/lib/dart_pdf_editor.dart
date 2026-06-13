@@ -20,6 +20,7 @@ export 'src/editing/editing_toolbar.dart';
 export 'src/editing/line_style.dart';
 export 'src/editing/stroke_prediction.dart';
 export 'src/editing/text_prompt.dart';
+export 'src/editing/tool_shortcuts.dart';
 export 'src/ocr.dart';
 export 'src/page_geometry.dart';
 export 'src/page_number_field.dart';

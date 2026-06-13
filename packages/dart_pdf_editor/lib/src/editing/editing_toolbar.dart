@@ -15,6 +15,7 @@ import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 import 'text_prompt.dart';
+import 'tool_shortcuts.dart';
 
 /// Builds a custom widget inside [PdfEditingToolbar].
 typedef PdfEditingToolbarWidgetBuilder = Widget Function(
@@ -674,7 +675,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             PdfEditTool.redact => 'Redact',
             _ => _entryLabel(entry),
           },
-          tooltip: entry.tip,
+          tooltip: _entryTip(entry),
           active: controller.tool == tool,
           onTap: () => _armGroupTool(context, tool),
         ));
@@ -682,7 +683,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         final tool = entry.tool!;
         toolButtons.add(IconButton(
           icon: Icon(entry.icon),
-          tooltip: entry.tip,
+          tooltip: _entryTip(entry),
           isSelected: controller.tool == tool,
           onPressed: () => _armGroupTool(context, tool),
         ));
@@ -1431,6 +1432,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   static String _entryLabel(_GroupTool entry) {
     final dash = entry.tip.indexOf(' —');
     return dash == -1 ? entry.tip : entry.tip.substring(0, dash);
+  }
+
+  /// A tool's tooltip with its keyboard shortcut appended (e.g.
+  /// "Rectangle (R)"), so the bindings in [pdfEditToolShortcuts] are
+  /// discoverable on hover. Markups and unbound tools keep the plain tip.
+  static String _entryTip(_GroupTool entry) {
+    final tool = entry.tool;
+    final key = tool == null ? null : pdfEditToolShortcutLabel(tool);
+    return key == null ? entry.tip : '${entry.tip} ($key)';
   }
 
   /// The settings block under the sheet's tool grid — reuses the same

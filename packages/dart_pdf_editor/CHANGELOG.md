@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Keyboard shortcuts for the common editing tools: single, unmodified keys
+  arm a tool from the viewer (V select, P pen/ink, E eraser, R rectangle,
+  O ellipse, L line, A arrow, T text box, N note, S stamp, I image,
+  G signature, M measure, F form, C content, K redact); pressing a tool's
+  key again drops back to Select. Active only during an editing session and
+  suppressed while an in-place text editor (free text or form field) is
+  open. The bindings are exposed as `pdfEditToolShortcuts` and surfaced in
+  the toolbar tooltips (e.g. "Rectangle (R)").
 - Page management: `PdfEditingController.addBlankPage` (sized to its
   neighbour by default), `insertPagesFrom`/`insertPagesFromBytes` (merge
   pages from another PDF), and `exportPages`/`exportPageRange` (split off a
