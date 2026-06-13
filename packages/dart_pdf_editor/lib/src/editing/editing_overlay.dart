@@ -1204,9 +1204,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   @override
   void dispose() {
     if (_textEditRect != null) _controller.setEditingText(false);
-    // the viewer paints [_ghost] for a floating move preview; drop that
-    // reference before disposing the picture so it can't paint freed pixels
-    widget.onMoveDragPreview?.call(null);
+    // if THIS overlay was mid-move, drop the shared cross-page preview
+    // before disposing [_ghost] so a neighbour page can't paint freed
+    // pixels. Guarded by _moveStart so disposing some other (off-screen)
+    // page's overlay never clears a preview the dragging page still owns.
+    if (_moveStart != null) widget.onMoveDragPreview?.call(null);
     _textEditFocus
       ..removeListener(_onTextEditFocus)
       ..dispose();

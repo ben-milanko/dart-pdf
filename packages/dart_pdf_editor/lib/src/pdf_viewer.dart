@@ -1456,20 +1456,36 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     setState(() => _movePreview = preview);
   }
 
-  /// [preview]'s page rectangle in list space (viewport-local), so the
-  /// floating layer can translate the overlay-local ghost rects (the
-  /// rect's top-left is the page origin) and clip itself to the area
-  /// *outside* the page. Null when the layout isn't measurable yet or
-  /// there's no preview.
-  Rect? _moveDragPreviewPageRect(PdfMoveDragPreview? preview) {
-    if (preview == null || _viewWidth <= 0 || !_scroll.hasClients) return null;
-    if (preview.pageIndex < 0 || preview.pageIndex >= _pages.length) return null;
-    final pageWidth = _viewWidth * _layoutZoom;
-    return Rect.fromLTWH(
-      (_viewWidth - pageWidth) / 2,
-      _pageTop(preview.pageIndex) - _scroll.offset,
-      pageWidth,
-      _pageHeight(preview.pageIndex),
+  /// The slice of an in-flight single-selection move ghost that lands on
+  /// page [index], expressed in that page's own view space — null when no
+  /// move is dragging, when [index] is the source page (its own overlay
+  /// already draws the in-page part), or when the ghost doesn't reach this
+  /// page. Each page draws its own slice in its overlay Stack (clipped to
+  /// the page, painted over the page's raster), so the part hanging onto a
+  /// neighbour isn't lost behind it — the per-page render path the in-page
+  /// ghost already uses, rather than a viewer-level layer that the web
+  /// build wouldn't paint.
+  PdfMoveDragPreview? _crossPageGhostFor(int index) {
+    final preview = _movePreview;
+    if (preview == null || index == preview.pageIndex) return null;
+    if (index < 0 || index >= _pages.length) return null;
+    if (_viewWidth <= 0) return null;
+    // [from] is the picture's source anchor and must stay in source view
+    // space (paintAnnotationDragPreview places the picture relative to it);
+    // only [to] moves into this page's view space. Page tops differ only
+    // vertically — both pages share the centred x origin (page width
+    // depends only on the viewport, not the page).
+    final dy = _pageTop(preview.pageIndex) - _pageTop(index);
+    final to = preview.to.shift(Offset(0, dy));
+    final pageBox =
+        Offset.zero & Size(_viewWidth * _layoutZoom, _pageHeight(index));
+    if (!to.overlaps(pageBox)) return null;
+    return PdfMoveDragPreview(
+      pageIndex: index,
+      picture: preview.picture,
+      from: preview.from,
+      to: to,
+      scale: preview.scale,
     );
   }
 
@@ -2690,6 +2706,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 onShowFormFieldMenu: _showFormFieldMenu,
                 onResolvePagePoint: _resolvePagePointGlobal,
                 onMoveDragPreview: _onMoveDragPreview,
+                crossPageGhost: _crossPageGhostFor(index),
                 transformScale: _transformScale,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
@@ -2914,23 +2931,6 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                                           ),
                                         ),
                                       ),
-                                    // a single-selection move dragged off its
-                                    // page: the part hanging past the page edge,
-                                    // painted in list space (above every page)
-                                    // so it isn't clipped behind the next page.
-                                    // The page overlay still paints the in-page
-                                    // part; this is clipped to the area outside
-                                    // the page so the two never double-expose.
-                                    if (_moveDragPreviewPageRect(_movePreview)
-                                        case final pageRect?)
-                                      Positioned.fill(
-                                        child: IgnorePointer(
-                                          child: CustomPaint(
-                                            painter: _MoveDragPreviewPainter(
-                                                _movePreview!, pageRect),
-                                          ),
-                                        ),
-                                      ),
                                   ],
                                 ),
                               ),
@@ -3004,34 +3004,23 @@ class _MarqueePainter extends CustomPainter {
       oldDelegate.rect != rect || oldDelegate.color != color;
 }
 
-/// Paints the part of a single-selection move drag's ghost that hangs off
-/// its page, in the viewer's list space (over every page) so it isn't
-/// clipped behind the next page. [pageRect] is the dragged page in list
-/// space: its top-left translates the preview's overlay-local rects, and
-/// the paint is clipped to the area *outside* it — the page's own overlay
-/// still draws the in-page part, so the two never double-expose.
+/// Paints the slice of a cross-page move ghost that lands on a page, in
+/// that page's own view space (from/to already mapped there). It sits in
+/// the page's overlay Stack, so it paints over the page raster and is
+/// clipped to the page — the same per-page render path the in-page ghost
+/// uses, so a drag onto a neighbour page shows there.
 class _MoveDragPreviewPainter extends CustomPainter {
-  const _MoveDragPreviewPainter(this.preview, this.pageRect);
+  const _MoveDragPreviewPainter(this.preview);
 
   final PdfMoveDragPreview preview;
-  final Rect pageRect;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    // clip to everything but the page itself (even-odd of the viewport and
-    // the page rect), so only the overflow paints here
-    canvas.clipPath(Path()
-      ..addRect(Offset.zero & size)
-      ..addRect(pageRect)
-      ..fillType = PathFillType.evenOdd);
-    paintMoveDragPreview(canvas, preview, pageRect.topLeft);
-    canvas.restore();
-  }
+  void paint(Canvas canvas, Size size) =>
+      paintMoveDragPreview(canvas, preview, Offset.zero);
 
   @override
   bool shouldRepaint(_MoveDragPreviewPainter oldDelegate) =>
-      oldDelegate.preview != preview || oldDelegate.pageRect != pageRect;
+      oldDelegate.preview != preview;
 }
 
 class _PdfViewerPage extends StatefulWidget {
@@ -3059,6 +3048,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onShowFormFieldMenu,
     required this.onResolvePagePoint,
     required this.onMoveDragPreview,
+    required this.crossPageGhost,
     required this.transformScale,
     required this.renderScheduler,
     required this.previewCache,
@@ -3117,6 +3107,12 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [EditingPageOverlay.onMoveDragPreview].
   final PdfMoveDragPreviewCallback onMoveDragPreview;
+
+  /// The slice of an in-flight cross-page move ghost that lands on this
+  /// page (from/to in this page's own view space), so it draws the part of
+  /// the dragged annotation hanging onto it over its own raster. Null when
+  /// nothing is dragging onto this page. See [_PdfViewerState._crossPageGhostFor].
+  final PdfMoveDragPreview? crossPageGhost;
 
   /// The viewer transform's scale — the editing overlay's chrome divides
   /// by it to stay constant-size on screen while zoomed.
@@ -3199,6 +3195,15 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
           ),
         ),
       ),
+      // the slice of a cross-page move ghost landing on this page: drawn
+      // over the raster, clipped to the page by the Stack, so a drag onto
+      // this page from a neighbour shows here instead of vanishing behind
+      if (widget.crossPageGhost case final ghost?)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(painter: _MoveDragPreviewPainter(ghost)),
+          ),
+        ),
       if (builder != null ||
           editing != null ||
           (formController != null && widget.interactiveForms) ||
