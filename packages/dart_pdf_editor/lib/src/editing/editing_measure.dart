@@ -118,13 +118,15 @@ const _pdfScaleUnits = ['ft', 'in', 'yd', 'mi', 'm', 'cm', 'mm', 'km'];
 const _imperialCountries = {'US', 'LR', 'MM'};
 
 /// The default distance unit for [locale]: feet in the imperial-system
-/// regions (the US, Liberia, Myanmar), metres everywhere else. When
-/// [locale] is null — or carries no country — it falls back to the
-/// device's locale (`platformDispatcher.locale`), so the scale dialog
-/// opens with the unit a user in that region expects.
+/// regions (the US, Liberia, Myanmar), metres everywhere else. The
+/// measurement system is a regional preference, so the country comes from
+/// [locale] when it carries one, otherwise from the device locale
+/// (`platformDispatcher.locale` — the browser language on the web). The
+/// scale dialog passes no argument, so it follows the device region a
+/// user expects rather than the app's (possibly English-only) UI locale.
 String pdfDefaultMeasurementUnit([Locale? locale]) {
-  final country = (locale ?? WidgetsBinding.instance.platformDispatcher.locale)
-      .countryCode
+  final country = (locale?.countryCode ??
+          WidgetsBinding.instance.platformDispatcher.locale.countryCode)
       ?.toUpperCase();
   return country != null && _imperialCountries.contains(country) ? 'ft' : 'm';
 }
@@ -155,10 +157,7 @@ class PdfScaleDialog extends StatefulWidget {
 
 class _PdfScaleDialogState extends State<PdfScaleDialog> {
   late final TextEditingController _value;
-  // Resolved from [widget.initial] in initState, or — for a fresh scale —
-  // from the locale in didChangeDependencies (where Localizations is safe
-  // to read). Non-null by the time build runs.
-  String? _unit;
+  late String _unit;
 
   @override
   void initState() {
@@ -171,17 +170,11 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
           text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
     }
     _value = TextEditingController(text: text);
-    if (initial != null && _pdfScaleUnits.contains(initial.unitLabel)) {
-      _unit = initial.unitLabel;
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Default the unit to the locale's measurement system, but never
-    // override a unit carried over from [widget.initial].
-    _unit ??= pdfDefaultMeasurementUnit(Localizations.maybeLocaleOf(context));
+    // Carry over the unit from an existing scale; otherwise default to the
+    // device region's measurement system (feet vs metres).
+    _unit = (initial != null && _pdfScaleUnits.contains(initial.unitLabel))
+        ? initial.unitLabel
+        : pdfDefaultMeasurementUnit();
   }
 
   @override
@@ -198,7 +191,7 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
     }
     Navigator.of(context).pop(PdfMeasurementScale(
       unitsPerPoint: perInch / 72,
-      unitLabel: _unit!,
+      unitLabel: _unit,
     ));
   }
 
