@@ -90,6 +90,43 @@ void main() {
     await waitFor(tester, fullRaster);
   });
 
+  testWidgets('the first scroll event of a burst holds speculatively',
+      (tester) async {
+    // The hitch: on the first scroll event there is no time span yet to
+    // estimate velocity, so the hold used to stay down for that frame and
+    // a heavy page entering the build window interpreted synchronously
+    // before the next sample could raise it. The first sample now holds
+    // speculatively (cheap — held pages paint a preview, not blank).
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+        ),
+      ),
+    ));
+    await tester.pump();
+    await waitFor(tester, fullRaster);
+    // drain any startup scroll-settle timer, then confirm idle isn't holding
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(controller.debugRenderHold, isFalse);
+
+    // a single scroll event — one sample, no span — must already hold
+    await tester.drag(find.byType(PdfViewer), const Offset(0, -400));
+    await tester.pump();
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'the first scroll event of a burst holds before a second '
+            'sample can compute velocity');
+
+    // and the settle timer still releases it
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(controller.debugRenderHold, isFalse);
+  });
+
   testWidgets(
       'a settle that does not change the zoom skips the full-page readback',
       (tester) async {

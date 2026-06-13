@@ -107,6 +107,11 @@ class PdfViewerController extends ChangeNotifier {
   @visibleForTesting
   PdfPagePreviewCache? get debugPreviewCache => _state?._previews;
 
+  /// Test hook: whether the attached viewer is currently holding page
+  /// renders back for a fast scroll; false when no viewer is attached.
+  @visibleForTesting
+  bool get debugRenderHold => _state?._renderScheduler.holding ?? false;
+
   String _selectedText = '';
 
   /// The currently selected text, '' with no selection. Drag with a mouse
@@ -951,7 +956,24 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     if (!_scroll.hasClients) return;
     final now = WidgetsBinding.instance.currentSystemFrameTimeStamp;
     final pixels = _scroll.position.pixels;
-    if (_scrollSamples.isNotEmpty && _scrollSamples.last.$1 == now) {
+    if (_scrollSamples.isEmpty) {
+      // First event of a new scroll burst: there's no time span yet to
+      // estimate velocity from, but a heavy page entering the build
+      // window THIS frame would run its synchronous interpret walk
+      // (100-400ms on CAD pages) and drop the frame before the next
+      // sample can raise the hold — the hitch felt right when a fast
+      // scroll starts. Hold speculatively from the first sample; held
+      // pages paint their low-res preview (not blank), so a scroll that
+      // turns out slow shows at most a one-frame preview before the next
+      // sample's real velocity verdict releases the hold, and the
+      // settle timer is the backstop for a lone discrete nudge. Pages
+      // already rastered are untouched — the hold only defers a page's
+      // first interpret.
+      _scrollSamples.add((now, pixels));
+      _renderScheduler.holding = true;
+      return;
+    }
+    if (_scrollSamples.last.$1 == now) {
       _scrollSamples.last = (now, pixels);
     } else {
       _scrollSamples.add((now, pixels));
