@@ -1210,6 +1210,51 @@ class PdfEditingController extends ChangeNotifier {
     apply((e) => e.removePage(index));
   }
 
+  /// Inserts a new blank page at [at] (default: appended at the end),
+  /// sized [width] × [height] points. When neither dimension is given the
+  /// page matches its neighbour's size (the page before [at], else the
+  /// last page) so the blank page fits the document instead of jumping to
+  /// Letter. Structural page edits shift indices, so the annotation
+  /// selection is cleared first.
+  void addBlankPage({double? width, double? height, int? at}) {
+    _selected.clear();
+    final insertAt = at ?? _document.pageCount;
+    if (width == null && height == null && _document.pageCount > 0) {
+      final neighbour =
+          (insertAt > 0 ? insertAt - 1 : 0).clamp(0, _document.pageCount - 1);
+      final box = _document.page(neighbour).mediaBox;
+      width = box.width;
+      height = box.height;
+    }
+    apply((e) => e.insertBlankPage(width: width, height: height, at: at));
+  }
+
+  /// Inserts pages from another open [source] document at [at] (default:
+  /// appended at the end). [indices] picks a subset of [source] (default:
+  /// all of it, in order). Everything each page references — content,
+  /// resources, fonts, images, annotations — is deep-copied across.
+  void insertPagesFrom(PdfDocument source, {List<int>? indices, int? at}) {
+    _selected.clear();
+    apply((e) => e.appendPagesFrom(source, indices: indices, at: at));
+  }
+
+  /// Inserts pages from the PDF in [bytes] (opened with [password] when
+  /// encrypted) at [at]. Convenience over [insertPagesFrom] for a file a
+  /// host just read off disk.
+  void insertPagesFromBytes(Uint8List bytes,
+      {String password = '', List<int>? indices, int? at}) {
+    insertPagesFrom(PdfDocument.open(bytes, password: password),
+        indices: indices, at: at);
+  }
+
+  /// Exports [indices] (in that order) as a fresh standalone PDF, leaving
+  /// this document untouched. See [PdfPageExtraction.extractPages].
+  Uint8List exportPages(List<int> indices) => _document.extractPages(indices);
+
+  /// Exports pages [start] through [end] inclusive as a standalone PDF.
+  Uint8List exportPageRange(int start, int end) =>
+      _document.extractPageRange(start, end);
+
   // ---------------------------------------------------------------------
   // selection
 

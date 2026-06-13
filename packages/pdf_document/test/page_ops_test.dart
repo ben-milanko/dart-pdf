@@ -75,6 +75,53 @@ void main() {
     });
   });
 
+  group('insert blank page', () {
+    test('appends a blank page sized to request', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(2));
+      final editor = PdfEditor(doc)..insertBlankPage(width: 300, height: 400);
+      final out = reopened(editor);
+      expect(out.pageCount, 3);
+      // the existing pages keep their labels and order
+      expect(labelOf(out, 0), 'Page 1');
+      expect(labelOf(out, 1), 'Page 2');
+      expect(labelOf(out, 2), '<no label>'); // blank
+      expect(out.page(2).mediaBox, const PdfRect(0, 0, 300, 400));
+      expect(out.page(2).contentBytes(), isEmpty);
+    });
+
+    test('inserts at the requested position', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(2));
+      final editor = PdfEditor(doc)..insertBlankPage(at: 1);
+      final out = reopened(editor);
+      expect(labelsOf(out), ['Page 1', '<no label>', 'Page 2']);
+      // default size is US Letter
+      expect(out.page(1).mediaBox, const PdfRect(0, 0, 612, 792));
+    });
+
+    test('the new page joins the flat tree under the root', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc)..insertBlankPage();
+      final out = reopened(editor);
+      final rootRef = out.catalog['Pages'] as CosReference;
+      expect(out.page(1).dict['Parent'], rootRef);
+    });
+
+    test('rejects non-positive dimensions and an out-of-range index', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)));
+      expect(() => editor.insertBlankPage(width: 0), throwsArgumentError);
+      expect(() => editor.insertBlankPage(height: -1), throwsArgumentError);
+      expect(() => editor.insertBlankPage(at: 3), throwsRangeError);
+      expect(editor.hasChanges, isFalse);
+    });
+
+    test('saves are incremental: the original bytes survive verbatim', () {
+      final original = buildMultiPagePdf(2);
+      final editor = PdfEditor(PdfDocument.open(original))..insertBlankPage();
+      final saved = editor.save();
+      expect(saved.sublist(0, original.length), original);
+    });
+  });
+
   group('flattening a nested tree', () {
     test('inherited attributes survive on the rearranged pages', () {
       final doc = PdfDocument.open(buildNestedPageTreePdf());
@@ -224,6 +271,18 @@ void main() {
       final doc = PdfDocument.open(buildMultiPagePdf(2));
       expect(() => doc.extractPages([]), throwsArgumentError);
       expect(() => doc.extractPages([2]), throwsRangeError);
+    });
+
+    test('extractPageRange exports a contiguous span', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(5));
+      final out = PdfDocument.open(doc.extractPageRange(1, 3));
+      expect(labelsOf(out), ['Page 2', 'Page 3', 'Page 4']);
+    });
+
+    test('extractPageRange rejects a reversed or out-of-range span', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(3));
+      expect(() => doc.extractPageRange(2, 1), throwsArgumentError);
+      expect(() => doc.extractPageRange(0, 5), throwsRangeError);
     });
 
     test('extracting from an encrypted document yields plain output', () {

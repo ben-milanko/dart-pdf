@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Page assembly: `PdfEditor.insertBlankPage` adds a new empty page at any
+  position (sized to request, default US Letter), and
+  `PdfDocument.extractPageRange` exports a contiguous span of pages as a
+  standalone PDF — alongside the existing `appendPagesFrom` (insert pages
+  from another document) and `extractPages` (arbitrary subset).
 - OCR text-layer injection: `PdfEditor.injectTextLayer` writes recognized
   `PdfOcrSpan`s onto a page as invisible (render mode 3) text — sized and
   horizontally scaled to sit over each word — so a scanned, image-only page

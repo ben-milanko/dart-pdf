@@ -53,6 +53,30 @@ extension PdfPageOperations on PdfEditor {
         [for (var i = 0; i < count; i++) if (!doomed.contains(i)) leaves[i]]);
   }
 
+  /// Inserts a new blank page [at] the given index (default: appended at
+  /// the end), sized [width] × [height] points (default: US Letter,
+  /// 612 × 792). The page carries an empty /Resources dictionary and no
+  /// content, ready for [PdfContentEditing.stampPage] or annotation
+  /// authoring.
+  void insertBlankPage({double? width, double? height, int? at}) {
+    final w = width ?? 612;
+    final h = height ?? 792;
+    if (w <= 0 || h <= 0) {
+      throw ArgumentError('page dimensions must be positive ($w × $h)');
+    }
+    final leaves = _materializedLeaves();
+    final insertAt = at ?? leaves.length;
+    RangeError.checkValueInInterval(insertAt, 0, leaves.length, 'at');
+    final dict = CosDictionary({
+      'Type': const CosName('Page'),
+      'MediaBox': CosArray([CosReal(0), CosReal(0), CosReal(w), CosReal(h)]),
+      'Resources': CosDictionary(),
+    });
+    final ref = _updater.addObject(dict);
+    _rebuildPageTree(
+        [...leaves]..insert(insertAt, _Leaf(ref, dict, isNew: true)));
+  }
+
   /// Copies pages from [source] into this document — all of them, or the
   /// given [indices] (in that order) — inserting [at] the given position
   /// (default: appended at the end).
@@ -194,6 +218,16 @@ extension PdfPageExtraction on PdfDocument {
           ? headerVersion
           : '1.7',
     );
+  }
+
+  /// Builds a standalone PDF of pages [start] through [end] inclusive, in
+  /// order — a convenience over [extractPages] for the common contiguous
+  /// range. [end] must not be before [start].
+  Uint8List extractPageRange(int start, int end) {
+    if (end < start) {
+      throw ArgumentError('end ($end) must not be before start ($start)');
+    }
+    return extractPages([for (var i = start; i <= end; i++) i]);
   }
 }
 
