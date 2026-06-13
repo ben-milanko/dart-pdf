@@ -101,6 +101,27 @@ class SaveResult {
 /// file. Throws if it can't be read (caller drops the stale recent entry).
 Future<Uint8List> readPdfAtPath(String path) => XFile(path).readAsBytes();
 
+/// Whether the current platform supports overwriting a file in place by path.
+/// Desktop only: web has no filesystem, and mobile content URIs are typically
+/// read-only, so those save-as instead.
+bool get supportsInPlaceSave =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux);
+
+/// Overwrites the file at [path] with [bytes] (in-place save). Uses
+/// [XFile.saveTo] rather than dart:io so this file still compiles for web,
+/// where [supportsInPlaceSave] is false and this is never called.
+Future<SaveResult> saveBytesToPath(Uint8List bytes, String path) async {
+  try {
+    await XFile.fromData(bytes, mimeType: 'application/pdf').saveTo(path);
+    return SaveResult.saved(path);
+  } catch (e) {
+    return SaveResult.failed(e);
+  }
+}
+
 /// Save-as with whatever the platform offers: a save dialog on desktop, a
 /// browser download on the web, the share sheet on phones and tablets (where
 /// apps can't write outside their sandbox directly). The origin-aware

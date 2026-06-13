@@ -250,14 +250,24 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- saving --------------------------------------------------------------
 
-  /// Saves [tab]. `saveAs` always prompts for a new location; a plain Save will
-  /// write back to the document's origin once in-place save lands (Phase 3) —
-  /// today both go through the platform save-as.
+  /// Saves [tab]. A plain Save overwrites the document's on-disk origin when
+  /// there is one (desktop); otherwise, and for an explicit `saveAs`, it
+  /// prompts for a location (save dialog / browser download / share sheet).
+  /// An in-place write that fails (e.g. permissions) falls back to save-as.
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
-    final result = await saveBytesAs(context, bytes, tab.title);
+    final inPlace =
+        !saveAs && tab.originPath != null && supportsInPlaceSave;
+    var result = inPlace
+        ? await saveBytesToPath(bytes, tab.originPath!)
+        : await saveBytesAs(context, bytes, tab.title);
     if (!mounted) return;
+    if (inPlace && !result.succeeded) {
+      // The origin couldn't be written (moved, read-only) — offer save-as.
+      result = await saveBytesAs(context, bytes, tab.title);
+      if (!mounted) return;
+    }
     if (result.succeeded) {
       setState(() {
         tab.markSaved();
