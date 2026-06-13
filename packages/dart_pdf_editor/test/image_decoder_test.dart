@@ -118,6 +118,45 @@ void main() {
     });
   });
 
+  testWidgets('a higher-res /Mask stencil keeps its resolution (issue4246)',
+      (tester) async {
+    await tester.runAsync(() async {
+      // A tiny colour image carrying its detail in a much larger stencil — the
+      // mask must NOT be crushed down to the base grid (that produced blocky
+      // letters). Base 1x1 red, mask 4x1 paint/skip/paint/skip.
+      final mask = CosStream(
+        CosDictionary({
+          'ImageMask': const CosBoolean(true),
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(1),
+        }),
+        // bits 0,1,0,1 -> paint,skip,paint,skip
+        Uint8List.fromList([0x50]),
+      );
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Mask': mask,
+        }),
+        Uint8List.fromList([255, 0, 0]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final decoded = images[image]!;
+      // Output is built at the MASK's resolution, not the 1x1 base.
+      expect(decoded.width, 4);
+      expect(decoded.height, 1);
+      final pixels = await pixelsOf(decoded);
+      expect(pixels.sublist(0, 4), [255, 0, 0, 255]); // crisp painted red
+      expect(pixels.sublist(4, 8), [0, 0, 0, 0]); // crisp cutout
+      expect(pixels.sublist(8, 12), [255, 0, 0, 255]);
+      expect(pixels.sublist(12, 16), [0, 0, 0, 0]);
+    });
+  });
+
   testWidgets('/Decode [1 0] inverts gray samples', (tester) async {
     await tester.runAsync(() async {
       final image = CosStream(

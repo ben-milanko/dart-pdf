@@ -1,12 +1,96 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'editing/editing_color_picker.dart';
 import 'editing/editing_preferences.dart';
+import 'pdf_viewer.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
 /// PdfEditorView). Package-private: not exported from the library.
 
 const double pdfShellCompactWidth = 700;
+
+/// Persists a viewer's scroll position and zoom per document, so the
+/// shells reopen a document where the user left it.
+///
+/// It tracks the latest viewport as the user scrolls/zooms (cheaply, in
+/// memory) and writes it to [PdfEditingPreferences] on a debounce; [flush]
+/// forces a write (on dispose), and [rekey] switches documents — saving
+/// the outgoing one and restoring the incoming one. Used package-private
+/// by both shells.
+class PdfViewportMemory {
+  PdfViewportMemory({
+    required this.viewer,
+    required this.preferences,
+    required String documentKey,
+  }) : _documentKey = documentKey {
+    viewer.viewportChanges.addListener(_onViewportChanged);
+    // the debounced write can lose the last position when the app goes
+    // away before it fires — on the web a closed/hidden tab never disposes
+    // this — so flush on every "going away" lifecycle transition too
+    _lifecycle = AppLifecycleListener(
+      onHide: flush,
+      onPause: flush,
+      onDetach: flush,
+    );
+    _restore(documentKey);
+  }
+
+  final PdfViewerController viewer;
+  final PdfEditingPreferences preferences;
+  String _documentKey;
+
+  PdfViewport? _last;
+  Timer? _saveTimer;
+  late final AppLifecycleListener _lifecycle;
+
+  /// Time to wait after the last scroll/zoom before writing to disk.
+  static const _debounce = Duration(milliseconds: 400);
+
+  void _onViewportChanged() {
+    // capture now (the viewer is live), debounce only the disk write — so
+    // [flush] has a fresh position even after the viewer detaches
+    final viewport = viewer.captureViewport();
+    if (viewport != null) _last = viewport;
+    _saveTimer ??= Timer(_debounce, _writePending);
+  }
+
+  void _writePending() {
+    _saveTimer = null;
+    if (_last != null) preferences.setViewport(_documentKey, _last);
+  }
+
+  Future<void> _restore(String key) async {
+    await preferences.ready;
+    if (key != _documentKey) return; // document swapped while loading
+    final viewport = preferences.viewportFor(key);
+    if (viewport != null) viewer.restoreViewport(viewport);
+  }
+
+  /// Switches to a different document: writes the outgoing one's position,
+  /// then restores the incoming one's.
+  void rekey(String documentKey) {
+    if (documentKey == _documentKey) return;
+    flush();
+    _documentKey = documentKey;
+    _last = null;
+    _restore(documentKey);
+  }
+
+  /// Writes the latest known position immediately — call before disposing.
+  void flush() {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    if (_last != null) preferences.setViewport(_documentKey, _last);
+  }
+
+  void dispose() {
+    flush();
+    _lifecycle.dispose();
+    viewer.viewportChanges.removeListener(_onViewportChanged);
+  }
+}
 
 bool pdfShellShowThumbnailSidebar(
   PdfEditingPreferences preferences,

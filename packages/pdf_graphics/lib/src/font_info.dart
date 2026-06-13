@@ -484,7 +484,17 @@ class PdfFontInfo {
     }
     final mac = font.gidForMacCode(code);
     if (mac != 0) return mac;
-    // subset fonts without a cmap index glyphs directly by code
+    // cmap-less fonts: select by glyph name through the `post` table — a subset
+    // packs its used glyphs at arbitrary gids, so the encoding name → gid
+    // mapping (e.g. "greater" → gid 33) is the only correct path (§9.6.6.4).
+    if (!font.hasCmap) {
+      final name = _encodingNames[code] ?? _type1?.builtinEncoding[code];
+      if (name != null) {
+        final gid = font.gidForName(name);
+        if (gid != 0) return gid;
+      }
+    }
+    // subset fonts without a cmap or post names index glyphs directly by code
     if (!font.hasCmap && code < font.numGlyphs) return code;
     return 0;
   }

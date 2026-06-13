@@ -79,7 +79,8 @@ class RecordingDevice implements PdfDevice {
   }
 
   @override
-  void beginGroup(double alpha) => calls.add('beginGroup($alpha)');
+  void beginGroup(double alpha, {bool knockout = false}) =>
+      calls.add('beginGroup($alpha${knockout ? ' knockout' : ''})');
   @override
   void endGroup() => calls.add('endGroup');
   @override
@@ -580,6 +581,48 @@ void main() {
       expect(device.fills.first.$2, const PdfColor(1, 0, 0));
     });
 
+    test('tiling pattern fills text through the glyph outlines', () {
+      // Embedded TrueType 'A' filled with a red tiling pattern: the pattern
+      // must paint through the glyph outlines (clip + per-tile fill) and the
+      // text run must be emitted invisibly so it stays selectable without the
+      // solid fill colour showing through (issue4246 sibling — pattern text).
+      final doc = CosDocument.open(buildEmbeddedFontPdf());
+      final device = RecordingDevice();
+      const cell = '1 0 0 rg 0 0 1 1 re f';
+      final resources = CosDictionary({
+        'Font': CosDictionary({'F1': const CosReference(5, 0)}),
+        'Pattern': CosDictionary({
+          'P1': CosStream(
+            CosDictionary({
+              'PatternType': const CosInteger(1),
+              'PaintType': const CosInteger(1),
+              'BBox': CosArray([
+                const CosInteger(0),
+                const CosInteger(0),
+                const CosInteger(4),
+                const CosInteger(4),
+              ]),
+              'XStep': const CosInteger(4),
+              'YStep': const CosInteger(4),
+              'Length': CosInteger(cell.length),
+            }),
+            Uint8List.fromList(cell.codeUnits),
+          ),
+        }),
+      });
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            '/Pattern cs /P1 scn BT /F1 24 Tf 72 700 Td (A) Tj ET'.codeUnits)),
+        resources,
+      );
+      // the glyph outline became a clip and the cell painted inside it
+      expect(device.clips, isNotEmpty);
+      expect(device.fills.any((f) => f.$2 == const PdfColor(1, 0, 0)), isTrue);
+      // the text is still emitted (selectable) but not painted as a solid glyph
+      expect(device.texts.single.invisible, isTrue);
+      expect(device.texts.single.text, 'A');
+    });
+
     test('sh paints a gradient across the page area', () {
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();
@@ -740,6 +783,51 @@ void main() {
     final corner = fill.$1.segments[2] as PdfLineTo;
     expect(corner.x, 108); // 2*4 + 100
     expect(corner.y, 8);
+  });
+
+  test('a knockout group (/K true) opens a knockout layer at full alpha', () {
+    // §11.4.5: a knockout group needs its own compositing layer even when it
+    // paints at alpha 1, so each element can replace (not blend over) the
+    // ones before it. Without /K the same group at alpha 1 stays unwrapped.
+    const content = '1 0 0 rg 0 0 60 60 re f 0 0 1 rg 30 30 60 60 re f';
+    CosStream group(bool knockout) => CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Form'),
+            'BBox': CosArray(const [
+              CosInteger(0),
+              CosInteger(0),
+              CosInteger(100),
+              CosInteger(100),
+            ]),
+            'Group': CosDictionary({
+              'Type': const CosName('Group'),
+              'S': const CosName('Transparency'),
+              if (knockout) 'K': const CosBoolean(true),
+            }),
+            'Length': CosInteger(content.length),
+          }),
+          Uint8List.fromList(content.codeUnits),
+        );
+    final doc = CosDocument.open(buildClassicPdf());
+
+    final ko = RecordingDevice();
+    PdfInterpreter(cos: doc, device: ko).run(
+      ContentStreamParser.parse(Uint8List.fromList('/Fm0 Do'.codeUnits)),
+      CosDictionary({
+        'XObject': CosDictionary({'Fm0': group(true)}),
+      }),
+    );
+    expect(ko.calls, contains('beginGroup(1.0 knockout)'));
+    expect(ko.calls, contains('endGroup'));
+
+    final plain = RecordingDevice();
+    PdfInterpreter(cos: doc, device: plain).run(
+      ContentStreamParser.parse(Uint8List.fromList('/Fm0 Do'.codeUnits)),
+      CosDictionary({
+        'XObject': CosDictionary({'Fm0': group(false)}),
+      }),
+    );
+    expect(plain.calls.where((c) => c.startsWith('beginGroup')), isEmpty);
   });
 
   group('annotation appearances', () {

@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'preview_cache.dart';
+import 'render_scheduler.dart';
 import 'renderer.dart';
 
 /// Displays a single PDF page, rendered natively in Dart.
@@ -27,6 +28,7 @@ class PdfPageView extends StatefulWidget {
     this.showAnnotations = true,
     this.onRasterReady,
     this.renderHold,
+    this.renderScheduler,
     this.previewCache,
     this.previewIndex = 0,
   });
@@ -50,7 +52,19 @@ class PdfPageView extends StatefulWidget {
   /// flying past can't stall the frame rate. Held pages render as soon
   /// as it drops back to false. Pages that already have a picture are
   /// unaffected (re-rasters reuse it).
+  ///
+  /// Superseded by [renderScheduler] when one is supplied: the scheduler
+  /// both defers and paces the first interpret, so [renderHold] is only
+  /// consulted on its own (the bare-[PdfPageView] case).
   final ValueListenable<bool>? renderHold;
+
+  /// Paces this page's first (UI-thread) interpret against every other
+  /// page's, so a settling fast scroll can't fire them all in one frame.
+  /// When set, the page registers its first render here instead of
+  /// interpreting directly; the scheduler grants it a turn (see
+  /// [PdfPageRenderScheduler]). Re-rasters of an already-interpreted page
+  /// bypass it. Null falls back to [renderHold].
+  final PdfPageRenderScheduler? renderScheduler;
 
   /// Called whenever a full-page raster for the current [page] object
   /// lands on screen. Lets the editing overlay hold its just-committed
@@ -83,6 +97,13 @@ class _PdfPageViewState extends State<PdfPageView> {
   int _renderGeneration = 0;
   double? _pixelRatio;
   double? _layoutWidth;
+
+  /// The effective pixel ratio [_image] was last rasterized at. A settle
+  /// that only moved the detail patch (scale unchanged) must not re-read
+  /// the whole page back off the GPU — an expensive, uncancellable
+  /// `toImage` on web — so [_renderNow] skips the full-page raster when
+  /// this still matches.
+  double? _rasteredRatio;
 
   ui.Image? _detailImage;
   Rect? _detailFraction; // patch placement as fractions of the page
@@ -167,6 +188,10 @@ class _PdfPageViewState extends State<PdfPageView> {
       widget.renderHold?.addListener(_onRenderHoldChanged);
       _onRenderHoldChanged();
     }
+    if (!identical(oldWidget.renderScheduler, widget.renderScheduler)) {
+      oldWidget.renderScheduler?.cancel(this);
+      // the new scheduler picks this page up on its next _render
+    }
     if (!identical(oldWidget.previewCache, widget.previewCache) ||
         oldWidget.previewIndex != widget.previewIndex) {
       oldWidget.previewCache?.removeListener(_onPreviewCacheChanged);
@@ -181,19 +206,20 @@ class _PdfPageViewState extends State<PdfPageView> {
       _dropPicture();
       _dropDetail();
       _render();
-    } else if (oldWidget.scale != widget.scale) {
+    } else if (oldWidget.scale != widget.scale ||
+        oldWidget.settleGeneration != widget.settleGeneration) {
+      // scale change re-rasters the page; a settle that only moved the
+      // viewport refreshes the detail patch. Both route through _render so
+      // they pace and coalesce through the scheduler (_renderNow skips the
+      // full-page raster when the resolution is unchanged).
       _render();
-    } else if (oldWidget.settleGeneration != widget.settleGeneration) {
-      // viewport settled somewhere new: refresh only the detail patch
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _updateDetail();
-      });
     }
   }
 
   @override
   void dispose() {
     widget.renderHold?.removeListener(_onRenderHoldChanged);
+    widget.renderScheduler?.cancel(this);
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _dropPicture();
     _image?.dispose();
@@ -205,6 +231,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   void _dropPicture() {
     _picture?.then((picture) => picture.dispose());
     _picture = null;
+    _rasteredRatio = null; // the next picture must re-raster, not be skipped
   }
 
   void _dropDetail() {
@@ -239,41 +266,72 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   Future<void> _render() async {
-    // only the first interpretation is deferred: it walks the content
-    // stream twice on the UI thread, which is what stalls fast scrolling
-    // on heavy pages. With a picture cached, rendering is a raster-thread
-    // toImage and proceeds even during the hold.
+    final scheduler = widget.renderScheduler;
+    if (scheduler != null) {
+      // Route the first interpret AND every re-raster (zoom settle,
+      // detail-patch follow) through the scheduler: it dedupes per page
+      // (token), paces one render per frame, and defers while a scroll or
+      // zoom is in flight. The first interpret walks the content stream
+      // twice on the UI thread — what stalls fast scrolling on heavy
+      // pages. Re-rasters are a `toImage`, cheap on a raster thread but a
+      // single-threaded GPU readback on web: rapid zoom in/out used to
+      // fire one uncancellable readback per settle and they piled up,
+      // freezing the UI. Coalescing collapses them to the latest.
+      scheduler.request(this, widget.previewIndex, _renderNow);
+      return;
+    }
+    // The bare PdfPageView (no scheduler) defers only the first interpret
+    // behind renderHold; cached re-rasters run directly.
     if (_picture == null && (widget.renderHold?.value ?? false)) {
       _holdPending = true;
       return;
     }
+    await _renderNow();
+  }
+
+  /// The actual interpret + rasterize, run once the first render is no
+  /// longer gated (or directly for re-rasters of a cached picture).
+  Future<void> _renderNow() async {
     final generation = ++_renderGeneration;
     final picture = await (_picture ??= PdfPageRenderer.renderPicture(
         widget.page,
         pageColor: widget.pageColor,
         annotations: widget.showAnnotations));
     if (!mounted || generation != _renderGeneration) return;
-    final image = await PdfPageRenderer.rasterize(
-        picture, PdfPageRenderer.pageSize(widget.page), _effectiveRatio());
-    if (!mounted || generation != _renderGeneration) {
-      image.dispose();
-      return;
-    }
-    // the previous raster stays up (transform-scaled) until this replaces
-    // it, so zooming never flashes white
-    setState(() {
-      _image?.dispose();
-      _image = image;
-      _preview?.dispose();
-      _preview = null;
-    });
-    widget.onRasterReady?.call();
-    // feed the preview cache from the picture we already paid to
-    // interpret — this is how previews appear for pages the background
-    // prerender hasn't reached (and refresh after edits)
-    final cache = widget.previewCache;
-    if (cache != null && !cache.isFresh(widget.previewIndex, widget.page)) {
-      unawaited(cache.putFromPicture(widget.previewIndex, widget.page, picture));
+    final effective = _effectiveRatio();
+    // Skip the full-page readback when the cached raster is already at
+    // this resolution: a settle that only moved the detail patch reaches
+    // here too (one combined callback paces base + detail through the
+    // scheduler), and re-reading the whole page off the GPU is the
+    // expensive part on web.
+    final stale = _image == null ||
+        _rasteredRatio == null ||
+        (effective - _rasteredRatio!).abs() > _rasteredRatio! * 0.01;
+    if (stale) {
+      final image = await PdfPageRenderer.rasterize(
+          picture, PdfPageRenderer.pageSize(widget.page), effective);
+      if (!mounted || generation != _renderGeneration) {
+        image.dispose();
+        return;
+      }
+      // the previous raster stays up (transform-scaled) until this
+      // replaces it, so zooming never flashes white
+      setState(() {
+        _image?.dispose();
+        _image = image;
+        _rasteredRatio = effective;
+        _preview?.dispose();
+        _preview = null;
+      });
+      widget.onRasterReady?.call();
+      // feed the preview cache from the picture we already paid to
+      // interpret — this is how previews appear for pages the background
+      // prerender hasn't reached (and refresh after edits)
+      final cache = widget.previewCache;
+      if (cache != null && !cache.isFresh(widget.previewIndex, widget.page)) {
+        unawaited(
+            cache.putFromPicture(widget.previewIndex, widget.page, picture));
+      }
     }
     await _updateDetail();
   }
@@ -331,8 +389,17 @@ class _PdfPageViewState extends State<PdfPageView> {
     ratio =
         math.min(ratio, _maxDimension / math.max(region.width, region.height));
 
-    // never interpret during a hold — the next settle refreshes the patch
-    if (_picture == null && (widget.renderHold?.value ?? false)) return;
+    // never interpret the page for the first time inline here — that is
+    // the scheduler's job (or, bare, the hold's); the next settle
+    // refreshes the patch once the base picture lands
+    if (_picture == null) {
+      final scheduler = widget.renderScheduler;
+      if (scheduler != null) {
+        scheduler.request(this, widget.previewIndex, _renderNow);
+        return;
+      }
+      if (widget.renderHold?.value ?? false) return;
+    }
     final picture = await (_picture ??= PdfPageRenderer.renderPicture(
         widget.page,
         pageColor: widget.pageColor,

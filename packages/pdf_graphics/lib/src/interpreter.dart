@@ -224,11 +224,12 @@ class PdfInterpreter {
   ///
   /// Hidden and NoView annotations are skipped, as are Popups — those are
   /// only shown by a viewer when their parent note is opened.
-  void drawAnnotations(PdfPage page) {
+  void drawAnnotations(PdfPage page, {bool Function(PdfAnnotation)? skip}) {
     _pageBox = page.mediaBox;
     for (final annotation in page.annotations) {
       if (annotation.isHidden || annotation.isNoView) continue;
       if (annotation.subtype == 'Popup') continue;
+      if (skip != null && skip(annotation)) continue;
       final form = annotation.normalAppearance;
       if (form == null) {
         _drawFallbackAnnotation(annotation);
@@ -1563,18 +1564,32 @@ class PdfInterpreter {
       if (text.trim().isNotEmpty || glyphs != null) {
         final fillText =
             mode == 0 || mode == 2 || mode == 4 || mode == 6;
+        final pattern = fillText ? _state.fillPattern : null;
+        // A tiling pattern can't be flattened to a gradient (shading patterns
+        // can — see _gradientOfPattern). Paint it through the glyph outlines as
+        // a clip, then emit the run invisibly so it stays selectable without
+        // the solid fill colour showing through. Needs embedded outlines; a
+        // substituted font falls back to the solid fill colour.
+        var paintedAsTiling = false;
+        if (glyphs != null && _isTilingPattern(pattern)) {
+          final glyphPath = _glyphOutlinePath(glyphs, transform);
+          if (glyphPath != null) {
+            _fillWithPattern(glyphPath, PdfFillRule.nonzero, pattern!);
+            paintedAsTiling = true;
+          }
+        }
         device.drawText(PdfTextRun(
           text: text,
           transform: transform,
           color: mode == 1 || mode == 5
               ? _state.strokeColor
               : _state.fillColor,
-          gradient: fillText ? _gradientOfPattern(_state.fillPattern) : null,
+          gradient: fillText ? _gradientOfPattern(pattern) : null,
           width: advance / emScale,
           fontName: font.baseFont,
           fontSize: size,
           glyphs: glyphs,
-          invisible: mode == 3 || mode == 7,
+          invisible: mode == 3 || mode == 7 || paintedAsTiling,
         ));
       }
     }
@@ -1681,6 +1696,26 @@ class PdfInterpreter {
     return PdfShading.parse(cos, dict['Shading'])?.toGradient(
       _patternMatrix(dict),
     );
+  }
+
+  bool _isTilingPattern(CosObject? pattern) {
+    if (pattern is! CosStream) return false;
+    final type = cos.resolve(pattern.dictionary['PatternType']);
+    return type is CosInteger && type.value == 1;
+  }
+
+  /// The combined glyph outlines of a run as one page-space path, for filling
+  /// text with a pattern. Null when no glyph carries an outline.
+  PdfPath? _glyphOutlinePath(
+      List<PdfGlyphPlacement> glyphs, PdfMatrix transform) {
+    final segments = <PdfPathSegment>[];
+    for (final g in glyphs) {
+      final outline = g.outline;
+      if (outline == null) continue;
+      _appendTransformedPath(segments, outline,
+          PdfMatrix.translation(g.offset, 0).concat(transform));
+    }
+    return segments.isEmpty ? null : PdfPath(segments);
   }
 
   void _fillWithPattern(PdfPath path, PdfFillRule rule, CosObject pattern) {
@@ -1905,14 +1940,20 @@ class PdfInterpreter {
     // at Do applies to the group's result, and resets inside (§11.6.6) —
     // otherwise an inner `gs` back to ca 1.0 would erase the group alpha
     final groupAlpha = _state.fillAlpha;
-    final isGroup = cos.resolve(xobject.dictionary['Group']) is CosDictionary;
-    final groupLayer = isGroup && groupAlpha < 1;
+    final groupDict = cos.resolve(xobject.dictionary['Group']);
+    final isGroup = groupDict is CosDictionary;
+    // A knockout group (/K true, §11.4.5) needs its own layer so each
+    // element can composite against the group's initial backdrop, even when
+    // the group itself paints at full alpha.
+    final knockout =
+        isGroup && cos.resolve(groupDict['K']) == const CosBoolean(true);
+    final groupLayer = isGroup && (groupAlpha < 1 || knockout);
 
     final outerMask = _state.softMask;
     _stateStack.add(_GraphicsState.from(_state));
     device.save();
     if (groupLayer) {
-      device.beginGroup(groupAlpha);
+      device.beginGroup(groupAlpha, knockout: knockout);
       _state.fillAlpha = 1;
       _state.strokeAlpha = 1;
     }

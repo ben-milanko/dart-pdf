@@ -1714,6 +1714,73 @@ colour washes over white" — 0x80FF0000 reads ~(255,127,127) not
 The rest of the handoff (PdfMarkupStore `colourLocked` computed,
 TraxProjectSettings/`toHexWithAlpha`, copy-type opacity-slider UI) is
 trax-repo work, not here.
+Shape resize line-width stretch (Ben: "annotation line width gets
+stretched in the preview before returning to original"): the
+move/resize drag previews via a rasterized appearance ghost scaled
+from the resting rect onto the dragged rect, so a Square/Circle's
+stroke thickened with the box and snapped back on commit — because the
+editor REGENERATES the shape at a constant stroke width
+(`_regenerateResizedAppearance`), not the §12.5.5 stretch. Fix mirrors
+the existing FreeText `_textResizeStyle`/`wrapResize` path: overlay
+`_shapeResizeStyle(rect, rotation)` (editing_overlay.dart) returns the
+shape's draw params (ellipse flag, stroke/fill colour, page→view-scaled
+border width, opacity) when the resize will regenerate — gated EXACTLY
+like the editor's Square/Circle branch (normalAppearance present, no
+cloudy /BE, no dashed /BS, has a stroke or fill) so preview never
+disagrees with commit. Build computes `shapeResize` = live preview
+(while a resize handle is dragging) ?? `_afterShapeResize` (the frozen
+afterimage, held until rasterCurrent like the others), suppresses the
+ghost when it's set, and hands the painter a `_ShapeResize` record;
+painter `_paintShapeResize` strokes/fills the rect (inset by half the
+view-space stroke width to match `_shapeContent`), rotated about the
+rect centre by the resting angle, dimmed via saveLayer to the
+appearance opacity. The `_panEnd` resize branch captures the style
+BEFORE commit (the annotation's pre-resize border width is the constant
+one) and freezes it as `_afterShapeResize` instead of
+`_commitWithGhost`. Rotated shapes work for free (resizeSelectedLocal
+already regenerates at the local box then re-rotates; the preview
+rotates the same local box about its centre). Ink/stamps/embedded-font
+free text still stretch (the ghost is correct there — they don't
+regenerate). Tests: editing_shape_resize_test.dart (3 — the painter's
+`shapeResize` via the dynamic cast: constant 2px stroke at 0.5px/pt
+under a big widen, ellipse flag, ghost suppressed; commit keeps the
+original borderWidth).
+Reopen-where-you-left-off (Ben: "opening the same document should open
+with the same viewport"): `PdfViewport` (viewport.dart, exported via
+pdf_viewer) — a resolution-INDEPENDENT snapshot (page at the viewport's
+top-left + fractional top/left into it + effective zoom), so it restores
+at any window size; JSON-encoded. `PdfViewerController.captureViewport`/
+`restoreViewport` + `PdfViewer.initialViewport`. State side
+(`_captureViewport`/`_restoreViewport`/`_placeViewport`): capture
+unprojects the viewport top-left to list space via the same (p−t)/s the
+selection/visibleFraction code uses; restore sets `_layoutZoom` in build
+(zoom≤1 → layout zoom, transform identity; zoom>1 → layoutZoom 1, the
+zoom rides the transform) then places scroll+transform in a POST-FRAME
+callback once the new extents exist (ExactExtentListView makes them
+exact). `_pendingViewport` (from initialViewport in initState, or
+restoreViewport before layout) is consumed in build alongside the
+initialFit path — a saved viewport wins over initialFit. Persistence:
+`PdfEditingPreferences.viewportFor`/`setViewport` — a per-document LRU
+map (cap 64, key→PdfViewport) stored as one JSON string under
+`documentViewports`; deliberately does NOT notifyListeners (called on
+every scroll/zoom settle) and loads OUTSIDE the `_modified` guard
+(write-mostly, merges by key) so a viewport saved before the disk read
+survives (`_viewportsDirty` flush). Shells: `PdfViewportMemory`
+(shell_chrome.dart, package-private) — listens to viewer
+`viewportChanges`, captures into `_last` per tick (so flush works after
+the viewer detaches) and debounces the disk write (400ms); `rekey` on a
+bytes/documentId swap saves the outgoing doc and restores the incoming;
+`flush` on dispose. `PdfReader`/`PdfEditorView` gained `documentId`
+(null → `pdfDocumentKey(bytes)`, an FNV-1a sample hash); the editor only
+remembers when it owns the session (bytes given, not an external
+controller). Example passes `documentId: _title`, so the read-only
+toggle and reopening a file both land where you were. Test gotchas
+(viewport_test.dart, 12): re-pumpWidget with the same tree shape reuses
+the State (didUpdateWidget, NOT initState) so initialViewport is skipped
+— pump a blank tree between to force a fresh element; the thumbnail
+strip's raster loop never settles without runAsync, so the shell test
+turns thumbnails off and uses bounded pumps (no pumpAndSettle/
+pumpEventQueue).
 
 Interactive form fill in reading mode (Ben: "users need to enter text
 into form fields, and interact with check boxes, buttons, drop-downs"):

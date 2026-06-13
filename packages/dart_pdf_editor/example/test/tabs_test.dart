@@ -59,4 +59,12 @@ void main() {
     expect(find.text('Open a PDF'), findsOneWidget);
     expect(find.text('Try the interactive demo'), findsOneWidget);
   });
+
+  testWidgets('the More menu offers comparing against another PDF',
+      (tester) async {
+    await openDemo(tester);
+    await tester.tap(find.byTooltip('More actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Compare with another PDF…'), findsOneWidget);
+  });
 }
