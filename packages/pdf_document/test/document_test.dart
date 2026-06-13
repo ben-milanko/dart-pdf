@@ -166,5 +166,24 @@ void main() {
       expect(text, contains('still here'));
       expect(text, isNot(contains('not-flate')));
     });
+
+    test('invalid page boxes fall back to visible page geometry', () {
+      // pdf.js boundingBox_invalid: zero-area boxes must not collapse the
+      // rendered page to a 1x1 raster.
+      final doc = PdfDocument.open(build([
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 0 0] >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 800 600] '
+            '/CropBox [0 0 0 0] >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] '
+            '/CropBox [600 800 1000 1000] >>',
+      ]));
+
+      expect(doc.page(0).mediaBox, const PdfRect(0, 0, 612, 792));
+      expect(doc.page(0).cropBox, const PdfRect(0, 0, 612, 792));
+      expect(doc.page(1).cropBox, const PdfRect(0, 0, 800, 600));
+      expect(doc.page(2).cropBox, const PdfRect(0, 0, 600, 800));
+    });
   });
 }

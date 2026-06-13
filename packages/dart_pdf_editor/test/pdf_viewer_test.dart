@@ -71,6 +71,55 @@ void main() {
     expect(controller.currentPage, greaterThan(0));
   });
 
+  testWidgets('resizing a side panel preserves the reading position',
+      (tester) async {
+    // Page heights scale with the viewer width, so a panel resize that
+    // shrinks the viewport used to slide the document under the reader.
+    final controller = PdfViewerController();
+    // one document instance: rebuilding with a fresh PdfDocument would look
+    // like a swap and reset the viewport, masking the resize behavior.
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    Widget build(double panelWidth) => MaterialApp(
+          home: Scaffold(
+            body: Row(children: [
+              SizedBox(width: panelWidth, height: double.infinity),
+              Expanded(
+                child: PdfViewer(
+                  key: const ValueKey('viewer'),
+                  initialFit: PdfViewerFit.width,
+                  document: document,
+                  controller: controller,
+                ),
+              ),
+            ]),
+          ),
+        );
+
+    await tester.pumpWidget(build(100));
+    await tester.pump();
+
+    // park a middle page near the top, a little into it so the anchor
+    // fraction is non-trivial
+    controller.jumpToPage(3); // async; fire-and-pump (no fake-async await)
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.drag(find.byType(PdfViewer), const Offset(0, -120));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+    final beforeTop = controller.visiblePageRegion(3)!.top;
+    expect(beforeTop, greaterThan(0));
+
+    // widen the panel: the viewer shrinks and every page rescales
+    await tester.pumpWidget(build(300));
+    await tester.pump(); // lay out at the new width
+    await tester.pump(); // run the post-frame re-anchor
+
+    final region = controller.visiblePageRegion(3);
+    expect(region, isNotNull,
+        reason: 'page 3 should still sit at the viewport top');
+    expect(region!.top, closeTo(beforeTop, 0.02),
+        reason: 'the same point of the page stays at the viewport top');
+  });
+
   testWidgets('search finds matches and tracks the current one',
       (tester) async {
     final controller = await pumpViewer(tester);

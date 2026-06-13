@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -63,7 +64,6 @@ const _symbolPage = [
   241, 108, 197, 150, 89, 20, 32, 28, 127, 255, 172,
 ];
 
-
 void main() {
   test('arithmetic generic regions decode losslessly', () {
     final out = Jbig2Decoder.decode(
@@ -74,8 +74,7 @@ void main() {
     expect(out, _genericExpected);
   });
 
-  test('symbol dictionaries + text regions match the reference decoder',
-      () {
+  test('symbol dictionaries + text regions match the reference decoder', () {
     final out = Jbig2Decoder.decode(
       data: Uint8List.fromList(_symbolPage),
       globals: Uint8List.fromList(_symbolGlobals),
@@ -83,6 +82,59 @@ void main() {
       height: 24,
     );
     expect(out, _symbolExpected);
+  });
+
+  test('halftone regions render PDF.js bitmap-halftone corpus image', () {
+    final raw = _pdfjsImageData('bitmap-halftone.pdf', 'Im');
+    final out = Jbig2Decoder.decode(
+      data: raw,
+      width: 399,
+      height: 400,
+    );
+    expect(out, isNotNull);
+    expect(_blackPixelCount(out!, 399, 400), 10950);
+    expect(_isBlack(out, 399, 259, 78), isTrue);
+    expect(_isBlack(out, 399, 270, 79), isTrue);
+    expect(_isBlack(out, 399, 200, 150), isTrue);
+    expect(_isBlack(out, 399, 0, 0), isFalse);
+    expect(_isBlack(out, 399, 250, 90), isFalse);
+    expect(_isBlack(out, 399, 398, 399), isFalse);
+  });
+
+  test('generic refinement regions render PDF.js bitmap-refine corpus image',
+      () {
+    final raw = _pdfjsImageData('bitmap-refine.pdf', 'Im');
+    final out = Jbig2Decoder.decode(
+      data: raw,
+      width: 399,
+      height: 400,
+    );
+    expect(out, isNotNull);
+    expect(_blackPixelCount(out!, 399, 400), 10950);
+    expect(_isBlack(out, 399, 259, 78), isTrue);
+    expect(_isBlack(out, 399, 270, 79), isTrue);
+    expect(_isBlack(out, 399, 200, 150), isTrue);
+    expect(_isBlack(out, 399, 0, 0), isFalse);
+    expect(_isBlack(out, 399, 250, 90), isFalse);
+    expect(_isBlack(out, 399, 398, 399), isFalse);
+  });
+
+  test('Huffman symbol dictionaries and text regions render PDF.js corpus image',
+      () {
+    final raw = _pdfjsImageData('bitmap-symbol-symhuff-texthuff.pdf', 'Im');
+    final out = Jbig2Decoder.decode(
+      data: raw,
+      width: 399,
+      height: 400,
+    );
+    expect(out, isNotNull);
+    expect(_blackPixelCount(out!, 399, 400), 10950);
+    expect(_isBlack(out, 399, 259, 78), isTrue);
+    expect(_isBlack(out, 399, 270, 79), isTrue);
+    expect(_isBlack(out, 399, 200, 150), isTrue);
+    expect(_isBlack(out, 399, 0, 0), isFalse);
+    expect(_isBlack(out, 399, 250, 90), isFalse);
+    expect(_isBlack(out, 399, 398, 399), isFalse);
   });
 
   test('garbage decodes to null, not an exception', () {
@@ -94,3 +146,30 @@ void main() {
 }
 
 Uint8List ascii(String s) => Uint8List.fromList(s.codeUnits);
+
+Uint8List _pdfjsImageData(String fileName, String imageName) {
+  final bytes = File('../../test_corpora/pdfjs/$fileName').readAsBytesSync();
+  final doc = CosDocument.open(bytes);
+  final pages = doc.resolve(doc.catalog['Pages']) as CosDictionary;
+  final kids = doc.resolve(pages['Kids']) as CosArray;
+  final page = doc.resolve(kids[0]) as CosDictionary;
+  final resources = doc.resolve(page['Resources']) as CosDictionary;
+  final xobjects = doc.resolve(resources['XObject']) as CosDictionary;
+  final image = doc.resolve(xobjects[imageName]) as CosStream;
+  return doc.decodeStreamData(image, stopBeforeFilter: 'JBIG2Decode');
+}
+
+int _blackPixelCount(Uint8List data, int width, int height) {
+  var count = 0;
+  for (var y = 0; y < height; y++) {
+    for (var x = 0; x < width; x++) {
+      if (_isBlack(data, width, x, y)) count++;
+    }
+  }
+  return count;
+}
+
+bool _isBlack(Uint8List data, int width, int x, int y) {
+  final rowBytes = (width + 7) >> 3;
+  return (data[y * rowBytes + (x >> 3)] & (0x80 >> (x & 7))) == 0;
+}

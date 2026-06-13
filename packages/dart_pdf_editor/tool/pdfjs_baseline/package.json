@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "render": "node render_pdfjs_baselines.mjs"
+    "render": "node --expose-gc render_pdfjs_baselines.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.0",

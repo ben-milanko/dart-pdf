@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,21 +39,73 @@ const skipped = new Set([
   'print_protection.pdf',
 ]);
 
-const cjkSerifFonts = [
-  '/System/Library/Fonts/Supplemental/Songti.ttc',
-  '/System/Library/Fonts/Songti.ttc',
-  '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
-  '/usr/share/fonts/opentype/noto/NotoSerifCJKsc-Regular.otf',
-  '/usr/share/fonts/truetype/arphic/uming.ttc',
-];
-
-const cjkSansFonts = [
-  '/System/Library/Fonts/STHeiti Medium.ttc',
-  '/System/Library/Fonts/STHeiti Light.ttc',
-  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
-  '/usr/share/fonts/truetype/arphic/ukai.ttc',
-];
+// Non-embedded CJK fonts must be substituted with a real system font, and the
+// substitute must cover the document's language: a Chinese font has no Japanese
+// kana, so Japanese text (e.g. あいうえお) would still render as .notdef boxes.
+// Each language lists macOS faces first, then Linux Noto/arphic for CI. The
+// Noto pan-CJK .ttc files cover every language, so they double as a fallback.
+const cjkFontsByLang = {
+  ja: {
+    serif: [
+      '/System/Library/Fonts/ヒラギノ明朝 ProN.ttc',
+      '/System/Library/Fonts/Hiragino Mincho ProN.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJKjp-Regular.otf',
+    ],
+    sans: [
+      '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',
+      '/System/Library/Fonts/Hiragino Sans GB.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf',
+    ],
+  },
+  ko: {
+    serif: [
+      '/System/Library/Fonts/Supplemental/AppleMyungjo.ttf',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJKkr-Regular.otf',
+    ],
+    sans: [
+      '/System/Library/Fonts/Supplemental/AppleGothic.ttf',
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf',
+    ],
+  },
+  // Simplified and Traditional Chinese share the macOS Songti/STHeiti faces
+  // (both cover GB and Big5); Noto splits sc/tc for CI.
+  'zh-Hans': {
+    serif: [
+      '/System/Library/Fonts/Supplemental/Songti.ttc',
+      '/System/Library/Fonts/Songti.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJKsc-Regular.otf',
+      '/usr/share/fonts/truetype/arphic/uming.ttc',
+    ],
+    sans: [
+      '/System/Library/Fonts/STHeiti Medium.ttc',
+      '/System/Library/Fonts/STHeiti Light.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
+      '/usr/share/fonts/truetype/arphic/ukai.ttc',
+    ],
+  },
+  'zh-Hant': {
+    serif: [
+      '/System/Library/Fonts/Supplemental/Songti.ttc',
+      '/System/Library/Fonts/Songti.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSerifCJKtc-Regular.otf',
+      '/usr/share/fonts/truetype/arphic/uming.ttc',
+    ],
+    sans: [
+      '/System/Library/Fonts/STHeiti Medium.ttc',
+      '/System/Library/Fonts/STHeiti Light.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf',
+      '/usr/share/fonts/truetype/arphic/ukai.ttc',
+    ],
+  },
+};
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '../..');
@@ -84,17 +137,63 @@ const files = (await readdir(corpusDir, { withFileTypes: true }))
   .filter((name) => only == null || only.test(name))
   .sort();
 
-let rendered = 0;
-const failures = [];
-for (const name of files) {
+const selfPath = fileURLToPath(import.meta.url);
+
+if (args.worker != null) {
+  // Child mode: render exactly one file in a fresh process. pdf.js caches its
+  // generic font substitution (the `serif`/`sans-serif` family) in
+  // module-global state on first use and never re-resolves it, so within one
+  // process the first CJK file to register a CJK face under those aliases
+  // poisons every later non-embedded Latin serif/sans substitution into
+  // .notdef boxes (see non-embedded-NuptialScript). GlobalFonts.remove() can't
+  // undo it — the leak is inside pdf.js, not the canvas — so the only reliable
+  // isolation is a clean process per file.
+  const result = await renderOne(args.worker);
+  if (!result.ok) {
+    console.warn(`FAILED ${args.worker}: ${result.error}`);
+    process.exitCode = 1;
+  } else {
+    const n = result.pages;
+    console.log(`rendered ${args.worker} (${n} page${n === 1 ? '' : 's'})`);
+  }
+} else {
+  // Parent mode: spawn one isolated child per file.
+  let rendered = 0;
+  const failures = [];
+  for (const name of files) {
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--expose-gc', selfPath,
+        '--worker', name,
+        '--corpus', corpusDir,
+        '--out', outDir,
+        '--scale', String(scale),
+        '--max-pages', String(maxPages),
+      ],
+      { stdio: 'inherit' },
+    );
+    if (child.status === 0) rendered++;
+    else failures.push(name);
+  }
+  console.log(`rendered ${rendered}/${files.length} files into ${outDir}`);
+  if (failures.length > 0) {
+    console.warn(`failed to render ${failures.length} file(s):`);
+    for (const failure of failures) console.warn(`  ${failure}`);
+    process.exitCode = 1;
+  }
+}
+
+async function renderOne(name) {
   const fontKeys = [];
   try {
     const bytes = await readFile(path.join(corpusDir, name));
-    if (needsCjkFallback(bytes)) {
-      const keys = registerCjkFallbacks();
+    const cjkLang = cjkLanguage(bytes);
+    if (cjkLang) {
+      const keys = registerCjkFallbacks(cjkLang);
       if (keys.length === 0) {
         console.warn(
-          `Warning: no local CJK fonts found; ${name} may render missing glyph boxes.`,
+          `Warning: no local ${cjkLang} CJK fonts found; ${name} may render missing glyph boxes.`,
         );
       } else {
         fontKeys.push(...keys);
@@ -129,26 +228,31 @@ for (const name of files) {
       await page.render({ canvasContext, viewport }).promise;
       const outName = `${safeName(name)}.p${pageIndex}.png`;
       await writeFile(path.join(outDir, outName), canvas.toBuffer('image/png'));
-      rendered++;
+      // Release PDF.js's retained render/image state for this page now,
+      // rather than holding every page's intent state until pdf.cleanup().
+      page.cleanup();
+      // Drop our references to the native-backed canvas so it can be
+      // finalized; @napi-rs/canvas surfaces live in native memory that V8's
+      // GC does not see, so nothing pressures it to collect on its own.
+      canvas.width = 0;
+      canvas.height = 0;
     }
     await pdf.cleanup();
     await loadingTask.destroy();
-    console.log(`rendered ${name} (${pages} page${pages === 1 ? '' : 's'})`);
+    return { ok: true, pages };
   } catch (error) {
-    failures.push(`${name}: ${error?.message ?? error}`);
-    console.warn(`FAILED ${name}: ${error?.message ?? error}`);
+    return { ok: false, error: error?.message ?? String(error) };
   } finally {
     for (const key of fontKeys) {
       GlobalFonts.remove(key);
     }
+    // V8 sizes its GC heuristics off the (tiny) JS heap and never sees the
+    // megabytes of native Skia/canvas + decoded-image memory each file
+    // leaves behind, so without a nudge RSS climbs into tens of GB. The child
+    // renders one file, but multi-page files still benefit; degrade gracefully
+    // when --expose-gc is absent.
+    globalThis.gc?.();
   }
-}
-
-console.log(`rendered ${rendered} baseline PNGs into ${outDir}`);
-if (failures.length > 0) {
-  console.warn(`failed to render ${failures.length} file(s):`);
-  for (const failure of failures) console.warn(`  ${failure}`);
-  process.exitCode = 1;
 }
 
 function parseArgs(values) {
@@ -178,18 +282,55 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function needsCjkFallback(bytes) {
+// Returns the CJK language whose system font should substitute for this file's
+// non-embedded fonts, or null when none is needed. Detected from CIDSystemInfo
+// /Ordering and predefined CJK CMap /Encoding names; a hex-encoded BaseFont/
+// FontName (simple non-CID fonts, the legacy heuristic) is treated as
+// Simplified Chinese, which is what those corpus files are.
+function cjkLanguage(bytes) {
   const text = Buffer.from(bytes).toString('latin1');
-  return (
+  if (
+    /\/Ordering\s*\(\s*Japan1\s*\)/.test(text) ||
+    /\/Encoding\s*\/(?:90ms|90msp|90pv|78|78ms|83pv|Add|Ext|Hankaku|Hiragana|Katakana|Roman|WP|EUC|RKSJ|UniJIS)[A-Za-z0-9-]*/.test(
+      text,
+    )
+  ) {
+    return 'ja';
+  }
+  if (
+    /\/Ordering\s*\(\s*Korea1\s*\)/.test(text) ||
+    /\/Encoding\s*\/(?:KSC|KSCms|KSCpc|UniKS)[A-Za-z0-9-]*/.test(text)
+  ) {
+    return 'ko';
+  }
+  if (
+    /\/Ordering\s*\(\s*CNS1\s*\)/.test(text) ||
+    /\/Encoding\s*\/(?:B5|B5pc|ETen|ETenms|CNS|HKscs|UniCNS)[A-Za-z0-9-]*/.test(
+      text,
+    )
+  ) {
+    return 'zh-Hant';
+  }
+  if (
+    /\/Ordering\s*\(\s*GB1\s*\)/.test(text) ||
+    /\/Encoding\s*\/(?:GB|GBK|GBpc|GBT|GBKp|GBK2K|UniGB)[A-Za-z0-9-]*/.test(text)
+  ) {
+    return 'zh-Hans';
+  }
+  if (
     /\/BaseFont \/(?:#[0-9A-Fa-f]{2}){2,}(?:[_-]GB2312)?/.test(text) ||
     /\/FontName <(?:[0-9A-Fa-f]{4}){2,}>/.test(text)
-  );
+  ) {
+    return 'zh-Hans';
+  }
+  return null;
 }
 
-function registerCjkFallbacks() {
+function registerCjkFallbacks(lang) {
+  const set = cjkFontsByLang[lang] ?? cjkFontsByLang['zh-Hans'];
   return [
-    registerFirstAvailableFont(cjkSerifFonts, 'serif'),
-    registerFirstAvailableFont(cjkSansFonts, 'sans-serif'),
+    registerFirstAvailableFont(set.serif, 'serif'),
+    registerFirstAvailableFont(set.sans, 'sans-serif'),
   ].filter((key) => key != null);
 }
 

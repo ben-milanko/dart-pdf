@@ -103,33 +103,87 @@ class ContentStreamParser {
 
     // Exactly one whitespace byte separates ID from the data (§8.9.7).
     final bytes = parser.bytes;
-    var dataStart = idToken.offset + 'ID'.length;
-    if (dataStart < bytes.length && CosLexer.isWhitespace(bytes[dataStart])) {
-      dataStart++;
-    }
-    // Scan for an EI delimited by whitespace. This can false-positive on
-    // pathological binary data; the robust fix (decode the image and check
-    // its expected length) comes with the image pipeline.
-    var p = dataStart;
-    while (true) {
-      if (p + 'EI'.length > bytes.length) {
-        throw CosParseException('unterminated inline image data', dataStart);
-      }
-      if (bytes[p] == 0x45 && bytes[p + 1] == 0x49) {
-        final beforeOk = p == dataStart || CosLexer.isWhitespace(bytes[p - 1]);
-        final afterPos = p + 'EI'.length;
-        final afterOk =
-            afterPos >= bytes.length || CosLexer.isWhitespace(bytes[afterPos]);
-        if (beforeOk && afterOk) break;
-      }
-      p++;
-    }
+    final dataStart =
+        _skipInlineImageDataSeparator(bytes, idToken.offset + 'ID'.length);
+    final p = _inlineImageEnd(bytes, dataStart, dict);
     var dataEnd = p;
-    if (dataEnd > dataStart && CosLexer.isWhitespace(bytes[dataEnd - 1])) {
+    while (dataEnd > dataStart && CosLexer.isWhitespace(bytes[dataEnd - 1])) {
       dataEnd--;
     }
     final data = Uint8List.sublistView(bytes, dataStart, dataEnd);
     parser.seek(p + 'EI'.length);
     return ContentOperation('BI', [dict, CosString(data)]);
+  }
+
+  static int _inlineImageEnd(
+      Uint8List bytes, int dataStart, CosDictionary dict) {
+    if (_hasDctFilter(dict)) {
+      final jpegEnd = _jpegEnd(bytes, dataStart);
+      if (jpegEnd != null) {
+        final marker = _nextEiAfter(bytes, jpegEnd);
+        if (marker != null) return marker;
+      }
+    }
+
+    var p = dataStart;
+    while (true) {
+      final marker = _eiAt(bytes, dataStart, p);
+      if (marker != null) return marker;
+      if (p + 'EI'.length > bytes.length) {
+        throw CosParseException('unterminated inline image data', dataStart);
+      }
+      p++;
+    }
+  }
+
+  static int _skipInlineImageDataSeparator(Uint8List bytes, int offset) {
+    if (offset >= bytes.length || !CosLexer.isWhitespace(bytes[offset])) {
+      return offset;
+    }
+    if (bytes[offset] == 0x0D &&
+        offset + 1 < bytes.length &&
+        bytes[offset + 1] == 0x0A) {
+      return offset + 2;
+    }
+    return offset + 1;
+  }
+
+  static bool _hasDctFilter(CosDictionary dict) {
+    final filter = dict['Filter'] ?? dict['F'];
+    bool isDct(CosObject? object) =>
+        object is CosName &&
+        (object.value == 'DCTDecode' || object.value == 'DCT');
+    if (isDct(filter)) return true;
+    if (filter is CosArray) {
+      for (final item in filter.items) {
+        if (isDct(item)) return true;
+      }
+    }
+    return false;
+  }
+
+  static int? _jpegEnd(Uint8List bytes, int start) {
+    for (var p = start; p + 1 < bytes.length; p++) {
+      if (bytes[p] == 0xFF && bytes[p + 1] == 0xD9) return p + 2;
+    }
+    return null;
+  }
+
+  static int? _nextEiAfter(Uint8List bytes, int offset) {
+    var p = offset;
+    while (p < bytes.length && CosLexer.isWhitespace(bytes[p])) {
+      p++;
+    }
+    return _eiAt(bytes, offset, p);
+  }
+
+  static int? _eiAt(Uint8List bytes, int dataStart, int p) {
+    if (p + 'EI'.length > bytes.length) return null;
+    if (bytes[p] != 0x45 || bytes[p + 1] != 0x49) return null;
+    final beforeOk = p == dataStart || CosLexer.isWhitespace(bytes[p - 1]);
+    final afterPos = p + 'EI'.length;
+    final afterOk =
+        afterPos >= bytes.length || CosLexer.isWhitespace(bytes[afterPos]);
+    return beforeOk && afterOk ? p : null;
   }
 }

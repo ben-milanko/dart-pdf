@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfLineEnding;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,6 +22,8 @@ void main() {
       a.colorPickerFormat = PdfColorFormat.cmyk;
       a.highlightFormFields = false;
       a.showReflowView = true;
+      a.lineStartEnding = PdfLineEnding.circle;
+      a.lineEndEnding = PdfLineEnding.closedArrow;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -36,6 +39,8 @@ void main() {
       expect(b.colorPickerFormat, PdfColorFormat.cmyk);
       expect(b.highlightFormFields, isFalse);
       expect(b.showReflowView, isTrue);
+      expect(b.lineStartEnding, PdfLineEnding.circle);
+      expect(b.lineEndEnding, PdfLineEnding.closedArrow);
     });
 
     test('empty storage leaves the defaults', () async {
@@ -52,6 +57,8 @@ void main() {
       expect(prefs.showAnnotationSidebar, isFalse);
       expect(prefs.author, isNull);
       expect(prefs.colorPickerFormat, PdfColorFormat.hex);
+      expect(prefs.lineStartEnding, PdfLineEnding.none);
+      expect(prefs.lineEndEnding, PdfLineEnding.none);
       expect(prefs.highlightFormFields, isTrue);
       expect(prefs.showReflowView, isFalse);
     });
@@ -108,6 +115,76 @@ void main() {
       editing.preferences.color = const Color(0xFF112233);
       expect(notified, 1);
       expect(editing.color, const Color(0xFF112233));
+    });
+  });
+
+  group('per-tool style memory', () {
+    test('each tool remembers its own style', () async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      await editing.preferences.ready;
+
+      editing.tool = PdfEditTool.ink;
+      editing.color = const Color(0xFFFF0000);
+      editing.strokeWidth = 6;
+
+      editing.tool = PdfEditTool.rectangle;
+      editing.color = const Color(0xFF0000FF);
+      editing.strokeWidth = 2;
+      editing.shapeFillColor = const Color(0xFF00FF00);
+
+      // arming the rectangle didn't disturb ink's remembered style
+      editing.tool = PdfEditTool.ink;
+      expect(editing.color, const Color(0xFFFF0000));
+      expect(editing.strokeWidth, 6);
+
+      editing.tool = PdfEditTool.rectangle;
+      expect(editing.color, const Color(0xFF0000FF));
+      expect(editing.strokeWidth, 2);
+      expect(editing.shapeFillColor, const Color(0xFF00FF00));
+    });
+
+    test('the markup scope keeps the highlighter its own colour', () async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      await editing.preferences.ready;
+
+      editing.useMarkupStyleScope();
+      editing.color = const Color(0xFFFFEB3B); // yellow
+
+      editing.tool = PdfEditTool.ink;
+      editing.color = const Color(0xFF000000); // black ink
+
+      editing.useMarkupStyleScope();
+      expect(editing.color, const Color(0xFFFFEB3B));
+    });
+
+    test('a tool with no saved style inherits the current value', () async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      await editing.preferences.ready;
+
+      editing.color = const Color(0xFF112233); // no tool armed (shared)
+      editing.tool = PdfEditTool.note; // never styled before
+      expect(editing.color, const Color(0xFF112233));
+    });
+
+    test('per-tool styles survive into a fresh session', () async {
+      SharedPreferences.setMockInitialValues({});
+      final first = PdfEditingController(buildMultiPagePdf(1));
+      await first.preferences.ready;
+      first.tool = PdfEditTool.ink;
+      first.color = const Color(0xFF8E24AA);
+      first.tool = PdfEditTool.rectangle;
+      first.color = const Color(0xFF00ACC1);
+      await pumpEventQueue(); // let the unawaited writes land
+
+      final second = PdfEditingController(buildMultiPagePdf(1));
+      await second.preferences.ready;
+      second.tool = PdfEditTool.ink;
+      expect(second.color, const Color(0xFF8E24AA));
+      second.tool = PdfEditTool.rectangle;
+      expect(second.color, const Color(0xFF00ACC1));
     });
   });
 }

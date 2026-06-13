@@ -1,0 +1,49 @@
+name: Preview Demo Web
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/preview-demo-web.yml
+      - pubspec.yaml
+      - packages/pdf_cos/**
+      - packages/pdf_document/**
+      - packages/pdf_graphics/**
+      - packages/dart_pdf_editor/**
+
+concurrency:
+  group: demo-web-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    # Skip forks: secrets aren't available to pull_request runs from forks.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.2
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter build web --release
+        working-directory: packages/dart_pdf_editor/example
+
+      # No channelId -> the action creates an ephemeral preview channel keyed
+      # to this PR and comments the URL on it. The channel expires on its own.
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
+          projectId: dart-pdf-demo
+          expires: 7d
+          entryPoint: packages/dart_pdf_editor/example

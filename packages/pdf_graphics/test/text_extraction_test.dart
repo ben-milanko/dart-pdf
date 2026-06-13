@@ -72,6 +72,40 @@ void main() {
     expect(rect.right, closeTo(72 + perChar * 12, 1e-6));
   });
 
+  test('quadsFor matches the rect for horizontal text', () {
+    final doc = PdfDocument.open(buildClassicPdf());
+    final text = PdfTextExtractor.extract(doc, 0);
+    final quad = text.quadsFor(7, 12).single;
+    final ll = quad.corners[0];
+    final lr = quad.corners[1];
+    // horizontal baseline: the two baseline corners share y, advance in x
+    expect(lr.$2, closeTo(ll.$2, 1e-6));
+    expect(lr.$1, greaterThan(ll.$1));
+    // and the axis-aligned bounds equal the legacy rect
+    expect(quad.bounds, text.rectsFor(7, 12).single);
+  });
+
+  test('quadsFor rotates with rotated text', () {
+    // a 90° CCW text matrix: (x, y) -> (e - y, f + x), so the baseline
+    // runs straight up the page instead of across it
+    final doc = PdfDocument.open(_buildTextPdf([
+      'BT /F1 12 Tf 0 1 -1 0 100 100 Tm (Rotated) Tj ET',
+    ]));
+    final text = PdfTextExtractor.extract(doc, 0);
+    final quad = text.quadsFor(0, text.text.length).single;
+    final ll = quad.corners[0];
+    final lr = quad.corners[1];
+    // the baseline (ll -> lr) is vertical: same x, the advance is in y
+    expect(lr.$1, closeTo(ll.$1, 1e-6));
+    expect(lr.$2 - ll.$2, greaterThan(10));
+    // the rect still reports the enclosing axis-aligned box (covers the
+    // whole rotated quad, both wider and taller than zero)
+    final rect = text.rectsFor(0, text.text.length).single;
+    expect(rect, quad.bounds);
+    expect(rect.width, greaterThan(0));
+    expect(rect.height, greaterThan(0));
+  });
+
   test('multi-page documents extract per page', () {
     final doc = PdfDocument.open(buildMultiPagePdf(3));
     expect(PdfTextExtractor.extract(doc, 0).text, 'Page 1');

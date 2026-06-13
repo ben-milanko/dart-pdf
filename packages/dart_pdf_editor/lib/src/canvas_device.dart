@@ -25,6 +25,21 @@ class CanvasPdfDevice implements PdfDevice {
 
   BlendMode _blend = BlendMode.srcOver;
 
+  /// One entry per open transparency group: true while that group is a
+  /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
+  /// top entry tracks the group directly enclosing the next paint call.
+  final _knockout = <bool>[];
+
+  /// True when the next paint call is a top-level element of a knockout
+  /// group, so it must replace rather than blend over the group result.
+  bool get _knockoutActive => _knockout.isNotEmpty && _knockout.last;
+
+  /// Blend mode for a paint primitive. Knockout elements use [BlendMode.src]
+  /// so only the element's own coverage is replaced in the group buffer
+  /// (drawing directly, with no intermediate full-bounds layer, keeps the
+  /// areas it doesn't cover — earlier elements — intact).
+  BlendMode get _elementBlend => _knockoutActive ? BlendMode.src : _blend;
+
   /// Converts rendered luminance into alpha — the compositing core of a
   /// /Luminosity soft mask.
   static const _luminanceToAlpha = ColorFilter.matrix([
@@ -63,7 +78,7 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   @override
-  void beginGroup(double alpha) {
+  void beginGroup(double alpha, {bool knockout = false}) {
     canvas.saveLayer(
       null,
       Paint()
@@ -71,35 +86,71 @@ class CanvasPdfDevice implements PdfDevice {
             Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
         ..blendMode = _blend,
     );
+    _knockout.add(knockout);
   }
 
   @override
-  void endGroup() => canvas.restore();
+  void endGroup() {
+    _knockout.removeLast();
+    canvas.restore();
+  }
 
   @override
   void beginSoftMasked() {
     canvas.saveLayer(null, Paint());
+    // The mask group's content composites as one element of any enclosing
+    // knockout group, through this layer — not element by element.
+    _knockout.add(false);
   }
 
   @override
   void endSoftMasked(
       {required bool luminosity,
       required PdfRect backdrop,
-      required void Function() drawMask}) {
+      required void Function() drawMask,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {
+    final hasTransfer = transferScale != 1 || transferOffset != 0;
     final paint = Paint()..blendMode = BlendMode.dstIn;
-    if (luminosity) paint.colorFilter = _luminanceToAlpha;
+    if (luminosity) {
+      // Fold the /TR transfer (linearised) into the luminance→alpha matrix:
+      // alpha = luminance * scale + offset.
+      paint.colorFilter = hasTransfer
+          ? ColorFilter.matrix(<double>[
+              0, 0, 0, 0, 0, //
+              0, 0, 0, 0, 0, //
+              0, 0, 0, 0, 0, //
+              0.2126 * transferScale, 0.7152 * transferScale,
+              0.0722 * transferScale, 0, transferOffset * 255,
+            ])
+          : _luminanceToAlpha;
+    } else if (hasTransfer) {
+      // Alpha mask: remap the captured alpha through the transfer. Unpainted
+      // (transparent) areas filter to transferOffset = TR(0), so the
+      // out-of-bounds backdrop falls out for free.
+      paint.colorFilter = ColorFilter.matrix(<double>[
+        0, 0, 0, 0, 0, //
+        0, 0, 0, 0, 0, //
+        0, 0, 0, 0, 0, //
+        0, 0, 0, transferScale, transferOffset * 255,
+      ]);
+    }
     canvas.saveLayer(null, paint);
     if (luminosity) {
-      // unpainted mask area has luminance 0 → fully transparent content
+      // Unpainted mask area takes the /BC backdrop luminance (default black →
+      // fully transparent content); the colour filter turns it into alpha.
+      final g = backdropLuminance.clamp(0.0, 1.0);
       canvas.drawRect(
         Rect.fromLTRB(
             backdrop.left, backdrop.bottom, backdrop.right, backdrop.top),
-        Paint()..color = const Color(0xFF000000),
+        Paint()..color = Color.from(alpha: 1, red: g, green: g, blue: g),
       );
     }
     drawMask();
     canvas.restore(); // composite the mask into the content (dstIn)
     canvas.restore(); // composite the masked content into the page
+    _knockout.removeLast();
   }
 
   @override
@@ -109,7 +160,7 @@ class CanvasPdfDevice implements PdfDevice {
       Paint()
         ..style = PaintingStyle.fill
         ..color = _toColor(color, alpha)
-        ..blendMode = _blend,
+        ..blendMode = _elementBlend,
     );
   }
 
@@ -120,7 +171,7 @@ class CanvasPdfDevice implements PdfDevice {
       _toUiPath(path, rule),
       Paint()
         ..shader = _shaderFor(gradient)
-        ..blendMode = _blend
+        ..blendMode = _elementBlend
         ..color =
             Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0),
     );
@@ -164,7 +215,8 @@ class CanvasPdfDevice implements PdfDevice {
     }
     // BlendMode.dst keeps the vertex colors (paint is the src side of
     // this mode); the paint still carries the PDF blend mode
-    canvas.drawVertices(vertices, BlendMode.dst, Paint()..blendMode = _blend);
+    canvas.drawVertices(
+        vertices, BlendMode.dst, Paint()..blendMode = _elementBlend);
   }
 
   @override
@@ -191,7 +243,7 @@ class CanvasPdfDevice implements PdfDevice {
           _ => StrokeJoin.miter,
         }
         ..strokeMiterLimit = stroke.miterLimit
-        ..blendMode = _blend,
+        ..blendMode = _elementBlend,
     );
   }
 
@@ -318,70 +370,113 @@ class CanvasPdfDevice implements PdfDevice {
     // and scaled down 100x (TextPainter quality degrades at tiny sizes; the
     // run transform already encodes the real size).
     const renderSize = 100.0;
-    var painter = TextPainter(
+    // Measure with a plain fill painter to derive width/baseline.
+    final measure = TextPainter(
       text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
       textDirection: TextDirection.ltr,
     )..layout();
     final baseline =
-        painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+        measure.computeDistanceToActualBaseline(TextBaseline.alphabetic);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
     // unflip: the page transform is y-up, text rasterizes y-down
     final targetWidth = run.width * renderSize;
-    final scaleX =
-        run.width > 0 && painter.width > 0 ? targetWidth / painter.width : 1.0;
-    final gradient = run.gradient;
-    if (gradient != null) {
-      final localToPage = PdfMatrix.scaled(scaleX / renderSize, -1 / renderSize)
-          .concat(run.transform);
-      final pageToLocal = localToPage.inverted();
-      final localGradientTransform =
-          pageToLocal == null ? null : gradient.transform.concat(pageToLocal);
-      if (localGradientTransform != null) {
-        painter = TextPainter(
-          text: TextSpan(
-            text: run.text,
-            style: _styleFor(
-              run,
-              foreground: Paint()
-                ..shader =
-                    _shaderFor(gradient, transform: localGradientTransform)
-                ..blendMode = _blend,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
+    final scaleX = run.width > 0 && measure.width > 0
+        ? targetWidth / measure.width
+        : 1.0;
+
+    // Fill painter (modes 0/2/4/6), with a gradient shader when present.
+    TextPainter? fillPainter;
+    if (run.fill) {
+      Paint? foreground;
+      final gradient = run.gradient;
+      if (gradient != null) {
+        final localToPage =
+            PdfMatrix.scaled(scaleX / renderSize, -1 / renderSize)
+                .concat(run.transform);
+        final pageToLocal = localToPage.inverted();
+        if (pageToLocal != null) {
+          foreground = Paint()
+            ..shader = _shaderFor(gradient,
+                transform: gradient.transform.concat(pageToLocal))
+            ..blendMode = _elementBlend;
+        }
       }
+      fillPainter = foreground == null
+          ? measure
+          : (TextPainter(
+              text: TextSpan(
+                  text: run.text, style: _styleFor(run, foreground: foreground)),
+              textDirection: TextDirection.ltr,
+            )..layout());
     }
+
+    // Stroke painter (modes 1/2/5/6): outline the glyphs in the stroke colour.
+    // The line width is page-space; map it into the painter's 100px-per-em
+    // space (canvas is scaled by run.transform then 1/renderSize).
+    TextPainter? strokePainter;
+    if (run.strokeColor != null) {
+      final ts = run.transform.scaleFactor;
+      final w = run.strokeWidth > 0 ? run.strokeWidth : ts / renderSize;
+      strokePainter = TextPainter(
+        text: TextSpan(
+          text: run.text,
+          style: _styleFor(
+            run,
+            foreground: Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = ts > 0 ? w * renderSize / ts : w
+              ..color = _toColor(run.strokeColor!, 1)
+              ..blendMode = _elementBlend,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+    }
+
     canvas.scale(scaleX / renderSize, -1 / renderSize);
-    painter.paint(canvas, Offset(0, -baseline));
+    fillPainter?.paint(canvas, Offset(0, -baseline));
+    strokePainter?.paint(canvas, Offset(0, -baseline));
     canvas.restore();
   }
 
   /// Draws real glyph outlines from the embedded font. The run transform
   /// maps em space (y-up) to page space, so no unflip is needed.
   void _drawGlyphOutlines(PdfTextRun run) {
-    final paint = Paint()..blendMode = _blend;
-    final gradient = run.gradient;
-    if (gradient != null) {
-      paint.shader = _shaderFor(gradient);
-    } else {
-      paint.color = _toColor(run.color, 1);
-    }
     final path = ui.Path();
     for (final glyph in run.glyphs!) {
       final outline = glyph.outline;
       if (outline == null) continue;
       path.addPath(
         _toUiPath(outline, PdfFillRule.nonzero).transform(
-          _toFloat64(
-              PdfMatrix.translation(glyph.offset, 0).concat(run.transform)),
+          _toFloat64(PdfMatrix.translation(glyph.offset, glyph.offsetY)
+              .concat(run.transform)),
         ),
         Offset.zero,
       );
     }
-    canvas.drawPath(path, paint);
+    if (run.fill) {
+      final paint = Paint()..blendMode = _elementBlend;
+      final gradient = run.gradient;
+      if (gradient != null) {
+        paint.shader = _shaderFor(gradient);
+      } else {
+        paint.color = _toColor(run.color, 1);
+      }
+      canvas.drawPath(path, paint);
+    }
+    // The outline path is already in page space; stroke width is page-space.
+    if (run.strokeColor != null) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = run.strokeWidth
+          ..color = _toColor(run.strokeColor!, 1)
+          ..blendMode = _elementBlend,
+      );
+    }
   }
 
   @override
@@ -393,7 +488,7 @@ class CanvasPdfDevice implements PdfDevice {
     final paint = Paint()
       ..filterQuality = FilterQuality.medium
       ..isAntiAlias = false
-      ..blendMode = _blend;
+      ..blendMode = _elementBlend;
     if (request.isStencil) {
       // stencil masks paint the fill color through the mask's alpha
       paint.colorFilter = ColorFilter.mode(
@@ -449,25 +544,34 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   static const _cjkFontFallbacks = [
-    // Apple platforms.
+    // Apple platforms. Hiragino leads: it resolves where PingFang sometimes
+    // does not, and covers both Japanese and (via Sans GB) Chinese.
+    'Hiragino Sans', // Japanese kana/kanji
+    'Hiragino Mincho ProN',
     'PingFang SC',
     'Songti SC',
     'Heiti SC',
     'Hiragino Sans GB',
     // Android/Linux distributions.
     'Noto Sans CJK SC',
+    'Noto Sans CJK JP',
+    'Noto Serif CJK JP',
     'Noto Serif CJK SC',
     'Source Han Sans SC',
     'Source Han Serif SC',
     // Windows.
     'Microsoft YaHei',
+    'Yu Gothic',
+    'MS Gothic',
     'SimSun',
     'SimHei',
   ];
 
   static const _defaultFontFallbacks = [
+    'Hiragino Sans',
     'PingFang SC',
     'Noto Sans CJK SC',
+    'Noto Sans CJK JP',
     'Source Han Sans SC',
     'Microsoft YaHei',
   ];
@@ -486,6 +590,22 @@ class CanvasPdfDevice implements PdfDevice {
         name.contains('·ÂËÎ') ||
         name.contains('Ð¡±êËÎ')) {
       return 'STSong'; // 宋体 / 仿宋 / 小标宋
+    }
+    // Japanese CID fonts (Adobe-Japan1): pick a matching system face so the
+    // weight/serif roughly tracks the document's. Tokens are specific enough
+    // to avoid Latin look-alikes (we never match a bare "Gothic").
+    if (name.contains('Mincho') ||
+        name.contains('HeiseiMin') ||
+        name.contains('Ryumin') ||
+        name.contains('KozMin')) {
+      return 'Hiragino Mincho ProN';
+    }
+    if (name.contains('HeiseiKakuGo') ||
+        name.contains('GothicBBB') ||
+        name.contains('KozGo') ||
+        name.contains('Kaku') ||
+        name.contains('MS-Gothic')) {
+      return 'Hiragino Sans';
     }
     return null;
   }

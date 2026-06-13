@@ -34,6 +34,27 @@ void main() {
     });
   });
 
+  testWidgets('a translucent paper color washes over white', (tester) async {
+    await tester.runAsync(() async {
+      final document = PdfDocument.open(buildMultiPagePdf(1));
+      final page = document.page(0);
+      // 50% red over white paper → pink, not pure red. Without the white
+      // backing the raster would read straight (255, 0, 0).
+      final picture = await PdfPageRenderer.renderPicture(page,
+          pageColor: const Color(0x80FF0000));
+      final image = await PdfPageRenderer.rasterize(
+          picture, PdfPageRenderer.pageSize(page), 1);
+      picture.dispose();
+      final pixels = (await image.toByteData())!;
+      final (r, g, b) = pixelAt(pixels, image.width, 2, 2);
+      expect(r, 255); // red stays saturated over white
+      expect(g, greaterThan(110)); // green/blue lifted by the white backing
+      expect(g, lessThan(140));
+      expect(b, equals(g)); // symmetric: a true pink wash
+      image.dispose();
+    });
+  });
+
   testWidgets('the eyedropper sampler sees the displayed paper color',
       (tester) async {
     await tester.runAsync(() async {

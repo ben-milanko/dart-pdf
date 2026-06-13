@@ -10,8 +10,8 @@ void main() {
     final ops = ContentStreamParser.parse(
         ascii('q 1 0 0 1 50.5 50 cm BT /F1 12 Tf (Hello) Tj ET Q'));
 
-    expect(ops.map((op) => op.operator),
-        ['q', 'cm', 'BT', 'Tf', 'Tj', 'ET', 'Q']);
+    expect(
+        ops.map((op) => op.operator), ['q', 'cm', 'BT', 'Tf', 'Tj', 'ET', 'Q']);
 
     final cm = ops[1];
     expect(cm.operands, hasLength(6));
@@ -64,8 +64,8 @@ void main() {
   });
 
   test('inline image becomes one BI operation', () {
-    final ops = ContentStreamParser.parse(ascii(
-        'q BI /W 2 /H 1 /CS /G /BPC 8 ID \x00\xff EI Q'));
+    final ops = ContentStreamParser.parse(
+        ascii('q BI /W 2 /H 1 /CS /G /BPC 8 ID \x00\xff EI Q'));
     expect(ops.map((op) => op.operator), ['q', 'BI', 'Q']);
 
     final bi = ops[1];
@@ -74,5 +74,17 @@ void main() {
     expect(dict['H'], const CosInteger(1));
     final data = bi.operands[1] as CosString;
     expect(data.bytes, [0x00, 0xFF]);
+  });
+
+  test('DCT inline image ignores EI-like bytes before JPEG EOI', () {
+    final bytes = BytesBuilder()
+      ..add(ascii('q BI /W 1 /H 1 /CS /RGB /BPC 8 /F /DCT ID\r\n'))
+      ..add([0xFF, 0xD8, 0x20, 0x45, 0x49, 0x20, 0x00, 0xFF, 0xD9])
+      ..add(ascii('\r\nEI Q'));
+    final ops = ContentStreamParser.parse(bytes.takeBytes());
+    expect(ops.map((op) => op.operator), ['q', 'BI', 'Q']);
+
+    final data = ops[1].operands[1] as CosString;
+    expect(data.bytes, [0xFF, 0xD8, 0x20, 0x45, 0x49, 0x20, 0x00, 0xFF, 0xD9]);
   });
 }

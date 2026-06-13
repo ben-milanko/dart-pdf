@@ -14,7 +14,15 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 /// flutter_test replaces every font with Ahem blocks; load real system
 /// fonts (macOS paths) so rendered text is legible. Best-effort.
+///
+/// FontLoader registrations persist for the whole test process, so this loads
+/// once — re-running it per file (the render suites call it inside every file's
+/// runAsync) would re-read tens of MB of .ttc data each time and exhaust the
+/// tester.
+bool _systemFontsLoaded = false;
 Future<void> loadSystemFonts() async {
+  if (_systemFontsLoaded) return;
+  _systemFontsLoaded = true;
   const fonts = {
     'Helvetica': ['/System/Library/Fonts/Helvetica.ttc'],
     'Times New Roman': [
@@ -28,6 +36,12 @@ Future<void> loadSystemFonts() async {
     'Songti SC': ['/System/Library/Fonts/Supplemental/Songti.ttc'],
     'Heiti SC': ['/System/Library/Fonts/STHeiti Medium.ttc'],
     'Hiragino Sans GB': ['/System/Library/Fonts/Hiragino Sans GB.ttc'],
+    // Japanese faces, so Adobe-Japan1 / RKSJ text renders with a real
+    // Japanese font (a Chinese fallback misses kanji like 本 that the
+    // per-glyph itemizer then draws as .notdef). The .ttc filenames are in
+    // Japanese on macOS.
+    'Hiragino Mincho ProN': ['/System/Library/Fonts/ヒラギノ明朝 ProN.ttc'],
+    'Hiragino Sans': ['/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'],
   };
   for (final entry in fonts.entries) {
     for (final path in entry.value) {

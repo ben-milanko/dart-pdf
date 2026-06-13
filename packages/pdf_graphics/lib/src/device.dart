@@ -30,10 +30,15 @@ enum PdfBlendMode {
 /// One glyph within a [PdfTextRun]: its outline (when the font is embedded
 /// and parsed) and its pen offset, both in em units.
 class PdfGlyphPlacement {
-  const PdfGlyphPlacement({required this.offset, this.outline});
+  const PdfGlyphPlacement({required this.offset, this.offsetY = 0, this.outline});
 
   /// Horizontal pen position within the run, in em units.
   final double offset;
+
+  /// Vertical pen position within the run, in em units. Non-zero only for
+  /// vertical writing mode (§9.7.4.3), where glyphs stack downward and each
+  /// carries a position-vector offset; 0 for ordinary horizontal text.
+  final double offsetY;
 
   /// Glyph outline in em units (y-up, origin on the baseline), or null when
   /// the glyph is blank or its outline could not be parsed.
@@ -52,7 +57,25 @@ class PdfTextRun {
     this.fontSize = 0,
     this.glyphs,
     this.invisible = false,
+    this.fill = true,
+    this.strokeColor,
+    this.strokeWidth = 0,
   });
+
+  /// Whether the glyphs are filled (text rendering modes 0/2/4/6). False for
+  /// stroke-only modes (1/5) and when a fill that can't be represented (an
+  /// unrenderable tiling-pattern fill on a substituted font) is dropped in
+  /// favour of the stroke. [color]/[gradient] describe the fill.
+  final bool fill;
+
+  /// Stroke colour for text rendering modes that stroke the glyph outline
+  /// (1 stroke, 2 fill+stroke, 5/6 the same plus clip); null when the mode
+  /// doesn't stroke. Painting devices outline the glyphs in this colour.
+  final PdfColor? strokeColor;
+
+  /// Stroke line width in page space (the current line width mapped through
+  /// the CTM, like every other stroke); 0 means the thinnest renderable line.
+  final double strokeWidth;
 
   /// Render mode 3 (§9.4.3): the run paints nothing but still occupies
   /// its geometry — the OCR text layer of scanned documents. Painting
@@ -165,7 +188,13 @@ abstract interface class PdfDevice {
   /// group then blends as one object. Non-compositing devices can treat
   /// the pair as a no-op — the group's content still arrives through the
   /// normal callbacks in between.
-  void beginGroup(double alpha);
+  ///
+  /// When [knockout] is true the group is a knockout group (/K true,
+  /// §11.4.5): each top-level element composites with the group's initial
+  /// (transparent) backdrop rather than with the elements painted before
+  /// it, so a later element replaces an earlier one wherever they overlap
+  /// instead of blending over it.
+  void beginGroup(double alpha, {bool knockout = false});
 
   /// Composites the group opened by [beginGroup].
   void endGroup();
@@ -176,13 +205,20 @@ abstract interface class PdfDevice {
 
   /// Ends the capture opened by [beginSoftMasked]. [drawMask] paints the
   /// mask group's content through this same device; for luminosity masks
-  /// the device converts the result's luminance to alpha over a black
-  /// [backdrop], then composites it into the captured content (dstIn).
+  /// the device converts the result's luminance to alpha over the
+  /// [backdrop] box, then composites it into the captured content (dstIn).
+  /// Areas the mask group doesn't paint take [backdropLuminance] (the
+  /// luminance of the /BC backdrop colour, default black). The mask value
+  /// is remapped through the /TR transfer function, linearised here as
+  /// `value * transferScale + transferOffset` (identity by default).
   /// Devices that collect content from [drawMask] (e.g. image collectors)
   /// should invoke it even if they do no compositing.
   void endSoftMasked({
     required bool luminosity,
     required PdfRect backdrop,
     required void Function() drawMask,
+    double backdropLuminance = 0,
+    double transferScale = 1,
+    double transferOffset = 0,
   });
 }

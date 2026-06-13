@@ -1,5 +1,53 @@
 # Changelog
 
+## 1.0.0
+
+First stable release. Highlights since 0.1.0:
+
+- Redaction tool: mark regions and burn the content irreversibly.
+- Document comparison: pixel + text diff with a synchronized compare view.
+- Text reflow: a paragraph-aware reading view of extracted text.
+- More annotation tools: line/polyline/polygon with the full line-ending
+  picker, an insert-image tool, customizable dash line styles, and
+  polygon fills.
+- Text boxes: bold/italic across the standard fonts, with font, outline,
+  and fill controls in the style popup.
+- Forms: fill fields directly in reading mode, and use the form tool to
+  select, move, resize, and rename fields.
+- Per-tool style memory: each annotation tool remembers its own color,
+  stroke, opacity, font, and line style across sessions.
+- Responsive UI: a floating toolbar, side panels and the thumbnail strip
+  become bottom sheets on small screens, and tap-to-place for text,
+  stamps, and signatures.
+- Input & performance: reduced Apple Pencil latency (forward-extrapolated
+  prediction), single-finger scroll in pencil mode, Shift+drag marquee
+  selection, aspect-lock and past-zero invert on resize, an eraser-size
+  control, render pacing for smooth fast-scrolling, compact auto-dismissing
+  snackbars, and a ⌘S / Ctrl+S save shortcut.
+- Page management: `PdfEditingController.addBlankPage` (sized to its
+  neighbour by default), `insertPagesFrom`/`insertPagesFromBytes` (merge
+  pages from another PDF), and `exportPages`/`exportPageRange` (split off a
+  standalone PDF). The thumbnail strip gained an "Add page" footer button
+  (shown when `allowPageEditing`), so `PdfEditorView` gets it out of the box.
+  `PdfEditorView` also exposes the other two in its header via
+  `onPickPdfToInsert` (host returns a PDF to merge after the current page)
+  and `onExportPages` (host saves the exported range); the range is chosen
+  with the new exported `showPdfPageRangeDialog`.
+- Pluggable OCR: `PdfOcrEngine` (a host-supplied recognizer — ML Kit,
+  Tesseract WASM, a cloud API; none ships in-tree) plus
+  `PdfEditor.applyOcr(pageIndex, engine)`, which rasterizes the page, runs
+  the engine, and injects an invisible selectable/searchable text layer.
+  `PdfOcrPageImage.userSpaceRect` maps the engine's pixel boxes back to PDF
+  user space (crop box and /Rotate aware).
+- Reopen documents where the user left them: `PdfViewport` (a
+  resolution-independent scroll-position + zoom snapshot),
+  `PdfViewerController.captureViewport`/`restoreViewport`,
+  `PdfViewer.initialViewport`, and per-document persistence in
+  `PdfEditingPreferences` (`viewportFor`/`setViewport`). The `PdfReader`
+  and `PdfEditorView` shells remember and restore each document's
+  position automatically — pass `documentId` for a stable key, or let it
+  derive one from the bytes (`pdfDocumentKey`).
+
 ## 0.1.0
 
 Initial release.
@@ -19,6 +67,10 @@ Initial release.
   Catmull-Rom smoothing)/shapes/free text/notes/stamps/signatures,
   select/move/resize/rotate with live previews, slicing eraser,
   clipboard, undo/redo as incremental saves.
+- Measurement tools: distance/perimeter/area annotations with scale
+  calibration (`PdfMeasurementScale`, `showPdfScaleDialog`, persisted in
+  preferences) and a live readout chip that rides the cursor for mouse
+  and floats above the finger for touch/stylus.
 - Form filling UI: text, checkbox, radio, choice, button images, plus
   field administration, flattening, and a form-field highlight wash
   (`PdfViewer.highlightFormFields`, on by default).

@@ -1,8 +1,7 @@
-import 'dart:typed_data';
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -230,6 +229,69 @@ void main() {
         lineSeen = a2 > 150 && b2 > 150 && r2 < 120;
       }
       expect(lineSeen, isTrue);
+    });
+  });
+
+  group('inline text editor under a relayout zoom', () {
+    const editorKey = ValueKey('pdf-freetext-editor');
+    const box = PdfRect(100, 600, 300, 660);
+
+    testWidgets('an open editor rides the page when the layout zoom changes',
+        (tester) async {
+      // zooming below fit-width re-lays-out the page (the _layoutZoom
+      // regime changes geometry.scale): an editor that cached its view
+      // rect at open would drift off the page. It must track the box.
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, box, 'Steady')
+        ..tool = PdfEditTool.select;
+      addTearDown(editing.dispose);
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      final cropBox = editing.document.page(0).cropBox;
+      PdfPageGeometry geom(double pxpt) => PdfPageGeometry(
+            cropBox: cropBox,
+            rotation: 0,
+            viewSize: Size(cropBox.width * pxpt, cropBox.height * pxpt),
+          );
+      Widget tree(double pxpt) => MaterialApp(
+            home: Material(
+              child: Center(
+                child: SizedBox(
+                  width: cropBox.width * pxpt,
+                  height: cropBox.height * pxpt,
+                  child: EditingPageOverlay(
+                    controller: editing,
+                    pageIndex: 0,
+                    geometry: geom(pxpt),
+                    textPrompt: showPdfTextPrompt,
+                    zoom: 1,
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      // lay out at 0.5 px/pt and open the editor by tapping the box
+      await tester.pumpWidget(tree(0.5));
+      await tester.pump();
+      var origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+      await tester.tapAt(origin + geom(0.5).toViewRect(box).center);
+      await tester.pump();
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      // a zoom that re-lays-out the page larger (0.5 → 0.7 px/pt): the
+      // editor's top-left must follow the box's new view position, not
+      // stay pinned where it opened
+      await tester.pumpWidget(tree(0.7));
+      await tester.pump();
+      origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+      expect(tester.getTopLeft(find.byKey(editorKey)) - origin,
+          offsetMoreOrLessEquals(geom(0.7).toViewRect(box).topLeft,
+              epsilon: 0.5));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
     });
   });
 }

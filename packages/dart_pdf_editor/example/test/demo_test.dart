@@ -75,7 +75,9 @@ void main() {
     expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
 
     // the counter control edits the same state the page-1 link increments
-    await tester.tap(find.byIcon(Icons.add));
+    // (.first: the page overlay's button — the AppBar tab strip's new-tab
+    // '+' is also an Icons.add, and Scaffold mounts the body before the bar)
+    await tester.tap(find.byIcon(Icons.add).first);
     await tester.pump(const Duration(milliseconds: 400));
     expect(plainText('1'), findsWidgets);
 

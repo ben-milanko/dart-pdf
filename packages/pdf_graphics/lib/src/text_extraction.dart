@@ -35,19 +35,56 @@ class PdfExtractedRun {
   final PdfRect bounds;
 }
 
-/// One search hit, with page-space rectangles for highlighting.
+/// Four page-space corners of a text span's highlight box, in perimeter
+/// order: lower-left, lower-right, upper-right, upper-left of the run's
+/// own baseline frame.
+///
+/// For horizontal text the quad is axis-aligned and matches [bounds];
+/// for rotated text the corners follow the glyph baseline, so a highlight
+/// painted as a quad rotates with the text instead of ballooning out to
+/// an axis-aligned bounding box.
+class PdfTextQuad {
+  const PdfTextQuad(this.corners);
+
+  /// The four `(x, y)` page-space points in perimeter order (ll, lr, ur,
+  /// ul). Always length 4.
+  final List<(double x, double y)> corners;
+
+  /// The axis-aligned page-space bounding box of the four corners.
+  PdfRect get bounds {
+    var minX = corners.first.$1, maxX = corners.first.$1;
+    var minY = corners.first.$2, maxY = corners.first.$2;
+    for (final (x, y) in corners) {
+      minX = math.min(minX, x);
+      maxX = math.max(maxX, x);
+      minY = math.min(minY, y);
+      maxY = math.max(maxY, y);
+    }
+    return PdfRect(minX, minY, maxX, maxY);
+  }
+}
+
+/// One search hit, with page-space geometry for highlighting.
 class PdfTextMatch {
   const PdfTextMatch({
     required this.pageIndex,
     required this.start,
     required this.end,
     required this.rects,
+    required this.quads,
   });
 
   final int pageIndex;
   final int start;
   final int end;
+
+  /// Axis-aligned bounding boxes (one per run touched), for scroll-to and
+  /// callers that only need a rough box.
   final List<PdfRect> rects;
+
+  /// Baseline-aligned quads (one per run touched), so highlights rotate
+  /// with rotated text.
+  final List<PdfTextQuad> quads;
 }
 
 /// The text content of one page, with geometry for search highlighting.
@@ -73,21 +110,30 @@ class PdfPageText {
       final index = haystack.indexOf(needle, from);
       if (index < 0) break;
       final end = index + needle.length;
+      final quads = quadsFor(index, end);
       matches.add(PdfTextMatch(
         pageIndex: pageIndex,
         start: index,
         end: end,
-        rects: rectsFor(index, end),
+        rects: [for (final quad in quads) quad.bounds],
+        quads: quads,
       ));
       from = end;
     }
     return matches;
   }
 
-  /// Page-space rectangles covering the characters [start]..[end] of
-  /// [text] — for search and selection highlights.
-  List<PdfRect> rectsFor(int start, int end) {
-    final rects = <PdfRect>[];
+  /// Axis-aligned page-space rectangles covering the characters
+  /// [start]..[end] of [text]. Convenience over [quadsFor] for callers
+  /// that don't need rotation (e.g. text-markup QuadPoints, scroll-to).
+  List<PdfRect> rectsFor(int start, int end) =>
+      [for (final quad in quadsFor(start, end)) quad.bounds];
+
+  /// Baseline-aligned page-space quads covering the characters
+  /// [start]..[end] of [text] — for selection and search highlights that
+  /// rotate with rotated text.
+  List<PdfTextQuad> quadsFor(int start, int end) {
+    final quads = <PdfTextQuad>[];
     for (final run in runs) {
       if (run.text.isEmpty) continue;
       final runEnd = run.startIndex + run.text.length;
@@ -98,9 +144,9 @@ class PdfPageText {
       // geometry arrives with the font engine
       final f0 = (overlapStart - run.startIndex) / run.text.length;
       final f1 = (overlapEnd - run.startIndex) / run.text.length;
-      rects.add(_boundsOf(run.transform, run.width * f0, run.width * f1));
+      quads.add(_quadOf(run.transform, run.width * f0, run.width * f1));
     }
-    return rects;
+    return quads;
   }
 
   /// The page text inside [rect] (page space): runs whose bounds center
@@ -518,29 +564,27 @@ class _Column {
   }
 }
 
-/// Bounding box of the em-space span [x0]..[x1] (with conventional 0.25 em
-/// descent and 0.75 em ascent) mapped through [transform].
-PdfRect _boundsOf(PdfMatrix transform, double x0, double x1) {
+/// Quad of the em-space span [x0]..[x1] (with conventional 0.25 em descent
+/// and 0.75 em ascent) mapped through [transform], in perimeter order
+/// (ll, lr, ur, ul). Rotated text yields a rotated parallelogram.
+PdfTextQuad _quadOf(PdfMatrix transform, double x0, double x1) {
   const descent = -0.25;
   const ascent = 0.75;
-  final xs = <double>[];
-  final ys = <double>[];
-  for (final (x, y) in [
-    (x0, descent),
-    (x1, descent),
-    (x0, ascent),
-    (x1, ascent),
-  ]) {
-    xs.add(transform.transformX(x, y));
-    ys.add(transform.transformY(x, y));
-  }
-  return PdfRect(
-    xs.reduce(math.min),
-    ys.reduce(math.min),
-    xs.reduce(math.max),
-    ys.reduce(math.max),
-  );
+  return PdfTextQuad([
+    for (final (x, y) in [
+      (x0, descent),
+      (x1, descent),
+      (x1, ascent),
+      (x0, ascent),
+    ])
+      (transform.transformX(x, y), transform.transformY(x, y)),
+  ]);
 }
+
+/// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped
+/// through [transform].
+PdfRect _boundsOf(PdfMatrix transform, double x0, double x1) =>
+    _quadOf(transform, x0, x1).bounds;
 
 PdfRect _union(Iterable<PdfRect> rects) {
   final iterator = rects.iterator;
@@ -600,7 +644,7 @@ class _ExtractionDevice implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode mode) {}
   @override
-  void beginGroup(double alpha) {}
+  void beginGroup(double alpha, {bool knockout = false}) {}
   @override
   void endGroup() {}
   @override
@@ -609,5 +653,8 @@ class _ExtractionDevice implements PdfDevice {
   void endSoftMasked(
       {required bool luminosity,
       required PdfRect backdrop,
-      required void Function() drawMask}) {}
+      required void Function() drawMask,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {}
 }

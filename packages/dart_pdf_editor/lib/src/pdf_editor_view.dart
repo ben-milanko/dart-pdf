@@ -24,7 +24,9 @@ class PdfEditorFeatures {
     this.searchResultsPanel = true,
     this.pageNumber = true,
     this.author = true,
+    this.authorEditable = true,
     this.viewOptions = true,
+    this.pageColorEditable = true,
     this.thumbnails = true,
     this.pageEditing = true,
     this.annotationSidebar = true,
@@ -32,6 +34,7 @@ class PdfEditorFeatures {
     this.toolbar = true,
     this.markup = true,
     this.undoRedo = true,
+    this.colorControls = true,
     this.styleControls = true,
     this.flatten = true,
     this.tools,
@@ -55,9 +58,20 @@ class PdfEditorFeatures {
   /// The author-name button; the name stamps new annotations' /T.
   final bool author;
 
+  /// Whether the properties panel's "Author" row is shown, letting the
+  /// user edit a selected annotation's author. Independent of [author]
+  /// (the header button), so a host that sets the author
+  /// programmatically can lock it while leaving the button as it likes.
+  final bool authorEditable;
+
   /// The view-options menu: annotation visibility, form-field
   /// highlight, and page (paper) color — display settings only.
   final bool viewOptions;
+
+  /// Whether the view-options menu offers "Page color…". With it false
+  /// the paper color can't be changed from the UI — for hosts that set
+  /// the page color from the document programmatically and lock it.
+  final bool pageColorEditable;
 
   /// The page-thumbnail sidebar and its toggle.
   final bool thumbnails;
@@ -80,8 +94,16 @@ class PdfEditorFeatures {
   /// The toolbar's undo/redo buttons (⌘Z works regardless).
   final bool undoRedo;
 
-  /// The toolbar's style controls (palette, color picker, eyedropper,
-  /// stroke/opacity/font popup).
+  /// The toolbar's color controls: the palette swatches, the "More
+  /// colors…" picker, the eyedropper, and the text-box fill/border color
+  /// rows in the style popup. Split from [styleControls] so a
+  /// color-locked session can hide the color changer while keeping
+  /// stroke/opacity/font editable — pass `colorControls: false,
+  /// styleControls: true`.
+  final bool colorControls;
+
+  /// The toolbar's style popup (stroke width, opacity, and font
+  /// controls). Independent of [colorControls].
   final bool styleControls;
 
   /// The toolbar's flatten-annotations button.
@@ -115,9 +137,9 @@ class PdfEditorFeatures {
 /// The widget owns the edit session (undo/redo, revisions). Hosts that
 /// need programmatic access pass their own [controller] instead of
 /// [bytes] — exactly one of the two must be given. [onSave] receives
-/// the current revision's bytes from the toolbar's save button;
-/// [onDocumentChanged] fires after every revision (edit, undo, redo)
-/// for hosts that autosave.
+/// the current revision's bytes from the toolbar's save button or the
+/// ⌘S / Ctrl+S shortcut; [onDocumentChanged] fires after every revision
+/// (edit, undo, redo) for hosts that autosave.
 ///
 /// The widget is a plain body: give it bounded space (a [Scaffold]
 /// body, an [Expanded]...). Swapping [bytes] for a different document
@@ -126,16 +148,20 @@ class PdfEditorView extends StatefulWidget {
   const PdfEditorView({
     super.key,
     this.bytes,
+    this.documentId,
     this.controller,
     this.viewerController,
     this.preferences,
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onDocumentChanged,
+    this.onPickPdfToInsert,
+    this.onExportPages,
     this.onAction,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.formImagePicker,
+    this.imagePicker,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolbarLeading = const [],
@@ -153,6 +179,13 @@ class PdfEditorView extends StatefulWidget {
   /// (by identity) opens a fresh session in place.
   final Uint8List? bytes;
 
+  /// A stable identifier for this document, used to remember its scroll
+  /// position and zoom across sessions (persisted in the preferences).
+  /// With [bytes] a key is derived from the content when this is null;
+  /// with an external [controller] (no bytes) pass one explicitly to
+  /// enable the memory — a file path or URL is ideal.
+  final String? documentId;
+
   /// An external edit session, for hosts that drive edits
   /// programmatically (then [bytes] must be null). The host keeps
   /// ownership and disposes it.
@@ -169,13 +202,25 @@ class PdfEditorView extends StatefulWidget {
   final PdfEditorFeatures features;
 
   /// Receives the current revision's bytes when the toolbar's save
-  /// button is pressed; the button is hidden when null. Writing the
-  /// bytes somewhere is the app's job.
+  /// button is pressed or ⌘S / Ctrl+S is hit; the button (and the
+  /// shortcut) are off when null. Writing the bytes somewhere is the
+  /// app's job.
   final void Function(Uint8List bytes)? onSave;
 
   /// Called after every revision — edits, undo, redo — with the new
   /// current bytes. For autosaving hosts.
   final void Function(Uint8List bytes)? onDocumentChanged;
+
+  /// Picks a PDF whose pages are inserted after the current page (the
+  /// host shows a file picker and returns the bytes, or null to cancel).
+  /// When null the thumbnail strip's "Insert PDF…" action is hidden. Needs
+  /// [PdfEditorFeatures.pageEditing].
+  final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Receives a standalone PDF of a user-chosen page range to save (the
+  /// thumbnail strip's "Export pages…" action asks for the range, then
+  /// hands the bytes here). When null the action is hidden.
+  final void Function(Uint8List bytes)? onExportPages;
 
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
@@ -188,6 +233,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.formImagePicker].
   final PdfFormImagePicker? formImagePicker;
+
+  /// See [PdfViewer.imagePicker].
+  final PdfImagePicker? imagePicker;
 
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
@@ -228,6 +276,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfEditingController? _ownedSession;
   PdfEditingPreferences? _ownedPrefs;
   PdfViewerController? _ownedViewer;
+  PdfViewportMemory? _viewportMemory;
 
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
@@ -244,10 +293,28 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   PdfEditingPreferences get _prefs => _session.preferences;
 
+  /// A stable key for the open document, or null when there is nothing to
+  /// key a remembered position on — an external controller with no
+  /// [documentId]. With [bytes] one is derived from the content.
+  String? get _documentKey {
+    if (widget.documentId != null) return widget.documentId;
+    final bytes = widget.bytes;
+    return bytes == null ? null : pdfDocumentKey(bytes);
+  }
+
   @override
   void initState() {
     super.initState();
     _openSession();
+    // remember and restore where the user left this document
+    final key = _documentKey;
+    if (key != null) {
+      _viewportMemory = PdfViewportMemory(
+        viewer: _viewer,
+        preferences: _prefs,
+        documentKey: key,
+      );
+    }
   }
 
   void _openSession() {
@@ -277,15 +344,19 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   void didUpdateWidget(PdfEditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.controller != oldWidget.controller ||
-        !identical(widget.bytes, oldWidget.bytes)) {
+        !identical(widget.bytes, oldWidget.bytes) ||
+        widget.documentId != oldWidget.documentId) {
       _closeSession();
       _searchField.clear();
       _openSession();
+      final key = _documentKey;
+      if (key != null) _viewportMemory?.rekey(key);
     }
   }
 
   @override
   void dispose() {
+    _viewportMemory?.dispose();
     _closeSession();
     _ownedPrefs?.dispose();
     _ownedViewer?.dispose();
@@ -299,6 +370,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     _searchField.selection =
         TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
+
+  void _save() => widget.onSave?.call(_session.bytes);
 
   Future<void> _promptAuthor() async {
     final session = _session;
@@ -322,6 +395,106 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final pageColor = widget.pageColor ?? prefs.pageColor;
           final showThumbnails =
               pdfShellShowThumbnailSidebar(prefs, constraints);
+          // on a narrow screen the panels float up from the bottom as
+          // sheets instead of docking to the side and crowding the page
+          final useSheets = pdfShellUseBottomSheets(constraints);
+
+          // The docked and bottom-sheet variants carry DISTINCT keys: when
+          // the responsive breakpoint flips, the panel must be disposed and
+          // remounted, never reparented across the docked<->sheet boundary.
+          // Reparenting reactivates any OverlayPortal in the subtree (the
+          // thumbnail tiles' delete-button Tooltips) during the enclosing
+          // LayoutBuilder's layout pass, which trips a RenderObject mutation
+          // assertion. A fresh mount has no such overlay reactivation.
+          PdfThumbnailSidebar thumbnails({required bool bottomSheet}) =>
+              PdfThumbnailSidebar(
+                key: ValueKey(
+                    'pdf-shell-thumbnails-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: session,
+                viewerController: _viewer,
+                pageColor: pageColor,
+                showAnnotations: prefs.showAnnotations,
+                allowPageEditing: features.pageEditing,
+                bottomSheet: bottomSheet,
+                // page-level file actions live in the strip's footer; insert
+                // needs page editing on, export stands on its own
+                onPickPdfToInsert:
+                    features.pageEditing ? widget.onPickPdfToInsert : null,
+                onExportPages: widget.onExportPages,
+              );
+          PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
+              PdfSearchResultsPanel(
+                key: ValueKey(
+                    'pdf-shell-search-panel-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: _viewer,
+                preferences: prefs,
+                bottomSheet: bottomSheet,
+              );
+          PdfAnnotationSidebar annotations({required bool bottomSheet}) =>
+              PdfAnnotationSidebar(
+                key: ValueKey(
+                    'pdf-shell-annotations-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: session,
+                viewerController: _viewer,
+                bottomSheet: bottomSheet,
+              );
+          PdfAnnotationPropertiesPanel properties({required bool bottomSheet}) =>
+              PdfAnnotationPropertiesPanel(
+                key: ValueKey(
+                    'pdf-shell-properties-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: session,
+                showAuthor: features.authorEditable,
+                bottomSheet: bottomSheet,
+              );
+
+          final showThumbnailsPanel = features.thumbnails && showThumbnails;
+          final showSearchPanel = features.search &&
+              features.searchResultsPanel &&
+              prefs.showSearchResultsPanel;
+          final showAnnotationsPanel =
+              features.annotationSidebar && prefs.showAnnotationSidebar;
+          final showPropertiesPanel =
+              features.propertiesPanel && prefs.showPropertiesPanel;
+
+          final sheets = !useSheets
+              ? const <Widget>[]
+              : <Widget>[
+                  if (showThumbnailsPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-thumbnails-sheet'),
+                      title: 'Pages',
+                      closeKey:
+                          const ValueKey('pdf-shell-thumbnails-sheet-close'),
+                      onClose: () => prefs.showThumbnailSidebar = false,
+                      child: thumbnails(bottomSheet: true),
+                    ),
+                  if (showSearchPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-search-sheet'),
+                      title: 'Search results',
+                      closeKey: const ValueKey('pdf-shell-search-sheet-close'),
+                      onClose: () => prefs.showSearchResultsPanel = false,
+                      child: searchResults(bottomSheet: true),
+                    ),
+                  if (showAnnotationsPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-annotations-sheet'),
+                      title: 'Annotations',
+                      closeKey:
+                          const ValueKey('pdf-shell-annotations-sheet-close'),
+                      onClose: () => prefs.showAnnotationSidebar = false,
+                      child: annotations(bottomSheet: true),
+                    ),
+                  if (showPropertiesPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-properties-sheet'),
+                      title: 'Properties',
+                      closeKey:
+                          const ValueKey('pdf-shell-properties-sheet-close'),
+                      onClose: () => prefs.showPropertiesPanel = false,
+                      child: properties(bottomSheet: true),
+                    ),
+                ];
           return Column(children: [
             if (features.headerBar)
               PdfShellBar(
@@ -349,6 +522,18 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     ),
                 ],
                 trailing: [
+                  // Save sits in the header (near the host's Open), not in
+                  // the floating toolbar — ⌘S/Ctrl+S takes the same path.
+                  if (widget.onSave != null)
+                    IconButton(
+                      key: const ValueKey('pdf-shell-save'),
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.save_alt),
+                      tooltip: 'Save… (⌘S / Ctrl+S)',
+                      onPressed: _save,
+                    ),
+                  // insert/export of pages now live in the thumbnail
+                  // strip's footer (see thumbnails() above)
                   if (features.author)
                     IconButton(
                       key: const ValueKey('pdf-shell-author'),
@@ -358,7 +543,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       onPressed: _promptAuthor,
                     ),
                   if (features.viewOptions)
-                    PdfShellViewOptionsButton(preferences: prefs),
+                    PdfShellViewOptionsButton(
+                        preferences: prefs,
+                        pageColor: features.pageColorEditable),
                   if (features.thumbnails)
                     PdfShellToggleButton(
                       key: const ValueKey('pdf-shell-thumbnails-toggle'),
@@ -389,72 +576,67 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 ],
               ),
             Expanded(
-              // keyed so a panel appearing never recreates the viewer
-              // element (which would reset the reading position)
-              child: Row(children: [
-                if (features.thumbnails && showThumbnails)
-                  PdfThumbnailSidebar(
-                    key: const ValueKey('pdf-shell-thumbnails'),
-                    controller: session,
-                    viewerController: _viewer,
-                    pageColor: pageColor,
-                    showAnnotations: prefs.showAnnotations,
-                    allowPageEditing: features.pageEditing,
-                  ),
-                if (features.search &&
-                    features.searchResultsPanel &&
-                    prefs.showSearchResultsPanel)
-                  PdfSearchResultsPanel(
-                    key: const ValueKey('pdf-shell-search-panel'),
-                    controller: _viewer,
-                    preferences: prefs,
-                  ),
-                Expanded(
-                  key: const ValueKey('pdf-shell-viewer'),
-                  child: PdfViewer(
-                    document: session.document,
-                    controller: _viewer,
-                    editing: session,
-                    onAction: widget.onAction,
-                    pageOverlayBuilder: widget.pageOverlayBuilder,
-                    annotationMenuBuilder: widget.annotationMenuBuilder,
-                    formImagePicker: widget.formImagePicker,
-                    editingTextPrompt: widget.textPrompt,
-                    initialFit: widget.initialFit,
-                    backgroundColor: widget.backgroundColor,
-                    pageColor: pageColor,
-                    showAnnotations: prefs.showAnnotations,
-                    highlightFormFields: prefs.highlightFormFields,
-                  ),
+              // the toolbar floats over the bottom of the content,
+              // Acrobat/Bluebeam-style, rather than sitting in a solid
+              // edge-to-edge bar below it
+              child: Stack(children: [
+                Positioned.fill(
+                  // keyed so a panel appearing never recreates the viewer
+                  // element (which would reset the reading position)
+                  child: Row(children: [
+                    if (showThumbnailsPanel && !useSheets)
+                      thumbnails(bottomSheet: false),
+                    if (showSearchPanel && !useSheets)
+                      searchResults(bottomSheet: false),
+                    Expanded(
+                      key: const ValueKey('pdf-shell-viewer'),
+                      child: PdfViewer(
+                        document: session.document,
+                        controller: _viewer,
+                        editing: session,
+                        onAction: widget.onAction,
+                        pageOverlayBuilder: widget.pageOverlayBuilder,
+                        annotationMenuBuilder: widget.annotationMenuBuilder,
+                        formImagePicker: widget.formImagePicker,
+                        imagePicker: widget.imagePicker,
+                        editingTextPrompt: widget.textPrompt,
+                        initialFit: widget.initialFit,
+                        backgroundColor: widget.backgroundColor,
+                        pageColor: pageColor,
+                        showAnnotations: prefs.showAnnotations,
+                        highlightFormFields: prefs.highlightFormFields,
+                      ),
+                    ),
+                    if (showAnnotationsPanel && !useSheets)
+                      annotations(bottomSheet: false),
+                    if (showPropertiesPanel && !useSheets)
+                      properties(bottomSheet: false),
+                  ]),
                 ),
-                if (features.annotationSidebar && prefs.showAnnotationSidebar)
-                  PdfAnnotationSidebar(
-                    key: const ValueKey('pdf-shell-annotations'),
-                    controller: session,
-                    viewerController: _viewer,
+                if (features.toolbar && sheets.isEmpty)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: PdfEditingToolbar(
+                      controller: session,
+                      viewerController: _viewer,
+                      // save lives in the header now, not the dock
+                      textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                      palette: widget.palette,
+                      tools: features.tools,
+                      showMarkup: features.markup,
+                      showUndoRedo: features.undoRedo,
+                      showColor: features.colorControls,
+                      showStyle: features.styleControls,
+                      showFlatten: features.flatten,
+                      leading: widget.toolbarLeading,
+                      trailing: widget.toolbarTrailing,
+                    ),
                   ),
-                if (features.propertiesPanel && prefs.showPropertiesPanel)
-                  PdfAnnotationPropertiesPanel(
-                    key: const ValueKey('pdf-shell-properties'),
-                    controller: session,
-                  ),
+                if (sheets.isNotEmpty) pdfShellBottomSheets(sheets),
               ]),
             ),
-            if (features.toolbar)
-              PdfEditingToolbar(
-                controller: session,
-                viewerController: _viewer,
-                onSave: widget.onSave,
-                textPrompt: widget.textPrompt ?? showPdfTextPrompt,
-                palette: widget.palette,
-                tools: features.tools,
-                showMarkup: features.markup,
-                showUndoRedo: features.undoRedo,
-                showStyle: features.styleControls,
-                showFlatten: features.flatten,
-                leading: widget.toolbarLeading,
-                trailing: widget.toolbarTrailing,
-              ),
           ]);
         },
       );
@@ -462,16 +644,22 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     if (widget.viewerTheme != null) {
       body = PdfViewerTheme(data: widget.viewerTheme!, child: body);
     }
-    if (features.headerBar && features.search) {
-      body = CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
-              _focusSearch,
-          const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-              _focusSearch,
-        },
-        child: body,
-      );
+    final bindings = <ShortcutActivator, VoidCallback>{
+      if (features.headerBar && features.search) ...{
+        const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
+            _focusSearch,
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+            _focusSearch,
+      },
+      // ⌘S / Ctrl+S saves through the host's [onSave], the same path the
+      // toolbar's save button takes.
+      if (widget.onSave != null) ...{
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): _save,
+      },
+    };
+    if (bindings.isNotEmpty) {
+      body = CallbackShortcuts(bindings: bindings, child: body);
     }
     return body;
   }

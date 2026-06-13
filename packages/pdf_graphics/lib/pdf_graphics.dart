@@ -4,7 +4,10 @@
 library;
 
 export 'src/color.dart';
-export 'package:pdf_cos/pdf_cos.dart' show ContentOperation, ContentStreamParser;
+export 'src/calibrated_color.dart';
+export 'src/document_ai.dart';
+export 'package:pdf_cos/pdf_cos.dart'
+    show ContentOperation, ContentStreamParser;
 export 'src/device.dart';
 export 'src/font_info.dart';
 export 'src/function.dart';
@@ -14,4 +17,5 @@ export 'src/shading.dart';
 export 'src/matrix.dart';
 export 'src/mesh.dart';
 export 'src/path.dart';
+export 'src/text_diff.dart';
 export 'src/text_extraction.dart';

@@ -261,10 +261,18 @@ void main() {
       await sendCtrl(tester, LogicalKeyboardKey.keyC);
       expect(editing.hasAnnotationClipboard, isTrue);
 
+      // move the mouse elsewhere: ⌘V pastes at the cursor, centring the
+      // 150×100 copy on page point (400, 400)
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(view(400, 400));
+      await tester.pump();
+
       await sendCtrl(tester, LogicalKeyboardKey.keyV);
       final annotations = editing.document.page(0).annotations;
       expect(annotations, hasLength(2));
-      expect(annotations[1].rect, const PdfRect(112, 638, 262, 738));
+      expect(annotations[1].rect, const PdfRect(325, 350, 475, 450));
       expect(editing.selectedAnnotationSlots, [(0, 1)]);
       await settle(tester);
     });
@@ -364,9 +372,11 @@ void main() {
             (w.decoration! as BoxDecoration).shape == BoxShape.circle),
       );
       await tester.scrollUntilVisible(swatch, 100,
-          scrollable: find.descendant(
-              of: find.byType(PdfEditingToolbar),
-              matching: find.byType(Scrollable)));
+          scrollable: find
+              .descendant(
+                  of: find.byType(PdfEditingToolbar),
+                  matching: find.byType(Scrollable))
+              .first);
       await tester.tap(swatch);
       await tester.pump();
 
@@ -392,18 +402,23 @@ void main() {
           of: find.byType(PdfEditingToolbar),
           matching: find.byIcon(Icons.tune));
       await tester.scrollUntilVisible(tune, 100,
-          scrollable: find.descendant(
-              of: find.byType(PdfEditingToolbar),
-              matching: find.byType(Scrollable)));
+          scrollable: find
+              .descendant(
+                  of: find.byType(PdfEditingToolbar),
+                  matching: find.byType(Scrollable))
+              .first);
       await tester.tap(tune);
       await tester.pumpAndSettle();
 
-      // the stroke slider shows the selected annotation's width
-      final slider = tester.widget(find.byType(Slider).first) as Slider;
+      // the stroke slider shows the selected annotation's width (scope to
+      // the popup — the strip also carries an inline opacity slider)
+      final menuSlider = find.descendant(
+          of: find.byType(MenuAnchor), matching: find.byType(Slider));
+      final slider = tester.widget(menuSlider.first) as Slider;
       expect(slider.value, closeTo(2, 1e-6));
 
       // dragging it restyles on release
-      await tester.drag(find.byType(Slider).first, const Offset(150, 0));
+      await tester.drag(menuSlider.first, const Offset(150, 0));
       await tester.pumpAndSettle();
       final width = editing.document.page(0).annotations.single.borderWidth!;
       expect(width, greaterThan(2));

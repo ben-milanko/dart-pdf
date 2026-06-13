@@ -3,6 +3,10 @@ import 'dart:typed_data';
 
 const _pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
 
+/// A render passes when at most this fraction of pixels differ from the PDF.js
+/// baseline — mirrors `_maxDifferingFraction` in pdfjs_render_test.dart.
+const _passThreshold = 0.0005;
+
 void main(List<String> args) {
   final repoRoot = _repoRoot();
   final corpusDir = Directory('${repoRoot.path}/test_corpora/pdfjs');
@@ -56,10 +60,52 @@ void main(List<String> args) {
     return a.page.compareTo(b.page);
   });
 
+  final stats = _passStats(renders);
   File('${outDir.path}/index.html').writeAsStringSync(_indexHtml(renders));
-  File('${outDir.path}/README.md').writeAsStringSync(_indexMarkdown(renders));
+  File('${outDir.path}/README.md')
+      .writeAsStringSync(_indexMarkdown(renders, stats));
   stdout.writeln(
       'wrote ${outDir.path}/index.html and README.md (${renders.length} renders)');
+
+  final corpusReadme = File('${corpusDir.path}/README.md');
+  if (_patchRenderSummary(corpusReadme, stats)) {
+    stdout.writeln('updated render summary in ${corpusReadme.path}');
+  }
+}
+
+/// Rewrites the `<!-- render-summary:start -->…<!-- render-summary:end -->`
+/// span in the corpus README with the current pass count. Returns false (and
+/// leaves the file untouched) when the file or markers are absent.
+bool _patchRenderSummary(File readme, _PassStats stats) {
+  if (!readme.existsSync()) return false;
+  final marker = RegExp(
+      r'<!-- render-summary:start -->.*?<!-- render-summary:end -->',
+      dotAll: true);
+  final original = readme.readAsStringSync();
+  if (!marker.hasMatch(original)) return false;
+  final replacement = '<!-- render-summary:start -->'
+      '**${stats.passed} of ${stats.compared} compared pages pass**'
+      '<!-- render-summary:end -->';
+  final updated = original.replaceAll(marker, replacement);
+  if (updated == original) return false;
+  readme.writeAsStringSync(updated);
+  return true;
+}
+
+_PassStats _passStats(List<_Render> renders) {
+  var passed = 0;
+  var failed = 0;
+  for (final render in renders) {
+    switch (_passFail(render.differenceFraction)) {
+      case _Result.pass:
+        passed++;
+      case _Result.fail:
+        failed++;
+      case _Result.na:
+        break;
+    }
+  }
+  return _PassStats(passed: passed, failed: failed);
 }
 
 Directory _repoRoot() {
@@ -123,7 +169,7 @@ String _indexHtml(List<_Render> renders) {
   return html.toString();
 }
 
-String _indexMarkdown(List<_Render> renders) {
+String _indexMarkdown(List<_Render> renders, _PassStats stats) {
   final markdown = StringBuffer()
     ..writeln('# PDF.js Corpus Render Comparisons')
     ..writeln()
@@ -140,27 +186,33 @@ String _indexMarkdown(List<_Render> renders) {
         'fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart')
     ..writeln('```')
     ..writeln()
-    ..writeln('| PDF | Page | Size | Diff |')
-    ..writeln('| --- | ---: | ---: | ---: |');
+    ..writeln('| PDF | Page | Size | Diff | Result |')
+    ..writeln('| --- | ---: | ---: | ---: | :---: |');
   for (final render in renders) {
     markdown.writeln(
-        '| ${_mdCell(render.pdfName)} | ${render.page + 1} | ${render.width}x${render.height} | ${_mdDifference(render.differenceFraction)} |');
+        '| ${_mdCell(render.pdfName)} | ${render.page + 1} | ${render.width}x${render.height} | ${_mdDifference(render.differenceFraction)} | ${_passFail(render.differenceFraction).label} |');
   }
+  markdown
+    ..writeln()
+    ..writeln('${stats.passed} of ${stats.compared} compared pages pass '
+        '(≤ ${(_passThreshold * 100).toStringAsFixed(3)}% of pixels '
+        'differing); ${stats.failed} fail.');
   markdown.writeln();
 
+  markdown
+    ..writeln('## Visual Comparisons')
+    ..writeln();
   for (final render in renders) {
-    final title =
-        '${render.pdfName} page ${render.page + 1} - ${render.width}x${render.height} - ${_mdDifference(render.differenceFraction)}';
     markdown
-      ..writeln('<details>')
-      ..writeln('<summary>${_htmlText(title)}</summary>')
+      ..writeln('### ${_mdHeading(render.pdfName)} page ${render.page + 1}')
+      ..writeln()
+      ..writeln(
+          '${render.width}x${render.height}; diff: ${_mdDifference(render.differenceFraction)}')
       ..writeln()
       ..writeln('| PDF.js baseline | Dart render | Diff |')
       ..writeln('| --- | --- | --- |')
       ..writeln(
           '| ${_mdImage(render.baselineName, 'PDF.js baseline')} | ${_mdImage(render.actualName, 'Dart render')} | ${_mdImage(render.diffName, 'Diff')} |')
-      ..writeln()
-      ..writeln('</details>')
       ..writeln();
   }
   return markdown.toString();
@@ -184,12 +236,38 @@ String _mdDifference(double? fraction) {
   return '${(fraction * 100).toStringAsFixed(3)}%';
 }
 
+_Result _passFail(double? fraction) {
+  if (fraction == null) return _Result.na;
+  return fraction <= _passThreshold ? _Result.pass : _Result.fail;
+}
+
+enum _Result {
+  pass('✅ pass'),
+  fail('❌ fail'),
+  na('—');
+
+  const _Result(this.label);
+
+  final String label;
+}
+
+class _PassStats {
+  const _PassStats({required this.passed, required this.failed});
+
+  final int passed;
+  final int failed;
+
+  int get compared => passed + failed;
+}
+
 String _mdImage(String? fileName, String label) {
   if (fileName == null) return 'missing';
   return '[![$label](${_mdUrl(fileName)})](${_mdUrl(fileName)})';
 }
 
 String _mdCell(String text) => text.replaceAll('|', r'\|');
+
+String _mdHeading(String text) => text.replaceAll('#', r'\#');
 
 String _mdUrl(String text) => Uri.encodeComponent(text).replaceAll('%2F', '/');
 

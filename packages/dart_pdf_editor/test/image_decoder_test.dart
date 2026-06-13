@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:dart_pdf_editor/src/image_decoder.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -113,6 +115,45 @@ void main() {
       for (var i = 0; i < 4; i++) {
         expect(pixels[i * 4 + 3], 128);
       }
+    });
+  });
+
+  testWidgets('a higher-res /Mask stencil keeps its resolution (issue4246)',
+      (tester) async {
+    await tester.runAsync(() async {
+      // A tiny colour image carrying its detail in a much larger stencil — the
+      // mask must NOT be crushed down to the base grid (that produced blocky
+      // letters). Base 1x1 red, mask 4x1 paint/skip/paint/skip.
+      final mask = CosStream(
+        CosDictionary({
+          'ImageMask': const CosBoolean(true),
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(1),
+        }),
+        // bits 0,1,0,1 -> paint,skip,paint,skip
+        Uint8List.fromList([0x50]),
+      );
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Mask': mask,
+        }),
+        Uint8List.fromList([255, 0, 0]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final decoded = images[image]!;
+      // Output is built at the MASK's resolution, not the 1x1 base.
+      expect(decoded.width, 4);
+      expect(decoded.height, 1);
+      final pixels = await pixelsOf(decoded);
+      expect(pixels.sublist(0, 4), [255, 0, 0, 255]); // crisp painted red
+      expect(pixels.sublist(4, 8), [0, 0, 0, 0]); // crisp cutout
+      expect(pixels.sublist(8, 12), [255, 0, 0, 255]);
+      expect(pixels.sublist(12, 16), [0, 0, 0, 0]);
     });
   });
 
@@ -287,9 +328,10 @@ void main() {
       );
       final images = await decodeImages(cos, [req(image)]);
       final pixels = await pixelsOf(images[image]!);
-      // pure cyan converts as process ink, not monitor cyan
-      expect(pixels.sublist(0, 4), [0, 158, 224, 255]);
-      expect(pixels.sublist(4, 8), [0, 0, 0, 255]); // black
+      // pure cyan through pdf.js's DeviceCMYK polynomial ≈ (0, 185, 242)
+      expect(pixels.sublist(0, 4), [0, 185, 242, 255]);
+      // pure K is the SWOP profile's dark grey, not a perfect black
+      expect(pixels.sublist(4, 8), [44, 46, 53, 255]);
     });
   });
 
@@ -347,6 +389,31 @@ void main() {
     });
   });
 
+  testWidgets('DeviceCMYK DCT images decode in PDF sample polarity',
+      (tester) async {
+    await tester.runAsync(() async {
+      final doc = PdfDocument.open(
+          File('../../test_corpora/pdfjs/cmykjpeg.pdf').readAsBytesSync());
+      final collector = ImageCollector();
+      PdfInterpreter(cos: doc.cos, device: collector).drawPage(doc.page(0));
+      expect(collector.streams, hasLength(1));
+
+      final request = collector.streams.single;
+      final images = await decodeImages(doc.cos, [request]);
+      final image = images[pdfImageKey(request)]!;
+      expect(image.width, 200);
+      expect(image.height, 150);
+
+      final pixels = await pixelsOf(image);
+      // The embedded Adobe CMYK JPEG starts with a light sky pixel.
+      // Platform RGB conversion rendered this nearly black.
+      expect(pixels[0], greaterThan(90));
+      expect(pixels[1], greaterThan(140));
+      expect(pixels[2], greaterThan(170));
+      expect(pixels[3], 255);
+    });
+  });
+
   testWidgets('ICCBased images convert through the real profile',
       (tester) async {
     await tester.runAsync(() async {
@@ -391,6 +458,56 @@ void main() {
       expect(pixels[0], closeTo(0, 3));
       expect(pixels[1], closeTo(164, 3));
       expect(pixels[2], closeTo(219, 3));
+    });
+  });
+
+  testWidgets('DeviceN images evaluate the tint transform', (tester) async {
+    await tester.runAsync(() async {
+      final tint = CosStream(
+        CosDictionary({
+          'FunctionType': const CosInteger(4),
+          'Domain': CosArray([
+            const CosInteger(0),
+            const CosInteger(1),
+            const CosInteger(0),
+            const CosInteger(1),
+            const CosInteger(0),
+            const CosInteger(1),
+          ]),
+          'Range': CosArray([
+            const CosInteger(0),
+            const CosInteger(1),
+            const CosInteger(0),
+            const CosInteger(1),
+            const CosInteger(0),
+            const CosInteger(1),
+          ]),
+          'Length': const CosInteger(2),
+        }),
+        Uint8List.fromList('{}'.codeUnits),
+      );
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': CosArray([
+            const CosName('DeviceN'),
+            CosArray([
+              const CosName('X'),
+              const CosName('Y'),
+              const CosName('Z'),
+            ]),
+            const CosName('DeviceRGB'),
+            tint,
+          ]),
+        }),
+        Uint8List.fromList([255, 128, 0, 0, 64, 255]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final pixels = await pixelsOf(images[image]!);
+      expect(pixels.sublist(0, 4), [255, 128, 0, 255]);
+      expect(pixels.sublist(4, 8), [0, 64, 255, 255]);
     });
   });
 

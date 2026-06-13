@@ -247,6 +247,65 @@ void main() {
       expect(tester.widget<TextField>(find.byKey(fieldKey)).controller!.text,
           isEmpty);
     });
+
+    testWidgets('enter steps to the next match once the query is live',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(3),
+          above: PdfSearchField(controller: controller));
+
+      // first enter searches and lands on the first match
+      await tester.enterText(find.byKey(fieldKey), 'page');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.query, 'page');
+      expect(controller.currentMatch, 0);
+      expect(find.text('1/3'), findsOneWidget);
+
+      // subsequent enters step forward through the matches, wrapping
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      expect(controller.currentMatch, 1);
+      expect(find.text('2/3'), findsOneWidget);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      expect(controller.currentMatch, 2);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      expect(controller.currentMatch, 0); // wrapped around
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    });
+
+    testWidgets('enter on a changed query searches afresh', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(3),
+          above: PdfSearchField(controller: controller));
+
+      await tester.enterText(find.byKey(fieldKey), 'page');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      // step forward so currentMatch is non-zero
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      expect(controller.currentMatch, 1);
+
+      // a new query re-searches and resets to the first match
+      await tester.enterText(find.byKey(fieldKey), 'Page 2');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.query, 'Page 2');
+      expect(controller.matchCount, 1);
+      expect(controller.currentMatch, 0);
+    });
   });
 
   group('PdfSearchResultsPanel', () {

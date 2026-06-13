@@ -212,7 +212,7 @@ void main() {
     expect(stream, contains('4 w'));
   });
 
-  test('gates: dashed borders, foreign subtypes, and no-op calls refuse',
+  test('gates: foreign subtypes and no-op calls refuse; dashed shapes restyle',
       () {
     final doc = edited(
         PdfDocument.open(buildMultiPagePdf(1)),
@@ -225,11 +225,11 @@ void main() {
     expect(editor.restyleAnnotation(0, square), isFalse);
     expect(editor.hasChanges, isFalse);
 
-    // dashed borders can't regenerate faithfully
+    // dashed borders regenerate just like solid ones now
     (doc.cos.resolve(square.dict['BS']) as CosDictionary)['D'] =
         CosArray([const CosInteger(3)]);
-    expect(pdfCanRestyleAnnotation(square), isFalse);
-    expect(editor.restyleAnnotation(0, square, color: 0x1E88E5), isFalse);
+    expect(pdfCanRestyleAnnotation(square), isTrue);
+    expect(editor.restyleAnnotation(0, square, color: 0x1E88E5), isTrue);
 
     // foreign subtypes refuse
     final link = PdfAnnotation.fromDict(

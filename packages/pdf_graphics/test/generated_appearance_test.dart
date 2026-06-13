@@ -47,7 +47,7 @@ class CountingDevice implements PdfDevice {
   @override
   void drawImage(PdfImageRequest request) {}
   @override
-  void beginGroup(double alpha) {}
+  void beginGroup(double alpha, {bool knockout = false}) {}
   @override
   void endGroup() {}
   @override
@@ -56,7 +56,10 @@ class CountingDevice implements PdfDevice {
   void endSoftMasked(
       {required bool luminosity,
       required PdfRect backdrop,
-      required void Function() drawMask}) {}
+      required void Function() drawMask,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {}
 }
 
 /// Serializes fills as color plus path geometry, so flattened output can be
@@ -103,6 +106,26 @@ void main() {
     expect(
         device.fills.any((c) => c.red > 0.99 && c.green < 0.01), isTrue);
     expect(device.blendModes, contains(PdfBlendMode.multiply));
+  });
+
+  test('drawAnnotations skip omits the matched annotation, keeps the rest', () {
+    final doc = annotated((e) {
+      e.addHighlight(0, const [PdfRect(72, 700, 200, 712)], color: 0xFF0000);
+      e.addHighlight(0, const [PdfRect(72, 680, 200, 692)], color: 0x00FF00);
+    });
+    final page = doc.page(0);
+    // skip by /NM — a stable handle that survives re-parsing the page
+    final targetName = page.annotations.first.name; // the red highlight
+    expect(targetName, isNotNull);
+
+    final device = CountingDevice();
+    PdfInterpreter(cos: doc.cos, device: device)
+      ..drawPage(page)
+      ..drawAnnotations(page, skip: (a) => a.name == targetName);
+
+    // the green highlight still fills; the skipped red one does not
+    expect(device.fills.any((c) => c.green > 0.99 && c.red < 0.01), isTrue);
+    expect(device.fills.any((c) => c.red > 0.99 && c.green < 0.01), isFalse);
   });
 
   test('a generated square strokes and fills at the requested opacity', () {

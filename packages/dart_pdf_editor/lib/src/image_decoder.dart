@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -67,7 +68,7 @@ class ImageCollector implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode mode) {}
   @override
-  void beginGroup(double alpha) {}
+  void beginGroup(double alpha, {bool knockout = false}) {}
   @override
   void endGroup() {}
   @override
@@ -76,7 +77,10 @@ class ImageCollector implements PdfDevice {
   void endSoftMasked(
       {required bool luminosity,
       required PdfRect backdrop,
-      required void Function() drawMask}) {
+      required void Function() drawMask,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {
     drawMask(); // mask groups can reference images that need decoding
   }
 }
@@ -85,9 +89,10 @@ class ImageCollector implements PdfDevice {
 ///
 /// Coverage: DCTDecode via the platform codec; CCITTFaxDecode and
 /// JBIG2Decode (with /JBIG2Globals) via the pure-Dart decoders;
-/// Flate/raw DeviceRGB, DeviceGray (8 and 1 bit) and Indexed samples
-/// (1/2/4/8 bit, palettes in RGB, gray, or CMYK bases including
-/// ICCBased — real ICC profiles applied); /SMask soft-mask alpha;
+/// DeviceCMYK DCTDecode via a pure-Dart JPEG component decode; Flate/raw
+/// DeviceRGB, DeviceGray (8 and 1 bit) and Indexed samples (1/2/4/8 bit,
+/// palettes in RGB, gray, or CMYK bases including ICCBased — real ICC
+/// profiles applied); /SMask soft-mask alpha;
 /// explicit /Mask stencil streams; color-key /Mask ranges and /Decode
 /// arrays (on raw samples and on platform-decoded JPEGs); /ImageMask
 /// stencils (decoded as alpha, tinted by the device); JPXDecode via the
@@ -119,16 +124,32 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
           ? 'DCT'
           : null;
   if (!isMask && dctName != null) {
-    // undo any wrapping filters (e.g. [/FlateDecode /DCTDecode]), then
-    // hand the JPEG to the platform codec
+    // undo any wrapping filters (e.g. [/FlateDecode /DCTDecode])
     final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
+    final family = _colorSpaceOf(cos, dict);
+    if (family == 'DeviceCMYK') {
+      final cmyk = _decodeDctCmyk(jpeg);
+      if (cmyk != null) {
+        final rgba = _toRgba(cos, dict, cmyk.samples, cmyk.width, cmyk.height,
+            8, icc: _iccProfileFor(cos, dict));
+        if (rgba != null) {
+          final mask =
+              await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
+          final m = mask == null
+              ? (rgba, cmyk.width, cmyk.height)
+              : _applyAlpha(rgba, cmyk.width, cmyk.height, mask);
+          return _imageFromPixels(m.$1, m.$2, m.$3);
+        }
+      }
+    }
+
+    // Non-CMYK JPEGs can use the platform codec.
     final codec = await ui.instantiateImageCodec(jpeg);
     final base = (await codec.getNextFrame()).image;
     final mask = await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
     // /Decode and color-key /Mask apply to the decoded samples; gray
     // JPEGs decode to RGBA with the sample replicated, so one channel
     // stands in for the raw sample either way
-    final family = _colorSpaceOf(cos, dict);
     final components = switch (family) {
       'DeviceGray' => 1,
       'DeviceRGB' => 3,
@@ -144,8 +165,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
     if (ranges != null || colorKey != null) {
       _applyDecodeAndColorKey(rgba, components, ranges, colorKey);
     }
-    if (mask != null) _applyAlpha(rgba, base.width, base.height, mask);
-    return _imageFromPixels(rgba, base.width, base.height);
+    final m = mask == null
+        ? (rgba, base.width, base.height)
+        : _applyAlpha(rgba, base.width, base.height, mask);
+    return _imageFromPixels(m.$1, m.$2, m.$3);
   }
   if (filters.contains('JPXDecode')) {
     final jpx = JpxDecoder.decode(
@@ -154,8 +177,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
     final rgba = _jpxToRgba(jpx);
     if (rgba == null) return null;
     final mask = await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
-    if (mask != null) _applyAlpha(rgba, jpx.width, jpx.height, mask);
-    return _imageFromPixels(rgba, jpx.width, jpx.height);
+    final m = mask == null
+        ? (rgba, jpx.width, jpx.height)
+        : _applyAlpha(rgba, jpx.width, jpx.height, mask);
+    return _imageFromPixels(m.$1, m.$2, m.$3);
   }
   // CCITTFaxDecode runs as a regular stream filter (pure-Dart decoder in
   // pdf_cos) and lands here as 1-bit gray samples
@@ -186,10 +211,84 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
 
   if (!isMask) {
     final mask = await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
-    if (mask != null) _applyAlpha(rgba, width, height, mask);
+    if (mask != null) {
+      final m = _applyAlpha(rgba, width, height, mask);
+      return _imageFromPixels(m.$1, m.$2, m.$3);
+    }
   }
   return _imageFromPixels(rgba, width, height);
 }
+
+class _DctCmykImage {
+  const _DctCmykImage(this.samples, this.width, this.height);
+
+  final Uint8List samples;
+  final int width;
+  final int height;
+}
+
+/// Decodes 4-component JPEG samples in PDF polarity: 0 = no ink,
+/// 255 = full ink. Platform codecs convert these directly to RGB as Adobe
+/// inverted CMYK and lose the original K, producing very dark images.
+_DctCmykImage? _decodeDctCmyk(Uint8List jpegBytes) {
+  final jpeg = img.JpegData()..read(jpegBytes);
+  if (jpeg.components.length != 4) return null;
+  final width = jpeg.width;
+  final height = jpeg.height;
+  if (width == null || height == null || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  final out = Uint8List(width * height * 4);
+  final component1 = jpeg.components[0];
+  final component2 = jpeg.components[1];
+  final component3 = jpeg.components[2];
+  final component4 = jpeg.components[3];
+  final ycck = (jpeg.adobe?.transformCode ?? 0) != 0;
+
+  for (var y = 0; y < height; y++) {
+    final y1 = y >> component1.vScaleShift;
+    final y2 = y >> component2.vScaleShift;
+    final y3 = y >> component3.vScaleShift;
+    final y4 = y >> component4.vScaleShift;
+    final line1 = component1.lines[y1];
+    final line2 = component2.lines[y2];
+    final line3 = component3.lines[y3];
+    final line4 = component4.lines[y4];
+    if (line1 == null || line2 == null || line3 == null || line4 == null) {
+      return null;
+    }
+    for (var x = 0; x < width; x++) {
+      final x1 = x >> component1.hScaleShift;
+      final x2 = x >> component2.hScaleShift;
+      final x3 = x >> component3.hScaleShift;
+      final x4 = x >> component4.hScaleShift;
+      var c = line1[x1];
+      var m = line2[x2];
+      var yy = line3[x3];
+      var k = line4[x4];
+
+      if (ycck) {
+        final cr = yy - 128;
+        final cb = m - 128;
+        final yScaled = c << 8;
+        c = _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
+        m = _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
+        yy = _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
+        k = 255 - k;
+      }
+
+      final i = (y * width + x) * 4;
+      out[i] = c;
+      out[i + 1] = m;
+      out[i + 2] = yy;
+      out[i + 3] = k;
+    }
+  }
+  return _DctCmykImage(out, width, height);
+}
+
+int _shiftR(int value, int count) => (value >> count).toSigned(32);
 
 /// JPX samples to RGBA by component count (per §7.4.9 the embedded
 /// color description governs; gray, RGB, and CMYK cover PDF practice).
@@ -470,14 +569,55 @@ void _applyDecodeAndColorKey(Uint8List rgba, int components,
 
 /// Writes [mask] into the alpha channel of [rgba], resampling
 /// nearest-neighbor when dimensions differ.
-void _applyAlpha(Uint8List rgba, int width, int height, _SoftMask mask) {
-  for (var y = 0; y < height; y++) {
-    final maskY = y * mask.height ~/ height;
-    for (var x = 0; x < width; x++) {
-      final maskX = x * mask.width ~/ width;
-      rgba[(y * width + x) * 4 + 3] = mask.alpha[maskY * mask.width + maskX];
+/// Bakes [mask]'s alpha into [rgba], returning the resulting (bytes, width,
+/// height). When the mask is HIGHER resolution than the base image — common
+/// for /Mask stencils where a tiny colour image carries a large crisp cutout
+/// (issue4246: a 50x40 gradient under a 1000x800 letter mask) — the result is
+/// built at the mask's resolution with the colour bilinearly upsampled, so the
+/// cutout's detail survives instead of being crushed to the base grid (which
+/// the device would then upscale into visible blocks). Otherwise the mask is
+/// point-sampled onto the base in place.
+(Uint8List, int, int) _applyAlpha(
+    Uint8List rgba, int width, int height, _SoftMask mask) {
+  if (mask.width * mask.height <= width * height) {
+    for (var y = 0; y < height; y++) {
+      final maskY = y * mask.height ~/ height;
+      for (var x = 0; x < width; x++) {
+        final maskX = x * mask.width ~/ width;
+        rgba[(y * width + x) * 4 + 3] = mask.alpha[maskY * mask.width + maskX];
+      }
+    }
+    return (rgba, width, height);
+  }
+  final mw = mask.width;
+  final mh = mask.height;
+  final out = Uint8List(mw * mh * 4);
+  for (var my = 0; my < mh; my++) {
+    final fy = (my + 0.5) * height / mh - 0.5;
+    final y0 = fy.floor();
+    final wy = fy - y0;
+    final y0c = y0.clamp(0, height - 1);
+    final y1c = (y0 + 1).clamp(0, height - 1);
+    for (var mx = 0; mx < mw; mx++) {
+      final fx = (mx + 0.5) * width / mw - 0.5;
+      final x0 = fx.floor();
+      final wx = fx - x0;
+      final x0c = x0.clamp(0, width - 1);
+      final x1c = (x0 + 1).clamp(0, width - 1);
+      final i00 = (y0c * width + x0c) * 4;
+      final i01 = (y0c * width + x1c) * 4;
+      final i10 = (y1c * width + x0c) * 4;
+      final i11 = (y1c * width + x1c) * 4;
+      final o = (my * mw + mx) * 4;
+      for (var c = 0; c < 3; c++) {
+        final top = rgba[i00 + c] * (1 - wx) + rgba[i01 + c] * wx;
+        final bot = rgba[i10 + c] * (1 - wx) + rgba[i11 + c] * wx;
+        out[o + c] = (top * (1 - wy) + bot * wy).round().clamp(0, 255);
+      }
+      out[o + 3] = mask.alpha[my * mw + mx];
     }
   }
+  return (out, mw, mh);
 }
 
 /// The parsed ICC profile of an ICCBased image color space, when the
@@ -503,12 +643,14 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   final out = Uint8List(count * 4);
 
   final space = _colorSpaceOf(cos, dict);
-  final components = switch (space) {
-    'DeviceRGB' => 3,
-    'DeviceGray' => 1,
-    'DeviceCMYK' => 4,
-    _ => 0,
-  };
+  final alternate = _alternateColorSpaceFor(cos, dict);
+  final components = alternate?.components ??
+      switch (space) {
+        'DeviceRGB' => 3,
+        'DeviceGray' => 1,
+        'DeviceCMYK' => 4,
+        _ => 0,
+      };
   final ranges = components > 0 ? _decodeRanges(cos, dict, components) : null;
   final colorKey = components > 0
       ? _colorKeyRanges(cos, dict, components)
@@ -549,6 +691,17 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         colorKey: colorKey);
   }
   if (bits != 8) return null;
+  if (alternate != null) {
+    return _alternateToRgba(
+      data,
+      width,
+      height,
+      out,
+      alternate,
+      ranges,
+      colorKey,
+    );
+  }
 
   switch (space) {
     case 'DeviceRGB':
@@ -610,6 +763,45 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       return out;
   }
   return null;
+}
+
+Uint8List? _alternateToRgba(
+  Uint8List data,
+  int width,
+  int height,
+  Uint8List out,
+  _AlternateColorSpace alternate,
+  List<(double, double)>? ranges,
+  List<(int, int)>? colorKey,
+) {
+  final count = width * height;
+  final components = alternate.components;
+  if (data.length < count * components) return null;
+  final luts = [for (var c = 0; c < components; c++) _lutFor(ranges, c)];
+  for (var i = 0; i < count; i++) {
+    final samples = [
+      for (var c = 0; c < components; c++) data[i * components + c]
+    ];
+    final values = [
+      for (var c = 0; c < components; c++) luts[c][samples[c]] / 255
+    ];
+    final color = alternate.colorFor(values);
+    out[i * 4] = (color.red * 255).round().clamp(0, 255);
+    out[i * 4 + 1] = (color.green * 255).round().clamp(0, 255);
+    out[i * 4 + 2] = (color.blue * 255).round().clamp(0, 255);
+    var masked = false;
+    if (colorKey != null) {
+      masked = true;
+      for (var c = 0; c < components; c++) {
+        if (samples[c] < colorKey[c].$1 || samples[c] > colorKey[c].$2) {
+          masked = false;
+          break;
+        }
+      }
+    }
+    out[i * 4 + 3] = masked ? 0 : 255;
+  }
+  return out;
 }
 
 final Uint8List _identityLut =
@@ -728,10 +920,108 @@ String _familyOf(CosDocument cos, CosObject? raw) {
             }
           }
           return 'DeviceRGB';
+        case 'DeviceN':
+          return 'DeviceN';
+        case 'Separation':
+          return 'Separation';
       }
     }
   }
   return 'DeviceGray';
+}
+
+class _AlternateColorSpace {
+  const _AlternateColorSpace({
+    required this.components,
+    required this.baseComponents,
+    required this.function,
+    this.calibrated,
+  });
+
+  final int components;
+  final int baseComponents;
+  final PdfFunction function;
+  final PdfCalibratedColorSpace? calibrated;
+
+  PdfColor colorFor(List<double> values) {
+    final transformed = function.evaluateAt(values);
+    return calibrated?.toSrgb(transformed) ??
+        colorFromComponents(transformed, baseComponents);
+  }
+}
+
+_AlternateColorSpace? _alternateColorSpaceFor(
+    CosDocument cos, CosDictionary dict) {
+  final space = cos.resolve(dict['ColorSpace']);
+  if (space is! CosArray || space.length < 4) return null;
+  final family = cos.resolve(space[0]);
+  if (family is! CosName) return null;
+
+  final int components;
+  final CosObject alternateSpace;
+  final CosObject functionObject;
+  switch (family.value) {
+    case 'Separation':
+      components = 1;
+      alternateSpace = space[2];
+      functionObject = space[3];
+    case 'DeviceN':
+      final names = cos.resolve(space[1]);
+      if (names is! CosArray || names.length == 0) return null;
+      components = names.length;
+      alternateSpace = space[2];
+      functionObject = space[3];
+    default:
+      return null;
+  }
+
+  final function = PdfFunction.parse(cos, functionObject);
+  if (function == null) return null;
+  final baseComponents = _alternateComponents(cos, alternateSpace);
+  if (baseComponents == 0) return null;
+  return _AlternateColorSpace(
+    components: components,
+    baseComponents: baseComponents,
+    function: function,
+    calibrated: PdfCalibratedColorSpace.parse(cos, alternateSpace),
+  );
+}
+
+int _alternateComponents(CosDocument cos, CosObject object) {
+  final space = cos.resolve(object);
+  if (space is CosName) {
+    return switch (space.value) {
+      'DeviceGray' || 'CalGray' || 'G' => 1,
+      'DeviceRGB' || 'CalRGB' || 'Lab' || 'RGB' => 3,
+      'DeviceCMYK' || 'CMYK' => 4,
+      _ => 0,
+    };
+  }
+  if (space is CosArray && space.length > 0) {
+    final family = cos.resolve(space[0]);
+    if (family is CosName) {
+      switch (family.value) {
+        case 'CalGray':
+          return 1;
+        case 'CalRGB':
+        case 'Lab':
+          return 3;
+        case 'ICCBased':
+          if (space.length > 1) {
+            final profile = cos.resolve(space[1]);
+            if (profile is CosStream) {
+              return switch (_intOf(cos.resolve(profile.dictionary['N']))) {
+                1 => 1,
+                4 => 4,
+                _ => 3,
+              };
+            }
+          }
+          return 3;
+      }
+    }
+  }
+  return 0;
 }
 
 List<String> _filterNames(CosDocument cos, CosDictionary dict) {

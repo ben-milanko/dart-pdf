@@ -20,6 +20,8 @@ class PdfReaderFeatures {
     this.pageNumber = true,
     this.thumbnails = true,
     this.viewOptions = true,
+    this.pageColorEditable = true,
+    this.fillForms = true,
   });
 
   /// Just the pages: no header bar and no panels.
@@ -51,6 +53,19 @@ class PdfReaderFeatures {
   /// The view-options menu: annotation visibility, form-field
   /// highlight, and page (paper) color — display settings only.
   final bool viewOptions;
+
+  /// Whether the view-options menu offers "Page color…". With it false
+  /// the paper color can't be changed from the UI — for hosts that set
+  /// the page color from the document programmatically and lock it.
+  final bool pageColorEditable;
+
+  /// Whether form fields can be filled in (text entry, check boxes,
+  /// radio buttons, drop-downs) — the only document mutation the reader
+  /// allows, since forms are made to be filled. Filled values live in
+  /// the reader's session for the life of the widget; surfacing them as
+  /// bytes (to save) needs the full [PdfEditorView]. Off makes the
+  /// reader strictly display-only.
+  final bool fillForms;
 }
 
 /// A drop-in, view-only PDF widget: the [PdfViewer] plus a slim header
@@ -76,6 +91,7 @@ class PdfReader extends StatefulWidget {
   const PdfReader({
     super.key,
     required this.bytes,
+    this.documentId,
     this.controller,
     this.preferences,
     this.features = const PdfReaderFeatures(),
@@ -90,6 +106,12 @@ class PdfReader extends StatefulWidget {
   /// The PDF to show. Replacing it (by identity) opens the new
   /// document in place.
   final Uint8List bytes;
+
+  /// A stable identifier for this document, used to remember its scroll
+  /// position and zoom across sessions (persisted in [preferences]). Null
+  /// derives a key from the bytes; pass a file path or URL when you have
+  /// one, so the position survives the bytes being re-read.
+  final String? documentId;
 
   /// Optional external viewer controller, for hosts that navigate or
   /// search programmatically.
@@ -126,11 +148,13 @@ class PdfReader extends StatefulWidget {
 
 class _PdfReaderState extends State<PdfReader> {
   // the session wraps the bytes for the viewer and the thumbnail
-  // strip's caches; the reader never edits, so the document stays
-  // byte-identical to the input
+  // strip's caches; the reader makes no structural edits, so the
+  // document stays byte-identical to the input — except form fills
+  // (PdfReaderFeatures.fillForms), the one mutation a reader allows
   late PdfEditingController _session;
   PdfEditingPreferences? _ownedPrefs;
   PdfViewerController? _ownedViewer;
+  PdfViewportMemory? _viewportMemory;
 
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
@@ -140,10 +164,18 @@ class _PdfReaderState extends State<PdfReader> {
 
   PdfEditingPreferences get _prefs => _session.preferences;
 
+  String get _documentKey => widget.documentId ?? pdfDocumentKey(widget.bytes);
+
   @override
   void initState() {
     super.initState();
     _openSession();
+    // remember and restore where the user left this document
+    _viewportMemory = PdfViewportMemory(
+      viewer: _viewer,
+      preferences: _prefs,
+      documentKey: _documentKey,
+    );
   }
 
   void _openSession() {
@@ -155,16 +187,19 @@ class _PdfReaderState extends State<PdfReader> {
   @override
   void didUpdateWidget(PdfReader oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(widget.bytes, oldWidget.bytes)) {
+    if (!identical(widget.bytes, oldWidget.bytes) ||
+        widget.documentId != oldWidget.documentId) {
       final previous = _session;
       _searchField.clear();
       _openSession();
+      _viewportMemory?.rekey(_documentKey);
       previous.dispose();
     }
   }
 
   @override
   void dispose() {
+    _viewportMemory?.dispose();
     _session.dispose();
     _ownedPrefs?.dispose();
     _ownedViewer?.dispose();
@@ -190,6 +225,27 @@ class _PdfReaderState extends State<PdfReader> {
           final pageColor = widget.pageColor ?? prefs.pageColor;
           final showThumbnails =
               pdfShellShowThumbnailSidebar(prefs, constraints);
+          // on a narrow screen the strip floats up from the bottom as a
+          // sheet instead of docking to the side and crowding the page
+          final useSheets = pdfShellUseBottomSheets(constraints);
+          final showThumbnailsPanel =
+              features.thumbnails && showThumbnails && !prefs.showReflowView;
+
+          // Distinct keys for docked vs sheet so the strip is remounted, not
+          // reparented, when the breakpoint flips — reparenting reactivates
+          // the tiles' Tooltip overlays mid-layout (a RenderObject mutation
+          // assertion). See the matching note in pdf_editor_view.dart.
+          PdfThumbnailSidebar thumbnails({required bool bottomSheet}) =>
+              PdfThumbnailSidebar(
+                key: ValueKey(
+                    'pdf-shell-thumbnails-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: _session,
+                viewerController: _viewer,
+                pageColor: pageColor,
+                showAnnotations: prefs.showAnnotations,
+                allowPageEditing: false,
+                bottomSheet: bottomSheet,
+              );
           return Column(children: [
             if (features.headerBar)
               PdfShellBar(
@@ -208,7 +264,10 @@ class _PdfReaderState extends State<PdfReader> {
                 ],
                 trailing: [
                   if (features.viewOptions)
-                    PdfShellViewOptionsButton(preferences: prefs, reflow: true),
+                    PdfShellViewOptionsButton(
+                        preferences: prefs,
+                        reflow: true,
+                        pageColor: features.pageColorEditable),
                   if (features.thumbnails)
                     PdfShellToggleButton(
                       key: const ValueKey('pdf-shell-thumbnails-toggle'),
@@ -223,37 +282,51 @@ class _PdfReaderState extends State<PdfReader> {
             Expanded(
               // keyed so a panel appearing never recreates the viewer
               // element (which would reset the reading position)
-              child: Row(children: [
-                if (features.thumbnails &&
-                    showThumbnails &&
-                    !prefs.showReflowView)
-                  PdfThumbnailSidebar(
-                    key: const ValueKey('pdf-shell-thumbnails'),
-                    controller: _session,
-                    viewerController: _viewer,
-                    pageColor: pageColor,
-                    showAnnotations: prefs.showAnnotations,
-                    allowPageEditing: false,
-                  ),
-                Expanded(
-                  key: const ValueKey('pdf-shell-viewer'),
-                  child: prefs.showReflowView
-                      ? PdfReflowView(
-                          document: _session.document,
-                          backgroundColor: widget.backgroundColor,
-                        )
-                      : PdfViewer(
-                          document: _session.document,
-                          controller: _viewer,
-                          onAction: widget.onAction,
-                          pageOverlayBuilder: widget.pageOverlayBuilder,
-                          initialFit: widget.initialFit,
-                          backgroundColor: widget.backgroundColor,
-                          pageColor: pageColor,
-                          showAnnotations: prefs.showAnnotations,
-                          highlightFormFields: prefs.highlightFormFields,
-                        ),
+              child: Stack(children: [
+                Positioned.fill(
+                  child: Row(children: [
+                    if (showThumbnailsPanel && !useSheets)
+                      thumbnails(bottomSheet: false),
+                    Expanded(
+                      key: const ValueKey('pdf-shell-viewer'),
+                      // rebuilds on session changes too: filling a form
+                      // produces a revision, so the viewer must track
+                      // _session.document, not the build-time snapshot
+                      child: ListenableBuilder(
+                        listenable: _session,
+                        builder: (context, _) => prefs.showReflowView
+                            ? PdfReflowView(
+                                document: _session.document,
+                                backgroundColor: widget.backgroundColor,
+                              )
+                            : PdfViewer(
+                                document: _session.document,
+                                controller: _viewer,
+                                formController:
+                                    features.fillForms ? _session : null,
+                                onAction: widget.onAction,
+                                pageOverlayBuilder: widget.pageOverlayBuilder,
+                                initialFit: widget.initialFit,
+                                backgroundColor: widget.backgroundColor,
+                                pageColor: pageColor,
+                                showAnnotations: prefs.showAnnotations,
+                                highlightFormFields: prefs.highlightFormFields,
+                              ),
+                      ),
+                    ),
+                  ]),
                 ),
+                if (useSheets && showThumbnailsPanel)
+                  pdfShellBottomSheets([
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-thumbnails-sheet'),
+                      title: 'Pages',
+                      closeKey:
+                          const ValueKey('pdf-shell-thumbnails-sheet-close'),
+                      onClose: () => prefs.showThumbnailSidebar = false,
+                      child: thumbnails(bottomSheet: true),
+                    ),
+                  ]),
               ]),
             ),
           ]);

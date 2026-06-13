@@ -705,6 +705,36 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('Shift-dragging a corner handle keeps the aspect ratio',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750)) // 150×100 (3:2)
+        ..tool = PdfEditTool.select;
+      await tester.pump();
+      await tester.tapAt(view(175, 700));
+      await settle(tester);
+      expect(editing.selectedAnnotation, isNotNull);
+
+      // hold Shift across a bottom-right corner drag that only pushes the
+      // width out — the aspect lock must grow the height to match
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      const from = Offset(250, 650), to = Offset(330, 650);
+      final gesture = await tester.startGesture(view(from.dx, from.dy));
+      await gesture.moveTo(view((from.dx + to.dx) / 2, from.dy));
+      await gesture.moveTo(view(to.dx, to.dy));
+      await gesture.up();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+
+      final rect = editing.selectedAnnotation!.rect;
+      expect(rect.width, greaterThan(150),
+          reason: 'the corner drag widened the box');
+      expect(rect.width / rect.height, closeTo(1.5, 0.05),
+          reason: 'Shift locked the 3:2 aspect, so the height grew too');
+      await settle(tester);
+    });
+
     testWidgets('ctrl+Z undoes, ctrl+shift+Z redoes', (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing.addRectangle(0, const PdfRect(100, 650, 250, 750));
@@ -788,12 +818,19 @@ void main() {
       ));
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Rectangle'));
+      // opening a group raises its strip and arms its default tool
+      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
       await tester.pump();
       expect(editing.tool, PdfEditTool.rectangle);
-      await tester.tap(find.byTooltip('Rectangle'));
+      // the strip exposes the group's other tools
+      await tester.tap(find.byTooltip('Ellipse'));
       await tester.pump();
-      expect(editing.tool, isNull);
+      expect(editing.tool, PdfEditTool.ellipse);
+      // re-tapping the active tool drops back to Select (not a no-tool
+      // limbo) so you can immediately select and move things
+      await tester.tap(find.byTooltip('Ellipse'));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.select);
 
       editing.addRectangle(0, const PdfRect(100, 650, 250, 750));
       await tester.pump();
@@ -893,19 +930,27 @@ void main() {
         ),
       ));
 
-      // the style button sits at the far right of the scrolling toolbar
+      // open the Shapes group; its strip carries the tune button
+      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      await tester.pump();
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
-      expect(find.byType(Slider), findsNWidgets(3));
+      // scope to the popup's sliders — the strip also has an inline opacity
+      final menuSliders = find.descendant(
+          of: find.byType(MenuAnchor), matching: find.byType(Slider));
+      // the shapes popup carries stroke width + opacity (font is irrelevant
+      // to a rectangle, so it's no longer shown)
+      expect(menuSliders, findsNWidgets(2));
 
-      // sliders are laid out stroke width, opacity, font size
-      await tester.drag(find.byType(Slider).at(0), const Offset(200, 0));
+      // sliders are laid out stroke width, opacity
+      await tester.drag(menuSliders.at(0), const Offset(200, 0));
       await tester.pump();
       expect(editing.strokeWidth, greaterThan(2));
 
-      await tester.drag(find.byType(Slider).at(1), const Offset(-200, 0));
+      await tester.drag(menuSliders.at(1), const Offset(-200, 0));
       await tester.pump();
       expect(editing.opacity, lessThan(1));
       await tester.pumpAndSettle();
@@ -979,7 +1024,8 @@ void main() {
       expect(shown(2), 'Page 3');
 
       // the first tile's footer button deletes that page
-      await tester.tap(find.byTooltip('Delete page').first);
+      await tester
+          .tap(find.widgetWithIcon(IconButton, Icons.delete_outline).first);
       await settle(tester);
       expect(editing.document.pageCount, 2);
       expect(shown(0), 'Page 1');

@@ -282,6 +282,68 @@ void main() {
     expect(PdfStandardFont.fromName('Arial'), PdfStandardFont.helvetica);
   });
 
+  test('standard fonts cover bold and italic variants', () {
+    // every (family, bold, italic) combination resolves to a distinct font
+    for (final family in PdfStandardFontFamily.values) {
+      for (final bold in [false, true]) {
+        for (final italic in [false, true]) {
+          final font =
+              PdfStandardFont.styled(family, bold: bold, italic: italic);
+          expect(font.family, family);
+          expect(font.isBold, bold);
+          expect(font.isItalic, italic);
+        }
+      }
+    }
+    expect(PdfStandardFont.values.length, 12);
+
+    // names round-trip with their style recovered
+    expect(PdfStandardFont.fromName('Helvetica-Bold'),
+        PdfStandardFont.helveticaBold);
+    expect(PdfStandardFont.fromName('Helvetica-BoldOblique'),
+        PdfStandardFont.helveticaBoldOblique);
+    expect(PdfStandardFont.fromName('Times-Italic'),
+        PdfStandardFont.timesItalic);
+    expect(PdfStandardFont.fromName('Times-BoldItalic'),
+        PdfStandardFont.timesBoldItalic);
+    expect(PdfStandardFont.fromName('Courier-Oblique'),
+        PdfStandardFont.courierOblique);
+    // our own short /DA resource names recover too
+    expect(PdfStandardFont.fromName('TimesBoldItalic'),
+        PdfStandardFont.timesBoldItalic);
+    expect(PdfStandardFont.fromName('CourBoldObl'),
+        PdfStandardFont.courierBoldOblique);
+
+    // withBold/withItalic flip one axis, keep the family
+    expect(PdfStandardFont.times.withBold(true), PdfStandardFont.timesBold);
+    expect(PdfStandardFont.timesBold.withItalic(true),
+        PdfStandardFont.timesBoldItalic);
+
+    // bold metrics differ from the regular face (AFM Times widths)
+    expect(measureStandardText('M', 1000, font: PdfStandardFont.times), 889);
+    expect(measureStandardText('M', 1000, font: PdfStandardFont.timesBold), 944);
+    expect(
+        measureStandardText('M', 1000, font: PdfStandardFont.timesItalic), 833);
+  });
+
+  test('bold-italic free text writes its variant /BaseFont and /Widths', () {
+    final doc = roundTrip((e) => e.addFreeText(
+        0, const PdfRect(72, 600, 240, 680), 'Bold italic',
+        fontSize: 12, font: PdfStandardFont.timesBoldItalic));
+    final annot = doc.page(0).annotations.single;
+    final da = doc.cos.resolve(annot.dict['DA']) as CosString;
+    expect(da.text, contains('/TimesBoldItalic 12 Tf'));
+    final res = doc.cos.resolve(annot.normalAppearance!.dictionary['Resources'])
+        as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final font = doc.cos.resolve(fonts['TimesBoldItalic']) as CosDictionary;
+    expect((doc.cos.resolve(font['BaseFont']) as CosName).value,
+        'Times-BoldItalic');
+    final widths = doc.cos.resolve(font['Widths']) as CosArray;
+    // 'M' is code 77; Times-BoldItalic 'M' is 889/1000 em
+    expect((widths.items[77 - 32] as CosInteger).value, 889);
+  });
+
   test('note builds a 20pt icon at the given top-left corner', () {
     final doc = roundTrip(
         (e) => e.addNote(0, 500, 700, 'remember this', author: 'Ben'));
@@ -541,26 +603,25 @@ void main() {
     expect(content, contains('350 150')); // right extreme of the ellipse
   });
 
-  test('a dashed border falls back to the stretch path', () {
+  test('a dashed shape regenerates on resize, keeping its dash', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
-      ..addSquare(0, const PdfRect(100, 100, 200, 150));
+      ..addSquare(0, const PdfRect(100, 100, 200, 150),
+          dashPattern: const [3]);
     final doc = PdfDocument.open(first.save());
 
     final square = doc.page(0).annotations.single;
-    square.dict['BS'] = CosDictionary({
-      'W': const CosInteger(2),
-      'S': const CosName('D'),
-      'D': CosArray([const CosInteger(3)]),
-    });
+    expect(square.borderDash, [3]);
     final editor = PdfEditor(doc)
       ..resizeAnnotation(0, square, const PdfRect(100, 100, 400, 350));
     final reopened = PdfDocument.open(editor.save());
 
     final resized = reopened.page(0).annotations.single;
     expect(resized.rect, const PdfRect(100, 100, 400, 350));
-    // the appearance still paints the ORIGINAL geometry — the viewer's
-    // BBox→Rect fit stretches it, dashes and all
-    expect(appearanceText(reopened, resized), contains('101 101 98 48 re'));
+    // dashed shapes regenerate at a constant stroke width now (like solid
+    // ones), so the appearance paints the NEW geometry, still dashed
+    final content = appearanceText(reopened, resized);
+    expect(content, contains('101 101 298 248 re'));
+    expect(content, contains('[3] 0 d'));
   });
 
   test('line and arrow annotations carry endpoints and line endings', () {
@@ -568,7 +629,7 @@ void main() {
       e.addLine(0, (100, 100), (200, 140),
           strokeColor: 0x2040A0,
           strokeWidth: 3,
-          dashed: true,
+          dashPattern: const [9, 6],
           endEnding: PdfLineEnding.closedArrow,
           author: 'Ben');
     });
@@ -593,7 +654,7 @@ void main() {
     final doc = roundTrip((e) {
       e.addPolyLine(0, [(100, 100), (140, 130), (180, 110)]);
       e.addPolygon(0, [(220, 100), (260, 140), (300, 100)],
-          fillColor: 0xFFE0E0, dashed: true);
+          fillColor: 0xFFE0E0, dashPattern: const [6, 4]);
     });
 
     final annots = doc.page(0).annotations;
@@ -615,7 +676,9 @@ void main() {
   test('resizing a dashed arrow regenerates with scaled endpoints', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addLine(0, (100, 100), (200, 140),
-          strokeWidth: 3, dashed: true, endEnding: PdfLineEnding.closedArrow);
+          strokeWidth: 3,
+          dashPattern: const [9, 6],
+          endEnding: PdfLineEnding.closedArrow);
     final doc = PdfDocument.open(first.save());
 
     final editor = PdfEditor(doc)
@@ -638,7 +701,9 @@ void main() {
   test('reshaping line annotations rewrites vertices and appearance', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addLine(0, (100, 100), (200, 140),
-          strokeWidth: 3, dashed: true, endEnding: PdfLineEnding.closedArrow)
+          strokeWidth: 3,
+          dashPattern: const [9, 6],
+          endEnding: PdfLineEnding.closedArrow)
       ..addPolyLine(0, [(100, 220), (140, 250), (180, 230)]);
     final doc = PdfDocument.open(first.save());
 
@@ -733,6 +798,120 @@ void main() {
         () => PdfEditor(doc).resizeAnnotation(
             0, doc.page(0).annotations.single, const PdfRect(50, 50, 50, 80)),
         throwsArgumentError);
+  });
+
+  test('resizeAnnotation flipX mirrors stretched artwork and point arrays',
+      () {
+    final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addInk(0, [
+        [(100, 100), (200, 150)],
+      ]);
+    final doc = PdfDocument.open(first.save());
+    final ink = doc.page(0).annotations.single;
+    final from = ink.rect;
+
+    // resize to the SAME rect, flipped horizontally: a flip mirrors the
+    // content, never moves the box
+    final editor = PdfEditor(doc)..resizeAnnotation(0, ink, from, flipX: true);
+    final reopened = PdfDocument.open(editor.save());
+    final flipped = reopened.page(0).annotations.single;
+    expect(flipped.rect.left, closeTo(from.left, 1e-6));
+    expect(flipped.rect.right, closeTo(from.right, 1e-6));
+    expect(flipped.rect.bottom, closeTo(from.bottom, 1e-6));
+    expect(flipped.rect.top, closeTo(from.top, 1e-6));
+
+    // the stretched appearance mirrors through a horizontal reflection
+    // baked into the form /Matrix (a = −1, d = 1)
+    final matrix = reopened.cos
+        .resolve(flipped.normalAppearance!.dictionary['Matrix']) as CosArray;
+    double m(int i) {
+      final n = reopened.cos.resolve(matrix[i]);
+      return n is CosInteger ? n.value.toDouble() : (n as CosReal).value;
+    }
+
+    expect(m(0), closeTo(-1, 1e-9));
+    expect(m(1), closeTo(0, 1e-9));
+    expect(m(2), closeTo(0, 1e-9));
+    expect(m(3), closeTo(1, 1e-9));
+
+    // /InkList reflects about the rect's horizontal center, y untouched —
+    // so the centerline stays consistent with the mirrored appearance
+    final cx = (from.left + from.right) / 2;
+    final inkList = reopened.cos.resolve(flipped.dict['InkList']) as CosArray;
+    final stroke = reopened.cos.resolve(inkList[0]) as CosArray;
+    double at(int i) {
+      final n = reopened.cos.resolve(stroke[i]);
+      return n is CosInteger ? n.value.toDouble() : (n as CosReal).value;
+    }
+
+    expect(at(0), closeTo(2 * cx - 100, 1e-6));
+    expect(at(1), closeTo(100, 1e-6));
+    expect(at(2), closeTo(2 * cx - 200, 1e-6));
+    expect(at(3), closeTo(150, 1e-6));
+  });
+
+  test('flipping a rotated annotation twice restores it', () {
+    final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addInk(0, [
+        [(100, 100), (200, 150)],
+      ]);
+    var doc = PdfDocument.open(first.save());
+    doc = PdfDocument.open((PdfEditor(doc)
+          ..rotateAnnotation(0, doc.page(0).annotations.single, 90))
+        .save());
+
+    // the rest-state rect and the centerline points, read up front
+    List<double> inkPoints(PdfDocument d) {
+      final annot = d.page(0).annotations.single;
+      final list = d.cos.resolve(annot.dict['InkList']) as CosArray;
+      final stroke = d.cos.resolve(list[0]) as CosArray;
+      return [
+        for (var i = 0; i < stroke.length; i++)
+          () {
+            final n = d.cos.resolve(stroke[i]);
+            return n is CosInteger ? n.value.toDouble() : (n as CosReal).value;
+          }(),
+      ];
+    }
+
+    final rest = doc.page(0).annotations.single.rect;
+    final beforePts = inkPoints(doc);
+
+    // the current local box (same size, just flipped) — measured from the
+    // appearance quad so sx == sy == 1 and the flip only mirrors
+    final quad = doc.page(0).annotations.single.appearanceQuad!;
+    double dist((double, double) a, (double, double) b) {
+      final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+      return math.sqrt(dx * dx + dy * dy);
+    }
+
+    final fromW = dist(quad[0], quad[1]);
+    final fromH = dist(quad[0], quad[3]);
+    final ccx = (quad[0].$1 + quad[2].$1) / 2;
+    final ccy = (quad[0].$2 + quad[2].$2) / 2;
+    final localBox = PdfRect(
+        ccx - fromW / 2, ccy - fromH / 2, ccx + fromW / 2, ccy + fromH / 2);
+
+    // a local-frame flipX, then the same flip again — each is its own
+    // inverse, so the geometry comes back exactly
+    for (var i = 0; i < 2; i++) {
+      doc = PdfDocument.open((PdfEditor(doc)
+            ..resizeAnnotationLocal(0, doc.page(0).annotations.single, localBox,
+                flipX: true))
+          .save());
+    }
+
+    final after = doc.page(0).annotations.single.rect;
+    expect(after.left, closeTo(rest.left, 1e-3));
+    expect(after.bottom, closeTo(rest.bottom, 1e-3));
+    expect(after.right, closeTo(rest.right, 1e-3));
+    expect(after.top, closeTo(rest.top, 1e-3));
+
+    final afterPts = inkPoints(doc);
+    expect(afterPts.length, beforePts.length);
+    for (var i = 0; i < beforePts.length; i++) {
+      expect(afterPts[i], closeTo(beforePts[i], 1e-3));
+    }
   });
 
   test('rotateAnnotation rotates rect, appearance matrix, and ink points', () {

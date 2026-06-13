@@ -1,5 +1,11 @@
 # pdf_document
 
+[![pub package](https://img.shields.io/pub/v/pdf_document.svg)](https://pub.dev/packages/pdf_document)
+[![pub points](https://img.shields.io/pub/points/pdf_document)](https://pub.dev/packages/pdf_document/score)
+[![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg?flag=pdf_document)](https://codecov.io/gh/ben-milanko/dart-pdf)
+[![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
+
 Document-level PDF semantics for the
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): pages,
 annotations, forms, signatures, and a full incremental-save editor.

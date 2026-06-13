@@ -1,12 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
-import 'package:pdf_document/pdf_document.dart' show PdfStandardFont;
+import 'package:pdf_document/pdf_document.dart'
+    show PdfLineEnding, PdfStandardFont;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../viewport.dart';
 import 'editing_color_picker.dart' show PdfColorFormat;
+import 'line_style.dart';
+import 'editing_measure.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 
@@ -49,7 +54,9 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   double _opacity = 1;
-  bool _dashedStroke = false;
+  PdfLineStyle _lineStyle = PdfLineStyle.solid;
+  PdfLineEnding _lineStartEnding = PdfLineEnding.none;
+  PdfLineEnding _lineEndEnding = PdfLineEnding.none;
   bool _fingerDrawsInk = true;
   bool _showThumbnailSidebar = true;
   bool _hasShowThumbnailSidebarPreference = false;
@@ -71,6 +78,38 @@ class PdfEditingPreferences extends ChangeNotifier {
   double? _searchPanelWidth;
   Color? _textFillColor;
   Color? _textBorderColor;
+  Color? _shapeFillColor;
+  PdfMeasurementScale? _measurementScale;
+
+  /// Per-tool style memory (see [beginStyleScope]). Keyed by an opaque
+  /// scope string (the controller uses tool names plus `'markup'`); each
+  /// slot holds the subset of style fields that tool remembers, JSON-
+  /// encoded (colors as ARGB ints, enums by name).
+  final Map<String, Map<String, Object?>> _toolStyles = {};
+
+  /// The active style scope, or null when style changes go only to the
+  /// shared defaults (select mode, restyling a selection). Set through
+  /// [beginStyleScope].
+  String? _styleScope;
+  Set<String> _styleScopeFields = const {};
+
+  /// While restoring a scope's stored style we drive the public setters,
+  /// so this suppresses the re-record back into the same slot.
+  bool _restoringScope = false;
+
+  static const _toolStylesKey = '${_prefix}toolStyles';
+
+  /// Saved viewports per document (see [viewportFor]). Insertion order is
+  /// least- to most-recently-touched, for LRU eviction past
+  /// [_maxViewports].
+  final Map<String, PdfViewport> _viewports = {};
+  bool _viewportsDirty = false;
+
+  /// How many documents' viewports to remember before evicting the
+  /// oldest.
+  static const _maxViewports = 64;
+
+  static const _viewportsKey = '${_prefix}documentViewports';
 
   Future<void> _load() async {
     final SharedPreferences store;
@@ -93,7 +132,23 @@ class PdfEditingPreferences extends ChangeNotifier {
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
-      _dashedStroke = store.getBool('${_prefix}dashedStroke') ?? _dashedStroke;
+      final lineStyle = store.getString('${_prefix}lineStyle');
+      if (lineStyle != null) {
+        _lineStyle = PdfLineStyle.values.asNameMap()[lineStyle] ?? _lineStyle;
+      } else if (store.getBool('${_prefix}dashedStroke') ?? false) {
+        // migrate the old boolean dashed-stroke preference
+        _lineStyle = PdfLineStyle.dashed;
+      }
+      final lineStart = store.getString('${_prefix}lineStartEnding');
+      if (lineStart != null) {
+        _lineStartEnding =
+            PdfLineEnding.values.asNameMap()[lineStart] ?? _lineStartEnding;
+      }
+      final lineEnd = store.getString('${_prefix}lineEndEnding');
+      if (lineEnd != null) {
+        _lineEndEnding =
+            PdfLineEnding.values.asNameMap()[lineEnd] ?? _lineEndEnding;
+      }
       _fingerDrawsInk =
           store.getBool('${_prefix}fingerDrawsInk') ?? _fingerDrawsInk;
       const thumbnailSidebarKey = '${_prefix}showThumbnailSidebar';
@@ -147,6 +202,11 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (textFill != null) _textFillColor = Color(textFill);
       final textBorder = store.getInt('${_prefix}textBorderColor');
       if (textBorder != null) _textBorderColor = Color(textBorder);
+      final shapeFill = store.getInt('${_prefix}shapeFillColor');
+      if (shapeFill != null) _shapeFillColor = Color(shapeFill);
+      final scale = store.getString('${_prefix}measurementScale');
+      if (scale != null) _measurementScale = PdfMeasurementScale.decode(scale);
+      _loadToolStyles(store.getString(_toolStylesKey));
       final stamps = store.getStringList('${_prefix}customStamps');
       if (stamps != null) {
         _customStamps = List.unmodifiable([
@@ -155,14 +215,181 @@ class PdfEditingPreferences extends ChangeNotifier {
         ]);
       }
     }
+    // viewports are a write-mostly store, not user-set UI state, so they
+    // load regardless of _modified and merge by key — any saved before the
+    // disk read (a fast scroll) keeps its place
+    for (final entry in _decodeViewports(store.getString(_viewportsKey))) {
+      _viewports.putIfAbsent(entry.$1, () => entry.$2);
+    }
     _store = store;
+    if (_viewportsDirty) _writeViewports();
     notifyListeners();
+  }
+
+  static List<(String, PdfViewport)> _decodeViewports(String? source) {
+    if (source == null) return const [];
+    final result = <(String, PdfViewport)>[];
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! List) return const [];
+      for (final entry in decoded) {
+        if (entry is! Map) continue;
+        final key = entry['k'];
+        final value = entry['v'];
+        if (key is! String || value is! Map) continue;
+        final viewport =
+            PdfViewport.fromJson(Map<String, Object?>.from(value));
+        if (viewport != null) result.add((key, viewport));
+      }
+    } catch (_) {
+      return const [];
+    }
+    return result;
+  }
+
+  void _writeViewports() {
+    final store = _store;
+    if (store == null) {
+      _viewportsDirty = true; // flush once storage is ready
+      return;
+    }
+    _viewportsDirty = false;
+    final list = [
+      for (final entry in _viewports.entries)
+        {'k': entry.key, 'v': entry.value.toJson()}
+    ];
+    unawaited(store.setString(_viewportsKey, jsonEncode(list)));
+  }
+
+  /// The saved viewport for the document keyed by [documentKey] (see
+  /// `pdfDocumentKey`), or null when none has been stored — what a host
+  /// passes to `PdfViewer.initialViewport` so reopening a document lands
+  /// where the user left it.
+  PdfViewport? viewportFor(String documentKey) => _viewports[documentKey];
+
+  /// Remembers [viewport] as the position for the document keyed by
+  /// [documentKey], evicting the least-recently-touched document past the
+  /// cap. Passing null forgets it. Persisted but deliberately silent — it
+  /// is called on every scroll/zoom settle, so it never notifies
+  /// listeners.
+  void setViewport(String documentKey, PdfViewport? viewport) {
+    if (documentKey.isEmpty) return;
+    if (viewport == null) {
+      if (_viewports.remove(documentKey) == null) return;
+    } else {
+      if (_viewports[documentKey] == viewport &&
+          _viewports.keys.isNotEmpty &&
+          _viewports.keys.last == documentKey) {
+        return; // unchanged and already most-recent
+      }
+      // re-insert so it becomes the most-recently-touched entry
+      _viewports.remove(documentKey);
+      _viewports[documentKey] = viewport;
+      while (_viewports.length > _maxViewports) {
+        _viewports.remove(_viewports.keys.first);
+      }
+    }
+    _writeViewports();
   }
 
   void _write(Future<Object?> Function(SharedPreferences store) write) {
     _modified = true;
     final store = _store;
     if (store != null) unawaited(write(store));
+  }
+
+  // -------------------------------------------------------------------------
+  // per-tool style memory
+
+  void _loadToolStyles(String? source) {
+    if (source == null) return;
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! Map) return;
+      decoded.forEach((key, value) {
+        if (key is String && value is Map) {
+          _toolStyles[key] = {
+            for (final entry in value.entries)
+              if (entry.key is String) entry.key as String: entry.value,
+          };
+        }
+      });
+    } catch (_) {
+      // corrupt blob — drop it, the defaults stand
+    }
+  }
+
+  void _writeToolStyles() =>
+      _write((s) => s.setString(_toolStylesKey, jsonEncode(_toolStyles)));
+
+  /// Activates the style scope [scope], remembering only [fields] under it,
+  /// and restores that scope's previously-saved style into the live values.
+  ///
+  /// While a scope is active every style setter ([color], [strokeWidth],
+  /// [opacity], [fontSize], [fontFamily], [lineStyle], the line endings,
+  /// the fill colors, [eraserRadius]) also records its new value under the
+  /// scope — so each annotation tool keeps its own colour, stroke and so on
+  /// across sessions. A null [scope] (select mode, or restyling a
+  /// selection) writes only the shared defaults.
+  void beginStyleScope(String? scope, Set<String> fields) {
+    if (scope == _styleScope && setEquals(fields, _styleScopeFields)) return;
+    _styleScope = scope;
+    _styleScopeFields = fields;
+    if (scope != null) _restoreScope(scope);
+  }
+
+  void _restoreScope(String scope) {
+    final slot = _toolStyles[scope];
+    if (slot == null || slot.isEmpty) return;
+    // drive the public setters (they update the live value and the shared
+    // default), guarding the re-record so this load doesn't rewrite the slot
+    _restoringScope = true;
+    try {
+      if (slot['color'] case final int v) color = Color(v);
+      if (slot['strokeWidth'] case final num v) strokeWidth = v.toDouble();
+      if (slot['eraserRadius'] case final num v) eraserRadius = v.toDouble();
+      if (slot['opacity'] case final num v) opacity = v.toDouble();
+      if (slot['fontSize'] case final num v) fontSize = v.toDouble();
+      if (slot['fontFamily'] case final String v) {
+        final font = PdfStandardFont.values.asNameMap()[v];
+        if (font != null) fontFamily = font;
+      }
+      if (slot['lineStyle'] case final String v) {
+        final style = PdfLineStyle.values.asNameMap()[v];
+        if (style != null) lineStyle = style;
+      }
+      if (slot['lineStartEnding'] case final String v) {
+        final ending = PdfLineEnding.values.asNameMap()[v];
+        if (ending != null) lineStartEnding = ending;
+      }
+      if (slot['lineEndEnding'] case final String v) {
+        final ending = PdfLineEnding.values.asNameMap()[v];
+        if (ending != null) lineEndEnding = ending;
+      }
+      if (slot.containsKey('textFillColor')) {
+        textFillColor = _colorOrNull(slot['textFillColor']);
+      }
+      if (slot.containsKey('textBorderColor')) {
+        textBorderColor = _colorOrNull(slot['textBorderColor']);
+      }
+      if (slot.containsKey('shapeFillColor')) {
+        shapeFillColor = _colorOrNull(slot['shapeFillColor']);
+      }
+    } finally {
+      _restoringScope = false;
+    }
+  }
+
+  static Color? _colorOrNull(Object? value) =>
+      value is int ? Color(value) : null;
+
+  /// Records [value] for [field] under the active scope when that scope
+  /// remembers the field. Called from the style setters.
+  void _recordScoped(String field, Object? value) {
+    if (_restoringScope || _styleScope == null) return;
+    if (!_styleScopeFields.contains(field)) return;
+    (_toolStyles[_styleScope!] ??= {})[field] = value;
+    _writeToolStyles();
   }
 
   /// The color new annotations are created with.
@@ -172,6 +399,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _color) return;
     _color = value;
     _write((s) => s.setInt('${_prefix}color', value.toARGB32()));
+    _recordScoped('color', value.toARGB32());
     notifyListeners();
   }
 
@@ -182,6 +410,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _strokeWidth) return;
     _strokeWidth = value;
     _write((s) => s.setDouble('${_prefix}strokeWidth', value));
+    _recordScoped('strokeWidth', value);
     notifyListeners();
   }
 
@@ -193,6 +422,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _eraserRadius) return;
     _eraserRadius = value;
     _write((s) => s.setDouble('${_prefix}eraserRadius', value));
+    _recordScoped('eraserRadius', value);
     notifyListeners();
   }
 
@@ -203,6 +433,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _fontSize) return;
     _fontSize = value;
     _write((s) => s.setDouble('${_prefix}fontSize', value));
+    _recordScoped('fontSize', value);
     notifyListeners();
   }
 
@@ -214,6 +445,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _fontFamily) return;
     _fontFamily = value;
     _write((s) => s.setString('${_prefix}fontFamily', value.name));
+    _recordScoped('fontFamily', value.name);
     notifyListeners();
   }
 
@@ -225,16 +457,43 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _opacity) return;
     _opacity = value;
     _write((s) => s.setDouble('${_prefix}opacity', value));
+    _recordScoped('opacity', value);
     notifyListeners();
   }
 
-  /// Whether new line-family annotations use a dashed border style.
-  bool get dashedStroke => _dashedStroke;
+  /// The border line style (solid / dashed / dotted / dash-dot) new shape
+  /// and line annotations are created with. Persisted by enum name.
+  PdfLineStyle get lineStyle => _lineStyle;
 
-  set dashedStroke(bool value) {
-    if (value == _dashedStroke) return;
-    _dashedStroke = value;
-    _write((s) => s.setBool('${_prefix}dashedStroke', value));
+  set lineStyle(PdfLineStyle value) {
+    if (value == _lineStyle) return;
+    _lineStyle = value;
+    _write((s) => s.setString('${_prefix}lineStyle', value.name));
+    _recordScoped('lineStyle', value.name);
+    notifyListeners();
+  }
+
+  /// The line ending drawn at the *start* of new /Line and /PolyLine
+  /// annotations (§12.5.6.7). Defaults to [PdfLineEnding.none].
+  PdfLineEnding get lineStartEnding => _lineStartEnding;
+
+  set lineStartEnding(PdfLineEnding value) {
+    if (value == _lineStartEnding) return;
+    _lineStartEnding = value;
+    _write((s) => s.setString('${_prefix}lineStartEnding', value.name));
+    _recordScoped('lineStartEnding', value.name);
+    notifyListeners();
+  }
+
+  /// The line ending drawn at the *end* of new /Line and /PolyLine
+  /// annotations (§12.5.6.7). Defaults to [PdfLineEnding.none].
+  PdfLineEnding get lineEndEnding => _lineEndEnding;
+
+  set lineEndEnding(PdfLineEnding value) {
+    if (value == _lineEndEnding) return;
+    _lineEndEnding = value;
+    _write((s) => s.setString('${_prefix}lineEndEnding', value.name));
+    _recordScoped('lineEndEnding', value.name);
     notifyListeners();
   }
 
@@ -410,6 +669,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}textFillColor')
         : s.setInt('${_prefix}textFillColor', value.toARGB32()));
+    _recordScoped('textFillColor', value?.toARGB32());
     notifyListeners();
   }
 
@@ -423,6 +683,35 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}textBorderColor')
         : s.setInt('${_prefix}textBorderColor', value.toARGB32()));
+    _recordScoped('textBorderColor', value?.toARGB32());
+    notifyListeners();
+  }
+
+  /// The interior fill new shapes (rectangle/ellipse) are created with, or
+  /// null (the default) for an unfilled outline. Persisted.
+  Color? get shapeFillColor => _shapeFillColor;
+
+  set shapeFillColor(Color? value) {
+    if (value == _shapeFillColor) return;
+    _shapeFillColor = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}shapeFillColor')
+        : s.setInt('${_prefix}shapeFillColor', value.toARGB32()));
+    _recordScoped('shapeFillColor', value?.toARGB32());
+    notifyListeners();
+  }
+
+  /// The active measurement calibration the measure tools stamp onto new
+  /// annotations, or null until a scale is set. Persisted so a drawing's
+  /// scale survives reopening the file.
+  PdfMeasurementScale? get measurementScale => _measurementScale;
+
+  set measurementScale(PdfMeasurementScale? value) {
+    if (value == _measurementScale) return;
+    _measurementScale = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}measurementScale')
+        : s.setString('${_prefix}measurementScale', value.encode()));
     notifyListeners();
   }
 

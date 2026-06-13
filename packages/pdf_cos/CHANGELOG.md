@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0
+
+First stable release. Changes since 0.1.0:
+
+- JBIG2: Huffman-coded symbol dictionaries and text regions, generic
+  refinement regions, and pattern dictionaries with halftone regions.
+- JPEG 2000: reset-probabilities (RESET) code-block style support.
+- Inline images: correct data-length detection for DCT-filtered streams.
+
 ## 0.1.0
 
 Initial release.

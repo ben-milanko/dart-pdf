@@ -40,6 +40,7 @@ to validate changes:
 
 - Parse check: `cd packages/pdf_document && fvm dart tool/inspect.dart ../../corpus/*.pdf`
 - Render check: `cd packages/dart_pdf_editor && PDF_PATH=../../corpus/<file>.pdf PDF_PAGE=0 fvm flutter test test/render_smoke_test.dart` (writes /tmp/dart_pdf_render.png)
+- Full render sweep: `cd packages/dart_pdf_editor && CORPUS_DIR=../../corpus RENDER_OUT=../../corpus/renders fvm flutter test test/corpus_render_test.dart`
 
 `test_corpora/ghent/` (checked in) is the Ghent PDF Output Suite V5.0 —
 54 print-conformance PDFs (overprint, DeviceN, spot, ICC v2/v4, 16-bit,
@@ -58,6 +59,33 @@ JBIG2/JPX) incl. 3 composite test pages. Two test layers:
   current behavior, not GWG conformance — many patches print their own
   pass criterion on the page (overprint simulation isn't implemented;
   GWG173's faint "X" is a known JBIG2 deviation).
+
+Run the checked-in corpora from their package directories so the relative
+`../../test_corpora/...` paths line up:
+
+- Ghent pure-Dart pass: `cd packages/pdf_graphics && fvm dart test test/ghent_corpus_test.dart`
+- Ghent render/baseline pass: `cd packages/dart_pdf_editor && fvm flutter test test/ghent_render_test.dart`
+- Accept intentional Ghent baseline changes: `cd packages/dart_pdf_editor && GHENT_UPDATE=1 fvm flutter test test/ghent_render_test.dart`
+- Ghent visual review gallery: `cd packages/dart_pdf_editor && GHENT_RENDER_OUT=../../test_corpora/ghent/_renders fvm flutter test test/ghent_render_test.dart`, then open `test_corpora/ghent/_renders/index.html`
+- PDF.js pure-Dart pass: `cd packages/pdf_graphics && fvm dart test test/pdfjs_corpus_test.dart`
+- PDF.js render smoke pass: `cd packages/dart_pdf_editor && fvm flutter test test/pdfjs_render_test.dart`
+- PDF.js visual review gallery: `cd packages/dart_pdf_editor && PDFJS_RENDER_OUT=../../test_corpora/pdfjs/_renders fvm flutter test test/pdfjs_render_test.dart`, then open `test_corpora/pdfjs/_renders/index.html`
+- Generate PDF.js reference baselines: `cd packages/dart_pdf_editor/tool/pdfjs_baseline && npm install && npm run render`
+- PDF.js pixel compare + side-by-side results: `cd packages/dart_pdf_editor && PDFJS_BASELINE_DIR=../../test_corpora/pdfjs/_baselines fvm flutter test test/pdfjs_render_test.dart`, then open `test_corpora/pdfjs/_renders/index.html`
+- All checked-in corpus tests: run the four non-update test commands above
+  (excluding the visual galleries); they are intentionally split because
+  `pdf_graphics` is VM-only and `dart_pdf_editor` needs Flutter rasterization.
+
+The Ghent gallery writes the same 2x rasters used for baseline comparison.
+The PDF.js gallery writes the same pages as the smoke pass by default (up to
+five per file at 1x); override it with `PDFJS_RENDER_MAX_PAGES` and
+`PDFJS_RENDER_PIXEL_RATIO` when you need deeper or sharper review. When
+`PDFJS_BASELINE_DIR` is set, the Flutter test compares Dart rasters against
+the PDF.js baselines using `PDFJS_COMPARE_CHANNEL_TOLERANCE` (default 8) and
+`PDFJS_COMPARE_MAX_DIFF_FRACTION` (default 0.0005), and writes
+`test_corpora/pdfjs/_renders/index.html` unless `PDFJS_RENDER_OUT` overrides
+the output directory. The results page shows each page as one row with the
+PDF.js baseline, Dart render, and diff side by side.
 
 ## Roadmap context
 
@@ -79,7 +107,7 @@ Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` — asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
 (`signature_editor.dart`, adbe.pkcs7.detached with ByteRange patching).
-No trust-store chain validation. Test signer identity in
+Test signer identity in
 `pdf_test_fixtures/src/signer_identity.dart`.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
@@ -107,9 +135,8 @@ lossless bit-perfect vs OpenJPEG, lossy ±1), deep-zoom detail patch
 (`PdfPageView` renders the visible slice past the raster caps;
 `rasterizeRegion`), and real ICC (`IccProfile` in pdf_graphics —
 gray TRC, matrix/TRC, mft1/mft2/mAB LUTs, validated vs littleCMS;
-wired into sc/scn and image decoding). Remaining gaps: text reflow,
-RSASSA-PSS, JBIG2 Huffman/refinement, JPX subsampling + PCRL/CPRL,
-rendering intents/BPC in ICC.
+wired into sc/scn and image decoding). Remaining gaps:
+RSASSA-PSS, JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
 The editing UI is in (dart_pdf_editor `src/editing/`): `PdfEditingController`
 owns the edit session — every edit is an incremental save, so revisions
 are byte prefixes of one buffer and undo/redo is a stack of lengths;
@@ -856,8 +883,8 @@ widget tests' !timersPending — strip instrumentation before running
 suites. The thumbnail strip's ReorderableListView still estimates
 (no itemExtentBuilder support); its bar could wobble on mixed docs —
 known, unfixed.
-Batch 3, session 5 (forms API for trax): everything trax's cloud
-functions do with @cantoo/pdf-lib, natively. Metadata (form.dart):
+Batch 3, session 5 (forms API): a native forms-mutation API.
+Metadata (form.dart):
 `PdfAcroForm.describeFields()` → `PdfFormFieldInfo` (name, type,
 pageIndex, rect) and `PdfFormField.widgetPageIndex` — widget /P first,
 then a per-page /Annots identity scan (fixture widgets carry no /P);
@@ -882,7 +909,7 @@ before regenerating; `sanitizeFieldText` swaps code units > 0xFF for
 spaces in APPEARANCES only (/V stays verbatim — appearance fonts are
 byte-encoded simple fonts, so those glyphs can't reach the page);
 `setButtonImage(field, image)` = aspect-fit centered image over the
-/MK decorations, /AP /N per widget (trax signatures/logos).
+/MK decorations, /AP /N per widget (for signatures/logos).
 pdf_cos: `CosString.fromText` USED TO THROW on non-Latin-1
 (latin1.encode) — now UTF-16BE with BOM per §7.9.2.2, so filling
 "naïve ✓" works and /V round-trips.
@@ -1372,10 +1399,19 @@ render expectation. Survey gotcha: PdfDocument.open is lazy — catalog
 and page-tree failures surface at pageCount, so harnesses must guard
 BOTH; the corpus test's unopenable branch pins "CosParseException or
 pageCount == 0". Known gaps the corpus documents but doesn't close:
-predefined CJK CMaps (noembed-sjis/eucjp, issue3521 render blank),
 JBIG2 Huffman/refinement (decode-fails gracefully, image skipped).
-Batch 5, session 1 (annotation sync surface, for the trax PSPDFKit
-replacement — gaps 1-3 of the feat/pspdfkit assessment): three layers.
+Predefined CJK CMaps are now handled (was a gap): `CjkCmap.forName`
+(pdf_graphics fonts/cjk_cmap.dart) decodes non-embedded Type0 text for
+Shift-JIS (`*-RKSJ-*`), EUC-JP (`EUC-H/V`), GBK/GB2312 (`GB*`/`GBK*`),
+Big5 (`*B5*`), UHC/EUC-KR (`KSC*`), and the Unicode CMaps
+(`Uni*-UCS2/UTF16-*`, code = Unicode directly). Each legacy charset has a
+packed `(code, unicode)` table generated from a Python codec
+(tool/gen_cjk_cmaps.py, same recipe as `_shift_jis_data.dart`); the font
+then has no outlines so the device substitutes a system CJK font. EUC-TW
+(`CNS-EUC`) and EUC-JP's JIS X 0212 (SS3) supplement still fall back to
+the Identity two-byte path. Corpus: noembed-sjis/eucjp + issue3521 now
+paint (dropped from `mayBeBlank`); unit coverage in cjk_cmap_test.dart.
+Batch 5, session 1 (annotation sync surface): three layers.
 (1) /NM identity: `_addAnnotation` stamps a v4 UUID /NM on every
 created annotation (single funnel for all ten creators; each creator
 gained an optional `name:` that wins over generation — pass it ONLY
@@ -1420,11 +1456,11 @@ prefixes can't skip revisions) — undoing past one reverts it locally
 and re-broadcasts the revert; documented, deliberate. Tests:
 pdf_document/test/annotation_sync_test.dart (17),
 dart_pdf_editor/test/editing_sync_test.dart (9 — incl. two piped
-controllers converging both ways). Remaining trax gaps: per-annotation
+controllers converging both ways). Remaining gaps: per-annotation
 read-only enforcement (host predicate + /F readOnly), hide-all
 annotations viewer toggle.
-Batch 5, session 2 (read-only enforcement + hide-all annotations — the
-last trax gaps): two features. (1) Read-only: `PdfAnnotation.isReadOnly/
+Batch 5, session 2 (read-only enforcement + hide-all annotations): two
+features. (1) Read-only: `PdfAnnotation.isReadOnly/
 isLocked/isLockedContents` (/F bits 7/8/10) + `PdfEditor.
 setAnnotationFlags` (in-place, like setAnnotationName). Controller:
 `canEditAnnotation` (typedef PdfAnnotationEditPredicate; setter drops
@@ -1456,7 +1492,6 @@ Preference `showAnnotations` (bool, default true); example: AppBar
 visibility/visibility_off toggle wired into viewer + thumbnails.
 Tests: annotation_metadata_test +1 (flags round-trip),
 editing_readonly_test.dart (7), annotations_visibility_test.dart (6).
-The trax-replacement gap list is now empty.
 Publishing round (Ben: pub.dev hosting + web demo): the Flutter package
 is now **dart_pdf_editor** (pub.dev already had a `pdf_flutter`; Ben picked
 the name) — directory, lib entry, and every reference renamed
@@ -1481,7 +1516,8 @@ account), hosting serves example/build/web at
 https://dart-pdf-demo.web.app (firebase.json + .firebaserc in example/;
 no immutable cache headers — main.dart.js isn't content-hashed);
 redeploy = build web --release + firebase deploy --only hosting.
-Text reflow (#128) is deferred on the roadmap at Ben's request.
+Text reflow (#128) has since landed: a paragraph-aware reading view
+with its own extraction logic (commit ec2c174).
 Touch round (Ben's comments: fling, paste on touch, visible fields):
 three features. (1) Touch fling: the overlay's viewport pan
 (_viewportPanning) ended by dropping details.velocity, so finger
@@ -1656,3 +1692,503 @@ keeps its name (the entry's export URI was reverted by hand). Class
 names (PdfEditorView, PdfEditorFeatures) are unchanged. Residual-check
 pattern: `git grep -P '(?<!dart_)pdf_editor'`. Publish order is
 unchanged with dart_pdf_editor last; its dry-run re-verified.
+
+Colour-lock split + translucent paper: two changes that let a host hide
+the colour controls while keeping style controls. (1) Colour controls
+split from style controls so a colour-locked markup session can HIDE
+the colour changer while keeping stroke/opacity/font editable — the
+single `styleControls`/`showStyle` flag bundled them. New
+`PdfEditorFeatures.colorControls` (default true) →
+`PdfEditingToolbar.showColor` (default true): gates the palette
+swatches + 'More colors…' picker + eyedropper, and (threaded into
+`_StyleMenu.showColor`) the text-box fill/border colour ROWS only —
+the stroke/opacity/font sliders + font segmented button stay ungated.
+The leading VerticalDivider shows if `showColor || showStyle`, and
+`_StyleMenu` itself now mounts on `showStyle` alone. A host hiding the
+colour changer passes `colorControls: false, styleControls: true`.
+Migration note:
+`styleControls: false` no longer hides the palette/picker/eyedropper
+— set `colorControls: false` too (pdf_shell_test's "tool subset"
+test updated). (2) Translucent `pageColor` now washes over white
+paper: `renderPicture` paints an opaque white rect under the page
+colour when `pageColor.a < 1.0` (opaque stays a no-op — no extra
+draw), so a copy-type tint reads as a wash on paper, not composited
+onto the (dark) viewer canvas; `PdfPageView`'s placeholder ColoredBox
+gets the same white backing when translucent so it matches the
+raster. Eyedropper/sampler inherit the wash for free (they rasterize
+through the same path). Tests: pdf_shell_test (colorControls hides
+changer / present by default), page_color_test ("a translucent paper
+colour washes over white" — 0x80FF0000 reads ~(255,127,127) not
+(255,0,0), the clean discriminator vs the old un-backed raster).
+Shape resize line-width stretch (Ben: "annotation line width gets
+stretched in the preview before returning to original"): the
+move/resize drag previews via a rasterized appearance ghost scaled
+from the resting rect onto the dragged rect, so a Square/Circle's
+stroke thickened with the box and snapped back on commit — because the
+editor REGENERATES the shape at a constant stroke width
+(`_regenerateResizedAppearance`), not the §12.5.5 stretch. Fix mirrors
+the existing FreeText `_textResizeStyle`/`wrapResize` path: overlay
+`_shapeResizeStyle(rect, rotation)` (editing_overlay.dart) returns the
+shape's draw params (ellipse flag, stroke/fill colour, page→view-scaled
+border width, opacity) when the resize will regenerate — gated EXACTLY
+like the editor's Square/Circle branch (normalAppearance present, no
+cloudy /BE, no dashed /BS, has a stroke or fill) so preview never
+disagrees with commit. Build computes `shapeResize` = live preview
+(while a resize handle is dragging) ?? `_afterShapeResize` (the frozen
+afterimage, held until rasterCurrent like the others), suppresses the
+ghost when it's set, and hands the painter a `_ShapeResize` record;
+painter `_paintShapeResize` strokes/fills the rect (inset by half the
+view-space stroke width to match `_shapeContent`), rotated about the
+rect centre by the resting angle, dimmed via saveLayer to the
+appearance opacity. The `_panEnd` resize branch captures the style
+BEFORE commit (the annotation's pre-resize border width is the constant
+one) and freezes it as `_afterShapeResize` instead of
+`_commitWithGhost`. Rotated shapes work for free (resizeSelectedLocal
+already regenerates at the local box then re-rotates; the preview
+rotates the same local box about its centre). Ink/stamps/embedded-font
+free text still stretch (the ghost is correct there — they don't
+regenerate). Tests: editing_shape_resize_test.dart (3 — the painter's
+`shapeResize` via the dynamic cast: constant 2px stroke at 0.5px/pt
+under a big widen, ellipse flag, ghost suppressed; commit keeps the
+original borderWidth).
+Reopen-where-you-left-off (Ben: "opening the same document should open
+with the same viewport"): `PdfViewport` (viewport.dart, exported via
+pdf_viewer) — a resolution-INDEPENDENT snapshot (page at the viewport's
+top-left + fractional top/left into it + effective zoom), so it restores
+at any window size; JSON-encoded. `PdfViewerController.captureViewport`/
+`restoreViewport` + `PdfViewer.initialViewport`. State side
+(`_captureViewport`/`_restoreViewport`/`_placeViewport`): capture
+unprojects the viewport top-left to list space via the same (p−t)/s the
+selection/visibleFraction code uses; restore sets `_layoutZoom` in build
+(zoom≤1 → layout zoom, transform identity; zoom>1 → layoutZoom 1, the
+zoom rides the transform) then places scroll+transform in a POST-FRAME
+callback once the new extents exist (ExactExtentListView makes them
+exact). `_pendingViewport` (from initialViewport in initState, or
+restoreViewport before layout) is consumed in build alongside the
+initialFit path — a saved viewport wins over initialFit. Persistence:
+`PdfEditingPreferences.viewportFor`/`setViewport` — a per-document LRU
+map (cap 64, key→PdfViewport) stored as one JSON string under
+`documentViewports`; deliberately does NOT notifyListeners (called on
+every scroll/zoom settle) and loads OUTSIDE the `_modified` guard
+(write-mostly, merges by key) so a viewport saved before the disk read
+survives (`_viewportsDirty` flush). Shells: `PdfViewportMemory`
+(shell_chrome.dart, package-private) — listens to viewer
+`viewportChanges`, captures into `_last` per tick (so flush works after
+the viewer detaches) and debounces the disk write (400ms); `rekey` on a
+bytes/documentId swap saves the outgoing doc and restores the incoming;
+`flush` on dispose. `PdfReader`/`PdfEditorView` gained `documentId`
+(null → `pdfDocumentKey(bytes)`, an FNV-1a sample hash); the editor only
+remembers when it owns the session (bytes given, not an external
+controller). Example passes `documentId: _title`, so the read-only
+toggle and reopening a file both land where you were. Test gotchas
+(viewport_test.dart, 12): re-pumpWidget with the same tree shape reuses
+the State (didUpdateWidget, NOT initState) so initialViewport is skipped
+— pump a blank tree between to force a fresh element; the thumbnail
+strip's raster loop never settles without runAsync, so the shell test
+turns thumbnails off and uses bounded pumps (no pumpAndSettle/
+pumpEventQueue).
+
+OCR / ingestion / Document-AI seams (interfaces, not engines — none ship
+in-tree): three pluggable layers landed. (1) OCR: pure-COS injection
+`PdfEditor.injectTextLayer(pageIndex, spans)` (ocr_editor.dart, part of
+editor.dart) writes each `PdfOcrSpan` (text + user-space PdfRect bounds +
+confidence) as one BT/Tj at render mode 3 (invisible) — font size = box
+height, baseline = bottom + 0.25·h, and a `Tz` horizontal scale stretching
+the run's natural width (measureStandardText) onto the box width, so the
+em box (0.75 ascent / −0.25 descent the extraction quad reconstructs) lands
+exactly on `bounds` — selection/search highlights track the word. Wrapped
+in q/Q so Tr/Tz don't leak; embeds a WinAnsi base-14 font with explicit
+/Widths (`_ensureOcrFont`, reused only when shaped exactly like ours, else
+the interpreter's measurement skews the boxes). The interpreter already
+emits mode-3 runs flagged `invisible` and CanvasPdfDevice early-returns on
+them, so the layer is selectable/searchable/extractable but paints nothing.
+The raster-facing half is in dart_pdf_editor (needs ui.Image, so it can't
+sit in pdf_document below the layering line): `PdfOcrEngine` (abstract,
+raster→spans), `PdfOcrPageImage` (the rendered page + geometry;
+`userSpaceRect(pixelRect)` inverts the SAME transform renderPicture builds
+— crop box + /Rotate aware — via PdfMatrix), and
+`PdfEditor.applyOcr(pageIndex, engine)` = renderImage → engine.recognize →
+injectTextLayer. (2) Images→PDF: `PdfImageDocument.fromImages/fromImageBytes`
+(image_pdf.dart) — one page per PNG/JPEG via CosDocumentBuilder +
+PdfEmbeddableImage (lives in pdf_document, not on the builder, because
+pdf_cos knows nothing about image embedding); page sized image-px·72/dpi.
+toXObject(builder.add) registers the SMask first (lower obj number) — fine.
+(3) Seams: `PdfImportSource` (pdf_document, Office/DOCX→PDF bytes,
+host-provided, interface only) + `PdfDocumentContext.of(document)`
+(pdf_graphics document_ai.dart — concrete read adapter: per-page reflow
+text, fields with values, annotation summaries, toJson/toPromptText) and
+abstract `PdfDocumentActionSink` (the write side, host-provided). Tests:
+pdf_graphics ocr_layer_test.dart (selectable/searchable + rect on bounds +
+invisible flag via a recording device) and document_ai_test.dart;
+pdf_document image_pdf_test.dart + import_source_test.dart; dart_pdf_editor
+ocr_test.dart (userSpaceRect mapping; applyOcr with a fake engine —
+invisible proven by the OCR'd raster being byte-identical to the original).
+
+Stretch-flip (Ben: "allow inverting the annotation if stretching past
+the 0 point"): a resize handle dragged past the opposite edge now
+inverts the annotation instead of clamping at the minimum. `_resizedRect`
+(editing_overlay.dart) lets the dragged edge cross its anchor — it
+returns `(normalizedRect, flipX, flipY)` (the rect stays positive so
+chrome/ghost layout is untouched; the flip rides booleans), keeping
+|size| ≥ minSize on whichever side of 0 it lands so the box never
+collapses to a line; aspect-locked (Shift) drags keep the old
+clamp-at-minimum and never flip. Flip flows commit-side through
+`resizeSelected`/`resizeSelectedLocal({flipX, flipY})` →
+`PdfEditor.resizeAnnotation`/`resizeAnnotationLocal({flipX, flipY})`. For
+the §12.5.5 STRETCH path the mirror is a reflection about the BBox center
+premultiplied into the form /Matrix (`_flipFormArtwork`) — reflection
+maps the BBox onto itself so the BBox→/Rect fit (and thus /Rect) is
+unchanged, only the interior flips — and the point arrays (/InkList/
+QuadPoints/L/Vertices/CL) reflect about the /Rect center to match
+(mapX/mapY gained a flip branch). For the ROTATED local path the flip
+folds straight into the local scale as a NEGATIVE factor (sx/sy), which
+mirrors both the appearance /Matrix and the mapped points about the local
+center in one shot — no separate matrix write needed (a flip commutes
+with the scale). REGENERATE types (Square/Circle/FreeText/Line) ignore
+the flip: a mirrored rectangle/ellipse is identical and text stays
+readable. Live preview + afterimage mirror too: `paintAnnotationDragPreview`
+gained `flipX`/`flipY` (negative scale about the box center for the
+rotated branch, about the appropriate edge for the page-axis branch);
+the painter carries `ghostFlipX`/`ghostFlipY` and the afterGhost record +
+`_commitWithGhost` carry the flip so an inverted resize stays inverted
+until the raster lands. Tests: annotation_editor_test (flipX mirrors the
+matrix + /InkList about the rect center; a rotated double-flip restores
+the geometry — each flip is its own inverse) and editing_rotate_test (a
+handle dragged past the opposite edge bakes a = −1 into a Stamp's form
+matrix). Gotcha: a rotated local-frame flip test must size `localTo`
+from the appearance quad's edge lengths (not the page /Rect, whose dims
+are swapped under rotation) or the "flip" silently resizes too.
+
+Interactive form fill in reading mode (Ben: "users need to enter text
+into form fields, and interact with check boxes, buttons, drop-downs"):
+filling was already complete behind the form-AUTHORING tool
+(`PdfEditTool.form`) — this surfaces it in plain reading / default mode
+so a reader clicks a field and types, the way Acrobat/Chrome/Preview do,
+with no tool to arm. `FormInteractionLayer` (editing_form_layer.dart) is
+mounted per page by `_PdfViewerPage` over the editing overlay: it places
+a per-field `GestureDetector` tap target over each visible widget rect
+(from `PdfEditingController.formWidgetsOn(page)`), so only the field
+rects are hit-testable — the rest of the page still scrolls, selects
+text, and follows links. Tap routing reuses the controller fills
+(setFormFieldText / toggleFormCheckBox / setFormRadioValue /
+setFormChoiceValue / setFormButtonImage); text fields open an inline
+`TextField` (key 'pdf-form-text-editor', /DA font+size, multiline,
+Enter/blur/tap-outside commit, Escape cancels via its own
+CallbackShortcuts), the committed value freezes as a pageColor-washed
+afterimage until the new raster lands (same `rasterCurrent` signal the
+overlay uses). Gating: `PdfViewer.interactiveForms` (default true) +
+`showAnnotations`; active only when `editing == null` (reader) or the
+tool is null/select — a drawing or the form-authoring tool owns the
+whole page, so the layer leaves the tree (suppressed, not just inert).
+Two controller channels: the editor passes `editing:` (fills persist as
+revisions, onDocumentChanged fires); the read-only reader passes the new
+`PdfViewer.formController:` (a standalone session — forms fill but
+annotation move/resize/delete never turn on), `formController = editing
+?? widget.formController`. The viewer's focus-steal and the inner
+overlay-Stack gate both consult `editing ?? formController`
+(`_textEditController`) so the reader's inline editor keeps focus and
+the layer mounts without an `editing` controller. `PdfReader` gained
+`PdfReaderFeatures.fillForms` (default true) and now wraps its viewer in
+a `ListenableBuilder(_session)` so a fill's revision repaints (filled
+values live in the session for the widget's life; surfacing them as
+bytes needs PdfEditorView). Tests: editing_form_interactive_test.dart
+(11 — text/checkbox/radio/dropdown fills with no tool armed, reader path
+via formController, Escape cancel, interactiveForms:false + drawing-tool
+suppression + select-tool keeps it, PdfReader mounts/omits the layer).
+Gotchas: a commit tap must land inside the 800x600 viewport — view(450,
+620) not view(450,300) (y=643px is off-screen, the tap silently misses
+and the editor never closes); the choice /V stores the EXPORT value ('L'
+not 'Large'); don't tap-test suppression with the ink tool armed (the
+dot's 800ms auto-commit timer trips !timersPending) — assert the layer's
+absence with find.byType(FormInteractionLayer) instead.
+
+Shape-style batch (Ben's comment list): seven features. (1) Line type
+(dash) for ALL stroked subtypes: the model's boolean `dashed` collapsed
+into an explicit `List<double>? dashPattern` (null = solid) threaded
+through `_borderStyle`/`_shapeContent`/`_lineContent` and every creator
+(addSquare/addCircle gained it; addLine/addPolyLine/addPolygon/
+addMeasurement swapped `dashed:`→`dashPattern:`), so Square/Circle can
+now be dashed too. Dashed shapes REGENERATE on resize/restyle instead of
+falling back to the §12.5.5 stretch — `pdfCanRestyleAnnotation`'s
+Square/Circle `/BS /D`-refusal dropped (cloudy `/BE` still stretches),
+`_regenerateResizedAppearance` and `restyleAnnotation` read
+`annotation.borderDash` and pass it back (the actual array survives a
+resize now, not a width-recomputed default; `_dashPattern` helper gone).
+`restyleAnnotation` grew a `(List<double>?,)? dashPattern` sentinel.
+The enum lives in the editing layer (`PdfLineStyle` in
+editing/line_style.dart, exported): solid/dashed/dotted/dashDot →
+`dashArray(width)` (width-scaled, 2pt floor) and `ofDashArray()` (classify
+a stored array back by segment count + dash:gap ratio). Preference
+`dashedStroke` (bool) became `lineStyle` (persisted by name, migrates the
+old bool); controller keeps a `dashedStroke` compat shim (the drag
+previews still think in dashed/solid) plus `lineStyle`, `_lineDashPattern`
+(= lineStyle.dashArray(strokeWidth), fed to every creator),
+`canSetLineStyleSelected`, `selectedLineStyle`, and `restyleSelected(
+lineStyle:)` (per-annotation dash recomputed at its own — or the
+just-changed — width). UI: the toolbar `_StyleMenu`'s old dashed
+SwitchListTile is now a `pdf-line-type` DropdownButton (shows for shapes
+AND a line/shape selection, restyles live); `_StyleFields.dashed`→
+`lineType`; the properties panel got a matching `pdf-prop-line-type`
+dropdown (`_lineStyled` set). (2) Fill polygons: `PdfEditor.addPolygon`
+already wrote `/IC` but the controller's `addPolygon` never passed a fill
+— now threads `shapeFillColor`; `canFillSelected` + properties `_fillable`
++ `_stroked`/`_translucent` gained 'Polygon'; the shapes-group/selection
+`shapeFill` field covers the polygon tool; the live poly preview fills via
+the new painter `dragPathFill`, and the commit afterimage (`_afterPath`)
+carries the fill so it doesn't blink. (3) Stroke/opacity drag readout:
+`_styleReadout()` + a generalized `_buildReadoutChip(key:)` (the measure
+readout chip, reused) shows "{w} pt · {n}%" near the cursor while drawing
+a rect/ellipse/line/arrow/poly (`_strokeTools`) or resizing a stroked
+selection — key `pdf-style-readout`, suppressed for measure tools (their
+own readout shows). (4) Cross-page drag: a single-selection move dropped
+over another page re-homes the annotation there instead of leaving it
+off-crop-box behind the neighbour. Overlay tracks `_moveCurrentGlobal`
+(drag-end carries no position) and, on commit, asks the viewer's new
+`onResolvePagePoint` callback (global→list-space via `_listSpaceKey`'s
+RenderBox, then `_pagePointAt`) for the drop page; if it differs,
+`controller.moveSelectedToPage(page, dx, dy)` (capture keepName +
+removeAnnotation source + pasteAnnotation target, one undo, appended on
+top, selects the re-homed slot). Grab-relative: dx/dy = drop − grab so
+the held interior point stays under the cursor. (5) Paste at cursor: the
+viewer tracks `_lastPointerLocal` (hover + pointer-down); ⌘V resolves it
+to a page point and `pasteAnnotations(page, at:)` there (cascade fallback
+when no pointer seen). (6) Select toggle-off: tapping the armed Select
+chip in the toolbar (`_openGroupTap`, group.id=='select' && tool==select)
+sets `tool=null` + `_openGroupId=null` → reader mode; re-tap re-arms.
+Tests: pdf_document annotation_editor_test/annotation_restyle_test updated
+(dashed shapes now regenerate, not stretch; `dashed:`→`dashPattern:`),
+editing_shape_styles_test.dart (10 — line style create/restyle/classify,
+polygon fill, moveSelectedToPage + undo, select toggle, drag readout),
+editing_clipboard_test's ⌘V test now hovers before pasting. Gotchas: the
+line-type Row label must be `Expanded` (a fixed Text + Spacer + the
+"Dash-dot" dropdown overflows the 268px popup under Ahem); the drag-
+readout widget test ends with pump(400ms) to drain the double-tap timer;
+14 Ghent render-baseline tests fail on this machine independent of these
+changes (pre-existing raster diffs, confirmed by stashing).
+
+Bottom-sheet panels on small screens (Ben: "the panels and strips should
+be bottom sheets on small screens"): below `pdfShellCompactWidth` (700,
+the existing compact threshold) the shells float the side panels and the
+thumbnail strip up from the bottom instead of docking them — a docked
+280px panel crowds the page out on a phone. `pdfShellUseBottomSheets(
+constraints)` + `pdfShellBottomSheets(sheets)` + `PdfPanelBottomSheet`
+all live in shell_chrome.dart (package-private). Each panel
+(PdfThumbnailSidebar/PdfAnnotationSidebar/PdfAnnotationPropertiesPanel/
+PdfSearchResultsPanel) gained a `bottomSheet` bool (default false): when
+true it fills its parent (no fixed-width SizedBox), drops the side resize
+grip, and the scrollbar/list clearance loses the grip width — factored
+through local `showGrip`/`onLeftEdge` flags so the grip-side scrollbar
+inset goes to 0. The thumbnail strip is the exception: it keeps its
+preferred-width tile column `Center`ed in the wider sheet rather than
+stretching one giant thumbnail to phone width (raster resolution, reorder,
+and delete all keep working unchanged); a grid/horizontal strip was
+rejected as too invasive for `_PageTile`'s AspectRatio layout.
+`PdfPanelBottomSheet` is the chrome: rounded top, a drag handle that
+swipes down to dismiss (onVerticalDragEnd primaryVelocity > 200) plus a
+titled header with a close button (keys 'pdf-shell-<panel>-sheet-close');
+`pdfShellBottomSheets` lays the active sheets out in a bottom-anchored
+Column (Positioned.fill + Align.bottomCenter, so the clear area above
+keeps scrolling/tapping the page through to the viewer), each `Flexible`
++ capped at 0.55 of the content height — one sheet rises to 55%, several
+share the area evenly without overflowing off the top. The shells build
+panel closures `panel({required bool bottomSheet})` and switch on
+`useSheets`: docked panels go in the Row (`!useSheets`), sheet-wrapped
+ones go in `pdfShellBottomSheets`; closing a sheet flips the panel's
+visibility preference off (showThumbnailSidebar/showAnnotationSidebar/
+showPropertiesPanel/showSearchResultsPanel). PdfEditorView hides the
+floating toolbar while a sheet is open (`features.toolbar &&
+sheets.isEmpty`) since the sheet covers the bottom; PdfReader (thumbnails
+only) grew a Stack around its viewer Row to host the overlay. The
+thumbnail compact default (`pdfShellShowThumbnailSidebar` — closed on
+compact unless an explicit pref) is unchanged; an explicit on shows the
+strip as a sheet. Tests: pdf_shell_test.dart +4 (compact toggles open a
+sheet, the close button hides it + clears the pref, wide stays docked
+with a resize grip, the reader strip is a sheet). Gotcha: the default
+800x600 test surface is ABOVE 700, so existing shell tests stay docked
+untouched; `compactScreen` (600x800) drives the sheet path.
+
+Form-tool field manipulation (Ben: "the form tool should allow
+manipulating the forms — size, field name — since reading mode already
+fills them"): with read-mode `FormInteractionLayer` owning fill, the
+`PdfEditTool.form` tool now SELECTS widgets for move/resize/rename on a
+single tap, and DOUBLE-tap fills (Ben's pick of the tap-fork). Widgets
+were excluded from the generic selection (`_unselectable` has 'Widget')
+because the §12.5.5 stretch breaks a field — so manipulation goes
+through form-aware paths instead. Controller (editing_controller.dart):
+`selectableWidgetAt`/`selectFormWidgetAt` (mirror the annotation hit
+test but for Widget subtype; read-only fields ARE selectable — readOnly
+gates VALUE edits, not geometry; still respects isAnnotationEditable for
+/F Locked + host predicate), `canResizeSelected` adds a Widget branch
+gated on `tool == form` (arming another tool drops the affordance),
+`resizeSelected`/`resizeSelectedLocal` route Widgets to `_resizeWidget`
+→ `e.resizeFormWidget(name, widgetIndex, to)` (field re-resolved by name
+inside apply, like the fills; `_widgetFieldForSlot` maps the /Annots
+slot → (field name, widget index) by dict identity), and `deleteSelected`
+under the form tool removes the whole FIELD (`e.removeField`, one
+revision) so /AcroForm /Fields never dangles — never `removeAnnotation`
+on a widget. Move reuses the generic `moveAnnotation` (translation; the
+/AP follows /Rect via BBox→Rect, no regen). Editor (form_editor.dart):
+`resizeFormWidget` rewrites the widget /Rect then REGENERATES the
+appearance at the new size — text/choice re-lay their value via
+`_regenerateVariableText` (so the box refits instead of scaling the
+font), checkBox/radio via new `_regenerateButtonStates` (rebuilds /AP /N
+preserving each state name, unlike `_ensureButtonAppearances` which
+skips existing states; checkmark draw factored to `_paintCheckMark`);
+push-button/signature/unknown keep their /AP (only /Rect moves —
+push-button images would otherwise be lost). Overlay (editing_overlay):
+`_onTapUp` form branch → `selectFormWidgetAt`; `_onFormTap` renamed
+`_fillFormFieldAt(local, global)` and driven by `onDoubleTap`
+(`_onDoubleTapDown` stashes `_doubleTapDownDetails`; double-tap wired for
+the form tool alongside the poly tool); `_panStart` form branch routes a
+press on a resize handle or the selected widget body to `_selectPanStart`
+(the existing move/resize machinery — selection chrome + handles appear
+automatically once `canResizeSelected` is true), a press on another
+widget selects-and-moves it in one drag, and only truly empty page area
+drags out a new field; hover cursor shows move/resize/click/precise
+accordingly. The resize drag previews via the generic stretch ghost then
+snaps to the regenerated appearance on raster (same as the FreeText
+fallback) — no widget-specific preview. Single-tap select costs the
+~300ms double-tap delay (inherent to enabling onDoubleTap) — Ben's
+accepted trade for the fork. Tests: pdf_document form_fill_test (+3:
+resize rewrites /Rect + re-lays the value at the new BBox, checkbox mark
+regenerates at the new size, missing-field no-op); dart_pdf_editor
+editing_form_test — the OLD single-tap-fills widget tests now DOUBLE-tap
+(new `doubleTap` helper: tap, pump 60ms, tap, pump 400ms), plus new
+"single tap selects (no fill)", controller move/resize/delete round-trip,
+and the `canResizeSelected` tool gate; the "drag on a widget" test now
+asserts the widget MOVED (it used to assert nothing happened). Toolbar
+tooltip is now 'Form fields — tap to select, double-tap to fill, drag to
+add' (pdf_shell/toolbar tests that find it by tooltip updated).
+
+Bold/italic text-box fonts (Ben: font selection + outline/fill in the
+style popup, expand font choices): `PdfStandardFont` grew from 3 to all
+12 base-14 text faces — `PdfStandardFontFamily {sans, serif, mono}` is
+the family axis, orthogonal to `isBold`/`isItalic`; `styled(family,
+{bold, italic})` + `withBold`/`withItalic` pick a variant. New AFM width
+tables (`timesBoldWidths`/`timesItalicWidths`/`timesBoldItalicWidths`;
+Helvetica oblique reuses upright widths, Courier stays flat 600).
+Resource names: existing `Helv`/`TiRo`/`Cour` kept for the regular faces
+(backward-compatible /DA), variants get detectable names (`HelvBold`,
+`TimesBoldItalic`, `CourBoldObl`…) — `tryFromName` now detects family by
+substring AND bold (`bold`) / italic (`italic`/`oblique`/`obl`), so our
+short /DA names and foreign producers' both round-trip with style. The
+Times variants use `Times*` (not `Ti*`) names so `times`-substring family
+detection fires. Rendering was already style-aware: canvas_device's
+`_styleFor` keys FontWeight/FontStyle off `name.contains('Bold')`/
+`'Italic'`/`'Oblique'`, so the variant /BaseFont paints correctly with no
+font-engine change (verified by editing_font_render_test: timesBold lays
+more ink than times, italic renders). UI: shared package-private
+`FontStyleToggles` (editing_font_controls.dart, NOT exported) — a B/I
+toggle pair that flips one axis of the current family; the toolbar
+`_StyleMenu` now has a family SegmentedButton (Sans/Serif/Mono, bound to
+`.family`) + a 'Style' row of toggles, and the properties panel's font
+dropdown switched to a family dropdown + the same toggles. The font chip
+label shows the suffix (' B'/' I'/' BI'). Properties panel also gained
+the missing 'Outline' swatch for FreeText (`pdf-prop-text-border` →
+`restyleSelectedText(border:)`; the toolbar already had 'Text border').
+The two inline-editor `_uiFamily` switches (overlay + form layer) map by
+`.family` now and set fontWeight/fontStyle so the live editor previews
+bold/italic. Toggle keys 'pdf-font-bold'/'-italic' (toolbar) and
+'pdf-prop-font-bold'/'-italic' (panel). Tests: annotation_editor_test
+(12-variant coverage, name round-trips with style, bold-italic /BaseFont
++ /Widths), editing_text_edit_test (toolbar B/I toggles + family keeps
+style), editing_properties_test (panel B/I toggles + the outline row),
+editing_font_render_test (end-to-end raster). The existing 'Serif'/'Mono'
+tap tests still pass — tapping a family with no B/I set yields the base
+variant.
+
+Insert image (Ben: "allow inserting an image into the PDF"): a new
+`PdfEditTool.image` inserts a PNG/JPEG as a /Stamp annotation, so it
+inherits select/move/resize/rotate/delete for free. pdf_document:
+`PdfEditor.addImageStamp(pageIndex, rect, PdfEmbeddableImage, {opacity,
+author, name})` (annotation_editor.dart) registers the image XObject via
+`image.toXObject` and writes an appearance that `cm`-maps the unit image
+onto the rect (BBox = rect, so the §12.5.5 fit is the identity);
+`_resources` gained an `xObject:` param. CRITICAL: the stamp carries NO
+/Contents, so `pdfCanRestyleAnnotation` returns false — the restyle path
+(`_regenerateStyledAppearance` case 'Stamp') would regenerate a /Stamp as
+a TEXT stamp and wipe the picture; resize falls through to the stretch
+path (Stamp isn't in `_regenerateResizedAppearance`), which scales the
+form matrix so the image scales with the box, and rotate bakes the matrix
+like any stamp. Controller (editing_controller.dart): `placeImage(page,
+x, y, bytes, {maxSize: 200})` (tap — aspect-preserving box clamped to 90%
+of the crop box, centered on the tap) and `addImageInRect(page, box,
+bytes)` (drag-out — fits the image within the dragged box); both decode
+ONCE (`PdfEmbeddableImage.decode`, junk → false, no revision) and reuse
+the decoded image in the apply closure. UI: `PdfImagePicker = Future<
+Uint8List?> Function(BuildContext)` (text_prompt.dart), threaded
+`PdfViewer.imagePicker` → _PdfViewerPage → EditingPageOverlay (overlay
+`_onTapUp`/`_commitRect` image branches await the picker then call
+place/addInRect); `PdfEditorView.imagePicker`; toolbar Insert group gained
+an Icons.image_outlined button. Example: `_pickImage` (file_selector,
+reuses `_imageTypeGroup`) wired into PdfEditorView. No afterimage (tap-
+placed, like text stamps — the picker dialog covers the re-render). Tests:
+pdf_document image_stamp_test.dart (4 — XObject in appearance, not
+restyleable, resize stretches keeping /Img0, opacity→ca) and
+dart_pdf_editor editing_image_test.dart (7 — placeImage aspect/clamp,
+addImageInRect fit, junk reject, viewer tool tap runs picker / cancel /
+no-picker). Pre-existing example/test failures (7, Text("0") duplicate
++ others) are unrelated — present without this change.
+
+Per-tool style memory (Ben: "save the styling preferences per annotation
+tool"): each annotation tool now remembers its own colour, stroke,
+opacity, font, line style/endings and fills, so the yellow highlighter
+stays yellow while ink stays black across tool switches and sessions.
+The live single values in `PdfEditingPreferences` stay the source of
+truth the creation methods read (unchanged); on top of them sits a
+per-scope snapshot map `_toolStyles` (persisted as one JSON blob under
+`toolStyles`, colours as ARGB ints, enums by name). `beginStyleScope(
+scope, fields)` activates a scope — restoring its saved style into the
+live values by driving the public setters under a `_restoringScope`
+guard (so the load doesn't re-record) — and while a scope is active every
+style setter ALSO records its field into the slot via `_recordScoped`
+(only the `fields` the scope remembers). The controller's `tool` setter
+calls `beginStyleScope(_styleScopeKey(tool), _styleScopeFields(tool))`:
+key = the tool's name for the styled creators (ink/eraser/shapes/lines/
+measure/freeText/note/stamp), null for select/content/form/redact/
+signature (signature shares the global colour, which `_drawSignature`
+seeds from the drawn ink). The per-tool `fields` mirror each tool's
+toolbar strip — ink keeps stroke not endings, rectangle keeps fill not
+font, freeText keeps font + box colours, etc. Markup arms no tool, so
+`PdfEditingController.useMarkupStyleScope()` scopes 'markup' {color,
+opacity}; the toolbar calls it when the Markup strip opens
+(`_openGroupTap`) and when the mobile sheet's markup tab is selected.
+A tool with no saved slot inherits the current live value (no restore),
+so first use of each tool picks up the last-used style — independent
+thereafter. Tests: editing_preferences_test +4 (each tool keeps its own
+style, markup highlighter colour, no-slot inherits, persistence into a
+fresh session). The 14 Ghent render-baseline failures are pre-existing
+on this machine, unrelated.
+
+Thumbnail multi-select (Ben: "shift click to multi select pages in the
+thumbnail strip"): the strip gained a page selection alongside the
+annotation selection. Controller (editing_controller.dart, "page
+selection" section): `_selectedPages` (a Set<int>) + `_pageSelectionAnchor`
+(the last plain/⌘ click — what a shift-click extends from); getters
+`selectedPages` (ascending), `hasPageSelection`, `selectedPageCount`,
+`isPageSelected`; gestures `selectPage` (plain — single + re-anchor),
+`togglePageSelection` (⌘/Ctrl — add/remove + re-anchor), `selectPageRange`
+(shift — contiguous anchor..index, replacing, anchor stays so a further
+shift re-extends from the same origin), `selectAllPages`,
+`clearPageSelection`; bulk ops `removeSelectedPages` (editor `removePages`,
+one undo, refused when it would empty the doc — at least one page must
+remain) and `exportSelectedPages` (= `exportPages(selectedPages)`, null
+when empty). Every structural page edit (move/remove/insert/addBlank)
+clears the page selection too (indices shift), beside the existing
+`_selected.clear()`. UI (editing_thumbnails.dart): `_PageTile._onTap`
+reads HardwareKeyboard — shift → selectPageRange, ⌘/Ctrl →
+togglePageSelection (neither navigates, so a selection builds without the
+viewport jumping), plain → selectPage + jumpToPage; a selected tile gets a
+primary-tinted rounded chip behind the thumbnail (a color-only
+BoxDecoration on the tile's Container adds no padding, so per-tile layout
+and `_estimateOffset` are unchanged — don't switch it back to Padding).
+When `selectedPageCount > 1` a selection bar shows above the list ('N
+selected' + export (keys 'pdf-thumbnail-export-selected', only with
+onExportPages) + delete ('pdf-thumbnail-delete-selected', only with
+allowPageEditing) + clear ('pdf-thumbnail-clear-selection')); a single
+selection is just the navigation cursor (the per-tile delete handles it).
+Tests: editing_page_ops_test.dart — a "page selection" controller group
+(11) + strip widget tests (shift-click range→delete, ctrl-click toggle);
+widget tests set tester.view 800×1400 so the lazy list builds every tile,
+and drive modifiers with sendKeyDownEvent/sendKeyUpEvent(LogicalKeyboardKey
+.shift/.controlLeft) around the tap.

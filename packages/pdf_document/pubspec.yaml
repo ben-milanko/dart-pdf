@@ -2,7 +2,7 @@ name: pdf_document
 description: >-
   Document-level PDF semantics: page tree, annotations, AcroForm filling,
   digital signatures, and an incremental-save editor. Pure Dart, web-ready.
-version: 0.1.0
+version: 1.0.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_document
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -18,9 +18,9 @@ environment:
 dependencies:
   archive: ^4.0.0
   crypto: ^3.0.0
-  pdf_cos: ^0.1.0
+  pdf_cos: ^1.0.0
 
 dev_dependencies:
-  pdf_test_fixtures: ^0.1.0
+  pdf_test_fixtures: ^1.0.0
   lints: ^5.0.0
   test: ^1.25.0

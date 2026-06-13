@@ -139,8 +139,10 @@ void main() {
         await tester.pump();
       }
       final painter = overlayPainter(tester);
-      // the touched annotation washes out...
-      expect((painter.fadeRects as List), hasLength(1));
+      // the touched annotation washes out along its own strokes (not the
+      // bounding box, so surrounding page content isn't dimmed)...
+      expect((painter.fadeInk as List), hasLength(1));
+      expect((painter.fadeRects as List), isEmpty);
       // ...and its sliced remainder (two pieces) paints over the wash
       final extraInk = painter.extraInk as List;
       expect(extraInk, hasLength(1));
@@ -168,7 +170,7 @@ void main() {
       // immediately after the commit (no raster yet) the wash and the
       // remainder keep painting so the old strokes don't pop back
       final painter = overlayPainter(tester);
-      expect((painter.fadeRects as List), hasLength(1));
+      expect((painter.fadeInk as List), hasLength(1));
       expect((painter.extraInk as List), hasLength(1));
     });
 
@@ -208,8 +210,12 @@ void main() {
         ),
       ));
 
+      // the tune button lives in the Draw group's strip
+      await tester.tap(find.byKey(const ValueKey('pdf-group-draw')));
+      await tester.pump();
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-eraser-size')), findsNothing);
@@ -226,6 +232,40 @@ void main() {
       await tester.pump();
       expect(editing.eraserRadius, greaterThan(8));
       await tester.pumpAndSettle();
+    });
+
+    testWidgets('the tune menu collapses to the eraser size while armed',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      // arming the eraser relabels the tune button so the size control
+      // is discoverable, not hidden behind 'Stroke, opacity, font'
+      editing.tool = PdfEditTool.eraser;
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Eraser size'), findsOneWidget);
+      expect(find.byTooltip('Stroke, opacity, font'), findsNothing);
+
+      await tester.scrollUntilVisible(find.byTooltip('Eraser size'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Eraser size'));
+      await tester.pumpAndSettle();
+      // only the eraser slider shows — the paint-only controls are gone
+      expect(find.byKey(const ValueKey('pdf-eraser-size')), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
+      expect(find.text('Stroke width'), findsNothing);
+      expect(find.text('Font size'), findsNothing);
     });
 
     test('the radius persists as a preference', () async {

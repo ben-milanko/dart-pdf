@@ -135,6 +135,28 @@ void main() {
         expect(sine.evaluate(0).single, closeTo(1, 1e-9));
       });
 
+      test('atan calculator program renders the PDF.js polar color space', () {
+        const program =
+            '{ pop exch 360 mul dup sin exch cos atan 360 div sub abs '
+            '.1 exch sub dup 0 lt { pop 0 } if 10 mul sqrt 1 exch sub dup dup }';
+        final fn = PdfFunction.parse(
+          cos,
+          calculator(program, range: [
+            for (var i = 0; i < 3; i++) ...[
+              const CosInteger(0),
+              const CosInteger(1),
+            ],
+          ]),
+        )!;
+
+        expect(fn.evaluateAt([10 / 255, 250 / 255, 0]), [
+          for (var i = 0; i < 3; i++) closeTo(1, 1e-9),
+        ]);
+        expect(fn.evaluateAt([128 / 255, 128 / 255, 0]), [
+          for (var i = 0; i < 3; i++) closeTo(0, 1e-9),
+        ]);
+      });
+
       test('outputs clamp to /Range', () {
         final fn = PdfFunction.parse(cos, calculator('{ 4 mul }'))!;
         expect(fn.evaluate(0.9).single, 1);

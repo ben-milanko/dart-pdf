@@ -28,15 +28,20 @@ class PdfPageRenderer {
   /// [annotations] false leaves the page's annotations (highlights, ink,
   /// stamps, form fields...) out of the render — the clean underlying
   /// page. Display-only, like [pageColor]; the document is untouched.
+  ///
+  /// [skipAnnotation] omits the annotations it matches while keeping the
+  /// rest — the "lift" model behind a live drag/resize preview, so the
+  /// page reads as the artwork minus the one being edited.
   static Future<ui.Picture> renderPicture(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
+      bool annotations = true,
+      bool Function(PdfAnnotation)? skipAnnotation}) async {
     final cos = page.document.cos;
 
     final collector = ImageCollector();
     final collecting = PdfInterpreter(cos: cos, device: collector)
       ..drawPage(page);
-    if (annotations) collecting.drawAnnotations(page);
+    if (annotations) collecting.drawAnnotations(page, skip: skipAnnotation);
     final images = await decodeImages(cos, collector.streams);
 
     final box = page.cropBox;
@@ -44,6 +49,17 @@ class PdfPageRenderer {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
+    // The paper is opaque white; [pageColor] washes over it. A
+    // translucent page color (e.g. a copy-type tint) thus reads as a
+    // wash on white rather than compositing onto the viewer canvas
+    // behind the page. A fully opaque color makes the white backing a
+    // no-op, so this is free in the common case.
+    if (pageColor.a < 1.0) {
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()..color = const Color(0xFFFFFFFF),
+      );
+    }
     canvas.drawRect(
       Offset.zero & size,
       Paint()..color = pageColor,
@@ -67,7 +83,7 @@ class PdfPageRenderer {
     final painting = PdfInterpreter(
         cos: cos, device: CanvasPdfDevice(canvas, images: images))
       ..drawPage(page);
-    if (annotations) painting.drawAnnotations(page);
+    if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
     return recorder.endRecording();
   }
 

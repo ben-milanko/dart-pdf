@@ -3,8 +3,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// The editing overlay's preview painter, read through a dynamic cast
+/// (the painter class is private to the library).
+dynamic overlayPainter(WidgetTester tester) => tester
+    .widget<CustomPaint>(find
+        .descendant(
+            of: find.byType(EditingPageOverlay),
+            matching: find.byType(CustomPaint))
+        .first)
+    .painter;
 
 void main() {
   const editorKey = ValueKey('pdf-freetext-editor');
@@ -201,6 +212,26 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('tapping without dragging places a default-sized text box',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      // a plain tap (no drag) opens the inline editor at a default size
+      await tap(tester, view(150, 650));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await tester.enterText(find.byKey(editorKey), 'Tapped in');
+      await tap(tester, view(450, 500)); // outside the box: commit
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'FreeText');
+      expect(annotation.contents, 'Tapped in');
+      await settle(tester);
+    });
+
     testWidgets('a fresh text box is focused for typing immediately',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -303,8 +334,15 @@ void main() {
         ),
       ));
 
+      // the font controls live in the Insert group's strip (it opens on
+      // the freeText tool, whose tune trigger is the font chip)
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byKey(const ValueKey('pdf-group-insert')), 80);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-insert')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
@@ -315,6 +353,18 @@ void main() {
       await tester.tap(find.text('Mono'));
       await tester.pump();
       expect(editing.fontFamily, PdfStandardFont.courier);
+
+      // the Bold / Italic toggles pick the matching base-14 variant
+      await tester.tap(find.byKey(const ValueKey('pdf-font-bold')));
+      await tester.pump();
+      expect(editing.fontFamily, PdfStandardFont.courierBold);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-italic')));
+      await tester.pump();
+      expect(editing.fontFamily, PdfStandardFont.courierBoldOblique);
+      // switching family keeps the bold+italic style
+      await tester.tap(find.text('Serif'));
+      await tester.pump();
+      expect(editing.fontFamily, PdfStandardFont.timesBoldItalic);
     });
 
     testWidgets('the style menu sets text fill and border defaults',
@@ -333,8 +383,14 @@ void main() {
         ),
       ));
 
+      // the text fill/border rows live in the Insert group's strip
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byKey(const ValueKey('pdf-group-insert')), 80);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-insert')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
@@ -373,8 +429,11 @@ void main() {
       ));
       expect(editing.canRestyleSelectedText, isTrue);
 
+      // a selected text box raises the selection strip; its tune trigger
+      // is the font chip (the first of strip/dock scrollables)
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
@@ -458,6 +517,13 @@ void main() {
       expect(text.data, 'Wrap me please');
       expect(text.style!.fontSize, closeTo(16 * scale, 0.01));
 
+      // the painter lifts the original off the page: it hides the RESTING
+      // box (the original footprint) so the dragged preview isn't doubled
+      // up with the old rendering. The hide rect spans the resting box.
+      final painter = overlayPainter(tester);
+      expect(painter.resizeHideRect, isNotNull);
+      expect((painter.resizeHideRect as Rect).width, closeTo(200 * scale, 0.5));
+
       await gesture.up();
       await tester.pump();
 
@@ -470,6 +536,41 @@ void main() {
       // lands — the live preview itself is gone with the drag
       expect(find.byKey(previewKey), findsNothing);
       expect(find.text('Wrap me please'), findsOneWidget);
+      await settle(tester);
+    });
+
+    testWidgets('the resize preview lifts the box, transparent over the page',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..fontSize = 16
+        ..textFillColor = const Color(0xFFFFEB3B) // a yellow filled box
+        ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Filled box')
+        ..tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      // shrink the box width by dragging the bottom-right handle inward
+      final gesture = await tester.startGesture(view(300, 600));
+      await gesture.moveTo(view(260, 600));
+      await gesture.moveTo(view(220, 600));
+      await tester.pump();
+
+      // the preview itself carries only the box's own fill — it is
+      // otherwise transparent, so the page content behind shows through
+      // (the original is hidden by the painter's lift layer, not a wash)
+      final box = tester.widget<Container>(
+          find.byKey(const ValueKey('pdf-text-resize-preview')));
+      expect(box.color, const Color(0xFFFFEB3B));
+
+      // the lift fallback (until the async clean render lands) is OPAQUE
+      // blank paper, never translucent — the original must never flash
+      final painter = overlayPainter(tester);
+      expect((painter.resizeHideWash as Color).a, 1.0);
+      expect(painter.resizeHideWash, const Color(0xFFFFFFFF));
+
+      await gesture.up();
+      await tester.pump();
       await settle(tester);
     });
 

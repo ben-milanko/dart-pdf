@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -78,7 +79,8 @@ class RecordingDevice implements PdfDevice {
   }
 
   @override
-  void beginGroup(double alpha) => calls.add('beginGroup($alpha)');
+  void beginGroup(double alpha, {bool knockout = false}) =>
+      calls.add('beginGroup($alpha${knockout ? ' knockout' : ''})');
   @override
   void endGroup() => calls.add('endGroup');
   @override
@@ -88,7 +90,10 @@ class RecordingDevice implements PdfDevice {
   void endSoftMasked(
       {required bool luminosity,
       required PdfRect backdrop,
-      required void Function() drawMask}) {
+      required void Function() drawMask,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {
     calls.add('endSoftMasked');
     softMaskEnds.add((luminosity, drawMask));
   }
@@ -136,18 +141,34 @@ void main() {
     expect(device.clips.single.$2, PdfFillRule.nonzero);
   });
 
+  test('hidden optional content groups do not paint', () {
+    final doc = PdfDocument.open(
+        File('../../test_corpora/pdfjs/issue269_1.pdf').readAsBytesSync());
+    final device = RecordingDevice();
+    PdfInterpreter(cos: doc.cos, device: device).drawPage(doc.page(0));
+
+    // Two black paths plus the visible blue path. The green /MC2 path is
+    // mapped to an OCG in the document's default /OFF list.
+    expect(device.fills, hasLength(3));
+  });
+
   test('CMYK and gray color operators convert to RGB', () {
     final device = interpret('0 0 0 1 k 0 0 1 1 re f 0.5 g 0 0 1 1 re f');
-    expect(device.fills[0].$2, PdfColor.black);
+    // DeviceCMYK uses pdf.js's SWOP-class polynomial, so pure K is not a
+    // perfect black but the profile's dark grey (≈ RGB 44,46,53).
+    expect(device.fills[0].$2.red, closeTo(0.171, 0.01));
+    expect(device.fills[0].$2.green, closeTo(0.182, 0.01));
+    expect(device.fills[0].$2.blue, closeTo(0.206, 0.01));
     expect(device.fills[1].$2, const PdfColor.gray(0.5));
   });
 
-  test('pure process cyan converts as ink, not monitor cyan', () {
+  test('pure process cyan converts through the SWOP polynomial', () {
     final device = interpret('1 0 0 0 k 0 0 1 1 re f');
     final color = device.fills.single.$2;
+    // pdf.js DeviceCmykCS for (1,0,0,0) ≈ RGB(0, 184, 242).
     expect(color.red, 0);
-    expect(color.green, closeTo(0.62, 0.01));
-    expect(color.blue, closeTo(0.878, 0.01));
+    expect(color.green, closeTo(0.724, 0.01));
+    expect(color.blue, closeTo(0.948, 0.01));
   });
 
   test('Separation colors evaluate the tint transform', () {
@@ -182,6 +203,140 @@ void main() {
     expect(device.fills[0].$2.red, lessThan(0.05), reason: 'tint 1 ≈ black');
     expect(device.fills[0].$2.green, lessThan(0.05));
     expect(device.fills[1].$2, const PdfColor(1, 1, 1));
+  });
+
+  test('Separation colors convert a Lab alternate space', () {
+    final doc = CosDocument.open(buildClassicPdf());
+    final device = RecordingDevice();
+    final resources = CosDictionary({
+      'ColorSpace': CosDictionary({
+        'Black': CosArray([
+          const CosName('Separation'),
+          const CosName('Black'),
+          CosArray([
+            const CosName('Lab'),
+            CosDictionary({
+              'WhitePoint': CosArray([
+                const CosReal(0.9505),
+                const CosInteger(1),
+                const CosReal(1.089),
+              ]),
+              'Range': CosArray([
+                const CosInteger(-128),
+                const CosInteger(127),
+                const CosInteger(-128),
+                const CosInteger(127),
+              ]),
+            }),
+          ]),
+          CosDictionary({
+            'FunctionType': const CosInteger(2),
+            'Domain': CosArray([const CosInteger(0), const CosInteger(1)]),
+            'Range': CosArray([
+              const CosInteger(0),
+              const CosInteger(100),
+              const CosInteger(-128),
+              const CosInteger(127),
+              const CosInteger(-128),
+              const CosInteger(127),
+            ]),
+            'C0': CosArray([
+              const CosInteger(100),
+              const CosInteger(0),
+              const CosInteger(0),
+            ]),
+            'C1': CosArray([
+              const CosReal(26.869612),
+              const CosReal(2.070039),
+              const CosReal(-4.385214),
+            ]),
+            'N': const CosInteger(1),
+          }),
+        ]),
+      }),
+    });
+    PdfInterpreter(cos: doc, device: device).run(
+      ContentStreamParser.parse(
+          Uint8List.fromList('/Black CS 1 SCN 0 0 1 1 re S'.codeUnits)),
+      resources,
+    );
+    final color = device.strokes.single.$2;
+    expect(color.red, lessThan(0.35));
+    expect(color.green, lessThan(0.35));
+    expect(color.blue, lessThan(0.35));
+  });
+
+  test('CalGray colors are converted to sRGB', () {
+    final doc = CosDocument.open(buildClassicPdf());
+    final device = RecordingDevice();
+    final resources = CosDictionary({
+      'ColorSpace': CosDictionary({
+        'CG': CosArray([
+          const CosName('CalGray'),
+          CosDictionary({
+            'WhitePoint': CosArray([
+              const CosInteger(1),
+              const CosInteger(1),
+              const CosInteger(1),
+            ]),
+            'Gamma': const CosInteger(1),
+          }),
+        ]),
+      }),
+    });
+    PdfInterpreter(cos: doc, device: device).run(
+      ContentStreamParser.parse(
+          Uint8List.fromList('/CG cs 0.5 sc 0 0 1 1 re f'.codeUnits)),
+      resources,
+    );
+    final color = device.fills.single.$2;
+    expect(color.red, closeTo(194 / 255, 0.002));
+    expect(color.green, closeTo(194 / 255, 0.002));
+    expect(color.blue, closeTo(194 / 255, 0.002));
+  });
+
+  test('CalRGB colors are converted to sRGB', () {
+    final doc = CosDocument.open(buildClassicPdf());
+    final device = RecordingDevice();
+    final resources = CosDictionary({
+      'ColorSpace': CosDictionary({
+        'CR': CosArray([
+          const CosName('CalRGB'),
+          CosDictionary({
+            'WhitePoint': CosArray([
+              const CosInteger(1),
+              const CosInteger(1),
+              const CosInteger(1),
+            ]),
+            'Gamma': CosArray([
+              const CosInteger(1),
+              const CosInteger(1),
+              const CosInteger(1),
+            ]),
+            'Matrix': CosArray([
+              const CosInteger(1),
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(1),
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(1),
+            ]),
+          }),
+        ]),
+      }),
+    });
+    PdfInterpreter(cos: doc, device: device).run(
+      ContentStreamParser.parse(
+          Uint8List.fromList('/CR cs 0.75 0 0 sc 0 0 1 1 re f'.codeUnits)),
+      resources,
+    );
+    final color = device.fills.single.$2;
+    expect(color.red, 1);
+    expect(color.green, 0);
+    expect(color.blue, closeTo(60 / 255, 0.01));
   });
 
   test('ExtGState alpha applies to fills', () {
@@ -391,6 +546,74 @@ void main() {
       expect(device.texts[1].color, PdfColor.black);
     });
 
+    test('substituted text honours stroke render modes', () {
+      // A substituted (non-embedded) font is drawn by filling a system font,
+      // so the device needs the stroke colour to outline glyphs for modes
+      // 1/2/5/6. /Missing resolves to the Helvetica fallback (no outlines).
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            ('1 0 0 RG 0 0 1 rg '
+                    'BT /Missing 12 Tf 2 Tr (fs) Tj ET '
+                    'BT /Missing 12 Tf 1 Tr (so) Tj ET '
+                    'BT /Missing 12 Tf 0 Tr (fo) Tj ET')
+                .codeUnits)),
+        shadingPatternResources(),
+      );
+      // mode 2: fill (blue) + stroke (red)
+      expect(device.texts[0].fill, isTrue);
+      expect(device.texts[0].color, const PdfColor(0, 0, 1));
+      expect(device.texts[0].strokeColor, const PdfColor(1, 0, 0));
+      // mode 1: stroke only, no fill
+      expect(device.texts[1].fill, isFalse);
+      expect(device.texts[1].strokeColor, const PdfColor(1, 0, 0));
+      // mode 0: fill only, no stroke
+      expect(device.texts[2].fill, isTrue);
+      expect(device.texts[2].strokeColor, isNull);
+    });
+
+    test('substituted fill+stroke text drops an unrenderable tiling fill', () {
+      // /Pattern cs /P1 scn sets a tiling-pattern fill that can't be clipped
+      // through a substituted font's (absent) outlines. In fill+stroke mode
+      // the bogus solid fallback is dropped so the stroke reads as an outline
+      // instead of a solid block.
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      const cell = '1 0 1 rg 0 0 1 1 re f';
+      // No /Font entry needed — /Missing resolves to the Helvetica fallback.
+      final resources = CosDictionary({
+        'Pattern': CosDictionary({
+          'P1': CosStream(
+            CosDictionary({
+              'PatternType': const CosInteger(1),
+              'PaintType': const CosInteger(1),
+              'BBox': CosArray([
+                const CosInteger(0),
+                const CosInteger(0),
+                const CosInteger(4),
+                const CosInteger(4),
+              ]),
+              'XStep': const CosInteger(4),
+              'YStep': const CosInteger(4),
+              'Length': CosInteger(cell.length),
+            }),
+            Uint8List.fromList(cell.codeUnits),
+          ),
+        }),
+      });
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            ('0 0 1 RG /Pattern cs /P1 scn '
+                    'BT /Missing 12 Tf 2 Tr (x) Tj ET')
+                .codeUnits)),
+        resources,
+      );
+      final run = device.texts.single;
+      expect(run.fill, isFalse, reason: 'unrenderable tiling fill dropped');
+      expect(run.strokeColor, const PdfColor(0, 0, 1));
+    });
+
     test('tiling patterns run their cell content per tile, clipped', () {
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();
@@ -424,6 +647,48 @@ void main() {
       // 8x8 area on a 4pt grid: at least 4 cells painted in the cell color
       expect(device.fills.length, greaterThanOrEqualTo(4));
       expect(device.fills.first.$2, const PdfColor(1, 0, 0));
+    });
+
+    test('tiling pattern fills text through the glyph outlines', () {
+      // Embedded TrueType 'A' filled with a red tiling pattern: the pattern
+      // must paint through the glyph outlines (clip + per-tile fill) and the
+      // text run must be emitted invisibly so it stays selectable without the
+      // solid fill colour showing through (issue4246 sibling — pattern text).
+      final doc = CosDocument.open(buildEmbeddedFontPdf());
+      final device = RecordingDevice();
+      const cell = '1 0 0 rg 0 0 1 1 re f';
+      final resources = CosDictionary({
+        'Font': CosDictionary({'F1': const CosReference(5, 0)}),
+        'Pattern': CosDictionary({
+          'P1': CosStream(
+            CosDictionary({
+              'PatternType': const CosInteger(1),
+              'PaintType': const CosInteger(1),
+              'BBox': CosArray([
+                const CosInteger(0),
+                const CosInteger(0),
+                const CosInteger(4),
+                const CosInteger(4),
+              ]),
+              'XStep': const CosInteger(4),
+              'YStep': const CosInteger(4),
+              'Length': CosInteger(cell.length),
+            }),
+            Uint8List.fromList(cell.codeUnits),
+          ),
+        }),
+      });
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            '/Pattern cs /P1 scn BT /F1 24 Tf 72 700 Td (A) Tj ET'.codeUnits)),
+        resources,
+      );
+      // the glyph outline became a clip and the cell painted inside it
+      expect(device.clips, isNotEmpty);
+      expect(device.fills.any((f) => f.$2 == const PdfColor(1, 0, 0)), isTrue);
+      // the text is still emitted (selectable) but not painted as a solid glyph
+      expect(device.texts.single.invisible, isTrue);
+      expect(device.texts.single.text, 'A');
     });
 
     test('sh paints a gradient across the page area', () {
@@ -588,6 +853,51 @@ void main() {
     expect(corner.y, 8);
   });
 
+  test('a knockout group (/K true) opens a knockout layer at full alpha', () {
+    // §11.4.5: a knockout group needs its own compositing layer even when it
+    // paints at alpha 1, so each element can replace (not blend over) the
+    // ones before it. Without /K the same group at alpha 1 stays unwrapped.
+    const content = '1 0 0 rg 0 0 60 60 re f 0 0 1 rg 30 30 60 60 re f';
+    CosStream group(bool knockout) => CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Form'),
+            'BBox': CosArray(const [
+              CosInteger(0),
+              CosInteger(0),
+              CosInteger(100),
+              CosInteger(100),
+            ]),
+            'Group': CosDictionary({
+              'Type': const CosName('Group'),
+              'S': const CosName('Transparency'),
+              if (knockout) 'K': const CosBoolean(true),
+            }),
+            'Length': CosInteger(content.length),
+          }),
+          Uint8List.fromList(content.codeUnits),
+        );
+    final doc = CosDocument.open(buildClassicPdf());
+
+    final ko = RecordingDevice();
+    PdfInterpreter(cos: doc, device: ko).run(
+      ContentStreamParser.parse(Uint8List.fromList('/Fm0 Do'.codeUnits)),
+      CosDictionary({
+        'XObject': CosDictionary({'Fm0': group(true)}),
+      }),
+    );
+    expect(ko.calls, contains('beginGroup(1.0 knockout)'));
+    expect(ko.calls, contains('endGroup'));
+
+    final plain = RecordingDevice();
+    PdfInterpreter(cos: doc, device: plain).run(
+      ContentStreamParser.parse(Uint8List.fromList('/Fm0 Do'.codeUnits)),
+      CosDictionary({
+        'XObject': CosDictionary({'Fm0': group(false)}),
+      }),
+    );
+    expect(plain.calls.where((c) => c.startsWith('beginGroup')), isEmpty);
+  });
+
   group('annotation appearances', () {
     // page-space bounding box of a recorded fill
     (double, double, double, double) boundsOf(PdfPath path) {
@@ -655,6 +965,72 @@ void main() {
       // three drawn appearances, one BBox clip each
       expect(device.clips, hasLength(3));
       expect(boundsOf(device.clips.first.$1), (100, 100, 200, 150));
+    });
+
+    test('fallback highlights use multiply so text remains visible', () {
+      final doc = PdfDocument.open(buildClassicPdf());
+      final annotation = PdfAnnotation.fromDict(
+        doc,
+        CosDictionary({
+          'Subtype': const CosName('Highlight'),
+          'Rect': CosArray([
+            const CosInteger(10),
+            const CosInteger(20),
+            const CosInteger(110),
+            const CosInteger(40),
+          ]),
+          'QuadPoints': CosArray([
+            const CosInteger(10),
+            const CosInteger(40),
+            const CosInteger(110),
+            const CosInteger(40),
+            const CosInteger(10),
+            const CosInteger(20),
+            const CosInteger(110),
+            const CosInteger(20),
+          ]),
+          'C': CosArray([
+            const CosInteger(1),
+            const CosInteger(1),
+            const CosInteger(0),
+          ]),
+        }),
+      );
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawAnnotation(doc.page(0), annotation);
+
+      expect(device.blendModes, [PdfBlendMode.multiply, PdfBlendMode.normal]);
+      expect(device.fills.single.$2, const PdfColor(1, 1, 0));
+    });
+
+    test('fallback text widgets draw their field value', () {
+      final doc = PdfDocument.open(buildClassicPdf());
+      final annotation = PdfAnnotation.fromDict(
+        doc,
+        CosDictionary({
+          'Subtype': const CosName('Widget'),
+          'FT': const CosName('Tx'),
+          'Rect': CosArray([
+            const CosInteger(20),
+            const CosInteger(100),
+            const CosInteger(170),
+            const CosInteger(122),
+          ]),
+          'DA': CosString.fromText('/Helv 12 Tf 0 g'),
+          'V': CosString.fromText('tx annotation'),
+        }),
+      );
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawAnnotation(doc.page(0), annotation);
+
+      expect(device.texts.single.text, 'tx annotation');
+      expect(device.texts.single.fontName, 'Helvetica');
+      expect(device.texts.single.fontSize, 12);
+      expect(device.texts.single.transform.e, 22);
+      expect(device.texts.single.transform.f, closeTo(106.692, 1e-3));
+      expect(device.clips, hasLength(1));
     });
   });
 }

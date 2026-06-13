@@ -19,6 +19,8 @@ class CffFont {
     required Map<int, int>? cidToGid,
     required Map<int, int> codeToGid,
     required List<double> fontMatrix,
+    required List<List<double>?> fdMatrices,
+    required bool topMatrixExplicit,
     required Map<int, int> gidToSid,
     required List<(int, int)> strings,
   })  : _bytes = bytes,
@@ -29,6 +31,8 @@ class CffFont {
         _cidToGid = cidToGid,
         _codeToGid = codeToGid,
         _fontMatrix = fontMatrix,
+        _fdMatrices = fdMatrices,
+        _topMatrixExplicit = topMatrixExplicit,
         _gidToSid = gidToSid,
         _strings = strings;
 
@@ -40,6 +44,15 @@ class CffFont {
   final Map<int, int>? _cidToGid;
   final Map<int, int> _codeToGid;
   final List<double> _fontMatrix;
+
+  /// Per-FD FontMatrices for CID-keyed fonts (null entry = the FD declared
+  /// none). Combined with the top matrix per the CFF spec (§ FontMatrix).
+  final List<List<double>?> _fdMatrices;
+
+  /// Whether the top dict carried an explicit FontMatrix. When it didn't but
+  /// an FD did, the FD matrix stands alone (top is treated as identity, not
+  /// the 0.001 default — that default only applies when *no* matrix exists).
+  final bool _topMatrixExplicit;
   final Map<int, int> _gidToSid;
   final List<(int, int)> _strings;
 
@@ -63,7 +76,8 @@ class CffFont {
   /// Extracts the 'CFF ' table when [bytes] is an OpenType (OTTO) font.
   static Uint8List? _unwrapOpenType(Uint8List bytes) {
     if (bytes.length < 12) return null;
-    final scaler = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+    final scaler =
+        (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
     if (scaler != 0x4F54544F) return null;
     final numTables = (bytes[4] << 8) | bytes[5];
     for (var i = 0; i < numTables; i++) {
@@ -99,31 +113,37 @@ class CffFont {
     final top = _parseDict(bytes, topDicts[0]);
     final charStringsOffset = _firstInt(top[17]);
     if (charStringsOffset == null) return null;
-    final charStrings =
-        _readIndex(_Reader(bytes)..seek(charStringsOffset));
+    final charStrings = _readIndex(_Reader(bytes)..seek(charStringsOffset));
     if (charStrings.isEmpty) return null;
 
+    final topMatrixExplicit = top.containsKey(0x0C07);
     final fontMatrix = [
       for (final v in top[0x0C07] ?? const <num>[0.001, 0, 0, 0.001, 0, 0])
         v.toDouble(),
     ];
 
-    // private dict(s): one for plain fonts, one per FD for CID-keyed fonts
+    // private dict(s): one for plain fonts, one per FD for CID-keyed fonts.
+    // Each FD may also carry its own FontMatrix (§ CFF FontMatrix), which the
+    // glyph runner combines with the top matrix.
     final privates = <_PrivateDict>[];
+    final fdMatrices = <List<double>?>[];
     Uint8List? fdSelect;
     final isCid = top.containsKey(0x0C1E); // ROS
     if (isCid) {
       final fdArrayOffset = _firstInt(top[0x0C24]);
       if (fdArrayOffset != null) {
         for (final range in _readIndex(_Reader(bytes)..seek(fdArrayOffset))) {
-          privates.add(
-              _PrivateDict.parse(bytes, _parseDict(bytes, range)[18]));
+          final fdDict = _parseDict(bytes, range);
+          privates.add(_PrivateDict.parse(bytes, fdDict[18]));
+          final m = fdDict[0x0C07];
+          fdMatrices.add(m == null || m.length < 6
+              ? null
+              : [for (final v in m) v.toDouble()]);
         }
       }
       final fdSelectOffset = _firstInt(top[0x0C25]);
       if (fdSelectOffset != null) {
-        fdSelect =
-            _parseFdSelect(bytes, fdSelectOffset, charStrings.length);
+        fdSelect = _parseFdSelect(bytes, fdSelectOffset, charStrings.length);
       }
     }
     if (privates.isEmpty) {
@@ -142,13 +162,13 @@ class CffFont {
     // encoding: code → gid for simple fonts
     final codeToGid = <int, int>{};
     if (!isCid) {
+      final sidToGid = <int, int>{};
+      gidToSid.forEach((gid, sid) => sidToGid[sid] = gid);
       final encodingOffset = _firstInt(top[16]) ?? 0;
       if (encodingOffset > 1) {
-        _parseEncoding(bytes, encodingOffset, codeToGid);
+        _parseEncoding(bytes, encodingOffset, codeToGid, sidToGid);
       } else {
         // standard encoding: codes 32..126 carry SIDs 1..95 in order
-        final sidToGid = <int, int>{};
-        gidToSid.forEach((gid, sid) => sidToGid[sid] = gid);
         for (var code = 32; code <= 126; code++) {
           final gid = sidToGid[code - 31];
           if (gid != null) codeToGid[code] = gid;
@@ -165,10 +185,31 @@ class CffFont {
       cidToGid: cidToGid,
       codeToGid: codeToGid,
       fontMatrix: fontMatrix,
+      fdMatrices: fdMatrices,
+      topMatrixExplicit: topMatrixExplicit,
       gidToSid: gidToSid,
       strings: strings,
     );
   }
+
+  /// Effective glyph-space → text-space matrix for [fd], combining the top
+  /// dict and FD FontMatrices per the CFF spec.
+  List<double> _effectiveMatrix(int fd) {
+    final fdM = fd >= 0 && fd < _fdMatrices.length ? _fdMatrices[fd] : null;
+    if (fdM == null) return _fontMatrix;
+    if (!_topMatrixExplicit) return fdM; // FD matrix stands alone
+    return _multiplyMatrix(_fontMatrix, fdM); // top ∘ FD
+  }
+
+  /// 3×2 affine product `a ∘ b` (apply b first, then a).
+  static List<double> _multiplyMatrix(List<double> a, List<double> b) => [
+        a[0] * b[0] + a[2] * b[1],
+        a[1] * b[0] + a[3] * b[1],
+        a[0] * b[2] + a[2] * b[3],
+        a[1] * b[2] + a[3] * b[3],
+        a[0] * b[4] + a[2] * b[5] + a[4],
+        a[1] * b[4] + a[3] * b[5] + a[5],
+      ];
 
   int gidForCid(int cid) => _cidToGid == null ? cid : (_cidToGid[cid] ?? 0);
 
@@ -204,12 +245,19 @@ class CffFont {
       try {
         final builder = _run(gid);
         if (builder == null) return null;
-        _advanceCache[gid] = builder.width * _fontMatrix[0].abs();
+        _advanceCache[gid] =
+            builder.width * _effectiveMatrix(_fdFor(gid))[0].abs();
         return builder.segments.isEmpty ? null : PdfPath(builder.segments);
       } on Object {
         return null;
       }
     });
+  }
+
+  int _fdFor(int gid) {
+    final select = _fdSelect;
+    if (select != null && gid >= 0 && gid < select.length) return select[gid];
+    return 0;
   }
 
   /// Advance width in em units, known after the charstring runs.
@@ -220,24 +268,39 @@ class CffFont {
 
   _CharstringRunner? _run(int gid) {
     if (gid < 0 || gid >= _charStrings.length) return null;
-    var fd = 0;
-    final select = _fdSelect;
-    if (select != null && gid < select.length) fd = select[gid];
+    final fd = _fdFor(gid);
     final private = _privates[fd < _privates.length ? fd : 0];
-    final runner = _CharstringRunner(
+    final matrix = _effectiveMatrix(fd);
+    late final _CharstringRunner runner;
+    runner = _CharstringRunner(
       bytes: _bytes,
       globalSubrs: _globalSubrs,
       localSubrs: private.subrs,
       defaultWidthX: private.defaultWidthX,
       nominalWidthX: private.nominalWidthX,
-      scaleX: _fontMatrix[0],
-      skewX: _fontMatrix.length > 2 ? _fontMatrix[2] : 0,
-      skewY: _fontMatrix.length > 1 ? _fontMatrix[1] : 0,
-      scaleY: _fontMatrix.length > 3 ? _fontMatrix[3] : 0.001,
+      scaleX: matrix[0],
+      skewX: matrix.length > 2 ? matrix[2] : 0,
+      skewY: matrix.length > 1 ? matrix[1] : 0,
+      scaleY: matrix.length > 3 ? matrix[3] : 0.001,
+      seac: (adx, ady, bchar, achar) {
+        final base = _outlineForStandardCode(bchar);
+        final accent = _outlineForStandardCode(achar);
+        if (base != null) runner.appendPath(base);
+        if (accent != null) runner.appendPath(accent, dx: adx, dy: ady);
+      },
     );
     runner.execute(_charStrings[gid]);
     return runner;
   }
+
+  PdfPath? _outlineForStandardCode(int code) {
+    final name = _standardEncodingName(code);
+    return name == null ? null : outlineForGlyph(gidForName(name));
+  }
+
+  static String? _standardEncodingName(int code) => code >= 32 && code <= 126
+      ? winAnsiGlyphName(code)
+      : standardGlyphName(code);
 
   // ---------- low-level structures ----------
 
@@ -368,10 +431,11 @@ class CffFont {
     return result;
   }
 
-  static void _parseEncoding(
-      Uint8List bytes, int offset, Map<int, int> codeToGid) {
+  static void _parseEncoding(Uint8List bytes, int offset,
+      Map<int, int> codeToGid, Map<int, int> sidToGid) {
     final r = _Reader(bytes)..seek(offset);
-    final format = r.u8() & 0x7F;
+    final raw = r.u8();
+    final format = raw & 0x7F;
     if (format == 0) {
       final count = r.u8();
       for (var gid = 1; gid <= count; gid++) {
@@ -386,6 +450,19 @@ class CffFont {
         for (var k = 0; k <= left; k++) {
           codeToGid[first + k] = gid++;
         }
+      }
+    }
+    // Supplements (high bit of the format byte): extra code → SID mappings,
+    // commonly used for ligatures/accented glyphs that fall outside the base
+    // encoding (e.g. an ff ligature at code 0xAE). Resolve the SID to a gid
+    // through the charset (CFF spec / Adobe TN #5176 §12).
+    if (raw & 0x80 != 0) {
+      final nSups = r.u8();
+      for (var i = 0; i < nSups; i++) {
+        final code = r.u8();
+        final sid = r.u16();
+        final gid = sidToGid[sid];
+        if (gid != null) codeToGid[code] = gid;
       }
     }
   }
@@ -431,8 +508,7 @@ class _PrivateDict {
     var subrs = const <(int, int)>[];
     final subrsOffset = CffFont._firstInt(dict[19]);
     if (subrsOffset != null) {
-      subrs =
-          CffFont._readIndex(_Reader(bytes)..seek(offset + subrsOffset));
+      subrs = CffFont._readIndex(_Reader(bytes)..seek(offset + subrsOffset));
     }
     return _PrivateDict(
       subrs,
@@ -454,6 +530,7 @@ class _CharstringRunner {
     required this.skewX,
     required this.skewY,
     required this.scaleY,
+    required this.seac,
   }) : width = defaultWidthX;
 
   final Uint8List bytes;
@@ -462,6 +539,7 @@ class _CharstringRunner {
   final double defaultWidthX;
   final double nominalWidthX;
   final double scaleX, skewX, skewY, scaleY;
+  final void Function(double adx, double ady, int bchar, int achar) seac;
 
   final segments = <PdfPathSegment>[];
   final _stack = <double>[];
@@ -579,8 +657,8 @@ class _CharstringRunner {
             i = 1;
           }
           for (; i + 3 < _stack.length; i += 4) {
-            _relCurve(dx1, _stack[i], _stack[i + 1], _stack[i + 2], 0,
-                _stack[i + 3]);
+            _relCurve(
+                dx1, _stack[i], _stack[i + 1], _stack[i + 2], 0, _stack[i + 3]);
             dx1 = 0;
           }
           _stack.clear();
@@ -592,8 +670,8 @@ class _CharstringRunner {
             i = 1;
           }
           for (; i + 3 < _stack.length; i += 4) {
-            _relCurve(_stack[i], dy1, _stack[i + 1], _stack[i + 2],
-                _stack[i + 3], 0);
+            _relCurve(
+                _stack[i], dy1, _stack[i + 1], _stack[i + 2], _stack[i + 3], 0);
             dy1 = 0;
           }
           _stack.clear();
@@ -636,6 +714,10 @@ class _CharstringRunner {
           return;
         case 14: // endchar
           _takeWidth(even: true);
+          if (_stack.length == 4) {
+            seac(_stack[0], _stack[1], _stack[2].round(), _stack[3].round());
+            _stack.clear();
+          }
           _closeIfOpen();
           return;
         case 12:
@@ -652,8 +734,8 @@ class _CharstringRunner {
     switch (op) {
       case 35: // flex
         if (_stack.length >= 13) {
-          _relCurve(_stack[0], _stack[1], _stack[2], _stack[3], _stack[4],
-              _stack[5]);
+          _relCurve(
+              _stack[0], _stack[1], _stack[2], _stack[3], _stack[4], _stack[5]);
           _relCurve(_stack[6], _stack[7], _stack[8], _stack[9], _stack[10],
               _stack[11]);
         }
@@ -669,8 +751,8 @@ class _CharstringRunner {
         if (_stack.length >= 9) {
           final dy1 = _stack[1], dy2 = _stack[3], dy5 = _stack[7];
           _relCurve(_stack[0], dy1, _stack[2], dy2, _stack[4], 0);
-          _relCurve(_stack[5], 0, _stack[6], dy5, _stack[8],
-              -(dy1 + dy2 + dy5));
+          _relCurve(
+              _stack[5], 0, _stack[6], dy5, _stack[8], -(dy1 + dy2 + dy5));
         }
         _stack.clear();
       case 37: // flex1
@@ -681,8 +763,8 @@ class _CharstringRunner {
             dx += _stack[i];
             dy += _stack[i + 1];
           }
-          _relCurve(_stack[0], _stack[1], _stack[2], _stack[3], _stack[4],
-              _stack[5]);
+          _relCurve(
+              _stack[0], _stack[1], _stack[2], _stack[3], _stack[4], _stack[5]);
           final c1x = _x + _stack[6], c1y = _y + _stack[7];
           final c2x = c1x + _stack[8], c2y = c1y + _stack[9];
           final double endX, endY;
@@ -749,6 +831,31 @@ class _CharstringRunner {
       segments.add(const PdfClosePath());
       _open = false;
     }
+  }
+
+  void appendPath(PdfPath path, {double dx = 0, double dy = 0}) {
+    final tx = _tx(dx, dy);
+    final ty = _ty(dx, dy);
+    for (final segment in path.segments) {
+      segments.add(_translate(segment, tx, ty));
+    }
+  }
+
+  PdfPathSegment _translate(PdfPathSegment segment, double dx, double dy) {
+    return switch (segment) {
+      PdfMoveTo(:final x, :final y) => PdfMoveTo(x + dx, y + dy),
+      PdfLineTo(:final x, :final y) => PdfLineTo(x + dx, y + dy),
+      PdfCubicTo(
+        :final x1,
+        :final y1,
+        :final x2,
+        :final y2,
+        :final x3,
+        :final y3
+      ) =>
+        PdfCubicTo(x1 + dx, y1 + dy, x2 + dx, y2 + dy, x3 + dx, y3 + dy),
+      PdfClosePath() => segment,
+    };
   }
 
   double _tx(double x, double y) => x * scaleX + y * skewX;

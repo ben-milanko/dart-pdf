@@ -90,6 +90,22 @@ void main() {
       expect(editing.document.page(0).annotations, isEmpty);
       expect(editing.isModified, isFalse);
     });
+
+    test('placeTextStamp drops a default-sized stamp without an active stamp',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFF1565C0);
+      expect(editing.placeTextStamp(0, 300, 400, 'REVIEWED'), isTrue);
+
+      final stamp = editing.document.page(0).annotations.single;
+      expect(stamp.subtype, 'Stamp');
+      expect(stamp.contents, 'REVIEWED');
+      // no colour given, so it follows the selected toolbar colour
+      expect(stamp.color, 0x1565C0);
+      expect(stamp.rect.height, moreOrLessEquals(40));
+      expect((stamp.rect.left + stamp.rect.right) / 2, moreOrLessEquals(300));
+      expect((stamp.rect.bottom + stamp.rect.top) / 2, moreOrLessEquals(400));
+    });
   });
 
   group('stamp tool in the viewer', () {
@@ -118,16 +134,31 @@ void main() {
       ));
       await tester.pump();
 
-      final toolbarScrollable = find.descendant(
-          of: find.byType(PdfEditingToolbar),
-          matching: find.byType(Scrollable));
+      final dockScrollable = find
+          .descendant(
+              of: find.byType(PdfEditingToolbar),
+              matching: find.byType(Scrollable))
+          .last;
+      final stripScrollable = find
+          .descendant(
+              of: find.byType(PdfEditingToolbar),
+              matching: find.byType(Scrollable))
+          .first;
+      // the Stamp tool lives in the Insert group's strip
+      final insertChip = find.byKey(const ValueKey('pdf-group-insert'));
+      await tester.scrollUntilVisible(insertChip, 80,
+          scrollable: dockScrollable);
+      await tester.tap(insertChip);
+      await tester.pump();
       await tester.scrollUntilVisible(find.byTooltip('Stamp'), 100,
-          scrollable: toolbarScrollable);
+          scrollable: stripScrollable);
       await tester.tap(find.byTooltip('Stamp'));
       await tester.pumpAndSettle();
       expect(editing.tool, PdfEditTool.stamp);
 
       // the picker button only shows while the stamp tool is armed
+      await tester.scrollUntilVisible(find.byTooltip('Custom stamps…'), 100,
+          scrollable: stripScrollable);
       await tester.tap(find.byTooltip('Custom stamps…'));
       await tester.pumpAndSettle();
       expect(find.byType(PdfStampPickerDialog), findsOneWidget);

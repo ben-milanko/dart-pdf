@@ -249,7 +249,13 @@ class _JpxParser {
     style.cbHeightExp = (data[p + 2] & 0xF) + 2;
     style.cbStyle = data[p + 3];
     style.transform = data[p + 4];
-    if (style.cbStyle != 0) {
+    // Bit 1 (0x02) = reset the MQ context probabilities at each coding-pass
+    // boundary (Table A.19); supported below. The remaining style bits
+    // (arithmetic bypass, per-pass termination, vertically-causal contexts,
+    // predictable termination, segmentation symbols) are not — reject them so
+    // the image is skipped rather than mis-decoded.
+    const supportedCbStyle = 0x02;
+    if (style.cbStyle & ~supportedCbStyle != 0) {
       throw const FormatException('code-block style options');
     }
     if (scod & 1 != 0) {
@@ -435,7 +441,7 @@ class _TileComponent {
     for (final resolution in resolutions) {
       for (final band in resolution.bands) {
         for (final block in band.blocks) {
-          block.decode(band.mb, band.family);
+          block.decode(band.mb, band.family, style.cbStyle);
         }
       }
     }
@@ -636,7 +642,7 @@ class _CodeBlock {
   int get width => x1 - x0;
   int get height => y1 - y0;
 
-  void decode(int mb, int family) {
+  void decode(int mb, int family, int cbStyle) {
     final planes = mb - zeroBitPlanes;
     if (segments.isEmpty || width <= 0 || height <= 0 || planes <= 0) {
       magnitudes = Int32List(math.max(width * height, 0));
@@ -644,7 +650,8 @@ class _CodeBlock {
       return;
     }
     final data = _JpxParser._concat(segments);
-    final model = _BitModel(width, height, planes, family, MqDecoder(data));
+    final model = _BitModel(width, height, planes, family, MqDecoder(data))
+      ..resetOnPass = cbStyle & 0x02 != 0;
     model.decodePasses(passCount);
     magnitudes = model.magnitudes;
     signs = model.signs;
@@ -840,6 +847,18 @@ class _BitModel {
   late final Uint8List _index;
   int planesDecoded = 0;
 
+  /// Code-block style bit 1 (0x02): reset the MQ context states to their
+  /// initial values at the start of every coding pass (Table A.19).
+  bool resetOnPass = false;
+
+  void _resetContexts() {
+    _mps.fillRange(0, _mps.length, 0);
+    _index.fillRange(0, _index.length, 0);
+    _index[0] = 4; // first ZC context
+    _index[17] = 3; // run-length
+    _index[18] = 46; // uniform
+  }
+
   // zero-coding context lookup: neighbors (h, v, d) → context, per band
   // family (0: LL/LH, 1: HL, 2: HH)
   int _zcContext(int x, int y) {
@@ -921,6 +940,10 @@ class _BitModel {
     // the first pass is always a cleanup pass on the top plane
     var passType = 2;
     while (pass < passCount && plane >= 0) {
+      // Reset the context states (but not the arithmetic decoder register) at
+      // each coding-pass boundary when the reset flag is set. The first reset
+      // matches the constructor's initial state, so it is a harmless no-op.
+      if (resetOnPass) _resetContexts();
       switch (passType) {
         case 0:
           _significancePass(plane);

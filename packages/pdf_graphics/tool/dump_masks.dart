@@ -23,7 +23,7 @@ class _MaskDevice implements PdfDevice {
   int _maskDepth = 0;
 
   @override
-  void beginGroup(double alpha) {}
+  void beginGroup(double alpha, {bool knockout = false}) {}
   @override
   void endGroup() {}
   @override
@@ -36,7 +36,7 @@ class _MaskDevice implements PdfDevice {
   void endSoftMasked(
       {required bool luminosity,
       required PdfRect backdrop,
-      required void Function() drawMask}) {
+      required void Function() drawMask, double backdropLuminance = 0, double transferScale = 1, double transferOffset = 0}) {
     ends++;
     if (luminosity) luminosityCount++;
     _maskDepth--;

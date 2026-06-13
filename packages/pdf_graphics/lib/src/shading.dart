@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 
+import 'calibrated_color.dart';
 import 'color.dart';
 import 'function.dart';
 import 'matrix.dart';
@@ -55,6 +56,7 @@ class PdfShading {
     required this.coords,
     required this.function,
     required this.components,
+    required this.toColor,
     required this.domain,
     required this.extendStart,
     required this.extendEnd,
@@ -69,6 +71,13 @@ class PdfShading {
   final List<double> coords;
   final PdfFunction? function;
   final int components;
+
+  /// Maps a raw color value (the shading function's output, in the
+  /// shading's own colour space) to sRGB. For device spaces this is a
+  /// plain [colorFromComponents]; for Separation/DeviceN it runs the tint
+  /// transform into the alternate space (§8.6.6.4); for ICCBased/Cal*/Lab
+  /// it applies the calibrated conversion.
+  final PdfColor Function(List<double>) toColor;
   final List<double> domain;
   final bool extendStart;
   final bool extendEnd;
@@ -97,6 +106,7 @@ class PdfShading {
       coords: coords,
       function: PdfFunction.parse(cos, dict['Function']),
       components: _componentCount(cos, dict['ColorSpace']),
+      toColor: _colorConverterFor(cos, dict['ColorSpace']),
       domain: domain.length >= 2 ? domain : const [0, 1],
       extendStart: extend is CosArray &&
           extend.length > 0 &&
@@ -168,7 +178,7 @@ class PdfShading {
       final y = d[2] + (d[3] - d[2]) * j / cells;
       for (var i = 0; i <= cells; i++) {
         final x = d[0] + (d[1] - d[0]) * i / cells;
-        final color = colorFromComponents(fn.evaluateAt([x, y]), components);
+        final color = toColor(fn.evaluateAt([x, y]));
         vertices.add(PdfMeshVertex(
             matrix.transformX(x, y), matrix.transformY(x, y), color));
       }
@@ -214,7 +224,7 @@ class PdfShading {
     for (var i = 0; i <= sampleCount; i++) {
       final s = i / sampleCount;
       final t = domain[0] + s * (domain[1] - domain[0]);
-      colors.add(colorFromComponents(fn.evaluate(t), components));
+      colors.add(toColor(fn.evaluate(t)));
       stops.add(s);
     }
     return PdfGradient(
@@ -239,6 +249,41 @@ class PdfShading {
           _ => 0.0,
         },
     ];
+  }
+
+  /// Builds a converter from the shading's colour space to sRGB. Device
+  /// spaces map their components directly; Separation/DeviceN run the tint
+  /// transform into the alternate space (§8.6.6.4); ICCBased/CalRGB/
+  /// CalGray/Lab apply the calibrated conversion. Falls back to a plain
+  /// component conversion for anything unrecognised.
+  static PdfColor Function(List<double>) _colorConverterFor(
+      CosDocument cos, CosObject? space) {
+    final resolved = cos.resolve(space);
+    if (resolved is CosArray && resolved.length > 0) {
+      final family = cos.resolve(resolved[0]);
+      if (family is CosName) {
+        switch (family.value) {
+          case 'Separation':
+          case 'DeviceN':
+            // [/Separation name alt tint] or [/DeviceN names alt tint attrs]
+            if (resolved.length >= 4) {
+              final tint = PdfFunction.parse(cos, resolved[3]);
+              if (tint != null) {
+                final alternate = _colorConverterFor(cos, resolved[2]);
+                return (values) => alternate(tint.evaluateAt(values));
+              }
+            }
+          case 'ICCBased':
+          case 'CalRGB':
+          case 'CalGray':
+          case 'Lab':
+            final calibrated = PdfCalibratedColorSpace.parse(cos, resolved);
+            if (calibrated != null) return calibrated.toSrgb;
+        }
+      }
+    }
+    final n = _componentCount(cos, space);
+    return (values) => colorFromComponents(values, n);
   }
 
   /// Component count of a color-space object (name or array form).

@@ -54,7 +54,7 @@ class _DumpDevice implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode mode) {}
   @override
-  void beginGroup(double alpha) {}
+  void beginGroup(double alpha, {bool knockout = false}) {}
   @override
   void endGroup() {}
   @override
@@ -63,5 +63,5 @@ class _DumpDevice implements PdfDevice {
   void endSoftMasked(
       {required bool luminosity,
       required PdfRect backdrop,
-      required void Function() drawMask}) {}
+      required void Function() drawMask, double backdropLuminance = 0, double transferScale = 1, double transferOffset = 0}) {}
 }

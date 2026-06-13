@@ -5,8 +5,10 @@ import 'package:pdf_document/pdf_document.dart'
     show helveticaWidths, helveticaBoldWidths, timesRomanWidths;
 
 import 'fonts/cff.dart';
+import 'fonts/cjk_cmap.dart';
 import 'fonts/encodings.dart';
 import 'fonts/truetype.dart';
+import 'fonts/type1.dart';
 import 'path.dart';
 
 /// Metrics, text decoding, and (for embedded TrueType fonts) real glyph
@@ -21,22 +23,31 @@ class PdfFontInfo {
     required Map<int, String> toUnicode,
     TrueTypeFont? trueType,
     CffFont? cff,
+    Type1Font? type1,
     Uint8List? cidToGid,
     bool symbolic = false,
     bool legacyGbk = false,
+    CjkCmap? cjkCmap,
     Map<int, String> encodingNames = const {},
     Map<int, int>? cffCodeToGid,
     Map<int, CosStream> type3Procs = const {},
     this.type3Resources,
     List<double>? type3Matrix,
+    this.isVertical = false,
+    List<double> dw2 = const [880, -1000],
+    Map<int, List<double>> w2 = const {},
   })  : _widths = widths,
+        _dw2 = dw2,
+        _w2 = w2,
         _defaultWidth = defaultWidth,
         _toUnicode = toUnicode,
         _trueType = trueType,
         _cff = cff,
+        _type1 = type1,
         _cidToGid = cidToGid,
         _symbolic = symbolic,
         _legacyGbk = legacyGbk,
+        _cjkCmap = cjkCmap,
         _encodingNames = encodingNames,
         _cffCodeToGid = cffCodeToGid,
         _type3Procs = type3Procs,
@@ -44,19 +55,39 @@ class PdfFontInfo {
 
   final String? baseFont;
 
-  /// True for Type0 composite fonts, which use two-byte codes here.
-  /// Assumes an Identity CMap (the overwhelmingly common case); other
-  /// predefined CMaps are a TODO.
+  /// True for Type0 composite fonts. Identity-H/V (the common case) and
+  /// embedded CMap streams use two-byte codes here; a predefined CJK CMap on a
+  /// non-embedded font (Shift-JIS/EUC-JP, GBK, Big5, UHC, or a `Uni*-UCS2/UTF16`
+  /// CMap) is decoded via [_cjkCmap].
   final bool isCid;
 
   final Map<int, double> _widths;
   final double _defaultWidth;
+
+  /// True for Type0 fonts with a vertical writing-mode CMap: Identity-V, a
+  /// predefined `…-V` CMap, or an embedded CMap stream with `/WMode 1`. Glyphs
+  /// advance downward and use the vertical metrics from /W2 and /DW2
+  /// (§9.7.4.3); horizontal fonts ignore all of that.
+  final bool isVertical;
+
+  /// /DW2 `[v_y w1_y]` in glyph space (÷1000), default `[880 −1000]`: the
+  /// default position-vector y and vertical displacement for vertical writing.
+  final List<double> _dw2;
+
+  /// /W2 vertical metrics by CID: `[w1_y, v_x, v_y]` in glyph space (÷1000).
+  final Map<int, List<double>> _w2;
   final Map<int, String> _toUnicode;
   final TrueTypeFont? _trueType;
   final CffFont? _cff;
+  final Type1Font? _type1;
   final Uint8List? _cidToGid;
   final bool _symbolic;
   final bool _legacyGbk;
+
+  /// Decoder for a predefined CJK CMap on a non-embedded Type0 font; null for
+  /// Identity-H and all embedded composites.
+  final CjkCmap? _cjkCmap;
+
   final Map<int, String> _encodingNames;
 
   /// PDF /Encoding (base + Differences) resolved against the CFF charset;
@@ -80,7 +111,8 @@ class PdfFontInfo {
   CosStream? type3ProcFor(int code) => _type3Procs[code];
 
   /// True when embedded glyph outlines are available.
-  bool get hasOutlines => _trueType != null || _cff != null;
+  bool get hasOutlines =>
+      _trueType != null || _cff != null || _type1 != null;
 
   static PdfFontInfo load(CosDocument cos, CosDictionary font) {
     final subtype = font['Subtype'];
@@ -93,6 +125,9 @@ class PdfFontInfo {
     // glyph space is defined by /FontMatrix (§9.6.5).
     var widthScale = 0.001;
     var defaultWidth = 0.5;
+    var isVertical = false;
+    var dw2 = const <double>[880, -1000];
+    final w2 = <int, List<double>>{};
     List<double>? type3Matrix;
     var type3Procs = const <int, CosStream>{};
     CosDictionary? type3Resources;
@@ -115,11 +150,22 @@ class PdfFontInfo {
     final toUnicode = _parseToUnicode(cos, font['ToUnicode']);
     TrueTypeFont? trueType;
     CffFont? cff;
+    Type1Font? type1;
     Uint8List? cidToGid;
     var symbolic = false;
+    CjkCmap? cjkCmap;
     var encodingNames = const <int, String>{};
 
     if (isCid) {
+      // Writing mode: a `…-V` predefined CMap name or an embedded CMap stream
+      // with /WMode 1 selects vertical writing (§9.7.4.3).
+      final encoding = cos.resolve(font['Encoding']);
+      if (encoding is CosName) {
+        isVertical = encoding.value.endsWith('-V');
+      } else if (encoding is CosStream) {
+        final wmode = cos.resolve(encoding.dictionary['WMode']);
+        isVertical = wmode is CosInteger && wmode.value == 1;
+      }
       final descendants = cos.resolve(font['DescendantFonts']);
       final descendant = descendants is CosArray && descendants.length > 0
           ? cos.resolve(descendants[0])
@@ -132,6 +178,14 @@ class PdfFontInfo {
                 ? dw.value / 1000
                 : 1.0;
         _parseCidWidths(cos, cos.resolve(descendant['W']), widths);
+        final dw2obj = cos.resolve(descendant['DW2']);
+        if (dw2obj is CosArray && dw2obj.length >= 2) {
+          dw2 = [
+            _toNum(cos.resolve(dw2obj[0])),
+            _toNum(cos.resolve(dw2obj[1])),
+          ];
+        }
+        _parseCidW2(cos, cos.resolve(descendant['W2']), w2);
         final descriptor = cos.resolve(descendant['FontDescriptor']);
         if (descriptor is CosDictionary) {
           trueType = _loadTrueType(cos, descriptor);
@@ -145,6 +199,15 @@ class PdfFontInfo {
           } on Exception {
             cidToGid = null;
           }
+        }
+      }
+      // Predefined CJK CMaps: with no embedded outlines we decode the bytes to
+      // Unicode and let the device substitute a system CJK font (the renderer
+      // never had glyphs for these). Identity-H and embedded composites are not
+      // matched and keep the two-byte path below.
+      if (trueType == null && cff == null && toUnicode.isEmpty) {
+        if (encoding is CosName) {
+          cjkCmap = CjkCmap.forName(encoding.value);
         }
       }
     } else {
@@ -166,6 +229,9 @@ class PdfFontInfo {
         }
         trueType = _loadTrueType(cos, descriptor);
         if (trueType == null) cff = _loadCff(cos, descriptor);
+        if (trueType == null && cff == null) {
+          type1 = _loadType1(cos, descriptor);
+        }
         symbolic = _isSymbolic(cos, descriptor);
       }
       // base-14 fonts may omit /Widths entirely (§9.6.2.2) — the viewer
@@ -190,14 +256,19 @@ class PdfFontInfo {
       toUnicode: toUnicode,
       trueType: trueType,
       cff: cff,
+      type1: type1,
       cidToGid: cidToGid,
       symbolic: symbolic,
       legacyGbk: !isCid && toUnicode.isEmpty && _isLegacyGbkFont(baseFont),
+      cjkCmap: cjkCmap,
       encodingNames: encodingNames,
       cffCodeToGid: cffCodeToGid,
       type3Procs: type3Procs,
       type3Resources: type3Resources,
       type3Matrix: type3Matrix,
+      isVertical: isVertical,
+      dw2: dw2,
+      w2: w2,
     );
   }
 
@@ -356,6 +427,19 @@ class PdfFontInfo {
     return null;
   }
 
+  /// Type 1 outlines: the raw PostScript /FontFile (eexec-encrypted
+  /// charstrings). Tried only after TrueType and CFF, since those are far
+  /// more common in modern PDFs.
+  static Type1Font? _loadType1(CosDocument cos, CosDictionary descriptor) {
+    final file = cos.resolve(descriptor['FontFile']);
+    if (file is! CosStream) return null;
+    try {
+      return Type1Font.parse(cos.decodeStreamData(file));
+    } on Exception {
+      return null;
+    }
+  }
+
   static bool _isSymbolic(CosDocument cos, CosDictionary descriptor) {
     final flags = cos.resolve(descriptor['Flags']);
     return flags is CosInteger && (flags.value & 4) != 0;
@@ -383,8 +467,18 @@ class PdfFontInfo {
     if (trueType != null) return trueType.outlineForGlyph(_gidFor(code));
     final cff = _cff;
     if (cff != null) return cff.outlineForGlyph(_cffGidFor(code));
+    final type1 = _type1;
+    if (type1 != null) {
+      final name = _type1NameFor(code);
+      return name == null ? null : type1.outlineForName(name);
+    }
     return null;
   }
+
+  /// Code → glyph name for a Type 1 font: the PDF /Encoding wins, falling
+  /// back to the font's built-in /Encoding (§9.6.6.2).
+  String? _type1NameFor(int code) =>
+      _encodingNames[code] ?? _type1?.builtinEncoding[code];
 
   int _cffGidFor(int code) {
     final cff = _cff!;
@@ -412,6 +506,18 @@ class PdfFontInfo {
       final gid = font.gidForSymbolCode(code);
       if (gid != 0) return gid;
     }
+    // Glyph selection goes through the font's /Encoding, not /ToUnicode
+    // (§9.6.6.4). Subset fonts (pdfkit, many producers) key their Unicode
+    // cmap on the original code points reached via the encoding's glyph
+    // names, while /ToUnicode remaps to semantic Unicode (e.g. code 33 →
+    // "exclam" → U+0021 in the cmap, but /ToUnicode says U+0053 'S').
+    final encUnicode = _encodingUnicode(code);
+    if (encUnicode != null) {
+      final gid = font.gidForUnicode(encUnicode);
+      if (gid != 0) return gid;
+    }
+    // Fall back to /ToUnicode-derived Unicode for fonts whose cmap really is
+    // keyed by semantic Unicode and that carry no usable encoding.
     final unicode = charFor(code);
     if (unicode.isNotEmpty) {
       final gid = font.gidForUnicode(unicode.runes.first);
@@ -419,14 +525,40 @@ class PdfFontInfo {
     }
     final mac = font.gidForMacCode(code);
     if (mac != 0) return mac;
-    // subset fonts without a cmap index glyphs directly by code
+    // cmap-less fonts: select by glyph name through the `post` table — a subset
+    // packs its used glyphs at arbitrary gids, so the encoding name → gid
+    // mapping (e.g. "greater" → gid 33) is the only correct path (§9.6.6.4).
+    if (!font.hasCmap) {
+      final name = _encodingNames[code] ?? _type1?.builtinEncoding[code];
+      if (name != null) {
+        final gid = font.gidForName(name);
+        if (gid != 0) return gid;
+      }
+    }
+    // subset fonts without a cmap or post names index glyphs directly by code
     if (!font.hasCmap && code < font.numGlyphs) return code;
     return 0;
+  }
+
+  /// Unicode for one code via the font's /Encoding (glyph name → Unicode),
+  /// independent of /ToUnicode. Used for glyph selection; returns null for
+  /// CID fonts and codes with no encoding entry.
+  int? _encodingUnicode(int code) {
+    if (isCid) return null;
+    final name = _encodingNames[code] ?? _type1?.builtinEncoding[code];
+    if (name != null) {
+      final mapped = glyphNameUnicode(name);
+      if (mapped != null) return mapped;
+    }
+    // No encoding entry: Standard/WinAnsi ≈ Latin-1 over 0x20–0xFF.
+    if (code >= 0x20 && code <= 0xFF) return code;
+    return null;
   }
 
   /// Splits show-text string bytes into character codes.
   List<int> codesOf(Uint8List bytes) {
     if (_legacyGbk) return _legacyGbkCodesOf(bytes);
+    if (_cjkCmap != null) return _cjkCmap.split(bytes);
     if (!isCid) return bytes;
     final codes = <int>[];
     for (var i = 0; i + 1 < bytes.length; i += 2) {
@@ -455,13 +587,36 @@ class PdfFontInfo {
       final advance = cff.advanceForGlyph(_cffGidFor(code));
       if (advance != null && advance > 0) return advance;
     }
+    final type1 = _type1;
+    if (type1 != null) {
+      final name = _type1NameFor(code);
+      final advance = name == null ? null : type1.advanceForName(name);
+      if (advance != null && advance > 0) return advance;
+    }
     return _defaultWidth;
+  }
+
+  /// Vertical pen advance in em for [code] — the y-component of the vertical
+  /// displacement vector w1 (§9.7.4.3), normally negative (downward). Only
+  /// meaningful when [isVertical].
+  double verticalAdvanceOf(int code) => (_w2[code]?[0] ?? _dw2[1]) / 1000;
+
+  /// Position vector in em from the glyph's horizontal origin to its vertical
+  /// origin (§9.7.4.3): x centres the glyph on the column (half its horizontal
+  /// advance) and y comes from /W2 or /DW2. Only meaningful when [isVertical].
+  ({double x, double y}) verticalOriginOf(int code) {
+    final v = _w2[code];
+    return (
+      x: v != null ? v[1] / 1000 : widthOf(code) / 2,
+      y: (v != null ? v[2] : _dw2[0]) / 1000,
+    );
   }
 
   /// Best-effort Unicode for one character code.
   String charFor(int code) {
     final mapped = _toUnicode[code];
     if (mapped != null) return mapped;
+    if (_cjkCmap != null) return _cjkCmap.unicode(code);
     if (_legacyGbk && code > 0xFF) {
       final mapped = _legacyGbkUnicode[code];
       if (mapped != null) return String.fromCharCode(mapped);
@@ -471,7 +626,7 @@ class PdfFontInfo {
       if (mapped != null) return String.fromCharCode(mapped);
     }
     if (!isCid) {
-      final name = _encodingNames[code];
+      final name = _encodingNames[code] ?? _type1?.builtinEncoding[code];
       if (name != null) {
         final mapped = glyphNameUnicode(name);
         if (mapped != null) return String.fromCharCode(mapped);
@@ -518,6 +673,41 @@ class PdfFontInfo {
           out[cid] = width;
         }
         i += 3;
+      } else {
+        break;
+      }
+    }
+  }
+
+  /// /W2 vertical metrics (§9.7.4.3): `c [w1y vx vy w1y vx vy …]` lists triples
+  /// from CID c; `c1 c2 w1y vx vy` sets a range. Values are in glyph space.
+  static void _parseCidW2(
+      CosDocument cos, CosObject? w, Map<int, List<double>> out) {
+    if (w is! CosArray) return;
+    var i = 0;
+    while (i < w.length) {
+      final first = cos.resolve(w[i]);
+      if (first is! CosInteger || i + 1 >= w.length) break;
+      final second = cos.resolve(w[i + 1]);
+      if (second is CosArray) {
+        for (var k = 0; k + 2 < second.length; k += 3) {
+          out[first.value + k ~/ 3] = [
+            _toNum(cos.resolve(second[k])),
+            _toNum(cos.resolve(second[k + 1])),
+            _toNum(cos.resolve(second[k + 2])),
+          ];
+        }
+        i += 2;
+      } else if (second is CosInteger && i + 4 < w.length) {
+        final m = [
+          _toNum(cos.resolve(w[i + 2])),
+          _toNum(cos.resolve(w[i + 3])),
+          _toNum(cos.resolve(w[i + 4])),
+        ];
+        for (var cid = first.value; cid <= second.value; cid++) {
+          out[cid] = m;
+        }
+        i += 5;
       } else {
         break;
       }

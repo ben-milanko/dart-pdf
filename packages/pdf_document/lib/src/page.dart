@@ -31,10 +31,18 @@ class PdfPage {
   /// anywhere on their tree path.
   static const PdfRect _letter = PdfRect(0, 0, 612, 792);
 
-  PdfRect get mediaBox => _toRect(_mediaBoxArray) ?? _letter;
+  PdfRect get mediaBox {
+    final box = _toRect(_mediaBoxArray);
+    return _hasArea(box) ? box! : _letter;
+  }
 
-  PdfRect get cropBox =>
-      (_toRect(_cropBoxArray) ?? mediaBox).intersect(mediaBox);
+  PdfRect get cropBox {
+    final media = mediaBox;
+    final crop = _toRect(_cropBoxArray);
+    if (!_hasArea(crop)) return media;
+    final clipped = crop!.intersect(media);
+    return _hasArea(clipped) ? clipped : media;
+  }
 
   /// Clockwise display rotation: always 0, 90, 180, or 270.
   int get rotation {
@@ -103,4 +111,7 @@ class PdfPage {
     }
     return PdfRect.normalized(values[0], values[1], values[2], values[3]);
   }
+
+  bool _hasArea(PdfRect? rect) =>
+      rect != null && rect.width > 0 && rect.height > 0;
 }

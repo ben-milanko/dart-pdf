@@ -12,8 +12,9 @@ import 'theme.dart';
 /// count, previous/next, and clear riding alongside — small enough for
 /// an app bar.
 ///
-/// Searches as you type (debounced) and on enter. Pair it with a
-/// [PdfSearchResultsPanel] listing every hit.
+/// Searches as you type (debounced) and on enter; once a query is live,
+/// pressing enter again steps to the next match (browser-style). Pair it
+/// with a [PdfSearchResultsPanel] listing every hit.
 class PdfSearchField extends StatefulWidget {
   const PdfSearchField({
     super.key,
@@ -71,7 +72,17 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
 
   void _onSubmitted(String text) {
     _debounce?.cancel();
-    unawaited(widget.controller.search(text));
+    final controller = widget.controller;
+    // Browser-style: the first enter searches; once the query is live
+    // (already searched, with hits), each subsequent enter steps to the
+    // next match. A changed query searches afresh.
+    if (text == controller.query &&
+        !controller.isSearching &&
+        controller.matchCount > 0) {
+      controller.nextMatch();
+    } else {
+      unawaited(controller.search(text));
+    }
   }
 
   void _clear() {
@@ -126,6 +137,10 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
                     const BoxConstraints(minWidth: 32, minHeight: 32),
               ),
               textInputAction: TextInputAction.search,
+              // The search action unfocuses the field by default; keep
+              // focus so a second enter reaches onSubmitted and steps to
+              // the next match instead of dismissing the field.
+              onEditingComplete: () {},
               onChanged: _onChanged,
               onSubmitted: _onSubmitted,
             ),
@@ -184,6 +199,7 @@ class PdfSearchResultsPanel extends StatefulWidget {
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 480,
+    this.bottomSheet = false,
   });
 
   final PdfViewerController controller;
@@ -204,6 +220,11 @@ class PdfSearchResultsPanel extends StatefulWidget {
   /// Clamps for the dragged width.
   final double minWidth;
   final double maxWidth;
+
+  /// Lays the panel out to fill its parent (full width, no side resize
+  /// grip) for hosting inside a bottom sheet on a small screen, rather
+  /// than as a fixed-width docked column.
+  final bool bottomSheet;
 
   @override
   State<PdfSearchResultsPanel> createState() => _PdfSearchResultsPanelState();
@@ -294,11 +315,9 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    return SizedBox(
-      width: _width,
-      child: Stack(children: [
-        Positioned.fill(
-          child: Material(
+    final showGrip = widget.resizable && !widget.bottomSheet;
+    final onLeftEdge = !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    final content = Material(
             color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: ListenableBuilder(
               listenable: controller,
@@ -323,9 +342,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                   entries.add((header: null, result: i));
                 }
                 final barClearance = PdfScrollbar.hitExtent +
-                    (widget.resizable && widget.side == PdfSidebarSide.left
-                        ? PdfSidebarResizeGrip.width
-                        : 0);
+                    (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
                 final textTheme = Theme.of(context).textTheme;
                 return Stack(children: [
                   Column(children: [
@@ -376,9 +393,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     top: 0,
                     bottom: 0,
                     right:
-                        widget.resizable && widget.side == PdfSidebarSide.left
-                            ? PdfSidebarResizeGrip.width
-                            : 0,
+                        showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0,
                     child: PdfScrollbar(
                       scroll: _scroll,
                       thumbKey: const ValueKey('pdf-search-scrollbar-thumb'),
@@ -387,9 +402,13 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                 ]);
               },
             ),
-          ),
-        ),
-        if (widget.resizable)
+          );
+    if (widget.bottomSheet) return content;
+    return SizedBox(
+      width: _width,
+      child: Stack(children: [
+        Positioned.fill(child: content),
+        if (showGrip)
           Positioned(
             top: 0,
             bottom: 0,
