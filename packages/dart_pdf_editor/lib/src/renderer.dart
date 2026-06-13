@@ -52,7 +52,8 @@ class PdfPageRenderer {
         PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
           ..drawPageOperations(page, pageOps);
     if (annotations) collecting.drawAnnotations(page, skip: skipAnnotation);
-    final images = await decodeImages(cos, collector.streams);
+    final images =
+        await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
 
     final box = page.cropBox;
     final size = pageSize(page);
@@ -94,7 +95,14 @@ class PdfPageRenderer {
         cos: cos, device: CanvasPdfDevice(canvas, images: images))
       ..drawPageOperations(page, pageOps);
     if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
-    return recorder.endRecording();
+    final picture = recorder.endRecording();
+    // The picture retains its own reference to every drawn image, so the
+    // decode handles (clones from the cache, or fresh decodes) can be freed
+    // now — the cache keeps the masters for the next render.
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
   }
 
   /// Renders one annotation's appearance into a picture in the same page
@@ -109,7 +117,8 @@ class PdfPageRenderer {
     final collector = ImageCollector();
     PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
         .drawAnnotation(page, annotation);
-    final images = await decodeImages(cos, collector.streams);
+    final images =
+        await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
 
     final box = page.cropBox;
     final size = pageSize(page);
@@ -132,7 +141,11 @@ class PdfPageRenderer {
 
     PdfInterpreter(cos: cos, device: CanvasPdfDevice(canvas, images: images))
         .drawAnnotation(page, annotation);
-    return recorder.endRecording();
+    final picture = recorder.endRecording();
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
   }
 
   /// Renders [page] to a bitmap. [pixelRatio] of 2 doubles the resolution.

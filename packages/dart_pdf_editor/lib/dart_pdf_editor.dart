@@ -21,6 +21,7 @@ export 'src/editing/line_style.dart';
 export 'src/editing/stroke_prediction.dart';
 export 'src/editing/text_prompt.dart';
 export 'src/editing/tool_shortcuts.dart';
+export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';
 export 'src/page_geometry.dart';
 export 'src/page_number_field.dart';
