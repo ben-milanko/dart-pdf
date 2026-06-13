@@ -6,6 +6,7 @@ import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
+import 'line_style.dart';
 
 /// A panel showing — and editing — the selected annotation's properties.
 ///
@@ -371,11 +372,14 @@ class _PdfAnnotationPropertiesPanelState
     return true;
   }
 
-  static const _fillable = {'Square', 'Circle', 'FreeText'};
-  static const _stroked = {'Square', 'Circle', 'Ink'};
+  static const _fillable = {'Square', 'Circle', 'Polygon', 'FreeText'};
+  static const _stroked = {'Square', 'Circle', 'Polygon', 'Ink'};
+  static const _lineStyled = {
+    'Square', 'Circle', 'Line', 'PolyLine', 'Polygon', //
+  };
   static const _translucent = {
-    'Square', 'Circle', 'Ink', 'Highlight', 'Underline', 'StrikeOut',
-    'Squiggly', 'Stamp', //
+    'Square', 'Circle', 'Polygon', 'Ink', 'Highlight', 'Underline',
+    'StrikeOut', 'Squiggly', 'Stamp', //
   };
 
   List<Widget> _styleControls(PdfAnnotation annotation) {
@@ -408,6 +412,29 @@ class _PdfAnnotationPropertiesPanelState
           _controller.restyleSelected(strokeWidth: v);
           setState(() => _draggingStroke = null);
         },
+      ));
+    }
+    if (_allSelected(_lineStyled) && _controller.canSetLineStyleSelected) {
+      children.add(Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(children: [
+          const Expanded(child: Text('Line type')),
+          DropdownButton<PdfLineStyle>(
+            key: const ValueKey('pdf-prop-line-type'),
+            value: _controller.selectedLineStyle ?? PdfLineStyle.solid,
+            isDense: true,
+            items: [
+              for (final style in PdfLineStyle.values)
+                DropdownMenuItem(
+                    value: style,
+                    key: ValueKey('pdf-prop-line-type-${style.name}'),
+                    child: Text(style.label)),
+            ],
+            onChanged: (style) {
+              if (style != null) _controller.restyleSelected(lineStyle: style);
+            },
+          ),
+        ]),
       ));
     }
     if (_allSelected(_translucent)) {

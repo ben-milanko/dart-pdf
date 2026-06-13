@@ -1896,6 +1896,70 @@ not 'Large'); don't tap-test suppression with the ink tool armed (the
 dot's 800ms auto-commit timer trips !timersPending) — assert the layer's
 absence with find.byType(FormInteractionLayer) instead.
 
+Shape-style batch (Ben's comment list): seven features. (1) Line type
+(dash) for ALL stroked subtypes: the model's boolean `dashed` collapsed
+into an explicit `List<double>? dashPattern` (null = solid) threaded
+through `_borderStyle`/`_shapeContent`/`_lineContent` and every creator
+(addSquare/addCircle gained it; addLine/addPolyLine/addPolygon/
+addMeasurement swapped `dashed:`→`dashPattern:`), so Square/Circle can
+now be dashed too. Dashed shapes REGENERATE on resize/restyle instead of
+falling back to the §12.5.5 stretch — `pdfCanRestyleAnnotation`'s
+Square/Circle `/BS /D`-refusal dropped (cloudy `/BE` still stretches),
+`_regenerateResizedAppearance` and `restyleAnnotation` read
+`annotation.borderDash` and pass it back (the actual array survives a
+resize now, not a width-recomputed default; `_dashPattern` helper gone).
+`restyleAnnotation` grew a `(List<double>?,)? dashPattern` sentinel.
+The enum lives in the editing layer (`PdfLineStyle` in
+editing/line_style.dart, exported): solid/dashed/dotted/dashDot →
+`dashArray(width)` (width-scaled, 2pt floor) and `ofDashArray()` (classify
+a stored array back by segment count + dash:gap ratio). Preference
+`dashedStroke` (bool) became `lineStyle` (persisted by name, migrates the
+old bool); controller keeps a `dashedStroke` compat shim (the drag
+previews still think in dashed/solid) plus `lineStyle`, `_lineDashPattern`
+(= lineStyle.dashArray(strokeWidth), fed to every creator),
+`canSetLineStyleSelected`, `selectedLineStyle`, and `restyleSelected(
+lineStyle:)` (per-annotation dash recomputed at its own — or the
+just-changed — width). UI: the toolbar `_StyleMenu`'s old dashed
+SwitchListTile is now a `pdf-line-type` DropdownButton (shows for shapes
+AND a line/shape selection, restyles live); `_StyleFields.dashed`→
+`lineType`; the properties panel got a matching `pdf-prop-line-type`
+dropdown (`_lineStyled` set). (2) Fill polygons: `PdfEditor.addPolygon`
+already wrote `/IC` but the controller's `addPolygon` never passed a fill
+— now threads `shapeFillColor`; `canFillSelected` + properties `_fillable`
++ `_stroked`/`_translucent` gained 'Polygon'; the shapes-group/selection
+`shapeFill` field covers the polygon tool; the live poly preview fills via
+the new painter `dragPathFill`, and the commit afterimage (`_afterPath`)
+carries the fill so it doesn't blink. (3) Stroke/opacity drag readout:
+`_styleReadout()` + a generalized `_buildReadoutChip(key:)` (the measure
+readout chip, reused) shows "{w} pt · {n}%" near the cursor while drawing
+a rect/ellipse/line/arrow/poly (`_strokeTools`) or resizing a stroked
+selection — key `pdf-style-readout`, suppressed for measure tools (their
+own readout shows). (4) Cross-page drag: a single-selection move dropped
+over another page re-homes the annotation there instead of leaving it
+off-crop-box behind the neighbour. Overlay tracks `_moveCurrentGlobal`
+(drag-end carries no position) and, on commit, asks the viewer's new
+`onResolvePagePoint` callback (global→list-space via `_listSpaceKey`'s
+RenderBox, then `_pagePointAt`) for the drop page; if it differs,
+`controller.moveSelectedToPage(page, dx, dy)` (capture keepName +
+removeAnnotation source + pasteAnnotation target, one undo, appended on
+top, selects the re-homed slot). Grab-relative: dx/dy = drop − grab so
+the held interior point stays under the cursor. (5) Paste at cursor: the
+viewer tracks `_lastPointerLocal` (hover + pointer-down); ⌘V resolves it
+to a page point and `pasteAnnotations(page, at:)` there (cascade fallback
+when no pointer seen). (6) Select toggle-off: tapping the armed Select
+chip in the toolbar (`_openGroupTap`, group.id=='select' && tool==select)
+sets `tool=null` + `_openGroupId=null` → reader mode; re-tap re-arms.
+Tests: pdf_document annotation_editor_test/annotation_restyle_test updated
+(dashed shapes now regenerate, not stretch; `dashed:`→`dashPattern:`),
+editing_shape_styles_test.dart (10 — line style create/restyle/classify,
+polygon fill, moveSelectedToPage + undo, select toggle, drag readout),
+editing_clipboard_test's ⌘V test now hovers before pasting. Gotchas: the
+line-type Row label must be `Expanded` (a fixed Text + Spacer + the
+"Dash-dot" dropdown overflows the 268px popup under Ahem); the drag-
+readout widget test ends with pump(400ms) to drain the double-tap timer;
+14 Ghent render-baseline tests fail on this machine independent of these
+changes (pre-existing raster diffs, confirmed by stashing).
+
 Bottom-sheet panels on small screens (Ben: "the panels and strips should
 be bottom sheets on small screens"): below `pdfShellCompactWidth` (700,
 the existing compact threshold) the shells float the side panels and the

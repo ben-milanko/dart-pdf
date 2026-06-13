@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+  # GitHub Actions used by the workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Pub dependencies, per workspace package. Grouped to keep PR noise down.
+  - package-ecosystem: pub
+    directories:
+      - /packages/pdf_cos
+      - /packages/pdf_document
+      - /packages/pdf_graphics
+      - /packages/dart_pdf_editor
+      - /packages/dart_pdf_editor/example
+      - /packages/pdf_test_fixtures
+    schedule:
+      interval: weekly
+    groups:
+      pub:
+        patterns:
+          - "*"
+    ignore:
+      # Internal workspace packages are versioned together by release tags,
+      # not by Dependabot.
+      - dependency-name: pdf_cos
+      - dependency-name: pdf_document
+      - dependency-name: pdf_graphics
+      - dependency-name: pdf_test_fixtures
+      - dependency-name: dart_pdf_editor

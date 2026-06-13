@@ -294,13 +294,11 @@ double _distanceToSegment(
 /// needs a usable /InkList, markups need axis-aligned /QuadPoints,
 /// stamps need their caption in /Contents.
 bool pdfCanRestyleAnnotation(PdfAnnotation annotation) {
-  final cos = annotation.document.cos;
   switch (annotation.subtype) {
     case 'Square' || 'Circle':
       if (annotation.normalAppearance == null) return false;
-      if (annotation.dict['BE'] != null) return false;
-      final bs = cos.resolve(annotation.dict['BS']);
-      return bs is! CosDictionary || bs['D'] == null;
+      // cloudy borders (/BE) still can't regenerate; dashed ones now do
+      return annotation.dict['BE'] == null;
     case 'Line':
       return annotation.normalAppearance != null && annotation.line != null;
     case 'PolyLine':
@@ -862,12 +860,13 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth = 2,
     int? fillColor,
     double opacity = 1,
+    List<double>? dashPattern,
     String? contents,
     String? author,
     String? name,
   }) =>
       _addShape('Square', pageIndex, rect, strokeColor, strokeWidth, fillColor,
-          opacity, contents, author, name);
+          opacity, contents, author, name, dashPattern);
 
   /// Adds an ellipse annotation inscribed in [rect]. At least one of
   /// [strokeColor] and [fillColor] must be given.
@@ -878,12 +877,13 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth = 2,
     int? fillColor,
     double opacity = 1,
+    List<double>? dashPattern,
     String? contents,
     String? author,
     String? name,
   }) =>
       _addShape('Circle', pageIndex, rect, strokeColor, strokeWidth, fillColor,
-          opacity, contents, author, name);
+          opacity, contents, author, name, dashPattern);
 
   /// Adds a straight /Line annotation from [start] to [end]. Set
   /// [endEnding] to [PdfLineEnding.closedArrow] for a standard arrow.
@@ -894,7 +894,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int strokeColor = 0xD02020,
     double strokeWidth = 2,
     double opacity = 1,
-    bool dashed = false,
+    List<double>? dashPattern,
     PdfLineEnding startEnding = PdfLineEnding.none,
     PdfLineEnding endEnding = PdfLineEnding.none,
     String? contents,
@@ -904,6 +904,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (start == end) {
       throw ArgumentError.value(end, 'end', 'must differ from start');
     }
+    final dashed = dashPattern != null && dashPattern.isNotEmpty;
     final points = [start, end];
     final endingPoints = <(double, double)>[
       ..._endingExtent(startEnding, start, end, strokeWidth),
@@ -915,7 +916,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _lineContent(points,
         strokeColor: strokeColor,
         strokeWidth: strokeWidth,
-        dashed: dashed,
+        dashPattern: dashPattern,
         closed: false,
         fillColor: null,
         startEnding: startEnding,
@@ -932,7 +933,7 @@ extension PdfAnnotationEditing on PdfEditor {
         CosName(startEnding.pdfName),
         CosName(endEnding.pdfName),
       ])
-      ..['BS'] = _borderStyle(strokeWidth, dashed: dashed);
+      ..['BS'] = _borderStyle(strokeWidth, dashPattern: dashPattern);
     _addAnnotation(
         pageIndex, dict, _form(rect, w, resources: _resources(extGState: gs)),
         name: name);
@@ -948,7 +949,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int strokeColor = 0xD02020,
     double strokeWidth = 2,
     double opacity = 1,
-    bool dashed = false,
+    List<double>? dashPattern,
     PdfLineEnding startEnding = PdfLineEnding.none,
     PdfLineEnding endEnding = PdfLineEnding.none,
     String? contents,
@@ -968,7 +969,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _lineContent(vertices,
         strokeColor: strokeColor,
         strokeWidth: strokeWidth,
-        dashed: dashed,
+        dashPattern: dashPattern,
         closed: false,
         fillColor: null,
         startEnding: startEnding,
@@ -980,7 +981,7 @@ extension PdfAnnotationEditing on PdfEditor {
         CosName(startEnding.pdfName),
         CosName(endEnding.pdfName),
       ])
-      ..['BS'] = _borderStyle(strokeWidth, dashed: dashed);
+      ..['BS'] = _borderStyle(strokeWidth, dashPattern: dashPattern);
     _addAnnotation(
         pageIndex, dict, _form(rect, w, resources: _resources(extGState: gs)),
         name: name);
@@ -994,7 +995,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth = 2,
     int? fillColor,
     double opacity = 1,
-    bool dashed = false,
+    List<double>? dashPattern,
     String? contents,
     String? author,
     String? name,
@@ -1007,13 +1008,13 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _lineContent(vertices,
         strokeColor: strokeColor,
         strokeWidth: strokeWidth,
-        dashed: dashed,
+        dashPattern: dashPattern,
         closed: true,
         fillColor: fillColor,
         hasAlpha: gs != null);
     final dict = _markupDict('Polygon', rect, strokeColor, contents, author)
       ..['Vertices'] = _pointArray(vertices)
-      ..['BS'] = _borderStyle(strokeWidth, dashed: dashed);
+      ..['BS'] = _borderStyle(strokeWidth, dashPattern: dashPattern);
     if (fillColor != null) dict['IC'] = _colorComponents(fillColor);
     _addAnnotation(
         pageIndex, dict, _form(rect, w, resources: _resources(extGState: gs)),
@@ -1071,7 +1072,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth = 2,
     int? fillColor,
     double opacity = 1,
-    bool dashed = false,
+    List<double>? dashPattern,
     int? captionColor,
     String? author,
     String? name,
@@ -1095,7 +1096,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final content = _lineContent(points,
         strokeColor: strokeColor,
         strokeWidth: strokeWidth,
-        dashed: dashed,
+        dashPattern: dashPattern,
         closed: closed,
         fillColor: closed ? fillColor : null,
         hasAlpha: gs != null);
@@ -1140,7 +1141,7 @@ extension PdfAnnotationEditing on PdfEditor {
       PdfMeasurementKind.area => 'PolygonDimension',
     };
     final dict = _markupDict(subtype, rect, strokeColor, caption, author)
-      ..['BS'] = _borderStyle(strokeWidth, dashed: dashed)
+      ..['BS'] = _borderStyle(strokeWidth, dashPattern: dashPattern)
       ..['IT'] = CosName(intent)
       ..['Measure'] = m.toCosDictionary();
     if (kind == PdfMeasurementKind.distance) {
@@ -1532,7 +1533,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _lineContent(points,
         strokeColor: stroke,
         strokeWidth: width,
-        dashed: dashed,
+        dashPattern: annotation.borderDash,
         closed: subtype == 'Polygon',
         fillColor: fill,
         startEnding: endings.$1,
@@ -1974,20 +1975,17 @@ extension PdfAnnotationEditing on PdfEditor {
       {double? opacity}) {
     final form = annotation.normalAppearance;
     if (form == null) return false;
-    final cos = document.cos;
     final dict = annotation.dict;
     switch (annotation.subtype) {
       case 'Square' || 'Circle':
-        if (dict['BE'] != null) return false;
-        final bs = cos.resolve(dict['BS']);
-        if (bs is CosDictionary && bs['D'] != null) return false;
+        if (dict['BE'] != null) return false; // cloudy borders still stretch
         final width = annotation.borderWidth ?? 1;
         final stroke = width > 0 ? annotation.color : null;
         final fill = annotation.interiorColor;
         if (stroke == null && fill == null) return false;
         final gs = _alphaState(opacity ?? _appearanceOpacity(form));
         final w = _shapeContent(annotation.subtype, to, stroke, width, fill,
-            hasAlpha: gs != null);
+            dashPattern: annotation.borderDash, hasAlpha: gs != null);
         _replaceAppearance(dict, form, to, w,
             resources: _resources(extGState: gs));
         return true;
@@ -2042,7 +2040,6 @@ extension PdfAnnotationEditing on PdfEditor {
     final width = annotation.borderWidth ?? 1;
     final stroke = annotation.color;
     if (stroke == null || width <= 0) return false;
-    final dashed = annotation.borderDash != null;
     final fill =
         annotation.subtype == 'Polygon' ? annotation.interiorColor : null;
     final endings = _lineEndings(annotation);
@@ -2050,7 +2047,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _lineContent(points,
         strokeColor: stroke,
         strokeWidth: width,
-        dashed: dashed,
+        dashPattern: annotation.borderDash,
         closed: annotation.subtype == 'Polygon',
         fillColor: fill,
         startEnding: endings.$1,
@@ -2098,11 +2095,13 @@ extension PdfAnnotationEditing on PdfEditor {
     (int?,)? fillColor,
     double? strokeWidth,
     double? opacity,
+    (List<double>?,)? dashPattern,
   }) {
     if (color == null &&
         fillColor == null &&
         strokeWidth == null &&
-        opacity == null) {
+        opacity == null &&
+        dashPattern == null) {
       return false;
     }
     if (!pdfCanRestyleAnnotation(annotation)) return false;
@@ -2163,7 +2162,9 @@ extension PdfAnnotationEditing on PdfEditor {
             fillColor != null ? fillColor.$1 : annotation.interiorColor;
         if ((stroke == null || width <= 0) && fill == null) return false;
         if (stroke != null) dict['C'] = _colorComponents(stroke);
-        dict['BS'] = _borderStyle(width);
+        final dash =
+            dashPattern != null ? dashPattern.$1 : annotation.borderDash;
+        dict['BS'] = _borderStyle(width, dashPattern: dash);
         if (fill != null) {
           dict['IC'] = _colorComponents(fill);
         } else {
@@ -2174,9 +2175,10 @@ extension PdfAnnotationEditing on PdfEditor {
         final width = strokeWidth ?? annotation.borderWidth ?? 1;
         final stroke = color ?? annotation.color;
         if (stroke == null || width <= 0) return false;
-        final dashed = annotation.borderDash != null;
+        final dash =
+            dashPattern != null ? dashPattern.$1 : annotation.borderDash;
         dict['C'] = _colorComponents(stroke);
-        dict['BS'] = _borderStyle(width, dashed: dashed);
+        dict['BS'] = _borderStyle(width, dashPattern: dash);
         if (annotation.subtype == 'Polygon') {
           final fill =
               fillColor != null ? fillColor.$1 : annotation.interiorColor;
@@ -2595,18 +2597,20 @@ extension PdfAnnotationEditing on PdfEditor {
     String? contents,
     String? author,
     String? name,
+    List<double>? dashPattern,
   ) {
     if (strokeColor == null && fillColor == null) {
       throw ArgumentError('strokeColor and fillColor are both null');
     }
     final stroking = strokeColor != null && strokeWidth > 0;
+    final dash = stroking ? dashPattern : null;
     final gs = _alphaState(opacity);
     final w = _shapeContent(subtype, rect, strokeColor, strokeWidth, fillColor,
-        hasAlpha: gs != null);
+        dashPattern: dash, hasAlpha: gs != null);
 
     final dict =
         _markupDict(subtype, rect, strokeColor ?? fillColor!, contents, author)
-          ..['BS'] = _borderStyle(stroking ? strokeWidth : 0);
+          ..['BS'] = _borderStyle(stroking ? strokeWidth : 0, dashPattern: dash);
     if (fillColor != null) {
       dict['IC'] = CosArray([
         for (final c in ContentWriter.rgbComponents(fillColor)) CosReal(c),
@@ -2621,7 +2625,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// stroked inside [rect] so the line never spills past the /Rect.
   ContentWriter _shapeContent(String subtype, PdfRect rect, int? strokeColor,
       double strokeWidth, int? fillColor,
-      {required bool hasAlpha}) {
+      {List<double>? dashPattern, required bool hasAlpha}) {
     final stroking = strokeColor != null && strokeWidth > 0;
     final inset = stroking ? strokeWidth / 2 : 0.0;
     final w = ContentWriter();
@@ -2631,6 +2635,7 @@ extension PdfAnnotationEditing on PdfEditor {
       w
         ..strokeColor(strokeColor)
         ..lineWidth(strokeWidth);
+      if (dashPattern != null && dashPattern.isNotEmpty) w.dash(dashPattern);
     }
     if (subtype == 'Square') {
       w.rect(rect.left + inset, rect.bottom + inset, rect.width - 2 * inset,
@@ -2653,13 +2658,14 @@ extension PdfAnnotationEditing on PdfEditor {
     List<(double, double)> points, {
     required int strokeColor,
     required double strokeWidth,
-    required bool dashed,
+    required List<double>? dashPattern,
     required bool closed,
     required int? fillColor,
     PdfLineEnding startEnding = PdfLineEnding.none,
     PdfLineEnding endEnding = PdfLineEnding.none,
     required bool hasAlpha,
   }) {
+    final dashed = dashPattern != null && dashPattern.isNotEmpty;
     final w = ContentWriter();
     if (hasAlpha) w.extGState('GS0');
     if (fillColor != null) w.fillColor(fillColor);
@@ -2668,7 +2674,7 @@ extension PdfAnnotationEditing on PdfEditor {
       ..lineWidth(strokeWidth)
       ..lineCap(0)
       ..lineJoin(1);
-    if (dashed) w.dash(_dashPattern(strokeWidth));
+    if (dashed) w.dash(dashPattern);
     w.moveTo(points.first.$1, points.first.$2);
     for (final (x, y) in points.skip(1)) {
       w.lineTo(x, y);
@@ -2858,9 +2864,6 @@ extension PdfAnnotationEditing on PdfEditor {
     return [tip, ...shape.vertices];
   }
 
-  List<double> _dashPattern(double strokeWidth) =>
-      [math.max(2, strokeWidth * 3), math.max(2, strokeWidth * 2)];
-
   PdfRect _pointBounds(List<(double, double)> points, double pad) {
     if (points.isEmpty) {
       throw ArgumentError.value(points, 'points', 'must be non-empty');
@@ -2987,16 +2990,15 @@ extension PdfAnnotationEditing on PdfEditor {
         }),
       });
 
-  CosDictionary _borderStyle(double width, {bool dashed = false}) {
+  CosDictionary _borderStyle(double width, {List<double>? dashPattern}) {
+    final dashed = dashPattern != null && dashPattern.isNotEmpty;
     final dict = CosDictionary({
       'Type': const CosName('Border'),
       'W': CosReal(width),
       'S': CosName(dashed ? 'D' : 'S'),
     });
     if (dashed) {
-      dict['D'] = CosArray([
-        for (final value in _dashPattern(width)) CosReal(value),
-      ]);
+      dict['D'] = CosArray([for (final value in dashPattern) CosReal(value)]);
     }
     return dict;
   }

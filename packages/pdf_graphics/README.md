@@ -1,5 +1,11 @@
 # pdf_graphics
 
+[![pub package](https://img.shields.io/pub/v/pdf_graphics.svg)](https://pub.dev/packages/pdf_graphics)
+[![pub points](https://img.shields.io/pub/points/pdf_graphics)](https://pub.dev/packages/pdf_graphics/score)
+[![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg?flag=pdf_graphics)](https://codecov.io/gh/ben-milanko/dart-pdf)
+[![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
+
 The rendering core of the
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): a
 content-stream interpreter, a device interface, a font engine, and text

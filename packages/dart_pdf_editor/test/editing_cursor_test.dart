@@ -88,11 +88,11 @@ void main() {
     return editing;
   }
 
-  testWidgets('hovering a selected annotation shows the grab hand',
+  testWidgets('hovering a selected annotation shows the move cursor',
       (tester) async {
     await selectedSquare(tester);
     await hoverAt(tester, view(225, 500));
-    expect(regionCursor(tester), SystemMouseCursors.grab);
+    expect(regionCursor(tester), SystemMouseCursors.move);
   });
 
   testWidgets('the top-left handle shows the ↖↘ diagonal resize cursor',

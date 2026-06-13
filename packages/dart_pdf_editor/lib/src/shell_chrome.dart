@@ -251,6 +251,9 @@ class PdfShellBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: Border(
+          bottom:
+              BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
       child: SizedBox(
         height: 48,
         // a Spacer can't live in an unbounded-width Row, so the gap
