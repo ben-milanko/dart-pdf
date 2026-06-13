@@ -14,6 +14,7 @@ class DocumentTab {
     this.originPath,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
+        savedLength = bytes.length,
         error = null,
         compareBefore = null,
         compareAfter = null;
@@ -22,6 +23,7 @@ class DocumentTab {
       : session = null,
         viewer = null,
         originPath = null,
+        savedLength = 0,
         compareBefore = null,
         compareAfter = null;
 
@@ -34,6 +36,7 @@ class DocumentTab {
         viewer = null,
         error = null,
         originPath = null,
+        savedLength = 0,
         compareBefore = before,
         compareAfter = after;
 
@@ -41,14 +44,28 @@ class DocumentTab {
   final String? error;
 
   /// The writable on-disk origin (desktop), when the document was opened from
-  /// a real path. Save writes back here; null means save-as only (for now).
-  final String? originPath;
+  /// a real path. Save writes back here; updated when a Save As lands on a new
+  /// path. Null means save-as only.
+  String? originPath;
+
+  /// Byte length of the last-saved revision. Revisions are byte prefixes of one
+  /// buffer, so length uniquely identifies a revision — the document is dirty
+  /// when the current [PdfEditingController.bytes] length differs from this.
+  int savedLength;
 
   /// The two documents a comparison tab diffs; null on every other tab.
   final Uint8List? compareBefore;
   final Uint8List? compareAfter;
 
   bool get isComparison => compareAfter != null;
+
+  /// True when the document has edits not yet written to disk.
+  bool get isDirty => session != null && session!.bytes.length != savedLength;
+
+  /// Marks the current revision as the saved baseline (call after a save).
+  void markSaved() {
+    if (session != null) savedLength = session!.bytes.length;
+  }
 
   /// Null for an error or comparison tab. Preferences are owned by the app,
   /// so they outlive every tab.

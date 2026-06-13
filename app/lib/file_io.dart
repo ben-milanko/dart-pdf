@@ -75,7 +75,7 @@ String ensurePdfName(String name) {
 /// The outcome of a save, with a message suitable for a toast (null = the
 /// user cancelled, so say nothing).
 class SaveResult {
-  const SaveResult._(this.message, {this.path});
+  const SaveResult._(this.message, {this.path, this.succeeded = false});
 
   /// A user-visible confirmation, or null when the action was cancelled.
   final String? message;
@@ -84,14 +84,22 @@ class SaveResult {
   /// save dialog). Null for downloads / share-sheet / cancellation.
   final String? path;
 
+  /// True when the document was actually written somewhere — the caller uses
+  /// this to clear the dirty state and record a recent file.
+  final bool succeeded;
+
   static const cancelled = SaveResult._(null);
   factory SaveResult.saved(String path) =>
-      SaveResult._('Saved to $path', path: path);
+      SaveResult._('Saved to $path', path: path, succeeded: true);
   factory SaveResult.downloaded(String name) =>
-      SaveResult._('Downloaded $name');
-  factory SaveResult.shared() => const SaveResult._('Shared');
+      SaveResult._('Downloaded $name', succeeded: true);
+  factory SaveResult.shared() => const SaveResult._('Shared', succeeded: true);
   factory SaveResult.failed(Object error) => SaveResult._('Save failed: $error');
 }
+
+/// Reads a PDF straight from a known on-disk [path] — used to reopen a recent
+/// file. Throws if it can't be read (caller drops the stale recent entry).
+Future<Uint8List> readPdfAtPath(String path) => XFile(path).readAsBytes();
 
 /// Save-as with whatever the platform offers: a save dialog on desktop, a
 /// browser download on the web, the share sheet on phones and tablets (where

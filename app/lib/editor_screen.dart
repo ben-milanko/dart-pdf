@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'document_tab.dart';
 import 'file_io.dart';
+import 'recents.dart';
+import 'settings_screen.dart';
+import 'welcome_screen.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
@@ -16,7 +20,7 @@ const double _tabStripHeight = 42;
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
 /// (search, page number, panels, toolbar). The screen supplies the edit
-/// sessions, file handling, and app-side wiring.
+/// sessions, file handling, recents, dirty-state, and app-side wiring.
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, required this.prefs});
 
@@ -26,9 +30,11 @@ class EditorScreen extends StatefulWidget {
   State<EditorScreen> createState() => _EditorScreenState();
 }
 
-class _EditorScreenState extends State<EditorScreen> {
+class _EditorScreenState extends State<EditorScreen>
+    with WidgetsBindingObserver {
   PdfEditingPreferences get _prefs => widget.prefs;
 
+  final _recents = RecentsStore();
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
 
@@ -39,16 +45,39 @@ class _EditorScreenState extends State<EditorScreen> {
   bool _readOnly = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _recents.load();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final tab in _tabs) {
       tab.dispose();
     }
+    _recents.dispose();
     super.dispose();
+  }
+
+  /// Blocks app exit while any document has unsaved changes, offering to
+  /// discard. On platforms that don't ask (mobile/web) this is a no-op.
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    final dirty = _tabs.where((t) => t.isDirty).length;
+    if (dirty == 0) return AppExitResponse.exit;
+    final proceed = await _confirmDiscard(
+      dirty == 1
+          ? 'A document has unsaved changes.'
+          : '$dirty documents have unsaved changes.',
+    );
+    return proceed ? AppExitResponse.exit : AppExitResponse.cancel;
   }
 
   // --- opening -------------------------------------------------------------
 
-  /// Opens [bytes] in a brand-new tab and makes it active.
+  /// Opens [bytes] in a brand-new tab and makes it active, recording a recent.
   void _openBytes(Uint8List bytes, String title, {String? originPath}) {
     setState(() {
       _tabs.add(DocumentTab.document(
@@ -59,6 +88,7 @@ class _EditorScreenState extends State<EditorScreen> {
       ));
       _activeIndex = _tabs.length - 1;
     });
+    _recents.add(title: title, path: originPath);
   }
 
   void _openError(String title, String error) {
@@ -78,8 +108,23 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
-  /// Opens a second PDF and compares it against the active document in a new
-  /// tab. The active document is the "before".
+  Future<void> _openRecent(RecentFile entry) async {
+    final path = entry.path;
+    if (path == null) {
+      await _pickAndOpen();
+      return;
+    }
+    try {
+      final bytes = await readPdfAtPath(path);
+      _openBytes(bytes, entry.title, originPath: path);
+    } catch (e) {
+      await _recents.remove(entry.id);
+      if (mounted) _toast('Could not reopen ${entry.title}');
+    }
+  }
+
+  /// Opens a second PDF and compares it against the active document. The
+  /// active document is the "before".
   Future<void> _compareWith() async {
     final tab = _active;
     final current = tab?.session?.bytes;
@@ -100,32 +145,68 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
-  /// Disposes the tab at [index] and drops it, keeping a sensible tab active.
-  /// Controllers are torn down after the frame so the outgoing viewer detaches
-  /// from them cleanly first.
-  void _closeTab(int index) {
+  /// Closes the tab at [index], confirming first when it has unsaved edits.
+  Future<void> _closeTab(int index) async {
     final tab = _tabs[index];
+    if (tab.isDirty) {
+      final ok = await _confirmDiscard('"${tab.title}" has unsaved changes.');
+      if (!ok || !mounted) return;
+    }
     setState(() {
-      _tabs.removeAt(index);
+      _tabs.remove(tab);
       if (_activeIndex >= _tabs.length) _activeIndex = _tabs.length - 1;
       if (_activeIndex < 0) _activeIndex = 0;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => tab.dispose());
   }
 
+  Future<bool> _confirmDiscard(String message) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard changes?'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   // --- saving --------------------------------------------------------------
 
-  Future<void> _save(Uint8List bytes) async {
-    final result = await saveBytesAs(context, bytes, _active?.title ?? 'document');
+  /// Saves [tab]. `saveAs` always prompts for a new location; a plain Save will
+  /// write back to the document's origin once in-place save lands (Phase 3) —
+  /// today both go through the platform save-as.
+  Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
+    final bytes = tab.session?.bytes;
+    if (bytes == null) return;
+    final result = await saveBytesAs(context, bytes, tab.title);
     if (!mounted) return;
+    if (result.succeeded) {
+      setState(() {
+        tab.markSaved();
+        if (result.path != null) tab.originPath = result.path;
+      });
+      if (result.path != null) {
+        _recents.add(title: tab.title, path: result.path);
+      }
+    }
     if (result.message != null) _toast(result.message!);
   }
 
   // --- link actions --------------------------------------------------------
 
-  /// GoTo and the standard named page actions never reach here (the viewer
-  /// follows them itself). URI links open in the system browser; anything
-  /// else is surfaced in a snackbar.
+  /// GoTo and named page actions never reach here (the viewer follows them).
+  /// URI links open in the system browser; anything else is surfaced.
   void _onAction(PdfAction action, PdfAnnotation annotation) {
     switch (action) {
       case PdfUriAction(:final uri):
@@ -152,8 +233,6 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
-  /// App entries in the annotation right-click menu — a "Copy text" action
-  /// when the clicked annotation carries any.
   List<PdfAnnotationMenuItem> _annotationMenuActions(
       BuildContext context, PdfAnnotationMenuRequest request) {
     final contents = request.primary?.contents;
@@ -188,71 +267,21 @@ class _EditorScreenState extends State<EditorScreen> {
     final tab = _active;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          tab == null || tab.title.isEmpty ? 'dart-pdf Editor' : tab.title,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: _buildTitle(tab),
         bottom: _tabs.isEmpty
             ? null
             : PreferredSize(
                 preferredSize: const Size.fromHeight(_tabStripHeight),
                 child: _buildTabStrip(),
               ),
-        actions: [
-          if (tab?.viewer != null)
-            ListenableBuilder(
-              listenable: tab!.viewer!,
-              builder: (context, _) => !tab.viewer!.hasSelection
-                  ? const SizedBox.shrink()
-                  : IconButton(
-                      icon: const Icon(Icons.copy),
-                      tooltip: 'Copy selected text (⌘C)',
-                      onPressed: () async {
-                        await tab.viewer!.copySelection();
-                        if (!context.mounted) return;
-                        _toast('Copied to clipboard');
-                      },
-                    ),
-            ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(_readOnly ? Icons.edit_off : Icons.edit),
-            tooltip: _readOnly
-                ? 'Read-only — tap to edit'
-                : 'Editing — tap for read-only',
-            onPressed: () => setState(() => _readOnly = !_readOnly),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(switch (_prefs.themeMode) {
-              ThemeMode.system => Icons.brightness_auto,
-              ThemeMode.light => Icons.light_mode,
-              ThemeMode.dark => Icons.dark_mode,
-            }),
-            tooltip: 'Theme',
-            onPressed: () => _prefs.themeMode = switch (_prefs.themeMode) {
-              ThemeMode.system => ThemeMode.light,
-              ThemeMode.light => ThemeMode.dark,
-              ThemeMode.dark => ThemeMode.system,
-            },
-          ),
-          if (tab?.session != null)
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.compare_arrows),
-              tooltip: 'Compare with another PDF…',
-              onPressed: _compareWith,
-            ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.folder_open),
-            tooltip: 'Open PDF in a new tab',
-            onPressed: _pickAndOpen,
-          ),
-        ],
+        actions: _buildActions(tab),
       ),
       body: tab == null
-          ? _buildEmptyState()
+          ? WelcomeScreen(
+              recents: _recents,
+              onOpen: _pickAndOpen,
+              onOpenRecent: _openRecent,
+            )
           : tab.error != null
               ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
               : tab.isComparison
@@ -275,9 +304,10 @@ class _EditorScreenState extends State<EditorScreen> {
                           documentId: tab.documentId,
                           controller: tab.session,
                           viewerController: tab.viewer,
-                          onSave: (saved) => unawaited(_save(saved)),
+                          onSave: (_) => unawaited(_save(tab)),
                           onPickPdfToInsert: pickPdfBytes,
-                          onExportPages: (bytes) => unawaited(_save(bytes)),
+                          onExportPages: (bytes) =>
+                              unawaited(saveBytesAs(context, bytes, tab.title)),
                           onAction: _onAction,
                           annotationMenuBuilder: _annotationMenuActions,
                           formImagePicker: (context, field) => pickImageBytes(),
@@ -286,24 +316,110 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
-  Widget _buildEmptyState() => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.picture_as_pdf_outlined,
-                size: 72, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 16),
-            Text('dart-pdf Editor',
-                style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _pickAndOpen,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Open a PDF'),
-            ),
-          ],
+  Widget _buildTitle(DocumentTab? tab) {
+    if (tab == null || tab.title.isEmpty) return const Text('dart-pdf Editor');
+    final session = tab.session;
+    if (session == null) {
+      return Text(tab.title, overflow: TextOverflow.ellipsis);
+    }
+    return ListenableBuilder(
+      listenable: session,
+      builder: (context, _) => Text(
+        '${tab.isDirty ? '• ' : ''}${tab.title}',
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+  List<Widget> _buildActions(DocumentTab? tab) {
+    return [
+      if (tab?.viewer != null)
+        ListenableBuilder(
+          listenable: tab!.viewer!,
+          builder: (context, _) => !tab.viewer!.hasSelection
+              ? const SizedBox.shrink()
+              : IconButton(
+                  icon: const Icon(Icons.copy),
+                  tooltip: 'Copy selected text (⌘C)',
+                  onPressed: () async {
+                    await tab.viewer!.copySelection();
+                    if (!context.mounted) return;
+                    _toast('Copied to clipboard');
+                  },
+                ),
         ),
-      );
+      if (tab?.session != null && !_readOnly)
+        ListenableBuilder(
+          listenable: tab!.session!,
+          builder: (context, _) => IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.save_outlined),
+            tooltip: 'Save (⌘S)',
+            onPressed: tab.isDirty ? () => _save(tab) : null,
+          ),
+        ),
+      IconButton(
+        visualDensity: VisualDensity.compact,
+        icon: Icon(_readOnly ? Icons.edit_off : Icons.edit),
+        tooltip: _readOnly ? 'Read-only — tap to edit' : 'Editing — tap for read-only',
+        onPressed: () => setState(() => _readOnly = !_readOnly),
+      ),
+      IconButton(
+        visualDensity: VisualDensity.compact,
+        icon: Icon(switch (_prefs.themeMode) {
+          ThemeMode.system => Icons.brightness_auto,
+          ThemeMode.light => Icons.light_mode,
+          ThemeMode.dark => Icons.dark_mode,
+        }),
+        tooltip: 'Theme',
+        onPressed: () => _prefs.themeMode = switch (_prefs.themeMode) {
+          ThemeMode.system => ThemeMode.light,
+          ThemeMode.light => ThemeMode.dark,
+          ThemeMode.dark => ThemeMode.system,
+        },
+      ),
+      IconButton(
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.folder_open),
+        tooltip: 'Open PDF in a new tab',
+        onPressed: _pickAndOpen,
+      ),
+      PopupMenuButton<VoidCallback>(
+        icon: const Icon(Icons.more_vert),
+        tooltip: 'More',
+        onSelected: (action) => action(),
+        itemBuilder: (context) => [
+          if (tab?.session != null)
+            PopupMenuItem(
+              value: () => _save(tab!, saveAs: true),
+              child: const ListTile(
+                leading: Icon(Icons.save_as_outlined),
+                title: Text('Save as…'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          if (tab?.session != null)
+            PopupMenuItem(
+              value: _compareWith,
+              child: const ListTile(
+                leading: Icon(Icons.compare_arrows),
+                title: Text('Compare with…'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          PopupMenuItem(
+            value: () =>
+                showAppSettings(context, prefs: _prefs, recents: _recents),
+            child: const ListTile(
+              leading: Icon(Icons.settings_outlined),
+              title: Text('Settings'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
 
   Widget _buildTabStrip() {
     final scheme = Theme.of(context).colorScheme;
@@ -332,12 +448,37 @@ class _EditorScreenState extends State<EditorScreen> {
     final tab = _tabs[index];
     final selected = index == _activeIndex;
     final scheme = Theme.of(context).colorScheme;
+    Widget label() {
+      final text = Text(
+        tab.title.isEmpty ? 'Untitled' : tab.title,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+          color: selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
+        ),
+      );
+      final session = tab.session;
+      if (session == null) return text;
+      return ListenableBuilder(
+        listenable: session,
+        builder: (context, _) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (tab.isDirty)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Icon(Icons.circle, size: 8, color: scheme.primary),
+              ),
+            Flexible(child: text),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
       child: Material(
-        color: selected
-            ? scheme.secondaryContainer
-            : scheme.surfaceContainerHighest,
+        color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
@@ -349,24 +490,13 @@ class _EditorScreenState extends State<EditorScreen> {
               children: [
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 160),
-                  child: Text(
-                    tab.title.isEmpty ? 'Untitled' : tab.title,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight:
-                          selected ? FontWeight.w600 : FontWeight.normal,
-                      color: selected
-                          ? scheme.onSecondaryContainer
-                          : scheme.onSurfaceVariant,
-                    ),
-                  ),
+                  child: label(),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, size: 16),
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 30, minHeight: 30),
+                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
                   tooltip: 'Close tab',
                   onPressed: () => _closeTab(index),
                 ),
