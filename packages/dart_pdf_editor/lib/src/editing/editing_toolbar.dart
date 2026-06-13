@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
@@ -216,21 +215,34 @@ class PdfEditingToolbar extends StatelessWidget {
       {required bool undoable}) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
-    // Keep the toast compact rather than letting a floating SnackBar stretch
-    // the full window width, and always auto-dismiss (the default would linger
-    // for several seconds — the Undo action also keeps it interactive).
-    final screenWidth = MediaQuery.of(context).size.width;
     messenger
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        width: math.min(420, screenWidth - 32),
+        // Tuck the toast into the bottom-right corner, lifted clear of this
+        // 56px toolbar, so it never covers the chrome on desktop. Always
+        // auto-dismisses (the default would linger for several seconds).
+        margin: _toastMargin(context),
         duration: const Duration(seconds: 4),
         action: undoable && controller.canUndo
             ? SnackBarAction(label: 'Undo', onPressed: controller.undo)
             : null,
       ));
+  }
+
+  /// Margin that floats a SnackBar in the bottom-right corner, above the
+  /// toolbar, on wide (desktop) windows, and as a near-full-width pill lifted
+  /// off the toolbar on narrow ones.
+  static EdgeInsets _toastMargin(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    // 56px BottomAppBar + a gap, so the toast clears it.
+    const bottom = 68.0;
+    if (width >= 600) {
+      const pill = 360.0;
+      return EdgeInsets.only(left: width - pill - 24, right: 24, bottom: bottom);
+    }
+    return const EdgeInsets.fromLTRB(16, 0, 16, bottom);
   }
 
   Future<void> _editSelectedText(BuildContext context) async {

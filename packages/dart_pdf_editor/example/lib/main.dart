@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
@@ -162,15 +161,20 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   void _toast(String message) {
-    // Floating + width-constrained so the toast stays a compact pill rather
-    // than spanning the whole window.
-    final screenWidth = MediaQuery.of(context).size.width;
+    // Floating in the bottom-right corner (lifted clear of the editing
+    // toolbar) on desktop, so toasts stay a compact pill off to the side and
+    // never cover the chrome; a near-full-width pill on narrow windows.
+    final width = MediaQuery.of(context).size.width;
+    const bottom = 68.0;
+    final margin = width >= 600
+        ? EdgeInsets.only(left: width - 360 - 24, right: 24, bottom: bottom)
+        : const EdgeInsets.fromLTRB(16, 0, 16, bottom);
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        width: math.min(420, screenWidth - 32),
+        margin: margin,
         duration: const Duration(seconds: 2),
       ));
   }
