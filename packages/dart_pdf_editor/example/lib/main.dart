@@ -317,6 +317,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Picks a PDF and returns its bytes (null when cancelled) — the source
+  /// for the editor's "Insert PDF…" action.
+  Future<Uint8List?> _pickPdfBytes() async {
+    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    return file?.readAsBytes();
+  }
+
   /// Opens a second PDF and compares it against the active document in a
   /// new tab ([PdfComparisonView]). The active document is the "before".
   Future<void> _compareWith() async {
@@ -555,6 +562,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           controller: tab.session,
                           viewerController: tab.viewer,
                           onSave: (saved) => unawaited(_saveAs(saved)),
+                          onPickPdfToInsert: _pickPdfBytes,
+                          onExportPages: (bytes) => unawaited(_saveAs(bytes)),
                           onAction: _onAction,
                           pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
                           annotationMenuBuilder: _annotationMenuActions,

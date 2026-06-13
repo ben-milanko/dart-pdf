@@ -91,6 +91,63 @@ void main() {
     });
   });
 
+  group('page range dialog', () {
+    testWidgets('returns the chosen 0-based inclusive range', (tester) async {
+      ({int start, int end})? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await showPdfPageRangeDialog(context, pageCount: 10);
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-range-from')), '3');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-range-to')), '7');
+      await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
+      await tester.pumpAndSettle();
+      expect(result, (start: 2, end: 6));
+    });
+
+    testWidgets('a reversed range is rejected and stays open', (tester) async {
+      ({int start, int end})? result;
+      var returned = false;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await showPdfPageRangeDialog(context, pageCount: 5);
+                returned = true;
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-range-from')), '4');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-range-to')), '2');
+      await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
+      await tester.pumpAndSettle();
+      // still open, nothing returned
+      expect(returned, isFalse);
+      expect(result, isNull);
+      expect(find.byKey(const ValueKey('pdf-page-range-dialog')), findsOneWidget);
+    });
+  });
+
   group('thumbnail strip', () {
     testWidgets('the Add page footer appends a blank page', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(2));

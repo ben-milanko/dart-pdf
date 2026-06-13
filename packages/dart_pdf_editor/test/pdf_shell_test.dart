@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
@@ -482,6 +484,88 @@ void main() {
       );
       final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
       expect(viewer.pageColor, const Color(0xFFEEF7EE));
+    });
+
+    testWidgets('the page-actions menu is hidden without insert/export',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
+      expect(find.byKey(const ValueKey('pdf-shell-page-actions')), findsNothing);
+    });
+
+    testWidgets('Insert PDF… merges the picked file after the current page',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          viewerController: viewer,
+          onPickPdfToInsert: () async => buildMultiPagePdf(3),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-actions')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-insert-pdf')));
+      await tester.pumpAndSettle();
+      // current page is 0, so the 3 pages land at index 1
+      expect(editing.document.pageCount, 5);
+    });
+
+    testWidgets('Export pages… hands the host the chosen range', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      Uint8List? exported;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onExportPages: (bytes) => exported = bytes,
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-actions')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-export-pages')));
+      await tester.pumpAndSettle();
+      // default range covers the whole document; narrow it to pages 2–3
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-range-from')), '2');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-range-to')), '3');
+      await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(exported, isNotNull);
+      final out = PdfDocument.open(exported!);
+      expect(out.pageCount, 2);
+      // the source document is untouched
+      expect(editing.document.pageCount, 4);
+    });
+
+    testWidgets('export is offered even when page editing is off',
+        (tester) async {
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(2),
+          features: const PdfEditorFeatures(pageEditing: false),
+          onPickPdfToInsert: () async => buildMultiPagePdf(1),
+          onExportPages: (_) {},
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-actions')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      // insert needs page editing — hidden; export stands alone
+      expect(find.byKey(const ValueKey('pdf-shell-insert-pdf')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-shell-export-pages')), findsOneWidget);
     });
   });
 
