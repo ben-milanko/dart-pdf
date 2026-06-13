@@ -614,4 +614,96 @@ void main() {
       expect(at(2, 1), [255, 0, 0]);
     });
   });
+
+  // The per-pixel decode fast paths (no colour management, identity /Decode,
+  // no colour key) copy samples straight through and leave the image opaque,
+  // so the premultiply scan is skipped. These pin that the fast paths produce
+  // exactly the same pixels as the general path would.
+  testWidgets('DeviceRGB 8-bit samples decode straight through, opaque',
+      (tester) async {
+    await tester.runAsync(() async {
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+        }),
+        Uint8List.fromList([12, 34, 56, 200, 100, 50]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final pixels = await pixelsOf(images[image]!);
+      expect(pixels.sublist(0, 4), [12, 34, 56, 255]);
+      expect(pixels.sublist(4, 8), [200, 100, 50, 255]);
+    });
+  });
+
+  testWidgets('DeviceGray 8-bit samples replicate to RGB, opaque',
+      (tester) async {
+    await tester.runAsync(() async {
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+        }),
+        Uint8List.fromList([40, 210]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final pixels = await pixelsOf(images[image]!);
+      expect(pixels.sublist(0, 4), [40, 40, 40, 255]);
+      expect(pixels.sublist(4, 8), [210, 210, 210, 255]);
+    });
+  });
+
+  testWidgets('raw DeviceCMYK converts through PdfColor.cmyk exactly',
+      (tester) async {
+    await tester.runAsync(() async {
+      // A representative process colour, fed both to the decoder and to
+      // PdfColor.cmyk directly — the inlined per-pixel path must match the
+      // canonical conversion byte-for-byte (no hardcoded RGB constants).
+      const c = 30, m = 90, y = 200, k = 60;
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceCMYK'),
+        }),
+        Uint8List.fromList([c, m, y, k]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final pixels = await pixelsOf(images[image]!);
+      final expected =
+          PdfColor.cmyk(c / 255, m / 255, y / 255, k / 255);
+      expect(pixels[0], (expected.red * 255).round());
+      expect(pixels[1], (expected.green * 255).round());
+      expect(pixels[2], (expected.blue * 255).round());
+      expect(pixels[3], 255);
+    });
+  });
+
+  testWidgets('DeviceRGB /Decode inverts through the LUT path', (tester) async {
+    await tester.runAsync(() async {
+      final image = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Decode': CosArray([
+            const CosInteger(1), const CosInteger(0), //
+            const CosInteger(1), const CosInteger(0),
+            const CosInteger(1), const CosInteger(0),
+          ]),
+        }),
+        Uint8List.fromList([0, 64, 255]),
+      );
+      final images = await decodeImages(cos, [req(image)]);
+      final pixels = await pixelsOf(images[image]!);
+      // 0→255, 255→0, 64→191 (the same LUT the general path builds).
+      expect(pixels.sublist(0, 4), [255, 191, 0, 255]);
+    });
+  });
 }

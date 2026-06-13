@@ -239,6 +239,13 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
   final filters = _filterNames(cos, dict);
   final isMask = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
 
+  // A color-key /Mask (an array of sample ranges, §8.9.6.4) is the only thing
+  // besides an /SMask or stencil /Mask that can turn a decoded pixel
+  // transparent. With none of those present the decoded samples are fully
+  // opaque, so the premultiply scan in [_imageFromPixels] is pure waste —
+  // [_imageFromOpaquePixels] hands the bytes straight to the codec instead.
+  final colorKeyed = cos.resolve(dict['Mask']) is CosArray;
+
   final dctName = filters.contains('DCTDecode')
       ? 'DCTDecode'
       : filters.contains('DCT')
@@ -256,9 +263,12 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
         if (rgba != null) {
           final mask =
               await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
-          final m = mask == null
-              ? (rgba, cmyk.width, cmyk.height)
-              : _applyAlpha(rgba, cmyk.width, cmyk.height, mask);
+          if (mask == null) {
+            return colorKeyed
+                ? _imageFromPixels(rgba, cmyk.width, cmyk.height)
+                : _imageFromOpaquePixels(rgba, cmyk.width, cmyk.height);
+          }
+          final m = _applyAlpha(rgba, cmyk.width, cmyk.height, mask);
           return _imageFromPixels(m.$1, m.$2, m.$3);
         }
       }
@@ -298,9 +308,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
     final rgba = _jpxToRgba(jpx);
     if (rgba == null) return null;
     final mask = await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
-    final m = mask == null
-        ? (rgba, jpx.width, jpx.height)
-        : _applyAlpha(rgba, jpx.width, jpx.height, mask);
+    // _jpxToRgba writes alpha 255 throughout (JPX carries no color key), so
+    // with no soft/stencil mask the result is opaque.
+    if (mask == null) return _imageFromOpaquePixels(rgba, jpx.width, jpx.height);
+    final m = _applyAlpha(rgba, jpx.width, jpx.height, mask);
     return _imageFromPixels(m.$1, m.$2, m.$3);
   }
   // CCITTFaxDecode runs as a regular stream filter (pure-Dart decoder in
@@ -336,7 +347,12 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
       final m = _applyAlpha(rgba, width, height, mask);
       return _imageFromPixels(m.$1, m.$2, m.$3);
     }
+    // No mask and no color key: the samples are fully opaque.
+    return colorKeyed
+        ? _imageFromPixels(rgba, width, height)
+        : _imageFromOpaquePixels(rgba, width, height);
   }
+  // An /ImageMask decodes to a stencil with real (0/255) alpha.
   return _imageFromPixels(rgba, width, height);
 }
 
@@ -575,6 +591,17 @@ Future<ui.Image> _imageFromPixels(Uint8List rgba, int width, int height) {
   return completer.future;
 }
 
+/// Like [_imageFromPixels] but for samples already known to be fully opaque
+/// (alpha 255 everywhere). Premultiplication by alpha 255 is the identity, so
+/// the per-pixel scan is skipped — a measurable win on the large opaque scans
+/// (Indexed/RGB/Gray) that make up most decoded pixel volume.
+Future<ui.Image> _imageFromOpaquePixels(Uint8List rgba, int width, int height) {
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+      rgba, width, height, ui.PixelFormat.rgba8888, completer.complete);
+  return completer.future;
+}
+
 /// A stencil mask carries no colors: 1-bit samples select where the fill
 /// color paints. Decode to white pixels with alpha; the device tints them.
 /// Default /Decode [0 1] paints where the sample is 0 (§8.9.6.2).
@@ -779,22 +806,13 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
           ? _colorKeyRanges(cos, dict, 1)
           : null;
 
-  bool keyed(List<int> samples) {
-    if (colorKey == null) return false;
-    for (var c = 0; c < samples.length; c++) {
-      if (samples[c] < colorKey[c].$1 || samples[c] > colorKey[c].$2) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   if (space == 'DeviceGray' && bits == 1) {
     final (min, max) = ranges?[0] ?? (0.0, 1.0);
     final values = [
       (min * 255).round().clamp(0, 255),
       (max * 255).round().clamp(0, 255),
     ];
+    final key = colorKey;
     final rowBytes = (width + 7) ~/ 8;
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
@@ -802,7 +820,7 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         final on = (byte >> (7 - (x & 7))) & 1;
         final i = (y * width + x) * 4;
         out[i] = out[i + 1] = out[i + 2] = values[on];
-        out[i + 3] = keyed([on]) ? 0 : 255;
+        out[i + 3] = key != null && on >= key[0].$1 && on <= key[0].$2 ? 0 : 255;
       }
     }
     return out;
@@ -827,59 +845,119 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   switch (space) {
     case 'DeviceRGB':
       if (data.length < count * 3) return null;
-      final luts = [for (var c = 0; c < 3; c++) _lutFor(ranges, c)];
       final rgbIcc = icc != null && icc.channels == 3 ? icc : null;
-      for (var i = 0; i < count; i++) {
-        final r = data[i * 3], g = data[i * 3 + 1], b = data[i * 3 + 2];
-        if (rgbIcc != null) {
-          final c = rgbIcc
-              .toSrgb([luts[0][r] / 255, luts[1][g] / 255, luts[2][b] / 255]);
-          out[i * 4] = (c.red * 255).round();
-          out[i * 4 + 1] = (c.green * 255).round();
-          out[i * 4 + 2] = (c.blue * 255).round();
-        } else {
-          out[i * 4] = luts[0][r];
-          out[i * 4 + 1] = luts[1][g];
-          out[i * 4 + 2] = luts[2][b];
+      // Fast path: no colour management, identity /Decode, no color key — the
+      // RGB samples copy straight through (the LUTs would be identity and the
+      // alpha is a constant 255), with no per-pixel list allocation.
+      if (rgbIcc == null && ranges == null && colorKey == null) {
+        for (var i = 0; i < count; i++) {
+          final s = i * 3, o = i * 4;
+          out[o] = data[s];
+          out[o + 1] = data[s + 1];
+          out[o + 2] = data[s + 2];
+          out[o + 3] = 255;
         }
-        out[i * 4 + 3] = keyed([r, g, b]) ? 0 : 255;
+        return out;
+      }
+      final lut0 = _lutFor(ranges, 0),
+          lut1 = _lutFor(ranges, 1),
+          lut2 = _lutFor(ranges, 2);
+      final key = colorKey;
+      for (var i = 0; i < count; i++) {
+        final s = i * 3, o = i * 4;
+        final r = data[s], g = data[s + 1], b = data[s + 2];
+        if (rgbIcc != null) {
+          final c =
+              rgbIcc.toSrgb([lut0[r] / 255, lut1[g] / 255, lut2[b] / 255]);
+          out[o] = (c.red * 255).round();
+          out[o + 1] = (c.green * 255).round();
+          out[o + 2] = (c.blue * 255).round();
+        } else {
+          out[o] = lut0[r];
+          out[o + 1] = lut1[g];
+          out[o + 2] = lut2[b];
+        }
+        out[o + 3] = key != null &&
+                r >= key[0].$1 &&
+                r <= key[0].$2 &&
+                g >= key[1].$1 &&
+                g <= key[1].$2 &&
+                b >= key[2].$1 &&
+                b <= key[2].$2
+            ? 0
+            : 255;
       }
       return out;
     case 'DeviceGray':
       if (data.length < count) return null;
       final lut = _lutFor(ranges, 0);
       final grayIcc = icc != null && icc.channels == 1 ? icc : null;
+      final key = colorKey;
+      // Fast path: identity /Decode, no ICC, no color key — replicate the gray
+      // sample into RGB with constant 255 alpha, no per-pixel allocation.
+      if (grayIcc == null && ranges == null && key == null) {
+        for (var i = 0; i < count; i++) {
+          final o = i * 4, v = data[i];
+          out[o] = out[o + 1] = out[o + 2] = v;
+          out[o + 3] = 255;
+        }
+        return out;
+      }
       final grayLut = grayIcc == null
           ? null
           : [
               for (var v = 0; v < 256; v++) grayIcc.toSrgb([lut[v] / 255])
             ];
       for (var i = 0; i < count; i++) {
+        final o = i * 4, s = data[i];
         if (grayLut != null) {
-          final c = grayLut[data[i]];
-          out[i * 4] = (c.red * 255).round();
-          out[i * 4 + 1] = (c.green * 255).round();
-          out[i * 4 + 2] = (c.blue * 255).round();
+          final c = grayLut[s];
+          out[o] = (c.red * 255).round();
+          out[o + 1] = (c.green * 255).round();
+          out[o + 2] = (c.blue * 255).round();
         } else {
-          out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = lut[data[i]];
+          out[o] = out[o + 1] = out[o + 2] = lut[s];
         }
-        out[i * 4 + 3] = keyed([data[i]]) ? 0 : 255;
+        out[o + 3] = key != null && s >= key[0].$1 && s <= key[0].$2 ? 0 : 255;
       }
       return out;
     case 'DeviceCMYK':
       if (data.length < count * 4) return null;
-      final luts = [for (var c = 0; c < 4; c++) _lutFor(ranges, c)];
+      final lut0 = _lutFor(ranges, 0),
+          lut1 = _lutFor(ranges, 1),
+          lut2 = _lutFor(ranges, 2),
+          lut3 = _lutFor(ranges, 3);
       final cmykIcc = icc != null && icc.channels == 4 ? icc : null;
+      final key = colorKey;
+      // CMYK→RGB is the heaviest per-pixel path (a quadratic polynomial, or an
+      // ICC LUT). The conversion math is unchanged, but the per-pixel sample
+      // and value lists — and the keyed() argument list — are gone, which is
+      // most of the old cost.
       for (var i = 0; i < count; i++) {
-        final s = [for (var c = 0; c < 4; c++) data[i * 4 + c]];
-        final values = [for (var c = 0; c < 4; c++) luts[c][s[c]] / 255];
+        final base = i * 4;
+        final s0 = data[base],
+            s1 = data[base + 1],
+            s2 = data[base + 2],
+            s3 = data[base + 3];
         final color = cmykIcc != null
-            ? cmykIcc.toSrgb(values)
-            : PdfColor.cmyk(values[0], values[1], values[2], values[3]);
-        out[i * 4] = (color.red * 255).round();
-        out[i * 4 + 1] = (color.green * 255).round();
-        out[i * 4 + 2] = (color.blue * 255).round();
-        out[i * 4 + 3] = keyed(s) ? 0 : 255;
+            ? cmykIcc.toSrgb(
+                [lut0[s0] / 255, lut1[s1] / 255, lut2[s2] / 255, lut3[s3] / 255])
+            : PdfColor.cmyk(
+                lut0[s0] / 255, lut1[s1] / 255, lut2[s2] / 255, lut3[s3] / 255);
+        out[base] = (color.red * 255).round();
+        out[base + 1] = (color.green * 255).round();
+        out[base + 2] = (color.blue * 255).round();
+        out[base + 3] = key != null &&
+                s0 >= key[0].$1 &&
+                s0 <= key[0].$2 &&
+                s1 >= key[1].$1 &&
+                s1 <= key[1].$2 &&
+                s2 >= key[2].$1 &&
+                s2 <= key[2].$2 &&
+                s3 >= key[3].$1 &&
+                s3 <= key[3].$2
+            ? 0
+            : 255;
       }
       return out;
   }
