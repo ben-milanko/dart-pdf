@@ -19,6 +19,7 @@ import 'exact_extent_list.dart';
 import 'page_geometry.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
+import 'render_scheduler.dart';
 import 'scrollbar.dart';
 import 'theme.dart';
 
@@ -426,17 +427,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   Timer? _scrollSettleTimer;
   int _settleGeneration = 0;
 
-  /// True while the list is scrolling faster than pages can usefully
-  /// render — [PdfPageView.renderHold]: not-yet-interpreted pages keep
-  /// their paper placeholder instead of stalling the UI thread with
-  /// interpreter walks mid-fling (the stall is what made the scrollbar
-  /// leap on heavy documents). Cleared when the velocity estimate drops
-  /// or the scroll-settle timer fires.
-  final _renderHold = ValueNotifier<bool>(false);
+  /// Paces every page's first (UI-thread) interpret so no frame runs
+  /// more than one — [PdfPageRenderScheduler]. Its [holding] flag stands
+  /// in for the old render hold: while the list scrolls faster than
+  /// pages can usefully render, not-yet-interpreted pages keep their
+  /// preview/placeholder instead of stalling the UI thread mid-fling
+  /// (the stall is what made the scrollbar leap on heavy documents).
+  /// When scrolling settles, held pages drain one per frame, nearest the
+  /// viewport first, rather than all firing in one event-loop turn (the
+  /// burst that froze fast scrolling on iPad). Released when the velocity
+  /// estimate drops or the scroll-settle timer fires.
+  final _renderScheduler = PdfPageRenderScheduler();
 
   /// (frame timestamp, scroll pixels) samples from the last ~200ms,
-  /// at most one per frame, for the velocity estimate behind
-  /// [_renderHold].
+  /// at most one per frame, for the velocity estimate behind the
+  /// scheduler's hold.
   final List<(Duration, double)> _scrollSamples = [];
 
   /// Low-res previews painted while a page's full render is pending —
@@ -716,10 +721,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// detail patch, so the patch must follow once movement stops.
   void _onScrollForDetail() {
     _trackScrollVelocity();
+    // the scheduler drains held pages nearest the viewport first
+    _renderScheduler.focus = _controller.currentPage;
     _scrollSettleTimer?.cancel();
     _scrollSettleTimer = Timer(const Duration(milliseconds: 250), () {
       _scrollSamples.clear();
-      _renderHold.value = false;
+      _renderScheduler.holding = false;
       if (mounted) setState(() => _settleGeneration++);
       // the prerender pauses while the user scrolls; pick it back up
       _prerenderPreviews();
@@ -737,8 +744,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _prerendering = true;
     try {
       while (mounted && widget.pagePreviews) {
-        if (_renderHold.value || (_scrollSettleTimer?.isActive ?? false)) {
+        if (_renderScheduler.holding || (_scrollSettleTimer?.isActive ?? false)) {
           return; // restarted by the settle timer
+        }
+        if (_renderScheduler.hasPending) {
+          // near pages are still draining their full render through the
+          // scheduler; don't compete for the UI thread this frame
+          await SchedulerBinding.instance.endOfFrame;
+          if (!mounted) return;
+          continue;
         }
         final pages = _pages;
         final index = _nextPreviewIndex(pages);
@@ -796,7 +810,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Estimates the scroll velocity over a ~200ms window of per-frame
-  /// samples and flips [_renderHold] past ~2 viewport-heights/second.
+  /// samples and holds the render scheduler past ~2 viewport-heights/sec.
   /// Frame timestamps (not wall clock) collapse the burst of listener
   /// calls a single wheel tick produces into one sample — an instant
   /// 100px jump must not read as infinite velocity.
@@ -818,7 +832,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final velocity =
         (pixels - _scrollSamples.first.$2).abs() * 1e6 / span; // px/s
     final viewport = _scroll.position.viewportDimension;
-    _renderHold.value = velocity > math.max(800, 2 * viewport);
+    _renderScheduler.holding = velocity > math.max(800, 2 * viewport);
   }
 
   @override
@@ -914,7 +928,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _scroll.dispose();
     _transform.dispose();
     _transformScale.dispose();
-    _renderHold.dispose();
+    _renderScheduler.dispose();
     _previews.dispose();
     _zoomAnimator.dispose();
     _panFlinger.dispose();
@@ -2229,7 +2243,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 onShowAnnotationMenu: _showSelectionMenu,
                 onShowFormFieldMenu: _showFormFieldMenu,
                 transformScale: _transformScale,
-                renderHold: _renderHold,
+                renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
               ),
             ),
@@ -2499,7 +2513,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onShowAnnotationMenu,
     required this.onShowFormFieldMenu,
     required this.transformScale,
-    required this.renderHold,
+    required this.renderScheduler,
     required this.previewCache,
   });
 
@@ -2543,8 +2557,8 @@ class _PdfViewerPage extends StatefulWidget {
   /// by it to stay constant-size on screen while zoomed.
   final ValueListenable<double> transformScale;
 
-  /// See [PdfPageView.renderHold].
-  final ValueListenable<bool> renderHold;
+  /// See [PdfPageView.renderScheduler].
+  final PdfPageRenderScheduler renderScheduler;
 
   /// See [PdfPageView.previewCache]; null when previews are off.
   final PdfPagePreviewCache? previewCache;
@@ -2587,7 +2601,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
         onRasterReady: _onRasterReady,
-        renderHold: widget.renderHold,
+        renderScheduler: widget.renderScheduler,
         previewCache: widget.previewCache,
         previewIndex: widget.index,
       ),

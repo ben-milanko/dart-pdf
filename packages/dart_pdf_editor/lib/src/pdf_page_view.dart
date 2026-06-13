@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'preview_cache.dart';
+import 'render_scheduler.dart';
 import 'renderer.dart';
 
 /// Displays a single PDF page, rendered natively in Dart.
@@ -27,6 +28,7 @@ class PdfPageView extends StatefulWidget {
     this.showAnnotations = true,
     this.onRasterReady,
     this.renderHold,
+    this.renderScheduler,
     this.previewCache,
     this.previewIndex = 0,
   });
@@ -50,7 +52,19 @@ class PdfPageView extends StatefulWidget {
   /// flying past can't stall the frame rate. Held pages render as soon
   /// as it drops back to false. Pages that already have a picture are
   /// unaffected (re-rasters reuse it).
+  ///
+  /// Superseded by [renderScheduler] when one is supplied: the scheduler
+  /// both defers and paces the first interpret, so [renderHold] is only
+  /// consulted on its own (the bare-[PdfPageView] case).
   final ValueListenable<bool>? renderHold;
+
+  /// Paces this page's first (UI-thread) interpret against every other
+  /// page's, so a settling fast scroll can't fire them all in one frame.
+  /// When set, the page registers its first render here instead of
+  /// interpreting directly; the scheduler grants it a turn (see
+  /// [PdfPageRenderScheduler]). Re-rasters of an already-interpreted page
+  /// bypass it. Null falls back to [renderHold].
+  final PdfPageRenderScheduler? renderScheduler;
 
   /// Called whenever a full-page raster for the current [page] object
   /// lands on screen. Lets the editing overlay hold its just-committed
@@ -167,6 +181,10 @@ class _PdfPageViewState extends State<PdfPageView> {
       widget.renderHold?.addListener(_onRenderHoldChanged);
       _onRenderHoldChanged();
     }
+    if (!identical(oldWidget.renderScheduler, widget.renderScheduler)) {
+      oldWidget.renderScheduler?.cancel(this);
+      // the new scheduler picks this page up on its next _render
+    }
     if (!identical(oldWidget.previewCache, widget.previewCache) ||
         oldWidget.previewIndex != widget.previewIndex) {
       oldWidget.previewCache?.removeListener(_onPreviewCacheChanged);
@@ -194,6 +212,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void dispose() {
     widget.renderHold?.removeListener(_onRenderHoldChanged);
+    widget.renderScheduler?.cancel(this);
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _dropPicture();
     _image?.dispose();
@@ -239,14 +258,30 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   Future<void> _render() async {
-    // only the first interpretation is deferred: it walks the content
+    // Only the first interpretation is deferred: it walks the content
     // stream twice on the UI thread, which is what stalls fast scrolling
     // on heavy pages. With a picture cached, rendering is a raster-thread
-    // toImage and proceeds even during the hold.
-    if (_picture == null && (widget.renderHold?.value ?? false)) {
-      _holdPending = true;
-      return;
+    // toImage, so re-renders run directly.
+    if (_picture == null) {
+      final scheduler = widget.renderScheduler;
+      if (scheduler != null) {
+        // route the first walk through the viewer's paced drain so no
+        // frame interprets more than one page (a settling fast scroll
+        // used to release every held page in one event-loop turn)
+        scheduler.request(this, widget.previewIndex, _renderNow);
+        return;
+      }
+      if (widget.renderHold?.value ?? false) {
+        _holdPending = true;
+        return;
+      }
     }
+    await _renderNow();
+  }
+
+  /// The actual interpret + rasterize, run once the first render is no
+  /// longer gated (or directly for re-rasters of a cached picture).
+  Future<void> _renderNow() async {
     final generation = ++_renderGeneration;
     final picture = await (_picture ??= PdfPageRenderer.renderPicture(
         widget.page,
@@ -331,8 +366,17 @@ class _PdfPageViewState extends State<PdfPageView> {
     ratio =
         math.min(ratio, _maxDimension / math.max(region.width, region.height));
 
-    // never interpret during a hold — the next settle refreshes the patch
-    if (_picture == null && (widget.renderHold?.value ?? false)) return;
+    // never interpret the page for the first time inline here — that is
+    // the scheduler's job (or, bare, the hold's); the next settle
+    // refreshes the patch once the base picture lands
+    if (_picture == null) {
+      final scheduler = widget.renderScheduler;
+      if (scheduler != null) {
+        scheduler.request(this, widget.previewIndex, _renderNow);
+        return;
+      }
+      if (widget.renderHold?.value ?? false) return;
+    }
     final picture = await (_picture ??= PdfPageRenderer.renderPicture(
         widget.page,
         pageColor: widget.pageColor,
