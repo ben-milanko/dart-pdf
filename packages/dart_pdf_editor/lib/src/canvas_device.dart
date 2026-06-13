@@ -370,57 +370,80 @@ class CanvasPdfDevice implements PdfDevice {
     // and scaled down 100x (TextPainter quality degrades at tiny sizes; the
     // run transform already encodes the real size).
     const renderSize = 100.0;
-    var painter = TextPainter(
+    // Measure with a plain fill painter to derive width/baseline.
+    final measure = TextPainter(
       text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
       textDirection: TextDirection.ltr,
     )..layout();
     final baseline =
-        painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+        measure.computeDistanceToActualBaseline(TextBaseline.alphabetic);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
     // unflip: the page transform is y-up, text rasterizes y-down
     final targetWidth = run.width * renderSize;
-    final scaleX =
-        run.width > 0 && painter.width > 0 ? targetWidth / painter.width : 1.0;
-    final gradient = run.gradient;
-    if (gradient != null) {
-      final localToPage = PdfMatrix.scaled(scaleX / renderSize, -1 / renderSize)
-          .concat(run.transform);
-      final pageToLocal = localToPage.inverted();
-      final localGradientTransform =
-          pageToLocal == null ? null : gradient.transform.concat(pageToLocal);
-      if (localGradientTransform != null) {
-        painter = TextPainter(
-          text: TextSpan(
-            text: run.text,
-            style: _styleFor(
-              run,
-              foreground: Paint()
-                ..shader =
-                    _shaderFor(gradient, transform: localGradientTransform)
-                ..blendMode = _elementBlend,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
+    final scaleX = run.width > 0 && measure.width > 0
+        ? targetWidth / measure.width
+        : 1.0;
+
+    // Fill painter (modes 0/2/4/6), with a gradient shader when present.
+    TextPainter? fillPainter;
+    if (run.fill) {
+      Paint? foreground;
+      final gradient = run.gradient;
+      if (gradient != null) {
+        final localToPage =
+            PdfMatrix.scaled(scaleX / renderSize, -1 / renderSize)
+                .concat(run.transform);
+        final pageToLocal = localToPage.inverted();
+        if (pageToLocal != null) {
+          foreground = Paint()
+            ..shader = _shaderFor(gradient,
+                transform: gradient.transform.concat(pageToLocal))
+            ..blendMode = _elementBlend;
+        }
       }
+      fillPainter = foreground == null
+          ? measure
+          : (TextPainter(
+              text: TextSpan(
+                  text: run.text, style: _styleFor(run, foreground: foreground)),
+              textDirection: TextDirection.ltr,
+            )..layout());
     }
+
+    // Stroke painter (modes 1/2/5/6): outline the glyphs in the stroke colour.
+    // The line width is page-space; map it into the painter's 100px-per-em
+    // space (canvas is scaled by run.transform then 1/renderSize).
+    TextPainter? strokePainter;
+    if (run.strokeColor != null) {
+      final ts = run.transform.scaleFactor;
+      final w = run.strokeWidth > 0 ? run.strokeWidth : ts / renderSize;
+      strokePainter = TextPainter(
+        text: TextSpan(
+          text: run.text,
+          style: _styleFor(
+            run,
+            foreground: Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = ts > 0 ? w * renderSize / ts : w
+              ..color = _toColor(run.strokeColor!, 1)
+              ..blendMode = _elementBlend,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+    }
+
     canvas.scale(scaleX / renderSize, -1 / renderSize);
-    painter.paint(canvas, Offset(0, -baseline));
+    fillPainter?.paint(canvas, Offset(0, -baseline));
+    strokePainter?.paint(canvas, Offset(0, -baseline));
     canvas.restore();
   }
 
   /// Draws real glyph outlines from the embedded font. The run transform
   /// maps em space (y-up) to page space, so no unflip is needed.
   void _drawGlyphOutlines(PdfTextRun run) {
-    final paint = Paint()..blendMode = _elementBlend;
-    final gradient = run.gradient;
-    if (gradient != null) {
-      paint.shader = _shaderFor(gradient);
-    } else {
-      paint.color = _toColor(run.color, 1);
-    }
     final path = ui.Path();
     for (final glyph in run.glyphs!) {
       final outline = glyph.outline;
@@ -433,7 +456,27 @@ class CanvasPdfDevice implements PdfDevice {
         Offset.zero,
       );
     }
-    canvas.drawPath(path, paint);
+    if (run.fill) {
+      final paint = Paint()..blendMode = _elementBlend;
+      final gradient = run.gradient;
+      if (gradient != null) {
+        paint.shader = _shaderFor(gradient);
+      } else {
+        paint.color = _toColor(run.color, 1);
+      }
+      canvas.drawPath(path, paint);
+    }
+    // The outline path is already in page space; stroke width is page-space.
+    if (run.strokeColor != null) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = run.strokeWidth
+          ..color = _toColor(run.strokeColor!, 1)
+          ..blendMode = _elementBlend,
+      );
+    }
   }
 
   @override

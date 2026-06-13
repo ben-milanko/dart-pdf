@@ -52,7 +52,25 @@ class PdfTextRun {
     this.fontSize = 0,
     this.glyphs,
     this.invisible = false,
+    this.fill = true,
+    this.strokeColor,
+    this.strokeWidth = 0,
   });
+
+  /// Whether the glyphs are filled (text rendering modes 0/2/4/6). False for
+  /// stroke-only modes (1/5) and when a fill that can't be represented (an
+  /// unrenderable tiling-pattern fill on a substituted font) is dropped in
+  /// favour of the stroke. [color]/[gradient] describe the fill.
+  final bool fill;
+
+  /// Stroke colour for text rendering modes that stroke the glyph outline
+  /// (1 stroke, 2 fill+stroke, 5/6 the same plus clip); null when the mode
+  /// doesn't stroke. Painting devices outline the glyphs in this colour.
+  final PdfColor? strokeColor;
+
+  /// Stroke line width in page space (the current line width mapped through
+  /// the CTM, like every other stroke); 0 means the thinnest renderable line.
+  final double strokeWidth;
 
   /// Render mode 3 (§9.4.3): the run paints nothing but still occupies
   /// its geometry — the OCR text layer of scanned documents. Painting

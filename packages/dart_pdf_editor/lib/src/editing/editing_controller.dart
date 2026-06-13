@@ -87,6 +87,13 @@ enum PdfEditTool {
   /// field of [PdfEditingController.newFormFieldKind], right-click a
   /// widget for rename/convert/delete.
   form,
+
+  /// Mark regions for redaction. Drag out a rectangle (mouse from empty
+  /// page area; touch long-press-drag) to mark a /Redact region, or use
+  /// [PdfEditingController.addRedactionQuads] to mark the current text
+  /// selection. Marks render as a hatched preview until burned with
+  /// [PdfEditingController.applyRedactions], which is irreversible.
+  redact,
 }
 
 /// Text-markup kinds for [PdfEditingController.addMarkup].
@@ -199,8 +206,13 @@ class PdfEditingController extends ChangeNotifier {
   /// The current revision's bytes — what "save to disk" should write.
   Uint8List get bytes => Uint8List.sublistView(_bytes, 0, _revisions[_cursor]);
 
+  /// Set once a redaction burn replaces the byte buffer: the undo history
+  /// is reset to a single revision, so [_cursor] no longer reflects that
+  /// the document differs from the original.
+  bool _hardModified = false;
+
   /// Whether the current revision differs from the originally opened one.
-  bool get isModified => _cursor > 0;
+  bool get isModified => _cursor > 0 || _hardModified;
 
   bool get canUndo => _cursor > 0;
   bool get canRedo => _cursor < _revisions.length - 1;
@@ -771,6 +783,72 @@ class PdfEditingController extends ChangeNotifier {
           opacity: preferences.opacity,
           author: author),
       pages: [pageIndex]);
+
+  // ---------------------------------------------------------------------
+  // redaction
+
+  /// Marks a single rectangular region for redaction (a /Redact
+  /// annotation, fill black). This is the MARK phase — nothing is removed
+  /// until [applyRedactions]. Undoable like any other edit until burned.
+  void addRedaction(int pageIndex, PdfRect rect) => apply(
+      (e) => e.addRedaction(pageIndex, [rect], author: author),
+      pages: [pageIndex]);
+
+  /// Marks the text runs in [quadsByPage] for redaction (one /Redact
+  /// annotation per page, fill black), e.g. from a text selection. Mirrors
+  /// [addMarkup].
+  void addRedactionQuads(Map<int, List<PdfRect>> quadsByPage) {
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    apply((editor) {
+      quadsByPage.forEach((page, quads) {
+        if (quads.isNotEmpty) editor.addRedaction(page, quads, author: author);
+      });
+    }, pages: quadsByPage.keys);
+  }
+
+  /// Whether any page carries a marked (unburned) /Redact annotation.
+  bool get hasRedactionMarks {
+    for (var i = 0; i < _document.pageCount; i++) {
+      if (pageAt(i).annotations.any((a) => a.subtype == 'Redact')) return true;
+    }
+    return false;
+  }
+
+  /// Burns every marked redaction across the document, irreversibly —
+  /// covered text and images are removed from the content-stream bytes,
+  /// the fill is painted, and the /Redact marks are deleted.
+  ///
+  /// Returns whether anything was burned. This RESETS the undo history:
+  /// redaction cannot be undone (bringing the content back would defeat
+  /// it), and the burned file is a fresh compaction, not a byte-prefix of
+  /// the prior revision, so the prefix-based revision stack cannot hold it.
+  bool applyRedactions() {
+    if (!hasRedactionMarks) return false;
+    final editor = PdfEditor(_document);
+    final burned = editor.applyRedactions();
+    _resetTo(burned);
+    return true;
+  }
+
+  /// Replaces the byte buffer with [bytes] as a fresh single revision,
+  /// discarding undo history. Used by [applyRedactions] (the burned file
+  /// is not a prefix of the prior buffer).
+  void _resetTo(Uint8List bytes) {
+    _bytes = bytes;
+    _revisions
+      ..clear()
+      ..add(bytes.length);
+    _revisionPages
+      ..clear()
+      ..add(null);
+    _cursor = 0;
+    _hardModified = true;
+    _selected.clear();
+    _bumpRenderStamps(null); // every page may have changed
+    _document = PdfDocument.open(bytes, password: _password);
+    _invalidateElements();
+    notifyListeners();
+  }
 
   void addEllipse(int pageIndex, PdfRect rect) => apply(
       (e) => e.addCircle(pageIndex, rect,
@@ -1800,11 +1878,16 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Resizes the selected annotation so its /Rect becomes [to].
-  void resizeSelected(PdfRect to) {
+  ///
+  /// [flipX]/[flipY] mirror the artwork — what a resize handle dragged
+  /// past the opposite edge produces.
+  void resizeSelected(PdfRect to, {bool flipX = false, bool flipY = false}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canResizeSelected) return;
     if (to.width < 1 || to.height < 1) return;
-    apply((e) => e.resizeAnnotation(_selected.last.$1, annotation, to),
+    apply(
+        (e) => e.resizeAnnotation(_selected.last.$1, annotation, to,
+            flipX: flipX, flipY: flipY),
         pages: [_selected.last.$1]);
   }
 
@@ -1812,12 +1895,16 @@ class PdfEditingController extends ChangeNotifier {
   /// [localTo] rotated by the annotation's resting angle about its
   /// center is where the artwork lands — how the overlay resizes a
   /// rotated selection without shearing it.
-  void resizeSelectedLocal(PdfRect localTo) {
+  ///
+  /// [flipX]/[flipY] mirror the artwork along the local axes.
+  void resizeSelectedLocal(PdfRect localTo,
+      {bool flipX = false, bool flipY = false}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canResizeSelected) return;
     if (localTo.width < 1 || localTo.height < 1) return;
     apply(
-        (e) => e.resizeAnnotationLocal(_selected.last.$1, annotation, localTo),
+        (e) => e.resizeAnnotationLocal(_selected.last.$1, annotation, localTo,
+            flipX: flipX, flipY: flipY),
         pages: [_selected.last.$1]);
   }
 

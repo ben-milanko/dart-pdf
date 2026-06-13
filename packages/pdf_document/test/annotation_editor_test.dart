@@ -735,6 +735,120 @@ void main() {
         throwsArgumentError);
   });
 
+  test('resizeAnnotation flipX mirrors stretched artwork and point arrays',
+      () {
+    final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addInk(0, [
+        [(100, 100), (200, 150)],
+      ]);
+    final doc = PdfDocument.open(first.save());
+    final ink = doc.page(0).annotations.single;
+    final from = ink.rect;
+
+    // resize to the SAME rect, flipped horizontally: a flip mirrors the
+    // content, never moves the box
+    final editor = PdfEditor(doc)..resizeAnnotation(0, ink, from, flipX: true);
+    final reopened = PdfDocument.open(editor.save());
+    final flipped = reopened.page(0).annotations.single;
+    expect(flipped.rect.left, closeTo(from.left, 1e-6));
+    expect(flipped.rect.right, closeTo(from.right, 1e-6));
+    expect(flipped.rect.bottom, closeTo(from.bottom, 1e-6));
+    expect(flipped.rect.top, closeTo(from.top, 1e-6));
+
+    // the stretched appearance mirrors through a horizontal reflection
+    // baked into the form /Matrix (a = −1, d = 1)
+    final matrix = reopened.cos
+        .resolve(flipped.normalAppearance!.dictionary['Matrix']) as CosArray;
+    double m(int i) {
+      final n = reopened.cos.resolve(matrix[i]);
+      return n is CosInteger ? n.value.toDouble() : (n as CosReal).value;
+    }
+
+    expect(m(0), closeTo(-1, 1e-9));
+    expect(m(1), closeTo(0, 1e-9));
+    expect(m(2), closeTo(0, 1e-9));
+    expect(m(3), closeTo(1, 1e-9));
+
+    // /InkList reflects about the rect's horizontal center, y untouched —
+    // so the centerline stays consistent with the mirrored appearance
+    final cx = (from.left + from.right) / 2;
+    final inkList = reopened.cos.resolve(flipped.dict['InkList']) as CosArray;
+    final stroke = reopened.cos.resolve(inkList[0]) as CosArray;
+    double at(int i) {
+      final n = reopened.cos.resolve(stroke[i]);
+      return n is CosInteger ? n.value.toDouble() : (n as CosReal).value;
+    }
+
+    expect(at(0), closeTo(2 * cx - 100, 1e-6));
+    expect(at(1), closeTo(100, 1e-6));
+    expect(at(2), closeTo(2 * cx - 200, 1e-6));
+    expect(at(3), closeTo(150, 1e-6));
+  });
+
+  test('flipping a rotated annotation twice restores it', () {
+    final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addInk(0, [
+        [(100, 100), (200, 150)],
+      ]);
+    var doc = PdfDocument.open(first.save());
+    doc = PdfDocument.open((PdfEditor(doc)
+          ..rotateAnnotation(0, doc.page(0).annotations.single, 90))
+        .save());
+
+    // the rest-state rect and the centerline points, read up front
+    List<double> inkPoints(PdfDocument d) {
+      final annot = d.page(0).annotations.single;
+      final list = d.cos.resolve(annot.dict['InkList']) as CosArray;
+      final stroke = d.cos.resolve(list[0]) as CosArray;
+      return [
+        for (var i = 0; i < stroke.length; i++)
+          () {
+            final n = d.cos.resolve(stroke[i]);
+            return n is CosInteger ? n.value.toDouble() : (n as CosReal).value;
+          }(),
+      ];
+    }
+
+    final rest = doc.page(0).annotations.single.rect;
+    final beforePts = inkPoints(doc);
+
+    // the current local box (same size, just flipped) — measured from the
+    // appearance quad so sx == sy == 1 and the flip only mirrors
+    final quad = doc.page(0).annotations.single.appearanceQuad!;
+    double dist((double, double) a, (double, double) b) {
+      final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+      return math.sqrt(dx * dx + dy * dy);
+    }
+
+    final fromW = dist(quad[0], quad[1]);
+    final fromH = dist(quad[0], quad[3]);
+    final ccx = (quad[0].$1 + quad[2].$1) / 2;
+    final ccy = (quad[0].$2 + quad[2].$2) / 2;
+    final localBox = PdfRect(
+        ccx - fromW / 2, ccy - fromH / 2, ccx + fromW / 2, ccy + fromH / 2);
+
+    // a local-frame flipX, then the same flip again — each is its own
+    // inverse, so the geometry comes back exactly
+    for (var i = 0; i < 2; i++) {
+      doc = PdfDocument.open((PdfEditor(doc)
+            ..resizeAnnotationLocal(0, doc.page(0).annotations.single, localBox,
+                flipX: true))
+          .save());
+    }
+
+    final after = doc.page(0).annotations.single.rect;
+    expect(after.left, closeTo(rest.left, 1e-3));
+    expect(after.bottom, closeTo(rest.bottom, 1e-3));
+    expect(after.right, closeTo(rest.right, 1e-3));
+    expect(after.top, closeTo(rest.top, 1e-3));
+
+    final afterPts = inkPoints(doc);
+    expect(afterPts.length, beforePts.length);
+    for (var i = 0; i < beforePts.length; i++) {
+      expect(afterPts[i], closeTo(beforePts[i], 1e-3));
+    }
+  });
+
   test('rotateAnnotation rotates rect, appearance matrix, and ink points', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addSquare(0, const PdfRect(100, 100, 200, 150))

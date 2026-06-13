@@ -255,5 +255,55 @@ void main() {
           editing.document.cos.decodeStreamData(annotation.normalAppearance!));
       expect(content, contains('4 w'));
     });
+
+    testWidgets('dragging a handle past the opposite edge flips the annotation',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // a Stamp keeps the §12.5.5 stretch, so a flip bakes a reflection
+      // into the appearance /Matrix we can read back
+      editing
+        ..addStamp(0, const PdfRect(100, 650, 250, 750), 'TEST')
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      await tester.pump();
+      expect(editing.canResizeSelected, isTrue);
+
+      // grab the right-edge handle and pull it well past the left edge:
+      // the box crosses the 0 point and inverts horizontally
+      final handle = view(250, 700);
+      final gesture = await tester.startGesture(handle);
+      await gesture.moveBy(Offset(-260 * scale, 0));
+      await gesture.moveBy(Offset(-30 * scale, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle(const Duration(milliseconds: 350));
+
+      final annotation = editing.document.page(0).annotations.single;
+      // a horizontal reflection rode into the form /Matrix (a = −1)
+      expect(matrixEntry(editing.document, annotation, 0), closeTo(-1, 1e-6));
+      expect(matrixEntry(editing.document, annotation, 3), closeTo(1, 1e-6));
+      // the box itself stays non-degenerate (the flip mirrors content)
+      final rect = annotation.rect;
+      expect(rect.right - rect.left, greaterThan(1));
+      expect(rect.top - rect.bottom, greaterThan(1));
+    });
   });
 }

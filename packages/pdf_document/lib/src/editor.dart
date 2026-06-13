@@ -19,6 +19,7 @@ part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
 part 'annotation_sync.dart';
 part 'content_editor.dart';
+part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
 part 'page_editor.dart';

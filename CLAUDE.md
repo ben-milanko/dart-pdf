@@ -1781,6 +1781,40 @@ the State (didUpdateWidget, NOT initState) so initialViewport is skipped
 strip's raster loop never settles without runAsync, so the shell test
 turns thumbnails off and uses bounded pumps (no pumpAndSettle/
 pumpEventQueue).
+Stretch-flip (Ben: "allow inverting the annotation if stretching past
+the 0 point"): a resize handle dragged past the opposite edge now
+inverts the annotation instead of clamping at the minimum. `_resizedRect`
+(editing_overlay.dart) lets the dragged edge cross its anchor — it
+returns `(normalizedRect, flipX, flipY)` (the rect stays positive so
+chrome/ghost layout is untouched; the flip rides booleans), keeping
+|size| ≥ minSize on whichever side of 0 it lands so the box never
+collapses to a line; aspect-locked (Shift) drags keep the old
+clamp-at-minimum and never flip. Flip flows commit-side through
+`resizeSelected`/`resizeSelectedLocal({flipX, flipY})` →
+`PdfEditor.resizeAnnotation`/`resizeAnnotationLocal({flipX, flipY})`. For
+the §12.5.5 STRETCH path the mirror is a reflection about the BBox center
+premultiplied into the form /Matrix (`_flipFormArtwork`) — reflection
+maps the BBox onto itself so the BBox→/Rect fit (and thus /Rect) is
+unchanged, only the interior flips — and the point arrays (/InkList/
+QuadPoints/L/Vertices/CL) reflect about the /Rect center to match
+(mapX/mapY gained a flip branch). For the ROTATED local path the flip
+folds straight into the local scale as a NEGATIVE factor (sx/sy), which
+mirrors both the appearance /Matrix and the mapped points about the local
+center in one shot — no separate matrix write needed (a flip commutes
+with the scale). REGENERATE types (Square/Circle/FreeText/Line) ignore
+the flip: a mirrored rectangle/ellipse is identical and text stays
+readable. Live preview + afterimage mirror too: `paintAnnotationDragPreview`
+gained `flipX`/`flipY` (negative scale about the box center for the
+rotated branch, about the appropriate edge for the page-axis branch);
+the painter carries `ghostFlipX`/`ghostFlipY` and the afterGhost record +
+`_commitWithGhost` carry the flip so an inverted resize stays inverted
+until the raster lands. Tests: annotation_editor_test (flipX mirrors the
+matrix + /InkList about the rect center; a rotated double-flip restores
+the geometry — each flip is its own inverse) and editing_rotate_test (a
+handle dragged past the opposite edge bakes a = −1 into a Stamp's form
+matrix). Gotcha: a rotated local-frame flip test must size `localTo`
+from the appearance quad's edge lengths (not the page /Rect, whose dims
+are swapped under rotation) or the "flip" silently resizes too.
 
 Interactive form fill in reading mode (Ben: "users need to enter text
 into form fields, and interact with check boxes, buttons, drop-downs"):

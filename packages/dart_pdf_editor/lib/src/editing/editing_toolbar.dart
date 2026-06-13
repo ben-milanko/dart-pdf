@@ -226,6 +226,39 @@ class PdfEditingToolbar extends StatelessWidget {
       ));
   }
 
+  /// Confirms, then burns the marked redactions. Irreversible — the
+  /// confirm dialog says so, and the burn clears the undo history.
+  Future<void> _applyRedactions(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('pdf-redaction-confirm'),
+        title: const Text('Apply redactions?'),
+        content: const Text(
+            'The marked content will be permanently removed from the '
+            'document. This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey('pdf-redaction-confirm-apply'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final burned = controller.applyRedactions();
+    _flattenToast(
+      context,
+      burned ? 'Redactions applied' : 'No redactions to apply',
+      undoable: false,
+    );
+  }
+
   Future<void> _editSelectedText(BuildContext context) async {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return;
@@ -454,6 +487,17 @@ class PdfEditingToolbar extends StatelessWidget {
                         : () => _flattenForm(context),
                   ),
                 ],
+                toolButton(PdfEditTool.redact, Icons.gradient,
+                    'Redact — drag a region, then apply'),
+                if (controller.tool == PdfEditTool.redact)
+                  IconButton(
+                    key: const ValueKey('pdf-apply-redactions'),
+                    icon: const Icon(Icons.block),
+                    tooltip: 'Apply redactions (irreversible)',
+                    onPressed: controller.hasRedactionMarks
+                        ? () => _applyRedactions(context)
+                        : null,
+                  ),
                 measureButton(PdfEditTool.measureDistance, Icons.straighten,
                     'Measure distance'),
                 measureButton(PdfEditTool.measurePerimeter, Icons.timeline,
