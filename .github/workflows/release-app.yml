@@ -1,0 +1,200 @@
+name: Release app
+
+# Builds installable artifacts for the standalone dart-pdf Editor app on every
+# `app-v*` tag (and on demand) and attaches them to a draft GitHub Release.
+# Store upload and code signing stay manual — see app/RELEASING.md.
+
+on:
+  push:
+    tags: ['app-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name, e.g. 0.1.0'
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.44.2'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [[ "$REF" == app-v* ]]; then
+            V="${REF#app-v}"
+          else
+            V="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${V:-0.1.0}" >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build APK + AAB
+        working-directory: app
+        run: |
+          flutter build apk --release \
+            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+          flutter build appbundle --release \
+            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            app/build/app/outputs/flutter-apk/app-release.apk
+            app/build/app/outputs/bundle/release/app-release.aab
+
+  web:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build web
+        working-directory: app
+        run: flutter build web --release
+      - name: Zip
+        working-directory: app
+        run: (cd build/web && zip -r ../../dart-pdf-editor-web.zip .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: app/dart-pdf-editor-web.zip
+
+  linux:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Linux
+        working-directory: app
+        run: flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Tar bundle
+        working-directory: app
+        run: tar czf dart-pdf-editor-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: app/dart-pdf-editor-linux-x64.tar.gz
+
+  windows:
+    needs: setup
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Windows
+        working-directory: app
+        run: flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Zip
+        working-directory: app
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dart-pdf-editor-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: app/dart-pdf-editor-windows-x64.zip
+
+  macos:
+    needs: setup
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build macOS
+        working-directory: app
+        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Package DMG (unsigned)
+        working-directory: app
+        run: |
+          hdiutil create -volname "dart-pdf Editor" \
+            -srcfolder "build/macos/Build/Products/Release/dart-pdf Editor.app" \
+            -ov -format UDZO dart-pdf-editor-macos.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: app/dart-pdf-editor-macos.dmg
+
+  ios:
+    needs: setup
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build iOS (unsigned)
+        working-directory: app
+        run: flutter build ios --release --no-codesign --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Zip unsigned .app
+        working-directory: app
+        run: ditto -c -k --keepParent "build/ios/iphoneos/Runner.app" dart-pdf-editor-ios-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: app/dart-pdf-editor-ios-unsigned.zip
+
+  release:
+    needs: [setup, android, web, linux, windows, macos, ios]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/app-v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: dart-pdf Editor ${{ needs.setup.outputs.version }}
+          draft: true
+          files: artifacts/**/*
+          body: |
+            Standalone dart-pdf Editor ${{ needs.setup.outputs.version }}.
+
+            Artifacts are built by CI and are **unsigned** (macOS .dmg, iOS .app,
+            Windows .zip) or **debug-signed** (Android, unless a release keystore
+            is configured). See `app/RELEASING.md` for signing and store upload.
