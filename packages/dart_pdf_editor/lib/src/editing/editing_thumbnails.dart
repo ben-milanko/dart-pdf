@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../page_range_dialog.dart';
 import '../pdf_viewer.dart';
@@ -251,6 +251,13 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     return offset;
   }
 
+  void _exportSelected() {
+    final onExport = widget.onExportPages;
+    if (onExport == null) return;
+    final bytes = widget.controller.exportSelectedPages();
+    if (bytes != null) onExport(bytes);
+  }
+
   void _onResizeDelta(double delta) => setState(() {
         _dragWidth = (_width + delta).clamp(widget.minWidth, widget.maxWidth);
       });
@@ -300,6 +307,53 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                       viewerController: widget.viewerController,
                       onPickPdfToInsert: widget.onPickPdfToInsert,
                       onExportPages: widget.onExportPages,
+                    ),
+                  ],
+                ),
+              ),
+            // when more than one page is selected, a bar offers bulk
+            // actions on the selection (a single selection is just the
+            // navigation cursor — the per-tile delete handles it)
+            if (controller.selectedPageCount > 1)
+              Padding(
+                padding: EdgeInsets.fromLTRB(8, 2, _extraRightPadding, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${controller.selectedPageCount} selected',
+                        style: Theme.of(context).textTheme.labelMedium,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (widget.onExportPages != null)
+                      IconButton(
+                        key: const ValueKey('pdf-thumbnail-export-selected'),
+                        icon: const Icon(Icons.file_download_outlined, size: 18),
+                        tooltip: 'Export selected pages',
+                        style: IconButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: _exportSelected,
+                      ),
+                    if (widget.allowPageEditing)
+                      IconButton(
+                        key: const ValueKey('pdf-thumbnail-delete-selected'),
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        tooltip: 'Delete selected pages',
+                        style: IconButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => controller.removeSelectedPages(),
+                      ),
+                    IconButton(
+                      key: const ValueKey('pdf-thumbnail-clear-selection'),
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Clear selection',
+                      style: IconButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: controller.clearPageSelection,
                     ),
                   ],
                 ),
@@ -554,9 +608,28 @@ class _PageTile extends StatelessWidget {
     return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
   }
 
+  /// Tapping a tile selects it for the strip's multi-select and (for a
+  /// plain tap) navigates there. Shift extends a range from the anchor;
+  /// ⌘/Ctrl toggles the tile in the selection — neither navigates, so the
+  /// reader can build a selection without the viewport jumping around.
+  void _onTap() {
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isShiftPressed) {
+      controller.selectPageRange(pageIndex);
+      return;
+    }
+    if (keyboard.isMetaPressed || keyboard.isControlPressed) {
+      controller.togglePageSelection(pageIndex);
+      return;
+    }
+    controller.selectPage(pageIndex);
+    unawaited(viewerController.jumpToPage(pageIndex));
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final selected = controller.isPageSelected(pageIndex);
     // the viewport mark paints over the paper, not the app surface: a
     // dark theme's light primary vanishes on a white thumbnail, so pick
     // whichever accent actually contrasts with the page color
@@ -565,11 +638,20 @@ class _PageTile extends StatelessWidget {
         ? scheme.primary
         : scheme.inversePrimary;
     final document = controller.document;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => unawaited(viewerController.jumpToPage(pageIndex)),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _onTap,
+      // a Container (not Padding) so a selected tile reads as a tinted
+      // chip behind the thumbnail; a color-only decoration adds no
+      // padding, so the per-tile layout (and _estimateOffset) is unchanged
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        decoration: selected
+            ? BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(6),
+              )
+            : null,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

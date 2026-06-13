@@ -2153,3 +2153,36 @@ thereafter. Tests: editing_preferences_test +4 (each tool keeps its own
 style, markup highlighter colour, no-slot inherits, persistence into a
 fresh session). The 14 Ghent render-baseline failures are pre-existing
 on this machine, unrelated.
+
+Thumbnail multi-select (Ben: "shift click to multi select pages in the
+thumbnail strip"): the strip gained a page selection alongside the
+annotation selection. Controller (editing_controller.dart, "page
+selection" section): `_selectedPages` (a Set<int>) + `_pageSelectionAnchor`
+(the last plain/⌘ click — what a shift-click extends from); getters
+`selectedPages` (ascending), `hasPageSelection`, `selectedPageCount`,
+`isPageSelected`; gestures `selectPage` (plain — single + re-anchor),
+`togglePageSelection` (⌘/Ctrl — add/remove + re-anchor), `selectPageRange`
+(shift — contiguous anchor..index, replacing, anchor stays so a further
+shift re-extends from the same origin), `selectAllPages`,
+`clearPageSelection`; bulk ops `removeSelectedPages` (editor `removePages`,
+one undo, refused when it would empty the doc — at least one page must
+remain) and `exportSelectedPages` (= `exportPages(selectedPages)`, null
+when empty). Every structural page edit (move/remove/insert/addBlank)
+clears the page selection too (indices shift), beside the existing
+`_selected.clear()`. UI (editing_thumbnails.dart): `_PageTile._onTap`
+reads HardwareKeyboard — shift → selectPageRange, ⌘/Ctrl →
+togglePageSelection (neither navigates, so a selection builds without the
+viewport jumping), plain → selectPage + jumpToPage; a selected tile gets a
+primary-tinted rounded chip behind the thumbnail (a color-only
+BoxDecoration on the tile's Container adds no padding, so per-tile layout
+and `_estimateOffset` are unchanged — don't switch it back to Padding).
+When `selectedPageCount > 1` a selection bar shows above the list ('N
+selected' + export (keys 'pdf-thumbnail-export-selected', only with
+onExportPages) + delete ('pdf-thumbnail-delete-selected', only with
+allowPageEditing) + clear ('pdf-thumbnail-clear-selection')); a single
+selection is just the navigation cursor (the per-tile delete handles it).
+Tests: editing_page_ops_test.dart — a "page selection" controller group
+(11) + strip widget tests (shift-click range→delete, ctrl-click toggle);
+widget tests set tester.view 800×1400 so the lazy list builds every tile,
+and drive modifiers with sendKeyDownEvent/sendKeyUpEvent(LogicalKeyboardKey
+.shift/.controlLeft) around the tap.

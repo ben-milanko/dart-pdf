@@ -1334,6 +1334,8 @@ class PdfEditingController extends ChangeNotifier {
   void movePage(int from, int to) {
     if (from == to) return;
     _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
     apply((e) => e.movePage(from, to));
   }
 
@@ -1342,6 +1344,8 @@ class PdfEditingController extends ChangeNotifier {
   void removePage(int index) {
     if (_document.pageCount <= 1) return;
     _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
     apply((e) => e.removePage(index));
   }
 
@@ -1353,6 +1357,8 @@ class PdfEditingController extends ChangeNotifier {
   /// selection is cleared first.
   void addBlankPage({double? width, double? height, int? at}) {
     _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
     final insertAt = at ?? _document.pageCount;
     if (width == null && height == null && _document.pageCount > 0) {
       final neighbour =
@@ -1370,6 +1376,8 @@ class PdfEditingController extends ChangeNotifier {
   /// resources, fonts, images, annotations — is deep-copied across.
   void insertPagesFrom(PdfDocument source, {List<int>? indices, int? at}) {
     _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
     apply((e) => e.appendPagesFrom(source, indices: indices, at: at));
   }
 
@@ -1389,6 +1397,104 @@ class PdfEditingController extends ChangeNotifier {
   /// Exports pages [start] through [end] inclusive as a standalone PDF.
   Uint8List exportPageRange(int start, int end) =>
       _document.extractPageRange(start, end);
+
+  // ---------------------------------------------------------------------
+  // page selection (the thumbnail strip's multi-select)
+
+  /// The set of selected page indices — the thumbnail strip's
+  /// click/shift-click/⌘-click selection. Distinct from the annotation
+  /// selection; it drives bulk page operations (delete, export). Any
+  /// structural page edit (move/remove/insert) shifts indices, so it is
+  /// cleared by those.
+  final Set<int> _selectedPages = {};
+
+  /// The anchor a shift-click extends a range from — the last page
+  /// clicked without shift (a plain or ⌘ click).
+  int? _pageSelectionAnchor;
+
+  /// The selected page indices, ascending. Empty when nothing is
+  /// selected in the strip.
+  List<int> get selectedPages => _selectedPages.toList()..sort();
+
+  bool get hasPageSelection => _selectedPages.isNotEmpty;
+
+  /// How many pages are selected in the strip.
+  int get selectedPageCount => _selectedPages.length;
+
+  bool isPageSelected(int index) => _selectedPages.contains(index);
+
+  /// Selects exactly [index] (clearing any previous selection) and makes
+  /// it the anchor for a subsequent [selectPageRange]. The plain-click
+  /// gesture.
+  void selectPage(int index) {
+    _pageSelectionAnchor = index;
+    if (_selectedPages.length == 1 && _selectedPages.contains(index)) return;
+    _selectedPages
+      ..clear()
+      ..add(index);
+    notifyListeners();
+  }
+
+  /// Toggles [index] in the selection (the ⌘/Ctrl-click gesture) and
+  /// re-anchors there so a following shift-click extends from it.
+  void togglePageSelection(int index) {
+    if (!_selectedPages.remove(index)) _selectedPages.add(index);
+    _pageSelectionAnchor = index;
+    notifyListeners();
+  }
+
+  /// Selects the contiguous range from the current anchor to [index]
+  /// (the shift-click gesture), replacing the selection. With no anchor
+  /// yet, behaves like [selectPage]. The anchor stays put, so a further
+  /// shift-click re-extends from the same origin.
+  void selectPageRange(int index) {
+    final anchor = _pageSelectionAnchor ?? index;
+    final lo = math.min(anchor, index);
+    final hi = math.max(anchor, index);
+    _pageSelectionAnchor = anchor;
+    _selectedPages
+      ..clear()
+      ..addAll([for (var i = lo; i <= hi; i++) i]);
+    notifyListeners();
+  }
+
+  /// Selects every page.
+  void selectAllPages() {
+    final all = {for (var i = 0; i < _document.pageCount; i++) i};
+    if (_selectedPages.length == all.length) return;
+    _selectedPages
+      ..clear()
+      ..addAll(all);
+    _pageSelectionAnchor = 0;
+    notifyListeners();
+  }
+
+  /// Clears the page selection.
+  void clearPageSelection() {
+    if (_selectedPages.isEmpty) return;
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    notifyListeners();
+  }
+
+  /// Removes the selected pages in one edit (one undo). Refused (a no-op,
+  /// returns false) when nothing is selected or the selection would empty
+  /// the document — at least one page must remain. Clears the selection.
+  bool removeSelectedPages() {
+    final doomed = _selectedPages
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toList();
+    if (doomed.isEmpty || doomed.length >= _document.pageCount) return false;
+    _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    return apply((e) => e.removePages(doomed));
+  }
+
+  /// Exports the selected pages (ascending) as a fresh standalone PDF,
+  /// leaving this document untouched. Null when nothing is selected.
+  Uint8List? exportSelectedPages() =>
+      _selectedPages.isEmpty ? null : exportPages(selectedPages);
 
   // ---------------------------------------------------------------------
   // selection
