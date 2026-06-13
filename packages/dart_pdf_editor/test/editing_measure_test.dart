@@ -85,6 +85,61 @@ void main() {
     });
   });
 
+  group('locale-based default unit', () {
+    test('pdfDefaultMeasurementUnit picks imperial vs metric by country', () {
+      expect(pdfDefaultMeasurementUnit(const Locale('en', 'US')), 'ft');
+      expect(pdfDefaultMeasurementUnit(const Locale('en', 'LR')), 'ft');
+      expect(pdfDefaultMeasurementUnit(const Locale('my', 'MM')), 'ft');
+      expect(pdfDefaultMeasurementUnit(const Locale('en', 'GB')), 'm');
+      expect(pdfDefaultMeasurementUnit(const Locale('fr', 'FR')), 'm');
+      expect(pdfDefaultMeasurementUnit(const Locale('de', 'DE')), 'm');
+      // No country → metric (the common-case default).
+      expect(pdfDefaultMeasurementUnit(const Locale('en')), 'm');
+    });
+
+    // Pins the app to [locale] (listing it as the only supported locale so
+    // MaterialApp resolves to it) while the stock delegates still supply
+    // MaterialLocalizations — no flutter_localizations needed.
+    Widget localized(Locale locale, Widget child) => MaterialApp(
+          locale: locale,
+          supportedLocales: [locale],
+          home: Scaffold(body: child),
+        );
+
+    Future<String> shownUnit(WidgetTester tester, Locale locale) async {
+      // A blank tree first, so a second call gets a fresh State (else the
+      // dialog reuses the prior element and keeps its already-set unit).
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(localized(locale, const PdfScaleDialog()));
+      await tester.pumpAndSettle();
+      final dropdown = tester.widget<DropdownButton<String>>(
+          find.byKey(const ValueKey('pdf-scale-unit')));
+      return dropdown.value!;
+    }
+
+    testWidgets('the scale dialog opens with the locale default', (tester) async {
+      // en_US and en_GB share a language (so the stock delegates supply
+      // MaterialLocalizations) but differ by country — the axis the unit
+      // default keys on.
+      expect(await shownUnit(tester, const Locale('en', 'US')), 'ft');
+      expect(await shownUnit(tester, const Locale('en', 'GB')), 'm');
+    });
+
+    testWidgets('an existing scale wins over the locale default',
+        (tester) async {
+      await tester.pumpWidget(localized(
+        const Locale('en', 'US'),
+        const PdfScaleDialog(
+          initial: PdfMeasurementScale(unitsPerPoint: 1, unitLabel: 'cm'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      final dropdown = tester.widget<DropdownButton<String>>(
+          find.byKey(const ValueKey('pdf-scale-unit')));
+      expect(dropdown.value, 'cm');
+    });
+  });
+
   group('live readout chip in the viewer', () {
     const scale = 800 / 612;
     Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
