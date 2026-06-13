@@ -449,7 +449,8 @@ class PdfEditingToolbar extends StatelessWidget {
                 toolButton(PdfEditTool.content, Icons.format_shapes,
                     'Edit page content'),
                 toolButton(PdfEditTool.form, Icons.ballot_outlined,
-                    'Form fields — tap to fill, drag to add'),
+                    'Form fields — tap to select, double-tap to fill, '
+                    'drag to add'),
                 if (controller.tool == PdfEditTool.form) ...[
                   PopupMenuButton<PdfFormFieldKind>(
                     key: const ValueKey('pdf-form-field-type'),
