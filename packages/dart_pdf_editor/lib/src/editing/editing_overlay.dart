@@ -985,12 +985,23 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ///
   /// [flipX]/[flipY] mirror the afterimage so a resize that inverted the
   /// annotation stays inverted while the page re-renders.
+  ///
+  /// [washSource] paints the old on-raster footprint over with paper before
+  /// the new raster lands, so a resize/rotate's larger/spun old appearance
+  /// doesn't poke out behind the afterimage. A pure *move* leaves it false:
+  /// its source and destination are disjoint, so an opaque paper wash there
+  /// covers nothing the afterimage redraws — it just blanks the page content
+  /// under the old spot (most visibly *through* a translucent markup) until
+  /// the re-render lands, which reads as the content flashing back in. The
+  /// stale annotation lingering at the old spot instead is continuous with
+  /// the drag (it was painted there the whole time) and far less jarring.
   void _commitWithGhost(VoidCallback commit,
       {Rect? to,
       double rotation = 0,
       double localAngle = 0,
       bool flipX = false,
-      bool flipY = false}) {
+      bool flipY = false,
+      bool washSource = true}) {
     final from = localAngle == 0 ? _selectedViewRect : _selectionChrome?.$1;
     final source = _selectedViewRect;
     final ghost = _ghost;
@@ -1004,7 +1015,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhost = ghost;
     _afterGhostFrom = from;
     _afterGhostTo = to;
-    _afterGhostSourceRect = source;
+    _afterGhostSourceRect = washSource ? source : null;
     _afterGhostRotation = rotation;
     _afterGhostLocalAngle = localAngle;
     _afterGhostFlipX = flipX;
@@ -2087,8 +2098,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
       }
       final (x1, y1) = _geometry.toPagePoint(moveCurrent);
+      // a move's source and destination are disjoint, so don't wash the old
+      // spot — the opaque paper wash would blank the page content there
+      // until the re-render lands and then flash it back (see _commitWithGhost)
       _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
-          to: _selectedViewRect?.shift(moveCurrent - moveStart));
+          to: _selectedViewRect?.shift(moveCurrent - moveStart),
+          washSource: false);
     } else if (stroke != null && stroke.isNotEmpty) {
       _controller.addInkStroke(widget.pageIndex, stroke,
           pressures: strokePressures);
