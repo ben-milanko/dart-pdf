@@ -3,6 +3,7 @@
 // scrollbar — stay smooth; held pages render once the scroll settles.
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -96,7 +97,7 @@ void main() {
     // estimate velocity, so the hold used to stay down for that frame and
     // a heavy page entering the build window interpreted synchronously
     // before the next sample could raise it. The first sample now holds
-    // speculatively (cheap — held pages paint a preview, not blank).
+    // (cheap — held pages paint a preview, not blank).
     final document = PdfDocument.open(buildMultiPagePdf(8));
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
@@ -123,6 +124,53 @@ void main() {
             'sample can compute velocity');
 
     // and the settle timer still releases it
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(controller.debugRenderHold, isFalse);
+  });
+
+  testWidgets('the opening grace holds through a slow scroll ramp',
+      (tester) async {
+    // A flick ramps up: its opening inter-frame deltas underread the
+    // gesture's true speed, so the windowed velocity reads "slow" for the
+    // first few frames. Releasing the hold then let a heavy page entering
+    // the build window interpret synchronously and hitch a fraction of a
+    // page into the scroll. The burst's opening grace keeps the hold up
+    // through the ramp even though the measured velocity is below the
+    // fast-scroll threshold.
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+        ),
+      ),
+    ));
+    await tester.pump();
+    await waitFor(tester, fullRaster);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(controller.debugRenderHold, isFalse);
+
+    // a deliberately slow drag: after crossing the touch slop, ~10px per
+    // 16ms frame (~625 px/s, under both the 800 px/s floor and the
+    // 2-viewport/s threshold) so the velocity estimate alone would NOT
+    // hold.
+    final gesture =
+        await tester.startGesture(tester.getCenter(find.byType(PdfViewer)));
+    await gesture.moveBy(const Offset(0, -(kTouchSlop + 6)));
+    await tester.pump(const Duration(milliseconds: 16));
+    for (var i = 0; i < 4; i++) {
+      await gesture.moveBy(const Offset(0, -10));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    // ~80ms in, inside the 150ms grace: held despite the low velocity
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'the opening grace holds through a slow ramp');
+
+    await gesture.up();
     await tester.pump(const Duration(milliseconds: 300));
     expect(controller.debugRenderHold, isFalse);
   });

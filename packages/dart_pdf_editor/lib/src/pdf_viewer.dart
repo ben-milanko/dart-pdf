@@ -547,6 +547,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// scheduler's hold.
   final List<(Duration, double)> _scrollSamples = [];
 
+  /// Frame timestamp of the first sample in the current scroll burst. The
+  /// hold stays up unconditionally for a short window past it (see
+  /// [_trackScrollVelocity]) — a flick ramps up, so the windowed velocity
+  /// underreads its true speed for the first few frames, and releasing
+  /// then would let a heavy page interpret and hitch a fraction of a page
+  /// into the scroll.
+  Duration _scrollBurstStart = Duration.zero;
+
   /// Low-res previews painted while a page's full render is pending —
   /// what keeps fast-scrolled pages from being blank (see
   /// [PdfViewer.pagePreviews]).
@@ -960,15 +968,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // First event of a new scroll burst: there's no time span yet to
       // estimate velocity from, but a heavy page entering the build
       // window THIS frame would run its synchronous interpret walk
-      // (100-400ms on CAD pages) and drop the frame before the next
-      // sample can raise the hold — the hitch felt right when a fast
-      // scroll starts. Hold speculatively from the first sample; held
-      // pages paint their low-res preview (not blank), so a scroll that
-      // turns out slow shows at most a one-frame preview before the next
-      // sample's real velocity verdict releases the hold, and the
-      // settle timer is the backstop for a lone discrete nudge. Pages
-      // already rastered are untouched — the hold only defers a page's
-      // first interpret.
+      // (100-400ms on CAD pages) and drop the frame. Start the burst and
+      // hold (see the opening grace below).
+      _scrollBurstStart = now;
       _scrollSamples.add((now, pixels));
       _renderScheduler.holding = true;
       return;
@@ -987,7 +989,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final velocity =
         (pixels - _scrollSamples.first.$2).abs() * 1e6 / span; // px/s
     final viewport = _scroll.position.viewportDimension;
-    _renderScheduler.holding = velocity > math.max(800, 2 * viewport);
+    // A flick ramps up: its first inter-frame deltas underread the
+    // gesture's true speed, so a velocity verdict taken in the burst's
+    // opening frames reads "slow" and releases the hold right as the
+    // scroll accelerates — a heavy page entering then interprets
+    // synchronously and drops the frame (the hitch felt a fraction of a
+    // page into a fast scroll). Hold unconditionally through the opening
+    // window, then govern by the windowed velocity (>~2 viewport-
+    // heights/sec). Held pages paint their low-res preview, not blank, so
+    // a genuinely slow scroll only shows a brief preview before the grace
+    // lapses and the page sharpens; the settle timer clears the burst.
+    final opening =
+        now - _scrollBurstStart < const Duration(milliseconds: 150);
+    _renderScheduler.holding =
+        opening || velocity > math.max(800, 2 * viewport);
   }
 
   @override
