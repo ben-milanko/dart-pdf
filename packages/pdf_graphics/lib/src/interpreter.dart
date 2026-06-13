@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -169,6 +170,49 @@ class PdfInterpreter {
 
   static const _maxFormDepth = 16;
 
+  // Cross-render font cache. [PdfFontInfo.load] parses embedded font programs
+  // (TrueType/CFF/Type1), CMaps, ToUnicode maps and width tables — several
+  // microseconds per font — and the result is immutable and read-only, so one
+  // load is safe to share across the two interpreter passes of a single render
+  // (image-scan collect + paint) and across every re-render of the page. That
+  // is a large cold-render saving (the paint pass reuses the collect pass's
+  // loads) and an even larger warm one (a re-render touches the cache only),
+  // and because the cached font's glyph programs keep their own outline memos,
+  // [PdfFontInfo.outlineFor] hands back stable [PdfPath] identities across
+  // renders — which the device's glyph-path cache keys on, so the win
+  // compounds.
+  //
+  // Keyed by the font dictionary's identity: the COS object cache returns the
+  // same [CosDictionary] instance for a given reference (so it is stable within
+  // a document), [CosDictionary] uses identity equality (so keys never collide
+  // across documents), and an edited document produces a fresh dict instance
+  // (so a stale entry is simply never looked up again). A bounded LRU keeps a
+  // long multi-document session from growing without limit.
+  static final LinkedHashMap<CosDictionary, PdfFontInfo> _sharedFonts =
+      LinkedHashMap.identity();
+  static const int _sharedFontCapacity = 128;
+
+  static PdfFontInfo _loadFont(CosDocument cos, CosDictionary font) {
+    final hit = _sharedFonts.remove(font);
+    if (hit != null) {
+      _sharedFonts[font] = hit; // re-insert as most-recently-used
+      return hit;
+    }
+    final loaded = PdfFontInfo.load(cos, font);
+    _sharedFonts[font] = loaded;
+    if (_sharedFonts.length > _sharedFontCapacity) {
+      _sharedFonts.remove(_sharedFonts.keys.first); // evict least-recently-used
+    }
+    return loaded;
+  }
+
+  /// Empties the shared font cache. Tests that assert on load behaviour or
+  /// measure cold timings call this first; ordinary rendering never needs to.
+  static void clearFontCache() => _sharedFonts.clear();
+
+  /// Number of fonts currently held in the shared cache (test hook).
+  static int get debugFontCacheLength => _sharedFonts.length;
+
   // When true, the interpreter only walks the content to discover image draw
   // requests — it skips the image-free build work (path segment lists, glyph
   // outlines, colour/ICC conversion, shadings, text runs, and the no-op device
@@ -183,7 +227,6 @@ class PdfInterpreter {
 
   var _state = _GraphicsState();
   final List<_GraphicsState> _stateStack = [];
-  final Map<CosDictionary, PdfFontInfo> _fontCache = {};
   final Map<CosStream, List<ContentOperation>> _patternOpsCache = {};
   final Map<CosStream, IccProfile?> _iccCache = {};
   final List<bool> _visibilityStack = [];
@@ -1087,28 +1130,33 @@ class PdfInterpreter {
 
   // ---------- paths ----------
 
-  void _addPoint(double x, double y, void Function(double, double) emit) {
-    emit(_state.ctm.transformX(x, y), _state.ctm.transformY(x, y));
-  }
-
+  // `m`/`l`/`re` are the highest-frequency operators in the walk (tens of
+  // thousands per page on vector-dense art), so these transform the point with
+  // the CTM once and append the segment directly — no per-point closure
+  // allocation (the old `_addPoint(emit)` minted one [Function] per call) and
+  // no double read of `_state.ctm`.
   void _moveTo(double x, double y) {
     _currentX = _startX = x;
     _currentY = _startY = y;
+    final m = _state.ctm;
+    final px = m.transformX(x, y), py = m.transformY(x, y);
     if (_scanImages) {
-      _scanPoint(_state.ctm.transformX(x, y), _state.ctm.transformY(x, y));
-      return;
+      _scanPoint(px, py);
+    } else {
+      _segments.add(PdfMoveTo(px, py));
     }
-    _addPoint(x, y, (px, py) => _segments.add(PdfMoveTo(px, py)));
   }
 
   void _lineTo(double x, double y) {
     _currentX = x;
     _currentY = y;
+    final m = _state.ctm;
+    final px = m.transformX(x, y), py = m.transformY(x, y);
     if (_scanImages) {
-      _scanPoint(_state.ctm.transformX(x, y), _state.ctm.transformY(x, y));
-      return;
+      _scanPoint(px, py);
+    } else {
+      _segments.add(PdfLineTo(px, py));
     }
-    _addPoint(x, y, (px, py) => _segments.add(PdfLineTo(px, py)));
   }
 
   void _curveTo(
@@ -1584,17 +1632,18 @@ class PdfInterpreter {
     // An unresolvable font (no /Resources at all, or a dangling entry)
     // substitutes Helvetica so the text still paints — and stays
     // selectable/searchable — instead of vanishing.
-    dict ??= _fallbackFontDict ??= (CosDictionary()
-      ..entries['Type'] = const CosName('Font')
-      ..entries['Subtype'] = const CosName('Type1')
-      ..entries['BaseFont'] = const CosName('Helvetica'));
+    dict ??= _fallbackFontDict;
     _state.fontDict = dict;
-    final loaded = dict;
-    _state.font =
-        _fontCache.putIfAbsent(loaded, () => PdfFontInfo.load(cos, loaded));
+    _state.font = _loadFont(cos, dict);
   }
 
-  CosDictionary? _fallbackFontDict;
+  // A single shared substitute dict (document-independent standard Helvetica),
+  // so the fallback font also resolves to one cache entry across interpreters
+  // and renders rather than reloading per instance.
+  static final CosDictionary _fallbackFontDict = CosDictionary()
+    ..entries['Type'] = const CosName('Font')
+    ..entries['Subtype'] = const CosName('Type1')
+    ..entries['BaseFont'] = const CosName('Helvetica');
 
   void _textLineMove(double tx, double ty) {
     _lineMatrix = PdfMatrix.translation(tx, ty).concat(_lineMatrix);
