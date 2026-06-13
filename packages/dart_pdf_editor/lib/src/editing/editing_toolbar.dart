@@ -3,11 +3,12 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont;
+    show PdfLineEnding, PdfStandardFont, PdfStandardFontFamily;
 
 import '../pdf_viewer.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
+import 'editing_font_controls.dart';
 import 'editing_measure.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
@@ -1858,12 +1859,16 @@ class _StyleMenuState extends State<_StyleMenu> {
   double? _draggingStroke;
   double? _draggingOpacity;
 
-  void _setFontFamily(PdfStandardFont font) {
+  void _setFont(PdfStandardFont font) {
     controller.fontFamily = font; // the new default either way
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(font: font);
     }
   }
+
+  void _setFontFamily(PdfStandardFontFamily family, PdfStandardFont current) =>
+      _setFont(PdfStandardFont.styled(family,
+          bold: current.isBold, italic: current.isItalic));
 
   static int? _rgb(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
@@ -2210,26 +2215,27 @@ class _StyleMenuState extends State<_StyleMenu> {
                         setState(() => _draggingFontSize = null);
                       },
                     ),
-                  if (fields.font)
+                  if (fields.font) ...[
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Font')),
                         Expanded(
-                          child: SegmentedButton<PdfStandardFont>(
+                          child: SegmentedButton<PdfStandardFontFamily>(
                             segments: const [
                               ButtonSegment(
-                                  value: PdfStandardFont.helvetica,
+                                  value: PdfStandardFontFamily.sans,
                                   label: Text('Sans')),
                               ButtonSegment(
-                                  value: PdfStandardFont.times,
+                                  value: PdfStandardFontFamily.serif,
                                   label: Text('Serif')),
                               ButtonSegment(
-                                  value: PdfStandardFont.courier,
+                                  value: PdfStandardFontFamily.mono,
                                   label: Text('Mono')),
                             ],
                             selected: {
-                              selectedStyle?.font ?? controller.fontFamily
+                              (selectedStyle?.font ?? controller.fontFamily)
+                                  .family
                             },
                             showSelectedIcon: false,
                             style: const ButtonStyle(
@@ -2237,12 +2243,24 @@ class _StyleMenuState extends State<_StyleMenu> {
                               padding: WidgetStatePropertyAll(
                                   EdgeInsets.symmetric(horizontal: 8)),
                             ),
-                            onSelectionChanged: (selection) =>
-                                _setFontFamily(selection.single),
+                            onSelectionChanged: (selection) => _setFontFamily(
+                                selection.single,
+                                selectedStyle?.font ?? controller.fontFamily),
                           ),
                         ),
                       ]),
                     ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(children: [
+                        const SizedBox(width: 86, child: Text('Style')),
+                        FontStyleToggles(
+                          font: selectedStyle?.font ?? controller.fontFamily,
+                          onChanged: _setFont,
+                        ),
+                      ]),
+                    ),
+                  ],
                   if (fields.boxColors && widget.showColor) ...[
                     _boxColorRow(
                       context: context,
@@ -2328,17 +2346,22 @@ class _FontChip extends StatelessWidget {
   final String tooltip;
   final VoidCallback onTap;
 
-  static String _familyLabel(PdfStandardFont font) => switch (font) {
-        PdfStandardFont.times => 'Serif',
-        PdfStandardFont.courier => 'Mono',
-        _ => 'Sans',
-      };
+  static String _familyLabel(PdfStandardFont font) {
+    final base = font.family.label;
+    final suffix = switch ((font.isBold, font.isItalic)) {
+      (true, true) => ' BI',
+      (true, false) => ' B',
+      (false, true) => ' I',
+      (false, false) => '',
+    };
+    return '$base$suffix';
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = controller.selectedTextStyle;
-    final family = style?.font ?? controller.fontFamily;
+    final font = style?.font ?? controller.fontFamily;
     final size = (style?.size ?? controller.fontSize).round();
     return Tooltip(
       message: tooltip,
@@ -2357,7 +2380,7 @@ class _FontChip extends StatelessWidget {
               const Text('Aa',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
               const SizedBox(width: 8),
-              Text(_familyLabel(family), style: const TextStyle(fontSize: 13)),
+              Text(_familyLabel(font), style: const TextStyle(fontSize: 13)),
               const SizedBox(width: 6),
               Text('$size',
                   style: TextStyle(

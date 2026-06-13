@@ -81,10 +81,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   /// The flutter font family visually matching a base-14 [font] — the
   /// same substitution the renderer and the inline editor use.
-  static String _uiFamily(PdfStandardFont font) => switch (font) {
-        PdfStandardFont.helvetica => 'Helvetica',
-        PdfStandardFont.times => 'Times New Roman',
-        PdfStandardFont.courier => 'Courier',
+  static String _uiFamily(PdfStandardFont font) => switch (font.family) {
+        PdfStandardFontFamily.sans => 'Helvetica',
+        PdfStandardFontFamily.serif => 'Times New Roman',
+        PdfStandardFontFamily.mono => 'Courier',
       };
 
   void _onFocusChange() {
@@ -320,6 +320,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
               fontSize: _editSize * scale,
               height: 1.2,
               fontFamily: _uiFamily(_editFont),
+              fontWeight:
+                  _editFont.isBold ? FontWeight.bold : FontWeight.normal,
+              fontStyle:
+                  _editFont.isItalic ? FontStyle.italic : FontStyle.normal,
             ),
             decoration: InputDecoration(
               isCollapsed: true,
@@ -352,6 +356,8 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
               fontSize: size * widget.geometry.scale,
               height: 1.2,
               fontFamily: _uiFamily(font),
+              fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
+              fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
             ),
           ),
         ),

@@ -2628,6 +2628,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           fontSize: size * _geometry.scale,
           height: 1.2,
           fontFamily: _uiFamily(font),
+          fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
+          fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
         ),
       ),
     );
@@ -2642,10 +2644,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   /// The Flutter font family that visually matches [font] — the same
   /// substitution the renderer uses for non-embedded base-14 fonts.
-  static String _uiFamily(PdfStandardFont font) => switch (font) {
-        PdfStandardFont.helvetica => 'Helvetica',
-        PdfStandardFont.times => 'Times New Roman',
-        PdfStandardFont.courier => 'Courier',
+  static String _uiFamily(PdfStandardFont font) => switch (font.family) {
+        PdfStandardFontFamily.sans => 'Helvetica',
+        PdfStandardFontFamily.serif => 'Times New Roman',
+        PdfStandardFontFamily.mono => 'Courier',
       };
 
   @override
@@ -3061,6 +3063,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                           fontSize: _textEditSize * _geometry.scale,
                           height: 1.2,
                           fontFamily: _uiFamily(_textEditFont),
+                          fontWeight: _textEditFont.isBold
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          fontStyle: _textEditFont.isItalic
+                              ? FontStyle.italic
+                              : FontStyle.normal,
                         ),
                         decoration: InputDecoration(
                           isCollapsed: true,
