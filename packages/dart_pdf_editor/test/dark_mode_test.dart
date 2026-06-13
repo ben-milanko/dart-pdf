@@ -61,6 +61,9 @@ void main() {
       ),
     ));
     await tester.pump();
+    // the palette swatches live in a group's contextual strip — open one
+    await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+    await tester.pump();
 
     // the unselected swatches outline with the scheme's outline color —
     // the old hardcoded black26 was invisible on a dark toolbar

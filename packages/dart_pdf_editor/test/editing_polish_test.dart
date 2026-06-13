@@ -162,6 +162,8 @@ void main() {
               PdfEditingToolbar(controller: editing, viewerController: viewer),
         ),
       ));
+      // the confirm/discard buttons live in the Draw group's strip
+      editing.tool = PdfEditTool.ink;
       editing.addInkStroke(0, [(100, 500), (150, 520)]);
       await tester.pump();
       expect(find.byTooltip('Add ink annotation'), findsNothing);

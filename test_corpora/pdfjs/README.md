@@ -28,7 +28,7 @@ Checked-in visual artifacts:
   visual review gallery with PDF.js baseline, Dart render, and diff images,
   plus a summary table of per-page diff percentages and pass/fail results.
   As of the last regeneration,
-  <!-- render-summary:start -->**69 of 200 compared pages pass**<!-- render-summary:end -->
+  <!-- render-summary:start -->**71 of 200 compared pages pass**<!-- render-summary:end -->
   (≤ 0.05% of pixels differing from the PDF.js baseline); see that file for
   the per-file breakdown.
 - Rebuild only the gallery index after adding/removing PNGs with

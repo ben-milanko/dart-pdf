@@ -405,6 +405,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     ),
                 ],
                 trailing: [
+                  // Save sits in the header (near the host's Open), not in
+                  // the floating toolbar — ⌘S/Ctrl+S takes the same path.
+                  if (widget.onSave != null)
+                    IconButton(
+                      key: const ValueKey('pdf-shell-save'),
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.save_alt),
+                      tooltip: 'Save… (⌘S / Ctrl+S)',
+                      onPressed: _save,
+                    ),
                   if (features.author)
                     IconButton(
                       key: const ValueKey('pdf-shell-author'),
@@ -447,10 +457,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 ],
               ),
             Expanded(
-              // keyed so a panel appearing never recreates the viewer
-              // element (which would reset the reading position)
-              child: Row(children: [
-                if (features.thumbnails && showThumbnails)
+              // the toolbar floats over the bottom of the content,
+              // Acrobat/Bluebeam-style, rather than sitting in a solid
+              // edge-to-edge bar below it
+              child: Stack(children: [
+                Positioned.fill(
+                  // keyed so a panel appearing never recreates the viewer
+                  // element (which would reset the reading position)
+                  child: Row(children: [
+                    if (features.thumbnails && showThumbnails)
                   PdfThumbnailSidebar(
                     key: const ValueKey('pdf-shell-thumbnails'),
                     controller: session,
@@ -491,30 +506,37 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     controller: session,
                     viewerController: _viewer,
                   ),
-                if (features.propertiesPanel && prefs.showPropertiesPanel)
-                  PdfAnnotationPropertiesPanel(
-                    key: const ValueKey('pdf-shell-properties'),
-                    controller: session,
-                    showAuthor: features.authorEditable,
+                    if (features.propertiesPanel && prefs.showPropertiesPanel)
+                      PdfAnnotationPropertiesPanel(
+                        key: const ValueKey('pdf-shell-properties'),
+                        controller: session,
+                        showAuthor: features.authorEditable,
+                      ),
+                  ]),
+                ),
+                if (features.toolbar)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: PdfEditingToolbar(
+                      controller: session,
+                      viewerController: _viewer,
+                      // save lives in the header now, not the dock
+                      textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                      palette: widget.palette,
+                      tools: features.tools,
+                      showMarkup: features.markup,
+                      showUndoRedo: features.undoRedo,
+                      showColor: features.colorControls,
+                      showStyle: features.styleControls,
+                      showFlatten: features.flatten,
+                      leading: widget.toolbarLeading,
+                      trailing: widget.toolbarTrailing,
+                    ),
                   ),
               ]),
             ),
-            if (features.toolbar)
-              PdfEditingToolbar(
-                controller: session,
-                viewerController: _viewer,
-                onSave: widget.onSave,
-                textPrompt: widget.textPrompt ?? showPdfTextPrompt,
-                palette: widget.palette,
-                tools: features.tools,
-                showMarkup: features.markup,
-                showUndoRedo: features.undoRedo,
-                showColor: features.colorControls,
-                showStyle: features.styleControls,
-                showFlatten: features.flatten,
-                leading: widget.toolbarLeading,
-                trailing: widget.toolbarTrailing,
-              ),
           ]);
         },
       );

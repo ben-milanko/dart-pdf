@@ -206,6 +206,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int? _rawPointer;
   bool _rawErasing = false;
 
+  // raw-driven finger pan: with the ink/eraser tool armed and finger
+  // drawing OFF (Apple Pencil mode), a finger must still scroll the
+  // document. The list's physics are NeverScrollable while a tool is
+  // armed and touch is excluded from the overlay's gesture arena, so a
+  // single finger reaches neither — it would do nothing. This raw path
+  // pans the viewer instead (the pen keeps drawing via [_rawPointer], so
+  // the two never collide). A touch landing during an active pen stroke
+  // is a palm and is ignored (gated on `_rawPointer == null`); a second
+  // finger bails to the viewer's pinch-zoom recognizer.
+  int? _panPointer;
+  Offset? _panLast;
+  VelocityTracker? _panVelocity;
+
   /// Concurrent touch pointers on this page. A second finger landing
   /// mid-gesture aborts it (see [_bailActiveGesture]) instead of feeding
   /// both fingers' positions into one stroke.
@@ -405,6 +418,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : null;
 
   bool get _drawTool => _tool == PdfEditTool.ink || _tool == PdfEditTool.eraser;
+
+  /// A finger should pan the viewer (not draw): the draw tool is armed
+  /// but finger-drawing is off, so touch is reserved for scrolling.
+  bool get _fingerPansViewport =>
+      _drawTool &&
+      !_controller.fingerDrawsInk &&
+      widget.onPanViewport != null;
   bool get _polyTool =>
       _tool == PdfEditTool.polyline ||
       _tool == PdfEditTool.polygon ||
@@ -498,6 +518,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
       }
+    } else if (_panPointer == null &&
+        _rawPointer == null &&
+        event.kind == PointerDeviceKind.touch &&
+        _fingerPansViewport) {
+      // pencil mode, single finger, no pen stroke in flight: pan the
+      // viewer. A move drives [onPanViewport]; lift hands the velocity
+      // to [onPanViewportEnd] for a fling, exactly like a select-mode
+      // empty-area touch drag.
+      _panPointer = event.pointer;
+      _panLast = event.localPosition;
+      _panVelocity = VelocityTracker.withKind(event.kind)
+        ..addPosition(event.timeStamp, event.localPosition);
     }
   }
 
@@ -506,6 +538,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (pressure != null) _pointerPressure = pressure;
     if (_controller.isPickingColor) {
       _updatePickPreview(event.localPosition);
+      return;
+    }
+    if (event.pointer == _panPointer) {
+      final last = _panLast;
+      if (last != null) {
+        widget.onPanViewport?.call(event.localPosition - last);
+      }
+      _panLast = event.localPosition;
+      _panVelocity?.addPosition(event.timeStamp, event.localPosition);
       return;
     }
     if (event.pointer != _rawPointer) return;
@@ -528,6 +569,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _gestureBailed = true;
     _rawPointer = null;
     _rawErasing = false;
+    // a second finger landed: stop panning so the viewer's pinch-zoom
+    // recognizer takes both touches (no fling — the gesture isn't a pan)
+    _panPointer = null;
+    _panLast = null;
+    _panVelocity = null;
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -564,6 +610,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (event.kind == PointerDeviceKind.touch) {
       _touchPointers.remove(event.pointer);
       if (_touchPointers.isEmpty) _gestureBailed = false;
+    }
+    if (event.pointer == _panPointer) {
+      final velocity = canceled
+          ? Velocity.zero
+          : (_panVelocity?.getVelocity() ?? Velocity.zero);
+      _panPointer = null;
+      _panLast = null;
+      _panVelocity = null;
+      if (!canceled) widget.onPanViewportEnd?.call(velocity);
+      return;
     }
     if (event.pointer != _rawPointer) return;
     _rawPointer = null;
@@ -1228,6 +1284,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   // -----------------------------------------------------------------
   // in-place text editing
+
+  /// A default-sized view rect for a tap-to-place annotation, with its
+  /// top-left at [tap]: ~200pt wide and one line of the current font tall
+  /// (in page points, mapped through the zoom). Nudged back onto the page
+  /// when the tap is near the right or bottom edge so the whole box fits.
+  Rect _defaultPlacementRect(Offset tap) {
+    final scale = _geometry.scale;
+    final w = 200.0 * scale;
+    final h = (_controller.fontSize * 1.6 + 8) * scale;
+    final size = _geometry.viewSize;
+    final left = tap.dx.clamp(0.0, math.max(0.0, size.width - w)).toDouble();
+    final top = tap.dy.clamp(0.0, math.max(0.0, size.height - h)).toDouble();
+    return Rect.fromLTWH(left, top, w, h);
+  }
 
   /// Opens the inline text editor over [viewRect] — empty for a fresh
   /// free-text box, prefilled from the selected annotation when
@@ -2210,9 +2280,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.addNote(widget.pageIndex, x, y, text);
       case PdfEditTool.signature:
         _placeSignature(details.localPosition);
+      case PdfEditTool.freeText:
+        // tapping without dragging out a box opens a default-sized one
+        _openTextEditor(_defaultPlacementRect(details.localPosition),
+            existing: false);
       case PdfEditTool.stamp:
-        // no-op without an active custom stamp (the classic flow drags)
-        _controller.placeStamp(widget.pageIndex, x, y);
+        if (_controller.activeStamp != null) {
+          // an active custom stamp drops at its auto-size on tap
+          _controller.placeStamp(widget.pageIndex, x, y);
+        } else {
+          // the classic flow normally drags out a box; a plain tap places
+          // a default-sized stamp after prompting for its caption
+          final text = await widget.textPrompt(context,
+              title: 'Stamp text', initial: 'APPROVED');
+          if (text == null || text.isEmpty) return;
+          _controller.placeTextStamp(widget.pageIndex, x, y, text);
+        }
       case PdfEditTool.form:
         // single tap selects the field for move/resize/menu; double-tap
         // fills it (read mode is the no-tool path to just fill)

@@ -85,8 +85,11 @@ void main() {
 
   group('line-ending picker', () {
     Future<void> openStyleMenu(WidgetTester tester) async {
+      // the tune button lives in the open group / selection strip — the
+      // first of the toolbar's two scrollables (strip above, dock below)
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
     }

@@ -161,10 +161,20 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   void _toast(String message) {
+    // Floating in the bottom-right corner (lifted clear of the editing
+    // toolbar) on desktop, so toasts stay a compact pill off to the side and
+    // never cover the chrome; a near-full-width pill on narrow windows.
+    final width = MediaQuery.of(context).size.width;
+    const bottom = 68.0;
+    final margin = width >= 600
+        ? EdgeInsets.only(left: width - 360 - 24, right: 24, bottom: bottom)
+        : const EdgeInsets.fromLTRB(16, 0, 16, bottom);
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
         content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: margin,
         duration: const Duration(seconds: 2),
       ));
   }
@@ -339,11 +349,20 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// The suggested save name — the active tab's title (the opened file's
+  /// name, or the demo's title), with a `.pdf` extension guaranteed.
+  String _saveFileName() {
+    var name = (_active?.title ?? '').trim();
+    if (name.isEmpty) name = 'document';
+    if (!name.toLowerCase().endsWith('.pdf')) name = '$name.pdf';
+    return name;
+  }
+
   /// Saves with whatever the platform offers: a save dialog on desktop,
   /// a browser download on the web, the share sheet on phones and
   /// tablets (where apps can't write outside their sandbox directly).
   Future<void> _saveAs(Uint8List bytes) async {
-    const name = 'annotated.pdf';
+    final name = _saveFileName();
     final file = XFile.fromData(bytes, mimeType: 'application/pdf');
     if (kIsWeb) {
       await file.saveTo(name);
@@ -357,7 +376,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
             box == null ? null : box.localToGlobal(Offset.zero) & box.size;
         await SharePlus.instance.share(ShareParams(
           files: [file],
-          fileNameOverrides: const [name],
+          fileNameOverrides: [name],
           // required on iPad: the share popover anchors to this rect
           sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
         ));
@@ -404,12 +423,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                       onPressed: () async {
                         await tab.viewer!.copySelection();
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied to clipboard'),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
+                        _toast('Copied to clipboard');
                       },
                     ),
             ),
@@ -561,23 +575,20 @@ class _ViewerScreenState extends State<ViewerScreen> {
       color: scheme.surface,
       child: SizedBox(
         height: _tabStripHeight,
-        child: Row(
-          children: [
-            Expanded(
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                itemCount: _tabs.length,
-                itemBuilder: (context, i) => _buildTab(i),
-              ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.add),
-              tooltip: 'Open PDF in a new tab',
-              onPressed: _pickFile,
-            ),
-          ],
+        // the new-tab button is the last item in the scrolling row, so it
+        // always rides immediately after the final tab
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          itemCount: _tabs.length + 1,
+          itemBuilder: (context, i) => i < _tabs.length
+              ? _buildTab(i)
+              : IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Open PDF in a new tab',
+                  onPressed: _pickFile,
+                ),
         ),
       ),
     );

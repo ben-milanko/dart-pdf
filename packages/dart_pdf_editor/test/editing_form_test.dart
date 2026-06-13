@@ -435,20 +435,37 @@ void main() {
         (tester) async {
       final editing = await pumpEditor(tester, toolbar: true);
 
-      final toolbarScrollable = find.descendant(
-          of: find.byType(PdfEditingToolbar),
-          matching: find.byType(Scrollable));
+      // the dock (the group chips) and the contextual strip are the two
+      // scrollables inside the toolbar
+      final dockScrollable = find
+          .descendant(
+              of: find.byType(PdfEditingToolbar),
+              matching: find.byType(Scrollable))
+          .last;
+      final stripScrollable = find
+          .descendant(
+              of: find.byType(PdfEditingToolbar),
+              matching: find.byType(Scrollable))
+          .first;
+
+      // open the Edit group (its chip may sit off the dock's right edge)
+      final editChip = find.byKey(const ValueKey('pdf-group-edit'));
+      await tester.scrollUntilVisible(editChip, 80, scrollable: dockScrollable);
+      await tester.tap(editChip);
+      await tester.pump();
+
+      // the form tool now lives in the group's strip
       final formButton = find.byTooltip(
           'Form fields — tap to select, double-tap to fill, drag to add');
       await tester.scrollUntilVisible(formButton, 80,
-          scrollable: toolbarScrollable);
+          scrollable: stripScrollable);
       await tester.tap(formButton);
       await tester.pump();
       expect(editing.tool, PdfEditTool.form);
 
       final typePicker = find.byKey(const ValueKey('pdf-form-field-type'));
       await tester.scrollUntilVisible(typePicker, 80,
-          scrollable: toolbarScrollable);
+          scrollable: stripScrollable);
       await tester.tap(typePicker);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('pdf-form-type-checkbox')));
@@ -458,7 +475,7 @@ void main() {
       final flatten =
           find.byTooltip('Flatten form — bake values into the pages');
       await tester.scrollUntilVisible(flatten, 80,
-          scrollable: toolbarScrollable);
+          scrollable: stripScrollable);
       await tester.tap(flatten);
       await tester.pump();
       expect(editing.acroForm!.fields, isEmpty);

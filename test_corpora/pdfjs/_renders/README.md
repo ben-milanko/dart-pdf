@@ -21,7 +21,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 | Pages-tree-refs.pdf | 1 | 595x842 | n/a | — |
 | ShowText-ShadingPattern.pdf | 1 | 612x792 | 1.140% | ❌ fail |
 | SimFang-variant.pdf | 1 | 463x626 | 0.282% | ❌ fail |
-| TrueType_without_cmap.pdf | 1 | 200x50 | 1.680% | ❌ fail |
+| TrueType_without_cmap.pdf | 1 | 200x50 | 0.110% | ❌ fail |
 | Type3WordSpacing.pdf | 1 | 300x80 | 5.375% | ❌ fail |
 | XiaoBiaoSong.pdf | 1 | 463x626 | 6.212% | ❌ fail |
 | ZapfDingbats.pdf | 1 | 576x792 | 12.972% | ❌ fail |
@@ -119,7 +119,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 | issue3584.pdf | 1 | 200x50 | 0.050% | ✅ pass |
 | issue3928.pdf | 1 | 300x50 | 0.033% | ✅ pass |
 | issue3928.pdf | 2 | 300x50 | 0.020% | ✅ pass |
-| issue4246.pdf | 1 | 595x842 | 13.010% | ❌ fail |
+| issue4246.pdf | 1 | 595x842 | 0.012% | ✅ pass |
 | issue4461.pdf | 1 | 30x20 | 0.000% | ✅ pass |
 | issue4573.pdf | 1 | 200x50 | 0.000% | ✅ pass |
 | issue4684.pdf | 1 | 400x50 | 0.000% | ✅ pass |
@@ -136,8 +136,8 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 | issue7872.pdf | 1 | 250x50 | 8.344% | ❌ fail |
 | jbig2_file_header.pdf | 1 | 128x96 | 0.000% | ✅ pass |
 | jbig2_symbol_offset.pdf | 1 | 596x842 | 1.560% | ❌ fail |
-| jp2k-resetprob.pdf | 1 | 30x21 | 95.238% | ❌ fail |
-| knockout_isolated_overlap.pdf | 1 | 200x160 | 9.375% | ❌ fail |
+| jp2k-resetprob.pdf | 1 | 30x21 | 8.571% | ❌ fail |
+| knockout_isolated_overlap.pdf | 1 | 200x160 | 0.000% | ✅ pass |
 | knockout_smask.pdf | 1 | 200x160 | 12.500% | ❌ fail |
 | labelled_pages.pdf | 1 | 612x792 | 0.000% | ✅ pass |
 | labelled_pages.pdf | 2 | 612x792 | 0.000% | ✅ pass |
@@ -156,11 +156,11 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 | noembed-eucjp.pdf | 1 | 595x842 | 0.123% | ❌ fail |
 | noembed-identity.pdf | 1 | 595x842 | 0.033% | ✅ pass |
 | noembed-sjis.pdf | 1 | 595x842 | 0.184% | ❌ fail |
-| non-embedded-NuptialScript.pdf | 1 | 350x50 | 21.069% | ❌ fail |
+| non-embedded-NuptialScript.pdf | 1 | 350x50 | 18.549% | ❌ fail |
 | openoffice.pdf | 1 | 200x50 | 1.340% | ❌ fail |
 | operator-in-TJ-array.pdf | 1 | 595x839 | 0.244% | ❌ fail |
 | operator_list_cycle.pdf | 1 | 612x792 | 0.249% | ❌ fail |
-| pattern_text_embedded_font.pdf | 1 | 596x842 | 5.019% | ❌ fail |
+| pattern_text_embedded_font.pdf | 1 | 596x842 | 0.966% | ❌ fail |
 | pdfjsbad1586.pdf | 1 | 612x792 | 0.003% | ✅ pass |
 | pdfkit_compressed.pdf | 1 | 612x792 | 0.045% | ✅ pass |
 | poppler-67295-0.pdf | 1 | 612x792 | 0.282% | ❌ fail |
@@ -177,8 +177,8 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 | rc_annotation.pdf | 1 | 100x100 | 0.000% | ✅ pass |
 | rc_annotation.pdf | 2 | 100x100 | 0.000% | ✅ pass |
 | recursiveCompositGlyf.pdf | 1 | 612x792 | 0.000% | ✅ pass |
-| rotation.pdf | 1 | 612x792 | 0.529% | ❌ fail |
-| rotation.pdf | 2 | 792x612 | 0.511% | ❌ fail |
+| rotation.pdf | 1 | 612x792 | 0.440% | ❌ fail |
+| rotation.pdf | 2 | 792x612 | 0.391% | ❌ fail |
 | scan-bad.pdf | 1 | 612x792 | 0.048% | ✅ pass |
 | sci-notation.pdf | 1 | 612x792 | 0.362% | ❌ fail |
 | secHandler.pdf | 1 | 612x792 | 0.165% | ❌ fail |
@@ -195,7 +195,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 | standard_fonts.pdf | 1 | 596x842 | 10.454% | ❌ fail |
 | standard_fonts.pdf | 2 | 596x842 | 11.142% | ❌ fail |
 | standard_fonts.pdf | 3 | 596x842 | 10.682% | ❌ fail |
-| standard_fonts.pdf | 4 | 596x842 | 12.384% | ❌ fail |
+| standard_fonts.pdf | 4 | 596x842 | 12.529% | ❌ fail |
 | standard_fonts.pdf | 5 | 596x842 | 11.006% | ❌ fail |
 | standard_fonts.pdf | 6 | 596x842 | n/a | — |
 | tensor-allflags-withfunction.pdf | 1 | 612x792 | 0.477% | ❌ fail |
@@ -215,7 +215,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 | xref_command_missing.pdf | 1 | 200x50 | 8.480% | ❌ fail |
 | zerowidthline.pdf | 1 | 596x842 | 0.935% | ❌ fail |
 
-69 of 200 compared pages pass (≤ 0.050% of pixels differing); 131 fail.
+71 of 200 compared pages pass (≤ 0.050% of pixels differing); 129 fail.
 
 ## Visual Comparisons
 
@@ -309,7 +309,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### TrueType_without_cmap.pdf page 1
 
-200x50; diff: 1.680%
+200x50; diff: 0.110%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1093,7 +1093,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### issue4246.pdf page 1
 
-595x842; diff: 13.010%
+595x842; diff: 0.012%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1229,7 +1229,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### jp2k-resetprob.pdf page 1
 
-30x21; diff: 95.238%
+30x21; diff: 8.571%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1237,7 +1237,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### knockout_isolated_overlap.pdf page 1
 
-200x160; diff: 9.375%
+200x160; diff: 0.000%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1389,7 +1389,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### non-embedded-NuptialScript.pdf page 1
 
-350x50; diff: 21.069%
+350x50; diff: 18.549%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1421,7 +1421,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### pattern_text_embedded_font.pdf page 1
 
-596x842; diff: 5.019%
+596x842; diff: 0.966%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1557,7 +1557,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### rotation.pdf page 1
 
-612x792; diff: 0.529%
+612x792; diff: 0.440%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1565,7 +1565,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### rotation.pdf page 2
 
-792x612; diff: 0.511%
+792x612; diff: 0.391%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |
@@ -1701,7 +1701,7 @@ fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart
 
 ### standard_fonts.pdf page 4
 
-596x842; diff: 12.384%
+596x842; diff: 12.529%
 
 | PDF.js baseline | Dart render | Diff |
 | --- | --- | --- |

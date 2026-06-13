@@ -297,6 +297,10 @@ void main() {
           ),
         ),
       );
+      // open the Shapes group; its strip is where colour + style controls
+      // now live (the toolbar's first scrollable once the strip is up)
+      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      await tester.pump();
       // color changer gone: "More colors…" picker and eyedropper
       expect(find.byIcon(Icons.palette), findsNothing);
       expect(find.byIcon(Icons.colorize), findsNothing);
@@ -305,9 +309,11 @@ void main() {
       // its text-box color rows are gone with color controls off
       await tester.scrollUntilVisible(
           find.byTooltip('Stroke, opacity, font'), 100,
-          scrollable: find.descendant(
-              of: find.byType(PdfEditingToolbar),
-              matching: find.byType(Scrollable)));
+          scrollable: find
+              .descendant(
+                  of: find.byType(PdfEditingToolbar),
+                  matching: find.byType(Scrollable))
+              .first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-text-fill-none')), findsNothing);
@@ -318,18 +324,22 @@ void main() {
 
     testWidgets('color controls are present by default', (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
+      // the colour controls live in a group's strip — open one
+      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      await tester.pump();
       expect(find.byIcon(Icons.palette), findsOneWidget);
       expect(find.byIcon(Icons.colorize), findsOneWidget);
       await tester.scrollUntilVisible(
           find.byTooltip('Stroke, opacity, font'), 100,
-          scrollable: find.descendant(
-              of: find.byType(PdfEditingToolbar),
-              matching: find.byType(Scrollable)));
+          scrollable: find
+              .descendant(
+                  of: find.byType(PdfEditingToolbar),
+                  matching: find.byType(Scrollable))
+              .first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('pdf-text-fill-none')), findsOneWidget);
-      expect(
-          find.byKey(const ValueKey('pdf-text-border-none')), findsOneWidget);
+      // the Shapes popup carries the shape interior-fill colour row
+      expect(find.byKey(const ValueKey('pdf-shape-fill-none')), findsOneWidget);
     });
 
     testWidgets('toolbar buttons drive the owned session', (tester) async {
@@ -415,12 +425,8 @@ void main() {
       );
       editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       await tester.pump();
-      await tester.scrollUntilVisible(find.byIcon(Icons.save_alt), 80,
-          scrollable: find.descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          ));
-      await tester.tap(find.byIcon(Icons.save_alt),
+      // save now lives in the shell header (near the host's Open), keyed
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-save')),
           kind: PointerDeviceKind.mouse);
       expect(saved, isNotNull);
       expect(saved!.length, editing.bytes.length);

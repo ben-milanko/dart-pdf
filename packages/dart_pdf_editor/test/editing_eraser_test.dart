@@ -210,8 +210,12 @@ void main() {
         ),
       ));
 
+      // the tune button lives in the Draw group's strip
+      await tester.tap(find.byKey(const ValueKey('pdf-group-draw')));
+      await tester.pump();
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-eraser-size')), findsNothing);
@@ -253,7 +257,8 @@ void main() {
       expect(find.byTooltip('Eraser size'), findsOneWidget);
       expect(find.byTooltip('Stroke, opacity, font'), findsNothing);
 
-      await tester.scrollUntilVisible(find.byTooltip('Eraser size'), 100);
+      await tester.scrollUntilVisible(find.byTooltip('Eraser size'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Eraser size'));
       await tester.pumpAndSettle();
       // only the eraser slider shows — the paint-only controls are gone

@@ -212,6 +212,26 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('tapping without dragging places a default-sized text box',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      // a plain tap (no drag) opens the inline editor at a default size
+      await tap(tester, view(150, 650));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await tester.enterText(find.byKey(editorKey), 'Tapped in');
+      await tap(tester, view(450, 500)); // outside the box: commit
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'FreeText');
+      expect(annotation.contents, 'Tapped in');
+      await settle(tester);
+    });
+
     testWidgets('a fresh text box is focused for typing immediately',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -314,8 +334,15 @@ void main() {
         ),
       ));
 
+      // the font controls live in the Insert group's strip (it opens on
+      // the freeText tool, whose tune trigger is the font chip)
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byKey(const ValueKey('pdf-group-insert')), 80);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-insert')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
@@ -344,8 +371,14 @@ void main() {
         ),
       ));
 
+      // the text fill/border rows live in the Insert group's strip
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byKey(const ValueKey('pdf-group-insert')), 80);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-insert')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
@@ -384,8 +417,11 @@ void main() {
       ));
       expect(editing.canRestyleSelectedText, isTrue);
 
+      // a selected text box raises the selection strip; its tune trigger
+      // is the font chip (the first of strip/dock scrollables)
       await tester.scrollUntilVisible(
-          find.byTooltip('Stroke, opacity, font'), 100);
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 

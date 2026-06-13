@@ -20,15 +20,26 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfViewerController viewerController,
 );
 
-/// A ready-made Material toolbar for [PdfEditingController]: text-markup
-/// actions for the viewer's current selection, tool toggles, a color
-/// palette, undo/redo, selection actions, flatten, and save.
+/// A ready-made toolbar for [PdfEditingController].
 ///
-/// Place it in a Scaffold's `bottomNavigationBar` (it builds a
-/// [BottomAppBar]). Apps wanting different chrome can skip this widget
-/// entirely and drive the controller from their own UI, or add focused
-/// host actions with [leading] and [trailing].
-class PdfEditingToolbar extends StatelessWidget {
+/// The bar is organised as a **dock** of tool *groups* — Select, Markup,
+/// Draw, Shapes, Insert, Measure and Edit — flanked by the global
+/// undo/redo, flatten and save actions. Tapping a group raises a
+/// **contextual strip** above the dock: the group's tools on the left and
+/// the active tool's live settings (colour, stroke, opacity, font,
+/// scale…) on the right, so each tool shows only the settings it
+/// supports. Selecting an annotation or a page element raises its own
+/// strip with the actions and restyle controls that apply to it.
+///
+/// On narrow (phone) widths the dock collapses to the active tool plus a
+/// quick-colour row and a *Tools* handle; the handle opens a bottom sheet
+/// with group tabs, a tool grid and the active tool's settings.
+///
+/// Place it in a Scaffold's `bottomNavigationBar` or as the bottom child
+/// of a Column — it sizes to its content. Apps wanting different chrome
+/// can skip this widget entirely and drive the controller from their own
+/// UI, or add focused host actions with [leading] and [trailing].
+class PdfEditingToolbar extends StatefulWidget {
   const PdfEditingToolbar({
     super.key,
     required this.controller,
@@ -62,44 +73,45 @@ class PdfEditingToolbar extends StatelessWidget {
   /// The colors offered for new annotations.
   final List<Color> palette;
 
-  /// The tool buttons to show, null meaning all of them. Sub-controls
+  /// The tools to expose, null meaning all of them. A group disappears
+  /// from the dock when none of its tools are in the set. Sub-controls
   /// tied to an armed tool (the stamp picker, the form field-type menu)
-  /// follow their tool. Hiding a button doesn't disable the tool — it
-  /// can still be armed through the controller.
+  /// follow their tool. Hiding a tool doesn't disable it — it can still
+  /// be armed through the controller.
   final Set<PdfEditTool>? tools;
 
-  /// Whether the text-markup buttons (highlight, underline, strike out,
-  /// squiggly — they act on the viewer's text selection) are shown.
+  /// Whether the Markup group (highlight, underline, strike out, squiggly
+  /// — they act on the viewer's text selection) is shown.
   final bool showMarkup;
 
   /// Whether the undo/redo buttons are shown. The viewer's ⌘Z/⇧⌘Z
   /// shortcuts work either way.
   final bool showUndoRedo;
 
-  /// Whether the color controls — the palette swatches, the "More
-  /// colors…" picker, the eyedropper, and the text-box fill/border color
+  /// Whether the colour controls — the palette swatches, the "More
+  /// colours…" picker, the eyedropper, and the text-box fill/border colour
   /// rows in the style popup — are shown. Split from [showStyle] so a
-  /// color-locked session can hide the color changer while leaving
+  /// colour-locked session can hide the colour changer while leaving
   /// stroke/opacity/font editable.
   final bool showColor;
 
   /// Whether the style popup (the stroke/opacity/font controls) is
   /// shown. Independent of [showColor]: the popup can show its sliders
-  /// and font controls with its color rows hidden.
+  /// and font controls with its colour rows hidden.
   final bool showStyle;
 
   /// Whether the flatten-annotations button is shown.
   final bool showFlatten;
 
-  /// Custom widgets shown before the stock toolbar controls. Builders
-  /// run inside the toolbar's listenable rebuild, so they can reflect
+  /// Custom widgets shown before the stock dock controls. Builders run
+  /// inside the toolbar's listenable rebuild, so they can reflect
   /// [controller] or [viewerController] state directly.
   final List<PdfEditingToolbarWidgetBuilder> leading;
 
-  /// Custom widgets shown after the stock toolbar controls.
+  /// Custom widgets shown after the stock dock controls.
   ///
   /// Prefer compact controls such as [IconButton]s or popup buttons so
-  /// they fit naturally in the toolbar's horizontal scroll row.
+  /// they fit naturally in the dock's row.
   final List<PdfEditingToolbarWidgetBuilder> trailing;
 
   static const defaultPalette = [
@@ -110,6 +122,168 @@ class PdfEditingToolbar extends StatelessWidget {
     Color(0xFF000000), // black
   ];
 
+  /// Below this width the dock collapses and tools move into a bottom
+  /// sheet. Above it, the desktop dock + contextual strip show.
+  static const _mobileBreakpoint = 600.0;
+
+  @override
+  State<PdfEditingToolbar> createState() => _PdfEditingToolbarState();
+}
+
+/// One entry in a tool group — either an armable [PdfEditTool] or a
+/// text-markup action ([PdfMarkupKind], which acts on the live text
+/// selection rather than arming a tool).
+class _GroupTool {
+  const _GroupTool.tool(this.tool, this.icon, this.tip) : markup = null;
+  const _GroupTool.markup(this.markup, this.icon, this.tip) : tool = null;
+
+  final PdfEditTool? tool;
+  final PdfMarkupKind? markup;
+  final IconData icon;
+  final String tip;
+}
+
+/// A dock group: a labelled chip that raises a contextual strip of
+/// [tools]. [defaultTool] is armed when the group opens, when arming it
+/// is side-effect-free (shapes → rectangle, draw → ink); groups whose
+/// first tool has a prerequisite (Measure needs a scale, Insert's
+/// signature needs a drawing) leave it null and wait for an explicit tap.
+class _ToolGroup {
+  const _ToolGroup(this.id, this.label, this.icon, this.tools,
+      {this.defaultTool});
+
+  final String id;
+  final String label;
+  final IconData icon;
+  final List<_GroupTool> tools;
+  final PdfEditTool? defaultTool;
+}
+
+class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
+  PdfEditingController get controller => widget.controller;
+  PdfViewerController get viewerController => widget.viewerController;
+
+  /// Which group's strip is open when no group tool is armed (Select,
+  /// Markup, Measure and Edit can be open with nothing armed). When a
+  /// group tool *is* armed, that tool's group always wins.
+  String? _openGroupId = 'select';
+
+  /// In-flight opacity while dragging the strip's inline slider over a
+  /// selected annotation — it only restyles on release (one revision per
+  /// gesture), so the thumb needs its own state meanwhile.
+  double? _dragOpacity;
+
+  /// The seven dock groups, in order. Filtered by [PdfEditingToolbar.tools]
+  /// and [PdfEditingToolbar.showMarkup] before display.
+  static const _groups = <_ToolGroup>[
+    _ToolGroup(
+        'select',
+        'Select',
+        Icons.near_me,
+        [
+          _GroupTool.tool(PdfEditTool.select, Icons.near_me, 'Select'),
+        ],
+        defaultTool: PdfEditTool.select),
+    _ToolGroup('markup', 'Markup', Icons.edit_note, [
+      _GroupTool.markup(
+          PdfMarkupKind.highlight, Icons.border_color, 'Highlight selection'),
+      _GroupTool.markup(PdfMarkupKind.underline, Icons.format_underlined,
+          'Underline selection'),
+      _GroupTool.markup(PdfMarkupKind.strikeOut, Icons.format_strikethrough,
+          'Strike out selection'),
+      _GroupTool.markup(PdfMarkupKind.squiggly, Icons.gesture,
+          'Squiggly-underline selection'),
+    ]),
+    _ToolGroup(
+        'draw',
+        'Draw',
+        Icons.draw,
+        [
+          _GroupTool.tool(PdfEditTool.ink, Icons.draw, 'Draw'),
+          _GroupTool.tool(
+              PdfEditTool.eraser, Icons.auto_fix_normal, 'Erase ink strokes'),
+        ],
+        defaultTool: PdfEditTool.ink),
+    _ToolGroup(
+        'shapes',
+        'Shapes',
+        Icons.rectangle_outlined,
+        [
+          _GroupTool.tool(
+              PdfEditTool.rectangle, Icons.rectangle_outlined, 'Rectangle'),
+          _GroupTool.tool(
+              PdfEditTool.ellipse, Icons.circle_outlined, 'Ellipse'),
+          _GroupTool.tool(PdfEditTool.line, Icons.horizontal_rule, 'Line'),
+          _GroupTool.tool(PdfEditTool.arrow, Icons.arrow_right_alt, 'Arrow'),
+          _GroupTool.tool(PdfEditTool.polyline, Icons.timeline, 'Polyline'),
+          _GroupTool.tool(PdfEditTool.polygon, Icons.change_history, 'Polygon'),
+        ],
+        defaultTool: PdfEditTool.rectangle),
+    _ToolGroup(
+        'insert',
+        'Insert',
+        Icons.text_fields,
+        [
+          _GroupTool.tool(PdfEditTool.freeText, Icons.text_fields, 'Text box'),
+          _GroupTool.tool(
+              PdfEditTool.note, Icons.sticky_note_2_outlined, 'Note'),
+          _GroupTool.tool(PdfEditTool.stamp, Icons.approval, 'Stamp'),
+          _GroupTool.tool(PdfEditTool.signature, Icons.history_edu,
+              'Signature — tap a page to place it'),
+        ],
+        defaultTool: PdfEditTool.freeText),
+    _ToolGroup('measure', 'Measure', Icons.straighten, [
+      _GroupTool.tool(
+          PdfEditTool.measureDistance, Icons.straighten, 'Measure distance'),
+      _GroupTool.tool(
+          PdfEditTool.measurePerimeter, Icons.timeline, 'Measure perimeter'),
+      _GroupTool.tool(PdfEditTool.measureArea, Icons.crop_din, 'Measure area'),
+    ]),
+    _ToolGroup('edit', 'Edit', Icons.design_services, [
+      _GroupTool.tool(
+          PdfEditTool.content, Icons.format_shapes, 'Edit page content'),
+      _GroupTool.tool(PdfEditTool.form, Icons.ballot_outlined,
+          'Form fields — tap to select, double-tap to fill, drag to add'),
+      _GroupTool.tool(PdfEditTool.redact, Icons.gradient,
+          'Redact — drag a region, then apply'),
+    ]),
+  ];
+
+  bool _shows(PdfEditTool tool) => widget.tools?.contains(tool) ?? true;
+
+  /// Whether [group] has any visible entry (markup gated by showMarkup,
+  /// tools gated by [PdfEditingToolbar.tools]).
+  bool _groupVisible(_ToolGroup group) {
+    if (group.id == 'markup') return widget.showMarkup;
+    return group.tools.any((e) => e.tool != null && _shows(e.tool!));
+  }
+
+  List<_ToolGroup> get _visibleGroups =>
+      _groups.where(_groupVisible).toList(growable: false);
+
+  _ToolGroup? _groupForTool(PdfEditTool? tool) {
+    if (tool == null) return null;
+    for (final group in _groups) {
+      for (final entry in group.tools) {
+        if (entry.tool == tool) return group;
+      }
+    }
+    return null;
+  }
+
+  /// The group whose strip is currently shown: an armed tool's group
+  /// always wins, otherwise the explicitly opened group.
+  _ToolGroup? get _openGroup {
+    final armed = _groupForTool(controller.tool);
+    final id = armed?.id ?? _openGroupId;
+    for (final group in _visibleGroups) {
+      if (group.id == id) return group;
+    }
+    return null;
+  }
+
+  // ---- actions (unchanged behaviour from the flat toolbar) ----------------
+
   void _markup(PdfMarkupKind kind) {
     // capture before the edit: the document swap clears the selection
     final quadsByPage = {
@@ -119,31 +293,61 @@ class PdfEditingToolbar extends StatelessWidget {
     controller.addMarkup(kind, quadsByPage);
   }
 
-  /// Sets the creation color — and recolors the selected annotations in
-  /// place when the whole selection restyles (Ben-comment #11: "change
-  /// the style of a selected annotation").
+  /// Sets the creation colour — and recolours the selected annotations in
+  /// place when the whole selection restyles.
   void _applyColor(Color color) {
     controller.color = color;
     if (controller.canRestyleSelected) controller.restyleSelected(color: color);
   }
 
   void _toggleTool(PdfEditTool value) {
-    controller.tool = controller.tool == value ? null : value;
+    // disarming a tool drops back to Select (the resting mode), never to a
+    // null/no-tool state — tapping the active tool off should leave you
+    // able to select and move things, not in limbo
+    controller.tool = controller.tool == value ? PdfEditTool.select : value;
+    viewerController.clearSelection();
+  }
+
+  /// Opens [group]'s strip and, when arming is side-effect-free, arms its
+  /// default tool — so its settings are live immediately. Re-tapping the
+  /// open group collapses back to the resting Select dock.
+  void _openGroupTap(_ToolGroup group) {
+    final alreadyOpen = _openGroup?.id == group.id;
+    if (alreadyOpen && group.id != 'select') {
+      setState(() => _openGroupId = 'select');
+      controller.tool = PdfEditTool.select;
+      return;
+    }
+    setState(() => _openGroupId = group.id);
+    if (_groupForTool(controller.tool)?.id == group.id) return;
+    controller.tool = group.defaultTool;
     if (controller.tool != null) viewerController.clearSelection();
   }
 
-  /// Opens the scale-calibration dialog and stores the result on the
-  /// controller. Measurements need a scale before they can be placed, so
-  /// arming a measure tool with no scale set opens this automatically.
+  /// Arms a tool from a group's strip / grid, routing measure and
+  /// signature tools through their prerequisite flows.
+  Future<void> _armGroupTool(BuildContext context, PdfEditTool tool) async {
+    switch (tool) {
+      case PdfEditTool.measureDistance:
+      case PdfEditTool.measurePerimeter:
+      case PdfEditTool.measureArea:
+        await _armMeasureTool(context, tool);
+      case PdfEditTool.signature:
+        await _toggleSignatureTool(context);
+      default:
+        _toggleTool(tool);
+    }
+  }
+
   Future<void> _setScale(BuildContext context) async {
-    final scale = await showPdfScaleDialog(context,
-        initial: controller.measurementScale);
+    final scale =
+        await showPdfScaleDialog(context, initial: controller.measurementScale);
     if (scale != null) controller.measurementScale = scale;
   }
 
   Future<void> _armMeasureTool(BuildContext context, PdfEditTool tool) async {
     if (controller.tool == tool) {
-      controller.tool = null;
+      controller.tool = PdfEditTool.select;
       return;
     }
     if (!controller.hasMeasurementScale) {
@@ -153,11 +357,9 @@ class PdfEditingToolbar extends StatelessWidget {
     _toggleTool(tool);
   }
 
-  /// Arms the signature tool, collecting a signature first when none is
-  /// saved yet. Tapping again while armed disarms, like any tool.
   Future<void> _toggleSignatureTool(BuildContext context) async {
     if (controller.tool == PdfEditTool.signature) {
-      controller.tool = null;
+      controller.tool = PdfEditTool.select;
       return;
     }
     if (controller.signature == null && !await _drawSignature(context)) {
@@ -170,13 +372,16 @@ class PdfEditingToolbar extends StatelessWidget {
     final signature = await showPdfSignatureDialog(context);
     if (signature == null) return false;
     controller.signature = signature;
+    // the signature follows the selected colour, so seed it with the ink
+    // the user just drew in — they can recolour it from the toolbar after
+    controller.color = Color(0xFF000000 | signature.color);
     return true;
   }
 
   Future<void> _editElementText(BuildContext context) async {
     final element = controller.selectedElement;
     if (element == null) return;
-    final text = await textPrompt(
+    final text = await widget.textPrompt(
       context,
       title: 'Replace text',
       initial: element.text ?? '',
@@ -186,9 +391,6 @@ class PdfEditingToolbar extends StatelessWidget {
     controller.replaceSelectedElementText(text);
   }
 
-  /// Bakes every annotation into its page and reports the result — the
-  /// flattened content looks identical to the live annotations, so
-  /// without this toast the button appears to do nothing.
   void _flatten(BuildContext context) {
     final flattened = controller.flattenAllAnnotations();
     _flattenToast(
@@ -220,14 +422,27 @@ class PdfEditingToolbar extends StatelessWidget {
       ..showSnackBar(SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
+        margin: _toastMargin(context),
+        duration: const Duration(seconds: 4),
         action: undoable && controller.canUndo
             ? SnackBarAction(label: 'Undo', onPressed: controller.undo)
             : null,
       ));
   }
 
-  /// Confirms, then burns the marked redactions. Irreversible — the
-  /// confirm dialog says so, and the burn clears the undo history.
+  /// Margin that floats a SnackBar clear of the dock.
+  static EdgeInsets _toastMargin(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    // the dock is taller than the old 56px bar; lift the toast above it
+    const bottom = 84.0;
+    if (width >= 600) {
+      const pill = 360.0;
+      return EdgeInsets.only(
+          left: width - pill - 24, right: 24, bottom: bottom);
+    }
+    return const EdgeInsets.fromLTRB(16, 0, 16, bottom);
+  }
+
   Future<void> _applyRedactions(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -262,7 +477,7 @@ class PdfEditingToolbar extends StatelessWidget {
   Future<void> _editSelectedText(BuildContext context) async {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return;
-    final text = await textPrompt(
+    final text = await widget.textPrompt(
       context,
       title: switch (annotation.subtype) {
         'FreeText' => 'Text',
@@ -276,6 +491,8 @@ class PdfEditingToolbar extends StatelessWidget {
     controller.setSelectedText(text);
   }
 
+  // ---- build --------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Listener(
@@ -286,339 +503,1329 @@ class PdfEditingToolbar extends StatelessWidget {
           controller.noteTouchInput();
         }
       },
-      child: BottomAppBar(
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+      // transparent so the dock + contextual strip read as floating cards
+      // over the page, not a solid edge-to-edge bar; the Material is only
+      // here to host ink for the swatches and chips
+      child: Material(
+        type: MaterialType.transparency,
         child: ListenableBuilder(
           listenable: Listenable.merge([controller, viewerController]),
-          builder: (context, _) {
-            final hasTextSelection = viewerController.hasSelection;
-            final selected = controller.selectedAnnotation;
+          builder: (context, _) => LayoutBuilder(
+            builder: (context, constraints) =>
+                constraints.maxWidth < PdfEditingToolbar._mobileBreakpoint
+                    ? _buildMobile(context)
+                    : _buildDesktop(context),
+          ),
+        ),
+      ),
+    );
+  }
 
-            bool shows(PdfEditTool value) => tools?.contains(value) ?? true;
+  // ---- desktop: dock + contextual strip -----------------------------------
 
-            Widget toolButton(PdfEditTool value, IconData icon, String tip) =>
-                !shows(value)
-                    ? const SizedBox.shrink()
-                    : IconButton(
-                        icon: Icon(icon),
-                        tooltip: tip,
-                        isSelected: controller.tool == value,
-                        onPressed: () => _toggleTool(value),
-                      );
+  Widget _buildDesktop(BuildContext context) {
+    final strip = _desktopStrip(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (strip != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: strip,
+            ),
+          _dock(context),
+        ],
+      ),
+    );
+  }
 
-            // measure tools arm through a scale check (and a calibration
-            // dialog when none is set yet), unlike the plain tool toggle
-            Widget measureButton(PdfEditTool value, IconData icon, String tip) =>
-                !shows(value)
-                    ? const SizedBox.shrink()
-                    : IconButton(
-                        icon: Icon(icon),
-                        tooltip: tip,
-                        isSelected: controller.tool == value,
-                        onPressed: () => _armMeasureTool(context, value),
-                      );
+  /// The contextual strip above the dock: a selected annotation's actions,
+  /// a selected element's actions, or the open group's tools + settings.
+  /// Null when resting (Select active, nothing selected).
+  Widget? _desktopStrip(BuildContext context) {
+    final selectedAnnot = controller.selectedAnnotation;
+    if (selectedAnnot != null) return _selectionStrip(context);
+    if (controller.selectedElement != null) return _elementStrip(context);
+    final group = _openGroup;
+    if (group == null || group.id == 'select') return null;
+    return _groupStrip(context, group);
+  }
 
-            final measureArmed = controller.tool == PdfEditTool.measureDistance ||
-                controller.tool == PdfEditTool.measurePerimeter ||
-                controller.tool == PdfEditTool.measureArea;
+  /// A horizontally-centred card that scrolls when its content overflows
+  /// the available width. Hit testing defers to the child so the empty
+  /// gaps either side of the floating card pass pointer events through to
+  /// the page (and the side panels) behind it.
+  Widget _centeredCard(BuildContext context, Widget card) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        hitTestBehavior: HitTestBehavior.deferToChild,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: constraints.maxWidth),
+          child: Align(child: card),
+        ),
+      ),
+    );
+  }
 
-            Widget markupButton(
-                    PdfMarkupKind kind, IconData icon, String tip) =>
+  BoxDecoration _cardDecoration(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return BoxDecoration(
+      color: scheme.surface,
+      borderRadius: BorderRadius.circular(15),
+      border: Border.all(color: scheme.outlineVariant),
+      // border-first depth: a soft lift in light themes, flat in dark
+      boxShadow: dark
+          ? null
+          : const [
+              BoxShadow(
+                  color: Color(0x2E000000),
+                  blurRadius: 8,
+                  offset: Offset(0, 3)),
+              BoxShadow(
+                  color: Color(0x1F000000),
+                  blurRadius: 3,
+                  offset: Offset(0, 1)),
+            ],
+    );
+  }
+
+  Widget _dock(BuildContext context) {
+    final groups = _visibleGroups;
+    final card = Container(
+      decoration: _cardDecoration(context),
+      padding: const EdgeInsets.all(8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final builder in widget.leading)
+            builder(context, controller, viewerController),
+          if (widget.leading.isNotEmpty) const _DockDivider(),
+          if (widget.showUndoRedo) ...[
+            IconButton(
+              icon: const Icon(Icons.undo),
+              tooltip: 'Undo (⌘Z)',
+              onPressed: controller.canUndo ? controller.undo : null,
+            ),
+            IconButton(
+              icon: const Icon(Icons.redo),
+              tooltip: 'Redo (⇧⌘Z)',
+              onPressed: controller.canRedo ? controller.redo : null,
+            ),
+            const _DockDivider(),
+          ],
+          for (final group in groups)
+            _GroupChip(
+              key: ValueKey('pdf-group-${group.id}'),
+              group: group,
+              active: _openGroup?.id == group.id,
+              onTap: () => _openGroupTap(group),
+            ),
+          // Flatten now lives in the Edit group's strip, not the dock.
+          // Save stays available for standalone hosts, but the drop-in
+          // shells hide it here and surface it in their header (near Open).
+          if (widget.onSave != null) ...[
+            const _DockDivider(),
+            IconButton(
+              icon: const Icon(Icons.save_alt),
+              tooltip: 'Save… (⌘S / Ctrl+S)',
+              onPressed: () => widget.onSave!(controller.bytes),
+            ),
+          ],
+          if (widget.trailing.isNotEmpty) ...[
+            const _DockDivider(),
+            for (final builder in widget.trailing)
+              builder(context, controller, viewerController),
+          ],
+        ],
+      ),
+    );
+    return _centeredCard(context, card);
+  }
+
+  /// The tools-left / settings-right card for an open [group].
+  Widget _groupStrip(BuildContext context, _ToolGroup group) {
+    final hasTextSelection = viewerController.hasSelection;
+    // the Edit group's tools (content/form/redact) read as bare icons —
+    // too cryptic for destructive document edits — so they get text labels
+    final labelled = group.id == 'edit';
+    final toolButtons = <Widget>[];
+    for (final entry in group.tools) {
+      if (entry.tool != null && !_shows(entry.tool!)) continue;
+      if (entry.markup != null) {
+        toolButtons.add(IconButton(
+          icon: Icon(entry.icon),
+          tooltip: entry.tip,
+          onPressed: hasTextSelection ? () => _markup(entry.markup!) : null,
+        ));
+      } else if (labelled) {
+        final tool = entry.tool!;
+        toolButtons.add(_LabeledToolButton(
+          icon: entry.icon,
+          label: switch (tool) {
+            PdfEditTool.content => 'Content',
+            PdfEditTool.form => 'Form',
+            PdfEditTool.redact => 'Redact',
+            _ => _entryLabel(entry),
+          },
+          tooltip: entry.tip,
+          active: controller.tool == tool,
+          onTap: () => _armGroupTool(context, tool),
+        ));
+      } else {
+        final tool = entry.tool!;
+        toolButtons.add(IconButton(
+          icon: Icon(entry.icon),
+          tooltip: entry.tip,
+          isSelected: controller.tool == tool,
+          onPressed: () => _armGroupTool(context, tool),
+        ));
+      }
+    }
+
+    final settings = _groupSettings(context, group);
+    final card = Container(
+      decoration: _cardDecoration(context),
+      child: IntrinsicHeight(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                _StripLabel(group.label),
+                ...toolButtons,
+              ]),
+            ),
+            if (settings.isNotEmpty) ...[
+              const _StripDivider(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
+                child: Row(mainAxisSize: MainAxisSize.min, children: settings),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+    return _centeredCard(context, card);
+  }
+
+  /// The settings cluster for the active tool of [group].
+  List<Widget> _groupSettings(BuildContext context, _ToolGroup group) {
+    final tool = controller.tool;
+    final fields = _groupStyleFields(group);
+    switch (group.id) {
+      case 'markup':
+        return [
+          ..._colorCluster(context),
+          if (widget.showColor && widget.showStyle) const _MiniDivider(),
+          _opacitySlider(context),
+          ..._tuneTrailing(context, fields),
+        ];
+      case 'draw':
+        if (tool == PdfEditTool.eraser) {
+          return [
+            ..._drawToolExtras(context),
+            ..._tuneTrailing(context, fields),
+          ];
+        }
+        return [
+          ..._colorCluster(context),
+          if (widget.showColor) const _MiniDivider(),
+          _strokePresets(context),
+          const _MiniDivider(),
+          _opacitySlider(context),
+          ..._drawToolExtras(context),
+          ..._tuneTrailing(context, fields),
+        ];
+      case 'shapes':
+        return [
+          ..._colorCluster(context),
+          if (widget.showColor) const _MiniDivider(),
+          _strokePresets(context),
+          const _MiniDivider(),
+          _opacitySlider(context),
+          ..._tuneTrailing(context, fields),
+        ];
+      case 'insert':
+        return [
+          ..._colorCluster(context),
+          if (widget.showColor) const _MiniDivider(),
+          _opacitySlider(context),
+          ..._insertToolExtras(context),
+          ..._tuneTrailing(context, fields),
+        ];
+      case 'measure':
+        return [
+          ..._colorCluster(context),
+          if (widget.showColor) const _MiniDivider(),
+          _strokePresets(context),
+          const _MiniDivider(),
+          _scaleChip(context),
+          ..._tuneTrailing(context, fields),
+        ];
+      case 'edit':
+        return _editToolExtras(context);
+      default:
+        return const [];
+    }
+  }
+
+  /// Draw-tool sub-controls: the finger/pen toggle and the manual ink
+  /// commit/discard buttons.
+  List<Widget> _drawToolExtras(BuildContext context) {
+    final tool = controller.tool;
+    return [
+      if ((tool == PdfEditTool.ink || tool == PdfEditTool.eraser) &&
+          controller.hasTouchInput)
+        IconButton(
+          icon: const Icon(Icons.touch_app),
+          tooltip: controller.fingerDrawsInk
+              ? 'Finger draws — tap so it scrolls instead'
+              : 'Finger scrolls (pen draws) — tap so it draws',
+          isSelected: controller.fingerDrawsInk,
+          onPressed: () =>
+              controller.fingerDrawsInk = !controller.fingerDrawsInk,
+        ),
+      if (controller.hasPendingInk && !controller.inkAutoCommits) ...[
+        IconButton(
+          icon: const Icon(Icons.check),
+          tooltip: 'Add ink annotation',
+          onPressed: controller.finishInk,
+        ),
+        IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Discard drawing',
+          onPressed: controller.discardInk,
+        ),
+      ],
+    ];
+  }
+
+  /// Insert-tool sub-controls: the custom-stamp picker and the redraw
+  /// button for the signature tool.
+  List<Widget> _insertToolExtras(BuildContext context) {
+    return [
+      if (controller.tool == PdfEditTool.stamp)
+        IconButton(
+          icon: const Icon(Icons.style),
+          tooltip: 'Custom stamps…',
+          isSelected: controller.activeStamp != null,
+          onPressed: () => showPdfStampPicker(context, controller: controller),
+        ),
+      if (controller.tool == PdfEditTool.signature)
+        IconButton(
+          icon: const Icon(Icons.restart_alt),
+          tooltip: 'Draw a new signature…',
+          onPressed: () => _drawSignature(context),
+        ),
+    ];
+  }
+
+  /// Edit-group sub-controls: the form field-type menu + form flatten,
+  /// and the redaction apply button (each shows only with its tool armed),
+  /// plus the document-wide Flatten action (which moved here from the
+  /// dock, gated by [PdfEditingToolbar.showFlatten]).
+  List<Widget> _editToolExtras(BuildContext context) {
+    final tool = controller.tool;
+    final flatten = widget.showFlatten
+        ? _LabeledToolButton(
+            icon: Icons.layers_outlined,
+            label: 'Flatten',
+            tooltip: 'Flatten annotations into the pages',
+            active: false,
+            onTap: () => _flatten(context),
+          )
+        : null;
+    if (tool == PdfEditTool.form) {
+      return [
+        if (flatten != null) ...[flatten, const _MiniDivider()],
+        PopupMenuButton<PdfFormFieldKind>(
+          key: const ValueKey('pdf-form-field-type'),
+          tooltip: 'New field type — drag on a page to add one',
+          icon: Icon(switch (controller.newFormFieldKind) {
+            PdfFormFieldKind.text => Icons.text_fields,
+            PdfFormFieldKind.checkBox => Icons.check_box_outlined,
+            PdfFormFieldKind.pushButton => Icons.smart_button,
+          }),
+          initialValue: controller.newFormFieldKind,
+          onSelected: (kind) => controller.newFormFieldKind = kind,
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              key: ValueKey('pdf-form-type-text'),
+              value: PdfFormFieldKind.text,
+              child: Text('Text field'),
+            ),
+            PopupMenuItem(
+              key: ValueKey('pdf-form-type-checkbox'),
+              value: PdfFormFieldKind.checkBox,
+              child: Text('Check box'),
+            ),
+            PopupMenuItem(
+              key: ValueKey('pdf-form-type-button'),
+              value: PdfFormFieldKind.pushButton,
+              child: Text('Image button'),
+            ),
+          ],
+        ),
+        IconButton(
+          icon: const Icon(Icons.layers_clear_outlined),
+          tooltip: 'Flatten form — bake values into the pages',
+          onPressed:
+              controller.acroForm == null ? null : () => _flattenForm(context),
+        ),
+      ];
+    }
+    if (tool == PdfEditTool.redact) {
+      return [
+        if (flatten != null) ...[flatten, const _MiniDivider()],
+        IconButton(
+          key: const ValueKey('pdf-apply-redactions'),
+          icon: const Icon(Icons.block),
+          tooltip: 'Apply redactions (irreversible)',
+          onPressed: controller.hasRedactionMarks
+              ? () => _applyRedactions(context)
+              : null,
+        ),
+      ];
+    }
+    return [if (flatten != null) flatten];
+  }
+
+  /// The strip shown while an annotation is selected: delete + edit-text,
+  /// then the restyle settings that apply (colour, opacity, the tune
+  /// popup carries stroke/font/etc).
+  Widget _selectionStrip(BuildContext context) {
+    final canRestyle = controller.canRestyleSelected;
+    final settings = <Widget>[
+      if (widget.showColor && canRestyle) ..._colorCluster(context),
+      if (widget.showColor && canRestyle && widget.showStyle)
+        const _MiniDivider(),
+      if (canRestyle) _opacitySlider(context),
+      ..._tuneTrailing(context, _selectionStyleFields()),
+    ];
+    final card = Container(
+      decoration: _cardDecoration(context),
+      child: IntrinsicHeight(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                _StripLabel(switch (controller.selectedAnnotationSlots.length) {
+                  1 => 'Selection',
+                  final n => '$n selected',
+                }),
                 IconButton(
-                  icon: Icon(icon),
-                  tooltip: tip,
-                  onPressed: hasTextSelection ? () => _markup(kind) : null,
-                );
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: switch (controller.selectedAnnotationSlots.length) {
+                    1 => 'Delete annotation',
+                    final n => 'Delete $n annotations',
+                  },
+                  onPressed: controller.deleteSelected,
+                ),
+                if (controller.canEditSelectedText)
+                  IconButton(
+                    icon: const Icon(Icons.edit),
+                    tooltip: 'Edit annotation text',
+                    onPressed: () => _editSelectedText(context),
+                  ),
+              ]),
+            ),
+            if (settings.isNotEmpty) ...[
+              const _StripDivider(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
+                child: Row(mainAxisSize: MainAxisSize.min, children: settings),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+    return _centeredCard(context, card);
+  }
 
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                for (final builder in leading)
-                  builder(context, controller, viewerController),
-                if (leading.isNotEmpty) const VerticalDivider(width: 16),
-                if (showUndoRedo) ...[
-                  IconButton(
-                    icon: const Icon(Icons.undo),
-                    tooltip: 'Undo (⌘Z)',
-                    onPressed: controller.canUndo ? controller.undo : null,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.redo),
-                    tooltip: 'Redo (⇧⌘Z)',
-                    onPressed: controller.canRedo ? controller.redo : null,
-                  ),
-                  const VerticalDivider(width: 16),
-                ],
-                if (showMarkup) ...[
-                  markupButton(PdfMarkupKind.highlight, Icons.border_color,
-                      'Highlight selection'),
-                  markupButton(PdfMarkupKind.underline, Icons.format_underlined,
-                      'Underline selection'),
-                  markupButton(PdfMarkupKind.strikeOut,
-                      Icons.format_strikethrough, 'Strike out selection'),
-                  markupButton(PdfMarkupKind.squiggly, Icons.gesture,
-                      'Squiggly-underline selection'),
-                  const VerticalDivider(width: 16),
-                ],
-                toolButton(PdfEditTool.select, Icons.near_me, 'Select'),
-                if (selected != null) ...[
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: switch (
-                        controller.selectedAnnotationSlots.length) {
-                      1 => 'Delete annotation',
-                      final n => 'Delete $n annotations',
-                    },
-                    onPressed: controller.deleteSelected,
-                  ),
-                  if (controller.canEditSelectedText)
-                    IconButton(
-                      icon: const Icon(Icons.edit),
-                      tooltip: 'Edit annotation text',
-                      onPressed: () => _editSelectedText(context),
+  /// The strip shown while a page-content element is selected.
+  Widget _elementStrip(BuildContext context) {
+    final card = Container(
+      decoration: _cardDecoration(context),
+      padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const _StripLabel('Element'),
+        IconButton(
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Delete element',
+          onPressed: controller.deleteSelectedElement,
+        ),
+        if (controller.canEditSelectedElementText)
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Replace text',
+            onPressed: () => _editElementText(context),
+          ),
+      ]),
+    );
+    return _centeredCard(context, card);
+  }
+
+  // ---- inline settings clusters -------------------------------------------
+
+  /// The palette swatches + custom-colour picker + eyedropper. Empty when
+  /// [PdfEditingToolbar.showColor] is off.
+  List<Widget> _colorCluster(BuildContext context) {
+    if (!widget.showColor) return const [];
+    final scheme = Theme.of(context).colorScheme;
+    return [
+      for (final color in widget.palette)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: InkWell(
+            onTap: () => _applyColor(color),
+            customBorder: const CircleBorder(),
+            child: Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: controller.color == color
+                      ? scheme.primary
+                      : scheme.outline,
+                  width: controller.color == color ? 3 : 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      IconButton(
+        icon: Icon(Icons.palette, color: controller.color),
+        tooltip: 'More colors…',
+        onPressed: () async {
+          final picked = await showPdfColorPicker(context,
+              initial: controller.color,
+              initialFormat: controller.preferences.colorPickerFormat,
+              onFormatChanged: (format) =>
+                  controller.preferences.colorPickerFormat = format);
+          if (picked != null) _applyColor(picked);
+        },
+      ),
+      IconButton(
+        icon: const Icon(Icons.colorize),
+        tooltip: 'Pick a color from the page',
+        isSelected: controller.isPickingColor,
+        onPressed: () => controller.isPickingColor
+            ? controller.cancelColorPick()
+            : controller.startColorPick(),
+      ),
+    ];
+  }
+
+  /// Four quick stroke-width presets. The precise slider stays in the
+  /// tune popup; these set the common weights in one tap.
+  Widget _strokePresets(BuildContext context) {
+    const presets = [1.5, 3.0, 5.0, 8.0];
+    final scheme = Theme.of(context).colorScheme;
+    final restyling = controller.canRestyleSelected;
+    final current = restyling
+        ? (controller.selectedAnnotationStyle?.strokeWidth ??
+            controller.strokeWidth)
+        : controller.strokeWidth;
+    void set(double w) {
+      controller.strokeWidth = w;
+      if (restyling) controller.restyleSelected(strokeWidth: w);
+    }
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final w in presets)
+        Tooltip(
+          message:
+              'Stroke ${w.toStringAsFixed(w == w.roundToDouble() ? 0 : 1)}',
+          child: InkWell(
+            onTap: () => set(w),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 36,
+              height: 32,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: (current - w).abs() < 0.4
+                    ? scheme.primary.withValues(alpha: 0.16)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Container(
+                width: 20,
+                height: (w + 1).clamp(2, 10),
+                decoration: BoxDecoration(
+                  color: (current - w).abs() < 0.4
+                      ? scheme.primary
+                      : scheme.onSurfaceVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+        ),
+    ]);
+  }
+
+  /// A compact inline opacity slider with a percentage readout. While an
+  /// annotation is selected it restyles it on release (one revision per
+  /// gesture); otherwise it sets the creation default live.
+  Widget _opacitySlider(BuildContext context) {
+    final restyling = controller.canRestyleSelected;
+    final value = _dragOpacity ??
+        (restyling ? controller.selectedAnnotationStyle?.opacity : null) ??
+        controller.opacity;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      const Padding(
+        padding: EdgeInsets.only(right: 2),
+        child: Icon(Icons.opacity, size: 18),
+      ),
+      SizedBox(
+        width: 96,
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            overlayShape: SliderComponentShape.noOverlay,
+          ),
+          child: Slider(
+            value: value.clamp(0.1, 1),
+            min: 0.1,
+            max: 1,
+            onChanged: (v) {
+              setState(() => _dragOpacity = v);
+              if (!restyling) controller.opacity = v;
+            },
+            onChangeEnd: (v) {
+              controller.opacity = v;
+              if (restyling) controller.restyleSelected(opacity: v);
+              setState(() => _dragOpacity = null);
+            },
+          ),
+        ),
+      ),
+      SizedBox(
+        width: 38,
+        child: Text(
+          '${(value * 100).round()}%',
+          style: TextStyle(
+            fontFeatures: const [FontFeature.tabularFigures()],
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  /// The measure scale chip — its ratio label, opening the calibration
+  /// dialog on tap.
+  Widget _scaleChip(BuildContext context) {
+    return _SettingChip(
+      key: const ValueKey('pdf-measure-scale'),
+      leading: 'Scale',
+      value: controller.measurementScale?.ratioLabel ?? 'Set…',
+      onTap: () => _setScale(context),
+    );
+  }
+
+  /// The tune popup trigger (and nothing else), or empty when
+  /// [PdfEditingToolbar.showStyle] is off or [fields] carries nothing
+  /// relevant. A font context renders the trigger as the design's font
+  /// chip rather than the gear icon.
+  List<Widget> _tuneTrailing(BuildContext context, _StyleFields fields) {
+    if (!widget.showStyle || fields.isEmpty) return const [];
+    return [
+      if (fields.font) const _MiniDivider(),
+      _StyleMenu(
+        controller: controller,
+        palette: widget.palette,
+        showColor: widget.showColor,
+        fields: fields,
+        fontChipTrigger: fields.font,
+      ),
+    ];
+  }
+
+  /// The style controls relevant to [group]'s active tool — see
+  /// [_StyleFields]. Drives the tune popup so a rectangle never offers a
+  /// font picker, ink never offers line endings, and so on.
+  _StyleFields _groupStyleFields(_ToolGroup group) {
+    final tool = controller.tool;
+    switch (group.id) {
+      case 'draw':
+        if (tool == PdfEditTool.eraser) return const _StyleFields(eraser: true);
+        return const _StyleFields(stroke: true, opacity: true);
+      case 'shapes':
+        return _StyleFields(
+          stroke: true,
+          opacity: true,
+          dashed: true,
+          lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
+          shapeFill:
+              tool == PdfEditTool.rectangle || tool == PdfEditTool.ellipse,
+        );
+      case 'insert':
+        return const _StyleFields(opacity: true, font: true, boxColors: true);
+      case 'measure':
+        return const _StyleFields(stroke: true, opacity: true, font: true);
+      case 'markup':
+        return const _StyleFields(opacity: true);
+      default:
+        return const _StyleFields();
+    }
+  }
+
+  /// The style controls relevant to the current annotation selection — by
+  /// the primary selection's subtype, gated by what can actually restyle.
+  _StyleFields _selectionStyleFields() {
+    final annotation = controller.selectedAnnotation;
+    if (annotation == null) return const _StyleFields();
+    final canStroke = controller.canRestyleSelected;
+    switch (annotation.subtype) {
+      case 'FreeText':
+        final text = controller.canRestyleSelectedText;
+        return _StyleFields(opacity: true, font: text, boxColors: text);
+      case 'Square':
+      case 'Circle':
+        return _StyleFields(
+            stroke: canStroke,
+            opacity: true,
+            shapeFill: controller.canFillSelected);
+      case 'Line':
+      case 'PolyLine':
+        return _StyleFields(
+            stroke: canStroke,
+            opacity: true,
+            lineEndings: controller.canSetLineEndings);
+      case 'Ink':
+      case 'Polygon':
+        return _StyleFields(stroke: canStroke, opacity: true);
+      default:
+        // markup, stamps, notes: opacity is the only shared restyle
+        return const _StyleFields(opacity: true);
+    }
+  }
+
+  // ---- mobile: collapsed dock + bottom sheet ------------------------------
+
+  Widget _buildMobile(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tool = controller.tool;
+    final group = _groupForTool(tool);
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6) +
+          EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom),
+      child: SafeArea(
+        top: false,
+        child: Row(children: [
+          if (widget.showUndoRedo) ...[
+            IconButton(
+              icon: const Icon(Icons.undo),
+              tooltip: 'Undo (⌘Z)',
+              visualDensity: VisualDensity.compact,
+              onPressed: controller.canUndo ? controller.undo : null,
+            ),
+            IconButton(
+              icon: const Icon(Icons.redo),
+              tooltip: 'Redo (⇧⌘Z)',
+              visualDensity: VisualDensity.compact,
+              onPressed: controller.canRedo ? controller.redo : null,
+            ),
+          ],
+          Expanded(
+            child: Row(children: [
+              const SizedBox(width: 4),
+              Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _activeToolLabel(tool),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14),
                     ),
-                ],
-                toolButton(PdfEditTool.ink, Icons.draw, 'Draw'),
-                // pointless without a touchscreen: it only governs what
-                // touch pointers do
-                if ((controller.tool == PdfEditTool.ink ||
-                        controller.tool == PdfEditTool.eraser) &&
-                    controller.hasTouchInput)
-                  IconButton(
-                    icon: const Icon(Icons.touch_app),
-                    tooltip: controller.fingerDrawsInk
-                        ? 'Finger draws — tap so it scrolls instead'
-                        : 'Finger scrolls (pen draws) — tap so it draws',
-                    isSelected: controller.fingerDrawsInk,
-                    onPressed: () =>
-                        controller.fingerDrawsInk = !controller.fingerDrawsInk,
-                  ),
-                // with auto-commit (the default) strokes land on their own
-                // and undo covers regret — confirm buttons are manual-mode
-                if (controller.hasPendingInk && !controller.inkAutoCommits) ...[
-                  IconButton(
-                    icon: const Icon(Icons.check),
-                    tooltip: 'Add ink annotation',
-                    onPressed: controller.finishInk,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    tooltip: 'Discard drawing',
-                    onPressed: controller.discardInk,
-                  ),
-                ],
-                // the Material icon font ships no true eraser glyph; the
-                // magic-wand outline is the closest stand-in
-                toolButton(PdfEditTool.eraser, Icons.auto_fix_normal,
-                    'Erase ink strokes'),
-                toolButton(PdfEditTool.rectangle, Icons.rectangle_outlined,
-                    'Rectangle'),
-                toolButton(
-                    PdfEditTool.ellipse, Icons.circle_outlined, 'Ellipse'),
-                toolButton(PdfEditTool.line, Icons.horizontal_rule, 'Line'),
-                toolButton(PdfEditTool.arrow, Icons.arrow_right_alt, 'Arrow'),
-                toolButton(PdfEditTool.polyline, Icons.timeline, 'Polyline'),
-                toolButton(
-                    PdfEditTool.polygon, Icons.change_history, 'Polygon'),
-                toolButton(PdfEditTool.freeText, Icons.text_fields, 'Text box'),
-                toolButton(
-                    PdfEditTool.note, Icons.sticky_note_2_outlined, 'Note'),
-                toolButton(PdfEditTool.stamp, Icons.approval, 'Stamp'),
-                if (controller.tool == PdfEditTool.stamp)
-                  IconButton(
-                    icon: const Icon(Icons.style),
-                    tooltip: 'Custom stamps…',
-                    isSelected: controller.activeStamp != null,
-                    onPressed: () =>
-                        showPdfStampPicker(context, controller: controller),
-                  ),
-                if (shows(PdfEditTool.signature))
-                  IconButton(
-                    icon: const Icon(Icons.history_edu),
-                    tooltip: 'Signature — tap a page to place it',
-                    isSelected: controller.tool == PdfEditTool.signature,
-                    onPressed: () => _toggleSignatureTool(context),
-                  ),
-                if (controller.tool == PdfEditTool.signature)
-                  IconButton(
-                    icon: const Icon(Icons.restart_alt),
-                    tooltip: 'Draw a new signature…',
-                    onPressed: () => _drawSignature(context),
-                  ),
-                toolButton(PdfEditTool.content, Icons.format_shapes,
-                    'Edit page content'),
-                toolButton(PdfEditTool.form, Icons.ballot_outlined,
-                    'Form fields — tap to select, double-tap to fill, '
-                    'drag to add'),
-                if (controller.tool == PdfEditTool.form) ...[
-                  PopupMenuButton<PdfFormFieldKind>(
-                    key: const ValueKey('pdf-form-field-type'),
-                    tooltip: 'New field type — drag on a page to add one',
-                    icon: Icon(switch (controller.newFormFieldKind) {
-                      PdfFormFieldKind.text => Icons.text_fields,
-                      PdfFormFieldKind.checkBox => Icons.check_box_outlined,
-                      PdfFormFieldKind.pushButton => Icons.smart_button,
-                    }),
-                    initialValue: controller.newFormFieldKind,
-                    onSelected: (kind) => controller.newFormFieldKind = kind,
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        key: ValueKey('pdf-form-type-text'),
-                        value: PdfFormFieldKind.text,
-                        child: Text('Text field'),
+                    if (group != null)
+                      Text('${group.label} tool',
+                          style: TextStyle(
+                              fontSize: 11, color: scheme.onSurfaceFaintOr)),
+                  ],
+                ),
+              ),
+            ]),
+          ),
+          if (widget.showColor)
+            for (final color in widget.palette.take(3))
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: InkWell(
+                  onTap: () => _applyColor(color),
+                  customBorder: const CircleBorder(),
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: controller.color == color
+                            ? scheme.primary
+                            : scheme.outline,
+                        width: controller.color == color ? 3 : 1,
                       ),
-                      PopupMenuItem(
-                        key: ValueKey('pdf-form-type-checkbox'),
-                        value: PdfFormFieldKind.checkBox,
-                        child: Text('Check box'),
-                      ),
-                      PopupMenuItem(
-                        key: ValueKey('pdf-form-type-button'),
-                        value: PdfFormFieldKind.pushButton,
-                        child: Text('Image button'),
-                      ),
-                    ],
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.layers_clear_outlined),
-                    tooltip: 'Flatten form — bake values into the pages',
-                    onPressed: controller.acroForm == null
-                        ? null
-                        : () => _flattenForm(context),
-                  ),
-                ],
-                toolButton(PdfEditTool.redact, Icons.gradient,
-                    'Redact — drag a region, then apply'),
-                if (controller.tool == PdfEditTool.redact)
-                  IconButton(
-                    key: const ValueKey('pdf-apply-redactions'),
-                    icon: const Icon(Icons.block),
-                    tooltip: 'Apply redactions (irreversible)',
-                    onPressed: controller.hasRedactionMarks
-                        ? () => _applyRedactions(context)
-                        : null,
-                  ),
-                measureButton(PdfEditTool.measureDistance, Icons.straighten,
-                    'Measure distance'),
-                measureButton(PdfEditTool.measurePerimeter, Icons.timeline,
-                    'Measure perimeter'),
-                measureButton(PdfEditTool.measureArea, Icons.crop_din,
-                    'Measure area'),
-                if (measureArmed)
-                  TextButton.icon(
-                    key: const ValueKey('pdf-measure-scale'),
-                    icon: const Icon(Icons.square_foot, size: 18),
-                    label: Text(controller.measurementScale?.ratioLabel ??
-                        'Set scale…'),
-                    onPressed: () => _setScale(context),
-                  ),
-                if (controller.selectedElement != null) ...[
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: 'Delete element',
-                    onPressed: controller.deleteSelectedElement,
-                  ),
-                  if (controller.canEditSelectedElementText)
-                    IconButton(
-                      icon: const Icon(Icons.edit),
-                      tooltip: 'Replace text',
-                      onPressed: () => _editElementText(context),
                     ),
-                ],
-                if (showColor || showStyle)
-                  const VerticalDivider(width: 16),
-                if (showColor) ...[
-                  for (final color in palette)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: InkWell(
-                        onTap: () => _applyColor(color),
-                        customBorder: const CircleBorder(),
-                        child: Container(
-                          width: 22,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              // theme outline: visible on light and dark chrome
-                              color: controller.color == color
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Theme.of(context).colorScheme.outline,
-                              width: controller.color == color ? 3 : 1,
+                  ),
+                ),
+              ),
+          const SizedBox(width: 6),
+          _GroupChip.toolsHandle(
+            key: const ValueKey('pdf-tools-handle'),
+            onTap: () => _openToolSheet(context),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  IconData _activeToolIcon(PdfEditTool? tool) {
+    if (tool == null) return Icons.near_me;
+    for (final group in _groups) {
+      for (final entry in group.tools) {
+        if (entry.tool == tool) return entry.icon;
+      }
+    }
+    return Icons.near_me;
+  }
+
+  String _activeToolLabel(PdfEditTool? tool) {
+    if (tool == null) return 'Select';
+    for (final group in _groups) {
+      for (final entry in group.tools) {
+        if (entry.tool == tool) {
+          // the tip's leading clause is the tool's name
+          final tip = entry.tip;
+          final dash = tip.indexOf(' —');
+          return dash == -1 ? tip : tip.substring(0, dash);
+        }
+      }
+    }
+    return 'Select';
+  }
+
+  /// Opens the mobile tools sheet: group tabs, a tool grid, and the active
+  /// tool's settings. The tab state lives in the sheet so switching groups
+  /// doesn't arm anything until a tool is tapped.
+  Future<void> _openToolSheet(BuildContext context) async {
+    final groups = _visibleGroups;
+    var tabId = _openGroup?.id ?? groups.first.id;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => ListenableBuilder(
+          listenable: Listenable.merge([controller, viewerController]),
+          builder: (context, _) {
+            final group = groups.firstWhere((g) => g.id == tabId,
+                orElse: () => groups.first);
+            return SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(children: [
+                        for (final g in groups)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 7),
+                            child: _GroupChip(
+                              key: ValueKey('pdf-group-tab-${g.id}'),
+                              group: g,
+                              active: g.id == tabId,
+                              onTap: () => setSheetState(() => tabId = g.id),
                             ),
                           ),
-                        ),
-                      ),
+                      ]),
                     ),
-                  IconButton(
-                    icon: Icon(Icons.palette, color: controller.color),
-                    tooltip: 'More colors…',
-                    onPressed: () async {
-                      final picked = await showPdfColorPicker(context,
-                          initial: controller.color,
-                          initialFormat:
-                              controller.preferences.colorPickerFormat,
-                          onFormatChanged: (format) => controller
-                              .preferences.colorPickerFormat = format);
-                      if (picked != null) _applyColor(picked);
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.colorize),
-                    tooltip: 'Pick a color from the page',
-                    isSelected: controller.isPickingColor,
-                    onPressed: () => controller.isPickingColor
-                        ? controller.cancelColorPick()
-                        : controller.startColorPick(),
-                  ),
-                ],
-                if (showStyle)
-                  _StyleMenu(
-                    controller: controller,
-                    palette: palette,
-                    showColor: showColor,
-                  ),
-                if (showFlatten || onSave != null)
-                  const VerticalDivider(width: 16),
-                if (showFlatten)
-                  IconButton(
-                    icon: const Icon(Icons.layers),
-                    tooltip: 'Flatten annotations into the pages',
-                    onPressed: () => _flatten(context),
-                  ),
-                if (onSave != null)
-                  IconButton(
-                    icon: const Icon(Icons.save_alt),
-                    tooltip: 'Save… (⌘S / Ctrl+S)',
-                    onPressed: () => onSave!(controller.bytes),
-                  ),
-                if (trailing.isNotEmpty) ...[
-                  const VerticalDivider(width: 16),
-                  for (final builder in trailing)
-                    builder(context, controller, viewerController),
-                ],
-              ]),
+                    const SizedBox(height: 14),
+                    _SheetSectionLabel(group.label),
+                    const SizedBox(height: 10),
+                    _sheetToolGrid(sheetContext, group),
+                    ..._sheetSettings(sheetContext, group),
+                  ],
+                ),
+              ),
             );
           },
         ),
       ),
     );
   }
+
+  Widget _sheetToolGrid(BuildContext context, _ToolGroup group) {
+    final hasTextSelection = viewerController.hasSelection;
+    final entries =
+        group.tools.where((e) => e.markup != null || _shows(e.tool!)).toList();
+    return GridView.count(
+      crossAxisCount: 4,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 1.15,
+      mainAxisSpacing: 6,
+      crossAxisSpacing: 6,
+      children: [
+        for (final entry in entries)
+          _SheetToolTile(
+            icon: entry.icon,
+            label: entry.markup != null
+                ? entry.tip.replaceAll(' selection', '')
+                : _entryLabel(entry),
+            active: entry.tool != null && controller.tool == entry.tool,
+            enabled: entry.markup == null || hasTextSelection,
+            onTap: () async {
+              if (entry.markup != null) {
+                _markup(entry.markup!);
+                if (context.mounted) Navigator.of(context).pop();
+              } else {
+                await _armGroupTool(context, entry.tool!);
+              }
+            },
+          ),
+      ],
+    );
+  }
+
+  static String _entryLabel(_GroupTool entry) {
+    final dash = entry.tip.indexOf(' —');
+    return dash == -1 ? entry.tip : entry.tip.substring(0, dash);
+  }
+
+  /// The settings block under the sheet's tool grid — reuses the same
+  /// inline clusters as the desktop strip, laid out in rows.
+  List<Widget> _sheetSettings(BuildContext context, _ToolGroup group) {
+    final settings = _groupSettings(context, group)
+        .where((w) => w is! _MiniDivider)
+        .toList();
+    if (settings.isEmpty) return const [];
+    return [
+      const SizedBox(height: 14),
+      const Divider(height: 1),
+      const SizedBox(height: 14),
+      Wrap(
+        spacing: 10,
+        runSpacing: 12,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: settings,
+      ),
+    ];
+  }
+}
+
+/// A thin vertical divider between dock clusters.
+class _DockDivider extends StatelessWidget {
+  const _DockDivider();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 26,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        color: Theme.of(context).colorScheme.outlineVariant,
+      );
+}
+
+/// The full-height divider between a strip's tools and settings segments.
+class _StripDivider extends StatelessWidget {
+  const _StripDivider();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        color: Theme.of(context).colorScheme.outlineVariant,
+      );
+}
+
+/// A short vertical divider between setting clusters within a strip.
+class _MiniDivider extends StatelessWidget {
+  const _MiniDivider();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 24,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        color: Theme.of(context).colorScheme.outlineVariant,
+      );
+}
+
+/// The uppercase group/context label at the left of a contextual strip.
+class _StripLabel extends StatelessWidget {
+  const _StripLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(right: 8, left: 2),
+        child: Text(
+          text.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+            color: Theme.of(context).colorScheme.onSurfaceFaintOr,
+          ),
+        ),
+      );
+}
+
+/// The section label above the mobile sheet's tool grid.
+class _SheetSectionLabel extends StatelessWidget {
+  const _SheetSectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+        text.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
+          color: Theme.of(context).colorScheme.onSurfaceFaintOr,
+        ),
+      );
+}
+
+/// A pill-shaped dock group chip (icon + label), or the mobile "Tools"
+/// handle.
+class _GroupChip extends StatelessWidget {
+  const _GroupChip({
+    super.key,
+    required this.group,
+    required this.active,
+    required this.onTap,
+  }) : _toolsHandle = false;
+
+  const _GroupChip.toolsHandle({
+    super.key,
+    required this.onTap,
+  })  : group = null,
+        active = true,
+        _toolsHandle = true;
+
+  final _ToolGroup? group;
+  final bool active;
+  final VoidCallback onTap;
+  final bool _toolsHandle;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final on = active;
+    final fg = on ? scheme.primary : scheme.onSurfaceVariant;
+    final label = _toolsHandle ? 'Tools' : group!.label;
+    final icon = _toolsHandle ? Icons.keyboard_arrow_up : group!.icon;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: Material(
+        color: on ? scheme.primary.withValues(alpha: 0.15) : Colors.transparent,
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: on ? scheme.primary.withValues(alpha: 0.55) : scheme.outline,
+          ),
+        ),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            height: 40,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (_toolsHandle) ...[
+                  Text(label,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: fg)),
+                  const SizedBox(width: 6),
+                  Icon(icon, size: 18, color: fg),
+                ] else ...[
+                  Icon(icon, size: 19, color: fg),
+                  const SizedBox(width: 8),
+                  Text(label,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: fg)),
+                ],
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// An icon + text button used for the Edit group's tools (and its
+/// Flatten action), where a bare icon would be too cryptic for the
+/// document-altering operations they trigger.
+class _LabeledToolButton extends StatelessWidget {
+  const _LabeledToolButton({
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = active ? scheme.primary : scheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: active
+              ? scheme.primary.withValues(alpha: 0.12)
+              : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: active
+                  ? scheme.primary.withValues(alpha: 0.55)
+                  : scheme.outline,
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, size: 18, color: fg),
+                const SizedBox(width: 6),
+                Text(label,
+                    style: TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A tile in the mobile sheet's tool grid: icon above a label.
+class _SheetToolTile extends StatelessWidget {
+  const _SheetToolTile({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = !enabled
+        ? scheme.onSurfaceFaintOr
+        : active
+            ? scheme.primary
+            : scheme.onSurfaceVariant;
+    return Material(
+      color:
+          active ? scheme.primary.withValues(alpha: 0.14) : Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: enabled ? onTap : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: active
+                  ? scheme.primary.withValues(alpha: 0.4)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 22, color: fg),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: fg),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A compact labelled chip for a setting that opens a dialog (the measure
+/// scale). Shows a leading label and the current value.
+class _SettingChip extends StatelessWidget {
+  const _SettingChip({
+    super.key,
+    required this.leading,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String leading;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: scheme.outline),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(leading,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+            const SizedBox(width: 6),
+            Text(value,
+                style: TextStyle(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  fontSize: 12,
+                  color: scheme.onSurfaceVariant,
+                )),
+            const SizedBox(width: 2),
+            Icon(Icons.expand_more, size: 16, color: scheme.onSurfaceVariant),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// A small fallback for `colorScheme.onSurfaceFaint` (not a Material role)
+/// — the faint hint colour used for strip labels and disabled tiles.
+extension _FaintColor on ColorScheme {
+  Color get onSurfaceFaintOr => onSurfaceVariant.withValues(alpha: 0.75);
+}
+
+/// Which controls the style popup should show for the active context —
+/// each tool/selection only carries the settings it can actually use, so
+/// the popup never shows (say) a font picker while a rectangle is armed.
+class _StyleFields {
+  const _StyleFields({
+    this.stroke = false,
+    this.opacity = false,
+    this.dashed = false,
+    this.lineEndings = false,
+    this.font = false,
+    this.boxColors = false,
+    this.shapeFill = false,
+    this.eraser = false,
+  });
+
+  final bool stroke;
+  final bool opacity;
+  final bool dashed;
+  final bool lineEndings;
+
+  /// Font size + family (free text).
+  final bool font;
+
+  /// The text-box fill + border colour rows (free text).
+  final bool boxColors;
+
+  /// The shape interior-fill colour row (rectangle / ellipse).
+  final bool shapeFill;
+
+  /// Eraser radius — replaces every other control while the eraser is armed.
+  final bool eraser;
+
+  bool get isEmpty =>
+      !stroke &&
+      !opacity &&
+      !dashed &&
+      !lineEndings &&
+      !font &&
+      !boxColors &&
+      !shapeFill &&
+      !eraser;
 }
 
 /// The style popup: sliders for stroke width, opacity, and font size,
 /// the font family for free text, and the text box's fill and border
 /// colors. With a free-text annotation selected, the text controls show
 /// — and change — that annotation's style; otherwise they set the style
-/// new text is created with.
+/// new text is created with. Only the [fields] relevant to the active
+/// tool or selection are rendered.
 class _StyleMenu extends StatefulWidget {
   const _StyleMenu({
     required this.controller,
     required this.palette,
+    required this.fields,
     this.showColor = true,
+    this.fontChipTrigger = false,
   });
+
+  /// Which controls to show — see [_StyleFields].
+  final _StyleFields fields;
 
   final PdfEditingController controller;
 
@@ -629,6 +1836,10 @@ class _StyleMenu extends StatefulWidget {
   /// stroke/opacity/font controls show regardless — this only hides the
   /// color rows so a color-locked session keeps the sliders.
   final bool showColor;
+
+  /// Render the trigger as the design's font chip (Insert / a free-text
+  /// selection) rather than the gear icon.
+  final bool fontChipTrigger;
 
   @override
   State<_StyleMenu> createState() => _StyleMenuState();
@@ -661,6 +1872,13 @@ class _StyleMenuState extends State<_StyleMenu> {
     controller.textFillColor = color; // the new default either way
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(fill: (_rgb(color),));
+    }
+  }
+
+  void _setShapeFill(Color? color) {
+    controller.shapeFillColor = color; // the new default either way
+    if (controller.canFillSelected) {
+      controller.restyleSelected(fill: (color,));
     }
   }
 
@@ -822,6 +2040,7 @@ class _StyleMenuState extends State<_StyleMenu> {
         ListenableBuilder(
           listenable: controller,
           builder: (context, _) {
+            final fields = widget.fields;
             final selectedStyle = controller.selectedTextStyle;
             // with a restylable selection the stroke/opacity sliders
             // show — and change — its style; otherwise the defaults
@@ -829,7 +2048,7 @@ class _StyleMenuState extends State<_StyleMenu> {
             // the eraser doesn't paint, so none of the stroke/opacity/
             // font/line controls apply to it — while it's armed the menu
             // collapses to just the eraser-size slider
-            final isEraser = controller.tool == PdfEditTool.eraser;
+            final isEraser = fields.eraser;
             final annotationStyle =
                 restylingAnnotation ? controller.selectedAnnotationStyle : null;
             final strokeValue = _draggingStroke ??
@@ -843,9 +2062,6 @@ class _StyleMenuState extends State<_StyleMenu> {
             // line endings: edit a selected /Line or /PolyLine in place,
             // else set the creation defaults while a line tool is armed
             final lineEndingTarget = controller.canSetLineEndings;
-            final showLineEndings = lineEndingTarget ||
-                controller.tool == PdfEditTool.line ||
-                controller.tool == PdfEditTool.polyline;
             final lineEndings = lineEndingTarget
                 ? controller.selectedLineEndings!
                 : (controller.lineStartEnding, controller.lineEndEnding);
@@ -863,6 +2079,11 @@ class _StyleMenuState extends State<_StyleMenu> {
                     ? Color(0xFF000000 | boxStyle!.borderColor!)
                     : null)
                 : controller.textBorderColor;
+            // shape interior fill: a selected shape shows its own /IC,
+            // else the creation default
+            final shapeFillValue = controller.canFillSelected
+                ? controller.selectedShapeFill
+                : controller.shapeFillColor;
             return Container(
               width: 300,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -881,7 +2102,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       onChanged: (v) =>
                           controller.eraserRadius = v.roundToDouble(),
                     ),
-                  if (!isEraser)
+                  if (fields.stroke)
                     _slider(
                       label: 'Stroke width',
                       value: strokeValue,
@@ -900,7 +2121,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                         setState(() => _draggingStroke = null);
                       },
                     ),
-                  if (!isEraser)
+                  if (fields.opacity)
                     _slider(
                       label: 'Opacity',
                       value: opacityValue,
@@ -919,7 +2140,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                         setState(() => _draggingOpacity = null);
                       },
                     ),
-                  if (!isEraser && !restylingAnnotation)
+                  if (fields.dashed && !restylingAnnotation)
                     SwitchListTile(
                       key: const ValueKey('pdf-dashed-stroke'),
                       dense: true,
@@ -928,7 +2149,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: controller.dashedStroke,
                       onChanged: (value) => controller.dashedStroke = value,
                     ),
-                  if (!isEraser && showLineEndings) ...[
+                  if (fields.lineEndings) ...[
                     _lineEndingRow(
                       context: context,
                       label: 'Line start',
@@ -956,7 +2177,15 @@ class _StyleMenuState extends State<_StyleMenu> {
                       },
                     ),
                   ],
-                  if (!isEraser)
+                  if (fields.shapeFill && widget.showColor)
+                    _boxColorRow(
+                      context: context,
+                      label: 'Fill',
+                      keyPrefix: 'pdf-shape-fill',
+                      value: shapeFillValue,
+                      onChanged: _setShapeFill,
+                    ),
+                  if (fields.font)
                     _slider(
                       label: 'Font size',
                       value: _draggingFontSize ??
@@ -981,7 +2210,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                         setState(() => _draggingFontSize = null);
                       },
                     ),
-                  if (!isEraser)
+                  if (fields.font)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(children: [
@@ -1014,7 +2243,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                         ),
                       ]),
                     ),
-                  if (!isEraser && widget.showColor) ...[
+                  if (fields.boxColors && widget.showColor) ...[
                     _boxColorRow(
                       context: context,
                       label: 'Text fill',
@@ -1038,13 +2267,23 @@ class _StyleMenuState extends State<_StyleMenu> {
       ],
       builder: (context, menu, _) => ListenableBuilder(
         listenable: controller,
-        builder: (context, _) => IconButton(
-          icon: const Icon(Icons.tune),
-          tooltip: controller.tool == PdfEditTool.eraser
-              ? 'Eraser size'
-              : 'Stroke, opacity, font',
-          onPressed: () => menu.isOpen ? menu.close() : menu.open(),
-        ),
+        builder: (context, _) {
+          void toggle() => menu.isOpen ? menu.close() : menu.open();
+          final tip =
+              widget.fields.eraser ? 'Eraser size' : 'Stroke, opacity, font';
+          if (widget.fontChipTrigger) {
+            return _FontChip(
+              controller: controller,
+              tooltip: tip,
+              onTap: toggle,
+            );
+          }
+          return IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: tip,
+            onPressed: toggle,
+          );
+        },
       ),
     );
   }
@@ -1075,13 +2314,74 @@ class _StyleMenuState extends State<_StyleMenu> {
   }
 }
 
-/// The "no color" swatch's red diagonal slash.
+/// The Insert / free-text font chip — "Aa  Sans  14" — that opens the
+/// style popup. Reflects the selected free text's style, else the
+/// creation defaults.
+class _FontChip extends StatelessWidget {
+  const _FontChip({
+    required this.controller,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final PdfEditingController controller;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  static String _familyLabel(PdfStandardFont font) => switch (font) {
+        PdfStandardFont.times => 'Serif',
+        PdfStandardFont.courier => 'Mono',
+        _ => 'Sans',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final style = controller.selectedTextStyle;
+    final family = style?.font ?? controller.fontFamily;
+    final size = (style?.size ?? controller.fontSize).round();
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: scheme.outline),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Aa',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+              const SizedBox(width: 8),
+              Text(_familyLabel(family), style: const TextStyle(fontSize: 13)),
+              const SizedBox(width: 6),
+              Text('$size',
+                  style: TextStyle(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  )),
+              const SizedBox(width: 2),
+              Icon(Icons.expand_more, size: 16, color: scheme.onSurfaceVariant),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Draws a short segment with [ending] rendered at one end — the preview
 /// icon for the line-ending dropdown. Purely indicative geometry (not the
 /// exact appearance the editor generates), oriented so [atEnd] puts the
 /// ending on the right.
 class _LineEndingPainter extends CustomPainter {
-  const _LineEndingPainter(this.ending, {required this.atEnd, required this.color});
+  const _LineEndingPainter(this.ending,
+      {required this.atEnd, required this.color});
 
   final PdfLineEnding ending;
   final bool atEnd;
@@ -1151,10 +2451,8 @@ class _LineEndingPainter extends CustomPainter {
       case PdfLineEnding.butt:
         canvas.drawLine(at(0, -s * 0.5), at(0, s * 0.5), stroke);
       case PdfLineEnding.slash:
-        canvas.drawLine(
-            Offset(tip.dx - s * 0.3, cy + s * 0.5),
-            Offset(tip.dx + s * 0.3, cy - s * 0.5),
-            stroke);
+        canvas.drawLine(Offset(tip.dx - s * 0.3, cy + s * 0.5),
+            Offset(tip.dx + s * 0.3, cy - s * 0.5), stroke);
     }
   }
 
@@ -1163,6 +2461,7 @@ class _LineEndingPainter extends CustomPainter {
       old.ending != ending || old.atEnd != atEnd || old.color != color;
 }
 
+/// The "no color" swatch's red diagonal slash.
 class _NoneSlashPainter extends CustomPainter {
   const _NoneSlashPainter();
 

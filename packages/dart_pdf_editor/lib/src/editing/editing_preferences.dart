@@ -77,6 +77,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double? _searchPanelWidth;
   Color? _textFillColor;
   Color? _textBorderColor;
+  Color? _shapeFillColor;
   PdfMeasurementScale? _measurementScale;
 
   /// Saved viewports per document (see [viewportFor]). Insertion order is
@@ -176,6 +177,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (textFill != null) _textFillColor = Color(textFill);
       final textBorder = store.getInt('${_prefix}textBorderColor');
       if (textBorder != null) _textBorderColor = Color(textBorder);
+      final shapeFill = store.getInt('${_prefix}shapeFillColor');
+      if (shapeFill != null) _shapeFillColor = Color(shapeFill);
       final scale = store.getString('${_prefix}measurementScale');
       if (scale != null) _measurementScale = PdfMeasurementScale.decode(scale);
       final stamps = store.getStringList('${_prefix}customStamps');
@@ -549,6 +552,19 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}textBorderColor')
         : s.setInt('${_prefix}textBorderColor', value.toARGB32()));
+    notifyListeners();
+  }
+
+  /// The interior fill new shapes (rectangle/ellipse) are created with, or
+  /// null (the default) for an unfilled outline. Persisted.
+  Color? get shapeFillColor => _shapeFillColor;
+
+  set shapeFillColor(Color? value) {
+    if (value == _shapeFillColor) return;
+    _shapeFillColor = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}shapeFillColor')
+        : s.setInt('${_prefix}shapeFillColor', value.toARGB32()));
     notifyListeners();
   }
 
