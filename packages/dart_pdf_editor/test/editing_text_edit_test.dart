@@ -353,6 +353,18 @@ void main() {
       await tester.tap(find.text('Mono'));
       await tester.pump();
       expect(editing.fontFamily, PdfStandardFont.courier);
+
+      // the Bold / Italic toggles pick the matching base-14 variant
+      await tester.tap(find.byKey(const ValueKey('pdf-font-bold')));
+      await tester.pump();
+      expect(editing.fontFamily, PdfStandardFont.courierBold);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-italic')));
+      await tester.pump();
+      expect(editing.fontFamily, PdfStandardFont.courierBoldOblique);
+      // switching family keeps the bold+italic style
+      await tester.tap(find.text('Serif'));
+      await tester.pump();
+      expect(editing.fontFamily, PdfStandardFont.timesBoldItalic);
     });
 
     testWidgets('the style menu sets text fill and border defaults',

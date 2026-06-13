@@ -77,6 +77,13 @@ enum PdfEditTool {
   /// ([PdfEditingController.signature]) as an Ink annotation.
   signature,
 
+  /// Insert a raster image (PNG or JPEG). Tapping places it at a default
+  /// size; dragging out a box fits it within the box. The picked image
+  /// comes from [PdfViewer.imagePicker]; with none the tool does nothing.
+  /// The image becomes a /Stamp annotation, so it can be moved, resized,
+  /// rotated, and deleted like any other annotation.
+  image,
+
   /// Tap to select a page content element (text run, path, image); the
   /// selection can be deleted or, for text, rewritten. Edits the page's
   /// content stream itself, not annotations.
@@ -1106,6 +1113,61 @@ class PdfEditingController extends ChangeNotifier {
               author: author),
           pages: [pageIndex]);
 
+  /// Places [imageBytes] (PNG or JPEG) centered on ([x], [y]) in page
+  /// space, [maxSize] points on its longest side, preserving the image's
+  /// aspect ratio and clamped so the whole image stays on the page.
+  /// Returns false when the bytes aren't a decodable PNG or JPEG.
+  bool placeImage(int pageIndex, double x, double y, Uint8List imageBytes,
+      {double maxSize = 200}) {
+    final PdfEmbeddableImage image;
+    try {
+      image = PdfEmbeddableImage.decode(imageBytes);
+    } catch (_) {
+      return false;
+    }
+    final box = _page(pageIndex).cropBox;
+    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+    var w = aspect >= 1 ? maxSize : maxSize * aspect;
+    var h = aspect >= 1 ? maxSize / aspect : maxSize;
+    final maxW = box.width * 0.9, maxH = box.height * 0.9;
+    if (w > maxW) (w, h) = (maxW, h * maxW / w);
+    if (h > maxH) (w, h) = (w * maxH / h, maxH);
+    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
+    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
+    return apply(
+        (e) => e.addImageStamp(pageIndex,
+            PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
+            opacity: preferences.opacity, author: author),
+        pages: [pageIndex]);
+  }
+
+  /// Inserts [imageBytes] (PNG or JPEG) fitted within [box] (page space),
+  /// centered and preserving the image's aspect ratio. The drag-out
+  /// counterpart of [placeImage]. Returns false when the bytes aren't a
+  /// decodable PNG or JPEG, or [box] is degenerate.
+  bool addImageInRect(int pageIndex, PdfRect box, Uint8List imageBytes) {
+    if (box.width <= 0 || box.height <= 0) return false;
+    final PdfEmbeddableImage image;
+    try {
+      image = PdfEmbeddableImage.decode(imageBytes);
+    } catch (_) {
+      return false;
+    }
+    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+    var w = box.width, h = box.height;
+    if (w / h > aspect) {
+      w = h * aspect;
+    } else {
+      h = w / aspect;
+    }
+    final cx = (box.left + box.right) / 2, cy = (box.bottom + box.top) / 2;
+    return apply(
+        (e) => e.addImageStamp(pageIndex,
+            PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
+            opacity: preferences.opacity, author: author),
+        pages: [pageIndex]);
+  }
+
   /// Adds a sticky note with its top-left corner at ([x], [y]).
   void addNote(int pageIndex, double x, double y, String text) => apply(
       (e) =>
@@ -1282,6 +1344,51 @@ class PdfEditingController extends ChangeNotifier {
     _selected.clear();
     apply((e) => e.removePage(index));
   }
+
+  /// Inserts a new blank page at [at] (default: appended at the end),
+  /// sized [width] × [height] points. When neither dimension is given the
+  /// page matches its neighbour's size (the page before [at], else the
+  /// last page) so the blank page fits the document instead of jumping to
+  /// Letter. Structural page edits shift indices, so the annotation
+  /// selection is cleared first.
+  void addBlankPage({double? width, double? height, int? at}) {
+    _selected.clear();
+    final insertAt = at ?? _document.pageCount;
+    if (width == null && height == null && _document.pageCount > 0) {
+      final neighbour =
+          (insertAt > 0 ? insertAt - 1 : 0).clamp(0, _document.pageCount - 1);
+      final box = _document.page(neighbour).mediaBox;
+      width = box.width;
+      height = box.height;
+    }
+    apply((e) => e.insertBlankPage(width: width, height: height, at: at));
+  }
+
+  /// Inserts pages from another open [source] document at [at] (default:
+  /// appended at the end). [indices] picks a subset of [source] (default:
+  /// all of it, in order). Everything each page references — content,
+  /// resources, fonts, images, annotations — is deep-copied across.
+  void insertPagesFrom(PdfDocument source, {List<int>? indices, int? at}) {
+    _selected.clear();
+    apply((e) => e.appendPagesFrom(source, indices: indices, at: at));
+  }
+
+  /// Inserts pages from the PDF in [bytes] (opened with [password] when
+  /// encrypted) at [at]. Convenience over [insertPagesFrom] for a file a
+  /// host just read off disk.
+  void insertPagesFromBytes(Uint8List bytes,
+      {String password = '', List<int>? indices, int? at}) {
+    insertPagesFrom(PdfDocument.open(bytes, password: password),
+        indices: indices, at: at);
+  }
+
+  /// Exports [indices] (in that order) as a fresh standalone PDF, leaving
+  /// this document untouched. See [PdfPageExtraction.extractPages].
+  Uint8List exportPages(List<int> indices) => _document.extractPages(indices);
+
+  /// Exports pages [start] through [end] inclusive as a standalone PDF.
+  Uint8List exportPageRange(int start, int end) =>
+      _document.extractPageRange(start, end);
 
   // ---------------------------------------------------------------------
   // selection

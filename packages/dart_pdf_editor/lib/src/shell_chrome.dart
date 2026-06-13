@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import 'editing/editing_color_picker.dart';
+import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
+import 'page_range_dialog.dart';
 import 'pdf_viewer.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
@@ -354,6 +357,97 @@ class PdfShellViewOptionsButton extends StatelessWidget {
             key: ValueKey('pdf-shell-page-color'),
             value: _ViewOption.pageColor,
             child: Text('Page color…'),
+          ),
+      ],
+    );
+  }
+}
+
+enum _PageAction { insert, export }
+
+/// The editor shell's page-document actions: insert the pages of another
+/// PDF (after the current page) and export a page range to a standalone
+/// PDF. Both need the host for file I/O — [onPickPdfToInsert] supplies the
+/// bytes to merge in, [onExportPages] receives the exported bytes — so a
+/// menu item only appears when its callback is given. Returns null (the
+/// button is hidden) when neither is.
+class PdfShellPageActionsButton extends StatelessWidget {
+  const PdfShellPageActionsButton({
+    super.key,
+    required this.controller,
+    required this.viewerController,
+    this.onPickPdfToInsert,
+    this.onExportPages,
+  });
+
+  final PdfEditingController controller;
+  final PdfViewerController viewerController;
+
+  /// Picks a PDF to insert and returns its bytes (null = cancelled). The
+  /// shell merges all of its pages in after the current page.
+  final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Receives the bytes of the exported page range, for the host to save.
+  final void Function(Uint8List bytes)? onExportPages;
+
+  Future<void> _insert(BuildContext context) async {
+    final pick = onPickPdfToInsert;
+    if (pick == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final bytes = await pick();
+    if (bytes == null) return;
+    try {
+      controller.insertPagesFromBytes(bytes,
+          at: viewerController.currentPage + 1);
+    } catch (_) {
+      // a non-PDF, corrupt, or password-protected file can't be opened —
+      // tell the user rather than failing silently
+      messenger?.showSnackBar(
+        const SnackBar(content: Text("Couldn't insert that file.")),
+      );
+    }
+  }
+
+  Future<void> _export(BuildContext context) async {
+    final onExport = onExportPages;
+    if (onExport == null) return;
+    final range = await showPdfPageRangeDialog(
+      context,
+      pageCount: controller.document.pageCount,
+    );
+    if (range == null) return;
+    onExport(controller.exportPageRange(range.start, range.end));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canInsert = onPickPdfToInsert != null;
+    final canExport = onExportPages != null;
+    return PopupMenuButton<_PageAction>(
+      key: const ValueKey('pdf-shell-page-actions'),
+      tooltip: 'Page actions',
+      icon: const Icon(Icons.file_copy_outlined),
+      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+      onSelected: (action) {
+        switch (action) {
+          case _PageAction.insert:
+            _insert(context);
+          case _PageAction.export:
+            _export(context);
+        }
+      },
+      itemBuilder: (context) => [
+        if (canInsert)
+          const PopupMenuItem(
+            key: ValueKey('pdf-shell-insert-pdf'),
+            value: _PageAction.insert,
+            child: Text('Insert PDF…'),
+          ),
+        if (canExport)
+          const PopupMenuItem(
+            key: ValueKey('pdf-shell-export-pages'),
+            value: _PageAction.export,
+            child: Text('Export pages…'),
           ),
       ],
     );

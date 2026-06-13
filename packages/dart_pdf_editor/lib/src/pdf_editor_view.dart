@@ -155,10 +155,13 @@ class PdfEditorView extends StatefulWidget {
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onDocumentChanged,
+    this.onPickPdfToInsert,
+    this.onExportPages,
     this.onAction,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.formImagePicker,
+    this.imagePicker,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolbarLeading = const [],
@@ -208,6 +211,17 @@ class PdfEditorView extends StatefulWidget {
   /// current bytes. For autosaving hosts.
   final void Function(Uint8List bytes)? onDocumentChanged;
 
+  /// Picks a PDF whose pages are inserted after the current page (the
+  /// host shows a file picker and returns the bytes, or null to cancel).
+  /// When null the header's "Insert PDF…" action is hidden. Needs
+  /// [PdfEditorFeatures.pageEditing].
+  final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Receives a standalone PDF of a user-chosen page range to save (the
+  /// header's "Export pages…" action asks for the range, then hands the
+  /// bytes here). When null the action is hidden.
+  final void Function(Uint8List bytes)? onExportPages;
+
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
 
@@ -219,6 +233,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.formImagePicker].
   final PdfFormImagePicker? formImagePicker;
+
+  /// See [PdfViewer.imagePicker].
+  final PdfImagePicker? imagePicker;
 
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
@@ -499,6 +516,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       tooltip: 'Save… (⌘S / Ctrl+S)',
                       onPressed: _save,
                     ),
+                  // insert/export of pages: only the actions the host
+                  // wired file I/O for, and insert needs page editing on
+                  if ((features.pageEditing && widget.onPickPdfToInsert != null) ||
+                      widget.onExportPages != null)
+                    PdfShellPageActionsButton(
+                      controller: session,
+                      viewerController: _viewer,
+                      onPickPdfToInsert:
+                          features.pageEditing ? widget.onPickPdfToInsert : null,
+                      onExportPages: widget.onExportPages,
+                    ),
                   if (features.author)
                     IconButton(
                       key: const ValueKey('pdf-shell-author'),
@@ -563,6 +591,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         formImagePicker: widget.formImagePicker,
+                        imagePicker: widget.imagePicker,
                         editingTextPrompt: widget.textPrompt,
                         initialFit: widget.initialFit,
                         backgroundColor: widget.backgroundColor,

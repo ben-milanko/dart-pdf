@@ -282,6 +282,68 @@ void main() {
     expect(PdfStandardFont.fromName('Arial'), PdfStandardFont.helvetica);
   });
 
+  test('standard fonts cover bold and italic variants', () {
+    // every (family, bold, italic) combination resolves to a distinct font
+    for (final family in PdfStandardFontFamily.values) {
+      for (final bold in [false, true]) {
+        for (final italic in [false, true]) {
+          final font =
+              PdfStandardFont.styled(family, bold: bold, italic: italic);
+          expect(font.family, family);
+          expect(font.isBold, bold);
+          expect(font.isItalic, italic);
+        }
+      }
+    }
+    expect(PdfStandardFont.values.length, 12);
+
+    // names round-trip with their style recovered
+    expect(PdfStandardFont.fromName('Helvetica-Bold'),
+        PdfStandardFont.helveticaBold);
+    expect(PdfStandardFont.fromName('Helvetica-BoldOblique'),
+        PdfStandardFont.helveticaBoldOblique);
+    expect(PdfStandardFont.fromName('Times-Italic'),
+        PdfStandardFont.timesItalic);
+    expect(PdfStandardFont.fromName('Times-BoldItalic'),
+        PdfStandardFont.timesBoldItalic);
+    expect(PdfStandardFont.fromName('Courier-Oblique'),
+        PdfStandardFont.courierOblique);
+    // our own short /DA resource names recover too
+    expect(PdfStandardFont.fromName('TimesBoldItalic'),
+        PdfStandardFont.timesBoldItalic);
+    expect(PdfStandardFont.fromName('CourBoldObl'),
+        PdfStandardFont.courierBoldOblique);
+
+    // withBold/withItalic flip one axis, keep the family
+    expect(PdfStandardFont.times.withBold(true), PdfStandardFont.timesBold);
+    expect(PdfStandardFont.timesBold.withItalic(true),
+        PdfStandardFont.timesBoldItalic);
+
+    // bold metrics differ from the regular face (AFM Times widths)
+    expect(measureStandardText('M', 1000, font: PdfStandardFont.times), 889);
+    expect(measureStandardText('M', 1000, font: PdfStandardFont.timesBold), 944);
+    expect(
+        measureStandardText('M', 1000, font: PdfStandardFont.timesItalic), 833);
+  });
+
+  test('bold-italic free text writes its variant /BaseFont and /Widths', () {
+    final doc = roundTrip((e) => e.addFreeText(
+        0, const PdfRect(72, 600, 240, 680), 'Bold italic',
+        fontSize: 12, font: PdfStandardFont.timesBoldItalic));
+    final annot = doc.page(0).annotations.single;
+    final da = doc.cos.resolve(annot.dict['DA']) as CosString;
+    expect(da.text, contains('/TimesBoldItalic 12 Tf'));
+    final res = doc.cos.resolve(annot.normalAppearance!.dictionary['Resources'])
+        as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final font = doc.cos.resolve(fonts['TimesBoldItalic']) as CosDictionary;
+    expect((doc.cos.resolve(font['BaseFont']) as CosName).value,
+        'Times-BoldItalic');
+    final widths = doc.cos.resolve(font['Widths']) as CosArray;
+    // 'M' is code 77; Times-BoldItalic 'M' is 889/1000 em
+    expect((widths.items[77 - 32] as CosInteger).value, 889);
+  });
+
   test('note builds a 20pt icon at the given top-left corner', () {
     final doc = roundTrip(
         (e) => e.addNote(0, 500, 700, 'remember this', author: 'Ben'));

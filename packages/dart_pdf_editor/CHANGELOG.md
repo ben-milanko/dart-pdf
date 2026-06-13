@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Page management: `PdfEditingController.addBlankPage` (sized to its
+  neighbour by default), `insertPagesFrom`/`insertPagesFromBytes` (merge
+  pages from another PDF), and `exportPages`/`exportPageRange` (split off a
+  standalone PDF). The thumbnail strip gained an "Add page" footer button
+  (shown when `allowPageEditing`), so `PdfEditorView` gets it out of the box.
+  `PdfEditorView` also exposes the other two in its header via
+  `onPickPdfToInsert` (host returns a PDF to merge after the current page)
+  and `onExportPages` (host saves the exported range); the range is chosen
+  with the new exported `showPdfPageRangeDialog`.
 - Pluggable OCR: `PdfOcrEngine` (a host-supplied recognizer — ML Kit,
   Tesseract WASM, a cloud API; none ships in-tree) plus
   `PdfEditor.applyOcr(pageIndex, engine)`, which rasterizes the page, runs

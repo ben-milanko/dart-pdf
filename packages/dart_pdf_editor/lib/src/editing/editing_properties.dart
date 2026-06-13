@@ -4,6 +4,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../scrollbar.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
+import 'editing_font_controls.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
 import 'line_style.dart';
@@ -236,13 +237,31 @@ class _PdfAnnotationPropertiesPanelState
     if (picked != null) _controller.restyleSelected(fill: (picked,));
   }
 
+  static int? _rgb(Color? color) =>
+      color == null ? null : color.toARGB32() & 0xFFFFFF;
+
+  Future<void> _pickTextBorder(Color? current) async {
+    final picked = await showPdfColorPicker(context,
+        initial: current ?? const Color(0xFF000000),
+        initialFormat: _preferences.colorPickerFormat,
+        onFormatChanged: (format) => _preferences.colorPickerFormat = format);
+    if (picked != null) {
+      _controller.restyleSelectedText(
+          border: (_rgb(picked),),
+          borderWidth: _controller.strokeWidth);
+    }
+  }
+
   Widget _section(String title) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
         child: Text(title, style: Theme.of(context).textTheme.labelLarge),
       );
 
   Widget _swatchRow(String label, Color? color,
-      {required Key key, required VoidCallback onTap, VoidCallback? onClear}) {
+      {required Key key,
+      required VoidCallback onTap,
+      VoidCallback? onClear,
+      String clearTooltip = 'No fill'}) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -251,7 +270,7 @@ class _PdfAnnotationPropertiesPanelState
         if (onClear != null)
           IconButton(
             icon: const Icon(Icons.format_color_reset_outlined, size: 18),
-            tooltip: 'No fill',
+            tooltip: clearTooltip,
             visualDensity: VisualDensity.compact,
             onPressed: color == null ? null : onClear,
           ),
@@ -455,31 +474,50 @@ class _PdfAnnotationPropertiesPanelState
     return children;
   }
 
-  List<Widget> _textStyleControls() {
+  List<Widget> _textStyleControls(PdfAnnotation annotation) {
     if (!_controller.canRestyleSelectedText) return const [];
     final style = _controller.selectedTextStyle;
     if (style == null) return const [];
+    final border = annotation.subtype == 'FreeText'
+        ? annotation.freeTextStyle?.borderColor
+        : null;
+    final borderColor = border == null ? null : Color(0xFF000000 | border);
     return [
       _section('Text'),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
           const Expanded(child: Text('Font')),
-          DropdownButton<PdfStandardFont>(
+          DropdownButton<PdfStandardFontFamily>(
             key: const ValueKey('pdf-prop-font'),
-            value: style.font,
+            value: style.font.family,
             isDense: true,
             items: const [
               DropdownMenuItem(
-                  value: PdfStandardFont.helvetica, child: Text('Sans')),
+                  value: PdfStandardFontFamily.sans, child: Text('Sans')),
               DropdownMenuItem(
-                  value: PdfStandardFont.times, child: Text('Serif')),
+                  value: PdfStandardFontFamily.serif, child: Text('Serif')),
               DropdownMenuItem(
-                  value: PdfStandardFont.courier, child: Text('Mono')),
+                  value: PdfStandardFontFamily.mono, child: Text('Mono')),
             ],
-            onChanged: (font) {
-              if (font != null) _controller.restyleSelectedText(font: font);
+            onChanged: (family) {
+              if (family != null) {
+                _controller.restyleSelectedText(
+                    font: PdfStandardFont.styled(family,
+                        bold: style.font.isBold, italic: style.font.isItalic));
+              }
             },
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(children: [
+          const Expanded(child: Text('Style')),
+          FontStyleToggles(
+            keyPrefix: 'pdf-prop-font',
+            font: style.font,
+            onChanged: (font) => _controller.restyleSelectedText(font: font),
           ),
         ]),
       ),
@@ -495,6 +533,12 @@ class _PdfAnnotationPropertiesPanelState
           setState(() => _draggingFontSize = null);
         },
       ),
+      if (annotation.subtype == 'FreeText')
+        _swatchRow('Outline', borderColor,
+            key: const ValueKey('pdf-prop-text-border'),
+            onTap: () => _pickTextBorder(borderColor),
+            onClear: () => _controller.restyleSelectedText(border: (null,)),
+            clearTooltip: 'No outline'),
     ];
   }
 
@@ -507,7 +551,7 @@ class _PdfAnnotationPropertiesPanelState
         subtitle: Text('Page ${slot.$1 + 1}'),
       ),
       ..._styleControls(annotation),
-      ..._textStyleControls(),
+      ..._textStyleControls(annotation),
       _section('Content'),
       _textRow('Contents', _contents,
           key: const ValueKey('pdf-prop-contents'),

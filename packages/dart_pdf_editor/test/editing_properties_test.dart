@@ -267,6 +267,39 @@ void main() {
       await tester.pumpAndSettle();
       expect(editing.selectedTextStyle?.font, PdfStandardFont.times);
       expect(editing.selectedAnnotation?.contents, 'Hello'); // text kept
+
+      // the Bold / Italic toggles pick the variant, keeping the family
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-font-bold')));
+      await tester.pump();
+      expect(editing.selectedTextStyle?.font, PdfStandardFont.timesBold);
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-font-italic')));
+      await tester.pump();
+      expect(editing.selectedTextStyle?.font, PdfStandardFont.timesBoldItalic);
+    });
+
+    testWidgets('free text gets an outline (border) control', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 500, 300, 620), 'Hello');
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // no border yet
+      expect(editing.selectedAnnotation?.freeTextStyle?.borderColor, isNull);
+      // the outline row is present for free text
+      expect(
+          find.byKey(const ValueKey('pdf-prop-text-border')), findsOneWidget);
+
+      // setting a border directly through the controller (the swatch opens a
+      // modal picker) shows it round-trips, and clearing removes it
+      editing.restyleSelectedText(border: (0xFF0000,), borderWidth: 2);
+      await tester.pump();
+      expect(editing.selectedAnnotation?.freeTextStyle?.borderColor, 0xFF0000);
+
+      editing.restyleSelectedText(border: (null,));
+      await tester.pump();
+      expect(editing.selectedAnnotation?.freeTextStyle?.borderColor, isNull);
     });
 
     testWidgets('a multi-selection styles everything at once', (tester) async {

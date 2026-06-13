@@ -14,8 +14,9 @@ import 'editing_preferences.dart';
 
 /// A panel of page thumbnails: tap one to jump there, drag a tile up or
 /// down to reorder pages (with a mouse just drag; on touch, long-press
-/// first so the list still scrolls), and the footer button deletes a
-/// page (the last remaining page cannot be deleted).
+/// first so the list still scrolls), the per-tile button deletes a page
+/// (the last remaining page cannot be deleted), and the strip's footer
+/// appends a blank page. All of this needs [allowPageEditing].
 ///
 /// Built to stay light on large documents: thumbnails are rasterized at
 /// tile resolution and cached, keyed by
@@ -264,34 +265,60 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
               listenable: controller,
               // the implicit desktop scrollbar is replaced by the
               // viewer-style bar below
-              builder: (context, _) => ScrollConfiguration(
-                behavior:
-                    ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                child: ReorderableListView.builder(
-                  scrollController: _scroll,
-                  buildDefaultDragHandles: false,
-                  padding: EdgeInsets.fromLTRB(0, 8, _extraRightPadding, 8),
-                  itemCount: controller.document.pageCount,
-                  onReorderItem: controller.movePage,
-                  itemBuilder: (context, index) {
-                    final tile = _PageTile(
-                      key: _tileKeys[index] ??= GlobalKey(),
-                      controller: controller,
-                      viewerController: widget.viewerController,
-                      pageIndex: index,
-                      pageColor: widget.pageColor,
-                      showAnnotations: widget.showAnnotations,
-                      allowPageEditing: widget.allowPageEditing,
-                      cache: _cache,
-                      tileWidth: _tileWidth,
-                    );
-                    // without the drag listener no reorder can ever start
-                    return widget.allowPageEditing
-                        ? _ReorderDragStartListener(
-                            key: ValueKey(index), index: index, child: tile)
-                        : KeyedSubtree(key: ValueKey(index), child: tile);
-                  },
-                ),
+              builder: (context, _) => Column(
+                children: [
+                  Expanded(
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context)
+                          .copyWith(scrollbars: false),
+                      child: ReorderableListView.builder(
+                        scrollController: _scroll,
+                        buildDefaultDragHandles: false,
+                        padding:
+                            EdgeInsets.fromLTRB(0, 8, _extraRightPadding, 8),
+                        itemCount: controller.document.pageCount,
+                        onReorderItem: controller.movePage,
+                        itemBuilder: (context, index) {
+                          final tile = _PageTile(
+                            key: _tileKeys[index] ??= GlobalKey(),
+                            controller: controller,
+                            viewerController: widget.viewerController,
+                            pageIndex: index,
+                            pageColor: widget.pageColor,
+                            showAnnotations: widget.showAnnotations,
+                            allowPageEditing: widget.allowPageEditing,
+                            cache: _cache,
+                            tileWidth: _tileWidth,
+                          );
+                          // without the drag listener no reorder can ever start
+                          return widget.allowPageEditing
+                              ? _ReorderDragStartListener(
+                                  key: ValueKey(index),
+                                  index: index,
+                                  child: tile)
+                              : KeyedSubtree(
+                                  key: ValueKey(index), child: tile);
+                        },
+                      ),
+                    ),
+                  ),
+                  // a footer to append a blank page; only when the strip
+                  // is editable (a read-only strip is purely navigational)
+                  if (widget.allowPageEditing)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(4, 2, _extraRightPadding, 4),
+                      child: TextButton.icon(
+                        key: const ValueKey('pdf-thumbnail-add-page'),
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text('Add page'),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          textStyle: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        onPressed: () => controller.addBlankPage(),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),

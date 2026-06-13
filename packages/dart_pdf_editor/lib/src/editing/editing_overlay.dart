@@ -38,6 +38,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.zoom = 1,
     this.predictStrokes = true,
     this.formImagePicker,
+    this.imagePicker,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
@@ -51,6 +52,10 @@ class EditingPageOverlay extends StatefulWidget {
   /// How the form tool asks for a push-button field's image. With none,
   /// tapping a push button does nothing.
   final PdfFormImagePicker? formImagePicker;
+
+  /// How the image tool ([PdfEditTool.image]) asks for the picture to
+  /// insert. With none, the image tool does nothing.
+  final PdfImagePicker? imagePicker;
 
   /// The paper color the page is displayed with — the eyedropper's
   /// raster must match what's on screen.
@@ -274,7 +279,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   // in-place text editor: open after a free-text drag-out (new) or a
   // tap on the already-selected free text annotation (existing)
-  Rect? _textEditRect; // view space; null = closed
+  Rect? _textEditRect; // view space; null = closed; derived per build
+  // page space is the source of truth: a zoom that re-lays-out the page
+  // (the _layoutZoom regime changes _geometry.scale) would leave a cached
+  // view rect stale, so the box would drift across the page — build
+  // refreshes _textEditRect from this through the live geometry
+  PdfRect? _textEditPageRect;
   bool _textEditExisting = false;
   PdfEditTool? _textEditTool;
   late final TextEditingController _textEditText = TextEditingController();
@@ -1363,6 +1373,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.text = existing ? (_controller.selectedText ?? '') : '';
     setState(() {
       _textEditRect = rect;
+      _textEditPageRect = _geometry.toPageRect(rect);
       _textEditRotation = rotation;
       _textEditExisting = existing;
       _textEditTool = _tool;
@@ -1399,6 +1410,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.text = field.value ?? '';
     setState(() {
       _textEditRect = _geometry.toViewRect(rect);
+      _textEditPageRect = rect;
       _textEditRotation = 0;
       _textEditExisting = false;
       _textEditTool = _tool;
@@ -1490,10 +1502,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (mounted) {
       setState(() {
         _textEditRect = null;
+        _textEditPageRect = null;
         _textEditFieldName = null;
       });
     } else {
       _textEditRect = null;
+      _textEditPageRect = null;
       _textEditFieldName = null;
     }
     _controller.setEditingText(false);
@@ -1547,6 +1561,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.measureDistance ||
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
+            PdfEditTool.image ||
             PdfEditTool.redact:
         setState(() {
           _dragStart = position;
@@ -2187,6 +2202,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             title: 'Stamp text', initial: 'APPROVED');
         if (text == null || text.isEmpty) return;
         _controller.addStamp(widget.pageIndex, rect, text);
+      case PdfEditTool.image:
+        final picker = widget.imagePicker;
+        if (picker == null) return;
+        final bytes = await picker(context);
+        if (bytes == null) return;
+        _controller.addImageInRect(widget.pageIndex, rect, bytes);
       case PdfEditTool.form:
         _controller.addFormField(
             _controller.newFormFieldKind, widget.pageIndex, rect);
@@ -2385,6 +2406,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           if (text == null || text.isEmpty) return;
           _controller.placeTextStamp(widget.pageIndex, x, y, text);
         }
+      case PdfEditTool.image:
+        final picker = widget.imagePicker;
+        if (picker == null) return;
+        final bytes = await picker(context);
+        if (bytes == null) return;
+        _controller.placeImage(widget.pageIndex, x, y, bytes);
       case PdfEditTool.form:
         // single tap selects the field for move/resize/menu; double-tap
         // fills it (read mode is the no-tool path to just fill)
@@ -2730,6 +2757,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           fontSize: size * _geometry.scale,
           height: 1.2,
           fontFamily: _uiFamily(font),
+          fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
+          fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
         ),
       ),
     );
@@ -2744,10 +2773,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   /// The Flutter font family that visually matches [font] — the same
   /// substitution the renderer uses for non-embedded base-14 fonts.
-  static String _uiFamily(PdfStandardFont font) => switch (font) {
-        PdfStandardFont.helvetica => 'Helvetica',
-        PdfStandardFont.times => 'Times New Roman',
-        PdfStandardFont.courier => 'Courier',
+  static String _uiFamily(PdfStandardFont font) => switch (font.family) {
+        PdfStandardFontFamily.sans => 'Helvetica',
+        PdfStandardFontFamily.serif => 'Times New Roman',
+        PdfStandardFontFamily.mono => 'Courier',
       };
 
   @override
@@ -2763,6 +2792,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_polyPoints != null && !_polyTool) {
       _polyPoints = null;
       _polyHover = null;
+    }
+    // re-derive the editor's view rect through the LIVE geometry: a zoom
+    // can re-lay-out the page (_layoutZoom) between open and now, so a
+    // cached view rect would have drifted across the page content
+    if (_textEditPageRect != null) {
+      _textEditRect = _geometry.toViewRect(_textEditPageRect!);
     }
     // switching tools mid-edit commits the text, like leaving the ink tool
     if (_textEditRect != null && _tool != _textEditTool) {
@@ -3172,6 +3207,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             fontSize: _textEditSize * _geometry.scale,
                             height: 1.2,
                             fontFamily: _uiFamily(_textEditFont),
+                            fontWeight: _textEditFont.isBold
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            fontStyle: _textEditFont.isItalic
+                                ? FontStyle.italic
+                                : FontStyle.normal,
                           ),
                           decoration: InputDecoration(
                             isCollapsed: true,

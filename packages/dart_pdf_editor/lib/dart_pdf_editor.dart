@@ -23,6 +23,7 @@ export 'src/editing/text_prompt.dart';
 export 'src/ocr.dart';
 export 'src/page_geometry.dart';
 export 'src/page_number_field.dart';
+export 'src/page_range_dialog.dart';
 export 'src/pdf_editor_view.dart';
 export 'src/pdf_page_view.dart';
 export 'src/pdf_reader.dart';

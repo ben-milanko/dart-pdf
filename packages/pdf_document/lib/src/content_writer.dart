@@ -198,6 +198,39 @@ const List<int> timesRomanWidths = [
   278, 500, 500, 722, 500, 500, 444, 480, 200, 480, 541,
 ];
 
+/// AFM advance widths for Times-Bold, characters 32–126.
+const List<int> timesBoldWidths = [
+  250, 333, 555, 500, 500, 1000, 833, 278, 333, 333, 500, 570, 250, 333, //
+  250, 278, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 333, 333, //
+  570, 570, 570, 500, 930, 722, 667, 722, 722, 667, 611, 778, 778, 389, //
+  500, 778, 667, 944, 722, 778, 611, 778, 722, 556, 667, 722, 722, 1000, //
+  722, 722, 667, 333, 278, 333, 581, 500, 333, 500, 556, 444, 556, 444, //
+  333, 500, 556, 278, 333, 556, 278, 833, 556, 500, 556, 556, 444, 389, //
+  333, 556, 500, 722, 500, 500, 444, 394, 220, 394, 520,
+];
+
+/// AFM advance widths for Times-Italic, characters 32–126.
+const List<int> timesItalicWidths = [
+  250, 333, 420, 500, 500, 833, 778, 333, 333, 333, 500, 675, 250, 333, //
+  250, 278, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 333, 333, //
+  675, 675, 675, 500, 920, 611, 611, 667, 722, 611, 611, 722, 722, 333, //
+  444, 667, 556, 833, 667, 722, 611, 722, 611, 500, 556, 722, 611, 833, //
+  611, 556, 556, 389, 278, 389, 422, 500, 333, 500, 500, 444, 500, 444, //
+  278, 500, 500, 278, 278, 444, 278, 722, 500, 500, 500, 500, 389, 389, //
+  278, 500, 444, 667, 444, 444, 389, 400, 275, 400, 541,
+];
+
+/// AFM advance widths for Times-BoldItalic, characters 32–126.
+const List<int> timesBoldItalicWidths = [
+  250, 389, 555, 500, 500, 833, 778, 278, 333, 333, 500, 570, 250, 333, //
+  250, 278, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 333, 333, //
+  570, 570, 570, 500, 832, 667, 667, 667, 722, 667, 667, 722, 778, 389, //
+  500, 667, 611, 889, 722, 722, 611, 722, 667, 556, 611, 722, 667, 889, //
+  667, 611, 611, 333, 278, 333, 570, 500, 333, 500, 500, 444, 500, 444, //
+  333, 500, 556, 278, 278, 500, 278, 778, 556, 500, 500, 500, 389, 389, //
+  278, 556, 444, 667, 500, 444, 389, 348, 220, 348, 570,
+];
+
 /// Measures [text] in points at [fontSize], using base-14 Helvetica
 /// metrics. Characters outside 32–126 count as an average width.
 double measureHelvetica(String text, double fontSize, {bool bold = false}) {
@@ -209,22 +242,70 @@ double measureHelvetica(String text, double fontSize, {bool bold = false}) {
   return total * fontSize / 1000;
 }
 
-/// The standard one-byte fonts the editors write text with — a
-/// sans-serif, serif, and monospace pick from the PDF base-14 set, which
-/// every viewer renders without embedding.
+/// The three base-14 type families the editors write text with — a
+/// sans-serif, serif, and monospace pick that every viewer renders
+/// without embedding. The bold/italic variants of each are individual
+/// [PdfStandardFont] values; this is the axis the UI's family picker
+/// selects, orthogonal to the bold/italic toggles.
+enum PdfStandardFontFamily {
+  /// Helvetica.
+  sans('Sans'),
+
+  /// Times.
+  serif('Serif'),
+
+  /// Courier.
+  mono('Mono');
+
+  const PdfStandardFontFamily(this.label);
+
+  /// A short human label for a font picker.
+  final String label;
+}
+
+/// The standard one-byte fonts the editors write text with — the bold,
+/// italic, and bold-italic variants of a sans-serif, serif, and
+/// monospace pick from the PDF base-14 set, which every viewer renders
+/// without embedding.
 enum PdfStandardFont {
-  helvetica('Helvetica', 'Helv', 718, helveticaWidths, 556),
-  times('Times-Roman', 'TiRo', 683, timesRomanWidths, 500),
-  courier('Courier', 'Cour', 629, null, 600);
+  helvetica('Helvetica', 'Helv', 718, helveticaWidths, 556,
+      PdfStandardFontFamily.sans),
+  helveticaBold('Helvetica-Bold', 'HelvBold', 718, helveticaBoldWidths, 556,
+      PdfStandardFontFamily.sans, bold: true),
+  helveticaOblique('Helvetica-Oblique', 'HelvObl', 718, helveticaWidths, 556,
+      PdfStandardFontFamily.sans, italic: true),
+  helveticaBoldOblique('Helvetica-BoldOblique', 'HelvBoldObl', 718,
+      helveticaBoldWidths, 556, PdfStandardFontFamily.sans,
+      bold: true, italic: true),
+  times('Times-Roman', 'TiRo', 683, timesRomanWidths, 500,
+      PdfStandardFontFamily.serif),
+  timesBold('Times-Bold', 'TimesBold', 683, timesBoldWidths, 500,
+      PdfStandardFontFamily.serif, bold: true),
+  timesItalic('Times-Italic', 'TimesItalic', 683, timesItalicWidths, 500,
+      PdfStandardFontFamily.serif, italic: true),
+  timesBoldItalic('Times-BoldItalic', 'TimesBoldItalic', 683,
+      timesBoldItalicWidths, 500, PdfStandardFontFamily.serif,
+      bold: true, italic: true),
+  courier('Courier', 'Cour', 629, null, 600, PdfStandardFontFamily.mono),
+  courierBold('Courier-Bold', 'CourBold', 629, null, 600,
+      PdfStandardFontFamily.mono, bold: true),
+  courierOblique('Courier-Oblique', 'CourObl', 629, null, 600,
+      PdfStandardFontFamily.mono, italic: true),
+  courierBoldOblique('Courier-BoldOblique', 'CourBoldObl', 629, null, 600,
+      PdfStandardFontFamily.mono, bold: true, italic: true);
 
   const PdfStandardFont(this.baseFont, this.resourceName, this.ascent,
-      this._widths, this._fallbackWidth);
+      this._widths, this._fallbackWidth, this.family,
+      {bool bold = false, bool italic = false})
+      : isBold = bold,
+        isItalic = italic;
 
   /// The /BaseFont name.
   final String baseFont;
 
   /// The appearance-resource name used in /DA, following Acrobat's
-  /// conventions (Helv, TiRo, Cour).
+  /// short-name conventions (Helv, TiRo, Cour) with explicit suffixes
+  /// for the bold/italic variants.
   final String resourceName;
 
   /// Ascender height in thousandths of an em — where the first baseline
@@ -233,6 +314,15 @@ enum PdfStandardFont {
 
   final List<int>? _widths; // null: monospaced at [_fallbackWidth]
   final int _fallbackWidth;
+
+  /// The type family (sans/serif/mono) this is a variant of.
+  final PdfStandardFontFamily family;
+
+  /// Whether this is a bold variant.
+  final bool isBold;
+
+  /// Whether this is an italic (or oblique) variant.
+  final bool isItalic;
 
   /// AFM advance width of character [code] in thousandths of an em.
   int widthOf(int code) {
@@ -244,9 +334,31 @@ enum PdfStandardFont {
   /// Advance widths for characters 32–126 (the font dict's /Widths).
   List<int> get widths => _widths ?? List.filled(95, _fallbackWidth);
 
+  /// The variant of [family] with the requested [bold]/[italic] style.
+  static PdfStandardFont styled(PdfStandardFontFamily family,
+      {bool bold = false, bool italic = false}) {
+    for (final font in values) {
+      if (font.family == family &&
+          font.isBold == bold &&
+          font.isItalic == italic) {
+        return font;
+      }
+    }
+    return helvetica; // unreachable: every (family, bold, italic) exists
+  }
+
+  /// This font with bold turned on or off, same family and italic.
+  PdfStandardFont withBold(bool bold) =>
+      styled(family, bold: bold, italic: isItalic);
+
+  /// This font with italic turned on or off, same family and bold.
+  PdfStandardFont withItalic(bool italic) =>
+      styled(family, bold: isBold, italic: italic);
+
   /// Maps a /DA resource name or /BaseFont name leniently — other
   /// producers write /Times-Roman, /Georgia, /CourierNew and the like —
-  /// defaulting to [helvetica].
+  /// defaulting to [helvetica]. Bold and italic/oblique are recovered
+  /// from the name when present.
   static PdfStandardFont fromName(String name) =>
       tryFromName(name) ?? helvetica;
 
@@ -256,14 +368,23 @@ enum PdfStandardFont {
   /// unrecognized fonts alone rather than silently substitute.
   static PdfStandardFont? tryFromName(String name) {
     final n = name.toLowerCase();
+    PdfStandardFontFamily? family;
     if (n.contains('tiro') || n.contains('times') || n.contains('serif')) {
-      return times;
+      family = PdfStandardFontFamily.serif;
+    } else if (n.contains('cour') || n.contains('mono')) {
+      family = PdfStandardFontFamily.mono;
+    } else if (n.contains('helv') ||
+        n.contains('arial') ||
+        n.contains('sans')) {
+      family = PdfStandardFontFamily.sans;
     }
-    if (n.contains('cour') || n.contains('mono')) return courier;
-    if (n.contains('helv') || n.contains('arial') || n.contains('sans')) {
-      return helvetica;
-    }
-    return null;
+    if (family == null) return null;
+    final bold = n.contains('bold');
+    final italic = n.contains('italic') ||
+        n.contains('oblique') ||
+        n.contains('ital') ||
+        n.contains('obl');
+    return styled(family, bold: bold, italic: italic);
   }
 }
 
