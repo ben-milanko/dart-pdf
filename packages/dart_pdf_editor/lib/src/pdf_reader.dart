@@ -21,6 +21,7 @@ class PdfReaderFeatures {
     this.thumbnails = true,
     this.viewOptions = true,
     this.pageColorEditable = true,
+    this.fillForms = true,
   });
 
   /// Just the pages: no header bar and no panels.
@@ -57,6 +58,14 @@ class PdfReaderFeatures {
   /// the paper color can't be changed from the UI — for hosts that set
   /// the page color from the document programmatically and lock it.
   final bool pageColorEditable;
+
+  /// Whether form fields can be filled in (text entry, check boxes,
+  /// radio buttons, drop-downs) — the only document mutation the reader
+  /// allows, since forms are made to be filled. Filled values live in
+  /// the reader's session for the life of the widget; surfacing them as
+  /// bytes (to save) needs the full [PdfEditorView]. Off makes the
+  /// reader strictly display-only.
+  final bool fillForms;
 }
 
 /// A drop-in, view-only PDF widget: the [PdfViewer] plus a slim header
@@ -139,8 +148,9 @@ class PdfReader extends StatefulWidget {
 
 class _PdfReaderState extends State<PdfReader> {
   // the session wraps the bytes for the viewer and the thumbnail
-  // strip's caches; the reader never edits, so the document stays
-  // byte-identical to the input
+  // strip's caches; the reader makes no structural edits, so the
+  // document stays byte-identical to the input — except form fills
+  // (PdfReaderFeatures.fillForms), the one mutation a reader allows
   late PdfEditingController _session;
   PdfEditingPreferences? _ownedPrefs;
   PdfViewerController? _ownedViewer;
@@ -265,22 +275,30 @@ class _PdfReaderState extends State<PdfReader> {
                   ),
                 Expanded(
                   key: const ValueKey('pdf-shell-viewer'),
-                  child: prefs.showReflowView
-                      ? PdfReflowView(
-                          document: _session.document,
-                          backgroundColor: widget.backgroundColor,
-                        )
-                      : PdfViewer(
-                          document: _session.document,
-                          controller: _viewer,
-                          onAction: widget.onAction,
-                          pageOverlayBuilder: widget.pageOverlayBuilder,
-                          initialFit: widget.initialFit,
-                          backgroundColor: widget.backgroundColor,
-                          pageColor: pageColor,
-                          showAnnotations: prefs.showAnnotations,
-                          highlightFormFields: prefs.highlightFormFields,
-                        ),
+                  // rebuilds on session changes too: filling a form
+                  // produces a revision, so the viewer must track
+                  // _session.document, not the build-time snapshot
+                  child: ListenableBuilder(
+                    listenable: _session,
+                    builder: (context, _) => prefs.showReflowView
+                        ? PdfReflowView(
+                            document: _session.document,
+                            backgroundColor: widget.backgroundColor,
+                          )
+                        : PdfViewer(
+                            document: _session.document,
+                            controller: _viewer,
+                            formController:
+                                features.fillForms ? _session : null,
+                            onAction: widget.onAction,
+                            pageOverlayBuilder: widget.pageOverlayBuilder,
+                            initialFit: widget.initialFit,
+                            backgroundColor: widget.backgroundColor,
+                            pageColor: pageColor,
+                            showAnnotations: prefs.showAnnotations,
+                            highlightFormFields: prefs.highlightFormFields,
+                          ),
+                  ),
                 ),
               ]),
             ),

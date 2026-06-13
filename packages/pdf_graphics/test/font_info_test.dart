@@ -82,6 +82,67 @@ void main() {
     expect(info.charFor(0x98), String.fromCharCode(0x02DC));
   });
 
+  test('Identity-V Type0 font is vertical with default DW2 metrics', () {
+    final font = CosDictionary({
+      'Subtype': const CosName('Type0'),
+      'BaseFont': const CosName('Test'),
+      'Encoding': const CosName('Identity-V'),
+      'DescendantFonts': CosArray([
+        CosDictionary({
+          'Subtype': const CosName('CIDFontType2'),
+          'DW': const CosInteger(1000),
+        }),
+      ]),
+    });
+    final info = PdfFontInfo.load(cos, font);
+    expect(info.isVertical, isTrue);
+    // DW2 default [880 -1000]: w1y = -1 em downward.
+    expect(info.verticalAdvanceOf(7), closeTo(-1.0, 1e-9));
+    final v = info.verticalOriginOf(7);
+    expect(v.x, closeTo(0.5, 1e-9)); // half the horizontal width (DW 1000)
+    expect(v.y, closeTo(0.88, 1e-9)); // DW2[0]
+  });
+
+  test('Identity-H Type0 font is horizontal', () {
+    final font = CosDictionary({
+      'Subtype': const CosName('Type0'),
+      'Encoding': const CosName('Identity-H'),
+      'DescendantFonts': CosArray([
+        CosDictionary({'Subtype': const CosName('CIDFontType2')}),
+      ]),
+    });
+    expect(PdfFontInfo.load(cos, font).isVertical, isFalse);
+  });
+
+  test('vertical font honours per-CID /W2 over DW2', () {
+    final font = CosDictionary({
+      'Subtype': const CosName('Type0'),
+      'Encoding': const CosName('Identity-V'),
+      'DescendantFonts': CosArray([
+        CosDictionary({
+          'Subtype': const CosName('CIDFontType2'),
+          'DW': const CosInteger(1000),
+          // CID 5: w1y -900, vx 450, vy 800
+          'W2': CosArray([
+            const CosInteger(5),
+            CosArray([
+              const CosInteger(-900),
+              const CosInteger(450),
+              const CosInteger(800),
+            ]),
+          ]),
+        }),
+      ]),
+    });
+    final info = PdfFontInfo.load(cos, font);
+    expect(info.verticalAdvanceOf(5), closeTo(-0.9, 1e-9));
+    final v = info.verticalOriginOf(5);
+    expect(v.x, closeTo(0.45, 1e-9));
+    expect(v.y, closeTo(0.8, 1e-9));
+    // CID without W2 falls back to DW2 defaults.
+    expect(info.verticalAdvanceOf(6), closeTo(-1.0, 1e-9));
+  });
+
   test('ZapfDingbats decodes built-in symbol codes to Unicode', () {
     final font = CosDictionary({
       'Subtype': const CosName('Type1'),

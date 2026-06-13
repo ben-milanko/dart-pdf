@@ -546,6 +546,74 @@ void main() {
       expect(device.texts[1].color, PdfColor.black);
     });
 
+    test('substituted text honours stroke render modes', () {
+      // A substituted (non-embedded) font is drawn by filling a system font,
+      // so the device needs the stroke colour to outline glyphs for modes
+      // 1/2/5/6. /Missing resolves to the Helvetica fallback (no outlines).
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            ('1 0 0 RG 0 0 1 rg '
+                    'BT /Missing 12 Tf 2 Tr (fs) Tj ET '
+                    'BT /Missing 12 Tf 1 Tr (so) Tj ET '
+                    'BT /Missing 12 Tf 0 Tr (fo) Tj ET')
+                .codeUnits)),
+        shadingPatternResources(),
+      );
+      // mode 2: fill (blue) + stroke (red)
+      expect(device.texts[0].fill, isTrue);
+      expect(device.texts[0].color, const PdfColor(0, 0, 1));
+      expect(device.texts[0].strokeColor, const PdfColor(1, 0, 0));
+      // mode 1: stroke only, no fill
+      expect(device.texts[1].fill, isFalse);
+      expect(device.texts[1].strokeColor, const PdfColor(1, 0, 0));
+      // mode 0: fill only, no stroke
+      expect(device.texts[2].fill, isTrue);
+      expect(device.texts[2].strokeColor, isNull);
+    });
+
+    test('substituted fill+stroke text drops an unrenderable tiling fill', () {
+      // /Pattern cs /P1 scn sets a tiling-pattern fill that can't be clipped
+      // through a substituted font's (absent) outlines. In fill+stroke mode
+      // the bogus solid fallback is dropped so the stroke reads as an outline
+      // instead of a solid block.
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      const cell = '1 0 1 rg 0 0 1 1 re f';
+      // No /Font entry needed — /Missing resolves to the Helvetica fallback.
+      final resources = CosDictionary({
+        'Pattern': CosDictionary({
+          'P1': CosStream(
+            CosDictionary({
+              'PatternType': const CosInteger(1),
+              'PaintType': const CosInteger(1),
+              'BBox': CosArray([
+                const CosInteger(0),
+                const CosInteger(0),
+                const CosInteger(4),
+                const CosInteger(4),
+              ]),
+              'XStep': const CosInteger(4),
+              'YStep': const CosInteger(4),
+              'Length': CosInteger(cell.length),
+            }),
+            Uint8List.fromList(cell.codeUnits),
+          ),
+        }),
+      });
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            ('0 0 1 RG /Pattern cs /P1 scn '
+                    'BT /Missing 12 Tf 2 Tr (x) Tj ET')
+                .codeUnits)),
+        resources,
+      );
+      final run = device.texts.single;
+      expect(run.fill, isFalse, reason: 'unrenderable tiling fill dropped');
+      expect(run.strokeColor, const PdfColor(0, 0, 1));
+    });
+
     test('tiling patterns run their cell content per tile, clipped', () {
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();

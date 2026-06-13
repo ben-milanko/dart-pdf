@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pluggable OCR: `PdfOcrEngine` (a host-supplied recognizer — ML Kit,
+  Tesseract WASM, a cloud API; none ships in-tree) plus
+  `PdfEditor.applyOcr(pageIndex, engine)`, which rasterizes the page, runs
+  the engine, and injects an invisible selectable/searchable text layer.
+  `PdfOcrPageImage.userSpaceRect` maps the engine's pixel boxes back to PDF
+  user space (crop box and /Rotate aware).
 - Reopen documents where the user left them: `PdfViewport` (a
   resolution-independent scroll-position + zoom snapshot),
   `PdfViewerController.captureViewport`/`restoreViewport`,

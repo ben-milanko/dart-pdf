@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Document-AI seam: `PdfDocumentContext.of(document)` gathers a document's
+  text, form fields, and annotations into a clean, serializable shape for a
+  host-supplied language model, and `PdfDocumentActionSink` describes the
+  editing actions an agent can drive. A thin adapter over the existing
+  extraction/editing surface — the model and transport are host-provided.
+
 ## 0.1.0
 
 Initial release.

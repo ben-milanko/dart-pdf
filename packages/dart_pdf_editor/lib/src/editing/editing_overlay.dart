@@ -692,6 +692,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return annotation == null ? null : _geometry.toViewRect(annotation.rect);
   }
 
+  /// View rects of the marked (unburned) /Redact annotations on this page,
+  /// for the hatched preview. Empty when the document has no redactions.
+  List<Rect> get _redactionViewRects {
+    final page = _controller.pageAt(widget.pageIndex);
+    return [
+      for (final annotation in page.annotations)
+        if (annotation.subtype == 'Redact')
+          _geometry.toViewRect(annotation.rect),
+    ];
+  }
+
   /// Every selected annotation's view rect on this page, in selection
   /// order (so the primary is last).
   List<Rect> get _selectedViewRects => [
@@ -1409,7 +1420,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.arrow ||
             PdfEditTool.measureDistance ||
             PdfEditTool.freeText ||
-            PdfEditTool.stamp:
+            PdfEditTool.stamp ||
+            PdfEditTool.redact:
         setState(() {
           _dragStart = position;
           _dragCurrent = position;
@@ -1997,6 +2009,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfEditTool.form:
         _controller.addFormField(
             _controller.newFormFieldKind, widget.pageIndex, rect);
+      case PdfEditTool.redact:
+        _controller.addRedaction(widget.pageIndex, rect);
       default:
         break;
     }
@@ -2744,6 +2758,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             ? _geometry.toViewRect(_flashRect!)
                             : null,
                     flashProgress: _flashController.value,
+                    redactionRects: _redactionViewRects,
                   ),
                   size: Size.infinite,
                 ),
@@ -3107,7 +3122,12 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.elementRect,
     this.flashRect,
     this.flashProgress = 0,
+    this.redactionRects = const [],
   });
+
+  /// View-space rects of marked (unburned) /Redact annotations on this
+  /// page, drawn with a hatched preview so they read as "to be redacted".
+  final List<Rect> redactionRects;
 
   final PdfEditTool? tool;
   final Color color;
@@ -3293,6 +3313,8 @@ class _EditingPreviewPainter extends CustomPainter {
               ..color = color.withValues(alpha: 0.7)
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1);
+      case PdfEditTool.redact:
+        paintRedactionHatch(canvas, rect);
       default:
         canvas.drawRect(rect, paint);
     }
@@ -3499,6 +3521,10 @@ class _EditingPreviewPainter extends CustomPainter {
       _paintShapePreview(canvas, rect, tool, color, strokeWidth);
     }
 
+    for (final rect in redactionRects) {
+      paintRedactionHatch(canvas, rect);
+    }
+
     for (final rect in extraSelectionRects) {
       final box = rect.inflate(2 * chromeScale);
       canvas.drawRect(box, Paint()..color = _chrome.withAlpha(0x1A));
@@ -3702,6 +3728,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.tool != tool ||
       oldDelegate.color != color ||
       oldDelegate.strokeWidth != strokeWidth ||
+      !listEquals(oldDelegate.redactionRects, redactionRects) ||
       oldDelegate.dragRect != dragRect ||
       oldDelegate.selectionRect != selectionRect ||
       !listEquals(oldDelegate.extraSelectionRects, extraSelectionRects) ||
@@ -3758,6 +3785,33 @@ class _EditingPreviewPainter extends CustomPainter {
 /// the rotated axes about the box centers, instead of stretching one
 /// page-axis rect onto another — a rotated annotation's resize preview
 /// must not shear.
+/// Paints the hatched "marked for redaction" preview into [rect]: a faint
+/// dark wash, a solid border, and diagonal cross-hatch lines, so a marked
+/// region is unmistakable before it is burned (after burning the area is a
+/// solid fill baked into the page content).
+void paintRedactionHatch(Canvas canvas, Rect rect) {
+  if (rect.isEmpty) return;
+  canvas.drawRect(rect, Paint()..color = const Color(0x22000000));
+  canvas.drawRect(
+      rect,
+      Paint()
+        ..color = const Color(0xFFD32F2F)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5);
+  canvas.save();
+  canvas.clipRect(rect);
+  final hatch = Paint()
+    ..color = const Color(0x66D32F2F)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  const step = 8.0;
+  for (var x = rect.left - rect.height; x < rect.right; x += step) {
+    canvas.drawLine(
+        Offset(x, rect.bottom), Offset(x + rect.height, rect.top), hatch);
+  }
+  canvas.restore();
+}
+
 @visibleForTesting
 void paintAnnotationDragPreview(
   Canvas canvas, {

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- OCR text-layer injection: `PdfEditor.injectTextLayer` writes recognized
+  `PdfOcrSpan`s onto a page as invisible (render mode 3) text — sized and
+  horizontally scaled to sit over each word — so a scanned, image-only page
+  becomes selectable, searchable, and extractable without changing how it
+  looks. `applyOcr` (with a pluggable engine) lives in `dart_pdf_editor`.
+- `PdfImageDocument`: assemble a brand-new PDF from a list of PNG/JPEG
+  images, one page per image — the pure-Dart half of image/Office
+  ingestion (multi-page TIFF, scans, camera shots).
+- `PdfImportSource`: a host-provided seam for converting foreign formats
+  (DOCX/XLSX/PPTX, …) to PDF bytes. Interface only — dart-pdf does not
+  implement OOXML→PDF layout.
+
 ## 0.1.0
 
 Initial release.

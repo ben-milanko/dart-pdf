@@ -1781,6 +1781,43 @@ the State (didUpdateWidget, NOT initState) so initialViewport is skipped
 strip's raster loop never settles without runAsync, so the shell test
 turns thumbnails off and uses bounded pumps (no pumpAndSettle/
 pumpEventQueue).
+
+OCR / ingestion / Document-AI seams (interfaces, not engines — none ship
+in-tree): three pluggable layers landed. (1) OCR: pure-COS injection
+`PdfEditor.injectTextLayer(pageIndex, spans)` (ocr_editor.dart, part of
+editor.dart) writes each `PdfOcrSpan` (text + user-space PdfRect bounds +
+confidence) as one BT/Tj at render mode 3 (invisible) — font size = box
+height, baseline = bottom + 0.25·h, and a `Tz` horizontal scale stretching
+the run's natural width (measureStandardText) onto the box width, so the
+em box (0.75 ascent / −0.25 descent the extraction quad reconstructs) lands
+exactly on `bounds` — selection/search highlights track the word. Wrapped
+in q/Q so Tr/Tz don't leak; embeds a WinAnsi base-14 font with explicit
+/Widths (`_ensureOcrFont`, reused only when shaped exactly like ours, else
+the interpreter's measurement skews the boxes). The interpreter already
+emits mode-3 runs flagged `invisible` and CanvasPdfDevice early-returns on
+them, so the layer is selectable/searchable/extractable but paints nothing.
+The raster-facing half is in dart_pdf_editor (needs ui.Image, so it can't
+sit in pdf_document below the layering line): `PdfOcrEngine` (abstract,
+raster→spans), `PdfOcrPageImage` (the rendered page + geometry;
+`userSpaceRect(pixelRect)` inverts the SAME transform renderPicture builds
+— crop box + /Rotate aware — via PdfMatrix), and
+`PdfEditor.applyOcr(pageIndex, engine)` = renderImage → engine.recognize →
+injectTextLayer. (2) Images→PDF: `PdfImageDocument.fromImages/fromImageBytes`
+(image_pdf.dart) — one page per PNG/JPEG via CosDocumentBuilder +
+PdfEmbeddableImage (lives in pdf_document, not on the builder, because
+pdf_cos knows nothing about image embedding); page sized image-px·72/dpi.
+toXObject(builder.add) registers the SMask first (lower obj number) — fine.
+(3) Seams: `PdfImportSource` (pdf_document, Office/DOCX→PDF bytes,
+host-provided, interface only) + `PdfDocumentContext.of(document)`
+(pdf_graphics document_ai.dart — concrete read adapter: per-page reflow
+text, fields with values, annotation summaries, toJson/toPromptText) and
+abstract `PdfDocumentActionSink` (the write side, host-provided). Tests:
+pdf_graphics ocr_layer_test.dart (selectable/searchable + rect on bounds +
+invisible flag via a recording device) and document_ai_test.dart;
+pdf_document image_pdf_test.dart + import_source_test.dart; dart_pdf_editor
+ocr_test.dart (userSpaceRect mapping; applyOcr with a fake engine —
+invisible proven by the OCR'd raster being byte-identical to the original).
+
 Stretch-flip (Ben: "allow inverting the annotation if stretching past
 the 0 point"): a resize handle dragged past the opposite edge now
 inverts the annotation instead of clamping at the minimum. `_resizedRect`
@@ -1815,3 +1852,46 @@ handle dragged past the opposite edge bakes a = −1 into a Stamp's form
 matrix). Gotcha: a rotated local-frame flip test must size `localTo`
 from the appearance quad's edge lengths (not the page /Rect, whose dims
 are swapped under rotation) or the "flip" silently resizes too.
+
+Interactive form fill in reading mode (Ben: "users need to enter text
+into form fields, and interact with check boxes, buttons, drop-downs"):
+filling was already complete behind the form-AUTHORING tool
+(`PdfEditTool.form`) — this surfaces it in plain reading / default mode
+so a reader clicks a field and types, the way Acrobat/Chrome/Preview do,
+with no tool to arm. `FormInteractionLayer` (editing_form_layer.dart) is
+mounted per page by `_PdfViewerPage` over the editing overlay: it places
+a per-field `GestureDetector` tap target over each visible widget rect
+(from `PdfEditingController.formWidgetsOn(page)`), so only the field
+rects are hit-testable — the rest of the page still scrolls, selects
+text, and follows links. Tap routing reuses the controller fills
+(setFormFieldText / toggleFormCheckBox / setFormRadioValue /
+setFormChoiceValue / setFormButtonImage); text fields open an inline
+`TextField` (key 'pdf-form-text-editor', /DA font+size, multiline,
+Enter/blur/tap-outside commit, Escape cancels via its own
+CallbackShortcuts), the committed value freezes as a pageColor-washed
+afterimage until the new raster lands (same `rasterCurrent` signal the
+overlay uses). Gating: `PdfViewer.interactiveForms` (default true) +
+`showAnnotations`; active only when `editing == null` (reader) or the
+tool is null/select — a drawing or the form-authoring tool owns the
+whole page, so the layer leaves the tree (suppressed, not just inert).
+Two controller channels: the editor passes `editing:` (fills persist as
+revisions, onDocumentChanged fires); the read-only reader passes the new
+`PdfViewer.formController:` (a standalone session — forms fill but
+annotation move/resize/delete never turn on), `formController = editing
+?? widget.formController`. The viewer's focus-steal and the inner
+overlay-Stack gate both consult `editing ?? formController`
+(`_textEditController`) so the reader's inline editor keeps focus and
+the layer mounts without an `editing` controller. `PdfReader` gained
+`PdfReaderFeatures.fillForms` (default true) and now wraps its viewer in
+a `ListenableBuilder(_session)` so a fill's revision repaints (filled
+values live in the session for the widget's life; surfacing them as
+bytes needs PdfEditorView). Tests: editing_form_interactive_test.dart
+(11 — text/checkbox/radio/dropdown fills with no tool armed, reader path
+via formController, Escape cancel, interactiveForms:false + drawing-tool
+suppression + select-tool keeps it, PdfReader mounts/omits the layer).
+Gotchas: a commit tap must land inside the 800x600 viewport — view(450,
+620) not view(450,300) (y=643px is off-screen, the tap silently misses
+and the editor never closes); the choice /V stores the EXPORT value ('L'
+not 'Large'); don't tap-test suppression with the ink tool armed (the
+dot's 800ms auto-commit timer trips !timersPending) — assert the layer's
+absence with find.byType(FormInteractionLayer) instead.

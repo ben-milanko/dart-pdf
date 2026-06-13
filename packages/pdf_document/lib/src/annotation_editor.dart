@@ -519,6 +519,62 @@ extension PdfAnnotationEditing on PdfEditor {
     }
   }
 
+  /// Marks one or more regions for redaction (§12.5.6.23) by creating a
+  /// `/Redact` annotation over [quads] (one rect per region). This is the
+  /// MARK phase only — nothing is removed yet; call
+  /// [PdfRedactionApply.applyRedactions] to BURN the marks irreversibly.
+  ///
+  /// [fillColor] (default black) is the colour the redacted area is painted
+  /// on apply and is stored in /IC. [overlayText] is optional text drawn
+  /// over the filled area on apply (/OverlayText), in [overlayTextColor] at
+  /// [overlayFontSize].
+  ///
+  /// The marked-but-unapplied appearance is a translucent fill so the
+  /// content underneath stays visible while reviewing; the editor draws a
+  /// hatched preview on top.
+  void addRedaction(
+    int pageIndex,
+    List<PdfRect> quads, {
+    int fillColor = 0x000000,
+    String? overlayText,
+    int overlayTextColor = 0xFFFFFF,
+    double overlayFontSize = 12,
+    String? contents,
+    String? author,
+    String? name,
+  }) {
+    final rect = _boundsOf(quads);
+    final gs = _alphaState(0.4);
+    final w = ContentWriter();
+    if (gs != null) w.extGState('GS0');
+    w.fillColor(fillColor);
+    for (final q in quads) {
+      w.rect(q.left, q.bottom, q.width, q.height);
+    }
+    w.fill();
+
+    final dict = _markupDict('Redact', rect, fillColor, contents, author)
+      ..['QuadPoints'] = _quadPoints(quads)
+      ..['IC'] = CosArray([
+        for (final c in ContentWriter.rgbComponents(fillColor)) CosReal(c),
+      ]);
+    if (overlayText != null) {
+      dict['OverlayText'] = CosString.fromText(overlayText);
+      dict['Repeat'] = const CosBoolean(false);
+      final rgb = ContentWriter.rgbComponents(overlayTextColor);
+      dict['DA'] = CosString(Uint8List.fromList(latin1.encode(
+          '/Helv ${ContentWriter.fmt(overlayFontSize)} Tf '
+          '${ContentWriter.fmt(rgb[0])} ${ContentWriter.fmt(rgb[1])} '
+          '${ContentWriter.fmt(rgb[2])} rg')));
+    }
+    _addAnnotation(
+      pageIndex,
+      dict,
+      _form(rect, w, resources: _resources(extGState: gs)),
+      name: name,
+    );
+  }
+
   /// Adds a freehand ink annotation. Each stroke is a polyline of
   /// `(x, y)` points in page space.
   ///
