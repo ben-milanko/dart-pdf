@@ -303,6 +303,21 @@ const _standardHigh = <int, String>{
 
 const _glyphNameUnicode = <String, int>{
   'space': 0x0020,
+  // Standalone spacing diacritics (AGL). WinAnsi 0x88/0x98 are 'circumflex'
+  // and 'tilde'; the rest appear in Standard/Symbol encodings. Without these
+  // a substituted font falls through to the Latin-1 path and renders the C1
+  // control code as tofu.
+  'quotedbl': 0x0022,
+  'quotesingle': 0x0027,
+  'grave': 0x0060,
+  'circumflex': 0x02C6,
+  'tilde': 0x02DC,
+  'breve': 0x02D8,
+  'dotaccent': 0x02D9,
+  'ring': 0x02DA,
+  'caron': 0x02C7,
+  'hungarumlaut': 0x02DD,
+  'ogonek': 0x02DB,
   'exclamdown': 0x00A1,
   'cent': 0x00A2,
   'sterling': 0x00A3,

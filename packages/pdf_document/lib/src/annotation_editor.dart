@@ -33,14 +33,60 @@ List<((double, double), (double, double))> pdfInkCurveControls(
   ];
 }
 
-/// Line ending styles supported by [PdfEditor.addLine].
+/// The kind of measurement [PdfAnnotationEditing.addMeasurement] creates:
+/// a /Line distance, a /PolyLine perimeter (sum of segment lengths), or a
+/// /Polygon area (shoelace).
+enum PdfMeasurementKind { distance, perimeter, area }
+
+/// Line ending styles (§12.5.6.7, Table 176) drawn at a /Line or
+/// /PolyLine endpoint by [PdfEditor.addLine] / [PdfEditor.addPolyLine].
+///
+/// [pdfName] is the /LE name written to (and read back from) the
+/// dictionary. The geometry of each shape is produced by the appearance
+/// generator: closed shapes ([square], [circle], [diamond],
+/// [closedArrow], [rClosedArrow]) are filled, the rest stroked; the
+/// `r*` variants point the opposite way along the line.
 enum PdfLineEnding {
   none('None'),
-  closedArrow('ClosedArrow');
+  square('Square'),
+  circle('Circle'),
+  diamond('Diamond'),
+  openArrow('OpenArrow'),
+  closedArrow('ClosedArrow'),
+  butt('Butt'),
+  rOpenArrow('ROpenArrow'),
+  rClosedArrow('RClosedArrow'),
+  slash('Slash');
 
   const PdfLineEnding(this.pdfName);
 
   final String pdfName;
+
+  /// The matching ending for a /LE name, or [none] when unknown.
+  static PdfLineEnding fromName(String name) => values.firstWhere(
+        (ending) => ending.pdfName == name,
+        orElse: () => none,
+      );
+}
+
+/// The start/end line endings recorded on [annotation]'s /LE entry, or
+/// null when it is not a /Line or /PolyLine. Each defaults to
+/// [PdfLineEnding.none] when absent or unrecognized. Lets UI read the
+/// current endings without an editor instance (mirrors
+/// [pdfCanRestyleAnnotation]).
+(PdfLineEnding, PdfLineEnding)? pdfLineEndings(PdfAnnotation annotation) {
+  if (annotation.subtype != 'Line' && annotation.subtype != 'PolyLine') {
+    return null;
+  }
+  final le = annotation.document.cos.resolve(annotation.dict['LE']);
+  PdfLineEnding read(int index) {
+    if (le is! CosArray || le.length <= index) return PdfLineEnding.none;
+    final name = annotation.document.cos.resolve(le[index]);
+    if (name is! CosName) return PdfLineEnding.none;
+    return PdfLineEnding.fromName(name.value);
+  }
+
+  return (read(0), read(1));
 }
 
 /// Slices ink [strokes] with one stamp of a circular eraser swept from
@@ -803,14 +849,12 @@ extension PdfAnnotationEditing on PdfEditor {
       throw ArgumentError.value(end, 'end', 'must differ from start');
     }
     final points = [start, end];
-    final arrowPoints = <(double, double)>[
-      if (startEnding == PdfLineEnding.closedArrow)
-        ..._arrowHead(start, end, strokeWidth),
-      if (endEnding == PdfLineEnding.closedArrow)
-        ..._arrowHead(end, start, strokeWidth),
+    final endingPoints = <(double, double)>[
+      ..._endingExtent(startEnding, start, end, strokeWidth),
+      ..._endingExtent(endEnding, end, start, strokeWidth),
     ];
     final rect = _pointBounds(
-        [...points, ...arrowPoints], strokeWidth + (dashed ? strokeWidth : 0));
+        [...points, ...endingPoints], strokeWidth + (dashed ? strokeWidth : 0));
     final gs = _alphaState(opacity);
     final w = _lineContent(points,
         strokeColor: strokeColor,
@@ -838,7 +882,10 @@ extension PdfAnnotationEditing on PdfEditor {
         name: name);
   }
 
-  /// Adds a /PolyLine annotation through [vertices].
+  /// Adds a /PolyLine annotation through [vertices]. Per §12.5.6.7 a
+  /// /PolyLine may carry /LE endings on its first and last vertex —
+  /// [startEnding] is drawn at `vertices.first` (pointing back toward
+  /// `vertices[1]`), [endEnding] at `vertices.last`.
   void addPolyLine(
     int pageIndex,
     List<(double, double)> vertices, {
@@ -846,6 +893,8 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth = 2,
     double opacity = 1,
     bool dashed = false,
+    PdfLineEnding startEnding = PdfLineEnding.none,
+    PdfLineEnding endEnding = PdfLineEnding.none,
     String? contents,
     String? author,
     String? name,
@@ -853,7 +902,12 @@ extension PdfAnnotationEditing on PdfEditor {
     if (vertices.length < 2) {
       throw ArgumentError.value(vertices, 'vertices', 'must have 2+ points');
     }
-    final rect = _pointBounds(vertices, strokeWidth);
+    final endingPoints = <(double, double)>[
+      ..._endingExtent(startEnding, vertices.first, vertices[1], strokeWidth),
+      ..._endingExtent(
+          endEnding, vertices.last, vertices[vertices.length - 2], strokeWidth),
+    ];
+    final rect = _pointBounds([...vertices, ...endingPoints], strokeWidth);
     final gs = _alphaState(opacity);
     final w = _lineContent(vertices,
         strokeColor: strokeColor,
@@ -861,9 +915,15 @@ extension PdfAnnotationEditing on PdfEditor {
         dashed: dashed,
         closed: false,
         fillColor: null,
+        startEnding: startEnding,
+        endEnding: endEnding,
         hasAlpha: gs != null);
     final dict = _markupDict('PolyLine', rect, strokeColor, contents, author)
       ..['Vertices'] = _pointArray(vertices)
+      ..['LE'] = CosArray([
+        CosName(startEnding.pdfName),
+        CosName(endEnding.pdfName),
+      ])
       ..['BS'] = _borderStyle(strokeWidth, dashed: dashed);
     _addAnnotation(
         pageIndex, dict, _form(rect, w, resources: _resources(extGState: gs)),
@@ -902,6 +962,184 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
         pageIndex, dict, _form(rect, w, resources: _resources(extGState: gs)),
         name: name);
+  }
+
+  /// The document-default measurement scale, or null until
+  /// [setMeasurementScale] is called.
+  PdfMeasure? get measurementScale => _defaultMeasure;
+
+  /// Sets the document-default measurement scale (§12.9) used by
+  /// [addMeasurement] when no per-annotation override is given.
+  ///
+  /// [pageUnitsPerPoint] converts a PDF point to a "page unit" (e.g. an
+  /// inch printed at 72 dpi is `1 / 72`), and [realUnitsPerPageUnit] is
+  /// the drawing's scale (`20` for `1 in = 20 ft`). Their product is the
+  /// real-world units per point baked into the /Measure /X array; values
+  /// display in [realUnitLabel] (and [areaUnitLabel] for areas, defaulting
+  /// to `realUnitLabel²`).
+  PdfMeasure setMeasurementScale(
+    double pageUnitsPerPoint,
+    String realUnitLabel,
+    double realUnitsPerPageUnit, {
+    String? areaUnitLabel,
+    int precision = 100,
+    String? ratioLabel,
+  }) {
+    final measure = PdfMeasure.scale(
+      unitsPerPoint: pageUnitsPerPoint * realUnitsPerPageUnit,
+      unitLabel: realUnitLabel,
+      areaUnitLabel: areaUnitLabel,
+      precision: precision,
+      ratioLabel: ratioLabel,
+    );
+    _defaultMeasure = measure;
+    return measure;
+  }
+
+  /// Adds a measurement annotation: a /Line ([PdfMeasurementKind.distance]),
+  /// /PolyLine ([PdfMeasurementKind.perimeter]), or /Polygon
+  /// ([PdfMeasurementKind.area]) carrying a /Measure dictionary (§12.9).
+  ///
+  /// The measured value (distance = `|segment| × scaleFactor`, perimeter =
+  /// `Σ segments × scaleFactor`, area = `shoelace × scaleFactor²`) is
+  /// formatted through [measure] (or the document default set by
+  /// [setMeasurementScale]), stamped into /Contents, and drawn as a
+  /// caption at the segment midpoint / polygon centroid. Throws a
+  /// [StateError] when no scale is available.
+  void addMeasurement(
+    int pageIndex,
+    PdfMeasurementKind kind,
+    List<(double, double)> points, {
+    PdfMeasure? measure,
+    int strokeColor = 0xD02020,
+    double strokeWidth = 2,
+    int? fillColor,
+    double opacity = 1,
+    bool dashed = false,
+    int? captionColor,
+    String? author,
+    String? name,
+  }) {
+    final m = measure ?? _defaultMeasure;
+    if (m == null) {
+      throw StateError('no measurement scale set — call setMeasurementScale '
+          'or pass a measure');
+    }
+    final minPoints = kind == PdfMeasurementKind.distance ? 2 : 3;
+    if (points.length < (kind == PdfMeasurementKind.perimeter ? 2 : minPoints)) {
+      throw ArgumentError.value(points, 'points',
+          'needs ${kind == PdfMeasurementKind.area ? 3 : 2}+ points');
+    }
+
+    final closed = kind == PdfMeasurementKind.area;
+    final (caption, anchor) = _measurementCaption(kind, points, m);
+
+    // the geometry appearance, then the caption text drawn over its anchor
+    final gs = _alphaState(opacity);
+    final content = _lineContent(points,
+        strokeColor: strokeColor,
+        strokeWidth: strokeWidth,
+        dashed: dashed,
+        closed: closed,
+        fillColor: closed ? fillColor : null,
+        hasAlpha: gs != null);
+
+    const captionSize = 10.0;
+    final labelColor = captionColor ?? strokeColor;
+    final textWidth = measureHelvetica(caption, captionSize);
+    const padX = 3.0, padY = 2.0;
+    final boxLeft = anchor.$1 - textWidth / 2 - padX;
+    final boxBottom = anchor.$2 - captionSize / 2 - padY;
+    final boxWidth = textWidth + 2 * padX;
+    final boxHeight = captionSize + 2 * padY;
+    content
+      ..fillColor(0xFFFFFF)
+      ..rect(boxLeft, boxBottom, boxWidth, boxHeight)
+      ..fill()
+      ..beginText()
+      ..font('Helv', captionSize)
+      ..fillColor(labelColor)
+      ..textAt(anchor.$1 - textWidth / 2,
+          anchor.$2 - captionSize * 0.36) // rough cap-height centering
+      ..showText(caption)
+      ..endText();
+
+    // the rect must cover both the geometry and the caption box
+    final geomRect = _pointBounds(points, strokeWidth);
+    final rect = PdfRect(
+      math.min(geomRect.left, boxLeft),
+      math.min(geomRect.bottom, boxBottom),
+      math.max(geomRect.right, boxLeft + boxWidth),
+      math.max(geomRect.top, boxBottom + boxHeight),
+    );
+
+    final subtype = switch (kind) {
+      PdfMeasurementKind.distance => 'Line',
+      PdfMeasurementKind.perimeter => 'PolyLine',
+      PdfMeasurementKind.area => 'Polygon',
+    };
+    final intent = switch (kind) {
+      PdfMeasurementKind.distance => 'LineDimension',
+      PdfMeasurementKind.perimeter => 'PolyLineDimension',
+      PdfMeasurementKind.area => 'PolygonDimension',
+    };
+    final dict = _markupDict(subtype, rect, strokeColor, caption, author)
+      ..['BS'] = _borderStyle(strokeWidth, dashed: dashed)
+      ..['IT'] = CosName(intent)
+      ..['Measure'] = m.toCosDictionary();
+    if (kind == PdfMeasurementKind.distance) {
+      dict['L'] = CosArray([
+        CosReal(points.first.$1),
+        CosReal(points.first.$2),
+        CosReal(points.last.$1),
+        CosReal(points.last.$2),
+      ]);
+      dict['LE'] = CosArray(
+          [const CosName('None'), const CosName('None')]);
+    } else {
+      dict['Vertices'] = _pointArray(points);
+    }
+    if (closed && fillColor != null) dict['IC'] = _colorComponents(fillColor);
+
+    _addAnnotation(
+      pageIndex,
+      dict,
+      _form(rect, content, resources: _resources(extGState: gs, font: _helvetica())),
+      name: name,
+    );
+  }
+
+  /// The caption string and its page-space anchor (segment midpoint for a
+  /// distance, the path/polygon centroid otherwise) for a measurement.
+  (String, (double, double)) _measurementCaption(
+      PdfMeasurementKind kind, List<(double, double)> points, PdfMeasure m) {
+    switch (kind) {
+      case PdfMeasurementKind.distance:
+        final a = points.first, b = points.last;
+        final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+        final caption = m.formatDistance(math.sqrt(dx * dx + dy * dy));
+        return (caption, ((a.$1 + b.$1) / 2, (a.$2 + b.$2) / 2));
+      case PdfMeasurementKind.perimeter:
+        var total = 0.0;
+        for (var i = 0; i + 1 < points.length; i++) {
+          final dx = points[i + 1].$1 - points[i].$1;
+          final dy = points[i + 1].$2 - points[i].$2;
+          total += math.sqrt(dx * dx + dy * dy);
+        }
+        return (m.formatDistance(total), _centroid(points));
+      case PdfMeasurementKind.area:
+        final caption = m.formatArea(pdfShoelaceArea(points));
+        return (caption, _centroid(points));
+    }
+  }
+
+  (double, double) _centroid(List<(double, double)> points) {
+    var sx = 0.0, sy = 0.0;
+    for (final (x, y) in points) {
+      sx += x;
+      sy += y;
+    }
+    return (sx / points.length, sy / points.length);
   }
 
   /// Adds a free-text annotation: [text] rendered directly on the page in
@@ -1224,16 +1462,15 @@ extension PdfAnnotationEditing on PdfEditor {
     final dashed = annotation.borderDash != null;
     final fill = subtype == 'Polygon' ? annotation.interiorColor : null;
     final endings = _lineEndings(annotation);
-    final arrowPoints = subtype == 'Line'
-        ? <(double, double)>[
-            if (endings.$1 == PdfLineEnding.closedArrow)
-              ..._arrowHead(points[0], points[1], width),
-            if (endings.$2 == PdfLineEnding.closedArrow)
-              ..._arrowHead(points[1], points[0], width),
-          ]
-        : const <(double, double)>[];
+    final endingPoints = subtype == 'Polygon'
+        ? const <(double, double)>[]
+        : <(double, double)>[
+            ..._endingExtent(endings.$1, points.first, points[1], width),
+            ..._endingExtent(
+                endings.$2, points.last, points[points.length - 2], width),
+          ];
     final rect =
-        _pointBounds([...points, ...arrowPoints], width + (dashed ? width : 0));
+        _pointBounds([...points, ...endingPoints], width + (dashed ? width : 0));
     final form = annotation.normalAppearance;
     final gs = _alphaState(form == null ? 1 : _appearanceOpacity(form));
     final w = _lineContent(points,
@@ -1267,6 +1504,44 @@ extension PdfAnnotationEditing on PdfEditor {
       });
     }
     _markAnnotationChanged(pageIndex, dict);
+  }
+
+  /// Sets the /LE line endings of a /Line or /PolyLine in place, keeping
+  /// the annotation's object number and /Annots slot. The appearance,
+  /// /Rect, and BBox regenerate from the current geometry with the new
+  /// endings; pass null for an axis to leave it unchanged. A no-op (and
+  /// returns false) for any other subtype, or when nothing changes.
+  bool setLineEndings(
+    int pageIndex,
+    PdfAnnotation annotation, {
+    PdfLineEnding? startEnding,
+    PdfLineEnding? endEnding,
+  }) {
+    final subtype = annotation.subtype;
+    if (subtype != 'Line' && subtype != 'PolyLine') return false;
+    final current = _lineEndings(annotation);
+    final start = startEnding ?? current.$1;
+    final end = endEnding ?? current.$2;
+    if (start == current.$1 && end == current.$2) return false;
+    final List<(double, double)> points;
+    if (subtype == 'Line') {
+      final line = annotation.line;
+      if (line == null) return false;
+      points = [line.$1, line.$2];
+    } else {
+      final vertices = annotation.vertices;
+      if (vertices == null || vertices.length < 2) return false;
+      points = vertices;
+    }
+    annotation.dict['LE'] = CosArray([
+      CosName(start.pdfName),
+      CosName(end.pdfName),
+    ]);
+    // re-wrap: the dict's /LE just changed under the caller's instance, and
+    // reshape reads the endings back through a fresh parse
+    reshapeLineAnnotation(
+        pageIndex, PdfAnnotation.fromDict(document, annotation.dict), points);
+    return true;
   }
 
   /// Sets [annotation]'s /Contents text in place.
@@ -1730,23 +2005,12 @@ extension PdfAnnotationEditing on PdfEditor {
     return true;
   }
 
-  (PdfLineEnding, PdfLineEnding) _lineEndings(PdfAnnotation annotation) {
-    if (annotation.subtype != 'Line') {
-      return (PdfLineEnding.none, PdfLineEnding.none);
-    }
-    final le = document.cos.resolve(annotation.dict['LE']);
-    PdfLineEnding read(int index) {
-      if (le is! CosArray || le.length <= index) return PdfLineEnding.none;
-      final name = document.cos.resolve(le[index]);
-      if (name is! CosName) return PdfLineEnding.none;
-      return PdfLineEnding.values.firstWhere(
-        (ending) => ending.pdfName == name.value,
-        orElse: () => PdfLineEnding.none,
-      );
-    }
-
-    return (read(0), read(1));
-  }
+  /// The endings recorded on [annotation]'s /LE entry — both
+  /// [PdfLineEnding.none] for subtypes that carry no endings
+  /// (/Polygon is closed; /PolyLine endings apply to its first and last
+  /// vertex per §12.5.6.7).
+  (PdfLineEnding, PdfLineEnding) _lineEndings(PdfAnnotation annotation) =>
+      pdfLineEndings(annotation) ?? (PdfLineEnding.none, PdfLineEnding.none);
 
   /// Restyles [annotation] in place: new colors, stroke width, or
   /// opacity at its current geometry, with the appearance regenerated —
@@ -2360,41 +2624,182 @@ extension PdfAnnotationEditing on PdfEditor {
       w.stroke();
     }
     if (dashed) w.dash(const []);
-    if (startEnding == PdfLineEnding.closedArrow) {
-      _drawArrowHead(w, points.first, points[1], strokeColor, strokeWidth);
-    }
-    if (endEnding == PdfLineEnding.closedArrow) {
-      _drawArrowHead(
-          w, points.last, points[points.length - 2], strokeColor, strokeWidth);
+    if (points.length >= 2) {
+      _drawEnding(w, startEnding, points.first, points[1], strokeColor,
+          strokeWidth);
+      _drawEnding(w, endEnding, points.last, points[points.length - 2],
+          strokeColor, strokeWidth);
     }
     return w;
   }
 
-  void _drawArrowHead(ContentWriter w, (double, double) tip,
-      (double, double) from, int color, double strokeWidth) {
-    final head = _arrowHead(tip, from, strokeWidth);
-    w
-      ..fillColor(color)
-      ..moveTo(tip.$1, tip.$2)
-      ..lineTo(head[0].$1, head[0].$2)
-      ..lineTo(head[1].$1, head[1].$2)
-      ..closePath()
-      ..fill();
-  }
-
-  List<(double, double)> _arrowHead(
-      (double, double) tip, (double, double) from, double strokeWidth) {
+  /// One line-ending shape (§12.5.6.7, Table 176) at endpoint [tip], with
+  /// the line arriving from [from]. The shape is oriented along the
+  /// segment: `u` points from the tip back into the line body, `p` is the
+  /// left-hand perpendicular. Closed shapes are returned with
+  /// `filled: true`; [PdfLineEnding.circle] additionally sets `isCircle`
+  /// (the [vertices] are then its four cardinal extent points, used for
+  /// bounds, and [radius]/[center] drive the Bézier draw).
+  ///
+  /// `r*` variants reverse the arrow direction (apex points into the line
+  /// instead of out of it). Returns null for [PdfLineEnding.none].
+  ({
+    List<(double, double)> vertices,
+    bool closed,
+    bool filled,
+    bool isCircle,
+    (double, double) center,
+    double radius,
+  })? _endingPath(PdfLineEnding kind, (double, double) tip,
+      (double, double) from, double strokeWidth) {
+    if (kind == PdfLineEnding.none) return null;
     final dx = from.$1 - tip.$1;
     final dy = from.$2 - tip.$2;
     final len = math.sqrt(dx * dx + dy * dy);
-    if (len < 1e-9) return [tip, tip];
-    final ux = dx / len, uy = dy / len;
-    final size = math.max(10.0, strokeWidth * 5);
-    final half = size * 0.38;
-    final bx = tip.$1 + ux * size;
-    final by = tip.$2 + uy * size;
+    final ux = len < 1e-9 ? 1.0 : dx / len;
+    final uy = len < 1e-9 ? 0.0 : dy / len;
     final px = -uy, py = ux;
-    return [(bx + px * half, by + py * half), (bx - px * half, by - py * half)];
+    final s = math.max(10.0, strokeWidth * 5);
+    (double, double) at(double along, double across) =>
+        (tip.$1 + ux * along + px * across, tip.$2 + uy * along + py * across);
+    switch (kind) {
+      case PdfLineEnding.closedArrow:
+      case PdfLineEnding.openArrow:
+        final hw = s * 0.38;
+        return (
+          // barb, apex (tip), barb — closed for the filled arrow
+          vertices: [at(s, hw), tip, at(s, -hw)],
+          closed: kind == PdfLineEnding.closedArrow,
+          filled: kind == PdfLineEnding.closedArrow,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.rClosedArrow:
+      case PdfLineEnding.rOpenArrow:
+        final hw = s * 0.38;
+        return (
+          // reversed: apex points into the line, barbs sit on the endpoint
+          vertices: [at(0, hw), at(s, 0), at(0, -hw)],
+          closed: kind == PdfLineEnding.rClosedArrow,
+          filled: kind == PdfLineEnding.rClosedArrow,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.diamond:
+        final r = s * 0.45;
+        return (
+          vertices: [at(r, 0), at(0, r), at(-r, 0), at(0, -r)],
+          closed: true,
+          filled: true,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.square:
+        final h = s * 0.35;
+        return (
+          vertices: [at(h, h), at(h, -h), at(-h, -h), at(-h, h)],
+          closed: true,
+          filled: true,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.circle:
+        final r = s * 0.4;
+        return (
+          vertices: [(tip.$1 + r, tip.$2), (tip.$1, tip.$2 + r),
+            (tip.$1 - r, tip.$2), (tip.$1, tip.$2 - r)],
+          closed: true,
+          filled: true,
+          isCircle: true,
+          center: tip,
+          radius: r,
+        );
+      case PdfLineEnding.butt:
+        final h = s * 0.45;
+        return (
+          vertices: [at(0, h), at(0, -h)],
+          closed: false,
+          filled: false,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.slash:
+        // a short line ~30° clockwise from perpendicular (60° from the
+        // line itself): rotate the line direction u by 60° CCW
+        final h = s * 0.5;
+        const c = 0.5, sn = 0.8660254037844387; // cos 60°, sin 60°
+        final sx = ux * c - uy * sn, sy = ux * sn + uy * c;
+        return (
+          vertices: [
+            (tip.$1 + sx * h, tip.$2 + sy * h),
+            (tip.$1 - sx * h, tip.$2 - sy * h),
+          ],
+          closed: false,
+          filled: false,
+          isCircle: false,
+          center: tip,
+          radius: 0,
+        );
+      case PdfLineEnding.none:
+        return null;
+    }
+  }
+
+  void _drawEnding(ContentWriter w, PdfLineEnding kind, (double, double) tip,
+      (double, double) from, int color, double strokeWidth) {
+    final shape = _endingPath(kind, tip, from, strokeWidth);
+    if (shape == null) return;
+    if (shape.isCircle) {
+      _drawCircle(w, shape.center, shape.radius);
+      w
+        ..fillColor(color)
+        ..fill();
+      return;
+    }
+    w.moveTo(shape.vertices.first.$1, shape.vertices.first.$2);
+    for (final (x, y) in shape.vertices.skip(1)) {
+      w.lineTo(x, y);
+    }
+    if (shape.filled) {
+      w
+        ..closePath()
+        ..fillColor(color)
+        ..fill();
+    } else {
+      if (shape.closed) w.closePath();
+      w
+        ..strokeColor(color)
+        ..lineWidth(strokeWidth)
+        ..lineCap(0)
+        ..stroke();
+    }
+  }
+
+  /// Appends a circle of [radius] about [center] as four cubic Béziers.
+  void _drawCircle(ContentWriter w, (double, double) center, double radius) {
+    const k = 0.5522847498307936; // 4/3·(√2−1)
+    final cx = center.$1, cy = center.$2, r = radius, kr = k * radius;
+    w
+      ..moveTo(cx + r, cy)
+      ..curveTo(cx + r, cy + kr, cx + kr, cy + r, cx, cy + r)
+      ..curveTo(cx - kr, cy + r, cx - r, cy + kr, cx - r, cy)
+      ..curveTo(cx - r, cy - kr, cx - kr, cy - r, cx, cy - r)
+      ..curveTo(cx + kr, cy - r, cx + r, cy - kr, cx + r, cy);
+  }
+
+  /// The extreme points an ending [kind] reaches at [tip] (line arriving
+  /// from [from]) — fed into [_pointBounds] so the appearance /Rect and
+  /// BBox cover the ending, not just the line.
+  List<(double, double)> _endingExtent(PdfLineEnding kind, (double, double) tip,
+      (double, double) from, double strokeWidth) {
+    final shape = _endingPath(kind, tip, from, strokeWidth);
+    if (shape == null) return const [];
+    return [tip, ...shape.vertices];
   }
 
   List<double> _dashPattern(double strokeWidth) =>

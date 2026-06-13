@@ -50,6 +50,27 @@ class PdfSearchResult {
   int get pageIndex => match.pageIndex;
 }
 
+/// A snapshot of a viewer's scroll position and zoom, for mirroring one
+/// [PdfViewer] onto another — the comparison view's synchronized panes.
+/// Read [PdfViewerController.viewSync], hand it to another controller's
+/// [PdfViewerController.applyViewSync].
+class PdfViewSync {
+  const PdfViewSync({
+    required this.scrollPixels,
+    required this.layoutZoom,
+    required this.transform,
+  });
+
+  /// Vertical scroll offset, in list pixels at the current [layoutZoom].
+  final double scrollPixels;
+
+  /// Zoom applied by laying pages out smaller (≤ fit-width).
+  final double layoutZoom;
+
+  /// The InteractiveViewer transform (zoom above fit-width plus pan).
+  final Matrix4 transform;
+}
+
 /// Drives a [PdfViewer] and reports its state: current page, zoom, and
 /// search results. Listeners fire on any change.
 class PdfViewerController extends ChangeNotifier {
@@ -158,6 +179,18 @@ class PdfViewerController extends ChangeNotifier {
   /// null while the page is entirely off-screen.
   Rect? visiblePageRegion(int pageIndex) =>
       _state?._visibleFractionOf(pageIndex);
+
+  /// A snapshot of the viewer's scroll position and zoom, for mirroring it
+  /// onto another viewer (the comparison view's synchronized panes). Null
+  /// when no viewer is attached. Pair with [applyViewSync], and listen to
+  /// [viewportChanges] to know when to re-read it.
+  PdfViewSync? get viewSync => _state?._captureViewSync();
+
+  /// Mirrors [sync] onto this viewer: matches its scroll offset and zoom.
+  /// Geometry-dependent — it assumes both viewers lay their pages out the
+  /// same way (the comparison view pairs documents with matching page
+  /// geometry). Guard against feedback loops at the call site.
+  void applyViewSync(PdfViewSync sync) => _state?._applyViewSync(sync);
 
   void _bumpViewport() {
     if (SchedulerBinding.instance.schedulerPhase ==
@@ -317,6 +350,7 @@ class PdfViewer extends StatefulWidget {
     this.showAnnotations = true,
     this.highlightFormFields = true,
     this.pagePreviews = true,
+    this.predictStrokes = true,
   });
 
   final PdfDocument document;
@@ -421,6 +455,17 @@ class PdfViewer extends StatefulWidget {
   /// session plus up to ~40 MB of preview pixels on very long
   /// documents.
   final bool pagePreviews;
+
+  /// Draws a short speculative "lead" ahead of the pen while an ink stroke
+  /// is in flight, forward-extrapolated from the recent samples' velocity
+  /// and curvature, to mask the input+render latency between the pencil
+  /// tip and the painted line the way PencilKit's predicted touches do.
+  /// The lead is display-only — it never enters the committed stroke — and
+  /// is suppressed when prediction would be unstable (too few samples, a
+  /// near-stationary pen, or a sharp direction reversal). Pure geometry, so
+  /// it helps every stylus platform; it approximates, but does not equal,
+  /// Apple's hardware predictor.
+  final bool predictStrokes;
 
   @override
   State<PdfViewer> createState() => _PdfViewerState();
@@ -730,9 +775,17 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _onTransformChanged() {
     _transformScale.value = _transform.value.getMaxScaleOnAxis();
     _controller._bumpViewport();
+    // hold re-rasterization while the zoom is moving: the existing rasters
+    // scale under the transform meanwhile (cheap, briefly blurry). Without
+    // this, rapid zoom in/out fired a fresh full-resolution toImage per
+    // settle, and on web (single-threaded, uncancellable GPU readback)
+    // they piled up and froze the UI. The settle below releases the hold,
+    // and the scheduler then drains a single coalesced render per page.
+    _renderScheduler.holding = true;
     _settleTimer?.cancel();
     _settleTimer = Timer(const Duration(milliseconds: 200), () {
       if (!mounted) return;
+      _renderScheduler.holding = false;
       final target = math.max(1.0, _transform.value.getMaxScaleOnAxis());
       // wheel zoom never fires onInteractionEnd, so the pan flag also
       // settles here
@@ -745,6 +798,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         // any settled transform change moves the deep-zoom detail patch
         _settleGeneration++;
       });
+      // the background prerender yields while the hold is up; pick it back up
+      _prerenderPreviews();
     });
   }
 
@@ -1021,6 +1076,36 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           .clamp(0.0, _scroll.position.maxScrollExtent);
       if ((target - _scroll.offset).abs() > 0.5) _scroll.jumpTo(target);
     });
+  }
+
+  PdfViewSync _captureViewSync() => PdfViewSync(
+        scrollPixels: _scroll.hasClients ? _scroll.position.pixels : 0,
+        layoutZoom: _layoutZoom,
+        transform: _transform.value.clone(),
+      );
+
+  void _applyViewSync(PdfViewSync sync) {
+    void applyScrollAndTransform() {
+      _transform.value = sync.transform.clone();
+      if (_scroll.hasClients) {
+        final target =
+            sync.scrollPixels.clamp(0.0, _scroll.position.maxScrollExtent);
+        if ((target - _scroll.position.pixels).abs() > 0.5) {
+          _scroll.jumpTo(target);
+        }
+      }
+    }
+
+    // A layout-zoom change relays the pages out, so the new scroll metrics
+    // only exist after the next frame.
+    if ((_layoutZoom - sync.layoutZoom).abs() > 1e-6) {
+      setState(() => _layoutZoom = sync.layoutZoom);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) applyScrollAndTransform();
+      });
+    } else {
+      applyScrollAndTransform();
+    }
   }
 
   void _onScroll() {
@@ -2386,6 +2471,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 transformScale: _transformScale,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
+                predictStrokes: widget.predictStrokes,
               ),
             ),
           ),
@@ -2656,6 +2742,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.transformScale,
     required this.renderScheduler,
     required this.previewCache,
+    required this.predictStrokes,
   });
 
   final PdfPage page;
@@ -2703,6 +2790,9 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [PdfPageView.previewCache]; null when previews are off.
   final PdfPagePreviewCache? previewCache;
+
+  /// See [PdfViewer.predictStrokes].
+  final bool predictStrokes;
 
   @override
   State<_PdfViewerPage> createState() => _PdfViewerPageState();
@@ -2812,6 +2902,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               onShowFormFieldMenu: widget.onShowFormFieldMenu,
                               rasterCurrent: _rastered,
                               zoom: zoom,
+                              predictStrokes: widget.predictStrokes,
                             ),
                           ),
                         ),

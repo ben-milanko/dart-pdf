@@ -307,6 +307,29 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Opens a second PDF and compares it against the active document in a
+  /// new tab ([PdfComparisonView]). The active document is the "before".
+  Future<void> _compareWith() async {
+    final tab = _active;
+    final current = tab?.session?.bytes;
+    if (current == null) return;
+    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    if (file == null) return;
+    try {
+      final other = await file.readAsBytes();
+      setState(() {
+        _tabs.add(_DocumentTab.comparison(
+          title: 'Compare: ${tab!.title} ↔ ${file.name}',
+          before: current,
+          after: other,
+        ));
+        _activeIndex = _tabs.length - 1;
+      });
+    } catch (e) {
+      _openError(file.name, 'Could not open ${file.name}\n$e');
+    }
+  }
+
   Future<void> _openPath(String path) async {
     final name = path.split(RegExp(r'[/\\]')).last;
     try {
@@ -433,15 +456,26 @@ class _ViewerScreenState extends State<ViewerScreen> {
             tooltip: 'Open PDF in a new tab',
             onPressed: _pickFile,
           ),
-          // GitHub source + pub.dev package, kept in one slot so the
-          // action row stays inside the 800px test window
-          PopupMenuButton<Uri>(
-            icon: const Icon(Icons.link),
-            tooltip: 'Project links',
-            onSelected: _openLink,
+          // Compare + project links share one overflow slot so the action
+          // row stays inside the 800px test window (every standalone
+          // button would push it over).
+          PopupMenuButton<VoidCallback>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More actions',
+            onSelected: (action) => action(),
             itemBuilder: (context) => [
               PopupMenuItem(
-                value: _githubUrl,
+                value: _compareWith,
+                enabled: _active?.session != null,
+                child: const ListTile(
+                  leading: Icon(Icons.compare_arrows),
+                  title: Text('Compare with another PDF…'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: () => _openLink(_githubUrl),
                 child: const ListTile(
                   leading: Icon(Icons.code),
                   title: Text('View source on GitHub'),
@@ -449,7 +483,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 ),
               ),
               PopupMenuItem(
-                value: _pubDevUrl,
+                value: () => _openLink(_pubDevUrl),
                 child: const ListTile(
                   leading: Icon(Icons.inventory_2_outlined),
                   title: Text('dart_pdf_editor on pub.dev'),
@@ -484,6 +518,12 @@ class _ViewerScreenState extends State<ViewerScreen> {
             )
           : tab.error != null
               ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
+              : tab.isComparison
+              ? PdfComparisonView(
+                  key: ValueKey(tab),
+                  before: tab.compareBefore!,
+                  after: tab.compareAfter!,
+                )
               // the two drop-in widgets carry all the PDF chrome (search,
               // page number, panels, toolbar) — the app supplies the edit
               // session, its file handling, and the demo's app-side wiring
@@ -608,16 +648,39 @@ class _DocumentTab {
     this.isDemo = false,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
-        error = null;
+        error = null,
+        compareBefore = null,
+        compareAfter = null;
 
   _DocumentTab.error({required this.title, required this.error})
       : session = null,
         viewer = null,
-        isDemo = false;
+        isDemo = false,
+        compareBefore = null,
+        compareAfter = null;
+
+  /// A document-comparison tab: hosts a [PdfComparisonView] over two
+  /// files. No edit session or viewer controller of its own.
+  _DocumentTab.comparison({
+    required this.title,
+    required Uint8List before,
+    required Uint8List after,
+  })  : session = null,
+        viewer = null,
+        isDemo = false,
+        error = null,
+        compareBefore = before,
+        compareAfter = after;
 
   final String title;
   final String? error;
   final bool isDemo;
+
+  /// The two documents a comparison tab diffs; null on every other tab.
+  final Uint8List? compareBefore;
+  final Uint8List? compareAfter;
+
+  bool get isComparison => compareAfter != null;
 
   /// Null for an error tab. Shared preferences are owned by the app, so
   /// they outlive the tab.

@@ -79,7 +79,8 @@ class RecordingDevice implements PdfDevice {
   }
 
   @override
-  void beginGroup(double alpha) => calls.add('beginGroup($alpha)');
+  void beginGroup(double alpha, {bool knockout = false}) =>
+      calls.add('beginGroup($alpha${knockout ? ' knockout' : ''})');
   @override
   void endGroup() => calls.add('endGroup');
   @override
@@ -782,6 +783,51 @@ void main() {
     final corner = fill.$1.segments[2] as PdfLineTo;
     expect(corner.x, 108); // 2*4 + 100
     expect(corner.y, 8);
+  });
+
+  test('a knockout group (/K true) opens a knockout layer at full alpha', () {
+    // §11.4.5: a knockout group needs its own compositing layer even when it
+    // paints at alpha 1, so each element can replace (not blend over) the
+    // ones before it. Without /K the same group at alpha 1 stays unwrapped.
+    const content = '1 0 0 rg 0 0 60 60 re f 0 0 1 rg 30 30 60 60 re f';
+    CosStream group(bool knockout) => CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Form'),
+            'BBox': CosArray(const [
+              CosInteger(0),
+              CosInteger(0),
+              CosInteger(100),
+              CosInteger(100),
+            ]),
+            'Group': CosDictionary({
+              'Type': const CosName('Group'),
+              'S': const CosName('Transparency'),
+              if (knockout) 'K': const CosBoolean(true),
+            }),
+            'Length': CosInteger(content.length),
+          }),
+          Uint8List.fromList(content.codeUnits),
+        );
+    final doc = CosDocument.open(buildClassicPdf());
+
+    final ko = RecordingDevice();
+    PdfInterpreter(cos: doc, device: ko).run(
+      ContentStreamParser.parse(Uint8List.fromList('/Fm0 Do'.codeUnits)),
+      CosDictionary({
+        'XObject': CosDictionary({'Fm0': group(true)}),
+      }),
+    );
+    expect(ko.calls, contains('beginGroup(1.0 knockout)'));
+    expect(ko.calls, contains('endGroup'));
+
+    final plain = RecordingDevice();
+    PdfInterpreter(cos: doc, device: plain).run(
+      ContentStreamParser.parse(Uint8List.fromList('/Fm0 Do'.codeUnits)),
+      CosDictionary({
+        'XObject': CosDictionary({'Fm0': group(false)}),
+      }),
+    );
+    expect(plain.calls.where((c) => c.startsWith('beginGroup')), isEmpty);
   });
 
   group('annotation appearances', () {

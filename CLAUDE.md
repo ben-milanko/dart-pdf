@@ -1714,6 +1714,37 @@ colour washes over white" — 0x80FF0000 reads ~(255,127,127) not
 The rest of the handoff (PdfMarkupStore `colourLocked` computed,
 TraxProjectSettings/`toHexWithAlpha`, copy-type opacity-slider UI) is
 trax-repo work, not here.
+Shape resize line-width stretch (Ben: "annotation line width gets
+stretched in the preview before returning to original"): the
+move/resize drag previews via a rasterized appearance ghost scaled
+from the resting rect onto the dragged rect, so a Square/Circle's
+stroke thickened with the box and snapped back on commit — because the
+editor REGENERATES the shape at a constant stroke width
+(`_regenerateResizedAppearance`), not the §12.5.5 stretch. Fix mirrors
+the existing FreeText `_textResizeStyle`/`wrapResize` path: overlay
+`_shapeResizeStyle(rect, rotation)` (editing_overlay.dart) returns the
+shape's draw params (ellipse flag, stroke/fill colour, page→view-scaled
+border width, opacity) when the resize will regenerate — gated EXACTLY
+like the editor's Square/Circle branch (normalAppearance present, no
+cloudy /BE, no dashed /BS, has a stroke or fill) so preview never
+disagrees with commit. Build computes `shapeResize` = live preview
+(while a resize handle is dragging) ?? `_afterShapeResize` (the frozen
+afterimage, held until rasterCurrent like the others), suppresses the
+ghost when it's set, and hands the painter a `_ShapeResize` record;
+painter `_paintShapeResize` strokes/fills the rect (inset by half the
+view-space stroke width to match `_shapeContent`), rotated about the
+rect centre by the resting angle, dimmed via saveLayer to the
+appearance opacity. The `_panEnd` resize branch captures the style
+BEFORE commit (the annotation's pre-resize border width is the constant
+one) and freezes it as `_afterShapeResize` instead of
+`_commitWithGhost`. Rotated shapes work for free (resizeSelectedLocal
+already regenerates at the local box then re-rotates; the preview
+rotates the same local box about its centre). Ink/stamps/embedded-font
+free text still stretch (the ghost is correct there — they don't
+regenerate). Tests: editing_shape_resize_test.dart (3 — the painter's
+`shapeResize` via the dynamic cast: constant 2px stroke at 0.5px/pt
+under a big widen, ellipse flag, ghost suppressed; commit keeps the
+original borderWidth).
 Reopen-where-you-left-off (Ben: "opening the same document should open
 with the same viewport"): `PdfViewport` (viewport.dart, exported via
 pdf_viewer) — a resolution-INDEPENDENT snapshot (page at the viewport's

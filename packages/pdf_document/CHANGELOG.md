@@ -12,6 +12,11 @@ Initial release.
   content stamping/deletion/text replacement.
 - Annotations: appearance generation, resize/rotate/restyle, slicing
   eraser, clipboard snapshots, /NM-keyed diff + replay for sync.
+- Measurements (§12.9): `PdfMeasure`/`PdfNumberFormat` (parse/emit/format),
+  scale calibration (`setMeasurementScale`), and `addMeasurement` for
+  distance/perimeter/area annotations with a /Measure dictionary, a
+  formatted /Contents, and a caption baked into the appearance
+  (`PdfAnnotation.measure`/`measurementText`).
 - AcroForm: field model, filling with regenerated appearances, field
   administration (add/rename/remove/retype/flatten), button images.
 - Digital signatures: `PdfSignature.validate()` with optional trust-store

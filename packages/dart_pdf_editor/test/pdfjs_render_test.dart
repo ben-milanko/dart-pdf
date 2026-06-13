@@ -15,7 +15,6 @@
 // tool/pdfjs_baseline, then set PDFJS_BASELINE_DIR. If PDFJS_RENDER_OUT is
 // omitted during comparison, test_corpora/pdfjs/_renders is used.
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -215,52 +214,23 @@ Future<_Comparison> _compareBaseline({
         (await expected.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!
             .buffer
             .asUint8List();
-    final diffMap = Uint8List(actualPixels.length);
-    var differing = 0;
-    for (var i = 0; i < actualPixels.length; i += 4) {
-      var maxDiff = 0;
-      for (var c = 0; c < 3; c++) {
-        final d = (actualPixels[i + c] - expectedPixels[i + c]).abs();
-        if (d > maxDiff) maxDiff = d;
-      }
-      final differs = maxDiff > channelTolerance;
-      if (differs) differing++;
-      // Render only the red diff over a blank white field — no base image,
-      // so the changed pixels are easy to spot.
-      diffMap[i] = 255;
-      diffMap[i + 1] = differs ? 0 : 255;
-      diffMap[i + 2] = differs ? 0 : 255;
-      diffMap[i + 3] = 255;
-    }
-
-    final diff = await _imageFromRgba(
-      diffMap,
+    // Shared with the Ghent suite and the comparison feature: the changes
+    // alone, red on a white field.
+    final diff = PdfPageComparison.comparePixels(
+      actualPixels,
+      expectedPixels,
       width: actual.width,
       height: actual.height,
+      channelTolerance: channelTolerance,
+      style: PdfDiffStyle.redOnWhite,
     );
     return _Comparison(
-      differenceFraction: differing / (actualPixels.length ~/ 4),
-      diff: diff,
+      differenceFraction: diff.differenceFraction,
+      diff: await diff.toImage(),
     );
   } finally {
     expected.dispose();
   }
-}
-
-Future<ui.Image> _imageFromRgba(
-  Uint8List rgba, {
-  required int width,
-  required int height,
-}) async {
-  final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
-  final descriptor = ui.ImageDescriptor.raw(
-    buffer,
-    width: width,
-    height: height,
-    pixelFormat: ui.PixelFormat.rgba8888,
-  );
-  final codec = await descriptor.instantiateCodec();
-  return (await codec.getNextFrame()).image;
 }
 
 class _Comparison {

@@ -224,11 +224,12 @@ class PdfInterpreter {
   ///
   /// Hidden and NoView annotations are skipped, as are Popups — those are
   /// only shown by a viewer when their parent note is opened.
-  void drawAnnotations(PdfPage page) {
+  void drawAnnotations(PdfPage page, {bool Function(PdfAnnotation)? skip}) {
     _pageBox = page.mediaBox;
     for (final annotation in page.annotations) {
       if (annotation.isHidden || annotation.isNoView) continue;
       if (annotation.subtype == 'Popup') continue;
+      if (skip != null && skip(annotation)) continue;
       final form = annotation.normalAppearance;
       if (form == null) {
         _drawFallbackAnnotation(annotation);
@@ -1939,14 +1940,20 @@ class PdfInterpreter {
     // at Do applies to the group's result, and resets inside (§11.6.6) —
     // otherwise an inner `gs` back to ca 1.0 would erase the group alpha
     final groupAlpha = _state.fillAlpha;
-    final isGroup = cos.resolve(xobject.dictionary['Group']) is CosDictionary;
-    final groupLayer = isGroup && groupAlpha < 1;
+    final groupDict = cos.resolve(xobject.dictionary['Group']);
+    final isGroup = groupDict is CosDictionary;
+    // A knockout group (/K true, §11.4.5) needs its own layer so each
+    // element can composite against the group's initial backdrop, even when
+    // the group itself paints at full alpha.
+    final knockout =
+        isGroup && cos.resolve(groupDict['K']) == const CosBoolean(true);
+    final groupLayer = isGroup && (groupAlpha < 1 || knockout);
 
     final outerMask = _state.softMask;
     _stateStack.add(_GraphicsState.from(_state));
     device.save();
     if (groupLayer) {
-      device.beginGroup(groupAlpha);
+      device.beginGroup(groupAlpha, knockout: knockout);
       _state.fillAlpha = 1;
       _state.strokeAlpha = 1;
     }

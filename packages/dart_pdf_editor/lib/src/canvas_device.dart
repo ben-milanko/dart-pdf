@@ -25,6 +25,21 @@ class CanvasPdfDevice implements PdfDevice {
 
   BlendMode _blend = BlendMode.srcOver;
 
+  /// One entry per open transparency group: true while that group is a
+  /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
+  /// top entry tracks the group directly enclosing the next paint call.
+  final _knockout = <bool>[];
+
+  /// True when the next paint call is a top-level element of a knockout
+  /// group, so it must replace rather than blend over the group result.
+  bool get _knockoutActive => _knockout.isNotEmpty && _knockout.last;
+
+  /// Blend mode for a paint primitive. Knockout elements use [BlendMode.src]
+  /// so only the element's own coverage is replaced in the group buffer
+  /// (drawing directly, with no intermediate full-bounds layer, keeps the
+  /// areas it doesn't cover — earlier elements — intact).
+  BlendMode get _elementBlend => _knockoutActive ? BlendMode.src : _blend;
+
   /// Converts rendered luminance into alpha — the compositing core of a
   /// /Luminosity soft mask.
   static const _luminanceToAlpha = ColorFilter.matrix([
@@ -63,7 +78,7 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   @override
-  void beginGroup(double alpha) {
+  void beginGroup(double alpha, {bool knockout = false}) {
     canvas.saveLayer(
       null,
       Paint()
@@ -71,14 +86,21 @@ class CanvasPdfDevice implements PdfDevice {
             Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
         ..blendMode = _blend,
     );
+    _knockout.add(knockout);
   }
 
   @override
-  void endGroup() => canvas.restore();
+  void endGroup() {
+    _knockout.removeLast();
+    canvas.restore();
+  }
 
   @override
   void beginSoftMasked() {
     canvas.saveLayer(null, Paint());
+    // The mask group's content composites as one element of any enclosing
+    // knockout group, through this layer — not element by element.
+    _knockout.add(false);
   }
 
   @override
@@ -128,6 +150,7 @@ class CanvasPdfDevice implements PdfDevice {
     drawMask();
     canvas.restore(); // composite the mask into the content (dstIn)
     canvas.restore(); // composite the masked content into the page
+    _knockout.removeLast();
   }
 
   @override
@@ -137,7 +160,7 @@ class CanvasPdfDevice implements PdfDevice {
       Paint()
         ..style = PaintingStyle.fill
         ..color = _toColor(color, alpha)
-        ..blendMode = _blend,
+        ..blendMode = _elementBlend,
     );
   }
 
@@ -148,7 +171,7 @@ class CanvasPdfDevice implements PdfDevice {
       _toUiPath(path, rule),
       Paint()
         ..shader = _shaderFor(gradient)
-        ..blendMode = _blend
+        ..blendMode = _elementBlend
         ..color =
             Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0),
     );
@@ -192,7 +215,8 @@ class CanvasPdfDevice implements PdfDevice {
     }
     // BlendMode.dst keeps the vertex colors (paint is the src side of
     // this mode); the paint still carries the PDF blend mode
-    canvas.drawVertices(vertices, BlendMode.dst, Paint()..blendMode = _blend);
+    canvas.drawVertices(
+        vertices, BlendMode.dst, Paint()..blendMode = _elementBlend);
   }
 
   @override
@@ -219,7 +243,7 @@ class CanvasPdfDevice implements PdfDevice {
           _ => StrokeJoin.miter,
         }
         ..strokeMiterLimit = stroke.miterLimit
-        ..blendMode = _blend,
+        ..blendMode = _elementBlend,
     );
   }
 
@@ -375,7 +399,7 @@ class CanvasPdfDevice implements PdfDevice {
               foreground: Paint()
                 ..shader =
                     _shaderFor(gradient, transform: localGradientTransform)
-                ..blendMode = _blend,
+                ..blendMode = _elementBlend,
             ),
           ),
           textDirection: TextDirection.ltr,
@@ -390,7 +414,7 @@ class CanvasPdfDevice implements PdfDevice {
   /// Draws real glyph outlines from the embedded font. The run transform
   /// maps em space (y-up) to page space, so no unflip is needed.
   void _drawGlyphOutlines(PdfTextRun run) {
-    final paint = Paint()..blendMode = _blend;
+    final paint = Paint()..blendMode = _elementBlend;
     final gradient = run.gradient;
     if (gradient != null) {
       paint.shader = _shaderFor(gradient);
@@ -421,7 +445,7 @@ class CanvasPdfDevice implements PdfDevice {
     final paint = Paint()
       ..filterQuality = FilterQuality.medium
       ..isAntiAlias = false
-      ..blendMode = _blend;
+      ..blendMode = _elementBlend;
     if (request.isStencil) {
       // stencil masks paint the fill color through the mask's alpha
       paint.colorFilter = ColorFilter.mode(

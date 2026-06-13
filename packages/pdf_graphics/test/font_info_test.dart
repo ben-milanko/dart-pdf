@@ -68,6 +68,20 @@ void main() {
     expect(info.charFor(0xD0), String.fromCharCode(0x2014));
   });
 
+  test('WinAnsi standalone spacing diacritics decode to Unicode', () {
+    final font = CosDictionary({
+      'Subtype': const CosName('Type1'),
+      'BaseFont': const CosName('Courier'),
+      'Encoding': const CosName('WinAnsiEncoding'),
+    });
+    final info = PdfFontInfo.load(cos, font);
+    // 0x88 'circumflex' and 0x98 'tilde' have no Latin-1 codepoint; without a
+    // glyph-name -> Unicode entry they fell through to the C1 control range and
+    // rendered as tofu in substituted fonts.
+    expect(info.charFor(0x88), String.fromCharCode(0x02C6));
+    expect(info.charFor(0x98), String.fromCharCode(0x02DC));
+  });
+
   test('ZapfDingbats decodes built-in symbol codes to Unicode', () {
     final font = CosDictionary({
       'Subtype': const CosName('Type1'),

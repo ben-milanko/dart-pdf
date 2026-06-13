@@ -30,6 +30,10 @@ Initial release.
   Catmull-Rom smoothing)/shapes/free text/notes/stamps/signatures,
   select/move/resize/rotate with live previews, slicing eraser,
   clipboard, undo/redo as incremental saves.
+- Measurement tools: distance/perimeter/area annotations with scale
+  calibration (`PdfMeasurementScale`, `showPdfScaleDialog`, persisted in
+  preferences) and a live readout chip that rides the cursor for mouse
+  and floats above the finger for touch/stylus.
 - Form filling UI: text, checkbox, radio, choice, button images, plus
   field administration, flattening, and a form-field highlight wash
   (`PdfViewer.highlightFormFields`, on by default).
