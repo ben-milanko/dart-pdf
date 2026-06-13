@@ -13,6 +13,7 @@ import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
+import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
 /// One page's editing layer: captures the armed tool's gestures in page
@@ -35,6 +36,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onPanViewportEnd,
     this.rasterCurrent = true,
     this.zoom = 1,
+    this.predictStrokes = true,
     this.formImagePicker,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
@@ -80,6 +82,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// to stay constant-size on screen at any zoom. Page-content previews
   /// (ink, shapes, the drag ghost) scale with the page on purpose.
   final double zoom;
+
+  /// See [PdfViewer.predictStrokes]. When true the in-progress ink layer
+  /// draws a forward-extrapolated lead so the painted line keeps up with
+  /// the pen tip.
+  final bool predictStrokes;
 
   /// Opens the annotation context menu at a global position — the
   /// selection action chip's "more" button and the touch long-press,
@@ -2652,11 +2659,25 @@ class _ActiveStrokePainter extends CustomPainter {
     final stroke = _state._activeStroke;
     if (stroke == null || stroke.isEmpty) return;
     final geometry = _state._geometry;
+    var display = stroke;
+    var pressures = _state._activeStrokePressures;
+    // a forward-extrapolated lead so the line keeps up with the pen tip —
+    // display only, recomputed each repaint (so the next real sample
+    // replaces it) and never folded into the committed stroke
+    if (_state.widget.predictStrokes) {
+      final lead = pdfPredictStrokeLead(stroke);
+      if (lead.isNotEmpty) {
+        display = [...stroke, ...lead];
+        if (pressures != null) {
+          pressures = [...pressures, for (final _ in lead) pressures.last];
+        }
+      }
+    }
     _paintInkStrokes(
       canvas,
       geometry,
-      [stroke],
-      [_state._activeStrokePressures],
+      [display],
+      [pressures],
       _state._controller.color,
       _state._controller.strokeWidth * geometry.scale,
     );
