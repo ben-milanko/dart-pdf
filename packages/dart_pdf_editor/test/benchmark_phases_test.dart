@@ -19,7 +19,6 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/image_decoder.dart';
-import 'package:dart_pdf_editor/src/canvas_device.dart';
 
 import 'render_smoke_test.dart' show loadSystemFonts;
 
