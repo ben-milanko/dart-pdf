@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -136,9 +137,54 @@ const files = (await readdir(corpusDir, { withFileTypes: true }))
   .filter((name) => only == null || only.test(name))
   .sort();
 
-let rendered = 0;
-const failures = [];
-for (const name of files) {
+const selfPath = fileURLToPath(import.meta.url);
+
+if (args.worker != null) {
+  // Child mode: render exactly one file in a fresh process. pdf.js caches its
+  // generic font substitution (the `serif`/`sans-serif` family) in
+  // module-global state on first use and never re-resolves it, so within one
+  // process the first CJK file to register a CJK face under those aliases
+  // poisons every later non-embedded Latin serif/sans substitution into
+  // .notdef boxes (see non-embedded-NuptialScript). GlobalFonts.remove() can't
+  // undo it — the leak is inside pdf.js, not the canvas — so the only reliable
+  // isolation is a clean process per file.
+  const result = await renderOne(args.worker);
+  if (!result.ok) {
+    console.warn(`FAILED ${args.worker}: ${result.error}`);
+    process.exitCode = 1;
+  } else {
+    const n = result.pages;
+    console.log(`rendered ${args.worker} (${n} page${n === 1 ? '' : 's'})`);
+  }
+} else {
+  // Parent mode: spawn one isolated child per file.
+  let rendered = 0;
+  const failures = [];
+  for (const name of files) {
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--expose-gc', selfPath,
+        '--worker', name,
+        '--corpus', corpusDir,
+        '--out', outDir,
+        '--scale', String(scale),
+        '--max-pages', String(maxPages),
+      ],
+      { stdio: 'inherit' },
+    );
+    if (child.status === 0) rendered++;
+    else failures.push(name);
+  }
+  console.log(`rendered ${rendered}/${files.length} files into ${outDir}`);
+  if (failures.length > 0) {
+    console.warn(`failed to render ${failures.length} file(s):`);
+    for (const failure of failures) console.warn(`  ${failure}`);
+    process.exitCode = 1;
+  }
+}
+
+async function renderOne(name) {
   const fontKeys = [];
   try {
     const bytes = await readFile(path.join(corpusDir, name));
@@ -182,7 +228,6 @@ for (const name of files) {
       await page.render({ canvasContext, viewport }).promise;
       const outName = `${safeName(name)}.p${pageIndex}.png`;
       await writeFile(path.join(outDir, outName), canvas.toBuffer('image/png'));
-      rendered++;
       // Release PDF.js's retained render/image state for this page now,
       // rather than holding every page's intent state until pdf.cleanup().
       page.cleanup();
@@ -194,28 +239,20 @@ for (const name of files) {
     }
     await pdf.cleanup();
     await loadingTask.destroy();
-    console.log(`rendered ${name} (${pages} page${pages === 1 ? '' : 's'})`);
+    return { ok: true, pages };
   } catch (error) {
-    failures.push(`${name}: ${error?.message ?? error}`);
-    console.warn(`FAILED ${name}: ${error?.message ?? error}`);
+    return { ok: false, error: error?.message ?? String(error) };
   } finally {
     for (const key of fontKeys) {
       GlobalFonts.remove(key);
     }
     // V8 sizes its GC heuristics off the (tiny) JS heap and never sees the
     // megabytes of native Skia/canvas + decoded-image memory each file
-    // leaves behind, so without a nudge RSS climbs into tens of GB across
-    // the corpus. Run with `--expose-gc` (see package.json) to reclaim it
-    // between files; degrade gracefully if the flag is absent.
+    // leaves behind, so without a nudge RSS climbs into tens of GB. The child
+    // renders one file, but multi-page files still benefit; degrade gracefully
+    // when --expose-gc is absent.
     globalThis.gc?.();
   }
-}
-
-console.log(`rendered ${rendered} baseline PNGs into ${outDir}`);
-if (failures.length > 0) {
-  console.warn(`failed to render ${failures.length} file(s):`);
-  for (const failure of failures) console.warn(`  ${failure}`);
-  process.exitCode = 1;
 }
 
 function parseArgs(values) {

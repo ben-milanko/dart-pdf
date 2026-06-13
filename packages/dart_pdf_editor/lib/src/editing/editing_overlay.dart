@@ -199,12 +199,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   // circle eraser: the swipe's swept path (page space), the live-sliced
   // remainder per touched /Annots slot (painted over the faded
-  // original, so the preview shows exactly what the commit keeps),
-  // touched annotations' view rects (washed while pending), inkless
-  // slots that can only be deleted whole, and the ring cursor's view
-  // position (drag for any pointer, hover for a mouse)
+  // original, so the preview shows exactly what the commit keeps), the
+  // original strokes of each touched sliceable annotation (washed over
+  // so the baked-in ink fades without obscuring the page content around
+  // it — the wash follows the strokes, not the bounding box), inkless
+  // slots that can only be deleted whole (washed by their rect), and the
+  // ring cursor's view position (drag for any pointer, hover for a mouse)
   final List<(double, double)> _erasePath = [];
   final Map<int, _InkPaint> _eraseSliced = {};
+  final Map<int, _InkPaint> _eraseFade = {};
   final Map<int, Rect> _eraseRects = {};
   final Set<int> _eraseWholeSlots = {};
   Offset? _eraserCursor;
@@ -213,6 +216,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// Erase results kept painted until the new revision's raster lands —
   /// without them the old strokes pop back at full strength for a frame.
   List<Rect>? _afterEraseRects;
+  List<_InkPaint>? _afterEraseFade;
   List<_InkPaint>? _afterEraseInk;
 
   // in-place text editor: open after a free-text drag-out (new) or a
@@ -559,7 +563,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
         final sliced = pdfSliceInkStrokes(strokes, null, from, point, radius);
         if (sliced == null) continue;
-        _eraseRects[slot] ??= _geometry.toViewRect(annotation.rect);
+        // wash the original ink along its own strokes (padded for the
+        // baked-in pressure width + caps) rather than the whole bounding
+        // box, so surrounding page content isn't dimmed and the wash
+        // never spills off the page
+        _eraseFade.putIfAbsent(
+            slot,
+            () => (
+                  strokes: strokes,
+                  pressures:
+                      List<List<double>?>.filled(strokes.length, null),
+                  color: const Color(0xFF000000),
+                  strokeWidth:
+                      (annotation.borderWidth ?? 1) * _geometry.scale * 1.7 + 4,
+                ));
         _eraseSliced[slot] = (
           strokes: sliced.strokes,
           pressures: List<List<double>?>.filled(sliced.strokes.length, null),
@@ -579,6 +596,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _resetErase() {
     _erasePath.clear();
     _eraseSliced.clear();
+    _eraseFade.clear();
     _eraseWholeSlots.clear();
     _eraseRects.clear();
     _eraserCursor = null;
@@ -590,6 +608,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _commitErase() {
     final path = List.of(_erasePath);
     final rects = List.of(_eraseRects.values);
+    final fade = List.of(_eraseFade.values);
     final ink = List.of(_eraseSliced.values);
     final touched = _eraseSliced.isNotEmpty || _eraseWholeSlots.isNotEmpty;
     setState(_resetErase);
@@ -599,6 +618,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (identical(before, _controller.document)) return;
     _clearAfterimage();
     _afterEraseRects = rects;
+    _afterEraseFade = fade;
     _afterEraseInk = ink;
     _afterDocument = _controller.document;
   }
@@ -729,6 +749,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterText = null;
     _afterSignature = null;
     _afterEraseRects = null;
+    _afterEraseFade = null;
     _afterEraseInk = null;
     _afterDocument = null;
   }
@@ -2402,6 +2423,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       ..._eraseRects.values,
                       ...?_afterEraseRects,
                     ],
+                    fadeInk: [
+                      ..._eraseFade.values,
+                      ...?_afterEraseFade,
+                    ],
                     fadeColor: widget.pageColor.withValues(alpha: 0.72),
                     eraserCursor: _tool == PdfEditTool.eraser || _rawErasing
                         ? _eraserCursor
@@ -2644,6 +2669,7 @@ class _EditingPreviewPainter extends CustomPainter {
     this.ghostLocalAngle = 0,
     required this.extraInk,
     this.fadeRects = const [],
+    this.fadeInk = const [],
     this.fadeColor = const Color(0x00000000),
     this.eraserCursor,
     this.eraserRadius = 0,
@@ -2720,11 +2746,17 @@ class _EditingPreviewPainter extends CustomPainter {
   /// the signature tool's live preview.
   final List<_InkPaint> extraInk;
 
-  /// Annotations the eraser swipe has marked: their view rects, washed
-  /// with [fadeColor] (the paper color, mostly opaque) so they read as
-  /// going — live during the swipe, and as the afterimage until the
-  /// deletion's raster lands.
+  /// Inkless annotations the eraser swipe will delete whole: their view
+  /// rects, washed with [fadeColor] (the paper color, mostly opaque) so
+  /// they read as going — live during the swipe, and as the afterimage
+  /// until the deletion's raster lands.
   final List<Rect> fadeRects;
+
+  /// Sliceable ink the eraser swipe has touched: the original strokes,
+  /// washed with [fadeColor] along their own paths (not the bounding
+  /// box) so the baked-in ink fades without dimming the page content
+  /// around it or spilling off the page.
+  final List<_InkPaint> fadeInk;
   final Color fadeColor;
 
   /// The circle eraser's ring cursor: view position and radius (the
@@ -2991,11 +3023,19 @@ class _EditingPreviewPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // the wash goes under every stroke preview: the eraser's sliced
     // remainders (and any other pending ink) paint at full strength
-    // over their faded originals
+    // over their faded originals. Sliceable ink fades along its own
+    // strokes (so only the ink dims, not the page around it); inkless
+    // whole-delete annotations fall back to a rect wash, clipped to the
+    // page so it can't spill onto the viewer canvas.
+    for (final ink in fadeInk) {
+      _paintInk(canvas, ink.strokes, ink.pressures, fadeColor, ink.strokeWidth);
+    }
     if (fadeRects.isNotEmpty) {
       final wash = Paint()..color = fadeColor;
+      final page = Offset.zero & size;
       for (final rect in fadeRects) {
-        canvas.drawRect(rect.inflate(2), wash);
+        final clipped = rect.inflate(2).intersect(page);
+        if (!clipped.isEmpty) canvas.drawRect(clipped, wash);
       }
     }
 
@@ -3252,6 +3292,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.ghostLocalAngle != ghostLocalAngle ||
       _inkChanged(oldDelegate.extraInk, extraInk) ||
       !listEquals(oldDelegate.fadeRects, fadeRects) ||
+      _inkChanged(oldDelegate.fadeInk, fadeInk) ||
       oldDelegate.fadeColor != fadeColor ||
       oldDelegate.eraserCursor != eraserCursor ||
       oldDelegate.eraserRadius != eraserRadius ||

@@ -135,8 +135,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
         if (rgba != null) {
           final mask =
               await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
-          if (mask != null) _applyAlpha(rgba, cmyk.width, cmyk.height, mask);
-          return _imageFromPixels(rgba, cmyk.width, cmyk.height);
+          final m = mask == null
+              ? (rgba, cmyk.width, cmyk.height)
+              : _applyAlpha(rgba, cmyk.width, cmyk.height, mask);
+          return _imageFromPixels(m.$1, m.$2, m.$3);
         }
       }
     }
@@ -163,8 +165,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
     if (ranges != null || colorKey != null) {
       _applyDecodeAndColorKey(rgba, components, ranges, colorKey);
     }
-    if (mask != null) _applyAlpha(rgba, base.width, base.height, mask);
-    return _imageFromPixels(rgba, base.width, base.height);
+    final m = mask == null
+        ? (rgba, base.width, base.height)
+        : _applyAlpha(rgba, base.width, base.height, mask);
+    return _imageFromPixels(m.$1, m.$2, m.$3);
   }
   if (filters.contains('JPXDecode')) {
     final jpx = JpxDecoder.decode(
@@ -173,8 +177,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
     final rgba = _jpxToRgba(jpx);
     if (rgba == null) return null;
     final mask = await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
-    if (mask != null) _applyAlpha(rgba, jpx.width, jpx.height, mask);
-    return _imageFromPixels(rgba, jpx.width, jpx.height);
+    final m = mask == null
+        ? (rgba, jpx.width, jpx.height)
+        : _applyAlpha(rgba, jpx.width, jpx.height, mask);
+    return _imageFromPixels(m.$1, m.$2, m.$3);
   }
   // CCITTFaxDecode runs as a regular stream filter (pure-Dart decoder in
   // pdf_cos) and lands here as 1-bit gray samples
@@ -205,7 +211,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
 
   if (!isMask) {
     final mask = await _softMaskOf(cos, dict) ?? _stencilMaskOf(cos, dict);
-    if (mask != null) _applyAlpha(rgba, width, height, mask);
+    if (mask != null) {
+      final m = _applyAlpha(rgba, width, height, mask);
+      return _imageFromPixels(m.$1, m.$2, m.$3);
+    }
   }
   return _imageFromPixels(rgba, width, height);
 }
@@ -560,14 +569,55 @@ void _applyDecodeAndColorKey(Uint8List rgba, int components,
 
 /// Writes [mask] into the alpha channel of [rgba], resampling
 /// nearest-neighbor when dimensions differ.
-void _applyAlpha(Uint8List rgba, int width, int height, _SoftMask mask) {
-  for (var y = 0; y < height; y++) {
-    final maskY = y * mask.height ~/ height;
-    for (var x = 0; x < width; x++) {
-      final maskX = x * mask.width ~/ width;
-      rgba[(y * width + x) * 4 + 3] = mask.alpha[maskY * mask.width + maskX];
+/// Bakes [mask]'s alpha into [rgba], returning the resulting (bytes, width,
+/// height). When the mask is HIGHER resolution than the base image — common
+/// for /Mask stencils where a tiny colour image carries a large crisp cutout
+/// (issue4246: a 50x40 gradient under a 1000x800 letter mask) — the result is
+/// built at the mask's resolution with the colour bilinearly upsampled, so the
+/// cutout's detail survives instead of being crushed to the base grid (which
+/// the device would then upscale into visible blocks). Otherwise the mask is
+/// point-sampled onto the base in place.
+(Uint8List, int, int) _applyAlpha(
+    Uint8List rgba, int width, int height, _SoftMask mask) {
+  if (mask.width * mask.height <= width * height) {
+    for (var y = 0; y < height; y++) {
+      final maskY = y * mask.height ~/ height;
+      for (var x = 0; x < width; x++) {
+        final maskX = x * mask.width ~/ width;
+        rgba[(y * width + x) * 4 + 3] = mask.alpha[maskY * mask.width + maskX];
+      }
+    }
+    return (rgba, width, height);
+  }
+  final mw = mask.width;
+  final mh = mask.height;
+  final out = Uint8List(mw * mh * 4);
+  for (var my = 0; my < mh; my++) {
+    final fy = (my + 0.5) * height / mh - 0.5;
+    final y0 = fy.floor();
+    final wy = fy - y0;
+    final y0c = y0.clamp(0, height - 1);
+    final y1c = (y0 + 1).clamp(0, height - 1);
+    for (var mx = 0; mx < mw; mx++) {
+      final fx = (mx + 0.5) * width / mw - 0.5;
+      final x0 = fx.floor();
+      final wx = fx - x0;
+      final x0c = x0.clamp(0, width - 1);
+      final x1c = (x0 + 1).clamp(0, width - 1);
+      final i00 = (y0c * width + x0c) * 4;
+      final i01 = (y0c * width + x1c) * 4;
+      final i10 = (y1c * width + x0c) * 4;
+      final i11 = (y1c * width + x1c) * 4;
+      final o = (my * mw + mx) * 4;
+      for (var c = 0; c < 3; c++) {
+        final top = rgba[i00 + c] * (1 - wx) + rgba[i01 + c] * wx;
+        final bot = rgba[i10 + c] * (1 - wx) + rgba[i11 + c] * wx;
+        out[o + c] = (top * (1 - wy) + bot * wy).round().clamp(0, 255);
+      }
+      out[o + 3] = mask.alpha[my * mw + mx];
     }
   }
+  return (out, mw, mh);
 }
 
 /// The parsed ICC profile of an ICCBased image color space, when the

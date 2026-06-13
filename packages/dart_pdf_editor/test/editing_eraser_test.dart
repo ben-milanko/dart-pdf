@@ -139,8 +139,10 @@ void main() {
         await tester.pump();
       }
       final painter = overlayPainter(tester);
-      // the touched annotation washes out...
-      expect((painter.fadeRects as List), hasLength(1));
+      // the touched annotation washes out along its own strokes (not the
+      // bounding box, so surrounding page content isn't dimmed)...
+      expect((painter.fadeInk as List), hasLength(1));
+      expect((painter.fadeRects as List), isEmpty);
       // ...and its sliced remainder (two pieces) paints over the wash
       final extraInk = painter.extraInk as List;
       expect(extraInk, hasLength(1));
@@ -168,7 +170,7 @@ void main() {
       // immediately after the commit (no raster yet) the wash and the
       // remainder keep painting so the old strokes don't pop back
       final painter = overlayPainter(tester);
-      expect((painter.fadeRects as List), hasLength(1));
+      expect((painter.fadeInk as List), hasLength(1));
       expect((painter.extraInk as List), hasLength(1));
     });
 

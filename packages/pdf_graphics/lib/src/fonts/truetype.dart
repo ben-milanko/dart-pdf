@@ -31,6 +31,7 @@ class TrueTypeFont {
 
   final Map<int, PdfPath?> _outlineCache = {};
   List<_CmapSubtable>? _cmaps;
+  Map<String, int>? _postNames;
 
   static TrueTypeFont? parse(Uint8List bytes) {
     try {
@@ -163,6 +164,51 @@ class TrueTypeFont {
 
   bool get hasSymbolCmap =>
       _cmapSubtables().any((c) => c.platform == 3 && c.encoding == 0);
+
+  /// Maps a PostScript glyph name to a glyph id through the `post` (format
+  /// 2.0) table, or 0 when absent. Lets a cmap-less embedded subset font —
+  /// whose codes reach glyphs by name through the PDF /Encoding — select the
+  /// right glyph instead of indexing by raw code (§9.6.6.4).
+  int gidForName(String name) => (_postNames ??= _parsePostNames())[name] ?? 0;
+
+  Map<String, int> _parsePostNames() {
+    final post = _tables['post'];
+    if (post == null) return const {};
+    try {
+      final r = _Reader(_bytes)..seek(post.$1);
+      // Only format 2.0 carries a per-glyph name table; 1.0/3.0 don't.
+      if (r.u32() != 0x00020000) return const {};
+      r.seek(post.$1 + 32);
+      final count = r.u16();
+      if (count == 0 || count > numGlyphs + 1) return const {};
+      final indices = [for (var i = 0; i < count; i++) r.u16()];
+      // Variable-length Pascal strings for names not in the standard set.
+      final extra = <String>[];
+      final end = post.$1 + post.$2;
+      while (r.position < end) {
+        final len = r.u8();
+        if (r.position + len > end) break;
+        extra.add(String.fromCharCodes(
+            [for (var i = 0; i < len; i++) r.u8()]));
+      }
+      final map = <String, int>{};
+      for (var gid = 0; gid < count; gid++) {
+        final index = indices[gid];
+        final String? name;
+        if (index < _macGlyphNames.length) {
+          name = _macGlyphNames[index];
+        } else {
+          final j = index - 258;
+          name = j >= 0 && j < extra.length ? extra[j] : null;
+        }
+        // first (lowest) gid wins for a duplicated name
+        if (name != null) map.putIfAbsent(name, () => gid);
+      }
+      return map;
+    } on Object {
+      return const {};
+    }
+  }
 
   // ---------- glyf ----------
 
@@ -519,3 +565,46 @@ class _Reader {
 
   double f2dot14() => s16() / 16384;
 }
+
+/// The 258 standard Macintosh glyph names, in order — the `post` format 2.0
+/// name index points into this list for indices < 258 (Apple TrueType
+/// Reference, the `post` table). Custom names follow as Pascal strings.
+const List<String> _macGlyphNames = [
+  '.notdef', '.null', 'nonmarkingreturn', 'space', 'exclam', 'quotedbl',
+  'numbersign', 'dollar', 'percent', 'ampersand', 'quotesingle', 'parenleft',
+  'parenright', 'asterisk', 'plus', 'comma', 'hyphen', 'period', 'slash',
+  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+  'nine', 'colon', 'semicolon', 'less', 'equal', 'greater', 'question', 'at',
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+  'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'bracketleft',
+  'backslash', 'bracketright', 'asciicircum', 'underscore', 'grave', 'a', 'b',
+  'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
+  'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'braceleft', 'bar',
+  'braceright', 'asciitilde', 'Adieresis', 'Aring', 'Ccedilla', 'Eacute',
+  'Ntilde', 'Odieresis', 'Udieresis', 'aacute', 'agrave', 'acircumflex',
+  'adieresis', 'atilde', 'aring', 'ccedilla', 'eacute', 'egrave',
+  'ecircumflex', 'edieresis', 'iacute', 'igrave', 'icircumflex', 'idieresis',
+  'ntilde', 'oacute', 'ograve', 'ocircumflex', 'odieresis', 'otilde', 'uacute',
+  'ugrave', 'ucircumflex', 'udieresis', 'dagger', 'degree', 'cent', 'sterling',
+  'section', 'bullet', 'paragraph', 'germandbls', 'registered', 'copyright',
+  'trademark', 'acute', 'dieresis', 'notequal', 'AE', 'Oslash', 'infinity',
+  'plusminus', 'lessequal', 'greaterequal', 'yen', 'mu', 'partialdiff',
+  'summation', 'product', 'pi', 'integral', 'ordfeminine', 'ordmasculine',
+  'Omega', 'ae', 'oslash', 'questiondown', 'exclamdown', 'logicalnot',
+  'radical', 'florin', 'approxequal', 'Delta', 'guillemotleft',
+  'guillemotright', 'ellipsis', 'nonbreakingspace', 'Agrave', 'Atilde',
+  'Otilde', 'OE', 'oe', 'endash', 'emdash', 'quotedblleft', 'quotedblright',
+  'quoteleft', 'quoteright', 'divide', 'lozenge', 'ydieresis', 'Ydieresis',
+  'fraction', 'currency', 'guilsinglleft', 'guilsinglright', 'fi', 'fl',
+  'daggerdbl', 'periodcentered', 'quotesinglbase', 'quotedblbase',
+  'perthousand', 'Acircumflex', 'Ecircumflex', 'Aacute', 'Edieresis', 'Egrave',
+  'Iacute', 'Icircumflex', 'Idieresis', 'Igrave', 'Oacute', 'Ocircumflex',
+  'apple', 'Ograve', 'Uacute', 'Ucircumflex', 'Ugrave', 'dotlessi',
+  'circumflex', 'tilde', 'macron', 'breve', 'dotaccent', 'ring', 'cedilla',
+  'hungarumlaut', 'ogonek', 'caron', 'Lslash', 'lslash', 'Scaron', 'scaron',
+  'Zcaron', 'zcaron', 'brokenbar', 'Eth', 'eth', 'Yacute', 'yacute', 'Thorn',
+  'thorn', 'minus', 'multiply', 'onesuperior', 'twosuperior', 'threesuperior',
+  'onehalf', 'onequarter', 'threequarters', 'franc', 'Gbreve', 'gbreve',
+  'Idotaccent', 'Scedilla', 'scedilla', 'Cacute', 'cacute', 'Ccaron', 'ccaron',
+  'dcroat',
+];

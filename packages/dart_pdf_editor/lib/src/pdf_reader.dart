@@ -82,6 +82,7 @@ class PdfReader extends StatefulWidget {
   const PdfReader({
     super.key,
     required this.bytes,
+    this.documentId,
     this.controller,
     this.preferences,
     this.features = const PdfReaderFeatures(),
@@ -96,6 +97,12 @@ class PdfReader extends StatefulWidget {
   /// The PDF to show. Replacing it (by identity) opens the new
   /// document in place.
   final Uint8List bytes;
+
+  /// A stable identifier for this document, used to remember its scroll
+  /// position and zoom across sessions (persisted in [preferences]). Null
+  /// derives a key from the bytes; pass a file path or URL when you have
+  /// one, so the position survives the bytes being re-read.
+  final String? documentId;
 
   /// Optional external viewer controller, for hosts that navigate or
   /// search programmatically.
@@ -137,6 +144,7 @@ class _PdfReaderState extends State<PdfReader> {
   late PdfEditingController _session;
   PdfEditingPreferences? _ownedPrefs;
   PdfViewerController? _ownedViewer;
+  PdfViewportMemory? _viewportMemory;
 
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
@@ -146,10 +154,18 @@ class _PdfReaderState extends State<PdfReader> {
 
   PdfEditingPreferences get _prefs => _session.preferences;
 
+  String get _documentKey => widget.documentId ?? pdfDocumentKey(widget.bytes);
+
   @override
   void initState() {
     super.initState();
     _openSession();
+    // remember and restore where the user left this document
+    _viewportMemory = PdfViewportMemory(
+      viewer: _viewer,
+      preferences: _prefs,
+      documentKey: _documentKey,
+    );
   }
 
   void _openSession() {
@@ -161,16 +177,19 @@ class _PdfReaderState extends State<PdfReader> {
   @override
   void didUpdateWidget(PdfReader oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(widget.bytes, oldWidget.bytes)) {
+    if (!identical(widget.bytes, oldWidget.bytes) ||
+        widget.documentId != oldWidget.documentId) {
       final previous = _session;
       _searchField.clear();
       _openSession();
+      _viewportMemory?.rekey(_documentKey);
       previous.dispose();
     }
   }
 
   @override
   void dispose() {
+    _viewportMemory?.dispose();
     _session.dispose();
     _ownedPrefs?.dispose();
     _ownedViewer?.dispose();
