@@ -81,6 +81,24 @@ class PdfEditingPreferences extends ChangeNotifier {
   Color? _shapeFillColor;
   PdfMeasurementScale? _measurementScale;
 
+  /// Per-tool style memory (see [beginStyleScope]). Keyed by an opaque
+  /// scope string (the controller uses tool names plus `'markup'`); each
+  /// slot holds the subset of style fields that tool remembers, JSON-
+  /// encoded (colors as ARGB ints, enums by name).
+  final Map<String, Map<String, Object?>> _toolStyles = {};
+
+  /// The active style scope, or null when style changes go only to the
+  /// shared defaults (select mode, restyling a selection). Set through
+  /// [beginStyleScope].
+  String? _styleScope;
+  Set<String> _styleScopeFields = const {};
+
+  /// While restoring a scope's stored style we drive the public setters,
+  /// so this suppresses the re-record back into the same slot.
+  bool _restoringScope = false;
+
+  static const _toolStylesKey = '${_prefix}toolStyles';
+
   /// Saved viewports per document (see [viewportFor]). Insertion order is
   /// least- to most-recently-touched, for LRU eviction past
   /// [_maxViewports].
@@ -188,6 +206,7 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (shapeFill != null) _shapeFillColor = Color(shapeFill);
       final scale = store.getString('${_prefix}measurementScale');
       if (scale != null) _measurementScale = PdfMeasurementScale.decode(scale);
+      _loadToolStyles(store.getString(_toolStylesKey));
       final stamps = store.getStringList('${_prefix}customStamps');
       if (stamps != null) {
         _customStamps = List.unmodifiable([
@@ -279,6 +298,100 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (store != null) unawaited(write(store));
   }
 
+  // -------------------------------------------------------------------------
+  // per-tool style memory
+
+  void _loadToolStyles(String? source) {
+    if (source == null) return;
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! Map) return;
+      decoded.forEach((key, value) {
+        if (key is String && value is Map) {
+          _toolStyles[key] = {
+            for (final entry in value.entries)
+              if (entry.key is String) entry.key as String: entry.value,
+          };
+        }
+      });
+    } catch (_) {
+      // corrupt blob — drop it, the defaults stand
+    }
+  }
+
+  void _writeToolStyles() =>
+      _write((s) => s.setString(_toolStylesKey, jsonEncode(_toolStyles)));
+
+  /// Activates the style scope [scope], remembering only [fields] under it,
+  /// and restores that scope's previously-saved style into the live values.
+  ///
+  /// While a scope is active every style setter ([color], [strokeWidth],
+  /// [opacity], [fontSize], [fontFamily], [lineStyle], the line endings,
+  /// the fill colors, [eraserRadius]) also records its new value under the
+  /// scope — so each annotation tool keeps its own colour, stroke and so on
+  /// across sessions. A null [scope] (select mode, or restyling a
+  /// selection) writes only the shared defaults.
+  void beginStyleScope(String? scope, Set<String> fields) {
+    if (scope == _styleScope && setEquals(fields, _styleScopeFields)) return;
+    _styleScope = scope;
+    _styleScopeFields = fields;
+    if (scope != null) _restoreScope(scope);
+  }
+
+  void _restoreScope(String scope) {
+    final slot = _toolStyles[scope];
+    if (slot == null || slot.isEmpty) return;
+    // drive the public setters (they update the live value and the shared
+    // default), guarding the re-record so this load doesn't rewrite the slot
+    _restoringScope = true;
+    try {
+      if (slot['color'] case final int v) color = Color(v);
+      if (slot['strokeWidth'] case final num v) strokeWidth = v.toDouble();
+      if (slot['eraserRadius'] case final num v) eraserRadius = v.toDouble();
+      if (slot['opacity'] case final num v) opacity = v.toDouble();
+      if (slot['fontSize'] case final num v) fontSize = v.toDouble();
+      if (slot['fontFamily'] case final String v) {
+        final font = PdfStandardFont.values.asNameMap()[v];
+        if (font != null) fontFamily = font;
+      }
+      if (slot['lineStyle'] case final String v) {
+        final style = PdfLineStyle.values.asNameMap()[v];
+        if (style != null) lineStyle = style;
+      }
+      if (slot['lineStartEnding'] case final String v) {
+        final ending = PdfLineEnding.values.asNameMap()[v];
+        if (ending != null) lineStartEnding = ending;
+      }
+      if (slot['lineEndEnding'] case final String v) {
+        final ending = PdfLineEnding.values.asNameMap()[v];
+        if (ending != null) lineEndEnding = ending;
+      }
+      if (slot.containsKey('textFillColor')) {
+        textFillColor = _colorOrNull(slot['textFillColor']);
+      }
+      if (slot.containsKey('textBorderColor')) {
+        textBorderColor = _colorOrNull(slot['textBorderColor']);
+      }
+      if (slot.containsKey('shapeFillColor')) {
+        shapeFillColor = _colorOrNull(slot['shapeFillColor']);
+      }
+    } finally {
+      _restoringScope = false;
+    }
+  }
+
+  static Color? _colorOrNull(Object? value) =>
+      value is int ? Color(value) : null;
+
+  /// Records [value] for [field] under the active scope when that scope
+  /// remembers the field. Called from the style setters.
+  void _recordScoped(String field, Object? value) {
+    if (_restoringScope || _styleScope == null) return;
+    if (!_styleScopeFields.contains(field)) return;
+    (_toolStyles[_styleScope!] ??= {})[field] = value;
+    _writeToolStyles();
+  }
+
   /// The color new annotations are created with.
   Color get color => _color;
 
@@ -286,6 +399,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _color) return;
     _color = value;
     _write((s) => s.setInt('${_prefix}color', value.toARGB32()));
+    _recordScoped('color', value.toARGB32());
     notifyListeners();
   }
 
@@ -296,6 +410,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _strokeWidth) return;
     _strokeWidth = value;
     _write((s) => s.setDouble('${_prefix}strokeWidth', value));
+    _recordScoped('strokeWidth', value);
     notifyListeners();
   }
 
@@ -307,6 +422,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _eraserRadius) return;
     _eraserRadius = value;
     _write((s) => s.setDouble('${_prefix}eraserRadius', value));
+    _recordScoped('eraserRadius', value);
     notifyListeners();
   }
 
@@ -317,6 +433,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _fontSize) return;
     _fontSize = value;
     _write((s) => s.setDouble('${_prefix}fontSize', value));
+    _recordScoped('fontSize', value);
     notifyListeners();
   }
 
@@ -328,6 +445,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _fontFamily) return;
     _fontFamily = value;
     _write((s) => s.setString('${_prefix}fontFamily', value.name));
+    _recordScoped('fontFamily', value.name);
     notifyListeners();
   }
 
@@ -339,6 +457,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _opacity) return;
     _opacity = value;
     _write((s) => s.setDouble('${_prefix}opacity', value));
+    _recordScoped('opacity', value);
     notifyListeners();
   }
 
@@ -350,6 +469,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _lineStyle) return;
     _lineStyle = value;
     _write((s) => s.setString('${_prefix}lineStyle', value.name));
+    _recordScoped('lineStyle', value.name);
     notifyListeners();
   }
 
@@ -361,6 +481,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _lineStartEnding) return;
     _lineStartEnding = value;
     _write((s) => s.setString('${_prefix}lineStartEnding', value.name));
+    _recordScoped('lineStartEnding', value.name);
     notifyListeners();
   }
 
@@ -372,6 +493,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _lineEndEnding) return;
     _lineEndEnding = value;
     _write((s) => s.setString('${_prefix}lineEndEnding', value.name));
+    _recordScoped('lineEndEnding', value.name);
     notifyListeners();
   }
 
@@ -547,6 +669,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}textFillColor')
         : s.setInt('${_prefix}textFillColor', value.toARGB32()));
+    _recordScoped('textFillColor', value?.toARGB32());
     notifyListeners();
   }
 
@@ -560,6 +683,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}textBorderColor')
         : s.setInt('${_prefix}textBorderColor', value.toARGB32()));
+    _recordScoped('textBorderColor', value?.toARGB32());
     notifyListeners();
   }
 
@@ -573,6 +697,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}shapeFillColor')
         : s.setInt('${_prefix}shapeFillColor', value.toARGB32()));
+    _recordScoped('shapeFillColor', value?.toARGB32());
     notifyListeners();
   }
 

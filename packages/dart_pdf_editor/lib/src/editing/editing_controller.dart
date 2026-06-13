@@ -436,8 +436,81 @@ class PdfEditingController extends ChangeNotifier {
     _tool = value;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
+    // each annotation tool remembers its own colour, stroke, opacity, … —
+    // arming one restores its saved style and routes further style changes
+    // back into its slot (see [PdfEditingPreferences.beginStyleScope])
+    preferences.beginStyleScope(
+        _styleScopeKey(value), _styleScopeFields(value));
     notifyListeners();
   }
+
+  /// The persisted-style scope key for [tool] — its [PdfEditTool] name for
+  /// the tools that create styled annotations, null for the others (select,
+  /// content, form, redact, signature, eraser-when-radius-only handled by
+  /// its own slot). See [preferences].
+  static String? _styleScopeKey(PdfEditTool? tool) => switch (tool) {
+        PdfEditTool.ink => 'ink',
+        PdfEditTool.eraser => 'eraser',
+        PdfEditTool.rectangle => 'rectangle',
+        PdfEditTool.ellipse => 'ellipse',
+        PdfEditTool.line => 'line',
+        PdfEditTool.arrow => 'arrow',
+        PdfEditTool.polyline => 'polyline',
+        PdfEditTool.polygon => 'polygon',
+        PdfEditTool.measureDistance => 'measureDistance',
+        PdfEditTool.measurePerimeter => 'measurePerimeter',
+        PdfEditTool.measureArea => 'measureArea',
+        PdfEditTool.freeText => 'freeText',
+        PdfEditTool.note => 'note',
+        PdfEditTool.stamp => 'stamp',
+        _ => null,
+      };
+
+  /// The style fields [tool] remembers — mirrors the controls its toolbar
+  /// strip exposes, so a rectangle keeps its fill but not a font, ink keeps
+  /// its stroke but not line endings, and so on.
+  static Set<String> _styleScopeFields(PdfEditTool? tool) => switch (tool) {
+        PdfEditTool.ink => const {'color', 'strokeWidth', 'opacity'},
+        PdfEditTool.eraser => const {'eraserRadius'},
+        PdfEditTool.rectangle ||
+        PdfEditTool.ellipse ||
+        PdfEditTool.polygon =>
+          const {'color', 'strokeWidth', 'opacity', 'lineStyle', 'shapeFillColor'},
+        PdfEditTool.line || PdfEditTool.polyline => const {
+            'color',
+            'strokeWidth',
+            'opacity',
+            'lineStyle',
+            'lineStartEnding',
+            'lineEndEnding',
+          },
+        PdfEditTool.arrow =>
+          const {'color', 'strokeWidth', 'opacity', 'lineStyle'},
+        PdfEditTool.measureDistance ||
+        PdfEditTool.measurePerimeter ||
+        PdfEditTool.measureArea =>
+          const {'color', 'strokeWidth', 'opacity'},
+        PdfEditTool.freeText => const {
+            'color',
+            'fontSize',
+            'fontFamily',
+            'opacity',
+            'textFillColor',
+            'textBorderColor',
+            'strokeWidth',
+          },
+        PdfEditTool.note => const {'color'},
+        PdfEditTool.stamp => const {'color', 'opacity'},
+        _ => const {},
+      };
+
+  /// Activates the text-markup style scope (highlight / underline / strike
+  /// out / squiggly) — they act on the text selection rather than arming a
+  /// tool, so the toolbar calls this when its Markup strip opens, giving
+  /// markup its own remembered colour and opacity (the classic yellow
+  /// highlighter that stays yellow). See [preferences].
+  void useMarkupStyleScope() =>
+      preferences.beginStyleScope('markup', const {'color', 'opacity'});
 
   /// The color new annotations are created with. Persisted (these four
   /// style properties live in [preferences]).

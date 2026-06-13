@@ -2053,3 +2053,33 @@ and the `canResizeSelected` tool gate; the "drag on a widget" test now
 asserts the widget MOVED (it used to assert nothing happened). Toolbar
 tooltip is now 'Form fields — tap to select, double-tap to fill, drag to
 add' (pdf_shell/toolbar tests that find it by tooltip updated).
+
+Per-tool style memory (Ben: "save the styling preferences per annotation
+tool"): each annotation tool now remembers its own colour, stroke,
+opacity, font, line style/endings and fills, so the yellow highlighter
+stays yellow while ink stays black across tool switches and sessions.
+The live single values in `PdfEditingPreferences` stay the source of
+truth the creation methods read (unchanged); on top of them sits a
+per-scope snapshot map `_toolStyles` (persisted as one JSON blob under
+`toolStyles`, colours as ARGB ints, enums by name). `beginStyleScope(
+scope, fields)` activates a scope — restoring its saved style into the
+live values by driving the public setters under a `_restoringScope`
+guard (so the load doesn't re-record) — and while a scope is active every
+style setter ALSO records its field into the slot via `_recordScoped`
+(only the `fields` the scope remembers). The controller's `tool` setter
+calls `beginStyleScope(_styleScopeKey(tool), _styleScopeFields(tool))`:
+key = the tool's name for the styled creators (ink/eraser/shapes/lines/
+measure/freeText/note/stamp), null for select/content/form/redact/
+signature (signature shares the global colour, which `_drawSignature`
+seeds from the drawn ink). The per-tool `fields` mirror each tool's
+toolbar strip — ink keeps stroke not endings, rectangle keeps fill not
+font, freeText keeps font + box colours, etc. Markup arms no tool, so
+`PdfEditingController.useMarkupStyleScope()` scopes 'markup' {color,
+opacity}; the toolbar calls it when the Markup strip opens
+(`_openGroupTap`) and when the mobile sheet's markup tab is selected.
+A tool with no saved slot inherits the current live value (no restore),
+so first use of each tool picks up the last-used style — independent
+thereafter. Tests: editing_preferences_test +4 (each tool keeps its own
+style, markup highlighter colour, no-slot inherits, persistence into a
+fresh session). The 14 Ghent render-baseline failures are pre-existing
+on this machine, unrelated.

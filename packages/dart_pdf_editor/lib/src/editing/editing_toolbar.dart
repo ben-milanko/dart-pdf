@@ -330,6 +330,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (_groupForTool(controller.tool)?.id == group.id) return;
     controller.tool = group.defaultTool;
     if (controller.tool != null) viewerController.clearSelection();
+    // markup arms no tool, so its style scope is set explicitly (after the
+    // tool reset above, which would otherwise clear it) — this is what lets
+    // the highlighter keep its own colour from the other tools'
+    if (group.id == 'markup') controller.useMarkupStyleScope();
   }
 
   /// Arms a tool from a group's strip / grid, routing measure and
@@ -1373,7 +1377,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                               key: ValueKey('pdf-group-tab-${g.id}'),
                               group: g,
                               active: g.id == tabId,
-                              onTap: () => setSheetState(() => tabId = g.id),
+                              onTap: () {
+                                setSheetState(() => tabId = g.id);
+                                // markup arms no tool — scope it so its
+                                // settings row edits markup's own style
+                                if (g.id == 'markup') {
+                                  controller.useMarkupStyleScope();
+                                }
+                              },
                             ),
                           ),
                       ]),
