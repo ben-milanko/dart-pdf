@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'editing_measure.dart';
 import 'editing_preferences.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
@@ -46,6 +48,19 @@ enum PdfEditTool {
 
   /// Drag to create a sampled closed /Polygon annotation.
   polygon,
+
+  /// Drag a straight segment whose real-world length is shown live and
+  /// stamped as a /Line measurement (§12.9). Needs an active
+  /// [PdfEditingController.measurementScale].
+  measureDistance,
+
+  /// Place a multi-segment /PolyLine measurement whose running real-world
+  /// perimeter (sum of segment lengths) is shown live.
+  measurePerimeter,
+
+  /// Place a closed /Polygon measurement whose real-world area is shown
+  /// live.
+  measureArea,
 
   /// Drag out a box, then type the text shown inside it (/FreeText).
   freeText,
@@ -781,6 +796,96 @@ class PdfEditingController extends ChangeNotifier {
           dashed: preferences.dashedStroke,
           author: author),
       pages: [pageIndex]);
+
+  // ---------------------------------------------------------------------
+  // measurements (§12.9)
+
+  /// The active measurement calibration the measure tools stamp onto new
+  /// annotations, or null until [calibrateScale] (or setting
+  /// [measurementScale]) provides one. Persisted with the other
+  /// [preferences].
+  PdfMeasurementScale? get measurementScale => preferences.measurementScale;
+
+  set measurementScale(PdfMeasurementScale? value) =>
+      preferences.measurementScale = value;
+
+  /// Whether a measurement tool can place an annotation right now — i.e. a
+  /// scale has been calibrated.
+  bool get hasMeasurementScale => preferences.measurementScale != null;
+
+  /// Calibrates [measurementScale] from a reference segment between
+  /// [start] and [end] (page-space points) that represents [realLength]
+  /// [unitLabel]s. The classic "two-point calibration" flow.
+  void calibrateScale(
+    (double, double) start,
+    (double, double) end,
+    double realLength,
+    String unitLabel, {
+    String? areaUnitLabel,
+    int precision = 100,
+  }) {
+    final dx = end.$1 - start.$1;
+    final dy = end.$2 - start.$2;
+    final length = math.sqrt(dx * dx + dy * dy);
+    if (length <= 0 || realLength <= 0) return;
+    measurementScale = PdfMeasurementScale.fromReference(
+      pointLength: length,
+      realLength: realLength,
+      unitLabel: unitLabel,
+      areaUnitLabel: areaUnitLabel,
+      precision: precision,
+    );
+  }
+
+  /// The live distance readout for a segment from [start] to [end]
+  /// (page-space points), or null without a scale.
+  String? measuredDistance((double, double) start, (double, double) end) {
+    final scale = measurementScale;
+    if (scale == null) return null;
+    final dx = end.$1 - start.$1;
+    final dy = end.$2 - start.$2;
+    return scale.toMeasure().formatDistance(math.sqrt(dx * dx + dy * dy));
+  }
+
+  /// The live perimeter readout (sum of segment lengths) for a page-space
+  /// polyline through [points], or null without a scale.
+  String? measuredPerimeter(List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 2) return null;
+    var total = 0.0;
+    for (var i = 0; i + 1 < points.length; i++) {
+      final dx = points[i + 1].$1 - points[i].$1;
+      final dy = points[i + 1].$2 - points[i].$2;
+      total += math.sqrt(dx * dx + dy * dy);
+    }
+    return scale.toMeasure().formatDistance(total);
+  }
+
+  /// The live area readout (shoelace) for a page-space polygon through
+  /// [points], or null without a scale or fewer than three points.
+  String? measuredArea(List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 3) return null;
+    return scale.toMeasure().formatArea(pdfShoelaceArea(points));
+  }
+
+  /// Adds a measurement annotation of [kind] through [points] using the
+  /// active [measurementScale]. A no-op without a scale.
+  void addMeasurement(
+      int pageIndex, PdfMeasurementKind kind, List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null) return;
+    apply(
+      (e) => e.addMeasurement(pageIndex, kind, points,
+          measure: scale.toMeasure(),
+          strokeColor: _colorValue,
+          strokeWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
+          dashed: preferences.dashedStroke,
+          author: author),
+      pages: [pageIndex],
+    );
+  }
 
   void addFreeText(int pageIndex, PdfRect rect, String text) => apply(
       (e) => e.addFreeText(pageIndex, rect, text,

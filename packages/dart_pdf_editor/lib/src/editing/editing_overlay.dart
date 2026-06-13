@@ -348,7 +348,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   bool get _drawTool => _tool == PdfEditTool.ink || _tool == PdfEditTool.eraser;
   bool get _polyTool =>
-      _tool == PdfEditTool.polyline || _tool == PdfEditTool.polygon;
+      _tool == PdfEditTool.polyline ||
+      _tool == PdfEditTool.polygon ||
+      _tool == PdfEditTool.measurePerimeter ||
+      _tool == PdfEditTool.measureArea;
+
+  /// A tool placed by dragging a single straight segment (a /Line or a
+  /// distance measurement).
+  bool get _lineDragTool =>
+      _tool == PdfEditTool.line ||
+      _tool == PdfEditTool.arrow ||
+      _tool == PdfEditTool.measureDistance;
+
+  /// The measurement kind the armed tool creates, or null for a
+  /// non-measurement tool.
+  PdfMeasurementKind? get _measureKind => switch (_tool) {
+        PdfEditTool.measureDistance => PdfMeasurementKind.distance,
+        PdfEditTool.measurePerimeter => PdfMeasurementKind.perimeter,
+        PdfEditTool.measureArea => PdfMeasurementKind.area,
+        _ => null,
+      };
 
   /// Whether a pointer of [kind] draws (or erases) through the raw
   /// event stream instead of the gesture arena. Pan recognizers only
@@ -1184,6 +1203,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.ellipse ||
             PdfEditTool.line ||
             PdfEditTool.arrow ||
+            PdfEditTool.measureDistance ||
             PdfEditTool.freeText ||
             PdfEditTool.stamp:
         setState(() {
@@ -1209,7 +1229,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _signaturePreview = position;
           });
         }
-      case PdfEditTool.polyline || PdfEditTool.polygon:
+      case PdfEditTool.polyline ||
+            PdfEditTool.polygon ||
+            PdfEditTool.measurePerimeter ||
+            PdfEditTool.measureArea:
         break; // taps add vertices; double-tap finishes
       case PdfEditTool.note || PdfEditTool.content:
         break; // driven by taps
@@ -1520,7 +1543,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           pressures: strokePressures);
     } else if (dragStart != null && dragCurrent != null) {
       final viewRect = Rect.fromPoints(dragStart, dragCurrent);
-      if (_tool == PdfEditTool.line || _tool == PdfEditTool.arrow) {
+      if (_lineDragTool) {
         if ((dragCurrent - dragStart).distance < 4) return; // a click
         _commitLineDrag(dragStart, dragCurrent);
         return;
@@ -1558,9 +1581,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _commitLineDrag(Offset start, Offset end) {
     final before = _controller.document;
-    _controller.addLine(widget.pageIndex, _geometry.toPagePoint(start),
-        _geometry.toPagePoint(end),
-        arrow: _tool == PdfEditTool.arrow);
+    if (_tool == PdfEditTool.measureDistance) {
+      _controller.addMeasurement(widget.pageIndex, PdfMeasurementKind.distance,
+          [_geometry.toPagePoint(start), _geometry.toPagePoint(end)]);
+    } else {
+      _controller.addLine(widget.pageIndex, _geometry.toPagePoint(start),
+          _geometry.toPagePoint(end),
+          arrow: _tool == PdfEditTool.arrow);
+    }
     if (identical(before, _controller.document)) return;
     _clearAfterimage();
     _afterPath = (
@@ -1646,7 +1674,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         (points.isEmpty || (finalPoint - points.last).distance >= 2)) {
       points.add(finalPoint);
     }
-    final minPoints = _tool == PdfEditTool.polygon ? 3 : 2;
+    final closed =
+        _tool == PdfEditTool.polygon || _tool == PdfEditTool.measureArea;
+    final minPoints = closed ? 3 : 2;
     if (points.length < minPoints) return;
     final simplified = <Offset>[];
     for (final point in points) {
@@ -1657,10 +1687,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (simplified.length < minPoints) return;
     final pagePoints = [for (final p in simplified) _geometry.toPagePoint(p)];
     final before = _controller.document;
-    if (_tool == PdfEditTool.polygon) {
-      _controller.addPolygon(widget.pageIndex, pagePoints);
-    } else {
-      _controller.addPolyLine(widget.pageIndex, pagePoints);
+    switch (_measureKind) {
+      case PdfMeasurementKind.perimeter:
+        _controller.addMeasurement(
+            widget.pageIndex, PdfMeasurementKind.perimeter, pagePoints);
+      case PdfMeasurementKind.area:
+        _controller.addMeasurement(
+            widget.pageIndex, PdfMeasurementKind.area, pagePoints);
+      case PdfMeasurementKind.distance:
+      case null:
+        if (_tool == PdfEditTool.polygon) {
+          _controller.addPolygon(widget.pageIndex, pagePoints);
+        } else {
+          _controller.addPolyLine(widget.pageIndex, pagePoints);
+        }
     }
     if (identical(before, _controller.document)) return;
     _clearAfterimage();
@@ -2070,6 +2110,72 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
+  /// The running measurement readout during placement — the formatted
+  /// distance/perimeter/area, and the view-space point it should ride.
+  /// Null when no measurement tool is mid-placement.
+  (String text, Offset anchor)? _measureReadout() {
+    final kind = _measureKind;
+    if (kind == null) return null;
+    switch (kind) {
+      case PdfMeasurementKind.distance:
+        final start = _dragStart, current = _dragCurrent;
+        if (start == null || current == null) return null;
+        if ((current - start).distance < 1) return null;
+        final text = _controller.measuredDistance(
+            _geometry.toPagePoint(start), _geometry.toPagePoint(current));
+        return text == null ? null : (text, current);
+      case PdfMeasurementKind.perimeter || PdfMeasurementKind.area:
+        final points = _polyPoints;
+        if (points == null || points.isEmpty) return null;
+        final view = [
+          ...points,
+          if (_polyHover != null && (_polyHover! - points.last).distance >= 2)
+            _polyHover!,
+        ];
+        final pagePoints = [for (final p in view) _geometry.toPagePoint(p)];
+        final text = kind == PdfMeasurementKind.area
+            ? _controller.measuredArea(pagePoints)
+            : _controller.measuredPerimeter(pagePoints);
+        return text == null ? null : (text, view.last);
+    }
+  }
+
+  /// The floating measurement readout chip. Mouse: rides just off the
+  /// cursor. Touch/stylus: floats well above the finger so the contact
+  /// point isn't occluded (the [_buildSelectionChip]/eyedropper pattern,
+  /// keyed on [_lastPointerKind]).
+  Widget _buildMeasureReadoutChip(String text, Offset anchor) {
+    final touch = _lastPointerKind == PointerDeviceKind.touch ||
+        _lastPointerKind == PointerDeviceKind.stylus;
+    final offset = touch ? const Offset(0, -64) : const Offset(16, -36);
+    return Positioned(
+      left: anchor.dx + offset.dx,
+      top: anchor.dy + offset.dy,
+      child: FractionalTranslation(
+        translation: touch ? const Offset(-0.5, 0) : Offset.zero,
+        child: IgnorePointer(
+          child: Material(
+            key: const ValueKey('pdf-measure-readout'),
+            color: const Color(0xE6202124),
+            elevation: 3,
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              child: Text(
+                text,
+                style: const TextStyle(
+                  color: Color(0xFFFFFFFF),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// A wrapped-text box mirroring a committed free-text appearance —
   /// the live resize preview and the post-commit afterimage share it.
   /// [rotation] spins the box about its center (a rotated annotation's
@@ -2312,8 +2418,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         : null,
                     dragLine: _dragStart != null &&
                             _dragCurrent != null &&
-                            (_tool == PdfEditTool.line ||
-                                _tool == PdfEditTool.arrow)
+                            _lineDragTool
                         ? (_dragStart!, _dragCurrent!)
                         : null,
                     dragPath: polyPreview,
@@ -2494,6 +2599,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   ),
                 ),
               if (showChip) _buildSelectionChip(chrome?.$1 ?? selected),
+              if (_measureReadout() case (final text, final anchor))
+                _buildMeasureReadoutChip(text, anchor),
             ]),
           ),
         ),
@@ -2835,7 +2942,7 @@ class _EditingPreviewPainter extends CustomPainter {
     for (final point in points.skip(1)) {
       path.lineTo(point.dx, point.dy);
     }
-    if (tool == PdfEditTool.polygon) {
+    if (tool == PdfEditTool.polygon || tool == PdfEditTool.measureArea) {
       path.close();
       if (fillColor != null) {
         canvas.drawPath(

@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart' show PdfStandardFont;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'editing_color_picker.dart' show PdfColorFormat;
+import 'editing_measure.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 
@@ -71,6 +72,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double? _searchPanelWidth;
   Color? _textFillColor;
   Color? _textBorderColor;
+  PdfMeasurementScale? _measurementScale;
 
   Future<void> _load() async {
     final SharedPreferences store;
@@ -147,6 +149,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (textFill != null) _textFillColor = Color(textFill);
       final textBorder = store.getInt('${_prefix}textBorderColor');
       if (textBorder != null) _textBorderColor = Color(textBorder);
+      final scale = store.getString('${_prefix}measurementScale');
+      if (scale != null) _measurementScale = PdfMeasurementScale.decode(scale);
       final stamps = store.getStringList('${_prefix}customStamps');
       if (stamps != null) {
         _customStamps = List.unmodifiable([
@@ -423,6 +427,20 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}textBorderColor')
         : s.setInt('${_prefix}textBorderColor', value.toARGB32()));
+    notifyListeners();
+  }
+
+  /// The active measurement calibration the measure tools stamp onto new
+  /// annotations, or null until a scale is set. Persisted so a drawing's
+  /// scale survives reopening the file.
+  PdfMeasurementScale? get measurementScale => _measurementScale;
+
+  set measurementScale(PdfMeasurementScale? value) {
+    if (value == _measurementScale) return;
+    _measurementScale = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}measurementScale')
+        : s.setString('${_prefix}measurementScale', value.encode()));
     notifyListeners();
   }
 

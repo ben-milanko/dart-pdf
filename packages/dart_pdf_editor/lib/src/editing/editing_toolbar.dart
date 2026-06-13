@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart' show PdfStandardFont;
 import '../pdf_viewer.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
+import 'editing_measure.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 import 'text_prompt.dart';
@@ -130,6 +131,27 @@ class PdfEditingToolbar extends StatelessWidget {
     if (controller.tool != null) viewerController.clearSelection();
   }
 
+  /// Opens the scale-calibration dialog and stores the result on the
+  /// controller. Measurements need a scale before they can be placed, so
+  /// arming a measure tool with no scale set opens this automatically.
+  Future<void> _setScale(BuildContext context) async {
+    final scale = await showPdfScaleDialog(context,
+        initial: controller.measurementScale);
+    if (scale != null) controller.measurementScale = scale;
+  }
+
+  Future<void> _armMeasureTool(BuildContext context, PdfEditTool tool) async {
+    if (controller.tool == tool) {
+      controller.tool = null;
+      return;
+    }
+    if (!controller.hasMeasurementScale) {
+      await _setScale(context);
+      if (!controller.hasMeasurementScale) return;
+    }
+    _toggleTool(tool);
+  }
+
   /// Arms the signature tool, collecting a signature first when none is
   /// saved yet. Tapping again while armed disarms, like any tool.
   Future<void> _toggleSignatureTool(BuildContext context) async {
@@ -250,6 +272,22 @@ class PdfEditingToolbar extends StatelessWidget {
                         isSelected: controller.tool == value,
                         onPressed: () => _toggleTool(value),
                       );
+
+            // measure tools arm through a scale check (and a calibration
+            // dialog when none is set yet), unlike the plain tool toggle
+            Widget measureButton(PdfEditTool value, IconData icon, String tip) =>
+                !shows(value)
+                    ? const SizedBox.shrink()
+                    : IconButton(
+                        icon: Icon(icon),
+                        tooltip: tip,
+                        isSelected: controller.tool == value,
+                        onPressed: () => _armMeasureTool(context, value),
+                      );
+
+            final measureArmed = controller.tool == PdfEditTool.measureDistance ||
+                controller.tool == PdfEditTool.measurePerimeter ||
+                controller.tool == PdfEditTool.measureArea;
 
             Widget markupButton(
                     PdfMarkupKind kind, IconData icon, String tip) =>
@@ -415,6 +453,20 @@ class PdfEditingToolbar extends StatelessWidget {
                         : () => _flattenForm(context),
                   ),
                 ],
+                measureButton(PdfEditTool.measureDistance, Icons.straighten,
+                    'Measure distance'),
+                measureButton(PdfEditTool.measurePerimeter, Icons.timeline,
+                    'Measure perimeter'),
+                measureButton(PdfEditTool.measureArea, Icons.crop_din,
+                    'Measure area'),
+                if (measureArmed)
+                  TextButton.icon(
+                    key: const ValueKey('pdf-measure-scale'),
+                    icon: const Icon(Icons.square_foot, size: 18),
+                    label: Text(controller.measurementScale?.ratioLabel ??
+                        'Set scale…'),
+                    onPressed: () => _setScale(context),
+                  ),
                 if (controller.selectedElement != null) ...[
                   IconButton(
                     icon: const Icon(Icons.delete_outline),

@@ -33,6 +33,11 @@ List<((double, double), (double, double))> pdfInkCurveControls(
   ];
 }
 
+/// The kind of measurement [PdfAnnotationEditing.addMeasurement] creates:
+/// a /Line distance, a /PolyLine perimeter (sum of segment lengths), or a
+/// /Polygon area (shoelace).
+enum PdfMeasurementKind { distance, perimeter, area }
+
 /// Line ending styles supported by [PdfEditor.addLine].
 enum PdfLineEnding {
   none('None'),
@@ -902,6 +907,184 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
         pageIndex, dict, _form(rect, w, resources: _resources(extGState: gs)),
         name: name);
+  }
+
+  /// The document-default measurement scale, or null until
+  /// [setMeasurementScale] is called.
+  PdfMeasure? get measurementScale => _defaultMeasure;
+
+  /// Sets the document-default measurement scale (§12.9) used by
+  /// [addMeasurement] when no per-annotation override is given.
+  ///
+  /// [pageUnitsPerPoint] converts a PDF point to a "page unit" (e.g. an
+  /// inch printed at 72 dpi is `1 / 72`), and [realUnitsPerPageUnit] is
+  /// the drawing's scale (`20` for `1 in = 20 ft`). Their product is the
+  /// real-world units per point baked into the /Measure /X array; values
+  /// display in [realUnitLabel] (and [areaUnitLabel] for areas, defaulting
+  /// to `realUnitLabel²`).
+  PdfMeasure setMeasurementScale(
+    double pageUnitsPerPoint,
+    String realUnitLabel,
+    double realUnitsPerPageUnit, {
+    String? areaUnitLabel,
+    int precision = 100,
+    String? ratioLabel,
+  }) {
+    final measure = PdfMeasure.scale(
+      unitsPerPoint: pageUnitsPerPoint * realUnitsPerPageUnit,
+      unitLabel: realUnitLabel,
+      areaUnitLabel: areaUnitLabel,
+      precision: precision,
+      ratioLabel: ratioLabel,
+    );
+    _defaultMeasure = measure;
+    return measure;
+  }
+
+  /// Adds a measurement annotation: a /Line ([PdfMeasurementKind.distance]),
+  /// /PolyLine ([PdfMeasurementKind.perimeter]), or /Polygon
+  /// ([PdfMeasurementKind.area]) carrying a /Measure dictionary (§12.9).
+  ///
+  /// The measured value (distance = `|segment| × scaleFactor`, perimeter =
+  /// `Σ segments × scaleFactor`, area = `shoelace × scaleFactor²`) is
+  /// formatted through [measure] (or the document default set by
+  /// [setMeasurementScale]), stamped into /Contents, and drawn as a
+  /// caption at the segment midpoint / polygon centroid. Throws a
+  /// [StateError] when no scale is available.
+  void addMeasurement(
+    int pageIndex,
+    PdfMeasurementKind kind,
+    List<(double, double)> points, {
+    PdfMeasure? measure,
+    int strokeColor = 0xD02020,
+    double strokeWidth = 2,
+    int? fillColor,
+    double opacity = 1,
+    bool dashed = false,
+    int? captionColor,
+    String? author,
+    String? name,
+  }) {
+    final m = measure ?? _defaultMeasure;
+    if (m == null) {
+      throw StateError('no measurement scale set — call setMeasurementScale '
+          'or pass a measure');
+    }
+    final minPoints = kind == PdfMeasurementKind.distance ? 2 : 3;
+    if (points.length < (kind == PdfMeasurementKind.perimeter ? 2 : minPoints)) {
+      throw ArgumentError.value(points, 'points',
+          'needs ${kind == PdfMeasurementKind.area ? 3 : 2}+ points');
+    }
+
+    final closed = kind == PdfMeasurementKind.area;
+    final (caption, anchor) = _measurementCaption(kind, points, m);
+
+    // the geometry appearance, then the caption text drawn over its anchor
+    final gs = _alphaState(opacity);
+    final content = _lineContent(points,
+        strokeColor: strokeColor,
+        strokeWidth: strokeWidth,
+        dashed: dashed,
+        closed: closed,
+        fillColor: closed ? fillColor : null,
+        hasAlpha: gs != null);
+
+    const captionSize = 10.0;
+    final labelColor = captionColor ?? strokeColor;
+    final textWidth = measureHelvetica(caption, captionSize);
+    const padX = 3.0, padY = 2.0;
+    final boxLeft = anchor.$1 - textWidth / 2 - padX;
+    final boxBottom = anchor.$2 - captionSize / 2 - padY;
+    final boxWidth = textWidth + 2 * padX;
+    final boxHeight = captionSize + 2 * padY;
+    content
+      ..fillColor(0xFFFFFF)
+      ..rect(boxLeft, boxBottom, boxWidth, boxHeight)
+      ..fill()
+      ..beginText()
+      ..font('Helv', captionSize)
+      ..fillColor(labelColor)
+      ..textAt(anchor.$1 - textWidth / 2,
+          anchor.$2 - captionSize * 0.36) // rough cap-height centering
+      ..showText(caption)
+      ..endText();
+
+    // the rect must cover both the geometry and the caption box
+    final geomRect = _pointBounds(points, strokeWidth);
+    final rect = PdfRect(
+      math.min(geomRect.left, boxLeft),
+      math.min(geomRect.bottom, boxBottom),
+      math.max(geomRect.right, boxLeft + boxWidth),
+      math.max(geomRect.top, boxBottom + boxHeight),
+    );
+
+    final subtype = switch (kind) {
+      PdfMeasurementKind.distance => 'Line',
+      PdfMeasurementKind.perimeter => 'PolyLine',
+      PdfMeasurementKind.area => 'Polygon',
+    };
+    final intent = switch (kind) {
+      PdfMeasurementKind.distance => 'LineDimension',
+      PdfMeasurementKind.perimeter => 'PolyLineDimension',
+      PdfMeasurementKind.area => 'PolygonDimension',
+    };
+    final dict = _markupDict(subtype, rect, strokeColor, caption, author)
+      ..['BS'] = _borderStyle(strokeWidth, dashed: dashed)
+      ..['IT'] = CosName(intent)
+      ..['Measure'] = m.toCosDictionary();
+    if (kind == PdfMeasurementKind.distance) {
+      dict['L'] = CosArray([
+        CosReal(points.first.$1),
+        CosReal(points.first.$2),
+        CosReal(points.last.$1),
+        CosReal(points.last.$2),
+      ]);
+      dict['LE'] = CosArray(
+          [const CosName('None'), const CosName('None')]);
+    } else {
+      dict['Vertices'] = _pointArray(points);
+    }
+    if (closed && fillColor != null) dict['IC'] = _colorComponents(fillColor);
+
+    _addAnnotation(
+      pageIndex,
+      dict,
+      _form(rect, content, resources: _resources(extGState: gs, font: _helvetica())),
+      name: name,
+    );
+  }
+
+  /// The caption string and its page-space anchor (segment midpoint for a
+  /// distance, the path/polygon centroid otherwise) for a measurement.
+  (String, (double, double)) _measurementCaption(
+      PdfMeasurementKind kind, List<(double, double)> points, PdfMeasure m) {
+    switch (kind) {
+      case PdfMeasurementKind.distance:
+        final a = points.first, b = points.last;
+        final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+        final caption = m.formatDistance(math.sqrt(dx * dx + dy * dy));
+        return (caption, ((a.$1 + b.$1) / 2, (a.$2 + b.$2) / 2));
+      case PdfMeasurementKind.perimeter:
+        var total = 0.0;
+        for (var i = 0; i + 1 < points.length; i++) {
+          final dx = points[i + 1].$1 - points[i].$1;
+          final dy = points[i + 1].$2 - points[i].$2;
+          total += math.sqrt(dx * dx + dy * dy);
+        }
+        return (m.formatDistance(total), _centroid(points));
+      case PdfMeasurementKind.area:
+        final caption = m.formatArea(pdfShoelaceArea(points));
+        return (caption, _centroid(points));
+    }
+  }
+
+  (double, double) _centroid(List<(double, double)> points) {
+    var sx = 0.0, sy = 0.0;
+    for (final (x, y) in points) {
+      sx += x;
+      sy += y;
+    }
+    return (sx / points.length, sy / points.length);
   }
 
   /// Adds a free-text annotation: [text] rendered directly on the page in
