@@ -243,7 +243,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       _GroupTool.tool(
           PdfEditTool.content, Icons.format_shapes, 'Edit page content'),
       _GroupTool.tool(PdfEditTool.form, Icons.ballot_outlined,
-          'Form fields — tap to fill, drag to add'),
+          'Form fields — tap to select, double-tap to fill, drag to add'),
       _GroupTool.tool(PdfEditTool.redact, Icons.gradient,
           'Redact — drag a region, then apply'),
     ]),
@@ -885,7 +885,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         if (flatten != null) ...[flatten, const _MiniDivider()],
         IconButton(
           key: const ValueKey('pdf-apply-redactions'),
-          icon: const Icon(Icons.block),
+          icon: const Icon(Icons.check),
           tooltip: 'Apply redactions (irreversible)',
           onPressed: controller.hasRedactionMarks
               ? () => _applyRedactions(context)

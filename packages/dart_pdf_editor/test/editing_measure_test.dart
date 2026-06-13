@@ -85,6 +85,58 @@ void main() {
     });
   });
 
+  group('locale-based default unit', () {
+    test('pdfDefaultMeasurementUnit picks imperial vs metric by country', () {
+      expect(pdfDefaultMeasurementUnit(const Locale('en', 'US')), 'ft');
+      expect(pdfDefaultMeasurementUnit(const Locale('en', 'LR')), 'ft');
+      expect(pdfDefaultMeasurementUnit(const Locale('my', 'MM')), 'ft');
+      expect(pdfDefaultMeasurementUnit(const Locale('en', 'GB')), 'm');
+      expect(pdfDefaultMeasurementUnit(const Locale('fr', 'FR')), 'm');
+      expect(pdfDefaultMeasurementUnit(const Locale('de', 'DE')), 'm');
+    });
+
+    Future<String> shownUnit(WidgetTester tester, Locale device) async {
+      // The dialog follows the DEVICE locale, not the app's UI locale, so
+      // drive platformDispatcher rather than MaterialApp.locale.
+      tester.platformDispatcher.localeTestValue = device;
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+      // A blank tree first, so a second call gets a fresh State (else the
+      // dialog reuses the prior element and keeps its already-set unit).
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: PdfScaleDialog())));
+      await tester.pumpAndSettle();
+      final dropdown = tester.widget<DropdownButton<String>>(
+          find.byKey(const ValueKey('pdf-scale-unit')));
+      return dropdown.value!;
+    }
+
+    testWidgets('the scale dialog follows the device region', (tester) async {
+      // An English-only app (the demo) used to clamp Localizations to en_US
+      // and always show feet; the device region is what should decide.
+      expect(await shownUnit(tester, const Locale('en', 'US')), 'ft');
+      expect(await shownUnit(tester, const Locale('en', 'AU')), 'm');
+      expect(await shownUnit(tester, const Locale('fr', 'FR')), 'm');
+    });
+
+    testWidgets('an existing scale wins over the device default',
+        (tester) async {
+      tester.platformDispatcher.localeTestValue = const Locale('en', 'US');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: PdfScaleDialog(
+            initial: PdfMeasurementScale(unitsPerPoint: 1, unitLabel: 'cm'),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      final dropdown = tester.widget<DropdownButton<String>>(
+          find.byKey(const ValueKey('pdf-scale-unit')));
+      expect(dropdown.value, 'cm');
+    });
+  });
+
   group('live readout chip in the viewer', () {
     const scale = 800 / 612;
     Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);

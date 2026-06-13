@@ -165,6 +165,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   List<Offset>? _polyPoints;
   Offset? _polyHover;
   Offset? _polyDoubleTapPosition;
+  // the form tool's double-tap fills the field under the down position
+  TapDownDetails? _doubleTapDownDetails;
 
   // eyedropper: one page raster serves every preview sample
   PdfPageColorSampler? _sampler;
@@ -1518,9 +1520,29 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _dragCurrent = position;
         });
       case PdfEditTool.form:
-        // drag-out on empty page area adds a field; a drag starting on
-        // an existing widget is not a creation gesture
+        // a resize handle or the body of the selected widget manipulates
+        // it; a press on another widget grabs it (select + move in one
+        // drag); empty page area drags out a new field
         final (x, y) = _geometry.toPagePoint(position);
+        final selectedRect = _selectedViewRect;
+        final onHandle = selectedRect != null &&
+            _controller.canResizeSelected &&
+            _handleAt(selectedRect, position) != null;
+        if (onHandle || (selectedRect?.contains(position) ?? false)) {
+          _selectPanStart(details);
+          return;
+        }
+        final hit = _controller.selectableWidgetAt(widget.pageIndex, x, y);
+        if (hit != null) {
+          if (!_controller.isAnnotationSelected(widget.pageIndex, hit.$1)) {
+            _controller.selectFormWidgetAt(widget.pageIndex, x, y);
+          }
+          setState(() {
+            _moveStart = position;
+            _moveCurrent = position;
+          });
+          return;
+        }
         if (_controller.formFieldAt(widget.pageIndex, x, y) == null) {
           setState(() {
             _dragStart = position;
@@ -2121,9 +2143,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
-  /// The form tool's tap: routes the hit field to its fill interaction.
-  Future<void> _onFormTap(TapUpDetails details) async {
-    final (x, y) = _geometry.toPagePoint(details.localPosition);
+  /// The form tool's double-tap (and read mode's tap): routes the hit
+  /// field at [local] to its fill interaction. [globalPosition] anchors
+  /// the choice menu.
+  Future<void> _fillFormFieldAt(Offset local, Offset globalPosition) async {
+    final (x, y) = _geometry.toPagePoint(local);
     final hit = _controller.formFieldAt(widget.pageIndex, x, y);
     if (hit == null) return;
     final (field, widgetIndex) = hit;
@@ -2137,7 +2161,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         final state = field.widgetOnState(widgetIndex);
         if (state != null) _controller.setFormRadioValue(field.name, state);
       case PdfFieldType.comboBox || PdfFieldType.listBox:
-        await _pickFormChoice(field, details.globalPosition);
+        await _pickFormChoice(field, globalPosition);
       case PdfFieldType.pushButton:
         final picker = widget.formImagePicker;
         if (picker == null) return;
@@ -2308,7 +2332,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _controller.placeTextStamp(widget.pageIndex, x, y, text);
         }
       case PdfEditTool.form:
-        await _onFormTap(details);
+        // single tap selects the field for move/resize/menu; double-tap
+        // fills it (read mode is the no-tool path to just fill)
+        _controller.selectFormWidgetAt(widget.pageIndex, x, y,
+            toggle: _additiveModifier);
       default:
         break;
     }
@@ -2316,9 +2343,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _onDoubleTapDown(TapDownDetails details) {
     _polyDoubleTapPosition = details.localPosition;
+    _doubleTapDownDetails = details;
   }
 
   void _onDoubleTap() {
+    if (_tool == PdfEditTool.form) {
+      final details = _doubleTapDownDetails;
+      if (details != null) {
+        unawaited(
+            _fillFormFieldAt(details.localPosition, details.globalPosition));
+      }
+      return;
+    }
     if (!_polyTool) return;
     _finishPolyPath(_polyDoubleTapPosition);
     _polyDoubleTapPosition = null;
@@ -2404,19 +2440,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               : SystemMouseCursors.basic;
     } else if (_tool == PdfEditTool.form) {
       final (x, y) = _geometry.toPagePoint(event.localPosition);
-      final hit = _controller.formFieldAt(widget.pageIndex, x, y);
-      if (hit == null) {
-        cursor = SystemMouseCursors.precise; // a drag here adds a field
-      } else if (hit.$1.isReadOnly) {
-        cursor = SystemMouseCursors.basic;
+      final selectedRect = _selectedViewRect;
+      final onHandle = selectedRect != null &&
+          _controller.canResizeSelected &&
+          _handleAt(selectedRect, event.localPosition) != null;
+      if (onHandle) {
+        cursor = SystemMouseCursors.precise; // a resize handle
+      } else if (selectedRect?.contains(event.localPosition) ?? false) {
+        cursor = SystemMouseCursors.move; // drag the selected field
+      } else if (_controller.selectableWidgetAt(widget.pageIndex, x, y) !=
+          null) {
+        cursor = SystemMouseCursors.click; // tap to select / double-tap fills
       } else {
-        cursor = switch (hit.$1.type) {
-          PdfFieldType.text => SystemMouseCursors.text,
-          PdfFieldType.signature ||
-          PdfFieldType.unknown =>
-            SystemMouseCursors.basic,
-          _ => SystemMouseCursors.click,
-        };
+        cursor = SystemMouseCursors.precise; // a drag here adds a field
       }
     } else {
       cursor = SystemMouseCursors.precise;
@@ -2759,8 +2795,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         onPanUpdate: _panUpdate,
         onPanEnd: _panEnd,
         onTapUp: _onTapUp,
-        onDoubleTapDown: _polyTool ? _onDoubleTapDown : null,
-        onDoubleTap: _polyTool ? _onDoubleTap : null,
+        onDoubleTapDown:
+            _polyTool || _tool == PdfEditTool.form ? _onDoubleTapDown : null,
+        onDoubleTap:
+            _polyTool || _tool == PdfEditTool.form ? _onDoubleTap : null,
         child: MouseRegion(
           cursor: _cursor,
           onHover: _onHover,

@@ -89,6 +89,55 @@ void main() {
       expect(editing.isModified, isFalse);
     });
 
+    test('form tool selects a widget for move/resize/delete', () {
+      final editing = controller();
+      editing.tool = PdfEditTool.form;
+
+      // a tap selects the text field's widget (not just the sidebar path)
+      expect(editing.selectFormWidgetAt(0, 186, 712), isTrue);
+      expect(editing.hasAnnotationSelection, isTrue);
+      expect(editing.selectedAnnotation!.subtype, 'Widget');
+      expect(editing.canResizeSelected, isTrue,
+          reason: 'widgets resize while the form tool is armed');
+
+      final before = editing.acroForm!.fieldNamed('name')!.widgetRect(0)!;
+
+      // move translates the widget /Rect
+      editing.moveSelected(20, -10);
+      final moved = editing.acroForm!.fieldNamed('name')!.widgetRect(0)!;
+      expect(moved.left, closeTo(before.left + 20, 1e-6));
+      expect(moved.bottom, closeTo(before.bottom - 10, 1e-6));
+
+      // resize regenerates the appearance at the new size
+      final target =
+          PdfRect(moved.left, moved.bottom, moved.left + 240, moved.bottom + 40);
+      editing.resizeSelected(target);
+      final resized = editing.acroForm!.fieldNamed('name')!.widgetRect(0)!;
+      expect(resized.width, closeTo(240, 1e-6));
+      expect(resized.height, closeTo(40, 1e-6));
+      // the value is re-laid into the new box, not stretched
+      expect(widgetAppearance(editing.document, editing.acroForm!.fieldNamed('name')!),
+          contains('prefilled'));
+
+      // delete drops the whole field, not just the /Annots entry
+      expect(
+          editing.selectFormWidgetAt(0, resized.left + 5, resized.bottom + 5),
+          isTrue);
+      editing.deleteSelected();
+      expect(editing.acroForm!.fieldNamed('name'), isNull);
+      expect(editing.hasAnnotationSelection, isFalse);
+    });
+
+    test('canResizeSelected needs the form tool for widgets', () {
+      final editing = controller();
+      editing.tool = PdfEditTool.form;
+      expect(editing.selectFormWidgetAt(0, 186, 712), isTrue);
+      expect(editing.canResizeSelected, isTrue);
+      // arming another tool drops the widget's resize affordance
+      editing.tool = PdfEditTool.select;
+      expect(editing.canResizeSelected, isFalse);
+    });
+
     test('setFormButtonImage fills a push button, rejects junk', () {
       final editing = controller();
       final name = editing.addFormField(
@@ -172,6 +221,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     }
 
+    /// Two quick taps — the form tool's fill gesture.
+    Future<void> doubleTap(WidgetTester tester, Offset position) async {
+      await tester.tapAt(position);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(position);
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
     Future<void> settle(WidgetTester tester) =>
         tester.pumpAndSettle(const Duration(milliseconds: 300));
 
@@ -203,13 +260,28 @@ void main() {
       return editing;
     }
 
-    testWidgets('tapping a text field opens an inline editor that commits',
-        (tester) async {
+    testWidgets('single-tapping a field selects it (no fill)', (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.form;
       await tester.pump();
 
       await tap(tester, view(186, 712));
+      expect(find.byKey(const ValueKey('pdf-form-text-editor')), findsNothing,
+          reason: 'a single tap selects, it does not fill');
+      expect(editing.hasAnnotationSelection, isTrue);
+      expect(editing.selectedAnnotation!.subtype, 'Widget');
+      expect(editing.canResizeSelected, isTrue);
+      expect(editing.isModified, isFalse);
+      await settle(tester);
+    });
+
+    testWidgets('double-tapping a text field opens an inline editor',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.form;
+      await tester.pump();
+
+      await doubleTap(tester, view(186, 712));
       final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
       expect(editor, findsOneWidget);
       expect(editing.isEditingText, isTrue);
@@ -230,7 +302,7 @@ void main() {
       editing.tool = PdfEditTool.form;
       await tester.pump();
 
-      await tap(tester, view(186, 712));
+      await doubleTap(tester, view(186, 712));
       final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
       expect(tester.widget<TextField>(editor).maxLines, 1);
       await tester.enterText(editor, 'submitted');
@@ -241,27 +313,29 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('check box and radio taps toggle their states', (tester) async {
+    testWidgets('check box and radio double-taps toggle their states',
+        (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.form;
       await tester.pump();
 
-      await tap(tester, view(82, 550));
+      await doubleTap(tester, view(82, 550));
       expect(editing.acroForm!.fieldNamed('agree')!.isChecked, isTrue);
-      await tap(tester, view(82, 550));
+      await doubleTap(tester, view(82, 550));
       expect(editing.acroForm!.fieldNamed('agree')!.isChecked, isFalse);
 
-      await tap(tester, view(130, 510)); // the /Blue kid widget
+      await doubleTap(tester, view(130, 510)); // the /Blue kid widget
       expect(editing.acroForm!.fieldNamed('color')!.value, 'Blue');
       await settle(tester);
     });
 
-    testWidgets('a combo box offers its options in a menu', (tester) async {
+    testWidgets('a combo box double-tap offers its options in a menu',
+        (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.form;
       await tester.pump();
 
-      await tap(tester, view(136, 472));
+      await doubleTap(tester, view(136, 472));
       await tester.pumpAndSettle(); // the menu's opening animation
       expect(find.text('Small'), findsOneWidget);
       expect(find.text('Large'), findsOneWidget);
@@ -273,12 +347,12 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('read-only fields ignore taps', (tester) async {
+    testWidgets('read-only fields cannot be filled', (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.form;
       await tester.pump();
 
-      await tap(tester, view(136, 432)); // the read-only serial field
+      await doubleTap(tester, view(136, 432)); // the read-only serial field
       expect(find.byKey(const ValueKey('pdf-form-text-editor')), findsNothing);
       expect(editing.isModified, isFalse);
       await settle(tester);
@@ -298,19 +372,23 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('a drag starting on a widget does not create a field',
+    testWidgets('dragging a widget moves it instead of creating a field',
         (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.form;
       await tester.pump();
 
-      await drag(tester, view(186, 712), view(400, 650));
-      expect(editing.acroForm!.fieldNamed('Field 1'), isNull);
-      expect(editing.isModified, isFalse);
+      final before = editing.acroForm!.fieldNamed('name')!.widgetRect(0);
+      await drag(tester, view(186, 712), view(286, 712)); // +100pt in x
+      expect(editing.acroForm!.fieldNamed('Field 1'), isNull,
+          reason: 'a drag on a widget is not a creation gesture');
+      final after = editing.acroForm!.fieldNamed('name')!.widgetRect(0)!;
+      expect(after.left, closeTo(before!.left + 100, 1));
       await settle(tester);
     });
 
-    testWidgets('tapping a push button runs the image picker', (tester) async {
+    testWidgets('double-tapping a push button runs the image picker',
+        (tester) async {
       PdfFormField? picked;
       final editing = await pumpEditor(tester, imagePicker: (context, field) {
         picked = field;
@@ -324,7 +402,7 @@ void main() {
       expect(editing.acroForm!.fieldNamed('Field 1')!.type,
           PdfFieldType.pushButton);
 
-      await tap(tester, view(430, 340));
+      await doubleTap(tester, view(430, 340));
       expect(picked?.name, 'Field 1');
       await tester.pump();
       final field = editing.acroForm!.fieldNamed('Field 1')!;
@@ -377,8 +455,8 @@ void main() {
       await tester.pump();
 
       // the form tool now lives in the group's strip
-      final formButton =
-          find.byTooltip('Form fields — tap to fill, drag to add');
+      final formButton = find.byTooltip(
+          'Form fields — tap to select, double-tap to fill, drag to add');
       await tester.scrollUntilVisible(formButton, 80,
           scrollable: stripScrollable);
       await tester.tap(formButton);

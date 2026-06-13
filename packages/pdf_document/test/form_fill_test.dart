@@ -46,6 +46,47 @@ void main() {
     expect(bbox, const PdfRect(0, 0, 228, 24));
   });
 
+  test('resizeFormWidget rewrites /Rect and re-lays the value', () {
+    final doc = fill((e, f) {
+      e.setTextValue(f.fieldNamed('name')!, 'Resized');
+      e.resizeFormWidget('name', 0, const PdfRect(72, 680, 172, 740));
+    });
+    final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+    expect(field.widgetRect(0), const PdfRect(72, 680, 172, 740));
+    // the value survives and the appearance refits the new box
+    final n = doc.cos.resolve(
+        (doc.cos.resolve(field.widgets[0]['AP']) as CosDictionary)['N']);
+    final bbox = pdfRectFrom(doc.cos, (n as CosStream).dictionary['BBox']);
+    expect(bbox, const PdfRect(0, 0, 100, 60),
+        reason: 'BBox tracks the new widget size, not the old');
+    expect(widgetAppearance(doc, field), contains('(Resized) Tj'));
+  });
+
+  test('resizeFormWidget regenerates a check box mark at the new size', () {
+    final doc = fill((e, f) {
+      e.setCheckBoxValue(f.fieldNamed('agree')!, true);
+      e.resizeFormWidget('agree', 0, const PdfRect(80, 540, 120, 580));
+    });
+    final field = PdfAcroForm.of(doc)!.fieldNamed('agree')!;
+    expect(field.widgetRect(0), const PdfRect(80, 540, 120, 580));
+    final cos = doc.cos;
+    final n = cos.resolve(
+        (cos.resolve(field.widgets[0]['AP']) as CosDictionary)['N'])
+        as CosDictionary;
+    final on = cos.resolve(n[field.onStates.first]) as CosStream;
+    final bbox = pdfRectFrom(cos, on.dictionary['BBox']);
+    expect(bbox, const PdfRect(0, 0, 40, 40));
+    // the box stays checked through the resize
+    expect(field.isChecked, isTrue);
+  });
+
+  test('resizeFormWidget on a missing field is a no-op', () {
+    final doc = fill((e, f) =>
+        e.resizeFormWidget('nope', 0, const PdfRect(0, 0, 10, 10)));
+    expect(PdfAcroForm.of(doc)!.fieldNamed('name')!.widgetRect(0),
+        const PdfRect(72, 700, 300, 724));
+  });
+
   test('filling clears /NeedAppearances', () {
     final doc = fill((e, f) =>
         e.setTextValue(f.fieldNamed('name')!, 'x'));

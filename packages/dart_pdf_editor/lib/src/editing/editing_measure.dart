@@ -113,6 +113,24 @@ class PdfMeasurementScale {
 /// The unit labels offered by [showPdfScaleDialog].
 const _pdfScaleUnits = ['ft', 'in', 'yd', 'mi', 'm', 'cm', 'mm', 'km'];
 
+/// The three countries that have not adopted the metric system and so
+/// default to imperial units: the United States, Liberia, and Myanmar.
+const _imperialCountries = {'US', 'LR', 'MM'};
+
+/// The default distance unit for [locale]: feet in the imperial-system
+/// regions (the US, Liberia, Myanmar), metres everywhere else. The
+/// measurement system is a regional preference, so the country comes from
+/// [locale] when it carries one, otherwise from the device locale
+/// (`platformDispatcher.locale` — the browser language on the web). The
+/// scale dialog passes no argument, so it follows the device region a
+/// user expects rather than the app's (possibly English-only) UI locale.
+String pdfDefaultMeasurementUnit([Locale? locale]) {
+  final country = (locale?.countryCode ??
+          WidgetsBinding.instance.platformDispatcher.locale.countryCode)
+      ?.toUpperCase();
+  return country != null && _imperialCountries.contains(country) ? 'ft' : 'm';
+}
+
 /// Asks the user for a drawing scale (`1 in on the page = N unit in the
 /// world`) and returns the calibrated [PdfMeasurementScale], or null when
 /// dismissed. [initial] pre-fills the fields.
@@ -152,9 +170,11 @@ class _PdfScaleDialogState extends State<PdfScaleDialog> {
           text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
     }
     _value = TextEditingController(text: text);
+    // Carry over the unit from an existing scale; otherwise default to the
+    // device region's measurement system (feet vs metres).
     _unit = (initial != null && _pdfScaleUnits.contains(initial.unitLabel))
         ? initial.unitLabel
-        : 'ft';
+        : pdfDefaultMeasurementUnit();
   }
 
   @override

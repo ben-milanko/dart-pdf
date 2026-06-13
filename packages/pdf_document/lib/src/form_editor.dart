@@ -155,14 +155,8 @@ extension PdfFormFilling on PdfEditor {
       }
 
       final off = background();
-      final onWriter = background()
-        ..strokeColor(0x000000)
-        ..lineWidth((w < h ? w : h) * 0.12 < 1 ? 1 : (w < h ? w : h) * 0.12)
-        ..roundLines()
-        ..moveTo(w * 0.22, h * 0.52)
-        ..lineTo(w * 0.42, h * 0.30)
-        ..lineTo(w * 0.78, h * 0.72)
-        ..stroke();
+      final onWriter = background();
+      _paintCheckMark(onWriter, w, h);
 
       widget['AP'] = CosDictionary({
         'N': CosDictionary({
@@ -171,6 +165,102 @@ extension PdfFormFilling on PdfEditor {
         }),
       });
     }
+  }
+
+  /// Strokes the standard check mark filling a [w]×[h] box (§12.7.4.2.3),
+  /// shared by check-box generation and resize regeneration.
+  void _paintCheckMark(ContentWriter writer, double w, double h) {
+    final weight = (w < h ? w : h) * 0.12;
+    writer
+      ..strokeColor(0x000000)
+      ..lineWidth(weight < 1 ? 1 : weight)
+      ..roundLines()
+      ..moveTo(w * 0.22, h * 0.52)
+      ..lineTo(w * 0.42, h * 0.30)
+      ..lineTo(w * 0.78, h * 0.72)
+      ..stroke();
+  }
+
+  /// Rebuilds [widget]'s /AP /N on/off states at its current /Rect,
+  /// preserving the existing state names (so a radio button keeps its
+  /// export value). Used when a button widget is resized — unlike
+  /// [_ensureButtonAppearances], it regenerates states that already
+  /// exist so the mark refits the new box.
+  void _regenerateButtonStates(PdfFormField field, CosDictionary widget) {
+    final rect = pdfRectFrom(document.cos, widget['Rect']);
+    if (rect == null || rect.width <= 0 || rect.height <= 0) return;
+    final w = rect.width, h = rect.height;
+    final names = _widgetStates(widget).toSet();
+    if (!names.any((s) => s != 'Off')) {
+      names.add(field.onStates.isEmpty ? 'Yes' : field.onStates.first);
+    }
+    names.add('Off');
+
+    ContentWriter background() {
+      final writer = ContentWriter();
+      _paintWidgetDecorations(writer, widget, w, h);
+      return writer;
+    }
+
+    final n = CosDictionary({});
+    for (final state in names) {
+      final writer = background();
+      if (state != 'Off') _paintCheckMark(writer, w, h);
+      n[state] = _updater.addObject(_widgetForm(w, h, writer));
+    }
+    widget['AP'] = CosDictionary({'N': n});
+  }
+
+  /// The display form of a choice field's current /V (matching an /Opt
+  /// export), or the raw value, or '' when unset.
+  String _choiceDisplay(PdfFormField field) {
+    final value = field.value;
+    if (value == null) return '';
+    for (final (export, display) in field.options) {
+      if (export == value) return display;
+    }
+    return value;
+  }
+
+  /// Resizes one widget of [fieldName] (index [widgetIndex] within the
+  /// field) so its /Rect becomes [to], regenerating the widget's
+  /// appearance at the new size instead of stretching it: text and
+  /// choice fields re-lay their value, check boxes and radio buttons
+  /// redraw their mark. Push-button, signature, and unknown fields keep
+  /// their appearance — only the /Rect moves. A no-op when the field or
+  /// widget index is missing.
+  ///
+  /// Used by the editing UI's form tool when a field's resize handle is
+  /// dragged; the field is re-resolved by name inside the save so it
+  /// survives the per-revision teardown.
+  void resizeFormWidget(String fieldName, int widgetIndex, PdfRect to) {
+    final field = acroForm?.fieldNamed(fieldName);
+    if (field == null) return;
+    final widgets = field.widgets;
+    if (widgetIndex < 0 || widgetIndex >= widgets.length) return;
+    final widget = widgets[widgetIndex];
+    widget['Rect'] = CosArray([
+      CosReal(to.left),
+      CosReal(to.bottom),
+      CosReal(to.right),
+      CosReal(to.top),
+    ]);
+    switch (field.type) {
+      case PdfFieldType.text:
+        _regenerateVariableText(field, field.value ?? '');
+      case PdfFieldType.comboBox:
+      case PdfFieldType.listBox:
+        _regenerateVariableText(field, _choiceDisplay(field));
+      case PdfFieldType.checkBox:
+      case PdfFieldType.radioGroup:
+        _regenerateButtonStates(field, widget);
+      case PdfFieldType.pushButton:
+      case PdfFieldType.signature:
+      case PdfFieldType.unknown:
+        break; // /Rect moved; the appearance is left intact
+    }
+    if (!identical(widget, field.dict)) _stageFormDict(field, widget);
+    _finishFieldEdit(field);
   }
 
   // ---------------------------------------------------------------------
