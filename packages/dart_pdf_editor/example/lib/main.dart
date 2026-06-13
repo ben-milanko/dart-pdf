@@ -491,6 +491,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   ? PdfReader(
                       key: ValueKey(tab),
                       bytes: tab.session!.bytes,
+                      // a stable id per document so reopening it (across
+                      // app restarts) restores its scroll position and zoom
+                      documentId: tab.title,
                       controller: tab.viewer,
                       preferences: _prefs,
                       onAction: _onAction,
@@ -498,6 +501,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                     )
                   : PdfEditorView(
                       key: ValueKey(tab),
+                      documentId: tab.title,
                       controller: tab.session,
                       viewerController: tab.viewer,
                       onSave: (saved) => unawaited(_saveAs(saved)),

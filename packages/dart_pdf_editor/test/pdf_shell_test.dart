@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -428,6 +429,29 @@ void main() {
     testWidgets('no onSave, no save button', (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
       expect(find.byIcon(Icons.save_alt), findsNothing);
+    });
+
+    testWidgets('Ctrl+S saves through onSave', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      List<int>? saved;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onSave: (bytes) => saved = bytes,
+        ),
+      );
+      // focus the viewer the way a user would: click it, so the
+      // shell's CallbackShortcuts has a focused descendant
+      await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(saved, isNotNull);
+      expect(saved!.length, editing.bytes.length);
     });
 
     testWidgets('swapping bytes opens a fresh session', (tester) async {

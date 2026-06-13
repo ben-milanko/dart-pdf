@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
@@ -6,6 +7,7 @@ import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfStandardFont;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../viewport.dart';
 import 'editing_color_picker.dart' show PdfColorFormat;
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
@@ -71,6 +73,18 @@ class PdfEditingPreferences extends ChangeNotifier {
   double? _searchPanelWidth;
   Color? _textFillColor;
   Color? _textBorderColor;
+
+  /// Saved viewports per document (see [viewportFor]). Insertion order is
+  /// least- to most-recently-touched, for LRU eviction past
+  /// [_maxViewports].
+  final Map<String, PdfViewport> _viewports = {};
+  bool _viewportsDirty = false;
+
+  /// How many documents' viewports to remember before evicting the
+  /// oldest.
+  static const _maxViewports = 64;
+
+  static const _viewportsKey = '${_prefix}documentViewports';
 
   Future<void> _load() async {
     final SharedPreferences store;
@@ -155,8 +169,81 @@ class PdfEditingPreferences extends ChangeNotifier {
         ]);
       }
     }
+    // viewports are a write-mostly store, not user-set UI state, so they
+    // load regardless of _modified and merge by key — any saved before the
+    // disk read (a fast scroll) keeps its place
+    for (final entry in _decodeViewports(store.getString(_viewportsKey))) {
+      _viewports.putIfAbsent(entry.$1, () => entry.$2);
+    }
     _store = store;
+    if (_viewportsDirty) _writeViewports();
     notifyListeners();
+  }
+
+  static List<(String, PdfViewport)> _decodeViewports(String? source) {
+    if (source == null) return const [];
+    final result = <(String, PdfViewport)>[];
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! List) return const [];
+      for (final entry in decoded) {
+        if (entry is! Map) continue;
+        final key = entry['k'];
+        final value = entry['v'];
+        if (key is! String || value is! Map) continue;
+        final viewport =
+            PdfViewport.fromJson(Map<String, Object?>.from(value));
+        if (viewport != null) result.add((key, viewport));
+      }
+    } catch (_) {
+      return const [];
+    }
+    return result;
+  }
+
+  void _writeViewports() {
+    final store = _store;
+    if (store == null) {
+      _viewportsDirty = true; // flush once storage is ready
+      return;
+    }
+    _viewportsDirty = false;
+    final list = [
+      for (final entry in _viewports.entries)
+        {'k': entry.key, 'v': entry.value.toJson()}
+    ];
+    unawaited(store.setString(_viewportsKey, jsonEncode(list)));
+  }
+
+  /// The saved viewport for the document keyed by [documentKey] (see
+  /// `pdfDocumentKey`), or null when none has been stored — what a host
+  /// passes to `PdfViewer.initialViewport` so reopening a document lands
+  /// where the user left it.
+  PdfViewport? viewportFor(String documentKey) => _viewports[documentKey];
+
+  /// Remembers [viewport] as the position for the document keyed by
+  /// [documentKey], evicting the least-recently-touched document past the
+  /// cap. Passing null forgets it. Persisted but deliberately silent — it
+  /// is called on every scroll/zoom settle, so it never notifies
+  /// listeners.
+  void setViewport(String documentKey, PdfViewport? viewport) {
+    if (documentKey.isEmpty) return;
+    if (viewport == null) {
+      if (_viewports.remove(documentKey) == null) return;
+    } else {
+      if (_viewports[documentKey] == viewport &&
+          _viewports.keys.isNotEmpty &&
+          _viewports.keys.last == documentKey) {
+        return; // unchanged and already most-recent
+      }
+      // re-insert so it becomes the most-recently-touched entry
+      _viewports.remove(documentKey);
+      _viewports[documentKey] = viewport;
+      while (_viewports.length > _maxViewports) {
+        _viewports.remove(_viewports.keys.first);
+      }
+    }
+    _writeViewports();
   }
 
   void _write(Future<Object?> Function(SharedPreferences store) write) {

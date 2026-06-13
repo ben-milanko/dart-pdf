@@ -493,7 +493,7 @@ class PdfEditingToolbar extends StatelessWidget {
                 if (onSave != null)
                   IconButton(
                     icon: const Icon(Icons.save_alt),
-                    tooltip: 'Save…',
+                    tooltip: 'Save… (⌘S / Ctrl+S)',
                     onPressed: () => onSave!(controller.bytes),
                   ),
                 if (trailing.isNotEmpty) ...[
