@@ -107,7 +107,7 @@ Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` — asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
 (`signature_editor.dart`, adbe.pkcs7.detached with ByteRange patching).
-No trust-store chain validation. Test signer identity in
+Test signer identity in
 `pdf_test_fixtures/src/signer_identity.dart`.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
@@ -135,9 +135,8 @@ lossless bit-perfect vs OpenJPEG, lossy ±1), deep-zoom detail patch
 (`PdfPageView` renders the visible slice past the raster caps;
 `rasterizeRegion`), and real ICC (`IccProfile` in pdf_graphics —
 gray TRC, matrix/TRC, mft1/mft2/mAB LUTs, validated vs littleCMS;
-wired into sc/scn and image decoding). Remaining gaps: text reflow,
-RSASSA-PSS, JBIG2 Huffman/refinement, JPX subsampling + PCRL/CPRL,
-rendering intents/BPC in ICC.
+wired into sc/scn and image decoding). Remaining gaps:
+RSASSA-PSS, JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
 The editing UI is in (dart_pdf_editor `src/editing/`): `PdfEditingController`
 owns the edit session — every edit is an incremental save, so revisions
 are byte prefixes of one buffer and undo/redo is a stack of lengths;
@@ -884,8 +883,8 @@ widget tests' !timersPending — strip instrumentation before running
 suites. The thumbnail strip's ReorderableListView still estimates
 (no itemExtentBuilder support); its bar could wobble on mixed docs —
 known, unfixed.
-Batch 3, session 5 (forms API for trax): everything trax's cloud
-functions do with @cantoo/pdf-lib, natively. Metadata (form.dart):
+Batch 3, session 5 (forms API): a native forms-mutation API.
+Metadata (form.dart):
 `PdfAcroForm.describeFields()` → `PdfFormFieldInfo` (name, type,
 pageIndex, rect) and `PdfFormField.widgetPageIndex` — widget /P first,
 then a per-page /Annots identity scan (fixture widgets carry no /P);
@@ -910,7 +909,7 @@ before regenerating; `sanitizeFieldText` swaps code units > 0xFF for
 spaces in APPEARANCES only (/V stays verbatim — appearance fonts are
 byte-encoded simple fonts, so those glyphs can't reach the page);
 `setButtonImage(field, image)` = aspect-fit centered image over the
-/MK decorations, /AP /N per widget (trax signatures/logos).
+/MK decorations, /AP /N per widget (for signatures/logos).
 pdf_cos: `CosString.fromText` USED TO THROW on non-Latin-1
 (latin1.encode) — now UTF-16BE with BOM per §7.9.2.2, so filling
 "naïve ✓" works and /V round-trips.
@@ -1400,10 +1399,19 @@ render expectation. Survey gotcha: PdfDocument.open is lazy — catalog
 and page-tree failures surface at pageCount, so harnesses must guard
 BOTH; the corpus test's unopenable branch pins "CosParseException or
 pageCount == 0". Known gaps the corpus documents but doesn't close:
-predefined CJK CMaps (noembed-sjis/eucjp, issue3521 render blank),
 JBIG2 Huffman/refinement (decode-fails gracefully, image skipped).
-Batch 5, session 1 (annotation sync surface, for the trax PSPDFKit
-replacement — gaps 1-3 of the feat/pspdfkit assessment): three layers.
+Predefined CJK CMaps are now handled (was a gap): `CjkCmap.forName`
+(pdf_graphics fonts/cjk_cmap.dart) decodes non-embedded Type0 text for
+Shift-JIS (`*-RKSJ-*`), EUC-JP (`EUC-H/V`), GBK/GB2312 (`GB*`/`GBK*`),
+Big5 (`*B5*`), UHC/EUC-KR (`KSC*`), and the Unicode CMaps
+(`Uni*-UCS2/UTF16-*`, code = Unicode directly). Each legacy charset has a
+packed `(code, unicode)` table generated from a Python codec
+(tool/gen_cjk_cmaps.py, same recipe as `_shift_jis_data.dart`); the font
+then has no outlines so the device substitutes a system CJK font. EUC-TW
+(`CNS-EUC`) and EUC-JP's JIS X 0212 (SS3) supplement still fall back to
+the Identity two-byte path. Corpus: noembed-sjis/eucjp + issue3521 now
+paint (dropped from `mayBeBlank`); unit coverage in cjk_cmap_test.dart.
+Batch 5, session 1 (annotation sync surface): three layers.
 (1) /NM identity: `_addAnnotation` stamps a v4 UUID /NM on every
 created annotation (single funnel for all ten creators; each creator
 gained an optional `name:` that wins over generation — pass it ONLY
@@ -1448,11 +1456,11 @@ prefixes can't skip revisions) — undoing past one reverts it locally
 and re-broadcasts the revert; documented, deliberate. Tests:
 pdf_document/test/annotation_sync_test.dart (17),
 dart_pdf_editor/test/editing_sync_test.dart (9 — incl. two piped
-controllers converging both ways). Remaining trax gaps: per-annotation
+controllers converging both ways). Remaining gaps: per-annotation
 read-only enforcement (host predicate + /F readOnly), hide-all
 annotations viewer toggle.
-Batch 5, session 2 (read-only enforcement + hide-all annotations — the
-last trax gaps): two features. (1) Read-only: `PdfAnnotation.isReadOnly/
+Batch 5, session 2 (read-only enforcement + hide-all annotations): two
+features. (1) Read-only: `PdfAnnotation.isReadOnly/
 isLocked/isLockedContents` (/F bits 7/8/10) + `PdfEditor.
 setAnnotationFlags` (in-place, like setAnnotationName). Controller:
 `canEditAnnotation` (typedef PdfAnnotationEditPredicate; setter drops
@@ -1484,7 +1492,6 @@ Preference `showAnnotations` (bool, default true); example: AppBar
 visibility/visibility_off toggle wired into viewer + thumbnails.
 Tests: annotation_metadata_test +1 (flags round-trip),
 editing_readonly_test.dart (7), annotations_visibility_test.dart (6).
-The trax-replacement gap list is now empty.
 Publishing round (Ben: pub.dev hosting + web demo): the Flutter package
 is now **dart_pdf_editor** (pub.dev already had a `pdf_flutter`; Ben picked
 the name) — directory, lib entry, and every reference renamed
@@ -1509,7 +1516,8 @@ account), hosting serves example/build/web at
 https://dart-pdf-demo.web.app (firebase.json + .firebaserc in example/;
 no immutable cache headers — main.dart.js isn't content-hashed);
 redeploy = build web --release + firebase deploy --only hosting.
-Text reflow (#128) is deferred on the roadmap at Ben's request.
+Text reflow (#128) has since landed: a paragraph-aware reading view
+with its own extraction logic (commit ec2c174).
 Touch round (Ben's comments: fling, paste on touch, visible fields):
 three features. (1) Touch fling: the overlay's viewport pan
 (_viewportPanning) ended by dropping details.velocity, so finger
@@ -1685,8 +1693,8 @@ names (PdfEditorView, PdfEditorFeatures) are unchanged. Residual-check
 pattern: `git grep -P '(?<!dart_)pdf_editor'`. Publish order is
 unchanged with dart_pdf_editor last; its dry-run re-verified.
 
-Colour-lock split + translucent paper (trax feat/pspdfkit handoff):
-two fork changes for trax's copy-type colour lock. (1) Colour controls
+Colour-lock split + translucent paper: two changes that let a host hide
+the colour controls while keeping style controls. (1) Colour controls
 split from style controls so a colour-locked markup session can HIDE
 the colour changer while keeping stroke/opacity/font editable — the
 single `styleControls`/`showStyle` flag bundled them. New
@@ -1696,8 +1704,9 @@ swatches + 'More colors…' picker + eyedropper, and (threaded into
 `_StyleMenu.showColor`) the text-box fill/border colour ROWS only —
 the stroke/opacity/font sliders + font segmented button stay ungated.
 The leading VerticalDivider shows if `showColor || showStyle`, and
-`_StyleMenu` itself now mounts on `showStyle` alone. trax passes
-`colorControls: !colourLocked, styleControls: true`. Migration note:
+`_StyleMenu` itself now mounts on `showStyle` alone. A host hiding the
+colour changer passes `colorControls: false, styleControls: true`.
+Migration note:
 `styleControls: false` no longer hides the palette/picker/eyedropper
 — set `colorControls: false` too (pdf_shell_test's "tool subset"
 test updated). (2) Translucent `pageColor` now washes over white
@@ -1711,9 +1720,6 @@ through the same path). Tests: pdf_shell_test (colorControls hides
 changer / present by default), page_color_test ("a translucent paper
 colour washes over white" — 0x80FF0000 reads ~(255,127,127) not
 (255,0,0), the clean discriminator vs the old un-backed raster).
-The rest of the handoff (PdfMarkupStore `colourLocked` computed,
-TraxProjectSettings/`toHexWithAlpha`, copy-type opacity-slider UI) is
-trax-repo work, not here.
 Shape resize line-width stretch (Ben: "annotation line width gets
 stretched in the preview before returning to original"): the
 move/resize drag previews via a rasterized appearance ghost scaled
@@ -2153,3 +2159,36 @@ thereafter. Tests: editing_preferences_test +4 (each tool keeps its own
 style, markup highlighter colour, no-slot inherits, persistence into a
 fresh session). The 14 Ghent render-baseline failures are pre-existing
 on this machine, unrelated.
+
+Thumbnail multi-select (Ben: "shift click to multi select pages in the
+thumbnail strip"): the strip gained a page selection alongside the
+annotation selection. Controller (editing_controller.dart, "page
+selection" section): `_selectedPages` (a Set<int>) + `_pageSelectionAnchor`
+(the last plain/⌘ click — what a shift-click extends from); getters
+`selectedPages` (ascending), `hasPageSelection`, `selectedPageCount`,
+`isPageSelected`; gestures `selectPage` (plain — single + re-anchor),
+`togglePageSelection` (⌘/Ctrl — add/remove + re-anchor), `selectPageRange`
+(shift — contiguous anchor..index, replacing, anchor stays so a further
+shift re-extends from the same origin), `selectAllPages`,
+`clearPageSelection`; bulk ops `removeSelectedPages` (editor `removePages`,
+one undo, refused when it would empty the doc — at least one page must
+remain) and `exportSelectedPages` (= `exportPages(selectedPages)`, null
+when empty). Every structural page edit (move/remove/insert/addBlank)
+clears the page selection too (indices shift), beside the existing
+`_selected.clear()`. UI (editing_thumbnails.dart): `_PageTile._onTap`
+reads HardwareKeyboard — shift → selectPageRange, ⌘/Ctrl →
+togglePageSelection (neither navigates, so a selection builds without the
+viewport jumping), plain → selectPage + jumpToPage; a selected tile gets a
+primary-tinted rounded chip behind the thumbnail (a color-only
+BoxDecoration on the tile's Container adds no padding, so per-tile layout
+and `_estimateOffset` are unchanged — don't switch it back to Padding).
+When `selectedPageCount > 1` a selection bar shows above the list ('N
+selected' + export (keys 'pdf-thumbnail-export-selected', only with
+onExportPages) + delete ('pdf-thumbnail-delete-selected', only with
+allowPageEditing) + clear ('pdf-thumbnail-clear-selection')); a single
+selection is just the navigation cursor (the per-tile delete handles it).
+Tests: editing_page_ops_test.dart — a "page selection" controller group
+(11) + strip widget tests (shift-click range→delete, ctrl-click toggle);
+widget tests set tester.view 800×1400 so the lazy list builds every tile,
+and drive modifiers with sendKeyDownEvent/sendKeyUpEvent(LogicalKeyboardKey
+.shift/.controlLeft) around the tap.

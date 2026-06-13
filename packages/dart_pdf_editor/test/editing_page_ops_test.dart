@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -91,6 +92,112 @@ void main() {
     });
   });
 
+  group('page selection', () {
+    test('selectPage selects one page and sets the anchor', () {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      addTearDown(editing.dispose);
+      editing.selectPage(2);
+      expect(editing.selectedPages, [2]);
+      expect(editing.isPageSelected(2), isTrue);
+      expect(editing.hasPageSelection, isTrue);
+      expect(editing.selectedPageCount, 1);
+    });
+
+    test('selectPageRange extends a contiguous range from the anchor', () {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      addTearDown(editing.dispose);
+      editing.selectPage(1);
+      editing.selectPageRange(3);
+      expect(editing.selectedPages, [1, 2, 3]);
+    });
+
+    test('selectPageRange works backwards from the anchor', () {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      addTearDown(editing.dispose);
+      editing.selectPage(3);
+      editing.selectPageRange(1);
+      expect(editing.selectedPages, [1, 2, 3]);
+    });
+
+    test('a second shift-range re-extends from the same anchor', () {
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      addTearDown(editing.dispose);
+      editing.selectPage(2);
+      editing.selectPageRange(4);
+      expect(editing.selectedPages, [2, 3, 4]);
+      // anchor stays at 2 — extend the other way, replacing the range
+      editing.selectPageRange(0);
+      expect(editing.selectedPages, [0, 1, 2]);
+    });
+
+    test('togglePageSelection adds then removes individual pages', () {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      addTearDown(editing.dispose);
+      editing.selectPage(0);
+      editing.togglePageSelection(2);
+      editing.togglePageSelection(4);
+      expect(editing.selectedPages, [0, 2, 4]);
+      editing.togglePageSelection(2);
+      expect(editing.selectedPages, [0, 4]);
+    });
+
+    test('selectAllPages then clearPageSelection', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.selectAllPages();
+      expect(editing.selectedPages, [0, 1, 2]);
+      editing.clearPageSelection();
+      expect(editing.hasPageSelection, isFalse);
+    });
+
+    test('removeSelectedPages deletes the selection in one undo', () {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      editing.selectPage(0);
+      editing.selectPageRange(1); // Page 1 and Page 2
+      expect(editing.removeSelectedPages(), isTrue);
+      expect(labelsOf(editing.document), ['Page 3', 'Page 4']);
+      expect(editing.hasPageSelection, isFalse);
+      editing.undo();
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 2', 'Page 3', 'Page 4']);
+    });
+
+    test('removeSelectedPages refuses to empty the document', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.selectAllPages();
+      expect(editing.removeSelectedPages(), isFalse);
+      expect(editing.document.pageCount, 3);
+    });
+
+    test('a structural page edit clears the selection', () {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      editing.selectPage(1);
+      editing.selectPageRange(3);
+      editing.addBlankPage();
+      expect(editing.hasPageSelection, isFalse);
+    });
+
+    test('exportSelectedPages builds a standalone PDF in page order', () {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      editing.selectPage(3);
+      editing.togglePageSelection(1);
+      final bytes = editing.exportSelectedPages();
+      expect(bytes, isNotNull);
+      expect(labelsOf(PdfDocument.open(bytes!)), ['Page 2', 'Page 4']);
+      expect(editing.isModified, isFalse);
+    });
+
+    test('exportSelectedPages is null with nothing selected', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      expect(editing.exportSelectedPages(), isNull);
+    });
+  });
+
   group('page range dialog', () {
     testWidgets('returns the chosen 0-based inclusive range', (tester) async {
       ({int start, int end})? result;
@@ -169,6 +276,78 @@ void main() {
       await tester.pump();
       expect(editing.document.pageCount, 3);
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
+    testWidgets('shift-click selects a range, then deletes it', (tester) async {
+      // a tall surface so every tile builds (the list is lazy)
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      // a plain tap selects one page (and anchors there)
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(editing.selectedPages, [1]);
+
+      // shift-click extends the range from the anchor
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 4'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(editing.selectedPages, [1, 2, 3]);
+
+      // the selection bar appears; its delete removes the whole selection
+      expect(find.byKey(const ValueKey('pdf-thumbnail-delete-selected')),
+          findsOneWidget);
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-thumbnail-delete-selected')));
+      await tester.pump();
+      expect(labelsOf(editing.document), ['Page 1', 'Page 5']);
+      expect(editing.hasPageSelection, isFalse);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
+    testWidgets('ctrl-click toggles pages into the selection', (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('Page 1'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(editing.selectedPages, [0, 2]);
+      await tester.pump(const Duration(seconds: 2));
     });
 
     testWidgets('a read-only strip has no Add page footer', (tester) async {

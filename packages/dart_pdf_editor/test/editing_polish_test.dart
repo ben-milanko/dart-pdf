@@ -297,10 +297,16 @@ void main() {
       final data = await capture(tester, boundary);
       expect(patchHas(data, 800, 600, edge.dx, edge.dy, 4, strongRed), isTrue,
           reason: 'the moved annotation should stay painted post-commit');
+      // a move no longer washes the old spot: the opaque paper wash there
+      // would blank the page content under the previous location until the
+      // re-render lands, then flash it back. Instead the (stale) raster is
+      // left showing the square at its old place — continuous with the drag
+      // and consistent with how undo/redo leave the previous raster up — so
+      // its red border is still present here until the new raster lands.
       final oldEdge = view(100, 700) - const Offset(0, 33);
       expect(patchHas(data, 800, 600, oldEdge.dx, oldEdge.dy, 4, strongRed),
-          isFalse,
-          reason: 'the source position should be washed while rerendering');
+          isTrue,
+          reason: 'the old position is left to the stale raster, not washed');
       // let the double-tap recognizer's timer expire
       await tester.pump(const Duration(milliseconds: 400));
     });

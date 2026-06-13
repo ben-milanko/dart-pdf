@@ -1,7 +1,22 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
+First stable release. Changes since 0.1.0:
+
+- Line/PolyLine/Polygon annotations: reading and authoring with the full
+  PDF Table 176 line-ending vocabulary, plus reshaping.
+- Measurement annotations (§12.9): `PdfMeasure`/`PdfNumberFormat`, scale
+  calibration (`setMeasurementScale`), and `addMeasurement` for
+  distance/perimeter/area with a `/Measure` dictionary and a baked-in
+  formatted caption.
+- True redaction: mark `/Redact` regions and burn the underlying content
+  irreversibly.
+- Image stamps: `PdfEditor.addImageStamp` places a PNG/JPEG as a stamp
+  annotation; dashed (`/D`) stroke patterns for all shape subtypes; and
+  annotation flip when a resize handle is dragged past the zero point.
+- Form widgets: `resizeFormWidget` rewrites a field's `/Rect` and
+  regenerates its appearance at the new size.
 - Page assembly: `PdfEditor.insertBlankPage` adds a new empty page at any
   position (sized to request, default US Letter), and
   `PdfDocument.extractPageRange` exports a contiguous span of pages as a

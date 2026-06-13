@@ -1,7 +1,28 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
+First stable release. Changes since 0.1.0:
+
+- Color: Lab, CalGray, and CalRGB CIE-based color spaces; calibrated
+  Separation/DeviceN alternate spaces; Indexed color; and pure-Dart
+  DeviceCMYK JPEG decoding for correct print-color rendering.
+- Fonts: a Type 1 parser; CFF improvements (seac accented-glyph
+  composition, encoding supplements, per-FD font-matrix composition);
+  TrueType `post`-table glyph-name lookup when there is no usable cmap;
+  custom `/Encoding` and ZapfDingbats glyph resolution; vertical writing
+  mode (Identity-V / WMode 1) for Type 0 fonts; and CJK CMap support for
+  non-embedded Adobe-Japan1 and legacy GBK fonts.
+- Transparency: isolated knockout groups (`/K true`); optional content
+  groups (OCG) with visibility expressions for correct layer handling.
+- Images: full-resolution `/Mask` stencils, and JBIG2 pattern
+  dictionaries with halftone regions.
+- Patterns: tiling-pattern and shading-pattern fills rendered through
+  glyph outlines for text.
+- Text: paragraph-aware reflow extraction for reading view; rotated text
+  selection geometry.
+- Robustness: pages with invalid bounding boxes fall back to valid
+  geometry instead of collapsing.
 - Document-AI seam: `PdfDocumentContext.of(document)` gathers a document's
   text, form fields, and annotations into a clean, serializable shape for a
   host-supplied language model, and `PdfDocumentActionSink` describes the

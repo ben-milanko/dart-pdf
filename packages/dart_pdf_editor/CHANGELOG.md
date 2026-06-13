@@ -1,15 +1,29 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
-- Keyboard shortcuts for the common editing tools: single, unmodified keys
-  arm a tool from the viewer (V select, P pen/ink, E eraser, R rectangle,
-  O ellipse, L line, A arrow, T text box, N note, S stamp, I image,
-  G signature, M measure, F form, C content, K redact); pressing a tool's
-  key again drops back to Select. Active only during an editing session and
-  suppressed while an in-place text editor (free text or form field) is
-  open. The bindings are exposed as `pdfEditToolShortcuts` and surfaced in
-  the toolbar tooltips (e.g. "Rectangle (R)").
+First stable release. Highlights since 0.1.0:
+
+- Redaction tool: mark regions and burn the content irreversibly.
+- Document comparison: pixel + text diff with a synchronized compare view.
+- Text reflow: a paragraph-aware reading view of extracted text.
+- More annotation tools: line/polyline/polygon with the full line-ending
+  picker, an insert-image tool, customizable dash line styles, and
+  polygon fills.
+- Text boxes: bold/italic across the standard fonts, with font, outline,
+  and fill controls in the style popup.
+- Forms: fill fields directly in reading mode, and use the form tool to
+  select, move, resize, and rename fields.
+- Per-tool style memory: each annotation tool remembers its own color,
+  stroke, opacity, font, and line style across sessions.
+- Responsive UI: a floating toolbar, side panels and the thumbnail strip
+  become bottom sheets on small screens, and tap-to-place for text,
+  stamps, and signatures.
+- Input & performance: reduced Apple Pencil latency (forward-extrapolated
+  prediction), single-finger scroll in pencil mode, Shift+drag marquee
+  selection, aspect-lock and past-zero invert on resize, an eraser-size
+  control, render pacing for smooth fast-scrolling, compact auto-dismissing
+  snackbars, and a ⌘S / Ctrl+S save shortcut.
 - Page management: `PdfEditingController.addBlankPage` (sized to its
   neighbour by default), `insertPagesFrom`/`insertPagesFromBytes` (merge
   pages from another PDF), and `exportPages`/`exportPageRange` (split off a
@@ -33,6 +47,14 @@
   and `PdfEditorView` shells remember and restore each document's
   position automatically — pass `documentId` for a stable key, or let it
   derive one from the bytes (`pdfDocumentKey`).
+- Keyboard shortcuts for the common editing tools: single, unmodified keys
+  arm a tool from the viewer (V select, P pen/ink, E eraser, R rectangle,
+  O ellipse, L line, A arrow, T text box, N note, S stamp, I image,
+  G signature, M measure, F form, C content, K redact); pressing a tool's
+  key again drops back to Select. Active only during an editing session and
+  suppressed while an in-place text editor (free text or form field) is
+  open. The bindings are exposed as `pdfEditToolShortcuts` and surfaced in
+  the toolbar tooltips (e.g. "Rectangle (R)").
 
 ## 0.1.0
 
