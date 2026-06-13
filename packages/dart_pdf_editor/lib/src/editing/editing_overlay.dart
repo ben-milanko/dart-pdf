@@ -38,6 +38,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.zoom = 1,
     this.predictStrokes = true,
     this.formImagePicker,
+    this.imagePicker,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
   });
@@ -50,6 +51,10 @@ class EditingPageOverlay extends StatefulWidget {
   /// How the form tool asks for a push-button field's image. With none,
   /// tapping a push button does nothing.
   final PdfFormImagePicker? formImagePicker;
+
+  /// How the image tool ([PdfEditTool.image]) asks for the picture to
+  /// insert. With none, the image tool does nothing.
+  final PdfImagePicker? imagePicker;
 
   /// The paper color the page is displayed with — the eyedropper's
   /// raster must match what's on screen.
@@ -1514,6 +1519,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.measureDistance ||
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
+            PdfEditTool.image ||
             PdfEditTool.redact:
         setState(() {
           _dragStart = position;
@@ -2133,6 +2139,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             title: 'Stamp text', initial: 'APPROVED');
         if (text == null || text.isEmpty) return;
         _controller.addStamp(widget.pageIndex, rect, text);
+      case PdfEditTool.image:
+        final picker = widget.imagePicker;
+        if (picker == null) return;
+        final bytes = await picker(context);
+        if (bytes == null) return;
+        _controller.addImageInRect(widget.pageIndex, rect, bytes);
       case PdfEditTool.form:
         _controller.addFormField(
             _controller.newFormFieldKind, widget.pageIndex, rect);
@@ -2331,6 +2343,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           if (text == null || text.isEmpty) return;
           _controller.placeTextStamp(widget.pageIndex, x, y, text);
         }
+      case PdfEditTool.image:
+        final picker = widget.imagePicker;
+        if (picker == null) return;
+        final bytes = await picker(context);
+        if (bytes == null) return;
+        _controller.placeImage(widget.pageIndex, x, y, bytes);
       case PdfEditTool.form:
         // single tap selects the field for move/resize/menu; double-tap
         // fills it (read mode is the no-tool path to just fill)

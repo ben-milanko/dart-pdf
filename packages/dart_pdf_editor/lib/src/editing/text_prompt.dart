@@ -9,6 +9,11 @@ import 'package:pdf_document/pdf_document.dart' show PdfFormField;
 typedef PdfFormImagePicker = Future<Uint8List?> Function(
     BuildContext context, PdfFormField field);
 
+/// Supplies the image bytes the image tool ([PdfEditTool.image]) inserts
+/// — typically a file picker. Return null to cancel. PNG and JPEG bytes
+/// are accepted ([PdfEditingController.placeImage]).
+typedef PdfImagePicker = Future<Uint8List?> Function(BuildContext context);
+
 /// Signature of the prompt the editing UI uses to ask for annotation text
 /// (free text, notes, stamps). Returns null when the user cancels.
 typedef PdfTextPrompt = Future<String?> Function(

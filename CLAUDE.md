@@ -1948,3 +1948,36 @@ and the `canResizeSelected` tool gate; the "drag on a widget" test now
 asserts the widget MOVED (it used to assert nothing happened). Toolbar
 tooltip is now 'Form fields — tap to select, double-tap to fill, drag to
 add' (pdf_shell/toolbar tests that find it by tooltip updated).
+
+Insert image (Ben: "allow inserting an image into the PDF"): a new
+`PdfEditTool.image` inserts a PNG/JPEG as a /Stamp annotation, so it
+inherits select/move/resize/rotate/delete for free. pdf_document:
+`PdfEditor.addImageStamp(pageIndex, rect, PdfEmbeddableImage, {opacity,
+author, name})` (annotation_editor.dart) registers the image XObject via
+`image.toXObject` and writes an appearance that `cm`-maps the unit image
+onto the rect (BBox = rect, so the §12.5.5 fit is the identity);
+`_resources` gained an `xObject:` param. CRITICAL: the stamp carries NO
+/Contents, so `pdfCanRestyleAnnotation` returns false — the restyle path
+(`_regenerateStyledAppearance` case 'Stamp') would regenerate a /Stamp as
+a TEXT stamp and wipe the picture; resize falls through to the stretch
+path (Stamp isn't in `_regenerateResizedAppearance`), which scales the
+form matrix so the image scales with the box, and rotate bakes the matrix
+like any stamp. Controller (editing_controller.dart): `placeImage(page,
+x, y, bytes, {maxSize: 200})` (tap — aspect-preserving box clamped to 90%
+of the crop box, centered on the tap) and `addImageInRect(page, box,
+bytes)` (drag-out — fits the image within the dragged box); both decode
+ONCE (`PdfEmbeddableImage.decode`, junk → false, no revision) and reuse
+the decoded image in the apply closure. UI: `PdfImagePicker = Future<
+Uint8List?> Function(BuildContext)` (text_prompt.dart), threaded
+`PdfViewer.imagePicker` → _PdfViewerPage → EditingPageOverlay (overlay
+`_onTapUp`/`_commitRect` image branches await the picker then call
+place/addInRect); `PdfEditorView.imagePicker`; toolbar Insert group gained
+an Icons.image_outlined button. Example: `_pickImage` (file_selector,
+reuses `_imageTypeGroup`) wired into PdfEditorView. No afterimage (tap-
+placed, like text stamps — the picker dialog covers the re-render). Tests:
+pdf_document image_stamp_test.dart (4 — XObject in appearance, not
+restyleable, resize stretches keeping /Img0, opacity→ca) and
+dart_pdf_editor editing_image_test.dart (7 — placeImage aspect/clamp,
+addImageInRect fit, junk reject, viewer tool tap runs picker / cancel /
+no-picker). Pre-existing example/test failures (7, Text("0") duplicate
++ others) are unrelated — present without this change.

@@ -228,6 +228,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           _GroupTool.tool(
               PdfEditTool.note, Icons.sticky_note_2_outlined, 'Note'),
           _GroupTool.tool(PdfEditTool.stamp, Icons.approval, 'Stamp'),
+          _GroupTool.tool(PdfEditTool.image, Icons.image_outlined,
+              'Image — tap to place, or drag out a box'),
           _GroupTool.tool(PdfEditTool.signature, Icons.history_edu,
               'Signature — tap a page to place it'),
         ],

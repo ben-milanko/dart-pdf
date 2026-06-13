@@ -341,6 +341,7 @@ class PdfViewer extends StatefulWidget {
     this.editingTextPrompt,
     this.annotationMenuBuilder,
     this.formImagePicker,
+    this.imagePicker,
     this.pageSpacing = 12,
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
@@ -406,6 +407,11 @@ class PdfViewer extends StatefulWidget {
   /// (signature and logo fields) — typically a file picker returning
   /// PNG or JPEG bytes. With none, tapping a push button does nothing.
   final PdfFormImagePicker? formImagePicker;
+
+  /// How the image tool ([PdfEditTool.image]) asks for the picture to
+  /// insert — typically a file picker returning PNG or JPEG bytes. With
+  /// none, the image tool does nothing.
+  final PdfImagePicker? imagePicker;
 
   final double pageSpacing;
 
@@ -2496,6 +2502,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 editingTextPrompt:
                     widget.editingTextPrompt ?? showPdfTextPrompt,
                 formImagePicker: widget.formImagePicker,
+                imagePicker: widget.imagePicker,
                 onPanViewport: _grabPanBy,
                 onPanViewportEnd: _flingViewport,
                 onShowAnnotationMenu: _showSelectionMenu,
@@ -2769,6 +2776,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.formController,
     required this.editingTextPrompt,
     required this.formImagePicker,
+    required this.imagePicker,
     required this.onPanViewport,
     required this.onPanViewportEnd,
     required this.onShowAnnotationMenu,
@@ -2812,6 +2820,7 @@ class _PdfViewerPage extends StatefulWidget {
 
   final PdfTextPrompt editingTextPrompt;
   final PdfFormImagePicker? formImagePicker;
+  final PdfImagePicker? imagePicker;
   final void Function(Offset delta) onPanViewport;
 
   /// See [EditingPageOverlay.onPanViewportEnd].
@@ -2942,6 +2951,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               geometry: geometry,
                               textPrompt: widget.editingTextPrompt,
                               formImagePicker: widget.formImagePicker,
+                              imagePicker: widget.imagePicker,
                               pageColor: widget.pageColor,
                               showAnnotations: widget.showAnnotations,
                               onPanViewport: widget.onPanViewport,
