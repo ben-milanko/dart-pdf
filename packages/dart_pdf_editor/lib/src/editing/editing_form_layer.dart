@@ -56,7 +56,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   // The text field being edited, if any. Fields die with every revision,
   // so the name is the stable handle; the rest is layout captured at open.
   String? _editingField;
-  Rect? _editRect;
+  Rect? _editRect; // view space; derived from _editPageRect per build
+  // page space is the source of truth: a zoom that re-lays-out the page
+  // (the _layoutZoom regime changes geometry.scale) would leave a cached
+  // view rect stale, drifting the editor across the field — build
+  // refreshes _editRect from this through the live geometry
+  PdfRect? _editPageRect;
   PdfStandardFont _editFont = PdfStandardFont.helvetica;
   double _editSize = 12;
   bool _editMultiline = false;
@@ -101,6 +106,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     setState(() {
       _editingField = field.name;
       _editRect = viewRect;
+      _editPageRect = widget.geometry.toPageRect(viewRect);
       _editMultiline = field.isMultiline;
       _editFont = tf == null
           ? PdfStandardFont.helvetica
@@ -150,10 +156,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       setState(() {
         _editingField = null;
         _editRect = null;
+        _editPageRect = null;
       });
     } else {
       _editingField = null;
       _editRect = null;
+      _editPageRect = null;
     }
     _controller.setEditingText(false);
   }
@@ -246,6 +254,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     }
 
     final geometry = widget.geometry;
+    // re-derive the editor's view rect through the LIVE geometry: a zoom
+    // can re-lay-out the page (_layoutZoom) between open and now, so a
+    // cached view rect would have drifted off the field
+    if (_editPageRect != null) {
+      _editRect = geometry.toViewRect(_editPageRect!);
+    }
     final fields = _controller.formWidgetsOn(widget.pageIndex);
     // an edited field that vanished (undo, remote change) drops its editor
     if (_editingField != null &&
