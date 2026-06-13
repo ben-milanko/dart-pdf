@@ -159,6 +159,7 @@ class PdfEditorView extends StatefulWidget {
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.formImagePicker,
+    this.imagePicker,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolbarLeading = const [],
@@ -219,6 +220,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.formImagePicker].
   final PdfFormImagePicker? formImagePicker;
+
+  /// See [PdfViewer.imagePicker].
+  final PdfImagePicker? imagePicker;
 
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
@@ -563,6 +567,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         formImagePicker: widget.formImagePicker,
+                        imagePicker: widget.imagePicker,
                         editingTextPrompt: widget.textPrompt,
                         initialFit: widget.initialFit,
                         backgroundColor: widget.backgroundColor,

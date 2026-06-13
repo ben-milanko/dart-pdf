@@ -77,6 +77,13 @@ enum PdfEditTool {
   /// ([PdfEditingController.signature]) as an Ink annotation.
   signature,
 
+  /// Insert a raster image (PNG or JPEG). Tapping places it at a default
+  /// size; dragging out a box fits it within the box. The picked image
+  /// comes from [PdfViewer.imagePicker]; with none the tool does nothing.
+  /// The image becomes a /Stamp annotation, so it can be moved, resized,
+  /// rotated, and deleted like any other annotation.
+  image,
+
   /// Tap to select a page content element (text run, path, image); the
   /// selection can be deleted or, for text, rewritten. Edits the page's
   /// content stream itself, not annotations.
@@ -1032,6 +1039,61 @@ class PdfEditingController extends ChangeNotifier {
               opacity: preferences.opacity,
               author: author),
           pages: [pageIndex]);
+
+  /// Places [imageBytes] (PNG or JPEG) centered on ([x], [y]) in page
+  /// space, [maxSize] points on its longest side, preserving the image's
+  /// aspect ratio and clamped so the whole image stays on the page.
+  /// Returns false when the bytes aren't a decodable PNG or JPEG.
+  bool placeImage(int pageIndex, double x, double y, Uint8List imageBytes,
+      {double maxSize = 200}) {
+    final PdfEmbeddableImage image;
+    try {
+      image = PdfEmbeddableImage.decode(imageBytes);
+    } catch (_) {
+      return false;
+    }
+    final box = _page(pageIndex).cropBox;
+    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+    var w = aspect >= 1 ? maxSize : maxSize * aspect;
+    var h = aspect >= 1 ? maxSize / aspect : maxSize;
+    final maxW = box.width * 0.9, maxH = box.height * 0.9;
+    if (w > maxW) (w, h) = (maxW, h * maxW / w);
+    if (h > maxH) (w, h) = (w * maxH / h, maxH);
+    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
+    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
+    return apply(
+        (e) => e.addImageStamp(pageIndex,
+            PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
+            opacity: preferences.opacity, author: author),
+        pages: [pageIndex]);
+  }
+
+  /// Inserts [imageBytes] (PNG or JPEG) fitted within [box] (page space),
+  /// centered and preserving the image's aspect ratio. The drag-out
+  /// counterpart of [placeImage]. Returns false when the bytes aren't a
+  /// decodable PNG or JPEG, or [box] is degenerate.
+  bool addImageInRect(int pageIndex, PdfRect box, Uint8List imageBytes) {
+    if (box.width <= 0 || box.height <= 0) return false;
+    final PdfEmbeddableImage image;
+    try {
+      image = PdfEmbeddableImage.decode(imageBytes);
+    } catch (_) {
+      return false;
+    }
+    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+    var w = box.width, h = box.height;
+    if (w / h > aspect) {
+      w = h * aspect;
+    } else {
+      h = w / aspect;
+    }
+    final cx = (box.left + box.right) / 2, cy = (box.bottom + box.top) / 2;
+    return apply(
+        (e) => e.addImageStamp(pageIndex,
+            PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
+            opacity: preferences.opacity, author: author),
+        pages: [pageIndex]);
+  }
 
   /// Adds a sticky note with its top-left corner at ([x], [y]).
   void addNote(int pageIndex, double x, double y, String text) => apply(

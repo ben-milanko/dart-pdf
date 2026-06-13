@@ -41,6 +41,12 @@ Future<Uint8List?> _pickFormImage(BuildContext context, PdfFormField field) =>
     openFile(acceptedTypeGroups: const [_imageTypeGroup])
         .then((file) => file?.readAsBytes());
 
+/// The image tool's picker: inserts the chosen PNG or JPEG as a stamp
+/// annotation the user can move, resize, and rotate.
+Future<Uint8List?> _pickImage(BuildContext context) =>
+    openFile(acceptedTypeGroups: const [_imageTypeGroup])
+        .then((file) => file?.readAsBytes());
+
 void main() => runApp(const ViewerApp());
 
 class ViewerApp extends StatefulWidget {
@@ -559,6 +565,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
                           annotationMenuBuilder: _annotationMenuActions,
                           formImagePicker: _pickFormImage,
+                          imagePicker: _pickImage,
                         ),
     );
   }

@@ -1399,6 +1399,47 @@ extension PdfAnnotationEditing on PdfEditor {
     return (w, gs);
   }
 
+  /// Inserts [image] (a decoded PNG or JPEG) as a /Stamp annotation whose
+  /// appearance draws it scaled to fill [rect].
+  ///
+  /// Modelled as a stamp so it inherits select/move/resize/rotate/delete
+  /// from the annotation machinery for free. It carries no /Contents, so
+  /// [pdfCanRestyleAnnotation] returns false — the restyle path would
+  /// regenerate a /Stamp as a *text* stamp and destroy the picture.
+  /// Resize stretches the appearance (the §12.5.5 BBox→Rect fit scales the
+  /// form matrix, so the image scales with the box) and rotate bakes the
+  /// matrix, exactly like any other stamp.
+  void addImageStamp(
+    int pageIndex,
+    PdfRect rect,
+    PdfEmbeddableImage image, {
+    double opacity = 1,
+    String? author,
+    String? name,
+  }) {
+    final imageRef = _updater
+        .addObject(image.toXObject((smask) => _updater.addObject(smask)));
+    final w = ContentWriter();
+    final gs = _alphaState(opacity);
+    if (gs != null) w.extGState('GS0');
+    // a unit image (1×1 at the origin) mapped onto the rect in page space —
+    // the form's BBox is the rect, so the §12.5.5 fit is the identity
+    w
+      ..save()
+      ..concatMatrix(rect.width, 0, 0, rect.height, rect.left, rect.bottom)
+      ..drawXObject('Img0')
+      ..restore();
+    _addAnnotation(
+      pageIndex,
+      _markupDict('Stamp', rect, 0xC03030, null, author),
+      _form(rect, w,
+          resources: _resources(
+              extGState: gs,
+              xObject: CosDictionary({'Img0': imageRef}))),
+      name: name,
+    );
+  }
+
   /// Removes [annotation] from the page, along with its popup, if any.
   void removeAnnotation(int pageIndex, PdfAnnotation annotation) {
     final cos = document.cos;
@@ -2957,13 +2998,15 @@ extension PdfAnnotationEditing on PdfEditor {
     return dict;
   }
 
-  CosDictionary? _resources({CosDictionary? extGState, CosDictionary? font}) {
-    if (extGState == null && font == null) return null;
+  CosDictionary? _resources(
+      {CosDictionary? extGState, CosDictionary? font, CosDictionary? xObject}) {
+    if (extGState == null && font == null && xObject == null) return null;
     final dict = CosDictionary();
     if (extGState != null) {
       dict['ExtGState'] = CosDictionary({'GS0': extGState});
     }
     if (font != null) dict['Font'] = font;
+    if (xObject != null) dict['XObject'] = xObject;
     return dict;
   }
 
