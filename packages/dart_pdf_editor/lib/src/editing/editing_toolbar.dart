@@ -781,6 +781,10 @@ class _StyleMenuState extends State<_StyleMenu> {
             // with a restylable selection the stroke/opacity sliders
             // show — and change — its style; otherwise the defaults
             final restylingAnnotation = controller.canRestyleSelected;
+            // the eraser doesn't paint, so none of the stroke/opacity/
+            // font/line controls apply to it — while it's armed the menu
+            // collapses to just the eraser-size slider
+            final isEraser = controller.tool == PdfEditTool.eraser;
             final annotationStyle =
                 restylingAnnotation ? controller.selectedAnnotationStyle : null;
             final strokeValue = _draggingStroke ??
@@ -821,25 +825,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _slider(
-                    label: 'Stroke width',
-                    value: strokeValue,
-                    min: 0.5,
-                    max: 12,
-                    display: '${strokeValue.toStringAsFixed(1)} pt',
-                    onChanged: (v) {
-                      setState(() => _draggingStroke = v);
-                      if (!restylingAnnotation) controller.strokeWidth = v;
-                    },
-                    onChangeEnd: (v) {
-                      controller.strokeWidth = v;
-                      if (restylingAnnotation) {
-                        controller.restyleSelected(strokeWidth: v);
-                      }
-                      setState(() => _draggingStroke = null);
-                    },
-                  ),
-                  if (controller.tool == PdfEditTool.eraser)
+                  if (isEraser)
                     _slider(
                       key: const ValueKey('pdf-eraser-size'),
                       label: 'Eraser size',
@@ -850,25 +836,45 @@ class _StyleMenuState extends State<_StyleMenu> {
                       onChanged: (v) =>
                           controller.eraserRadius = v.roundToDouble(),
                     ),
-                  _slider(
-                    label: 'Opacity',
-                    value: opacityValue,
-                    min: 0.1,
-                    max: 1,
-                    display: '${(opacityValue * 100).round()}%',
-                    onChanged: (v) {
-                      setState(() => _draggingOpacity = v);
-                      if (!restylingAnnotation) controller.opacity = v;
-                    },
-                    onChangeEnd: (v) {
-                      controller.opacity = v;
-                      if (restylingAnnotation) {
-                        controller.restyleSelected(opacity: v);
-                      }
-                      setState(() => _draggingOpacity = null);
-                    },
-                  ),
-                  if (!restylingAnnotation)
+                  if (!isEraser)
+                    _slider(
+                      label: 'Stroke width',
+                      value: strokeValue,
+                      min: 0.5,
+                      max: 12,
+                      display: '${strokeValue.toStringAsFixed(1)} pt',
+                      onChanged: (v) {
+                        setState(() => _draggingStroke = v);
+                        if (!restylingAnnotation) controller.strokeWidth = v;
+                      },
+                      onChangeEnd: (v) {
+                        controller.strokeWidth = v;
+                        if (restylingAnnotation) {
+                          controller.restyleSelected(strokeWidth: v);
+                        }
+                        setState(() => _draggingStroke = null);
+                      },
+                    ),
+                  if (!isEraser)
+                    _slider(
+                      label: 'Opacity',
+                      value: opacityValue,
+                      min: 0.1,
+                      max: 1,
+                      display: '${(opacityValue * 100).round()}%',
+                      onChanged: (v) {
+                        setState(() => _draggingOpacity = v);
+                        if (!restylingAnnotation) controller.opacity = v;
+                      },
+                      onChangeEnd: (v) {
+                        controller.opacity = v;
+                        if (restylingAnnotation) {
+                          controller.restyleSelected(opacity: v);
+                        }
+                        setState(() => _draggingOpacity = null);
+                      },
+                    ),
+                  if (!isEraser && !restylingAnnotation)
                     SwitchListTile(
                       key: const ValueKey('pdf-dashed-stroke'),
                       dense: true,
@@ -877,7 +883,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: controller.dashedStroke,
                       onChanged: (value) => controller.dashedStroke = value,
                     ),
-                  if (showLineEndings) ...[
+                  if (!isEraser && showLineEndings) ...[
                     _lineEndingRow(
                       context: context,
                       label: 'Line start',
@@ -905,63 +911,65 @@ class _StyleMenuState extends State<_StyleMenu> {
                       },
                     ),
                   ],
-                  _slider(
-                    label: 'Font size',
-                    value: _draggingFontSize ??
-                        selectedStyle?.size ??
-                        controller.fontSize,
-                    min: 8,
-                    max: 48,
-                    display:
-                        '${(_draggingFontSize ?? selectedStyle?.size ?? controller.fontSize).round()} pt',
-                    onChanged: (v) {
-                      setState(() => _draggingFontSize = v.roundToDouble());
-                      if (selectedStyle == null) {
-                        controller.fontSize = v.roundToDouble();
-                      }
-                    },
-                    onChangeEnd: (v) {
-                      final size = v.roundToDouble();
-                      controller.fontSize = size;
-                      if (controller.canRestyleSelectedText) {
-                        controller.restyleSelectedText(size: size);
-                      }
-                      setState(() => _draggingFontSize = null);
-                    },
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(children: [
-                      const SizedBox(width: 86, child: Text('Font')),
-                      Expanded(
-                        child: SegmentedButton<PdfStandardFont>(
-                          segments: const [
-                            ButtonSegment(
-                                value: PdfStandardFont.helvetica,
-                                label: Text('Sans')),
-                            ButtonSegment(
-                                value: PdfStandardFont.times,
-                                label: Text('Serif')),
-                            ButtonSegment(
-                                value: PdfStandardFont.courier,
-                                label: Text('Mono')),
-                          ],
-                          selected: {
-                            selectedStyle?.font ?? controller.fontFamily
-                          },
-                          showSelectedIcon: false,
-                          style: const ButtonStyle(
-                            visualDensity: VisualDensity.compact,
-                            padding: WidgetStatePropertyAll(
-                                EdgeInsets.symmetric(horizontal: 8)),
+                  if (!isEraser)
+                    _slider(
+                      label: 'Font size',
+                      value: _draggingFontSize ??
+                          selectedStyle?.size ??
+                          controller.fontSize,
+                      min: 8,
+                      max: 48,
+                      display:
+                          '${(_draggingFontSize ?? selectedStyle?.size ?? controller.fontSize).round()} pt',
+                      onChanged: (v) {
+                        setState(() => _draggingFontSize = v.roundToDouble());
+                        if (selectedStyle == null) {
+                          controller.fontSize = v.roundToDouble();
+                        }
+                      },
+                      onChangeEnd: (v) {
+                        final size = v.roundToDouble();
+                        controller.fontSize = size;
+                        if (controller.canRestyleSelectedText) {
+                          controller.restyleSelectedText(size: size);
+                        }
+                        setState(() => _draggingFontSize = null);
+                      },
+                    ),
+                  if (!isEraser)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(children: [
+                        const SizedBox(width: 86, child: Text('Font')),
+                        Expanded(
+                          child: SegmentedButton<PdfStandardFont>(
+                            segments: const [
+                              ButtonSegment(
+                                  value: PdfStandardFont.helvetica,
+                                  label: Text('Sans')),
+                              ButtonSegment(
+                                  value: PdfStandardFont.times,
+                                  label: Text('Serif')),
+                              ButtonSegment(
+                                  value: PdfStandardFont.courier,
+                                  label: Text('Mono')),
+                            ],
+                            selected: {
+                              selectedStyle?.font ?? controller.fontFamily
+                            },
+                            showSelectedIcon: false,
+                            style: const ButtonStyle(
+                              visualDensity: VisualDensity.compact,
+                              padding: WidgetStatePropertyAll(
+                                  EdgeInsets.symmetric(horizontal: 8)),
+                            ),
+                            onSelectionChanged: (selection) =>
+                                _setFontFamily(selection.single),
                           ),
-                          onSelectionChanged: (selection) =>
-                              _setFontFamily(selection.single),
                         ),
-                      ),
-                    ]),
-                  ),
-                  if (widget.showColor) ...[
+                      ]),
+                    ),
+                  if (!isEraser && widget.showColor) ...[
                     _boxColorRow(
                       context: context,
                       label: 'Text fill',
@@ -983,10 +991,15 @@ class _StyleMenuState extends State<_StyleMenu> {
           },
         ),
       ],
-      builder: (context, menu, _) => IconButton(
-        icon: const Icon(Icons.tune),
-        tooltip: 'Stroke, opacity, font',
-        onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+      builder: (context, menu, _) => ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) => IconButton(
+          icon: const Icon(Icons.tune),
+          tooltip: controller.tool == PdfEditTool.eraser
+              ? 'Eraser size'
+              : 'Stroke, opacity, font',
+          onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+        ),
       ),
     );
   }

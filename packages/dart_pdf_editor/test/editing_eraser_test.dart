@@ -230,6 +230,39 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets('the tune menu collapses to the eraser size while armed',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      // arming the eraser relabels the tune button so the size control
+      // is discoverable, not hidden behind 'Stroke, opacity, font'
+      editing.tool = PdfEditTool.eraser;
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Eraser size'), findsOneWidget);
+      expect(find.byTooltip('Stroke, opacity, font'), findsNothing);
+
+      await tester.scrollUntilVisible(find.byTooltip('Eraser size'), 100);
+      await tester.tap(find.byTooltip('Eraser size'));
+      await tester.pumpAndSettle();
+      // only the eraser slider shows — the paint-only controls are gone
+      expect(find.byKey(const ValueKey('pdf-eraser-size')), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
+      expect(find.text('Stroke width'), findsNothing);
+      expect(find.text('Font size'), findsNothing);
+    });
+
     test('the radius persists as a preference', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = PdfEditingPreferences();
