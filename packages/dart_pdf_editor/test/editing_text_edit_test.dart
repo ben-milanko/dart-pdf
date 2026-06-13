@@ -458,6 +458,17 @@ void main() {
       expect(text.data, 'Wrap me please');
       expect(text.style!.fontSize, closeTo(16 * scale, 0.01));
 
+      // a wash backing covers the RESTING box so the original rendering
+      // isn't visible poking out where the preview no longer covers it
+      const washKey = ValueKey('pdf-text-resize-wash');
+      expect(find.byKey(washKey), findsOneWidget);
+      final washRect = tester.getRect(find.byKey(washKey));
+      final previewRect = tester.getRect(find.byKey(previewKey));
+      // the drag narrowed the box, so the resting box's right side is now
+      // exposed by the preview — the wash must still cover it
+      expect(washRect.width, closeTo(200 * scale, 0.5));
+      expect(washRect.right, greaterThan(previewRect.right + 1));
+
       await gesture.up();
       await tester.pump();
 

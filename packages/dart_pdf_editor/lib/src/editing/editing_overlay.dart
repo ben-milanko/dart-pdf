@@ -2360,8 +2360,25 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               ),
               // a free-text resize in flight: the text re-wrapped to the
               // dragged box at its committed size, over a wash hiding the
-              // old rendering — never the ghost's stretched glyphs
-              if (wrapResize != null)
+              // old rendering — never the ghost's stretched glyphs.
+              // The wash backing first covers the RESTING box (_resizeFrom)
+              // so a shrink doesn't leave the original rendering poking out
+              // beyond the smaller preview rect; the preview's own wash then
+              // covers the grown area.
+              if (wrapResize != null) ...[
+                Positioned.fromRect(
+                  key: const ValueKey('pdf-text-resize-wash'),
+                  rect: _resizeFrom!,
+                  child: IgnorePointer(
+                    child: Transform.rotate(
+                      angle: _resizeAngle,
+                      child: ColoredBox(
+                        color: wrapResize.fill ??
+                            widget.pageColor.withValues(alpha: 0.92),
+                      ),
+                    ),
+                  ),
+                ),
                 _wrappedTextBox(
                   key: const ValueKey('pdf-text-resize-preview'),
                   rect: _resizeRect!,
@@ -2373,6 +2390,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       widget.pageColor.withValues(alpha: 0.92),
                   rotation: _resizeAngle,
                 ),
+              ],
               // a just-committed text edit, frozen until the page raster
               // catches up (same wash the inline editor painted over old
               // renderings, so nothing shows through meanwhile)
