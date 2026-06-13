@@ -109,6 +109,22 @@ typedef _InkPaint = ({
   double strokeWidth,
 });
 
+/// A Square/Circle drawn for a resize preview (or its committed
+/// afterimage). The editor *regenerates* a shape's appearance at the new
+/// rect with a constant stroke width rather than stretching the old one,
+/// so a stretched ghost would thicken the line during the drag and snap
+/// back on commit — this draws the shape the way the commit will, line
+/// width and all. [strokeWidth] is view space; [rotation] view radians.
+typedef _ShapeResize = ({
+  Rect rect,
+  bool ellipse,
+  Color? stroke,
+  double strokeWidth,
+  Color? fill,
+  double rotation,
+  double opacity,
+});
+
 /// Which sides of the selection a resize handle moves: -1 left/top edge,
 /// +1 right/bottom edge, 0 leaves that axis alone. (View space, y down.)
 typedef _Handle = ({int dx, int dy});
@@ -261,6 +277,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   double _afterGhostRotation = 0;
   double _afterGhostLocalAngle = 0;
   ({Rect rect, PdfEditTool tool, Color color, double strokeWidth})? _afterShape;
+  // a just-committed Square/Circle resize, held (constant stroke width)
+  // until the new revision's raster lands — see [_shapeResizeStyle]
+  _ShapeResize? _afterShapeResize;
   ({
     List<Offset> points,
     PdfEditTool tool,
@@ -705,6 +724,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhostRotation = 0;
     _afterGhostLocalAngle = 0;
     _afterShape = null;
+    _afterShapeResize = null;
     _afterPath = null;
     _afterText = null;
     _afterSignature = null;
@@ -767,6 +787,42 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       fill: parsed.fillColor != null
           ? Color(0xFF000000 | parsed.fillColor!)
           : null,
+    );
+  }
+
+  /// The selected annotation's style when a resize commit will
+  /// REGENERATE it (Square/Circle) at a constant stroke width — the
+  /// editor's shape regenerate path: an /AP to replace, no cloudy /BE,
+  /// no dashed border, and a stroke or fill to draw. [strokeWidth] is in
+  /// view pixels (the page-space border width scaled), so the preview
+  /// reads at the same weight the commit will, instead of the ghost's
+  /// stretched line. Null leaves the drag on the stretch ghost.
+  ///
+  /// Mirrors `_regenerateResizedAppearance`'s Square/Circle gate exactly,
+  /// so the preview never disagrees with the commit.
+  _ShapeResize? _shapeResizeStyle(Rect rect, double rotation) {
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null ||
+        (annotation.subtype != 'Square' && annotation.subtype != 'Circle') ||
+        annotation.normalAppearance == null) {
+      return null;
+    }
+    // cloudy and dashed borders fall back to the stretch path in the editor
+    if (annotation.dict['BE'] != null || annotation.borderDash != null) {
+      return null;
+    }
+    final width = annotation.borderWidth ?? 1;
+    final stroke = width > 0 ? annotation.color : null;
+    final fill = annotation.interiorColor;
+    if (stroke == null && fill == null) return null;
+    return (
+      rect: rect,
+      ellipse: annotation.subtype == 'Circle',
+      stroke: stroke == null ? null : Color(0xFF000000 | stroke),
+      strokeWidth: width * _geometry.scale,
+      fill: fill == null ? null : Color(0xFF000000 | fill),
+      rotation: rotation,
+      opacity: annotation.appearanceOpacity,
     );
   }
 
@@ -1457,6 +1513,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitVertexDrag(vertexPoints);
     } else if (resizeRect != null) {
       final wrapStyle = _textResizeStyle;
+      // captured before the commit: a Square/Circle regenerates at a
+      // constant stroke width, so its afterimage must too (the stretch
+      // ghost would thicken the line until the raster lands)
+      final shapeStyle = _shapeResizeStyle(resizeRect, resizeAngle);
       void commit() => resizeAngle == 0
           ? _controller.resizeSelected(_geometry.toPageRect(resizeRect))
           : _controller.resizeSelectedLocal(_geometry.toPageRect(resizeRect));
@@ -1478,6 +1538,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             washed: true,
             rotation: resizeAngle,
           );
+          _afterDocument = _controller.document;
+        }
+      } else if (shapeStyle != null) {
+        // the commit regenerates the shape at a constant stroke width —
+        // freeze the same constant-width preview the drag showed
+        final before = _controller.document;
+        commit();
+        if (!identical(before, _controller.document)) {
+          _clearAfterimage();
+          _afterShapeResize = shapeStyle;
           _afterDocument = _controller.document;
         }
       } else if (resizeAngle == 0) {
@@ -2140,6 +2210,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
         _resizeHandle != null && _resizeRect != null ? _textResizeStyle : null;
+    // a Square/Circle resize regenerates at a constant stroke width:
+    // preview that (live during the drag, then the frozen afterimage)
+    // instead of the ghost, whose line would stretch and snap back
+    final shapeResize = wrapResize == null &&
+            _resizeHandle != null &&
+            _resizeRect != null
+        ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
+        : _afterShapeResize;
     // strokes beyond the pending ink: the committed-ink afterimage (held
     // until the new raster lands) and the signature tool's live preview
     final committedInk = widget.rasterCurrent
@@ -2306,7 +2384,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost: wrapResize == null ? _ghost : null,
+                    ghost:
+                        wrapResize == null && shapeResize == null ? _ghost : null,
+                    shapeResize: shapeResize,
                     ghostFrom: _resizeHandle != null && _resizeAngle != 0
                         ? _resizeFrom
                         : selected,
@@ -2557,6 +2637,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.ghost,
     required this.ghostFrom,
     required this.ghostTo,
+    this.shapeResize,
     required this.dragging,
     required this.rotation,
     required this.ghostRotation,
@@ -2614,6 +2695,11 @@ class _EditingPreviewPainter extends CustomPainter {
   final ui.Picture? ghost;
   final Rect? ghostFrom;
   final Rect? ghostTo;
+
+  /// A Square/Circle resize preview (or its committed afterimage) drawn
+  /// with a constant stroke width — the shape regenerates rather than
+  /// stretching, so the ghost is suppressed in its favour.
+  final _ShapeResize? shapeResize;
   final bool dragging;
 
   /// The chrome's total rotation (view radians, clockwise positive):
@@ -2788,6 +2874,47 @@ class _EditingPreviewPainter extends CustomPainter {
       default:
         canvas.drawRect(rect, paint);
     }
+  }
+
+  /// Draws a Square/Circle at [s.rect] the way the editor regenerates it:
+  /// a constant-width stroke inset by half its width (so it stays inside
+  /// the rect, matching `_shapeContent`), an optional fill, rotated about
+  /// the rect center and dimmed to the appearance's opacity. The
+  /// constant width is the whole point — the ghost would stretch it.
+  void _paintShapeResize(Canvas canvas, _ShapeResize s) {
+    canvas.save();
+    if (s.rotation != 0) {
+      final c = s.rect.center;
+      canvas
+        ..translate(c.dx, c.dy)
+        ..rotate(s.rotation)
+        ..translate(-c.dx, -c.dy);
+    }
+    final layered = s.opacity < 1;
+    if (layered) {
+      canvas.saveLayer(
+          s.rect.inflate(s.strokeWidth + 2),
+          Paint()
+            ..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
+    }
+    final stroking = s.stroke != null && s.strokeWidth > 0;
+    final inset = stroking ? s.strokeWidth / 2 : 0.0;
+    final box = s.rect.deflate(inset);
+    if (s.fill != null && box.width > 0 && box.height > 0) {
+      final paint = Paint()
+        ..color = s.fill!
+        ..style = PaintingStyle.fill;
+      s.ellipse ? canvas.drawOval(box, paint) : canvas.drawRect(box, paint);
+    }
+    if (stroking && box.width > 0 && box.height > 0) {
+      final paint = Paint()
+        ..color = s.stroke!
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = s.strokeWidth;
+      s.ellipse ? canvas.drawOval(box, paint) : canvas.drawRect(box, paint);
+    }
+    if (layered) canvas.restore();
+    canvas.restore();
   }
 
   void _paintPathPreview(Canvas canvas, List<Offset> points, PdfEditTool? tool,
@@ -2968,6 +3095,8 @@ class _EditingPreviewPainter extends CustomPainter {
           rotation: ghostRotation,
           localAngle: ghostLocalAngle);
     }
+    final shapeResize = this.shapeResize;
+    if (shapeResize != null) _paintShapeResize(canvas, shapeResize);
     if (selection != null) {
       canvas.save();
       if (rotation != 0) {
@@ -3116,6 +3245,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.ghost != ghost ||
       oldDelegate.ghostFrom != ghostFrom ||
       oldDelegate.ghostTo != ghostTo ||
+      oldDelegate.shapeResize != shapeResize ||
       oldDelegate.dragging != dragging ||
       oldDelegate.rotation != rotation ||
       oldDelegate.ghostRotation != ghostRotation ||
