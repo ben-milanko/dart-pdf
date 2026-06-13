@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
@@ -161,10 +162,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   void _toast(String message) {
+    // Floating + width-constrained so the toast stays a compact pill rather
+    // than spanning the whole window.
+    final screenWidth = MediaQuery.of(context).size.width;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
         content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        width: math.min(420, screenWidth - 32),
         duration: const Duration(seconds: 2),
       ));
   }
@@ -404,12 +410,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                       onPressed: () async {
                         await tab.viewer!.copySelection();
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied to clipboard'),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
+                        _toast('Copied to clipboard');
                       },
                     ),
             ),
