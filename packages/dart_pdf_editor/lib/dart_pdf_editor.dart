@@ -2,6 +2,9 @@
 library;
 
 export 'src/canvas_device.dart';
+export 'src/comparison/comparison_view.dart';
+export 'src/comparison/document_comparison.dart';
+export 'src/comparison/page_comparison.dart';
 export 'src/editing/editing_color_picker.dart';
 export 'src/editing/editing_controller.dart';
 export 'src/editing/editing_menu.dart';

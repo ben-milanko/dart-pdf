@@ -155,25 +155,20 @@ Future<void> _checkBaseline({
             .buffer
             .asUint8List();
 
-    var differing = 0;
-    final diffMap = Uint8List(pixels.length);
-    for (var i = 0; i < pixels.length; i += 4) {
-      var maxDiff = 0;
-      for (var c = 0; c < 3; c++) {
-        final d = (pixels[i + c] - expectedPixels[i + c]).abs();
-        if (d > maxDiff) maxDiff = d;
-      }
-      final differs = maxDiff > _channelTolerance;
-      if (differs) differing++;
-      diffMap[i] = differs ? 255 : pixels[i];
-      diffMap[i + 1] = differs ? 0 : pixels[i + 1];
-      diffMap[i + 2] = differs ? 0 : pixels[i + 2];
-      diffMap[i + 3] = 255;
-    }
-    final fraction = differing / (pixels.length ~/ 4);
+    // Shared with the PDF.js suite and the comparison feature: differing
+    // pixels marked red over the actual render.
+    final diff = PdfPageComparison.comparePixels(
+      pixels,
+      expectedPixels,
+      width: image.width,
+      height: image.height,
+      channelTolerance: _channelTolerance,
+      style: PdfDiffStyle.redOverImage,
+    );
+    final fraction = diff.differenceFraction;
 
     if (fraction > _maxDifferingFraction) {
-      await _writeFailure(root, name, page, image, diffMap);
+      await _writeFailure(root, name, page, image, diff);
     }
     expect(fraction, lessThanOrEqualTo(_maxDifferingFraction),
         reason: '$name page $page deviates from the baseline in '
@@ -186,7 +181,7 @@ Future<void> _checkBaseline({
 }
 
 Future<void> _writeFailure(Directory root, String name, int page,
-    ui.Image actual, Uint8List diffMap) async {
+    ui.Image actual, PdfPixelDiff diff) async {
   final dir = Directory('${root.path}/_failures')..createSync(recursive: true);
   final flat = name.replaceAll('/', '_');
 
@@ -194,13 +189,7 @@ Future<void> _writeFailure(Directory root, String name, int page,
   File('${dir.path}/$flat.p$page.actual.png')
       .writeAsBytesSync(png!.buffer.asUint8List());
 
-  final buffer = await ui.ImmutableBuffer.fromUint8List(diffMap);
-  final descriptor = ui.ImageDescriptor.raw(buffer,
-      width: actual.width,
-      height: actual.height,
-      pixelFormat: ui.PixelFormat.rgba8888);
-  final codec = await descriptor.instantiateCodec();
-  final diffImage = (await codec.getNextFrame()).image;
+  final diffImage = await diff.toImage();
   final diffPng = await diffImage.toByteData(format: ui.ImageByteFormat.png);
   File('${dir.path}/$flat.p$page.diff.png')
       .writeAsBytesSync(diffPng!.buffer.asUint8List());

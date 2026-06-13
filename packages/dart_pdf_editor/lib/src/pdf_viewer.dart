@@ -46,6 +46,27 @@ class PdfSearchResult {
   int get pageIndex => match.pageIndex;
 }
 
+/// A snapshot of a viewer's scroll position and zoom, for mirroring one
+/// [PdfViewer] onto another — the comparison view's synchronized panes.
+/// Read [PdfViewerController.viewSync], hand it to another controller's
+/// [PdfViewerController.applyViewSync].
+class PdfViewSync {
+  const PdfViewSync({
+    required this.scrollPixels,
+    required this.layoutZoom,
+    required this.transform,
+  });
+
+  /// Vertical scroll offset, in list pixels at the current [layoutZoom].
+  final double scrollPixels;
+
+  /// Zoom applied by laying pages out smaller (≤ fit-width).
+  final double layoutZoom;
+
+  /// The InteractiveViewer transform (zoom above fit-width plus pan).
+  final Matrix4 transform;
+}
+
 /// Drives a [PdfViewer] and reports its state: current page, zoom, and
 /// search results. Listeners fire on any change.
 class PdfViewerController extends ChangeNotifier {
@@ -142,6 +163,18 @@ class PdfViewerController extends ChangeNotifier {
   /// null while the page is entirely off-screen.
   Rect? visiblePageRegion(int pageIndex) =>
       _state?._visibleFractionOf(pageIndex);
+
+  /// A snapshot of the viewer's scroll position and zoom, for mirroring it
+  /// onto another viewer (the comparison view's synchronized panes). Null
+  /// when no viewer is attached. Pair with [applyViewSync], and listen to
+  /// [viewportChanges] to know when to re-read it.
+  PdfViewSync? get viewSync => _state?._captureViewSync();
+
+  /// Mirrors [sync] onto this viewer: matches its scroll offset and zoom.
+  /// Geometry-dependent — it assumes both viewers lay their pages out the
+  /// same way (the comparison view pairs documents with matching page
+  /// geometry). Guard against feedback loops at the call site.
+  void applyViewSync(PdfViewSync sync) => _state?._applyViewSync(sync);
 
   void _bumpViewport() {
     if (SchedulerBinding.instance.schedulerPhase ==
@@ -976,6 +1009,36 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           .clamp(0.0, _scroll.position.maxScrollExtent);
       if ((target - _scroll.offset).abs() > 0.5) _scroll.jumpTo(target);
     });
+  }
+
+  PdfViewSync _captureViewSync() => PdfViewSync(
+        scrollPixels: _scroll.hasClients ? _scroll.position.pixels : 0,
+        layoutZoom: _layoutZoom,
+        transform: _transform.value.clone(),
+      );
+
+  void _applyViewSync(PdfViewSync sync) {
+    void applyScrollAndTransform() {
+      _transform.value = sync.transform.clone();
+      if (_scroll.hasClients) {
+        final target =
+            sync.scrollPixels.clamp(0.0, _scroll.position.maxScrollExtent);
+        if ((target - _scroll.position.pixels).abs() > 0.5) {
+          _scroll.jumpTo(target);
+        }
+      }
+    }
+
+    // A layout-zoom change relays the pages out, so the new scroll metrics
+    // only exist after the next frame.
+    if ((_layoutZoom - sync.layoutZoom).abs() > 1e-6) {
+      setState(() => _layoutZoom = sync.layoutZoom);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) applyScrollAndTransform();
+      });
+    } else {
+      applyScrollAndTransform();
+    }
   }
 
   void _onScroll() {
