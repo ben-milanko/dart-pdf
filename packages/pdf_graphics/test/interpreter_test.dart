@@ -372,6 +372,68 @@ void main() {
       expect(run.width, closeTo(5.501, 1e-9));
     });
 
+    test('a Type3 glyph that shows text does not corrupt the outer run', () {
+      // A Type3 CharProc is an arbitrary content stream and may itself show
+      // text, which re-enters _showText mid-loop. The run-text buffer is reused
+      // across calls, so the nested call must take a private buffer and leave
+      // the outer Type3 run's accumulated text intact.
+      final doc = CosDocument.open(buildClassicPdf());
+      final charProc = CosStream(
+        CosDictionary({'Length': const CosInteger(0)}),
+        // d0 (glyph width) then a nested text object showing "inner".
+        Uint8List.fromList(
+            '1000 0 d0 BT /F1 8 Tf 0 0 Td (inner) Tj ET'.codeUnits),
+      );
+      final type3 = CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type3'),
+        'FontBBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(750),
+          const CosInteger(750),
+        ]),
+        'FontMatrix': CosArray([
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+        ]),
+        'FirstChar': const CosInteger(0x58),
+        'LastChar': const CosInteger(0x58),
+        'Widths': CosArray([const CosInteger(600)]),
+        'Encoding': CosDictionary({
+          'Differences': CosArray([const CosInteger(0x58), const CosName('X')]),
+        }),
+        'CharProcs': CosDictionary({'X': charProc}),
+        'Resources': CosDictionary({
+          'Font': CosDictionary({
+            'F1': CosDictionary({
+              'Type': const CosName('Font'),
+              'Subtype': const CosName('Type1'),
+              'BaseFont': const CosName('Helvetica'),
+            }),
+          }),
+        }),
+      });
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(
+            Uint8List.fromList('BT /T3 10 Tf (X) Tj ET'.codeUnits)),
+        CosDictionary({
+          'Font': CosDictionary({'T3': type3}),
+        }),
+      );
+      // The nested CharProc text emits first, then the outer Type3 run.
+      final inner = device.texts.firstWhere((t) => t.text == 'inner');
+      final outer = device.texts.firstWhere((t) => t.text != 'inner');
+      expect(inner.text, 'inner');
+      expect(outer.text, 'X',
+          reason: 'the nested show must not overwrite the outer buffer');
+    });
+
     test('TJ adjustments shift subsequent runs', () {
       final doc = PdfDocument.open(buildClassicPdf());
       final device = RecordingDevice();

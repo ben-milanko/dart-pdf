@@ -612,8 +612,27 @@ class PdfFontInfo {
     );
   }
 
+  /// Per-code Unicode memo for simple (non-CID) fonts, whose codes are bytes
+  /// (0–255). [charFor] is a pure function of [code] over this immutable font,
+  /// and a page shows the same handful of codes thousands of times, so caching
+  /// the result skips both the repeated map/encoding lookups and the
+  /// `String.fromCharCode` allocation. Lazily sized; null = not yet computed
+  /// (the empty string is a valid cached value). Because the font itself is now
+  /// shared across renders, the memo persists across them too.
+  List<String?>? _charCache;
+
   /// Best-effort Unicode for one character code.
   String charFor(int code) {
+    if (!isCid && code >= 0 && code < 256) {
+      final cache = _charCache ??= List<String?>.filled(256, null);
+      final hit = cache[code];
+      if (hit != null) return hit;
+      return cache[code] = _computeCharFor(code);
+    }
+    return _computeCharFor(code);
+  }
+
+  String _computeCharFor(int code) {
     final mapped = _toUnicode[code];
     if (mapped != null) return mapped;
     if (_cjkCmap != null) return _cjkCmap.unicode(code);

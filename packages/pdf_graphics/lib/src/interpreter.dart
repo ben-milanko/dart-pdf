@@ -264,6 +264,15 @@ class PdfInterpreter {
   bool _textClipPending = false;
   final List<PdfPathSegment> _textClipSegments = [];
 
+  // Reused across every [_showText] call to assemble the run's Unicode text —
+  // a page issues thousands of show operators, so a fresh buffer per call is
+  // pure allocation churn. Cleared at the start of each call; `toString()`
+  // yields the same text either way. A Type3 glyph's CharProc can re-enter
+  // _showText mid-loop, so the guard hands the nested call a private buffer
+  // and leaves the outer accumulation intact.
+  final StringBuffer _textBuffer = StringBuffer();
+  bool _textBufferInUse = false;
+
   void drawPage(PdfPage page) =>
       drawPageOperations(page, ContentStreamParser.parse(page.contentBytes()));
 
@@ -1661,7 +1670,9 @@ class PdfInterpreter {
     if (font == null) return;
 
     final codes = font.codesOf(bytes);
-    final buffer = StringBuffer();
+    final reentrant = _textBufferInUse;
+    final buffer = reentrant ? StringBuffer() : (_textBuffer..clear());
+    _textBufferInUse = true;
     final emScale = size * _state.horizontalScale;
     // a non-null (possibly empty-outlined) glyph list tells devices the font
     // is embedded, so they must not substitute. In image-scan mode we never
@@ -1810,6 +1821,7 @@ class PdfInterpreter {
             ? PdfMatrix.translation(0, advance)
             : PdfMatrix.translation(advance, 0))
         .concat(_textMatrix);
+    _textBufferInUse = reentrant;
   }
 
   /// Executes a Type3 glyph procedure: a tiny content stream in glyph space,
