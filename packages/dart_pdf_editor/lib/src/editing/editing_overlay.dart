@@ -156,6 +156,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   List<(double, double)>? _activeStroke;
   List<double>? _activeStrokePressures;
 
+  /// Repaint signal for the in-progress stroke. Appending a point during a
+  /// pencil/mouse stroke bumps this instead of calling setState, so the
+  /// dedicated active-stroke layer (its own RepaintBoundary) re-rasterizes
+  /// without rebuilding the overlay subtree or the heavy preview painter —
+  /// the difference between a per-point widget rebuild and a per-point
+  /// repaint, which is what the pen latency was paying for. Every mutation
+  /// of [_activeStroke]/[_activeStrokePressures] must call [_bumpActiveStroke]
+  /// (the painter's shouldRepaint stays false — this Listenable is the only
+  /// thing that drives it, including the clear on commit/bail).
+  final ValueNotifier<int> _activeStrokeRepaint = ValueNotifier<int>(0);
+
+  void _bumpActiveStroke() => _activeStrokeRepaint.value++;
+
   /// The latest normalized pressure of the pointer being tracked, or null
   /// for devices that don't report pressure (finger, mouse).
   double? _pointerPressure;
@@ -412,10 +425,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
-        setState(() {
-          _activeStroke = [_geometry.toPagePoint(event.localPosition)];
-          _activeStrokePressures = pressure == null ? null : [pressure];
-        });
+        // no setState: the active stroke lives on its own repaint layer
+        _activeStroke = [_geometry.toPagePoint(event.localPosition)];
+        _activeStrokePressures = pressure == null ? null : [pressure];
+        _bumpActiveStroke();
       }
     }
   }
@@ -431,11 +444,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_rawErasing) {
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
-      setState(() {
-        _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
-        _activeStrokePressures
-            ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      });
+      // hot path: append + repaint the stroke layer only, no rebuild
+      _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
+      _activeStrokePressures
+          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
+      _bumpActiveStroke();
     }
   }
 
@@ -469,6 +482,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _signatureDrag = false;
       _signaturePreview = null;
     });
+    _bumpActiveStroke();
     // earlier strokes waiting in the buffer get their auto-commit back
     _controller.cancelInkStroke();
   }
@@ -498,6 +512,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _activeStroke = null;
       _activeStrokePressures = null;
     });
+    _bumpActiveStroke();
     if (canceled || stroke == null || stroke.isEmpty) {
       _controller.cancelInkStroke();
       return;
@@ -823,6 +838,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _ghost?.dispose();
     _afterGhost?.dispose();
     _flashController.dispose();
+    _activeStrokeRepaint.dispose();
     super.dispose();
   }
 
@@ -1153,12 +1169,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
-        setState(() {
-          _activeStroke = [_geometry.toPagePoint(position)];
-          // the first event decides: a pressure device varies the whole
-          // stroke, anything else stays uniform
-          _activeStrokePressures = pressure == null ? null : [pressure];
-        });
+        // no setState: the active stroke lives on its own repaint layer
+        _activeStroke = [_geometry.toPagePoint(position)];
+        // the first event decides: a pressure device varies the whole
+        // stroke, anything else stays uniform
+        _activeStrokePressures = pressure == null ? null : [pressure];
+        _bumpActiveStroke();
       case PdfEditTool.rectangle ||
             PdfEditTool.ellipse ||
             PdfEditTool.line ||
@@ -1373,11 +1389,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     } else if (_moveStart != null) {
       setState(() => _moveCurrent = position);
     } else if (_activeStroke != null) {
-      setState(() {
-        _activeStroke!.add(_geometry.toPagePoint(position));
-        _activeStrokePressures
-            ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      });
+      // hot path: append + repaint the stroke layer only, no rebuild
+      _activeStroke!.add(_geometry.toPagePoint(position));
+      _activeStrokePressures
+          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
+      _bumpActiveStroke();
     } else if (_dragStart != null) {
       setState(() => _dragCurrent = position);
     }
@@ -1428,6 +1444,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _viewportPanning = false;
       _signatureDrag = false;
     });
+    _bumpActiveStroke();
 
     if (panned) {
       // momentum: the fling continues in the viewer, which owns the
@@ -2278,14 +2295,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     color: _controller.color,
                     strokeWidth: _controller.strokeWidth * _geometry.scale,
                     geometry: _geometry,
-                    strokes: [
-                      ..._controller.strokesOn(widget.pageIndex),
-                      if (_activeStroke != null) _activeStroke!,
-                    ],
-                    pressures: [
-                      ..._controller.strokePressuresOn(widget.pageIndex),
-                      if (_activeStroke != null) _activeStrokePressures,
-                    ],
+                    // the in-progress stroke is NOT here — it rides its own
+                    // RepaintBoundary layer below so each appended point is a
+                    // repaint, not a rebuild of this whole painter
+                    strokes: _controller.strokesOn(widget.pageIndex),
+                    pressures: _controller.strokePressuresOn(widget.pageIndex),
                     dragRect: _dragStart != null && _dragCurrent != null
                         ? Rect.fromPoints(_dragStart!, _dragCurrent!)
                         : null,
@@ -2356,6 +2370,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     flashProgress: _flashController.value,
                   ),
                   size: Size.infinite,
+                ),
+              ),
+              // The in-progress pencil/mouse stroke, isolated on its own
+              // RepaintBoundary and repainted via _activeStrokeRepaint. While
+              // a stroke is live nothing above rebuilds, so only this layer
+              // re-rasterizes per appended point — the latency fix.
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _ActiveStrokePainter(this),
+                    size: Size.infinite,
+                  ),
                 ),
               ),
               // a free-text resize in flight: the text re-wrapped to the
@@ -2536,6 +2562,110 @@ class _EyedropperChip extends StatelessWidget {
   }
 }
 
+/// Paints page-space ink [strokes] with the committed appearance's
+/// Catmull-Rom smoothing and pressure-mapped width. Shared by the heavy
+/// preview painter (buffered/committed strokes) and the lightweight
+/// [_ActiveStrokePainter] (the single in-progress stroke).
+void _paintInkStrokes(
+    Canvas canvas,
+    PdfPageGeometry geometry,
+    List<List<(double, double)>> strokes,
+    List<List<double>?> pressures,
+    Color color,
+    double strokeWidth) {
+  final paint = Paint()
+    ..color = color
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = strokeWidth
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
+
+  for (var s = 0; s < strokes.length; s++) {
+    final stroke = strokes[s];
+    final pressure = s < pressures.length ? pressures[s] : null;
+    if (stroke.isEmpty) continue;
+    if (stroke.length == 1) {
+      final p = geometry.toViewOffset(stroke.single.$1, stroke.single.$2);
+      final width = pressure == null
+          ? strokeWidth
+          : pdfInkStrokeWidth(strokeWidth, pressure.first);
+      canvas.drawCircle(p, width / 2, Paint()..color = color);
+      continue;
+    }
+    // the same Catmull-Rom smoothing the committed appearance uses
+    final controls = pdfInkCurveControls(stroke);
+    if (pressure != null) {
+      // matches the committed appearance: a stroked spline segment per
+      // point pair at its own pressure-mapped width, round caps as the
+      // seams
+      final segment = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < stroke.length - 1; i++) {
+        final (xa, ya) = stroke[i];
+        final ((c1x, c1y), (c2x, c2y)) = controls[i];
+        final a = geometry.toViewOffset(xa, ya);
+        final c1 = geometry.toViewOffset(c1x, c1y);
+        final c2 = geometry.toViewOffset(c2x, c2y);
+        final b = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
+        segment.strokeWidth = pdfInkStrokeWidth(
+            strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
+        canvas.drawPath(
+            Path()
+              ..moveTo(a.dx, a.dy)
+              ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy),
+            segment);
+      }
+      continue;
+    }
+    final start = geometry.toViewOffset(stroke.first.$1, stroke.first.$2);
+    final path = Path()..moveTo(start.dx, start.dy);
+    for (var i = 0; i < stroke.length - 1; i++) {
+      final ((c1x, c1y), (c2x, c2y)) = controls[i];
+      final c1 = geometry.toViewOffset(c1x, c1y);
+      final c2 = geometry.toViewOffset(c2x, c2y);
+      final p = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
+      path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p.dx, p.dy);
+    }
+    canvas.drawPath(path, paint);
+  }
+}
+
+/// The single in-progress pencil/mouse stroke, on its own RepaintBoundary.
+///
+/// Reads the live stroke buffers straight off the overlay state and repaints
+/// only when [_EditingPageOverlayState._activeStrokeRepaint] ticks — so a
+/// pointer-move appends a point and bumps the notifier without rebuilding the
+/// overlay or the heavy [_EditingPreviewPainter]. [shouldRepaint] stays false:
+/// the repaint Listenable is the sole driver (the start, every point, and the
+/// clear on commit/bail all tick it), and the buffers are mutated in place so
+/// the painter always sees the current points.
+class _ActiveStrokePainter extends CustomPainter {
+  _ActiveStrokePainter(this._state)
+      : super(repaint: _state._activeStrokeRepaint);
+
+  final _EditingPageOverlayState _state;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = _state._activeStroke;
+    if (stroke == null || stroke.isEmpty) return;
+    final geometry = _state._geometry;
+    _paintInkStrokes(
+      canvas,
+      geometry,
+      [stroke],
+      [_state._activeStrokePressures],
+      _state._controller.color,
+      _state._controller.strokeWidth * geometry.scale,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ActiveStrokePainter oldDelegate) => false;
+}
+
 class _EditingPreviewPainter extends CustomPainter {
   _EditingPreviewPainter({
     required this.theme,
@@ -2707,65 +2837,9 @@ class _EditingPreviewPainter extends CustomPainter {
   /// Paints one set of page-space ink strokes with the committed
   /// appearance's smoothing and pressure mapping.
   void _paintInk(Canvas canvas, List<List<(double, double)>> strokes,
-      List<List<double>?> pressures, Color color, double strokeWidth) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    for (var s = 0; s < strokes.length; s++) {
-      final stroke = strokes[s];
-      final pressure = s < pressures.length ? pressures[s] : null;
-      if (stroke.isEmpty) continue;
-      if (stroke.length == 1) {
-        final p = geometry.toViewOffset(stroke.single.$1, stroke.single.$2);
-        final width = pressure == null
-            ? strokeWidth
-            : pdfInkStrokeWidth(strokeWidth, pressure.first);
-        canvas.drawCircle(p, width / 2, Paint()..color = color);
-        continue;
-      }
-      // the same Catmull-Rom smoothing the committed appearance uses
-      final controls = pdfInkCurveControls(stroke);
-      if (pressure != null) {
-        // matches the committed appearance: a stroked spline segment per
-        // point pair at its own pressure-mapped width, round caps as the
-        // seams
-        final segment = Paint()
-          ..color = color
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round;
-        for (var i = 0; i < stroke.length - 1; i++) {
-          final (xa, ya) = stroke[i];
-          final ((c1x, c1y), (c2x, c2y)) = controls[i];
-          final a = geometry.toViewOffset(xa, ya);
-          final c1 = geometry.toViewOffset(c1x, c1y);
-          final c2 = geometry.toViewOffset(c2x, c2y);
-          final b = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
-          segment.strokeWidth = pdfInkStrokeWidth(
-              strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
-          canvas.drawPath(
-              Path()
-                ..moveTo(a.dx, a.dy)
-                ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy),
-              segment);
-        }
-        continue;
-      }
-      final start = geometry.toViewOffset(stroke.first.$1, stroke.first.$2);
-      final path = Path()..moveTo(start.dx, start.dy);
-      for (var i = 0; i < stroke.length - 1; i++) {
-        final ((c1x, c1y), (c2x, c2y)) = controls[i];
-        final c1 = geometry.toViewOffset(c1x, c1y);
-        final c2 = geometry.toViewOffset(c2x, c2y);
-        final p = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
-        path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p.dx, p.dy);
-      }
-      canvas.drawPath(path, paint);
-    }
-  }
+          List<List<double>?> pressures, Color color, double strokeWidth) =>
+      _paintInkStrokes(
+          canvas, geometry, strokes, pressures, color, strokeWidth);
 
   void _paintShapePreview(
       Canvas canvas, Rect rect, PdfEditTool? tool, Color color, double width) {
