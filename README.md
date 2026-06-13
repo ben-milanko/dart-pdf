@@ -238,7 +238,7 @@ the real decode pipeline, with optional PDF.js baseline comparison).
 Checked-in PDF.js reference PNGs live under
 [`test_corpora/pdfjs/_baselines`](test_corpora/pdfjs/_baselines), and the
 latest checked-in side-by-side visual results are browsable from
-[`test_corpora/pdfjs/_renders/index.html`](test_corpora/pdfjs/_renders/index.html).
+[`test_corpora/pdfjs/_renders/README.md`](test_corpora/pdfjs/_renders/README.md).
 
 Run the checked-in corpora from their package directories so the relative
 `../../test_corpora/...` paths line up:
@@ -252,7 +252,7 @@ Run the checked-in corpora from their package directories so the relative
 - PDF.js visual review gallery: `cd packages/dart_pdf_editor && PDFJS_RENDER_OUT=../../test_corpora/pdfjs/_renders fvm flutter test test/pdfjs_render_test.dart`, then open `test_corpora/pdfjs/_renders/index.html`
 - Generate PDF.js reference baselines: `cd packages/dart_pdf_editor/tool/pdfjs_baseline && npm install && npm run render`
 - PDF.js pixel compare + side-by-side results: `cd packages/dart_pdf_editor && PDFJS_BASELINE_DIR=../../test_corpora/pdfjs/_baselines fvm flutter test test/pdfjs_render_test.dart`, then open `test_corpora/pdfjs/_renders/index.html`
-- Rebuild the checked-in PDF.js gallery index without rerendering: `fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart`
+- Rebuild the checked-in PDF.js gallery indexes without rerendering: `fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart`
 - All checked-in corpus tests: run the four non-update test commands above
   (excluding the visual galleries); they are intentionally split because
   `pdf_graphics` is VM-only and `dart_pdf_editor` needs Flutter rasterization.
@@ -265,8 +265,10 @@ five per file at 1x); override it with `PDFJS_RENDER_MAX_PAGES` and
 the PDF.js baselines using `PDFJS_COMPARE_CHANNEL_TOLERANCE` (default 8) and
 `PDFJS_COMPARE_MAX_DIFF_FRACTION` (default 0.0005), and writes
 `test_corpora/pdfjs/_renders/index.html` unless `PDFJS_RENDER_OUT` overrides
-the output directory. The results page shows each page as one row with the
-PDF.js baseline, Dart render, and diff side by side.
+the output directory. The checked-in Markdown gallery at
+`test_corpora/pdfjs/_renders/README.md` is generated from the same PNGs for
+GitHub browsing. The results page shows each page as one row with the PDF.js
+baseline, Dart render, and diff side by side.
 
 If you have the private `corpus/` directory locally, use it for broader
 real-world coverage:

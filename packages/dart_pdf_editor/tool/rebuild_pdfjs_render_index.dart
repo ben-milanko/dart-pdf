@@ -57,7 +57,9 @@ void main(List<String> args) {
   });
 
   File('${outDir.path}/index.html').writeAsStringSync(_indexHtml(renders));
-  stdout.writeln('wrote ${outDir.path}/index.html (${renders.length} renders)');
+  File('${outDir.path}/README.md').writeAsStringSync(_indexMarkdown(renders));
+  stdout.writeln(
+      'wrote ${outDir.path}/index.html and README.md (${renders.length} renders)');
 }
 
 Directory _repoRoot() {
@@ -121,6 +123,49 @@ String _indexHtml(List<_Render> renders) {
   return html.toString();
 }
 
+String _indexMarkdown(List<_Render> renders) {
+  final markdown = StringBuffer()
+    ..writeln('# PDF.js Corpus Render Comparisons')
+    ..writeln()
+    ..writeln(
+        'Checked-in visual results for the PDF.js corpus: PDF.js baseline, '
+        'Dart render, and diff images. The diff percentage is computed from '
+        'the checked-in diff PNGs, where solid red pixels mark channels that '
+        'exceeded the comparison tolerance.')
+    ..writeln()
+    ..writeln('Regenerate this file after adding or removing PNGs with:')
+    ..writeln()
+    ..writeln('```sh')
+    ..writeln(
+        'fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart')
+    ..writeln('```')
+    ..writeln()
+    ..writeln('| PDF | Page | Size | Diff |')
+    ..writeln('| --- | ---: | ---: | ---: |');
+  for (final render in renders) {
+    markdown.writeln(
+        '| ${_mdCell(render.pdfName)} | ${render.page + 1} | ${render.width}x${render.height} | ${_mdDifference(render.differenceFraction)} |');
+  }
+  markdown.writeln();
+
+  for (final render in renders) {
+    final title =
+        '${render.pdfName} page ${render.page + 1} - ${render.width}x${render.height} - ${_mdDifference(render.differenceFraction)}';
+    markdown
+      ..writeln('<details>')
+      ..writeln('<summary>${_htmlText(title)}</summary>')
+      ..writeln()
+      ..writeln('| PDF.js baseline | Dart render | Diff |')
+      ..writeln('| --- | --- | --- |')
+      ..writeln(
+          '| ${_mdImage(render.baselineName, 'PDF.js baseline')} | ${_mdImage(render.actualName, 'Dart render')} | ${_mdImage(render.diffName, 'Diff')} |')
+      ..writeln()
+      ..writeln('</details>')
+      ..writeln();
+  }
+  return markdown.toString();
+}
+
 String _shot(String label, String? fileName) {
   if (fileName == null) {
     return '<div><div class="shot-label">$label</div><div class="missing">missing</div></div>';
@@ -133,6 +178,20 @@ String _difference(double? fraction) {
   if (fraction == null) return '';
   return '<br>${(fraction * 100).toStringAsFixed(3)}% differing pixels';
 }
+
+String _mdDifference(double? fraction) {
+  if (fraction == null) return 'n/a';
+  return '${(fraction * 100).toStringAsFixed(3)}%';
+}
+
+String _mdImage(String? fileName, String label) {
+  if (fileName == null) return 'missing';
+  return '[![$label](${_mdUrl(fileName)})](${_mdUrl(fileName)})';
+}
+
+String _mdCell(String text) => text.replaceAll('|', r'\|');
+
+String _mdUrl(String text) => Uri.encodeComponent(text).replaceAll('%2F', '/');
 
 _PngInfo _readPngInfo(File file) {
   final bytes = file.readAsBytesSync();

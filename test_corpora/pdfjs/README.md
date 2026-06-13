@@ -24,8 +24,8 @@ Checked-in visual artifacts:
 
 - [`_baselines/`](_baselines/) — PDF.js reference PNGs generated from this
   corpus.
-- [`_renders/index.html`](_renders/index.html) — side-by-side visual review
-  gallery with PDF.js baseline, Dart render, and diff images.
+- [`_renders/README.md`](_renders/README.md) — GitHub-rendered side-by-side
+  visual review gallery with PDF.js baseline, Dart render, and diff images.
 - Rebuild only the gallery index after adding/removing PNGs with
   `fvm dart packages/dart_pdf_editor/tool/rebuild_pdfjs_render_index.dart`
   from the repo root.
