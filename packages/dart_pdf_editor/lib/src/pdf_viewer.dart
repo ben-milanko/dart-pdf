@@ -664,6 +664,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   Offset? _marqueeCurrent;
   int? _marqueePage;
 
+  /// A single-selection move drag's floating preview, reported by the
+  /// page's editing overlay. The overlay's own layer would clip it behind
+  /// the page below once the drag crosses a page boundary, so the viewer
+  /// paints it in list space (above the whole list) instead.
+  PdfMoveDragPreview? _movePreview;
+
   /// Set when a raw-pointer gesture (mouse double-click word select) has
   /// consumed the press, so the tap recognizer's late-firing callback for
   /// the same press must not clear it again. Reset on every pointer down.
@@ -1440,6 +1446,26 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final box = _listSpaceKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return null;
     return _pagePointAt(box.globalToLocal(globalPosition));
+  }
+
+  /// A page overlay reports its single-selection move drag here so the
+  /// floating ghost paints above every page (a per-page overlay clips it
+  /// behind the page below once the drag crosses a boundary). Null clears.
+  void _onMoveDragPreview(PdfMoveDragPreview? preview) {
+    if (preview == null && _movePreview == null) return;
+    setState(() => _movePreview = preview);
+  }
+
+  /// The list-space (viewport-local) offset of the top-left corner of
+  /// [preview]'s page, so its overlay-local ghost rects translate into the
+  /// list-space layer that paints over every page. Null when the layout
+  /// isn't measurable yet or there's no preview.
+  Offset? _moveDragPreviewOrigin(PdfMoveDragPreview? preview) {
+    if (preview == null || _viewWidth <= 0 || !_scroll.hasClients) return null;
+    if (preview.pageIndex < 0 || preview.pageIndex >= _pages.length) return null;
+    final pageWidth = _viewWidth * _layoutZoom;
+    return Offset((_viewWidth - pageWidth) / 2,
+        _pageTop(preview.pageIndex) - _scroll.offset);
   }
 
   /// The cumulative top offset (list coordinates) of page [index].
@@ -2658,6 +2684,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 onShowAnnotationMenu: _showSelectionMenu,
                 onShowFormFieldMenu: _showFormFieldMenu,
                 onResolvePagePoint: _resolvePagePointGlobal,
+                onMoveDragPreview: _onMoveDragPreview,
                 transformScale: _transformScale,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
@@ -2882,6 +2909,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                                           ),
                                         ),
                                       ),
+                                    // a single-selection move drag's ghost,
+                                    // painted in list space (above every page)
+                                    // so a drag onto the page below isn't
+                                    // clipped behind it — the page overlay
+                                    // suppresses its own ghost while this shows
+                                    if (_moveDragPreviewOrigin(_movePreview)
+                                        case final origin?)
+                                      Positioned.fill(
+                                        child: IgnorePointer(
+                                          child: CustomPaint(
+                                            painter: _MoveDragPreviewPainter(
+                                                _movePreview!, origin),
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -2955,6 +2997,25 @@ class _MarqueePainter extends CustomPainter {
       oldDelegate.rect != rect || oldDelegate.color != color;
 }
 
+/// Paints a single-selection move drag's floating ghost in the viewer's
+/// list space (over every page) so the dragged artwork isn't clipped
+/// behind the page below. [origin] translates the preview's overlay-local
+/// rects into list space (the dragged page's top-left corner).
+class _MoveDragPreviewPainter extends CustomPainter {
+  const _MoveDragPreviewPainter(this.preview, this.origin);
+
+  final PdfMoveDragPreview preview;
+  final Offset origin;
+
+  @override
+  void paint(Canvas canvas, Size size) =>
+      paintMoveDragPreview(canvas, preview, origin);
+
+  @override
+  bool shouldRepaint(_MoveDragPreviewPainter oldDelegate) =>
+      oldDelegate.preview != preview || oldDelegate.origin != origin;
+}
+
 class _PdfViewerPage extends StatefulWidget {
   const _PdfViewerPage({
     required this.page,
@@ -2979,6 +3040,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onShowAnnotationMenu,
     required this.onShowFormFieldMenu,
     required this.onResolvePagePoint,
+    required this.onMoveDragPreview,
     required this.transformScale,
     required this.renderScheduler,
     required this.previewCache,
@@ -3034,6 +3096,9 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [EditingPageOverlay.onResolvePagePoint].
   final (int, double, double)? Function(Offset globalPosition)
       onResolvePagePoint;
+
+  /// See [EditingPageOverlay.onMoveDragPreview].
+  final PdfMoveDragPreviewCallback onMoveDragPreview;
 
   /// The viewer transform's scale — the editing overlay's chrome divides
   /// by it to stay constant-size on screen while zoomed.
@@ -3159,6 +3224,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               onShowAnnotationMenu: widget.onShowAnnotationMenu,
                               onShowFormFieldMenu: widget.onShowFormFieldMenu,
                               onResolvePagePoint: widget.onResolvePagePoint,
+                              onMoveDragPreview: widget.onMoveDragPreview,
                               rasterCurrent: _rastered,
                               zoom: zoom,
                               predictStrokes: widget.predictStrokes,

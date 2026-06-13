@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,16 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+/// The editing overlay's preview painter, read through a dynamic cast
+/// (the painter class is private to the library).
+dynamic overlayPainter(WidgetTester tester) => tester
+    .widget<CustomPaint>(find
+        .descendant(
+            of: find.byType(EditingPageOverlay),
+            matching: find.byType(CustomPaint))
+        .first)
+    .painter;
 
 (int r, int g, int b, int a) pixelAt(ByteData data, int width, int x, int y) {
   final i = (y * width + x) * 4;
@@ -156,6 +167,75 @@ void main() {
       final rect = editing.selectedAnnotation!.rect;
       expect(rect.left, closeTo(260, 2));
       expect(rect.top, closeTo(450, 2));
+    });
+  });
+
+  group('move ghost floats above the page', () {
+    testWidgets(
+        'a single-selection move reports its preview to the viewer and '
+        'suppresses the overlay ghost', (tester) async {
+      // A move dragged onto the page below would be clipped behind it if
+      // the per-page overlay painted the ghost itself (sibling list items
+      // paint over it). The overlay instead hands the ghost up to the
+      // viewer, which paints it above every page.
+      PdfMoveDragPreview? reported;
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFFFF0000)
+        ..addRectangle(0, const PdfRect(100, 550, 300, 650))
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      // a bare overlay over a 306×396 view of the 612×792 page: 0.5 px/pt
+      final geometry = PdfPageGeometry(
+        cropBox: editing.document.page(0).cropBox,
+        rotation: 0,
+        viewSize: const Size(306, 396),
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 306,
+            height: 396,
+            child: EditingPageOverlay(
+              controller: editing,
+              pageIndex: 0,
+              geometry: geometry,
+              textPrompt: showPdfTextPrompt,
+              onMoveDragPreview: (preview) => reported = preview,
+            ),
+          ),
+        ),
+      ));
+      // the move ghost renders here
+      await tester.pumpAndSettle(const Duration(milliseconds: 350));
+
+      final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+      // selection (100,550)-(300,650) → view (50,71)-(150,121); grab its
+      // center and drag it well down past the page's bottom edge
+      const grab = Offset(100, 96);
+      const target = Offset(160, 420);
+      final gesture =
+          await tester.startGesture(origin + grab, kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(origin + target);
+      await tester.pump();
+
+      expect(reported, isNotNull,
+          reason: 'a move drag should float its ghost to the viewer');
+      expect(reported!.pageIndex, 0);
+      // the resting view rect (50,71,150,121), shifted by the drag delta
+      final delta = target - grab;
+      expect(reported!.from.left, closeTo(50, 0.5));
+      expect(reported!.from.top, closeTo(71, 0.5));
+      expect(reported!.to.left, closeTo(50 + delta.dx, 0.5));
+      expect(reported!.to.top, closeTo(71 + delta.dy, 0.5));
+      // the overlay no longer paints the move ghost itself
+      expect(overlayPainter(tester).ghost, isNull);
+
+      // releasing clears the floating preview (the commit's afterimage or
+      // the new raster takes over)
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(reported, isNull);
     });
   });
 }

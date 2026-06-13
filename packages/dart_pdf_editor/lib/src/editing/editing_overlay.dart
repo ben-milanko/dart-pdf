@@ -16,6 +16,47 @@ import 'editing_controller.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
+/// A single-selection move drag's floating preview: the dragged
+/// annotation's appearance, reported up to [PdfViewer] so it paints above
+/// every page.
+///
+/// A per-page overlay would clip its preview behind the page below the
+/// moment a move drag crosses a page boundary — sibling list items paint
+/// over it — so the artwork is hoisted to a viewer-level layer that sits
+/// over the whole list.
+///
+/// [from]/[to] are the reporting page overlay's local (page-view)
+/// coordinates; the viewer translates them into its list space by the
+/// page's origin.
+class PdfMoveDragPreview {
+  const PdfMoveDragPreview({
+    required this.pageIndex,
+    required this.picture,
+    required this.from,
+    required this.to,
+    required this.scale,
+  });
+
+  /// The page the dragged annotation rests on.
+  final int pageIndex;
+
+  /// The annotation's appearance, page-raster space (1 unit = 1 point).
+  final ui.Picture picture;
+
+  /// The annotation's resting view rect (overlay-local).
+  final Rect from;
+
+  /// Where the drag has moved it (overlay-local).
+  final Rect to;
+
+  /// Page-raster to view scale ([PdfPageGeometry.scale]).
+  final double scale;
+}
+
+/// Reports a single-selection move drag's floating preview to the viewer
+/// (null clears it). See [PdfMoveDragPreview].
+typedef PdfMoveDragPreviewCallback = void Function(PdfMoveDragPreview? preview);
+
 /// One page's editing layer: captures the armed tool's gestures in page
 /// space, previews them, and commits them through the controller.
 ///
@@ -41,6 +82,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
+    this.onMoveDragPreview,
   });
 
   final PdfEditingController controller;
@@ -108,6 +150,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// the dragged annotation there. Returns null off any page.
   final (int, double, double)? Function(Offset globalPosition)?
       onResolvePagePoint;
+
+  /// Reports a single-selection move drag's floating preview so the viewer
+  /// paints it above every page — a per-page overlay clips it behind the
+  /// page below once the drag crosses a page boundary. Null clears it.
+  final PdfMoveDragPreviewCallback? onMoveDragPreview;
 
   @override
   State<EditingPageOverlay> createState() => _EditingPageOverlayState();
@@ -628,6 +675,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _signaturePreview = null;
     });
     _clearResizeClean();
+    widget.onMoveDragPreview?.call(null);
     _bumpActiveStroke();
     // earlier strokes waiting in the buffer get their auto-commit back
     _controller.cancelInkStroke();
@@ -1060,6 +1108,37 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }));
   }
 
+  /// Pushes the current single-selection move drag's floating preview up
+  /// to the viewer, which paints it above the page below (this overlay
+  /// would clip it once the drag crosses a page boundary). Reports null
+  /// when there's nothing to float — the ghost isn't ready, the gesture
+  /// is a resize/rotate, or the selection isn't a single annotation.
+  void _reportMovePreview() {
+    final report = widget.onMoveDragPreview;
+    if (report == null) return;
+    final picture = _ghost;
+    final from = _selectedViewRect;
+    final start = _moveStart;
+    final current = _moveCurrent;
+    if (picture == null ||
+        from == null ||
+        start == null ||
+        current == null ||
+        _resizeHandle != null ||
+        _rotateStartAngle != null ||
+        _controller.selectedAnnotationSlots.length != 1) {
+      report(null);
+      return;
+    }
+    report(PdfMoveDragPreview(
+      pageIndex: widget.pageIndex,
+      picture: picture,
+      from: from,
+      to: from.shift(current - start),
+      scale: _geometry.scale,
+    ));
+  }
+
   /// Renders the page WITHOUT the annotation being resized, so a free-text
   /// resize can show the page content behind it (the "lift" model) rather
   /// than wash an opaque rectangle over the original. Kicked off once per
@@ -1109,6 +1188,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   @override
   void dispose() {
     if (_textEditRect != null) _controller.setEditingText(false);
+    // the viewer paints [_ghost] for a floating move preview; drop that
+    // reference before disposing the picture so it can't paint freed pixels
+    widget.onMoveDragPreview?.call(null);
     _textEditFocus
       ..removeListener(_onTextEditFocus)
       ..dispose();
@@ -1799,6 +1881,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     } else if (_moveStart != null) {
       _moveCurrentGlobal = details.globalPosition;
       setState(() => _moveCurrent = position);
+      // float the artwork above every page so a move dragged onto the
+      // page below isn't clipped behind it (this overlay can't paint
+      // over a sibling list item)
+      _reportMovePreview();
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
       _activeStroke!.add(_geometry.toPagePoint(position));
@@ -1866,6 +1952,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     });
     // the in-flight lift is done; the afterimage covers the commit gap
     _clearResizeClean();
+    // the floating move preview hands off to the commit's afterimage (or
+    // the new page's raster for a cross-page drop)
+    widget.onMoveDragPreview?.call(null);
     _bumpActiveStroke();
 
     if (panned) {
@@ -2791,6 +2880,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final rotating = _rotateStartAngle != null;
     final dragging =
         _resizeHandle != null || moveDelta != Offset.zero || rotating;
+    // a single-selection move floats its ghost at the viewer level (above
+    // every page) so a drag onto the page below isn't clipped behind it —
+    // the overlay then skips painting the move ghost itself to avoid
+    // double exposure
+    final liftMove = widget.onMoveDragPreview != null &&
+        _resizeHandle == null &&
+        !rotating &&
+        _moveStart != null &&
+        _controller.selectedAnnotationSlots.length == 1;
     // a free-text resize re-wraps at constant font size — preview the
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
@@ -2976,8 +3074,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost:
-                        wrapResize == null && shapeResize == null ? _ghost : null,
+                    ghost: wrapResize == null && shapeResize == null && !liftMove
+                        ? _ghost
+                        : null,
                     shapeResize: shapeResize,
                     ghostFrom: _resizeHandle != null && _resizeAngle != 0
                         ? _resizeFrom
@@ -4232,4 +4331,20 @@ void paintAnnotationDragPreview(
   canvas.scale(scale, scale);
   canvas.drawPicture(picture);
   canvas.restore();
+}
+
+/// Paints a single-selection move drag's floating ghost ([preview]) into
+/// the viewer's list space; [origin] is the dragged page's top-left in
+/// that space, translating the preview's overlay-local rects. Lives here
+/// so it can reach [paintAnnotationDragPreview] without tripping its
+/// `@visibleForTesting` guard from the viewer.
+void paintMoveDragPreview(
+    Canvas canvas, PdfMoveDragPreview preview, Offset origin) {
+  paintAnnotationDragPreview(
+    canvas,
+    picture: preview.picture,
+    from: preview.from.shift(origin),
+    to: preview.to.shift(origin),
+    scale: preview.scale,
+  );
 }
