@@ -9,6 +9,9 @@ doc/api/
 # local test corpus of real-world PDFs (never committed)
 corpus/
 
+# generated benchmark JSON + comparison tables (benchmark/run.sh)
+benchmark/out/
+
 # render-regression failure dumps (ghent_render_test.dart)
 test_corpora/ghent/_failures/
 
