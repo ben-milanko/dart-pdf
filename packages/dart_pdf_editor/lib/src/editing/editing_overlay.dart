@@ -1105,14 +1105,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         return;
       }
       setState(() => _ghost = picture);
+      // a select-and-drag in one motion starts before the ghost renders;
+      // once it lands mid-move, float it immediately (the pan updates
+      // alone would leave it blank until the next pointer move)
+      if (_moveStart != null) _reportMovePreview();
     }));
   }
 
   /// Pushes the current single-selection move drag's floating preview up
-  /// to the viewer, which paints it above the page below (this overlay
-  /// would clip it once the drag crosses a page boundary). Reports null
-  /// when there's nothing to float — the ghost isn't ready, the gesture
-  /// is a resize/rotate, or the selection isn't a single annotation.
+  /// to the viewer, which paints it above the page below — this overlay
+  /// clips its own ghost at the page edge, so the part dragged past the
+  /// boundary would otherwise vanish behind the next page.
+  ///
+  /// Only fires once the dragged rect actually leaves this page; a move
+  /// that stays on the page keeps the overlay's own ghost (no floating
+  /// layer, so no double exposure). Reports null otherwise — the ghost
+  /// isn't ready, it's a resize/rotate, or it's not a single selection.
   void _reportMovePreview() {
     final report = widget.onMoveDragPreview;
     if (report == null) return;
@@ -1130,11 +1138,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       report(null);
       return;
     }
+    final to = from.shift(current - start);
+    // still wholly on this page: the overlay's own ghost shows it, no need
+    // to float (and floating it too would double-expose the artwork)
+    final page = Offset.zero & _geometry.viewSize;
+    if (page.contains(to.topLeft) && page.contains(to.bottomRight)) {
+      report(null);
+      return;
+    }
     report(PdfMoveDragPreview(
       pageIndex: widget.pageIndex,
       picture: picture,
       from: from,
-      to: from.shift(current - start),
+      to: to,
       scale: _geometry.scale,
     ));
   }
@@ -2880,15 +2896,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final rotating = _rotateStartAngle != null;
     final dragging =
         _resizeHandle != null || moveDelta != Offset.zero || rotating;
-    // a single-selection move floats its ghost at the viewer level (above
-    // every page) so a drag onto the page below isn't clipped behind it —
-    // the overlay then skips painting the move ghost itself to avoid
-    // double exposure
-    final liftMove = widget.onMoveDragPreview != null &&
-        _resizeHandle == null &&
-        !rotating &&
-        _moveStart != null &&
-        _controller.selectedAnnotationSlots.length == 1;
     // a free-text resize re-wraps at constant font size — preview the
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
@@ -3074,9 +3081,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost: wrapResize == null && shapeResize == null && !liftMove
-                        ? _ghost
-                        : null,
+                    ghost:
+                        wrapResize == null && shapeResize == null ? _ghost : null,
                     shapeResize: shapeResize,
                     ghostFrom: _resizeHandle != null && _resizeAngle != 0
                         ? _resizeFrom

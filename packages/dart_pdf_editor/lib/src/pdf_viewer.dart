@@ -1456,16 +1456,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     setState(() => _movePreview = preview);
   }
 
-  /// The list-space (viewport-local) offset of the top-left corner of
-  /// [preview]'s page, so its overlay-local ghost rects translate into the
-  /// list-space layer that paints over every page. Null when the layout
-  /// isn't measurable yet or there's no preview.
-  Offset? _moveDragPreviewOrigin(PdfMoveDragPreview? preview) {
+  /// [preview]'s page rectangle in list space (viewport-local), so the
+  /// floating layer can translate the overlay-local ghost rects (the
+  /// rect's top-left is the page origin) and clip itself to the area
+  /// *outside* the page. Null when the layout isn't measurable yet or
+  /// there's no preview.
+  Rect? _moveDragPreviewPageRect(PdfMoveDragPreview? preview) {
     if (preview == null || _viewWidth <= 0 || !_scroll.hasClients) return null;
     if (preview.pageIndex < 0 || preview.pageIndex >= _pages.length) return null;
     final pageWidth = _viewWidth * _layoutZoom;
-    return Offset((_viewWidth - pageWidth) / 2,
-        _pageTop(preview.pageIndex) - _scroll.offset);
+    return Rect.fromLTWH(
+      (_viewWidth - pageWidth) / 2,
+      _pageTop(preview.pageIndex) - _scroll.offset,
+      pageWidth,
+      _pageHeight(preview.pageIndex),
+    );
   }
 
   /// The cumulative top offset (list coordinates) of page [index].
@@ -2909,18 +2914,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                                           ),
                                         ),
                                       ),
-                                    // a single-selection move drag's ghost,
+                                    // a single-selection move dragged off its
+                                    // page: the part hanging past the page edge,
                                     // painted in list space (above every page)
-                                    // so a drag onto the page below isn't
-                                    // clipped behind it — the page overlay
-                                    // suppresses its own ghost while this shows
-                                    if (_moveDragPreviewOrigin(_movePreview)
-                                        case final origin?)
+                                    // so it isn't clipped behind the next page.
+                                    // The page overlay still paints the in-page
+                                    // part; this is clipped to the area outside
+                                    // the page so the two never double-expose.
+                                    if (_moveDragPreviewPageRect(_movePreview)
+                                        case final pageRect?)
                                       Positioned.fill(
                                         child: IgnorePointer(
                                           child: CustomPaint(
                                             painter: _MoveDragPreviewPainter(
-                                                _movePreview!, origin),
+                                                _movePreview!, pageRect),
                                           ),
                                         ),
                                       ),
@@ -2997,23 +3004,34 @@ class _MarqueePainter extends CustomPainter {
       oldDelegate.rect != rect || oldDelegate.color != color;
 }
 
-/// Paints a single-selection move drag's floating ghost in the viewer's
-/// list space (over every page) so the dragged artwork isn't clipped
-/// behind the page below. [origin] translates the preview's overlay-local
-/// rects into list space (the dragged page's top-left corner).
+/// Paints the part of a single-selection move drag's ghost that hangs off
+/// its page, in the viewer's list space (over every page) so it isn't
+/// clipped behind the next page. [pageRect] is the dragged page in list
+/// space: its top-left translates the preview's overlay-local rects, and
+/// the paint is clipped to the area *outside* it — the page's own overlay
+/// still draws the in-page part, so the two never double-expose.
 class _MoveDragPreviewPainter extends CustomPainter {
-  const _MoveDragPreviewPainter(this.preview, this.origin);
+  const _MoveDragPreviewPainter(this.preview, this.pageRect);
 
   final PdfMoveDragPreview preview;
-  final Offset origin;
+  final Rect pageRect;
 
   @override
-  void paint(Canvas canvas, Size size) =>
-      paintMoveDragPreview(canvas, preview, origin);
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    // clip to everything but the page itself (even-odd of the viewport and
+    // the page rect), so only the overflow paints here
+    canvas.clipPath(Path()
+      ..addRect(Offset.zero & size)
+      ..addRect(pageRect)
+      ..fillType = PathFillType.evenOdd);
+    paintMoveDragPreview(canvas, preview, pageRect.topLeft);
+    canvas.restore();
+  }
 
   @override
   bool shouldRepaint(_MoveDragPreviewPainter oldDelegate) =>
-      oldDelegate.preview != preview || oldDelegate.origin != origin;
+      oldDelegate.preview != preview || oldDelegate.pageRect != pageRect;
 }
 
 class _PdfViewerPage extends StatefulWidget {
