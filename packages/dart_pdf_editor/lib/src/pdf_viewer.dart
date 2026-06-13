@@ -730,9 +730,17 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _onTransformChanged() {
     _transformScale.value = _transform.value.getMaxScaleOnAxis();
     _controller._bumpViewport();
+    // hold re-rasterization while the zoom is moving: the existing rasters
+    // scale under the transform meanwhile (cheap, briefly blurry). Without
+    // this, rapid zoom in/out fired a fresh full-resolution toImage per
+    // settle, and on web (single-threaded, uncancellable GPU readback)
+    // they piled up and froze the UI. The settle below releases the hold,
+    // and the scheduler then drains a single coalesced render per page.
+    _renderScheduler.holding = true;
     _settleTimer?.cancel();
     _settleTimer = Timer(const Duration(milliseconds: 200), () {
       if (!mounted) return;
+      _renderScheduler.holding = false;
       final target = math.max(1.0, _transform.value.getMaxScaleOnAxis());
       // wheel zoom never fires onInteractionEnd, so the pan flag also
       // settles here
@@ -745,6 +753,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         // any settled transform change moves the deep-zoom detail patch
         _settleGeneration++;
       });
+      // the background prerender yields while the hold is up; pick it back up
+      _prerenderPreviews();
     });
   }
 
