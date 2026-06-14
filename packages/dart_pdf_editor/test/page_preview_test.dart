@@ -151,6 +151,140 @@ void main() {
     expect(fullRaster, findsWidgets);
   });
 
+  testWidgets('the prerender warms only a window of pages around the viewport',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(12));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 3,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // a page within the window is warmed by the prerender; a far page is
+    // never a candidate, so the loop runs out of work and leaves it cold
+    final cache = controller.debugPreviewCache!;
+    for (var i = 0; i < 100 && !cache.has(3); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(3), isTrue, reason: 'within ±3 of page 0');
+    // give the loop ample idle time to prove it has gone quiet, not just
+    // not reached the far page yet
+    for (var i = 0; i < 30; i++) {
+      await settle(tester);
+    }
+    expect(cache.has(11), isFalse, reason: 'far outside the window');
+  });
+
+  testWidgets('the window recenters as the user navigates', (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(12));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 3,
+        ),
+      ),
+    ));
+    await tester.pump();
+    final cache = controller.debugPreviewCache!;
+    for (var i = 0; i < 100 && !cache.has(3); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(11), isFalse);
+
+    // jump to the far end (plain pumps complete the animation; runAsync
+    // interleaving would stall the clock) — the settle restarts the loop,
+    // which now centers on the new current page and warms its neighbors
+    unawaited(controller.jumpToPage(11));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(controller.currentPage, 11);
+    for (var i = 0; i < 100 && !cache.has(8); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(8), isTrue, reason: 'within ±3 of page 11 now');
+  });
+
+  testWidgets('previewWindow <= 0 warms every page (short-doc behavior)',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(12));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 0,
+        ),
+      ),
+    ));
+    await tester.pump();
+    final cache = controller.debugPreviewCache!;
+    // unbounded: the far page is still attempted and warmed
+    for (var i = 0; i < 150 && !cache.has(11); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(11), isTrue);
+  });
+
+  testWidgets('a visited far page keeps its preview from the on-screen render',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(12));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 3,
+        ),
+      ),
+    ));
+    await tester.pump();
+    final cache = controller.debugPreviewCache!;
+
+    // scroll the far page onto screen — its full render feeds the cache for
+    // free (putFromPicture), independent of the prerender window (plain
+    // pumps complete the jump; runAsync would stall the animation clock)
+    unawaited(controller.jumpToPage(11));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(controller.currentPage, 11);
+    for (var i = 0; i < 100 && !cache.has(11); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(11), isTrue);
+
+    // back to the top: page 11 is now outside the ±3 window but its preview
+    // survives (capacity 300, no eviction pressure)
+    unawaited(controller.jumpToPage(0));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    for (var i = 0; i < 30; i++) {
+      await settle(tester);
+    }
+    expect(cache.has(11), isTrue);
+  });
+
   testWidgets('pagePreviews: false keeps the blank-paper behavior',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(8));
