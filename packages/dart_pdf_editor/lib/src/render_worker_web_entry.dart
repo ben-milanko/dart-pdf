@@ -53,11 +53,16 @@ void runPdfRenderWorker() {
         (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
 
     Uint8List? out;
+    // A page can decline (image it can't serialize) or throw; surface the reason
+    // to the main thread so it lands in a PdfPerfLog trace instead of being lost
+    // in the worker's own console.
+    String? error;
     final doc = document;
     try {
       if (doc != null) out = _recordPage(doc, page, annotations);
-    } catch (_) {
+    } catch (e, st) {
       out = null; // any failure → the main thread renders this page locally
+      error = '$e\n$st';
     }
 
     final result = JSObject()
@@ -65,6 +70,7 @@ void runPdfRenderWorker() {
       ..setProperty('id'.toJS, id.toJS);
     if (out == null) {
       result.setProperty('buffer'.toJS, null);
+      if (error != null) result.setProperty('error'.toJS, error.toJS);
       scope.postMessage(result);
     } else {
       // Copy to an exact-length buffer, then transfer it (zero-copy).

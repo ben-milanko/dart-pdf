@@ -671,8 +671,12 @@ class _Writer {
     _b.add(d.buffer.asUint8List());
   }
 
+  // ByteData's 64-bit int accessors throw on the web (JS has no 64-bit int),
+  // and this codec crosses the isolate/Web-Worker boundary, so encode the value
+  // as a float64 instead — exact for |v| <= 2^53, which covers every PDF
+  // integer we serialize (on the web a Dart int is already capped at 2^53).
   void i64(int v) {
-    final d = ByteData(8)..setInt64(0, v);
+    final d = ByteData(8)..setFloat64(0, v.toDouble());
     _b.add(d.buffer.asUint8List());
   }
 
@@ -743,9 +747,9 @@ class _Reader {
   }
 
   int i64() {
-    final v = _data.getInt64(_o);
+    final v = _data.getFloat64(_o); // see [_Writer.i64] — float64-encoded
     _o += 8;
-    return v;
+    return v.toInt();
   }
 
   /// Reads a length-prefixed raw byte run as a copy (a sublist view would alias

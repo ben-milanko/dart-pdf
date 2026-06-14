@@ -6,7 +6,13 @@ import 'dart:typed_data';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:web/web.dart' as web;
 
+import 'perf_log.dart';
 import 'render_worker.dart';
+
+// Worker lifecycle diagnostics, routed through PdfPerfLog so they ride the same
+// zero-overhead toggle as the rest of the perf trace (a single bool branch when
+// disabled) — and show up in a user-captured trace when something declines.
+void _wlog(String m) => PdfPerfLog.log('webworker $m');
 
 /// Web backend: a dedicated [web.Worker] that opens its own [PdfDocument] from
 /// the bytes once and records pages on request, posting the serialized command
@@ -22,11 +28,13 @@ import 'render_worker.dart';
 /// exactly as before (local rendering). See `doc/render_worker_web.md`.
 PdfRenderWorker startRenderWorker(Uint8List bytes) {
   final url = pdfRenderWorkerScriptUrl;
+  _wlog('startRenderWorker url=$url bytes=${bytes.length}');
   if (url == null) return _WebRenderWorker.disabled();
   try {
     return _WebRenderWorker(bytes, url);
-  } catch (_) {
+  } catch (e) {
     // Worker construction can throw (bad URL, blocked by CSP): fall back.
+    _wlog('construction threw: $e — falling back to local');
     return _WebRenderWorker.disabled();
   }
 }
@@ -38,7 +46,11 @@ class _WebRenderWorker implements PdfRenderWorker {
     worker.onmessage = ((web.MessageEvent event) => _onMessage(event)).toJS;
     // A worker-level error (script failed to load/parse) is terminal: behave
     // like the null worker so every record resolves to a local render.
-    worker.onerror = ((web.Event _) => _fail()).toJS;
+    worker.onerror = ((web.Event e) {
+      _wlog('onerror: ${e.type} — worker script failed; falling back to local');
+      _fail();
+    }).toJS;
+    _wlog('worker constructed from $scriptUrl');
 
     // Transfer the whole document to the worker once at start (copy first so
     // the transferred buffer is exactly the document, not a view into a larger
@@ -71,6 +83,7 @@ class _WebRenderWorker implements PdfRenderWorker {
     if (data == null) return;
     final kind = (data.getProperty('kind'.toJS) as JSString?)?.toDart;
     if (kind == 'ready') {
+      _wlog('ready (worker opened the document)');
       _ready = true;
       _pump();
       return;
@@ -81,14 +94,23 @@ class _WebRenderWorker implements PdfRenderWorker {
     if (request == null || request.id != id) return; // stale (disposed)
     _inFlight = null;
     final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
-    request.completer.complete(buffer?.toDart.asUint8List());
+    final bytes = buffer?.toDart.asUint8List();
+    final err = (data.getProperty('error'.toJS) as JSString?)?.toDart;
+    _wlog('result page=${request.pageIndex} '
+        '${bytes == null ? 'declined (null) → local' : '${bytes.length}B → worker'}'
+        '${err == null ? '' : '\n  worker error: $err'}');
+    request.completer.complete(bytes);
     _pump();
   }
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true, int priority = 0}) async {
-    if (_disposed || _failed) return null;
+    if (_disposed || _failed) {
+      _wlog('record page=$pageIndex skipped (disposed=$_disposed '
+          'failed=$_failed) → local');
+      return null;
+    }
     final request = _WebPending(priority, _seq++, pageIndex, annotations);
     _queue.add(request);
     _pump();

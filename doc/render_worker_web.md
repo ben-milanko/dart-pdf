@@ -85,19 +85,22 @@ The backend is wired end to end. `render_worker_web.dart` (main-side worker) and
 `render_worker_web_entry.dart` (worker-side entry) mirror the isolate backend's
 priority queue and protocol, and the app is wired up:
 
-- `app/web/pdf_render_worker.dart` is the worker entry; `app/tool/build_web.sh`
-  compiles it (`dart compile js -O2`) before `flutter build web`, and
+- `dart run dart_pdf_editor:build_web_worker` builds the worker;
   `app/lib/main.dart` sets `pdfRenderWorkerScriptUrl` on web.
 - `dart compile js` of the worker entry **succeeds** (~720 KB bundle), so the
   `dart:js_interop` / `package:web` usage is valid on the web toolchain.
+- **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
+  CAD test doc: every page round-tripped through the worker (`path=worker`),
+  the transferred `ArrayBuffer`s replay correctly, and the main-thread interpret
+  time roughly halved (the residual is replay + image decode). This surfaced a
+  real bug — the command codec used `ByteData.setInt64`/`getInt64`, which throw
+  on the web (no JS 64-bit int); now float64-encoded (exact ≤ 2^53).
 
 Still open — see issue #73:
 
-- A runtime smoke check under `flutter run -d chrome` confirming the transferred
-  `ArrayBuffer`s round-trip live (the protocol uses structured-clone *transfer*,
-  not copy).
-- Decide whether to also offload the image *decode* (issue #73 item 1); on web
-  that is even more valuable since there is no separate raster thread.
+- Offload the image *decode* too (issue #73 item 1); on web that is even more
+  valuable since there is no separate raster thread, and it is the bulk of the
+  remaining per-page time.
 
 ## Caveats
 
