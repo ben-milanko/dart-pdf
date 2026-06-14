@@ -1,11 +1,11 @@
 {
-    "name": "dart-pdf Editor",
-    "short_name": "dart-pdf",
+    "name": "DartPDF",
+    "short_name": "DartPDF",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "dart-pdf Editor — a fully native Flutter PDF editor",
+    "description": "DartPDF — a fully native Flutter PDF editor",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "launch_handler": {

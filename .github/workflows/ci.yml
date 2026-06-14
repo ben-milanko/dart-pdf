@@ -76,6 +76,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-      - name: Test dart-pdf Editor app
+      - name: Test DartPDF app
         working-directory: app
         run: flutter test

@@ -415,7 +415,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Widget _buildTitle(DocumentTab? tab) {
-    if (tab == null || tab.title.isEmpty) return const Text('dart-pdf Editor');
+    if (tab == null || tab.title.isEmpty) return const Text('DartPDF');
     final session = tab.session;
     if (session == null) {
       return Text(tab.title, overflow: TextOverflow.ellipsis);

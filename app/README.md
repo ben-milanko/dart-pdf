@@ -1,4 +1,4 @@
-# dart-pdf Editor
+# DartPDF
 
 A standalone, cross-platform PDF editor built on the
 [`dart_pdf_editor`](../packages/dart_pdf_editor) SDK — pure Dart, no PDFium, no

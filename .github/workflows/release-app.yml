@@ -1,6 +1,6 @@
 name: Release app
 
-# Builds installable artifacts for the standalone dart-pdf Editor app on every
+# Builds installable artifacts for the standalone DartPDF app on every
 # `app-v*` tag (and on demand) and attaches them to a draft GitHub Release.
 # Store upload and code signing stay manual — see app/RELEASING.md.
 
@@ -80,11 +80,11 @@ jobs:
         run: flutter build web --release
       - name: Zip
         working-directory: app
-        run: (cd build/web && zip -r ../../dart-pdf-editor-web.zip .)
+        run: (cd build/web && zip -r ../../dartpdf-web.zip .)
       - uses: actions/upload-artifact@v4
         with:
           name: web
-          path: app/dart-pdf-editor-web.zip
+          path: app/dartpdf-web.zip
 
   linux:
     needs: setup
@@ -103,11 +103,11 @@ jobs:
         run: flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
       - name: Tar bundle
         working-directory: app
-        run: tar czf dart-pdf-editor-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+        run: tar czf dartpdf-linux-x64.tar.gz -C build/linux/x64/release/bundle .
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: app/dart-pdf-editor-linux-x64.tar.gz
+          path: app/dartpdf-linux-x64.tar.gz
 
   windows:
     needs: setup
@@ -126,11 +126,11 @@ jobs:
       - name: Zip
         working-directory: app
         shell: pwsh
-        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dart-pdf-editor-windows-x64.zip
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dartpdf-windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: app/dart-pdf-editor-windows-x64.zip
+          path: app/dartpdf-windows-x64.zip
 
   macos:
     needs: setup
@@ -149,13 +149,13 @@ jobs:
       - name: Package DMG (unsigned)
         working-directory: app
         run: |
-          hdiutil create -volname "dart-pdf Editor" \
-            -srcfolder "build/macos/Build/Products/Release/dart-pdf Editor.app" \
-            -ov -format UDZO dart-pdf-editor-macos.dmg
+          hdiutil create -volname "DartPDF" \
+            -srcfolder "build/macos/Build/Products/Release/DartPDF.app" \
+            -ov -format UDZO dartpdf-macos.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: app/dart-pdf-editor-macos.dmg
+          path: app/dartpdf-macos.dmg
 
   ios:
     needs: setup
@@ -173,11 +173,11 @@ jobs:
         run: flutter build ios --release --no-codesign --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
       - name: Zip unsigned .app
         working-directory: app
-        run: ditto -c -k --keepParent "build/ios/iphoneos/Runner.app" dart-pdf-editor-ios-unsigned.zip
+        run: ditto -c -k --keepParent "build/ios/iphoneos/Runner.app" dartpdf-ios-unsigned.zip
       - uses: actions/upload-artifact@v4
         with:
           name: ios
-          path: app/dart-pdf-editor-ios-unsigned.zip
+          path: app/dartpdf-ios-unsigned.zip
 
   release:
     needs: [setup, android, web, linux, windows, macos, ios]
@@ -189,11 +189,11 @@ jobs:
           path: artifacts
       - uses: softprops/action-gh-release@v2
         with:
-          name: dart-pdf Editor ${{ needs.setup.outputs.version }}
+          name: DartPDF ${{ needs.setup.outputs.version }}
           draft: true
           files: artifacts/**/*
           body: |
-            Standalone dart-pdf Editor ${{ needs.setup.outputs.version }}.
+            Standalone DartPDF ${{ needs.setup.outputs.version }}.
 
             Artifacts are built by CI and are **unsigned** (macOS .dmg, iOS .app,
             Windows .zip) or **debug-signed** (Android, unless a release keystore

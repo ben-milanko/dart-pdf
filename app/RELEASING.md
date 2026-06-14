@@ -1,4 +1,4 @@
-# Releasing dart-pdf Editor
+# Releasing DartPDF
 
 The standalone app ships from the `app/` workspace package. Versioning,
 artifact builds, and packaging are automated; **code signing and store upload
@@ -50,13 +50,30 @@ with a version input; that builds artifacts but only creates a Release on a tag.
    default — add it when you're ready to ship signed AABs).
 
 ### iOS / macOS (App Store / notarized DMG)
-- Apple Developer Program membership; a Distribution certificate + provisioning
-  profile (iOS) and a Developer ID Application certificate (macOS).
-- iOS: open `app/ios/Runner.xcworkspace`, set the team, archive in Xcode (or
-  add Fastlane), then upload to App Store Connect.
-- macOS: `codesign --deep --options runtime` the `.app`, staple after
-  `xcrun notarytool submit`. Add your Apple ID / app-specific password as CI
-  secrets to automate.
+
+DartPDF ships under the **RES Apple Developer account** (no separate
+membership needed). What that means concretely:
+
+- **App ID / Team.** In the RES account's Developer portal, register the bundle
+  id `dev.milanko.dartpdf` as an explicit App ID under the RES team. Apple does
+  **not** require the bundle id to match RES's reverse-domain — an App ID is
+  just a unique string owned by a team — so the existing id can stay. In Xcode,
+  set **Signing → Team** to RES's team (Team ID `<RES_TEAM_ID>`) for the Runner
+  target (iOS and macOS). Automatic signing then provisions against RES.
+- **Seller name.** If RES is an *Organization* account, the App Store listing's
+  developer/seller name shown to users is **RES**, not an individual. That is the
+  accepted trade for reusing the account. (A Personal account would show the
+  account holder's name.)
+- **App Store Connect.** You need an **App Manager** (or Admin) role on RES's App
+  Store Connect to create the DartPDF app record and upload builds.
+- **iOS:** open `app/ios/Runner.xcworkspace`, pick the RES team, archive in Xcode
+  (or add Fastlane), then upload to App Store Connect / TestFlight.
+- **macOS:** for the **App Store**, archive with the RES team and submit via
+  Xcode/Transporter. For a **notarized DMG** distributed outside the store, sign
+  with RES's *Developer ID Application* cert
+  (`codesign --deep --options runtime`), then `xcrun notarytool submit` with a
+  RES App Store Connect API key (or Apple ID + app-specific password) and staple.
+  Wire those as CI secrets to automate the release-app.yml macOS/iOS jobs.
 - Add privacy-usage strings to `Info.plist` if you later use the camera/photos.
 
 ### Windows (Microsoft Store / signed installer)

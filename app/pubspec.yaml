@@ -1,5 +1,5 @@
 name: dart_pdf_editor_app
-description: "dart-pdf Editor — a fully native Flutter PDF editor"
+description: "DartPDF — a fully native Flutter PDF editor"
 publish_to: 'none'
 resolution: workspace
 
