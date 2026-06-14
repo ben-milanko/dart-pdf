@@ -46,6 +46,9 @@ jobs:
       # real quota error.
       - name: Prune stale preview channels
         continue-on-error: true
+        # firebase-tools' hosting:channel commands must run from a directory
+        # containing firebase.json, even with --project/--site
+        working-directory: packages/dart_pdf_editor/example
         env:
           FIREBASE_SITE: dart-pdf-demo
           FIREBASE_PROJECT: dart-pdf-demo
