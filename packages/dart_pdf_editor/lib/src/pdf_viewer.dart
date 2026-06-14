@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, visibleForTesting;
+    show ValueListenable, kIsWeb, visibleForTesting;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
@@ -360,6 +360,7 @@ class PdfViewer extends StatefulWidget {
     this.highlightFormFields = true,
     this.interactiveForms = true,
     this.pagePreviews = true,
+    this.previewWindow = 20,
     this.predictStrokes = true,
   });
 
@@ -491,6 +492,18 @@ class PdfViewer extends StatefulWidget {
   /// session plus up to ~40 MB of preview pixels on very long
   /// documents.
   final bool pagePreviews;
+
+  /// How many pages on each side of the current page the background
+  /// prerender ([pagePreviews]) warms. Each preview is a full synchronous
+  /// interpreter walk, so on a heavy document warming every page stutters
+  /// the UI thread for seconds after open; bounding the proactive warm to
+  /// a window around the viewport keeps it focused on pages the user might
+  /// fast-scroll to. The window recenters automatically as the user
+  /// navigates. Pages outside the window still get a preview for free when
+  /// they're scrolled onto screen (their on-screen render feeds the cache).
+  /// `<= 0` warms every page (the historical behavior — fine for short
+  /// documents where warming everything is cheap).
+  final int previewWindow;
 
   /// Draws a short speculative "lead" ahead of the pen while an ink stroke
   /// is in flight, forward-extrapolated from the recent samples' velocity
@@ -713,6 +726,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _scroll.addListener(_onScrollForDetail);
     _transform.addListener(_onTransformChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
+    // on the web the browser's native context menu pops on right-click and
+    // pre-empts the viewer's own annotation/text menus — suppress it while
+    // a viewer is mounted (ref-counted so multiple viewers cooperate)
+    _suppressBrowserContextMenu();
     // Cmd+Tab and friends: the modifier's key-up goes to the other app, so
     // the tracked state would stick. Losing focus clears it.
     _lifecycle = AppLifecycleListener(onInactive: () {
@@ -726,6 +743,26 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   late final AppLifecycleListener _lifecycle;
+
+  /// How many mounted viewers have suppressed the browser context menu —
+  /// `BrowserContextMenu` is a single global toggle, so several viewers
+  /// (or a host that re-enables it) must cooperate. The native menu is
+  /// re-enabled only when the last viewer goes away.
+  static int _browserContextMenuSuppressors = 0;
+
+  void _suppressBrowserContextMenu() {
+    if (!kIsWeb) return;
+    if (_browserContextMenuSuppressors++ == 0) {
+      BrowserContextMenu.disableContextMenu();
+    }
+  }
+
+  void _restoreBrowserContextMenu() {
+    if (!kIsWeb || _browserContextMenuSuppressors == 0) return;
+    if (--_browserContextMenuSuppressors == 0) {
+      BrowserContextMenu.enableContextMenu();
+    }
+  }
 
   bool _onKeyEvent(KeyEvent event) {
     final down = HardwareKeyboard.instance.isControlPressed ||
@@ -760,7 +797,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _panFlinger.stop();
       _touchFlinger.stop();
       if (_zoomModifierDown) {
-        _applyWheelZoom(scroll);
+        // not while a draw tool is armed — on the web a trackpad pinch
+        // surfaces as a modifier-flagged wheel event, and zooming would
+        // disrupt the stroke
+        if (!_drawToolArmed) _applyWheelZoom(scroll);
         return;
       }
       final matrix = _transform.value.clone();
@@ -951,9 +991,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final top = offset;
       offset += height;
       if (top + height >= nearTop && top <= nearBottom) continue;
+      final distance = (i - current).abs();
+      // bound the proactive warm to a window around the viewport — far
+      // pages render on demand on arrival (render hold) and feed the
+      // cache for free when scrolled through (putFromPicture)
+      final window = widget.previewWindow;
+      if (window > 0 && distance > window) continue;
       if (_previewAttempts.contains(pages[i])) continue;
       if (_previews.isFresh(i, pages[i])) continue;
-      final distance = (i - current).abs();
       if (distance < bestDistance) {
         bestDistance = distance;
         best = i;
@@ -1091,6 +1136,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
+    _restoreBrowserContextMenu();
     _lifecycle.dispose();
     _settleTimer?.cancel();
     _scrollSettleTimer?.cancel();
@@ -1631,43 +1677,121 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     }
   }
 
-  /// Right-click (or two-finger tap): the annotation context menu. The
-  /// hit annotation joins the selection first — an already-selected one
-  /// keeps a multi-selection intact, anything else starts a fresh
-  /// selection — so the menu always acts on what's highlighted.
+  /// Right-click (or two-finger tap): a context menu for mouse
+  /// platforms. With the form tool armed and a field under the click it
+  /// opens the field menu; over an annotation (or empty page area with
+  /// something on the clipboard) it opens the annotation menu — the hit
+  /// annotation joins the selection first, an already-selected one
+  /// keeping a multi-selection intact. Otherwise — reading mode, or a
+  /// click that lands on plain page text — it opens the text menu
+  /// (Copy / Select all).
   Future<void> _onSecondaryTapUp(TapUpDetails details) async {
-    final editing = widget.editing;
-    if (editing == null || editing.isPickingColor) return;
     final point = _pagePointAt(details.localPosition);
     if (point == null) return;
     final (page, x, y) = point;
-    // form mode: a right-clicked field widget gets the field menu
-    // (rename/convert/delete/flatten) instead of the annotation menu
-    if (editing.tool == PdfEditTool.form) {
-      final field = editing.formFieldAt(page, x, y);
-      if (field != null) {
-        await _showFormFieldMenu(details.globalPosition, field.$1.name);
+    final editing = widget.editing;
+    if (editing != null && !editing.isPickingColor) {
+      // form mode: a right-clicked field widget gets the field menu
+      // (rename/convert/delete/flatten) instead of the annotation menu
+      if (editing.tool == PdfEditTool.form) {
+        final field = editing.formFieldAt(page, x, y);
+        if (field != null) {
+          await _showFormFieldMenu(details.globalPosition, field.$1.name);
+          return;
+        }
+      } else {
+        final hit = editing.selectableAnnotationAt(page, x, y);
+        // an annotation, or empty page area with something to paste,
+        // gets the annotation menu
+        if (hit != null || editing.hasAnnotationClipboard) {
+          if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
+            editing.selectAnnotationAt(page, x, y);
+          }
+          await showPdfAnnotationMenu(
+            context: context,
+            position: details.globalPosition,
+            controller: editing,
+            pageIndex: page,
+            customActions: widget.annotationMenuBuilder,
+            pagePoint: (x, y),
+          );
+          return;
+        }
       }
+    } else if (editing != null) {
+      // the eyedropper owns the click while it is armed
       return;
     }
-    final hit = editing.selectableAnnotationAt(page, x, y);
-    if (hit != null) {
-      if (!editing.isAnnotationSelected(page, hit.$1)) {
-        editing.selectAnnotationAt(page, x, y);
-      }
-    } else if (!editing.hasAnnotationClipboard) {
-      // empty page area only carries a menu once there is something to
-      // paste there
-      return;
+    // reading mode, or nothing under the click in editing mode: the text
+    // menu, mirroring the touch selection chip for mouse users
+    await _showTextMenu(details.globalPosition, details.localPosition, page);
+  }
+
+  /// The mouse right-click text menu: Copy the current selection and
+  /// Select all on the page. Mirrors the touch selection chip's actions
+  /// for desktop users, who otherwise have only ⌘C. A right-click that
+  /// lands outside the current selection first selects the word under
+  /// the cursor, like a desktop reader, so Copy has something to act on;
+  /// a click inside the selection keeps it. With no selectable word and
+  /// no page text the menu does not open.
+  Future<void> _showTextMenu(
+      Offset globalPosition, Offset local, int page) async {
+    final position = _textPositionAt(local, tolerance: 14);
+    if (!(position != null && _selectionContains(position))) {
+      _selectWordAt(local);
     }
-    await showPdfAnnotationMenu(
+    final hasSelection = _selRange != null;
+    final hasText = _pageText(page).text.isNotEmpty;
+    if (!hasSelection && !hasText) return;
+    final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final picked = await showMenu<_TextMenuAction>(
       context: context,
-      position: details.globalPosition,
-      controller: editing,
-      pageIndex: page,
-      customActions: widget.annotationMenuBuilder,
-      pagePoint: (x, y),
+      position: RelativeRect.fromRect(
+          globalPosition & Size.zero, Offset.zero & overlay.size),
+      items: [
+        PopupMenuItem<_TextMenuAction>(
+          key: const ValueKey('pdf-text-menu-copy'),
+          value: _TextMenuAction.copy,
+          enabled: hasSelection,
+          child: _textMenuRow(Icons.copy, 'Copy', hasSelection),
+        ),
+        PopupMenuItem<_TextMenuAction>(
+          key: const ValueKey('pdf-text-menu-select-all'),
+          value: _TextMenuAction.selectAll,
+          enabled: hasText,
+          child: _textMenuRow(Icons.select_all, 'Select all', hasText),
+        ),
+      ],
     );
+    switch (picked) {
+      case _TextMenuAction.copy:
+        await _controller.copySelection();
+      case _TextMenuAction.selectAll:
+        _selectAllTextOn(page);
+      case null:
+        break;
+    }
+  }
+
+  Widget _textMenuRow(IconData icon, String label, bool enabled) => Row(
+        children: [
+          Builder(
+            builder: (context) => Icon(icon,
+                size: 18,
+                color: enabled ? null : Theme.of(context).disabledColor),
+          ),
+          const SizedBox(width: 10),
+          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+        ],
+      );
+
+  /// Whether [position] (page, char index) falls inside the current text
+  /// selection [start, end).
+  bool _selectionContains((int, int) position) {
+    final range = _selRange;
+    if (range == null) return false;
+    final (start, end) = range;
+    return !_isBefore(position, start) && _isBefore(position, end);
   }
 
   /// The selection action chip's "more" button and the editing
@@ -1949,6 +2073,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       PointerDeviceKind.touch => editing.fingerDrawsInk,
       _ => false,
     };
+  }
+
+  /// Whether a freehand drawing tool (ink or eraser) is armed. In this
+  /// "drawing mode" the viewer's trackpad/wheel zoom paths stand down so
+  /// a stray pinch can't zoom the page out from under a stroke: on the
+  /// web a two-finger trackpad gesture arrives as a pinch
+  /// (`PointerScaleEvent`) that [InteractiveViewer] would otherwise apply
+  /// directly (its `scaleFactor` neutralization only covers wheel
+  /// scrolling). Touch pinch still zooms — it runs through
+  /// [_EagerPinchRecognizer], not these paths — so on-screen pinch-to-zoom
+  /// while drawing is unaffected; on a trackpad/wheel, switch to another
+  /// tool to zoom.
+  bool get _drawToolArmed {
+    final tool = widget.editing?.tool;
+    return tool == PdfEditTool.ink || tool == PdfEditTool.eraser;
   }
 
   void _onSelectionStart(DragStartDetails details) {
@@ -2519,7 +2658,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     var delta = event.panDelta;
     if (_trackpadIntent == _TrackpadIntent.undecided) {
       _trackpadPendingPan += delta;
-      if ((event.scale - 1).abs() > 0.01) {
+      // a draw tool armed: never latch zoom, so a pinch can't scale the
+      // page mid-stroke — two-finger motion only scrolls
+      if ((event.scale - 1).abs() > 0.01 && !_drawToolArmed) {
         _trackpadIntent = _TrackpadIntent.zoom;
       } else if (_trackpadPendingPan.distance > 8) {
         _trackpadIntent = _TrackpadIntent.scroll;
@@ -2855,6 +2996,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                   // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
                   // disables InteractiveViewer's own (modifier-blind) version
                   scaleFactor: double.maxFinite,
+                  // a draw tool armed: stand IV's scale handling down so a
+                  // stray trackpad pinch (a PointerScaleEvent on the web,
+                  // which scaleFactor does NOT neutralize) can't zoom the
+                  // page out from under a stroke. Touch pinch still zooms
+                  // through _EagerPinchRecognizer, not IV.
+                  scaleEnabled: !_drawToolArmed,
                   minScale: widget.minZoom,
                   // scaling below "cover" needs a free boundary; our own
                   // clamping replaces InteractiveViewer's (live for wheel and
@@ -3491,6 +3638,9 @@ class _FlingClock extends Simulation {
 /// a pinch only zooms (the fingers' drift is not a scroll) and a scroll
 /// never zooms.
 enum _TrackpadIntent { undecided, scroll, zoom }
+
+/// The mouse right-click text menu's actions.
+enum _TextMenuAction { copy, selectAll }
 
 /// Claims every trackpad pan-zoom gesture, eagerly. The viewer drives
 /// scrolling, zoom-window panning, and pinch zoom itself: leaving these

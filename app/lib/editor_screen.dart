@@ -4,6 +4,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -225,18 +226,98 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   /// Closes the tab at [index], confirming first when it has unsaved edits.
-  Future<void> _closeTab(int index) async {
-    final tab = _tabs[index];
-    if (tab.isDirty) {
-      final ok = await _confirmDiscard('"${tab.title}" has unsaved changes.');
+  Future<void> _closeTab(int index) => _closeTabs([_tabs[index]]);
+
+  /// Closes every tab in [targets] (tab objects, stable across the removals),
+  /// confirming once when any of them has unsaved edits. The previously active
+  /// document stays active wherever it lands; if it was closed, the selection
+  /// falls to a surviving neighbour.
+  Future<void> _closeTabs(List<DocumentTab> targets) async {
+    if (targets.isEmpty) return;
+    final dirty = targets.where((t) => t.isDirty).length;
+    if (dirty > 0) {
+      final ok = await _confirmDiscard(
+        dirty == 1
+            ? 'A document has unsaved changes.'
+            : '$dirty documents have unsaved changes.',
+      );
       if (!ok || !mounted) return;
     }
+    final active = _active;
     setState(() {
-      _tabs.remove(tab);
-      if (_activeIndex >= _tabs.length) _activeIndex = _tabs.length - 1;
-      if (_activeIndex < 0) _activeIndex = 0;
+      for (final tab in targets) {
+        _tabs.remove(tab);
+      }
+      // Keep the previously active document active when it survived.
+      final keep = active == null ? -1 : _tabs.indexOf(active);
+      if (keep >= 0) {
+        _activeIndex = keep;
+      } else {
+        if (_activeIndex >= _tabs.length) _activeIndex = _tabs.length - 1;
+        if (_activeIndex < 0) _activeIndex = 0;
+      }
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => tab.dispose());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final tab in targets) {
+        tab.dispose();
+      }
+    });
+  }
+
+  /// Opens the right-click context menu for the tab at [index] at [position]
+  /// (global coordinates), offering Close / Close others / Close to the right /
+  /// Close all. Entries that would close nothing are disabled.
+  Future<void> _showTabMenu(int index, Offset position) async {
+    final tab = _tabs[index];
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final selected = await showMenu<_TabMenuAction>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(40, 40),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        const PopupMenuItem(
+          key: ValueKey('tab-menu-close'),
+          value: _TabMenuAction.close,
+          child: Text('Close'),
+        ),
+        PopupMenuItem(
+          key: const ValueKey('tab-menu-close-others'),
+          value: _TabMenuAction.closeOthers,
+          enabled: _tabs.length > 1,
+          child: const Text('Close others'),
+        ),
+        PopupMenuItem(
+          key: const ValueKey('tab-menu-close-right'),
+          value: _TabMenuAction.closeRight,
+          enabled: index < _tabs.length - 1,
+          child: const Text('Close tabs to the right'),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          key: ValueKey('tab-menu-close-all'),
+          value: _TabMenuAction.closeAll,
+          child: Text('Close all'),
+        ),
+      ],
+    );
+    if (selected == null || !mounted) return;
+    // Re-resolve the tab's current position — nothing reorders while the modal
+    // menu is up, but indexing by identity is robust regardless.
+    final i = _tabs.indexOf(tab);
+    if (i < 0) return;
+    switch (selected) {
+      case _TabMenuAction.close:
+        await _closeTabs([tab]);
+      case _TabMenuAction.closeOthers:
+        await _closeTabs(_tabs.where((t) => t != tab).toList());
+      case _TabMenuAction.closeRight:
+        await _closeTabs(_tabs.sublist(i + 1));
+      case _TabMenuAction.closeAll:
+        await _closeTabs(List.of(_tabs));
+    }
   }
 
   Future<bool> _confirmDiscard(String message) async {
@@ -531,24 +612,46 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
+  /// Moves the tab at [oldIndex] to [newIndex] (drag-reorder), keeping the
+  /// currently active document active wherever it lands. [newIndex] is already
+  /// adjusted for the removed item (the `onReorderItem` convention).
+  void _reorderTabs(int oldIndex, int newIndex) {
+    setState(() {
+      final active = _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
+      final moved = _tabs.removeAt(oldIndex);
+      _tabs.insert(newIndex, moved);
+      _activeIndex = _tabs.indexOf(active);
+    });
+  }
+
   Widget _buildTabStrip() {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
       child: SizedBox(
         height: _tabStripHeight,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          itemCount: _tabs.length + 1,
-          itemBuilder: (context, i) => i < _tabs.length
-              ? _buildTab(i)
-              : IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.add),
-                  tooltip: 'Open PDF in a new tab',
-                  onPressed: _pickAndOpen,
-                ),
+        child: Row(
+          children: [
+            Expanded(
+              child: ReorderableListView.builder(
+                key: const ValueKey('tab-strip'),
+                scrollDirection: Axis.horizontal,
+                // The whole tab is the drag handle (see _buildTab); the stock
+                // trailing handles don't fit a horizontal tab strip.
+                buildDefaultDragHandles: false,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                itemCount: _tabs.length,
+                onReorderItem: _reorderTabs,
+                itemBuilder: (context, i) => _buildTab(i),
+              ),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.add),
+              tooltip: 'Open PDF in a new tab',
+              onPressed: _pickAndOpen,
+            ),
+          ],
         ),
       ),
     );
@@ -585,36 +688,79 @@ class _EditorScreenState extends State<EditorScreen>
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-      child: Material(
-        color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
+    // Dragging anywhere on the tab reorders it; the tap/close gestures still
+    // win when the pointer doesn't travel (gesture arena resolves drag vs tap).
+    return _TabDragStartListener(
+      key: ValueKey(tab),
+      index: index,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+        child: Material(
+          color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8),
-          onTap: () => setState(() => _activeIndex = index),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 2),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 160),
-                  child: label(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 16),
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-                  tooltip: 'Close tab',
-                  onPressed: () => _closeTab(index),
-                ),
-              ],
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() => _activeIndex = index),
+            onSecondaryTapUp: (details) =>
+                _showTabMenu(index, details.globalPosition),
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12, right: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 160),
+                    child: label(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                    tooltip: 'Close tab',
+                    onPressed: () => _closeTab(index),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The actions offered by a tab's right-click context menu.
+enum _TabMenuAction { close, closeOthers, closeRight, closeAll }
+
+/// Starts a tab drag immediately for mouse pointers (the desktop expectation —
+/// a mouse drag never means scrolling the strip) but only after a long press
+/// for touch and stylus, so finger drags still scroll the tab strip. Plain
+/// taps are unaffected: both recognizers claim the pointer only once it moves
+/// past the slop.
+class _TabDragStartListener extends ReorderableDragStartListener {
+  const _TabDragStartListener({
+    super.key,
+    required super.index,
+    required super.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (event) {
+        // A right-click opens the tab context menu — never a drag-reorder.
+        if (event.buttons == kSecondaryButton) return;
+        SliverReorderableList.maybeOf(context)?.startItemDragReorder(
+          index: index,
+          event: event,
+          recognizer: (event.kind == PointerDeviceKind.mouse
+              ? ImmediateMultiDragGestureRecognizer(debugOwner: this)
+              : DelayedMultiDragGestureRecognizer(debugOwner: this))
+            ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context),
+        );
+      },
+      child: child,
     );
   }
 }
