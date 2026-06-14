@@ -33,21 +33,41 @@ with a version input; that builds artifacts but only creates a Release on a tag.
 
 ## The credential boundary — what you must provide
 
-### Android (Play Store)
-1. Create an upload keystore:
-   `keytool -genkey -v -keystore upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`
-2. Locally, create `app/android/key.properties` (git-ignored):
-   ```
-   storeFile=/absolute/path/to/upload.jks
-   storePassword=…
-   keyAlias=upload
-   keyPassword=…
-   ```
-   `build.gradle.kts` picks it up automatically; `flutter build appbundle
-   --release` is then Play-ready.
-3. In CI, provide the keystore + properties via repository secrets and write
-   `key.properties` in the workflow before the Android build (not wired by
-   default — add it when you're ready to ship signed AABs).
+DartPDF ships to the **RES (Railway Engineering Solutions) Google Play
+Console** — the same account Trax uses — so no separate Play developer
+registration is needed; DartPDF is just a new app under it.
+
+**Upload key.** A dedicated DartPDF upload keystore has been generated at
+`app/android/app/upload-keystore.jks` (RSA-2048, alias `upload`), referenced by
+`app/android/key.properties`. Both are git-ignored; `build.gradle.kts` picks
+them up automatically, so `flutter build appbundle --release` is Play-ready.
+**Back up the keystore + password off-machine** — losing them means resetting
+the upload key via Play Console support. (Until the first Play upload registers
+this cert, it is freely swappable.) Generate a replacement with:
+`keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`.
+
+**First release (Play Console UI, under RES's account):**
+1. Create app → name **DartPDF**, type *App*, *Free*, default language.
+2. Internal testing track → create release → upload `app-release.aab` → opt in
+   to **Play App Signing** (Google holds the app signing key; our keystore is
+   the *upload* key).
+3. Complete the required declarations to roll out: **privacy policy URL** (host
+   `app/PRIVACY.md`), **Data safety** = *no data collected, no data shared*
+   (DartPDF is fully on-device), content-rating questionnaire, target audience,
+   ads = *no ads*, app access = *no login required*.
+
+**Automated uploads (later releases).** Trax already drives Play via the
+`androidpublisher` API using the GCP service account
+`codemagic-google-play-api@trax-eb28a.iam.gserviceaccount.com`
+(`~/repos/trax/tools/play-store-upload/`). Grant that service account access to
+the DartPDF app in Play Console (Users & permissions), then the same
+`play-store-upload.py` pattern (or `fastlane supply`) can push subsequent AABs
+to the internal track headlessly. The first release must still be created in the
+UI to clear the one-time declarations.
+
+In CI, provide the keystore + `key.properties` via repository secrets and write
+`key.properties` before the Android build (not wired by default — add it when
+you're ready to ship signed AABs from CI rather than locally).
 
 ### iOS / macOS (App Store / notarized DMG)
 
