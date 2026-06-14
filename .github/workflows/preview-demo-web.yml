@@ -38,6 +38,59 @@ jobs:
       - run: flutter build web --release
         working-directory: packages/dart_pdf_editor/example
 
+      # Firebase Hosting caps preview channels per site, and auto-generated
+      # per-PR channels accumulate until the next deploy hits
+      # "429 channel quota reached". Prune the site back to the most recently
+      # updated channels (never the live channel) so there's room. Best
+      # effort: any failure here just leaves the deploy below to surface the
+      # real quota error.
+      - name: Prune stale preview channels
+        continue-on-error: true
+        # firebase-tools' hosting:channel commands must run from a directory
+        # containing firebase.json, even with --project/--site
+        working-directory: packages/dart_pdf_editor/example
+        env:
+          FIREBASE_SITE: dart-pdf-demo
+          FIREBASE_PROJECT: dart-pdf-demo
+          KEEP_CHANNELS: "10"
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
+        run: |
+          printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          if ! npx -y firebase-tools@latest hosting:channel:list \
+                --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
+                > channels.json 2> list-err.txt; then
+            echo "::warning::channel list failed; skipping prune"
+            echo "---- stdout (--json error lands here) ----"
+            sed -n '1,60p' channels.json || true
+            echo "---- stderr ----"
+            grep -v '^npm warn' list-err.txt | sed -n '1,40p' || true
+            exit 0
+          fi
+          node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync("channels.json", "utf8"));
+            const r = data.result;
+            const chans = Array.isArray(r) ? r : ((r && r.channels) || []);
+            const prev = chans
+              .map(c => ({
+                id: String(c.name || "").split("/").pop(),
+                t: Date.parse(c.updateTime || c.createTime || c.expireTime || 0) || 0,
+              }))
+              .filter(c => c.id && c.id !== "live")
+              .sort((a, b) => b.t - a.t);
+            const del = prev.slice(Number(process.env.KEEP_CHANNELS));
+            fs.writeFileSync("prune.txt", del.map(c => c.id).join("\n"));
+            console.log(`preview channels: ${prev.length}, deleting ${del.length}`);
+          '
+          while IFS= read -r ch; do
+            [ -z "$ch" ] && continue
+            echo "Deleting stale preview channel: $ch"
+            npx -y firebase-tools@latest hosting:channel:delete "$ch" \
+              --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --force || true
+          done < prune.txt
+          rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json prune.txt list-err.txt
+
       # No channelId -> the action creates an ephemeral preview channel keyed
       # to this PR and comments the URL on it. The channel expires on its own.
       - uses: FirebaseExtended/action-hosting-deploy@v0
