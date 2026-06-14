@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
@@ -7,6 +8,7 @@ import 'editing/editing_thumbnails.dart';
 import 'page_number_field.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
+import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'theme.dart';
@@ -156,6 +158,13 @@ class _PdfReaderState extends State<PdfReader> {
   PdfViewerController? _ownedViewer;
   PdfViewportMemory? _viewportMemory;
 
+  // Offloads page interpretation to a background isolate (native; a no-op
+  // fallback on web). Keyed to the session's current document: pure reading
+  // spawns one worker for the life of the document, and the rare form-fill
+  // revision respawns it over the new bytes so it never serves a stale page.
+  PdfRenderWorker? _worker;
+  PdfDocument? _workerDoc;
+
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
 
@@ -182,6 +191,21 @@ class _PdfReaderState extends State<PdfReader> {
     final prefs =
         widget.preferences ?? (_ownedPrefs ??= PdfEditingPreferences());
     _session = PdfEditingController(widget.bytes, preferences: prefs);
+    _session.addListener(_syncWorker);
+    _syncWorker();
+  }
+
+  /// Keeps [_worker] tied to the session's current document. Reading never
+  /// changes it (one spawn for the document's life); a form fill produces a
+  /// new revision, so the old worker — which holds the pre-fill bytes — is
+  /// disposed and a fresh one started over the new bytes. Disposing first
+  /// means pages render locally (correctly) during the brief respawn rather
+  /// than from a stale isolate.
+  void _syncWorker() {
+    if (identical(_session.document, _workerDoc)) return;
+    _worker?.dispose();
+    _worker = PdfRenderWorker.start(_session.bytes);
+    _workerDoc = _session.document;
   }
 
   @override
@@ -190,6 +214,7 @@ class _PdfReaderState extends State<PdfReader> {
     if (!identical(widget.bytes, oldWidget.bytes) ||
         widget.documentId != oldWidget.documentId) {
       final previous = _session;
+      previous.removeListener(_syncWorker);
       _searchField.clear();
       _openSession();
       _viewportMemory?.rekey(_documentKey);
@@ -200,6 +225,8 @@ class _PdfReaderState extends State<PdfReader> {
   @override
   void dispose() {
     _viewportMemory?.dispose();
+    _worker?.dispose();
+    _session.removeListener(_syncWorker);
     _session.dispose();
     _ownedPrefs?.dispose();
     _ownedViewer?.dispose();
@@ -311,6 +338,7 @@ class _PdfReaderState extends State<PdfReader> {
                                 pageColor: pageColor,
                                 showAnnotations: prefs.showAnnotations,
                                 highlightFormFields: prefs.highlightFormFields,
+                                renderWorker: _worker,
                               ),
                       ),
                     ),

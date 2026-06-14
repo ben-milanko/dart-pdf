@@ -34,6 +34,7 @@ export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
 export 'src/preview_cache.dart';
 export 'src/render_scheduler.dart';
+export 'src/render_worker.dart';
 export 'src/renderer.dart';
 export 'src/search_panel.dart';
 export 'src/scrollbar.dart';

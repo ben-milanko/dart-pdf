@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'perf_log.dart';
+import 'render_worker.dart';
 import 'renderer.dart';
 
 /// Low-resolution page previews shown while a page's full render is
@@ -63,23 +64,44 @@ class PdfPagePreviewCache extends ChangeNotifier {
   }
 
   /// Interprets [page] and stores its preview — the background-prerender
-  /// path for pages that have never rendered on screen. The interpreter
-  /// walk is synchronous UI-thread work, so callers pace and gate these
-  /// (the viewer pauses while the user scrolls). A page that fails to
-  /// render simply gets no preview.
+  /// path for pages that have never rendered on screen. When [worker] is
+  /// supplied the interpreter walk is offloaded to a background isolate and
+  /// only the (cheap) replay + downscale run here; otherwise the walk is
+  /// synchronous UI-thread work, so callers pace and gate these (the viewer
+  /// pauses while the user scrolls). A page that fails to render simply gets
+  /// no preview.
   Future<void> renderPreview(int index, PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
+      bool annotations = true,
+      PdfRenderWorker? worker}) async {
     if (_disposed || isFresh(index, page)) return;
     try {
       final sw = Stopwatch()..start();
-      final image = await PdfPageRenderer.renderImage(page,
-          pixelRatio: _ratioFor(PdfPageRenderer.pageSize(page)),
-          pageColor: pageColor,
-          annotations: annotations,
-          recorded: true);
+      final size = PdfPageRenderer.pageSize(page);
+      final ratio = _ratioFor(size);
+      final commands = worker != null && worker.isActive
+          ? await worker.record(index, annotations: annotations)
+          : null;
+      if (_disposed || isFresh(index, page)) return;
+      final ui.Image image;
+      if (commands != null) {
+        final picture = PdfPageRenderer.pictureFromCommands(page, commands,
+            pageColor: pageColor);
+        try {
+          image = await PdfPageRenderer.rasterize(picture, size, ratio);
+        } finally {
+          picture.dispose();
+        }
+      } else {
+        image = await PdfPageRenderer.renderImage(page,
+            pixelRatio: ratio,
+            pageColor: pageColor,
+            annotations: annotations,
+            recorded: true);
+      }
       sw.stop();
       PdfPerfLog.log('prerender page=$index '
+          '${commands != null ? 'worker ' : ''}'
           'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
       _store(index, page, image);
     } catch (_) {

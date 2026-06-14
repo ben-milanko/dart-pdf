@@ -126,6 +126,28 @@ class PdfPageRenderer {
     return picture;
   }
 
+  /// Builds a page picture from an already-recorded [commands] buffer —
+  /// the replay half of an off-thread render. The interpreter walk that
+  /// produced [commands] happened elsewhere (a [PdfRenderWorker]'s isolate),
+  /// so this is just the cheap canvas replay plus the paper/transform setup,
+  /// pixel-identical to [renderPictureRecorded].
+  ///
+  /// Synchronous and image-free by construction: a page that draws images is
+  /// never offloaded (its buffer serializes to null), so a replayable buffer
+  /// has no image commands and needs no decode.
+  static ui.Picture pictureFromCommands(
+      PdfPage page, List<PdfRenderCommand> commands,
+      {Color pageColor = const Color(0xFFFFFFFF)}) {
+    final box = page.cropBox;
+    final size = pageSize(page);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    _paintBackground(canvas, size, pageColor);
+    _applyPageTransform(canvas, page, size, box);
+    replayCommands(commands, CanvasPdfDevice(canvas));
+    return recorder.endRecording();
+  }
+
   /// Paints the page paper under the content: an opaque white backing when
   /// [pageColor] is translucent (so a tint washes over white rather than the
   /// viewer canvas behind the page), then [pageColor]. A fully opaque colour

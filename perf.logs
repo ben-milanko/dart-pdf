@@ -1,0 +1,403 @@
+➜  dart-pdf git:(main) cd ..
+➜  repos cd docx_template_dart_fork 
+➜  docx_template_dart_fork git:(ai-backfill-editing-api) ✗ cd /Users/ben/repos/dart-pdf/packages/dart_pdf_editor/example
+➜  example git:(claude/combined-render-perf) fvm flutter run -d macos --dart-define=PDF_PERF_LOG=true
+Resolving dependencies in `/Users/ben/repos/dart-pdf`... 
+Downloading packages... 
+  _fe_analyzer_shared 99.0.0 (103.0.0 available)
+  analyzer 12.1.0 (13.3.0 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  lints 5.1.1 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  meta 1.18.0 (1.18.3 available)
+  package_config 2.2.0 (3.0.0 available)
+  test 1.31.0 (1.31.1 available)
+  test_api 0.7.11 (0.7.12 available)
+  test_core 0.6.17 (0.6.18 available)
+  vector_math 2.2.0 (2.4.0 available)
+Got dependencies in `/Users/ben/repos/dart-pdf`!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Launching lib/main.dart on macOS in debug mode...
+Building macOS application...                                           
+✓ Built build/macos/Build/Products/Debug/pdf_viewer_example.app
+2026-06-14 14:28:36.196 pdf_viewer_example[90271:4896199] Running with merged UI and platform thread. Experimental.
+Failed to foreground app; open returned 1
+Syncing files to device macOS...                                   226ms
+
+Flutter run key commands.
+r Hot reload. 🔥🔥🔥
+R Hot restart.
+h List all available interactive commands.
+d Detach (terminate "flutter run" but leave application running).
+c Clear the screen
+q Quit (terminate the application on the device).
+
+A Dart VM Service on macOS is available at: http://127.0.0.1:52206/vVpGhX8keRU=/
+The Flutter DevTools debugger and profiler on macOS is available at:
+http://127.0.0.1:52206/vVpGhX8keRU=/devtools/?uri=ws://127.0.0.1:52206/vVpGhX8keRU=/ws
+flutter: [perf 0] scheduler grant page=0 focus=0 remaining=1
+flutter: [perf 3] interpret page=0 path=recorded FIRST interpret=2.7ms
+flutter: [perf 42] prerender page=2 warm=97.5ms
+flutter: [perf 176] renderHold ON (pending=0 focus=0)
+flutter: [perf 182] JANK build=101.4ms raster=11.7ms total=163.8ms
+flutter: [perf 432] renderHold off (pending=1 focus=0)
+flutter: [perf 432] scheduler grant page=0 focus=0 remaining=0
+flutter: [perf 449] scheduler grant page=0 focus=0 remaining=0
+flutter: [perf 462] prerender page=1 warm=2.2ms
+flutter: [perf 511] prerender page=3 warm=35.1ms
+flutter: [perf 553] prerender page=4 warm=26.9ms
+flutter: [perf 575] prerender page=5 warm=15.8ms
+flutter: [perf 12782] scheduler grant page=0 focus=0 remaining=0
+flutter: [perf 12820] scheduler grant page=0 focus=0 remaining=0
+flutter: [perf 12846] JANK build=28.3ms raster=1.8ms total=30.2ms
+flutter: [perf 12846] JANK build=22.8ms raster=1.7ms total=24.6ms
+flutter: [perf 12846] JANK build=27.6ms raster=2.0ms total=29.7ms
+flutter: [perf 12945] JANK build=17.6ms raster=1.9ms total=19.7ms
+flutter: [perf 12945] JANK build=16.2ms raster=1.6ms total=17.9ms
+flutter: [perf 13079] JANK build=16.1ms raster=3.3ms total=19.6ms
+flutter: [perf 13079] JANK build=16.1ms raster=1.8ms total=18.1ms
+
+flutter: [perf 18946] scheduler grant page=0 focus=0 remaining=1
+flutter: [perf 19010] JANK build=59.1ms raster=4.2ms total=63.4ms
+flutter: [perf 19034] interpret page=0 path=recorded FIRST interpret=87.5ms
+flutter: [perf 19034] prerender page=2 warm=155.9ms
+flutter: [perf 19047] scheduler grant page=0 focus=0 remaining=1
+flutter: [perf 19059] scheduler grant page=1 focus=0 remaining=0
+flutter: [perf 19177] interpret page=1 path=recorded FIRST interpret=117.5ms
+flutter: [perf 19196] prerender page=3 warm=80.8ms
+flutter: [perf 19253] prerender page=4 warm=42.6ms
+flutter: [perf 19316] prerender page=5 warm=56.5ms
+flutter: [perf 19432] prerender page=6 warm=105.6ms
+flutter: [perf 19522] prerender page=7 warm=77.9ms
+flutter: [perf 19592] prerender page=8 warm=66.4ms
+flutter: [perf 19708] prerender page=9 warm=98.5ms
+flutter: [perf 19791] prerender page=10 warm=81.4ms
+flutter: [perf 19863] prerender page=11 warm=69.8ms
+flutter: [perf 19927] prerender page=12 warm=47.1ms
+flutter: [perf 19981] prerender page=13 warm=38.2ms
+flutter: [perf 20039] prerender page=14 warm=46.2ms
+flutter: [perf 20101] prerender page=15 warm=58.6ms
+flutter: [perf 20209] prerender page=16 warm=98.8ms
+flutter: [perf 20284] prerender page=17 warm=57.0ms
+flutter: [perf 20356] prerender page=18 warm=63.3ms
+flutter: [perf 20449] prerender page=19 warm=89.4ms
+flutter: [perf 20523] prerender page=20 warm=58.3ms
+flutter: [perf 22169] renderHold ON (pending=0 focus=0)
+flutter: [perf 22185] scroll page=0 v=57px/s threshold=1416 opening=false hold=off
+flutter: [perf 22185] renderHold off (pending=0 focus=0)
+flutter: [perf 22202] scroll page=0 v=10680px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22202] renderHold ON (pending=0 focus=0)
+flutter: [perf 22226] scroll page=0 v=7054px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22244] scroll page=1 v=7820px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22259] scroll page=1 v=8207px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22276] scroll page=1 v=8408px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22292] scroll page=1 v=8504px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22309] scroll page=1 v=8535px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22326] scroll page=2 v=8525px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22342] scroll page=2 v=8485px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22359] scroll page=2 v=8427px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22376] scroll page=2 v=8142px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22392] scroll page=2 v=8070px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22409] scroll page=2 v=8487px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22425] scroll page=2 v=8180px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22442] scroll page=3 v=8039px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22459] scroll page=3 v=7745px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22475] scroll page=3 v=7461px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22492] scroll page=3 v=7185px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22576] scroll page=3 v=6505px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22595] scroll page=3 v=3386px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22610] scroll page=3 v=3258px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22627] scroll page=3 v=3546px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22644] scroll page=3 v=3696px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22692] scroll page=4 v=3141px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22709] scroll page=4 v=4005px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22725] scroll page=4 v=7104px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22742] scroll page=4 v=7448px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22759] scroll page=4 v=7688px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22776] scroll page=5 v=7852px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22792] scroll page=5 v=7960px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22809] scroll page=5 v=8241px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22826] scroll page=5 v=8099px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22842] scroll page=5 v=8092px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22859] scroll page=5 v=9365px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22876] scroll page=6 v=9205px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22892] scroll page=6 v=9048px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22959] scroll page=6 v=8185px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22978] scroll page=6 v=4957px/s threshold=1416 opening=false hold=ON
+flutter: [perf 22995] scroll page=6 v=4550px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23012] scroll page=6 v=4779px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23028] scroll page=6 v=5350px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23059] scroll page=7 v=5487px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23076] scroll page=7 v=6280px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23092] scroll page=7 v=7047px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23109] scroll page=8 v=8328px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23126] scroll page=8 v=12664px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23142] scroll page=8 v=12886px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23159] scroll page=9 v=13021px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23176] scroll page=9 v=13092px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23193] scroll page=9 v=13852px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23209] scroll page=9 v=13963px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23226] scroll page=10 v=13722px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23242] scroll page=10 v=14450px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23259] scroll page=10 v=14212px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23276] scroll page=10 v=13717px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23292] scroll page=10 v=13237px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23309] scroll page=11 v=12773px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23364] scroll page=11 v=11868px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23393] scroll page=11 v=9289px/s threshold=1416 opening=false hold=ON
+flutter: [perf 23645] renderHold off (pending=3 focus=11)
+flutter: [perf 23645] scheduler grant page=11 focus=11 remaining=2
+flutter: [perf 23707] interpret page=11 path=recorded FIRST interpret=61.8ms
+flutter: [perf 23712] scheduler grant page=11 focus=11 remaining=2
+flutter: [perf 23726] scheduler grant page=10 focus=11 remaining=1
+flutter: [perf 23797] interpret page=10 path=recorded FIRST interpret=71.3ms
+flutter: [perf 23800] renderHold ON (pending=1 focus=11)
+flutter: [perf 24053] renderHold off (pending=1 focus=11)
+flutter: [perf 24053] scheduler grant page=12 focus=11 remaining=0
+flutter: [perf 24105] interpret page=12 path=recorded FIRST interpret=51.8ms
+flutter: [perf 24109] scheduler grant page=11 focus=11 remaining=1
+flutter: [perf 24111] renderHold ON (pending=1 focus=11)
+flutter: [perf 24137] scroll page=12 v=3585px/s threshold=1416 opening=true hold=ON
+flutter: [perf 24160] scroll page=12 v=5508px/s threshold=1416 opening=true hold=ON
+flutter: [perf 24192] scroll page=13 v=4898px/s threshold=1416 opening=true hold=ON
+flutter: [perf 24209] scroll page=13 v=5603px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24225] scroll page=13 v=6127px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24242] scroll page=13 v=6521px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24259] scroll page=13 v=6819px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24275] scroll page=14 v=8581px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24292] scroll page=14 v=8662px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24309] scroll page=14 v=8697px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24325] scroll page=14 v=8700px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24342] scroll page=14 v=8301px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24359] scroll page=14 v=9607px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24376] scroll page=15 v=9443px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24447] scroll page=15 v=8891px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24467] scroll page=15 v=5867px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24483] scroll page=15 v=6336px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24542] scroll page=15 v=5073px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24559] scroll page=16 v=6042px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24576] scroll page=16 v=6980px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24592] scroll page=17 v=8279px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24609] scroll page=17 v=12308px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24625] scroll page=17 v=12794px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24642] scroll page=18 v=13138px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24659] scroll page=18 v=13377px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24675] scroll page=18 v=13385px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24693] scroll page=18 v=17234px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24709] scroll page=19 v=16950px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24725] scroll page=19 v=16672px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24776] scroll page=19 v=15427px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24794] scroll page=19 v=11090px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24811] scroll page=19 v=10784px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24828] scroll page=20 v=10858px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24851] scroll page=20 v=10656px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24875] scroll page=20 v=9641px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24892] scroll page=21 v=9950px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24909] scroll page=21 v=10249px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24925] scroll page=21 v=10539px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24942] scroll page=22 v=11792px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24959] scroll page=22 v=15254px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24975] scroll page=22 v=15288px/s threshold=1416 opening=false hold=ON
+flutter: [perf 24992] scroll page=23 v=15272px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25009] scroll page=23 v=15311px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25025] scroll page=23 v=14978px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25042] scroll page=23 v=14929px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25059] scroll page=24 v=15724px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25100] scroll page=24 v=14484px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25114] scroll page=24 v=11928px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25135] scroll page=24 v=11751px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25151] scroll page=25 v=11883px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25175] scroll page=25 v=11011px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25192] scroll page=25 v=11473px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25209] scroll page=26 v=11921px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25226] scroll page=26 v=12354px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25242] scroll page=26 v=12773px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25259] scroll page=27 v=13179px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25276] scroll page=27 v=14554px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25292] scroll page=27 v=16860px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25309] scroll page=28 v=16802px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25325] scroll page=28 v=16833px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25342] scroll page=28 v=16558px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25359] scroll page=29 v=17443px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25375] scroll page=29 v=17159px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25392] scroll page=29 v=16567px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25443] scroll page=29 v=15050px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25461] scroll page=29 v=10889px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25478] scroll page=30 v=10858px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25499] scroll page=30 v=11872px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25526] scroll page=31 v=11786px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25542] scroll page=31 v=13006px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25559] scroll page=32 v=14187px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25575] scroll page=32 v=15329px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25592] scroll page=33 v=16435px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25609] scroll page=34 v=18448px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25625] scroll page=34 v=24051px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25642] scroll page=34 v=24062px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25659] scroll page=35 v=24002px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25675] scroll page=35 v=24467px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25692] scroll page=36 v=23872px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25709] scroll page=36 v=25160px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25726] scroll page=37 v=24756px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25781] scroll page=37 v=22960px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25797] scroll page=37 v=18072px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25816] scroll page=38 v=18374px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25859] scroll page=38 v=14681px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25876] scroll page=39 v=15073px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25892] scroll page=39 v=15453px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25909] scroll page=40 v=15821px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25925] scroll page=40 v=16178px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25942] scroll page=41 v=17478px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25959] scroll page=41 v=20808px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25975] scroll page=42 v=20932px/s threshold=1416 opening=false hold=ON
+flutter: [perf 25992] scroll page=42 v=20972px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26009] scroll page=42 v=20235px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26026] scroll page=43 v=23458px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26042] scroll page=43 v=23078px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26109] scroll page=43 v=21390px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26128] scroll page=43 v=13633px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26144] scroll page=44 v=14118px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26169] scroll page=45 v=14816px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26192] scroll page=45 v=14362px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26209] scroll page=46 v=15711px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26225] scroll page=47 v=17015px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26242] scroll page=47 v=18278px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26259] scroll page=48 v=20816px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26275] scroll page=49 v=30154px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26292] scroll page=49 v=30246px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26309] scroll page=50 v=30226px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26325] scroll page=50 v=30125px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26342] scroll page=51 v=29995px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26359] scroll page=52 v=29642px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26417] scroll page=52 v=28957px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26430] scroll page=52 v=21233px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26449] scroll page=52 v=20694px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26466] scroll page=53 v=21026px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26492] scroll page=54 v=19452px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26509] scroll page=55 v=20522px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26525] scroll page=55 v=21557px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26542] scroll page=56 v=22558px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26559] scroll page=57 v=23527px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26575] scroll page=58 v=26565px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26592] scroll page=58 v=34617px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26609] scroll page=59 v=34646px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26625] scroll page=60 v=34572px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26642] scroll page=60 v=34961px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26659] scroll page=61 v=34483px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26676] scroll page=62 v=36355px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26743] scroll page=62 v=33741px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26761] scroll page=62 v=21474px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26778] scroll page=63 v=21381px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26800] scroll page=63 v=21609px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26825] scroll page=64 v=19867px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26842] scroll page=65 v=21000px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26859] scroll page=66 v=22095px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26876] scroll page=67 v=23156px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26892] scroll page=68 v=26218px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26909] scroll page=69 v=37680px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26925] scroll page=69 v=37811px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26942] scroll page=70 v=37799px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26959] scroll page=71 v=37683px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26975] scroll page=71 v=37591px/s threshold=1416 opening=false hold=ON
+flutter: [perf 26992] scroll page=72 v=37184px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27009] scroll page=73 v=39206px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27025] scroll page=73 v=38584px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27076] scroll page=73 v=35398px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27094] scroll page=74 v=26729px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27116] scroll page=76 v=30797px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27142] scroll page=77 v=29036px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27159] scroll page=78 v=30475px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27175] scroll page=79 v=31867px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27192] scroll page=80 v=33214px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27209] scroll page=81 v=34517px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27225] scroll page=82 v=35778px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27242] scroll page=83 v=38889px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27259] scroll page=83 v=48490px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27275] scroll page=84 v=47929px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27292] scroll page=85 v=47344px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27309] scroll page=86 v=43209px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27325] scroll page=86 v=45562px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27342] scroll page=87 v=44842px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27383] scroll page=87 v=40513px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27397] scroll page=87 v=33038px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27417] scroll page=88 v=31902px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27435] scroll page=89 v=31711px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27450] scroll page=90 v=31890px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27475] scroll page=91 v=29649px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27492] scroll page=92 v=31012px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27509] scroll page=93 v=32330px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27526] scroll page=94 v=33606px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27542] scroll page=95 v=34840px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27559] scroll page=96 v=38862px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27576] scroll page=97 v=45666px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27592] scroll page=98 v=45754px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27609] scroll page=99 v=46612px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27625] scroll page=100 v=46534px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27642] scroll page=101 v=46094px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27659] scroll page=101 v=48606px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27676] scroll page=102 v=47839px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27692] scroll page=103 v=46240px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27709] scroll page=104 v=44693px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27725] scroll page=104 v=43196px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27742] scroll page=105 v=41747px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27759] scroll page=106 v=40345px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27775] scroll page=106 v=38988px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27792] scroll page=107 v=37675px/s threshold=1416 opening=false hold=ON
+flutter: [perf 27809] scroll page=107 v=36404px/s threshold=1416 opening=false hold=ON
+flutter: [perf 28062] renderHold off (pending=2 focus=107)
+flutter: [perf 28062] scheduler grant page=107 focus=107 remaining=1
+flutter: [perf 28121] interpret page=107 path=recorded FIRST interpret=58.9ms
+flutter: [perf 28122] renderHold ON (pending=1 focus=107)
+flutter: [perf 28131] scroll page=107 v=13px/s threshold=1416 opening=false hold=off
+flutter: [perf 28131] renderHold off (pending=2 focus=107)
+flutter: [perf 28131] scheduler grant page=107 focus=107 remaining=1
+flutter: [perf 28144] scheduler grant page=108 focus=107 remaining=0
+flutter: [perf 28202] interpret page=108 path=recorded FIRST interpret=58.0ms
+flutter: [perf 28204] scroll page=107 v=480px/s threshold=1416 opening=false hold=off
+flutter: [perf 28525] prerender page=106 warm=68.9ms
+flutter: [perf 28528] scheduler grant page=107 focus=107 remaining=1
+flutter: [perf 28547] scheduler grant page=108 focus=107 remaining=0
+flutter: [perf 28611] prerender page=105 warm=63.9ms
+flutter: [perf 29177] prerender page=109 warm=551.4ms
+flutter: [perf 29229] prerender page=104 warm=36.6ms
+flutter: [perf 29351] prerender page=110 warm=108.2ms
+flutter: [perf 29405] prerender page=103 warm=45.7ms
+flutter: [perf 29461] prerender page=111 warm=51.9ms
+flutter: [perf 29555] prerender page=102 warm=75.4ms
+flutter: [perf 29631] prerender page=112 warm=71.9ms
+flutter: [perf 29717] prerender page=101 warm=70.6ms
+flutter: [perf 29810] prerender page=113 warm=84.0ms
+flutter: [perf 29878] prerender page=100 warm=52.1ms
+flutter: [perf 29961] prerender page=114 warm=62.0ms
+flutter: [perf 30010] prerender page=99 warm=33.7ms
+flutter: [perf 30099] prerender page=115 warm=73.0ms
+flutter: [perf 30166] prerender page=98 warm=53.2ms
+flutter: [perf 30222] prerender page=116 warm=46.7ms
+flutter: [perf 30275] prerender page=97 warm=49.3ms
+flutter: [perf 30356] prerender page=117 warm=80.6ms
+flutter: [perf 30402] prerender page=96 warm=43.2ms
+flutter: [perf 30497] prerender page=118 warm=88.3ms
+flutter: [perf 30571] prerender page=95 warm=62.4ms
+flutter: [perf 30694] prerender page=119 warm=118.2ms
+flutter: [perf 30748] prerender page=94 warm=38.6ms
+flutter: [perf 30813] prerender page=120 warm=53.9ms
+flutter: [perf 30875] prerender page=93 warm=46.5ms
+flutter: [perf 31381] prerender page=121 warm=505.3ms
+flutter: [perf 31430] prerender page=92 warm=37.6ms
+flutter: [perf 31543] prerender page=122 warm=100.6ms
+flutter: [perf 31615] prerender page=91 warm=56.0ms
+flutter: [perf 31684] prerender page=123 warm=58.3ms
+flutter: [perf 31739] prerender page=90 warm=46.4ms
+flutter: [perf 31805] prerender page=124 warm=62.9ms
+flutter: [perf 31863] prerender page=89 warm=54.3ms
+flutter: [perf 31961] prerender page=125 warm=84.8ms
+flutter: [perf 32012] prerender page=88 warm=36.0ms
+flutter: [perf 32095] prerender page=126 warm=69.2ms
+flutter: [perf 32171] prerender page=87 warm=60.4ms
+flutter: [perf 32266] prerender page=127 warm=89.8ms
+flutter: [perf 312359] JANK build=12.1ms raster=25.2ms total=38.3ms
+flutter: [perf 494285] JANK build=5.3ms raster=17.2ms total=22.7ms
+flutter: [perf 600602] JANK build=5.3ms raster=18.2ms total=23.8ms
+
+Application finished.
+➜  example git:(claude/combined-render-perf) 
