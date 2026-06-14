@@ -20,6 +20,10 @@ dependencies:
   dart_pdf_editor: ^1.0.0
   pdf_document: ^1.0.0
 
+  # On-device, downloadable OCR — adds a selectable text layer over scans
+  # without leaving the device (native platforms only).
+  pdf_ocr_ondevice: ^0.1.0
+
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
   share_plus: ^13.1.0

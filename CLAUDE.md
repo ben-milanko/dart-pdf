@@ -2258,3 +2258,44 @@ app's life — the API key is kept in MEMORY ONLY, never written to disk (so
 the example needs no shared_preferences for it). dep pdf_ocr_vlm ^0.1.0.
 The 9 example test failures are pre-existing on this machine (raster/
 headless) — identical set with and without this wiring, zero regressions.
+
+On-device downloadable OCR (Ben, follow-on from #76: a downloadable OCR
+module for the full app on native platforms): #76 shipped the OCR *seam*
+(`PdfOcrEngine`/`applyOcr`) and `pdf_ocr_vlm` (HTTP/cloud tier — dots.ocr
+over vLLM). This adds the OFFLINE tier as a new workspace package
+**`packages/pdf_ocr_ondevice`** — PP-OCRv5 *mobile* (the small ~5M-param
+classic detect→recognize pipeline, NOT a billion-param VLM) on ONNX Runtime
+(`onnxruntime ^1.4.1`, prebuilt for android/ios/macos/windows/linux; web
+unsupported). Tiering rationale: SOTA accuracy (dots.ocr 1.7B, PaddleOCR-VL
+0.9B) is GPU-class → stays the HTTP tier; the small PP-OCR pipeline is what
+runs on-device everywhere and its per-line boxes are the right shape for
+`injectTextLayer`'s invisible selectable layer. Design splits the genuinely
+testable core from the unverifiable inference: `PdfOcrModelManager`
+(download/cache under app-support via path_provider, SHA-256 verify,
+atomic .part→rename, progress stream, `isSupported` platform gate, skip
+already-present files) + pure-Dart pipeline pieces (`OcrImage` crop/bilinear
+resize, `preprocess.dart` det-resize-to-÷32 + NCHW normalize + rec input,
+`db_postprocess.dart` probmap→boxes via 4-connected flood-fill + unclip +
+scale-back — axis-aligned not minAreaRect, fine for horizontal runs,
+`ctc_decode.dart` greedy CTC + PP-OCR dict parse) are ALL unit-tested;
+only `OnnxOcrModelRunner`'s two `OrtSession.run` calls are
+sandbox-unverifiable (no GPU/model/native libs here — same honesty posture
+as #76's GPU path). `OnDeviceOcrEngine implements PdfOcrEngine` takes any
+`OcrModelRunner` (engine + geometry mapping fully tested with a fake runner;
+`fromDownloadedModel(manager, model)` builds the ONNX runner). MODEL HOSTING:
+ONNX bundles aren't shipped in-tree — `PdfOcrModels.ppOcrV5Mobile` points its
+file URLs at a `ocr-models-v1` GitHub release Ben must publish (paddle2onnx
+recipe in the package README); `sha256` is OPTIONAL (null skips verify) so
+the default works once assets exist, and a missing asset 404s with a clear
+`PdfOcrModelException`. App wiring (`app/lib/ocr.dart` `OnDeviceOcr` +
+editor_screen More-menu 'Add OCR text layer…' key 'menu-ocr', gated on
+`OnDeviceOcr.isSupported` && a session): confirm-download dialog (~MB from
+`approxSizeBytes`) → progress download → per-page `applyOcr` progress →
+opens result in a new '(OCR)' tab, original untouched, all failures toast.
+dart:io IS used in this leaf package (file cache) — that's allowed here
+(it's an app-tier native-only OCR package, outside the pure-Dart PDF
+layering chain). Tests: pdf_ocr_ondevice (27 — ctc/db/preprocess/ocr_image
+pure, model_manager via MockClient+temp dir, engine end-to-end via fake
+runner + rendered page) and app/test/ocr_menu_test.dart (2). Added to root
+workspace after pdf_ocr_vlm. Not in the first-publish order (Ben's call,
+like pdf_ocr_vlm).

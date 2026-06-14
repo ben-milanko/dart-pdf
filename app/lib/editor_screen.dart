@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
 import 'incoming_file.dart';
+import 'ocr.dart';
 import 'recents.dart';
 import 'settings_screen.dart';
 import 'web_launch.dart';
@@ -53,6 +54,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   final _recents = RecentsStore();
   final _incoming = IncomingFileService();
+  final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
 
   /// True while a file is being dragged over the window (desktop/web).
@@ -107,6 +109,7 @@ class _EditorScreenState extends State<EditorScreen>
     WidgetsBinding.instance.removeObserver(this);
     _incomingSub?.cancel();
     _incoming.dispose();
+    _ocr.dispose();
     for (final tab in _tabs) {
       tab.dispose();
     }
@@ -222,6 +225,30 @@ class _EditorScreenState extends State<EditorScreen>
       });
     } catch (e) {
       _openError('Compare failed', 'Could not open the second file\n$e');
+    }
+  }
+
+  /// Adds an invisible, selectable/searchable OCR text layer over the active
+  /// document, running entirely on-device (pdf_ocr_ondevice). The model
+  /// downloads once on first use; the result opens in a new tab and the
+  /// original is left untouched.
+  Future<void> _runOcr() async {
+    final tab = _active;
+    final bytes = tab?.session?.bytes;
+    if (tab == null || bytes == null) {
+      _toast('Open a document before running OCR');
+      return;
+    }
+    final result = await _ocr.run(
+      context,
+      bytes: bytes,
+      title: tab.title,
+      onToast: (message) {
+        if (mounted) _toast(message);
+      },
+    );
+    if (result != null && mounted) {
+      _openBytes(result, '${tab.title} (OCR)');
     }
   }
 
@@ -595,6 +622,17 @@ class _EditorScreenState extends State<EditorScreen>
               child: const ListTile(
                 leading: Icon(Icons.compare_arrows),
                 title: Text('Compare with…'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          if (tab?.session != null && OnDeviceOcr.isSupported)
+            PopupMenuItem(
+              key: const ValueKey('menu-ocr'),
+              value: () => unawaited(_runOcr()),
+              child: const ListTile(
+                leading: Icon(Icons.document_scanner_outlined),
+                title: Text('Add OCR text layer…'),
+                subtitle: Text('On-device · selectable text over scans'),
                 contentPadding: EdgeInsets.zero,
               ),
             ),
