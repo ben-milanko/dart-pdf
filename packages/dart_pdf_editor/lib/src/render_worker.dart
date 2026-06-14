@@ -3,7 +3,19 @@ import 'dart:typed_data';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'render_worker_stub.dart'
-    if (dart.library.io) 'render_worker_isolate.dart';
+    if (dart.library.io) 'render_worker_isolate.dart'
+    if (dart.library.js_interop) 'render_worker_web.dart';
+
+/// On web, the URL of the compiled Web Worker script that backs the render
+/// worker (its `main()` calls `runPdfRenderWorker`; see the web-only library
+/// `package:dart_pdf_editor/render_worker_web.dart` and
+/// `doc/render_worker_web.md` for the build wiring).
+///
+/// Set this once before opening a viewer to move page interpretation off the
+/// main thread on web. Left null, web falls back to local rendering — exactly
+/// the historical behavior — so apps that haven't built the worker script are
+/// unaffected. Ignored on native, where the isolate backend needs no script.
+String? pdfRenderWorkerScriptUrl;
 
 /// Records a PDF page's interpreter callbacks into a portable command buffer
 /// OFF the UI thread, so the dominant render cost — the content-stream parse
@@ -24,9 +36,10 @@ import 'render_worker_stub.dart'
 abstract class PdfRenderWorker {
   /// Starts the platform's worker over [bytes] (the document image the page
   /// indices passed to [record] refer to). Native: a long-lived background
-  /// isolate that opens its own [PdfDocument]. Web and other platforms without
-  /// isolates: a null worker whose [record] always defers to local rendering
-  /// (until a Web Worker backend lands).
+  /// isolate that opens its own [PdfDocument]. Web: a Web Worker over the
+  /// script at [pdfRenderWorkerScriptUrl] when one is configured (else a null
+  /// worker). Platforms without either: a null worker whose [record] always
+  /// defers to local rendering.
   static PdfRenderWorker start(Uint8List bytes) => startRenderWorker(bytes);
 
   /// Records page [pageIndex] off-thread and returns its replayable command

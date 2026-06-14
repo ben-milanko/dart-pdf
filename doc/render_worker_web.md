@@ -1,0 +1,89 @@
+# Web Worker render backend
+
+On native platforms `dart_pdf_editor` runs page interpretation on a background
+**isolate** (`Isolate.spawn`), so the heavy content-stream parse and interpreter
+walk don't block frames while scrolling. The web has no isolates, so the same
+work runs on a **Web Worker** instead — but unlike the isolate, a Web Worker is
+a *separately compiled script* the host app must build and serve. This document
+is the wiring.
+
+When no worker script is configured, the web build falls back to local
+rendering on the main thread (the historical behavior) — so this is purely an
+opt-in performance upgrade.
+
+## How it fits together
+
+```
+main app  ──postMessage(init: ArrayBuffer)──▶  Web Worker (pdf_render_worker.dart.js)
+          ──postMessage(record: page,id)───▶     opens the PdfDocument once,
+          ◀─postMessage(ready)──────────────     serializeCommands(page) off-thread,
+          ◀─postMessage(result: ArrayBuffer)─     transfers the buffer back
+
+main app: deserializeCommands + PdfPageRenderer.pictureFromCommands (cheap replay
+          + image decode) on the main thread, exactly like the isolate path.
+```
+
+The wire format is identical to the native backend — `serializeCommands` /
+`deserializeCommands` produce a plain `Uint8List`, and image XObjects travel as
+self-contained inline-resolved stream subgraphs — so the replay and image-decode
+path (`pictureFromCommands`) is shared.
+
+## Setup (host web app)
+
+1. **Add a worker entry script** at `web/pdf_render_worker.dart`:
+
+   ```dart
+   import 'package:dart_pdf_editor/render_worker_web.dart';
+
+   void main() => runPdfRenderWorker();
+   ```
+
+2. **Compile it to a standalone worker bundle** (Flutter does *not* do this for
+   you — `web/` Dart files are not auto-compiled):
+
+   ```sh
+   dart compile js web/pdf_render_worker.dart -o web/pdf_render_worker.dart.js -O2
+   ```
+
+   Run this as part of your build (e.g. a `tool/build_web.sh` that does the
+   compile, then `flutter build web`). The output `.js` (and its `.js.map`) must
+   be served next to `index.html`.
+
+3. **Point the app at it** before opening a viewer:
+
+   ```dart
+   import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+
+   void main() {
+     pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+     runApp(...);
+   }
+   ```
+
+That's it — `PdfReader` / `PdfEditorView` pick up the worker automatically (the
+shells call `PdfRenderWorker.start`, which routes to the Web Worker backend when
+the URL is set).
+
+## Status
+
+**Work in progress.** The code paths exist (`render_worker_web.dart`,
+`render_worker_web_entry.dart`) and mirror the isolate backend's priority queue
+and protocol, but the following still need doing — see issue #73:
+
+- A worked example in the example app (`example/web/pdf_render_worker.dart` plus
+  a build script) and verification under `flutter run -d chrome`.
+- Confirm `dart compile js` of the worker entry succeeds and the transferred
+  `ArrayBuffer`s round-trip (the protocol uses structured-clone *transfer*, not
+  copy).
+- Decide whether to also offload the image *decode* (issue #73 item 1); on web
+  that is even more valuable since there is no separate raster thread.
+
+## Caveats
+
+- **Not** cross-origin isolation / `SharedArrayBuffer`. This uses an ordinary
+  dedicated worker with transferable `ArrayBuffer`s, so it needs no COOP/COEP
+  headers. (skwasm's multithreading, which *does* need those headers,
+  parallelizes raster — not interpretation — and is unrelated.)
+- The worker holds a fixed snapshot of the document bytes, like the isolate; an
+  editing session must restart the worker when the bytes change (the shells
+  already do this on every revision).

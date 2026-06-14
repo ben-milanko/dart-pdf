@@ -26,6 +26,9 @@ dependencies:
   pdf_document: ^1.0.0
   pdf_graphics: ^1.0.0
   shared_preferences: ^2.3.0
+  # Web-only: the Web Worker render backend (render_worker_web.dart) talks to a
+  # Worker over package:web's typed bindings. A no-op everywhere else.
+  web: ^1.1.0
 
 dev_dependencies:
   pdf_test_fixtures: ^1.0.0
