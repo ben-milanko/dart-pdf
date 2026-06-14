@@ -28,34 +28,35 @@ The wire format is identical to the native backend — `serializeCommands` /
 self-contained inline-resolved stream subgraphs — so the replay and image-decode
 path (`pictureFromCommands`) is shared.
 
-## Setup (host web app)
+## Do I have to do anything?
 
-1. **Add a worker entry script** at `web/pdf_render_worker.dart`:
+**No — not to use the library.** With no worker configured, web rendering runs
+on the main thread exactly as before, and if a configured worker script is
+missing it degrades to that automatically. The Web Worker is a pure opt-in
+performance upgrade. Skip this whole document and everything still works.
 
-   ```dart
-   import 'package:dart_pdf_editor/render_worker_web.dart';
+## Opt in (host web app)
 
-   void main() => runPdfRenderWorker();
-   ```
-
-2. **Compile it to a standalone worker bundle** (Flutter does *not* do this for
-   you — `web/` Dart files are not auto-compiled):
+1. **Build the worker** from your app root — one command, no hand-written entry:
 
    ```sh
-   dart compile js web/pdf_render_worker.dart -o web/pdf_render_worker.dart.js -O2
+   dart run dart_pdf_editor:build_web_worker
    ```
 
-   Run this as part of your build (e.g. a `tool/build_web.sh` that does the
-   compile, then `flutter build web`). The output `.js` (and its `.js.map`) must
-   be served next to `index.html`.
+   This generates the worker entry (under `.dart_tool/`, so it never clutters
+   your sources) and compiles it to `web/pdf_render_worker.dart.js`, which
+   `flutter build web` and `flutter run` serve next to `index.html`.
 
-3. **Point the app at it** before opening a viewer:
+2. **Point the app at it** once, in `main()` (web only):
 
    ```dart
    import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+   import 'package:flutter/foundation.dart';
 
    void main() {
-     pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+     if (kIsWeb) {
+       pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+     }
      runApp(...);
    }
    ```
@@ -63,6 +64,20 @@ path (`pictureFromCommands`) is shared.
 That's it — `PdfReader` / `PdfEditorView` pick up the worker automatically (the
 shells call `PdfRenderWorker.start`, which routes to the Web Worker backend when
 the URL is set).
+
+### Does it run every build?
+
+**It doesn't have to.** `web/pdf_render_worker.dart.js` is a static file. You can
+either:
+
+- **Commit it** and re-run `dart run dart_pdf_editor:build_web_worker` only when
+  you upgrade `dart_pdf_editor` (the bundle embeds the library, so a stale one
+  would replay an old renderer) — zero per-build cost; or
+- **Gitignore it** and run the command before each `flutter build web` (e.g. a
+  `tool/build_web.sh` wrapper that runs the tool, then `flutter build web`).
+
+Either way, if the file is missing or stale-by-absence the app just renders
+locally — a forgotten rebuild degrades gracefully, it never breaks.
 
 ## Status
 
