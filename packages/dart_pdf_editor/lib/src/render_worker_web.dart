@@ -149,6 +149,27 @@ class _WebRenderWorker implements PdfRenderWorker {
     worker.postMessage(message);
   }
 
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {
+    if (_disposed || _failed) return;
+    // Drop matching QUEUED requests (the in-flight one can't be preempted) so
+    // the worker's next slot serves a page the user is still looking at. The
+    // cancelled record() futures resolve null; the abandoning caller ignores
+    // them. Mirrors the isolate backend.
+    var dropped = 0;
+    _queue.removeWhere((request) {
+      if (request.pageIndex != pageIndex || request.priority != priority) {
+        return false;
+      }
+      if (!request.completer.isCompleted) request.completer.complete(null);
+      dropped++;
+      return true;
+    });
+    if (dropped > 0) {
+      _wlog('cancel page=$pageIndex priority=$priority dropped=$dropped queued');
+    }
+  }
+
   void _fail() {
     if (_failed) return;
     _failed = true;

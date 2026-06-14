@@ -61,6 +61,21 @@ abstract class PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true, int priority = 0});
 
+  /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
+  /// [priority], completing its future with null — as if the page had declined
+  /// to a local render. The single in-flight request can't be preempted (that
+  /// needs the worker to yield mid-walk); this only clears the backlog behind
+  /// it. A cheap no-op when nothing matches.
+  ///
+  /// The point is to cancel prefetch the user has scrolled past: a page that
+  /// left the viewport before its turn came no longer needs decoding, and
+  /// leaving its request queued would make the worker spend its next slot — and
+  /// ship a multi-megabyte decoded buffer — for a page nobody is looking at,
+  /// delaying the page that is. The caller that abandons a cancelled result
+  /// must not fall back to a local interpret (the work would be wasted);
+  /// [PdfPageView] does this by abandoning when it is unmounted or superseded.
+  void cancel(int pageIndex, {int priority = 0});
+
   /// Whether this worker actually offloads. False for the null fallback, so
   /// callers can skip the round-trip and render locally without asking.
   bool get isActive;

@@ -222,6 +222,63 @@ void main() {
       }
     });
   });
+
+  testWidgets('cancel drops a queued request without disturbing others',
+      (tester) async {
+    await tester.runAsync(() async {
+      final worker = PdfRenderWorker.start(buildMultiPagePdf(3));
+      addTearDown(worker.dispose);
+      await worker.record(0); // warm up: the isolate is spawned and idle
+
+      // record() enqueues synchronously, so these resolve deterministically:
+      // page 0 goes in flight, pages 1 and 2 queue behind it.
+      final inFlight = worker.record(0, priority: 1);
+      final stale = worker.record(1, priority: 1);
+      final wanted = worker.record(2, priority: 1);
+      // Page 1 "scrolled away" before its turn — drop it from the queue.
+      worker.cancel(1, priority: 1);
+
+      expect(await stale, isNull,
+          reason: 'a cancelled queued request resolves to a local render');
+      expect(await inFlight, isNotNull,
+          reason: 'the in-flight request is untouched and still completes');
+      expect(await wanted, isNotNull,
+          reason: 'an unrelated queued request still completes');
+    });
+  });
+
+  testWidgets('cancel does not preempt the in-flight request', (tester) async {
+    await tester.runAsync(() async {
+      final worker = PdfRenderWorker.start(buildMultiPagePdf(2));
+      addTearDown(worker.dispose);
+      await worker.record(0); // warm up
+
+      final inFlight = worker.record(0, priority: 1); // now in flight
+      worker.cancel(0, priority: 1); // targets page 0, but it already started
+      expect(await inFlight, isNotNull,
+          reason: 'the single in-flight request cannot be cancelled');
+    });
+  });
+
+  testWidgets('cancel only matches the given page and priority', (tester) async {
+    await tester.runAsync(() async {
+      final worker = PdfRenderWorker.start(buildMultiPagePdf(3));
+      addTearDown(worker.dispose);
+      await worker.record(0); // warm up
+
+      final inFlight = worker.record(0, priority: 1);
+      final otherPriority = worker.record(1, priority: 2);
+      final target = worker.record(1, priority: 1);
+      // Same page as otherPriority, but a different priority bucket: only the
+      // priority-1 request for page 1 is dropped.
+      worker.cancel(1, priority: 1);
+
+      expect(await target, isNull, reason: 'the matching request is cancelled');
+      expect(await inFlight, isNotNull);
+      expect(await otherPriority, isNotNull,
+          reason: 'a same-page request at another priority is left alone');
+    });
+  });
 }
 
 /// A small RGBA PNG with a varying alpha channel (so it embeds with an /SMask).

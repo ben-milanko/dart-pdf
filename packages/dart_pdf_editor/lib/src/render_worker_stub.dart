@@ -21,5 +21,8 @@ class _NullRenderWorker implements PdfRenderWorker {
       null;
 
   @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
   void dispose() {}
 }

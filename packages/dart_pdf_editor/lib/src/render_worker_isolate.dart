@@ -123,6 +123,21 @@ class _IsolateRenderWorker implements PdfRenderWorker {
   }
 
   @override
+  void cancel(int pageIndex, {int priority = 0}) {
+    if (_disposed) return;
+    // Drop matching QUEUED requests (the in-flight one can't be preempted).
+    // Completing with null makes their record() futures resolve to a local
+    // render — the abandoning caller ignores that.
+    _queue.removeWhere((request) {
+      if (request.pageIndex != pageIndex || request.priority != priority) {
+        return false;
+      }
+      if (!request.completer.isCompleted) request.completer.complete(null);
+      return true;
+    });
+  }
+
+  @override
   void dispose() {
     if (_disposed) return;
     _disposed = true;
