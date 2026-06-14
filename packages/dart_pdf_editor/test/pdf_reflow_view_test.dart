@@ -44,6 +44,36 @@ Uint8List _doc(String content,
   ]);
 }
 
+/// A multi-page PDF; every page shares the `/F1` font and `/Im0` image
+/// resources, with [contents] supplying each page's content stream.
+Uint8List _multiPageDoc(List<String> contents) {
+  const hex = 'FF000000FF000000FFFFFFFF>';
+  final n = contents.length;
+  final fontObj = 3 + 2 * n;
+  final imageObj = 4 + 2 * n;
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [${[
+      for (var i = 0; i < n; i++) '${3 + 2 * i} 0 R'
+    ].join(' ')}] /Count $n >>',
+  ];
+  for (var i = 0; i < n; i++) {
+    final contentObj = 4 + 2 * i;
+    objects
+      ..add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+          '/Contents $contentObj 0 R /Resources << /Font << /F1 $fontObj 0 R >> '
+          '/XObject << /Im0 $imageObj 0 R >> >> >>')
+      ..add('<< /Length ${contents[i].length} >>\n'
+          'stream\n${contents[i]}\nendstream');
+  }
+  objects
+    ..add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    ..add('<< /Type /XObject /Subtype /Image /Width 2 /Height 2 '
+        '/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode '
+        '/Length ${hex.length} >>\nstream\n$hex\nendstream');
+  return _assemble(objects);
+}
+
 String _text(num x, num y, String text, {int size = 12}) =>
     'BT /F1 $size Tf $x $y Td ($text) Tj ET';
 
@@ -144,6 +174,42 @@ void main() {
       await _settle(tester);
 
       expect(find.text('No extractable content'), findsOneWidget);
+    });
+  });
+
+  testWidgets('scroll extent stays stable across scrolling', (tester) async {
+    await tester.runAsync(() async {
+      // Alternate tall image pages with short text pages: a lazy ListView's
+      // extent estimate would drift as the differing heights build, jumping
+      // the scrollbar. The non-lazy scroll keeps it exact.
+      final doc = PdfDocument.open(_multiPageDoc([
+        for (var i = 0; i < 6; i++)
+          i.isEven
+              ? '$_imageContent\n${_text(100, 440, 'Image page $i')}'
+              : _text(100, 700, 'Text page $i'),
+      ]));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfReflowView(document: doc)),
+      ));
+      await _settle(tester);
+
+      // The outer scroll view's Scrollable is the first descendant of the
+      // keyed widget (the SelectableTexts add their own deeper ones).
+      final position = tester
+          .state<ScrollableState>(find
+              .descendant(
+                of: find.byKey(const ValueKey('pdf-reflow-view')),
+                matching: find.byType(Scrollable),
+              )
+              .first)
+          .position;
+      final before = position.maxScrollExtent;
+      expect(before, greaterThan(0));
+
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+      // Exact extent: jumping to the end does not revise it.
+      expect(position.maxScrollExtent, before);
     });
   });
 

@@ -6,6 +6,9 @@
   text, decoded and laid out at their on-page aspect ratio in reading
   order; bullet/numbered lists read as separate, indented items.
   `PdfReflowView.showImages` (default true) toggles back to text-only.
+  The view now scrolls through a single non-lazy list so the scrollbar
+  no longer jumps as pages of differing heights (text vs. images) come
+  into view.
 
 ## 1.0.0
 

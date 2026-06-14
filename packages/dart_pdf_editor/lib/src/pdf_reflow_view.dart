@@ -50,6 +50,7 @@ class _ReflowContent {
 class _PdfReflowViewState extends State<PdfReflowView> {
   late Future<_ReflowContent> _content;
   Map<Object, ui.Image> _ownedImages = const {};
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -68,6 +69,7 @@ class _PdfReflowViewState extends State<PdfReflowView> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _disposeImages();
     super.dispose();
   }
@@ -130,18 +132,36 @@ class _PdfReflowViewState extends State<PdfReflowView> {
               ),
             );
           }
-          return ListView.builder(
-            key: const ValueKey('pdf-reflow-view'),
-            padding: widget.padding,
-            itemCount: pages.length,
-            itemBuilder: (context, index) => Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: widget.maxWidth),
-                child: _ReflowPage(
-                  page: pages[index],
-                  images: content?.images ?? const {},
-                  showImages: widget.showImages,
-                ),
+          // A non-lazy scroll lays every page out once, so the total scroll
+          // extent is exact and the scrollbar thumb stays put. A lazy
+          // ListView estimates the extent from built children, which jumps
+          // as reflow pages of wildly different heights (text vs. tall image
+          // pages) come into view — the heights can't be precomputed because
+          // they depend on text wrap and image aspect ratio.
+          final imageMap = content?.images ?? const <Object, ui.Image>{};
+          return Scrollbar(
+            controller: _scrollController,
+            child: SingleChildScrollView(
+              key: const ValueKey('pdf-reflow-view'),
+              controller: _scrollController,
+              padding: widget.padding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final page in pages)
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: widget.maxWidth),
+                        child: RepaintBoundary(
+                          child: _ReflowPage(
+                            page: page,
+                            images: imageMap,
+                            showImages: widget.showImages,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           );
