@@ -37,6 +37,48 @@ void main() {
       expect(editing.hasAnnotationSelection, isTrue);
     });
 
+    test('captureVectorSnapshot reads without filling the clipboard', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      final snap =
+          editing.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(snap.region, const PdfRect(60, 700, 220, 740));
+      expect(editing.hasSnapshotClipboard, isFalse);
+      expect(editing.snapshotClipboard, isNull);
+    });
+
+    test('copying without a paste point cascades repeat pastes', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.snapshotClipboard, isNotNull);
+
+      expect(editing.pasteSnapshot(0), isTrue);
+      final first = editing.document.page(0).annotations.last.rect;
+      expect(editing.pasteSnapshot(0), isTrue);
+      final second = editing.document.page(0).annotations.last.rect;
+      // the second paste cascades 12pt down-right of the first
+      expect(second.left, closeTo(first.left + 12, 1e-6));
+      expect(second.bottom, closeTo(first.bottom - 12, 1e-6));
+    });
+
+    test('copying an annotation clears the snapshot clipboard (last wins)', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(10, 10, 60, 60));
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.hasSnapshotClipboard, isTrue);
+
+      editing.selectAnnotationAt(0, 35, 35);
+      expect(editing.copySelectedAnnotations(), 1);
+      // the annotation copy supersedes the snapshot on the clipboard
+      expect(editing.hasSnapshotClipboard, isFalse);
+      expect(editing.hasAnnotationClipboard, isTrue);
+    });
+
     test('pasteSnapshot with no clipboard is a no-op', () {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));
