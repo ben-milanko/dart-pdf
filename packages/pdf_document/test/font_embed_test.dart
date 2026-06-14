@@ -9,6 +9,10 @@ import 'package:test/test.dart';
 
 void main() {
   final fontBytes = File('test/fonts/DejaVuSans.ttf').readAsBytesSync();
+  // DejaVu's best cmap is format 12; Liberation's is format 4, so the two
+  // fixtures exercise both segment-lookup paths.
+  final liberationBytes =
+      File('test/fonts/LiberationSans-Regular.ttf').readAsBytesSync();
 
   PdfDocument roundTrip(void Function(PdfEditor) edit) {
     final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
@@ -18,6 +22,18 @@ void main() {
 
   String appearanceText(PdfDocument doc, PdfAnnotation annot) =>
       latin1.decode(doc.cos.decodeStreamData(annot.normalAppearance!));
+
+  String daOf(PdfDocument doc, PdfAnnotation a) =>
+      (doc.cos.resolve(a.dict['DA']) as CosString).text;
+
+  bool isType0(PdfDocument doc, PdfAnnotation a) {
+    final res = doc.cos
+        .resolve(a.normalAppearance!.dictionary['Resources']) as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final f = doc.cos.resolve(fonts.entries.values.first);
+    return f is CosDictionary &&
+        (doc.cos.resolve(f['Subtype']) as CosName?)?.value == 'Type0';
+  }
 
   group('PdfEmbeddedFont.parse', () {
     test('reads names, metrics, and maps runes to glyphs', () {
@@ -43,6 +59,20 @@ void main() {
       expect(() => PdfEmbeddedFont.parse(Uint8List(4)), throwsArgumentError);
       final woff = Uint8List.fromList([0x77, 0x4F, 0x46, 0x46, 0, 0, 0, 0, 0, 0, 0, 0]);
       expect(() => PdfEmbeddedFont.parse(woff), throwsArgumentError);
+    });
+
+    test('rejects a valid sfnt header missing the required tables', () {
+      // sfnt version 1.0, zero tables — no head/hhea/maxp/hmtx/cmap.
+      final bytes = Uint8List(12);
+      ByteData.sublistView(bytes).setUint32(0, 0x00010000);
+      expect(() => PdfEmbeddedFont.parse(bytes), throwsArgumentError);
+    });
+
+    test('reads a format-4 cmap font (Liberation)', () {
+      final font = PdfEmbeddedFont.parse(liberationBytes);
+      expect(font.familyName.toLowerCase(), contains('liberation'));
+      expect(font.glyphForRune('A'.codeUnitAt(0)), greaterThan(0));
+      expect(font.measure('W', 100), greaterThan(font.measure('i', 100)));
     });
   });
 
@@ -108,6 +138,50 @@ void main() {
           font.glyphForRune('H'.codeUnitAt(0)).toRadixString(16).padLeft(4, '0');
       expect(cmap, contains('beginbfchar'));
       expect(cmap.toLowerCase(), contains('<$gidH> <0048>'));
+    });
+
+    test('a format-4 cmap font embeds and shows glyphs', () {
+      final doc = roundTrip((e) => e.addFreeText(
+            0,
+            const PdfRect(72, 600, 320, 680),
+            'Format four',
+            font: PdfEmbeddedFont.parse(liberationBytes),
+          ));
+      final ft = doc.page(0).annotations.single;
+      expect(daOf(doc, ft), contains('/F0'));
+      expect(appearanceText(doc, ft), contains('> Tj'));
+      expect(isType0(doc, ft), isTrue);
+    });
+
+    test('ToUnicode encodes an astral codepoint as a surrogate pair', () {
+      // U+1F600: DejaVu lacks the glyph (maps to .notdef), but the CMap
+      // still records the requested character so extraction recovers it.
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      final doc = roundTrip((e) => e.addFreeText(
+            0, const PdfRect(72, 600, 320, 680), '\u{1F600}', font: font));
+      final ft = doc.page(0).annotations.single;
+      final resources = doc.cos
+          .resolve(ft.normalAppearance!.dictionary['Resources']) as CosDictionary;
+      final fonts = doc.cos.resolve(resources['Font']) as CosDictionary;
+      final type0 = doc.cos.resolve(fonts['F0']) as CosDictionary;
+      final toUnicode = doc.cos.resolve(type0['ToUnicode']) as CosStream;
+      final cmap = latin1.decode(doc.cos.decodeStreamData(toUnicode));
+      expect(cmap.toLowerCase(), contains('d83dde00')); // UTF-16BE surrogates
+    });
+
+    test('fromFreeText recovers an embedded font, null for base-14', () {
+      final embedded = roundTrip((e) => e.addFreeText(
+            0, const PdfRect(72, 600, 320, 680), 'Hi',
+            font: PdfEmbeddedFont.parse(fontBytes)));
+      final recovered =
+          PdfEmbeddedFont.fromFreeText(embedded.page(0).annotations.single);
+      expect(recovered, isNotNull);
+      expect(recovered!.glyphForRune('H'.codeUnitAt(0)), greaterThan(0));
+
+      final standard = roundTrip((e) =>
+          e.addFreeText(0, const PdfRect(72, 600, 320, 680), 'Hi'));
+      expect(PdfEmbeddedFont.fromFreeText(standard.page(0).annotations.single),
+          isNull);
     });
 
     test('non-Latin text round-trips through Identity-H', () {
