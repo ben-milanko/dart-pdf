@@ -23,6 +23,7 @@ class PdfSearchField extends StatefulWidget {
     this.searchController,
     this.focusNode,
     this.hintText = 'Search',
+    this.showOptions = true,
   });
 
   final PdfViewerController controller;
@@ -30,6 +31,10 @@ class PdfSearchField extends StatefulWidget {
   /// The text box's width; the count and the stepper buttons sit
   /// outside it, appearing only while a query is live.
   final double width;
+
+  /// Whether to show the match-case / whole-word / regex toggle buttons
+  /// beside the field. They drive [PdfViewerController.searchOptions].
+  final bool showOptions;
 
   /// Optional external text controller — pass one to clear or prefill
   /// the field from the host (e.g. when a new document opens).
@@ -145,6 +150,11 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
               onSubmitted: _onSubmitted,
             ),
           ),
+          if (widget.showOptions)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: _SearchOptionsBar(controller: controller),
+            ),
           if (hasQuery && !controller.isSearching) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -200,12 +210,17 @@ class PdfSearchResultsPanel extends StatefulWidget {
     this.minWidth = 200,
     this.maxWidth = 480,
     this.bottomSheet = false,
+    this.showOptions = true,
   });
 
   final PdfViewerController controller;
 
   /// Persists the user-dragged width when provided.
   final PdfEditingPreferences? preferences;
+
+  /// Whether the panel shows the match-case / whole-word / regex toggle
+  /// controls in its header. They drive [PdfViewerController.searchOptions].
+  final bool showOptions;
 
   /// The default width — a persisted user-dragged width wins over it.
   final double width;
@@ -312,95 +327,106 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
     );
   }
 
+  /// The state-dependent body below the options bar: a hint, the spinner,
+  /// the "no matches" line, or the grouped results list with its scrollbar.
+  Widget _body(BuildContext context, {required bool barInset}) {
+    final controller = widget.controller;
+    if (controller.query.isEmpty) {
+      return _hint('Search the document to list every match here');
+    }
+    if (controller.isSearching) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final results = controller.searchResults;
+    if (results.isEmpty) {
+      return _hint('No matches for “${controller.query}”');
+    }
+    final entries = <_Entry>[];
+    int? page;
+    for (var i = 0; i < results.length; i++) {
+      if (results[i].pageIndex != page) {
+        page = results[i].pageIndex;
+        entries.add((header: page, result: null));
+      }
+      entries.add((header: null, result: i));
+    }
+    final barClearance =
+        PdfScrollbar.hitExtent + (barInset ? PdfSidebarResizeGrip.width : 0);
+    final textTheme = Theme.of(context).textTheme;
+    return Stack(children: [
+      Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(children: [
+            Expanded(
+              child: Text(
+                results.length == 1 ? '1 match' : '${results.length} matches',
+                style: textTheme.labelLarge,
+              ),
+            ),
+          ]),
+        ),
+        Expanded(
+          child: ScrollConfiguration(
+            behavior:
+                ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: ListView.builder(
+              key: const ValueKey('pdf-search-results-list'),
+              controller: _scroll,
+              padding: EdgeInsets.only(right: barClearance, bottom: 8),
+              itemCount: entries.length,
+              itemBuilder: (context, index) {
+                final entry = entries[index];
+                if (entry.header != null) {
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                    child: Text('Page ${entry.header! + 1}',
+                        style: textTheme.labelMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.primary)),
+                  );
+                }
+                return _resultTile(
+                    context, entry.result!, results[entry.result!]);
+              },
+            ),
+          ),
+        ),
+      ]),
+      Positioned(
+        top: 0,
+        bottom: 0,
+        right: barInset ? PdfSidebarResizeGrip.width : 0,
+        child: PdfScrollbar(
+          scroll: _scroll,
+          thumbKey: const ValueKey('pdf-search-scrollbar-thumb'),
+        ),
+      ),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final showGrip = widget.resizable && !widget.bottomSheet;
     final onLeftEdge = !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    final barInset = showGrip && onLeftEdge;
     final content = Material(
             color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: ListenableBuilder(
               listenable: controller,
-              builder: (context, _) {
-                if (controller.query.isEmpty) {
-                  return _hint('Search the document to list every match here');
-                }
-                if (controller.isSearching) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final results = controller.searchResults;
-                if (results.isEmpty) {
-                  return _hint('No matches for “${controller.query}”');
-                }
-                final entries = <_Entry>[];
-                int? page;
-                for (var i = 0; i < results.length; i++) {
-                  if (results[i].pageIndex != page) {
-                    page = results[i].pageIndex;
-                    entries.add((header: page, result: null));
-                  }
-                  entries.add((header: null, result: i));
-                }
-                final barClearance = PdfScrollbar.hitExtent +
-                    (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
-                final textTheme = Theme.of(context).textTheme;
-                return Stack(children: [
-                  Column(children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                      child: Row(children: [
-                        Expanded(
-                          child: Text(
-                            results.length == 1
-                                ? '1 match'
-                                : '${results.length} matches',
-                            style: textTheme.labelLarge,
-                          ),
-                        ),
-                      ]),
-                    ),
-                    Expanded(
-                      child: ScrollConfiguration(
-                        behavior: ScrollConfiguration.of(context)
-                            .copyWith(scrollbars: false),
-                        child: ListView.builder(
-                          key: const ValueKey('pdf-search-results-list'),
-                          controller: _scroll,
-                          padding:
-                              EdgeInsets.only(right: barClearance, bottom: 8),
-                          itemCount: entries.length,
-                          itemBuilder: (context, index) {
-                            final entry = entries[index];
-                            if (entry.header != null) {
-                              return Padding(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 10, 16, 2),
-                                child: Text('Page ${entry.header! + 1}',
-                                    style: textTheme.labelMedium?.copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary)),
-                              );
-                            }
-                            return _resultTile(
-                                context, entry.result!, results[entry.result!]);
-                          },
-                        ),
-                      ),
-                    ),
-                  ]),
-                  Positioned(
-                    top: 0,
-                    bottom: 0,
-                    right:
-                        showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0,
-                    child: PdfScrollbar(
-                      scroll: _scroll,
-                      thumbKey: const ValueKey('pdf-search-scrollbar-thumb'),
+              builder: (context, _) => Column(children: [
+                if (widget.showOptions) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _SearchOptionsBar(controller: controller),
                     ),
                   ),
-                ]);
-              },
+                  const Divider(height: 1),
+                ],
+                Expanded(child: _body(context, barInset: barInset)),
+              ]),
             ),
           );
     if (widget.bottomSheet) return content;
@@ -423,5 +449,73 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
           ),
       ]),
     );
+  }
+}
+
+/// A compact row of toggle buttons for the search match options — case
+/// sensitivity, whole word, and regular expression — driving
+/// [PdfViewerController.searchOptions]. Shared by [PdfSearchField] and
+/// [PdfSearchResultsPanel].
+class _SearchOptionsBar extends StatelessWidget {
+  const _SearchOptionsBar({required this.controller});
+
+  final PdfViewerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final options = controller.searchOptions;
+
+    Widget toggle({
+      required String keyName,
+      required String glyph,
+      required String tooltip,
+      required bool selected,
+      required PdfSearchOptions next,
+    }) =>
+        IconButton(
+          key: ValueKey(keyName),
+          tooltip: tooltip,
+          isSelected: selected,
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+          style: IconButton.styleFrom(
+            backgroundColor: selected ? scheme.secondaryContainer : null,
+            foregroundColor: selected
+                ? scheme.onSecondaryContainer
+                : scheme.onSurfaceVariant,
+          ),
+          onPressed: () => controller.setSearchOptions(next),
+          icon: Text(
+            glyph,
+            style: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600, height: 1),
+          ),
+        );
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      toggle(
+        keyName: 'pdf-search-match-case',
+        glyph: 'Aa',
+        tooltip: 'Match case',
+        selected: options.matchCase,
+        next: options.copyWith(matchCase: !options.matchCase),
+      ),
+      toggle(
+        keyName: 'pdf-search-whole-word',
+        glyph: 'W',
+        tooltip: 'Whole word',
+        selected: options.wholeWord,
+        next: options.copyWith(wholeWord: !options.wholeWord),
+      ),
+      toggle(
+        keyName: 'pdf-search-regex',
+        glyph: '.*',
+        tooltip: 'Regular expression',
+        selected: options.regex,
+        next: options.copyWith(regex: !options.regex),
+      ),
+    ]);
   }
 }

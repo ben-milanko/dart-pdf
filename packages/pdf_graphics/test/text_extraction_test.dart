@@ -47,6 +47,33 @@ void main() {
     expect(text.findAll('HELLO', caseSensitive: true), isEmpty);
   });
 
+  test('whole-word search needs non-word boundaries', () {
+    final doc = PdfDocument.open(buildClassicPdf());
+    final text = PdfTextExtractor.extract(doc, 0); // 'Hello, world!'
+    // bounded by start/',' and by space/'!' — both whole words
+    expect(text.findAll('Hello', wholeWord: true), hasLength(1));
+    expect(text.findAll('world', wholeWord: true), hasLength(1));
+    // a substring of a longer word is not a whole word
+    expect(text.findAll('wor', wholeWord: true), isEmpty);
+    expect(text.findAll('ell', wholeWord: true), isEmpty);
+    // without the flag the substring still matches
+    expect(text.findAll('wor'), hasLength(1));
+  });
+
+  test('regex search matches a pattern; an invalid one yields nothing', () {
+    final doc = PdfDocument.open(buildClassicPdf());
+    final text = PdfTextExtractor.extract(doc, 0); // 'Hello, world!'
+    final match = text.findAll(r'w\w+d', regex: true).single;
+    expect(text.text.substring(match.start, match.end), 'world');
+    // case sensitivity flows through to regex
+    expect(text.findAll(r'WORLD', regex: true), hasLength(1));
+    expect(text.findAll(r'WORLD', regex: true, caseSensitive: true), isEmpty);
+    // whole-word combines with regex
+    expect(text.findAll(r'wor', regex: true, wholeWord: true), isEmpty);
+    // an invalid pattern surfaces no matches rather than throwing
+    expect(text.findAll('[', regex: true), isEmpty);
+  });
+
   test('positionNear maps page points to character offsets', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0);

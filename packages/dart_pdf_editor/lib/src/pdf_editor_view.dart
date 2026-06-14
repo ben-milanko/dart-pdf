@@ -543,6 +543,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       controller: _viewer,
                       searchController: _searchField,
                       focusNode: _searchFocus,
+                      // the match-case / whole-word / regex controls live in
+                      // the results panel here, keeping the header compact
+                      showOptions: !features.searchResultsPanel,
                     ),
                     if (features.searchResultsPanel)
                       PdfShellToggleButton(
