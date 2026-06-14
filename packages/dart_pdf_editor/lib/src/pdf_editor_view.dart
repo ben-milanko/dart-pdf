@@ -452,6 +452,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                renderWorker: _worker,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
               PdfSearchResultsPanel(

@@ -272,6 +272,7 @@ class _PdfReaderState extends State<PdfReader> {
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: false,
                 bottomSheet: bottomSheet,
+                renderWorker: _worker,
               );
           return Column(children: [
             if (features.headerBar)
