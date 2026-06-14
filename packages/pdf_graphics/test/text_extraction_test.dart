@@ -164,6 +164,79 @@ void main() {
 
     expect(page.text, 'paragraph text');
   });
+
+  test('reflow splits a bullet list into separate list items', () {
+    final doc = PdfDocument.open(_buildTextPdf([
+      _textAt(72, 720, 'Shopping list'),
+      _textAt(72, 700, '- apples'),
+      _textAt(72, 686, '- pears'),
+      _textAt(72, 672, '1. flour'),
+    ]));
+
+    final page = PdfTextExtractor.reflowPage(doc, 0);
+
+    expect(page.blocks.map((block) => block.text), [
+      'Shopping list',
+      '- apples',
+      '- pears',
+      '1. flour',
+    ]);
+    expect(page.blocks.map((block) => block.isListItem),
+        [false, true, true, true]);
+  });
+
+  test('reflow surfaces a placed image among the text in reading order', () {
+    final doc = PdfDocument.open(_buildImagePdf());
+    final page = PdfTextExtractor.reflowPage(doc, 0);
+
+    // The image (drawn at y 500..620) sits between the two paragraphs.
+    expect(page.items, hasLength(3));
+    expect(page.items[0], isA<PdfReflowBlock>());
+    expect((page.items[0] as PdfReflowBlock).text, 'Above the figure');
+    expect(page.items[1], isA<PdfReflowImage>());
+    expect((page.items[2] as PdfReflowBlock).text, 'Below the figure');
+
+    final image = page.images.single;
+    expect(image.bounds.left, closeTo(100, 1e-6));
+    expect(image.bounds.right, closeTo(300, 1e-6));
+    expect(image.aspectRatio, closeTo(200 / 120, 1e-6));
+    // text-only view ignores images
+    expect(page.text, 'Above the figure\n\nBelow the figure');
+  });
+
+  test('reflow drops a tiny decorative image', () {
+    final doc = PdfDocument.open(_buildImagePdf(imageWidth: 8, imageHeight: 8));
+    final page = PdfTextExtractor.reflowPage(doc, 0);
+    expect(page.images, isEmpty);
+    expect(page.blocks, hasLength(2));
+  });
+}
+
+/// A one-page PDF with two text paragraphs and a single image XObject drawn
+/// between them via `cm`/`Do`. The image is placed at (100, 500) sized
+/// [imageWidth]×[imageHeight] in page units. The pixel data is ASCII-hex so
+/// the whole file stays 7-bit (reflow only records the draw request, but the
+/// fixture stays decodable for parity).
+Uint8List _buildImagePdf({double imageWidth = 200, double imageHeight = 120}) {
+  // 2×2 DeviceRGB: red, green, blue, white.
+  const hex = 'FF000000FF000000FFFFFFFF>';
+  final content = [
+    _textAt(100, 700, 'Above the figure'),
+    'q $imageWidth 0 0 $imageHeight 100 500 cm /Im0 Do Q',
+    _textAt(100, 400, 'Below the figure'),
+  ].join('\n');
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> /XObject << /Im0 6 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /XObject /Subtype /Image /Width 2 /Height 2 '
+        '/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode '
+        '/Length ${hex.length} >>\nstream\n$hex\nendstream',
+  ];
+  return _assemblePdf(objects);
 }
 
 String _textAt(num x, num y, String text) =>
@@ -182,6 +255,10 @@ Uint8List _buildTextPdf(List<String> operations) {
     '<< /Length ${content.length} >>\nstream\n$content\nendstream',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
   ];
+  return _assemblePdf(objects);
+}
+
+Uint8List _assemblePdf(List<String> objects) {
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
   for (var i = 0; i < objects.length; i++) {

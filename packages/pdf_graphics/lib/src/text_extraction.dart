@@ -207,37 +207,88 @@ class PdfReflowLine {
   final double fontSize;
 }
 
+/// One item in a reflowed page, placed in inferred reading order: either a
+/// text [PdfReflowBlock] or a [PdfReflowImage].
+sealed class PdfReflowItem {
+  const PdfReflowItem();
+
+  /// Page-space bounds of the item.
+  PdfRect get bounds;
+}
+
 /// One paragraph-like block in reading order.
-class PdfReflowBlock {
+class PdfReflowBlock extends PdfReflowItem {
   const PdfReflowBlock({
     required this.text,
     required this.bounds,
     required this.lines,
     required this.fontSize,
+    this.isListItem = false,
   });
 
   /// Text with line breaks removed and soft hyphens repaired.
   final String text;
 
   /// Page-space bounds of the source lines.
+  @override
   final PdfRect bounds;
 
   final List<PdfReflowLine> lines;
 
   /// Median source font size for display heuristics.
   final double fontSize;
+
+  /// True when the block begins with a bullet or numbered list marker, so a
+  /// reading view can indent it instead of folding it into the prose.
+  final bool isListItem;
 }
 
-/// A page's text reduced to paragraph blocks in inferred reading order.
+/// An image or diagram placed on the page, surfaced in the reflow view in
+/// reading order. The pixels are not decoded here ([pdf_graphics] is
+/// VM-only); decode [request] with the renderer's `decodeImages` to display
+/// it.
+class PdfReflowImage extends PdfReflowItem {
+  const PdfReflowImage({
+    required this.request,
+    required this.bounds,
+  });
+
+  /// The interpreter's draw request — carries the image stream and the
+  /// unit-square → page-space transform.
+  final PdfImageRequest request;
+
+  /// Page-space bounds the image was painted into.
+  @override
+  final PdfRect bounds;
+
+  /// Width over height of the placed image (1 when degenerate), for laying
+  /// the image out at its on-page aspect ratio.
+  double get aspectRatio =>
+      bounds.height <= 0 ? 1 : bounds.width / bounds.height;
+}
+
+/// A page's content reduced to text paragraph blocks and images in inferred
+/// reading order.
 class PdfReflowPage {
   const PdfReflowPage({
     required this.pageIndex,
-    required this.blocks,
+    required this.items,
   });
 
   final int pageIndex;
-  final List<PdfReflowBlock> blocks;
 
+  /// Text blocks and images interleaved in reading order.
+  final List<PdfReflowItem> items;
+
+  /// The text blocks only, in reading order.
+  List<PdfReflowBlock> get blocks =>
+      [for (final item in items) if (item is PdfReflowBlock) item];
+
+  /// The images only, in reading order.
+  List<PdfReflowImage> get images =>
+      [for (final item in items) if (item is PdfReflowImage) item];
+
+  /// The reading-order text — blocks joined with blank lines (images skipped).
   String get text => blocks.map((block) => block.text).join('\n\n');
 }
 
@@ -256,15 +307,21 @@ class PdfReflowDocument {
 class PdfTextExtractor {
   PdfTextExtractor._();
 
-  static PdfPageText extract(PdfDocument document, int pageIndex) {
+  static PdfPageText extract(PdfDocument document, int pageIndex) =>
+      _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+
+  static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
     final device = _ExtractionDevice();
     PdfInterpreter(cos: document.cos, device: device)
         .drawPage(document.page(pageIndex));
+    return device;
+  }
 
+  static PdfPageText _pageTextFrom(int pageIndex, List<PdfTextRun> deviceRuns) {
     final buffer = StringBuffer();
     final runs = <PdfExtractedRun>[];
     PdfTextRun? previous;
-    for (final run in device.runs) {
+    for (final run in deviceRuns) {
       if (previous != null) {
         buffer.write(_separator(previous, run));
       }
@@ -295,9 +352,15 @@ class PdfTextExtractor {
         ],
       );
 
-  /// Extracts one page and infers paragraph blocks in reading order.
-  static PdfReflowPage reflowPage(PdfDocument document, int pageIndex) =>
-      PdfTextReflower.reflow(extract(document, pageIndex));
+  /// Extracts one page and infers paragraph blocks and images in reading
+  /// order.
+  static PdfReflowPage reflowPage(PdfDocument document, int pageIndex) {
+    final device = _interpret(document, pageIndex);
+    return PdfTextReflower.reflow(
+      _pageTextFrom(pageIndex, device.runs),
+      images: device.images,
+    );
+  }
 
   /// Joins consecutive runs: nothing when they abut (kerning splits inside a
   /// word), a space within a line, a newline on baseline changes.
@@ -318,16 +381,109 @@ class PdfTextExtractor {
 class PdfTextReflower {
   PdfTextReflower._();
 
-  static PdfReflowPage reflow(PdfPageText page) {
+  static PdfReflowPage reflow(PdfPageText page,
+      {List<PdfImageRequest> images = const []}) {
+    final reflowImages = _imagesFrom(images);
     final lines = _visualLines(page.runs);
     if (lines.isEmpty) {
-      return PdfReflowPage(pageIndex: page.pageIndex, blocks: const []);
+      // An image-only page (a scan, a full-page figure) still reads top-down.
+      return PdfReflowPage(
+        pageIndex: page.pageIndex,
+        items: _topDownItems(reflowImages),
+      );
     }
     final ordered = _orderLines(lines);
     return PdfReflowPage(
       pageIndex: page.pageIndex,
-      blocks: _paragraphs(ordered),
+      items: _interleave(_paragraphs(ordered), reflowImages),
     );
+  }
+
+  /// Drops decorative images (rules, spacers, tiny icons) and near-duplicate
+  /// re-draws (tiled backgrounds, repeated watermarks), keeping the figures
+  /// and diagrams a reader cares about.
+  static List<PdfReflowImage> _imagesFrom(List<PdfImageRequest> requests) {
+    const minSide = 24.0;
+    final out = <PdfReflowImage>[];
+    for (final request in requests) {
+      final bounds = _imageBounds(request.transform);
+      if (bounds.width < minSide || bounds.height < minSide) continue;
+      final duplicate = out.any((existing) =>
+          identical(existing.request.stream, request.stream) &&
+          _overlapFraction(existing.bounds, bounds) > 0.9);
+      if (duplicate) continue;
+      out.add(PdfReflowImage(request: request, bounds: bounds));
+    }
+    return out;
+  }
+
+  /// Page-space bounds of the unit image square under [transform].
+  static PdfRect _imageBounds(PdfMatrix transform) {
+    final xs = [
+      transform.transformX(0, 0),
+      transform.transformX(1, 0),
+      transform.transformX(1, 1),
+      transform.transformX(0, 1),
+    ];
+    final ys = [
+      transform.transformY(0, 0),
+      transform.transformY(1, 0),
+      transform.transformY(1, 1),
+      transform.transformY(0, 1),
+    ];
+    return PdfRect(xs.reduce(math.min), ys.reduce(math.min),
+        xs.reduce(math.max), ys.reduce(math.max));
+  }
+
+  /// Sorts reflow items top-to-bottom, then left-to-right.
+  static List<PdfReflowItem> _topDownItems(Iterable<PdfReflowItem> items) =>
+      [...items]..sort((a, b) {
+          final y = b.bounds.top.compareTo(a.bounds.top);
+          return y != 0 ? y : a.bounds.left.compareTo(b.bounds.left);
+        });
+
+  /// Folds images into the ordered text blocks. Each image inherits the
+  /// reading position of the nearest text block above it (in the same
+  /// column), so a figure lands where it sits on the page even in a
+  /// multi-column read; an image with no text above falls back to its
+  /// vertical position.
+  static List<PdfReflowItem> _interleave(
+      List<PdfReflowBlock> blocks, List<PdfReflowImage> images) {
+    if (images.isEmpty) return List<PdfReflowItem>.from(blocks);
+    final keyed = <(double, PdfReflowItem)>[
+      for (var i = 0; i < blocks.length; i++) (i.toDouble(), blocks[i]),
+      for (final image in images) (_imageOrderKey(image, blocks), image),
+    ];
+    keyed.sort((a, b) {
+      final k = a.$1.compareTo(b.$1);
+      return k != 0 ? k : b.$2.bounds.top.compareTo(a.$2.bounds.top);
+    });
+    return [for (final entry in keyed) entry.$2];
+  }
+
+  static double _imageOrderKey(
+      PdfReflowImage image, List<PdfReflowBlock> blocks) {
+    var follow = -1;
+    var bestGap = double.infinity;
+    for (var i = 0; i < blocks.length; i++) {
+      final b = blocks[i].bounds;
+      final overlap = _horizontalOverlap(b, image.bounds);
+      if (overlap <= math.min(b.width, image.bounds.width) * 0.1) continue;
+      final gap = b.bottom - image.bounds.top; // >= 0 when the block is above
+      if (gap >= 0 && gap < bestGap) {
+        bestGap = gap;
+        follow = i;
+      }
+    }
+    if (follow >= 0) return follow + 0.5;
+    // No overlapping block above: drop the image after the last block whose
+    // top sits above the image's vertical centre.
+    final centerY = (image.bounds.bottom + image.bounds.top) / 2;
+    var fallback = -1;
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i].bounds.top >= centerY) fallback = i;
+    }
+    return fallback + 0.5;
   }
 
   static List<PdfReflowLine> _visualLines(List<PdfExtractedRun> runs) {
@@ -481,7 +637,11 @@ class PdfTextReflower {
     var current = <PdfReflowLine>[];
     PdfReflowLine? previous;
     for (final line in lines) {
-      if (previous != null && _startsParagraph(previous, line)) {
+      // A bullet/numbered marker always begins a fresh block, so a list reads
+      // as separate items instead of collapsing into one run-on paragraph.
+      final newBlock = previous != null &&
+          (_startsListItem(line.text) || _startsParagraph(previous, line));
+      if (newBlock) {
         blocks.add(_blockFrom(current));
         current = <PdfReflowLine>[];
       }
@@ -491,6 +651,14 @@ class PdfTextReflower {
     if (current.isNotEmpty) blocks.add(_blockFrom(current));
     return blocks;
   }
+
+  /// A line that opens with a bullet glyph or an enumerator (`1.`, `a)`,
+  /// `(iv)`) followed by whitespace — the start of a list item.
+  static final RegExp _listMarker = RegExp(
+      r'^\s*([•‣◦⁃∙·▪●❖*\-–—]'
+      r'|\(?([0-9]{1,3}|[A-Za-z]|[ivxlcdmIVXLCDM]{1,5})[.)])\s+\S');
+
+  static bool _startsListItem(String text) => _listMarker.hasMatch(text);
 
   static bool _startsParagraph(PdfReflowLine previous, PdfReflowLine next) {
     final font = (previous.fontSize + next.fontSize) / 2;
@@ -526,6 +694,7 @@ class PdfTextReflower {
       bounds: _union(lines.map((line) => line.bounds)),
       lines: List.unmodifiable(lines),
       fontSize: _median(lines.map((line) => line.fontSize)),
+      isListItem: lines.isNotEmpty && _startsListItem(lines.first.text),
     );
   }
 }
@@ -606,6 +775,17 @@ PdfRect _union(Iterable<PdfRect> rects) {
 double _horizontalOverlap(PdfRect a, PdfRect b) =>
     math.max(0.0, math.min(a.right, b.right) - math.max(a.left, b.left));
 
+/// Area of the intersection of [a] and [b] over the smaller of their areas
+/// (0 when they don't overlap, 1 when one contains the other).
+double _overlapFraction(PdfRect a, PdfRect b) {
+  final w = _horizontalOverlap(a, b);
+  final h = math.max(0.0, math.min(a.top, b.top) - math.max(a.bottom, b.bottom));
+  final overlap = w * h;
+  if (overlap <= 0) return 0;
+  final smaller = math.min(a.width * a.height, b.width * b.height);
+  return smaller <= 0 ? 0 : overlap / smaller;
+}
+
 double _median(Iterable<double> values) {
   final sorted = [...values]..sort();
   if (sorted.isEmpty) return 0;
@@ -619,6 +799,7 @@ String _normalizeSpaces(String text) =>
 
 class _ExtractionDevice implements PdfDevice {
   final List<PdfTextRun> runs = [];
+  final List<PdfImageRequest> images = [];
 
   @override
   void drawText(PdfTextRun run) => runs.add(run);
@@ -639,7 +820,7 @@ class _ExtractionDevice implements PdfDevice {
   @override
   void clipPath(PdfPath path, PdfFillRule rule) {}
   @override
-  void drawImage(PdfImageRequest request) {}
+  void drawImage(PdfImageRequest request) => images.add(request);
 
   @override
   void setBlendMode(PdfBlendMode mode) {}

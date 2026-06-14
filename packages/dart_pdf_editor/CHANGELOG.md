@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Reflow reading view: images and diagrams now appear inline with the
+  text, decoded and laid out at their on-page aspect ratio in reading
+  order; bullet/numbered lists read as separate, indented items.
+  `PdfReflowView.showImages` (default true) toggles back to text-only.
+
 ## 1.0.0
 
 First stable release. Highlights since 0.1.0:
