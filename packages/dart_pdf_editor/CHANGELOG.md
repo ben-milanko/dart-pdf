@@ -2,6 +2,11 @@
 
 ## 1.1.0
 
+- Rotate pages from the thumbnail strip: a per-tile rotate-right button,
+  plus rotate-left/right actions in the multi-select bar.
+  `PdfEditingController.rotatePages`/`rotateSelectedPages` turn pages
+  clockwise (or counterclockwise) without shifting page indices, so the
+  page selection survives the edit.
 - Background rendering: heavy pages now interpret off the UI thread, so
   scrolling and drawing stay smooth on large/CAD documents.
   `PdfRenderWorker` runs page interpretation and image decode in a

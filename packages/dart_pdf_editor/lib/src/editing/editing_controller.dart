@@ -1555,6 +1555,28 @@ class PdfEditingController extends ChangeNotifier {
   Uint8List? exportSelectedPages() =>
       _selectedPages.isEmpty ? null : exportPages(selectedPages);
 
+  /// Rotates [indices] clockwise by [degrees] (a multiple of 90; negative
+  /// turns counterclockwise) in one edit (one undo). Rotation is a visual
+  /// change that does not shift page indices, so the page selection is
+  /// preserved. Returns false (a no-op) when nothing is given or the
+  /// rotation is a full turn.
+  bool rotatePages(Iterable<int> indices, int degrees) {
+    final targets = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || degrees % 360 == 0) return false;
+    return apply((e) => e.rotatePages(targets, degrees), pages: targets);
+  }
+
+  /// Rotates the selected pages clockwise by [degrees] (default: 90; pass
+  /// -90 to turn counterclockwise) in one edit. A no-op (returns false)
+  /// when nothing is selected in the strip. The page selection is
+  /// preserved.
+  bool rotateSelectedPages([int degrees = 90]) =>
+      rotatePages(selectedPages, degrees);
+
   // ---------------------------------------------------------------------
   // selection
 

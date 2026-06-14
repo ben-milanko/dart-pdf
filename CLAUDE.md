@@ -2258,3 +2258,28 @@ app's life — the API key is kept in MEMORY ONLY, never written to disk (so
 the example needs no shared_preferences for it). dep pdf_ocr_vlm ^0.1.0.
 The 9 example test failures are pre-existing on this machine (raster/
 headless) — identical set with and without this wiring, zero regressions.
+
+Rotate pages from the thumbnail strip (Ben: "add a tool to rotate
+selected pages from the thumbnail strip"): `PdfEditor.rotatePages(indices,
+degrees)` (page_editor.dart) writes each page's /Rotate = current display
+rotation + degrees, normalized to 0/90/180/270, explicitly onto the page
+dict (overrides inherited /Rotate); degrees must be a multiple of 90, a
+full turn / empty selection is a no-op, out-of-range index throws. It's a
+visual edit only — the page tree/indices are untouched, so unlike
+move/remove it does NOT clear the page selection. Controller
+(editing_controller.dart): `rotatePages(indices, degrees)` (filters to
+valid indices, `apply(pages: targets)` so only those thumbnails
+re-render via pageRenderStamp; preserves `_selectedPages`) +
+`rotateSelectedPages([degrees = 90])` (operates on `_selectedPages`, no-op
+when empty). UI (editing_thumbnails.dart): the multi-select bar (shown at
+selectedPageCount > 1) gained rotate-left/right actions
+('pdf-thumbnail-rotate-selected-ccw'/'-cw'), and each tile a rotate-right
+button ('pdf-thumbnail-rotate-<index>', no Tooltip — Semantics label, like
+the delete button, so it's safe inside the ReorderableListView). The
+selection bar was reshaped into a count line + a `Wrap` of compact
+IconButtons (`_selectionAction`) so the (now up to five) actions flow onto
+a second line instead of overflowing the ~142px strip. Tests:
+pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
+full-turn/empty no-op, non-quarter + out-of-range reject) and
+dart_pdf_editor editing_page_ops_test (controller round-trips + selection
+survives; strip widget tests for the bar + per-tile button).

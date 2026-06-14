@@ -2,6 +2,9 @@
 
 ## 1.1.0
 
+- Page rotation: `PdfEditor.rotatePages(indices, degrees)` turns the named
+  pages clockwise by a multiple of 90° (negative for counterclockwise),
+  accumulating onto each page's current `/Rotate`.
 - Count tool: `PdfEditor.addCheckMark` places a Bluebeam-style check-mark
   stamp annotation (with `PdfAnnotation.isCheckMark`/`iconName`) — the
   building block for a running on-page tally.
