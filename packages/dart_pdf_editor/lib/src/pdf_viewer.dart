@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, visibleForTesting;
+    show ValueListenable, kIsWeb, visibleForTesting;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
@@ -713,6 +713,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _scroll.addListener(_onScrollForDetail);
     _transform.addListener(_onTransformChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
+    // on the web the browser's native context menu pops on right-click and
+    // pre-empts the viewer's own annotation/text menus — suppress it while
+    // a viewer is mounted (ref-counted so multiple viewers cooperate)
+    _suppressBrowserContextMenu();
     // Cmd+Tab and friends: the modifier's key-up goes to the other app, so
     // the tracked state would stick. Losing focus clears it.
     _lifecycle = AppLifecycleListener(onInactive: () {
@@ -726,6 +730,26 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   late final AppLifecycleListener _lifecycle;
+
+  /// How many mounted viewers have suppressed the browser context menu —
+  /// `BrowserContextMenu` is a single global toggle, so several viewers
+  /// (or a host that re-enables it) must cooperate. The native menu is
+  /// re-enabled only when the last viewer goes away.
+  static int _browserContextMenuSuppressors = 0;
+
+  void _suppressBrowserContextMenu() {
+    if (!kIsWeb) return;
+    if (_browserContextMenuSuppressors++ == 0) {
+      BrowserContextMenu.disableContextMenu();
+    }
+  }
+
+  void _restoreBrowserContextMenu() {
+    if (!kIsWeb || _browserContextMenuSuppressors == 0) return;
+    if (--_browserContextMenuSuppressors == 0) {
+      BrowserContextMenu.enableContextMenu();
+    }
+  }
 
   bool _onKeyEvent(KeyEvent event) {
     final down = HardwareKeyboard.instance.isControlPressed ||
@@ -1094,6 +1118,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
+    _restoreBrowserContextMenu();
     _lifecycle.dispose();
     _settleTimer?.cancel();
     _scrollSettleTimer?.cancel();
