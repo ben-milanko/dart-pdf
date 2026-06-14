@@ -210,6 +210,47 @@ void main() {
     expect(page.images, isEmpty);
     expect(page.blocks, hasLength(2));
   });
+
+  test('reflow orders an image-only page top to bottom', () {
+    final doc = PdfDocument.open(_imageDocWith(
+      'q 200 0 0 120 100 600 cm /Im0 Do Q\n'
+      'q 200 0 0 120 100 200 cm /Im0 Do Q',
+    ));
+    final page = PdfTextExtractor.reflowPage(doc, 0);
+
+    expect(page.blocks, isEmpty);
+    expect(page.text, '');
+    // Same stream, but distinct placements: both survive de-duplication and
+    // read highest-first.
+    expect(page.images, hasLength(2));
+    expect(page.images.first.bounds.bottom, closeTo(600, 1e-6));
+    expect(page.images.last.bounds.bottom, closeTo(200, 1e-6));
+  });
+
+  test('reflow de-duplicates a repeated watermark image', () {
+    final doc = PdfDocument.open(_imageDocWith([
+      _textAt(100, 700, 'Body text'),
+      'q 300 0 0 300 100 300 cm /Im0 Do Q',
+      'q 300 0 0 300 100 300 cm /Im0 Do Q',
+    ].join('\n')));
+    final page = PdfTextExtractor.reflowPage(doc, 0);
+
+    expect(page.images, hasLength(1));
+    expect(page.blocks.map((block) => block.text), ['Body text']);
+  });
+
+  test('reflow places an image above all text first', () {
+    final doc = PdfDocument.open(_imageDocWith([
+      'q 200 0 0 80 100 690 cm /Im0 Do Q', // top of the page, above all text
+      _textAt(100, 600, 'First paragraph'),
+      _textAt(100, 400, 'Second paragraph'),
+    ].join('\n')));
+    final page = PdfTextExtractor.reflowPage(doc, 0);
+
+    expect(page.items.first, isA<PdfReflowImage>());
+    expect((page.items[1] as PdfReflowBlock).text, 'First paragraph');
+    expect((page.items[2] as PdfReflowBlock).text, 'Second paragraph');
+  });
 }
 
 /// A one-page PDF with two text paragraphs and a single image XObject drawn
@@ -217,14 +258,18 @@ void main() {
 /// [imageWidth]×[imageHeight] in page units. The pixel data is ASCII-hex so
 /// the whole file stays 7-bit (reflow only records the draw request, but the
 /// fixture stays decodable for parity).
-Uint8List _buildImagePdf({double imageWidth = 200, double imageHeight = 120}) {
+Uint8List _buildImagePdf({double imageWidth = 200, double imageHeight = 120}) =>
+    _imageDocWith([
+      _textAt(100, 700, 'Above the figure'),
+      'q $imageWidth 0 0 $imageHeight 100 500 cm /Im0 Do Q',
+      _textAt(100, 400, 'Below the figure'),
+    ].join('\n'));
+
+/// A one-page PDF whose content is [content]; an `/Im0` 2×2 DeviceRGB image
+/// XObject and an `/F1` Helvetica font are available as resources.
+Uint8List _imageDocWith(String content) {
   // 2×2 DeviceRGB: red, green, blue, white.
   const hex = 'FF000000FF000000FFFFFFFF>';
-  final content = [
-    _textAt(100, 700, 'Above the figure'),
-    'q $imageWidth 0 0 $imageHeight 100 500 cm /Im0 Do Q',
-    _textAt(100, 400, 'Below the figure'),
-  ].join('\n');
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
