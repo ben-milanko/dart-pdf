@@ -25,17 +25,31 @@ cd site && python3 -m http.server 8000   # → http://localhost:8000
 
 ## Deploy
 
-Hosted on the existing **`dart-pdf-demo`** Firebase project as a second site,
-so the browser demo stays at `dart-pdf-demo.web.app` and the landing page gets
-its own site. One-time setup (needs Firebase auth — maintainer's manual step):
+Hosted on the existing **`dart-pdf-demo`** Firebase project. Three sites now
+live under that project:
+
+| Site | `.web.app` | Custom domain | Serves |
+|---|---|---|---|
+| `dart-pdf-demo` | `dart-pdf-demo.web.app` | — | the SDK showcase demo (`packages/dart_pdf_editor/example`) |
+| `dartpdf` | `dartpdf.web.app` | `dart-pdf.com`, `www.dart-pdf.com` | this landing page (`site/`) |
+| `dartpdf-app` | `dartpdf-app.web.app` | `app.dart-pdf.com` | the DartPDF web app (`app/`, `flutter build web`) |
+
+Deploy the landing page:
 
 ```sh
 cd site
-firebase hosting:sites:create dartpdf        # creates dartpdf.web.app (once)
-firebase deploy --only hosting               # uses site: "dartpdf" in firebase.json
+firebase deploy --only hosting:dartpdf --project dart-pdf-demo
 ```
 
-Then point a custom domain at it in the Firebase console if desired.
+Deploy the web app (after `cd app && fvm flutter build web --release`):
 
-> Update the App Store / Play Store **privacy policy URL** to
-> `https://dartpdf.web.app/privacy` once the site is live.
+```sh
+cd app
+firebase deploy --only hosting:dartpdf-app --project dart-pdf-demo
+```
+
+Custom domains were wired via the Firebase Hosting `customDomains` REST API
+against Namecheap DNS (apex A `199.36.158.100` + `hosting-site=dartpdf` TXT;
+`www`/`app` CNAMEs).
+
+> The App Store / Play Store **privacy policy URL** is `https://dart-pdf.com/privacy`.

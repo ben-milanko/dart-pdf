@@ -101,13 +101,43 @@ jobs:
       - name: Build Linux
         working-directory: app
         run: flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
-      - name: Tar bundle
+      - name: Tar bundle (portable folder)
         working-directory: app
         run: tar czf dartpdf-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - name: Build AppImage (single portable file)
+        working-directory: app
+        run: |
+          set -euo pipefail
+          APPDIR=DartPDF.AppDir
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -r build/linux/x64/release/bundle/* "$APPDIR/usr/bin/"
+          cp ../doc/logo.png "$APPDIR/dartpdf.png"
+          cat > "$APPDIR/dartpdf.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=DartPDF
+          Exec=dart_pdf_editor_app
+          Icon=dartpdf
+          Categories=Office;Utility;
+          MimeType=application/pdf;
+          EOF
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH:-}"
+          exec "$HERE/usr/bin/dart_pdf_editor_app" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: app/dartpdf-linux-x64.tar.gz
+          path: |
+            app/dartpdf-linux-x64.tar.gz
+            app/dartpdf-linux-x86_64.AppImage
 
   windows:
     needs: setup
@@ -123,14 +153,49 @@ jobs:
       - name: Build Windows
         working-directory: app
         run: flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
-      - name: Zip
+      - name: Bundle MSVC runtime (makes the folder portable on clean PCs)
         working-directory: app
         shell: pwsh
-        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dartpdf-windows-x64.zip
+        run: |
+          $rel = "build/windows/x64/runner/Release"
+          Copy-Item "$env:SystemRoot\System32\msvcp140.dll",
+                    "$env:SystemRoot\System32\vcruntime140.dll",
+                    "$env:SystemRoot\System32\vcruntime140_1.dll" `
+                    -Destination $rel -Force
+      - name: Zip portable folder
+        working-directory: app
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dartpdf-windows-x64.zip -Force
+      - name: Build self-extracting portable exe (NSIS)
+        working-directory: app
+        shell: pwsh
+        run: |
+          $rel = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $nsi = @"
+          Unicode true
+          Name "DartPDF"
+          OutFile "dartpdf-windows-portable.exe"
+          SilentInstall silent
+          RequestExecutionLevel user
+          Section
+            InitPluginsDir
+            SetOutPath "`$PLUGINSDIR\DartPDF"
+            File /r "$rel\*.*"
+            ExecWait '"`$PLUGINSDIR\DartPDF\dart_pdf_editor_app.exe"'
+          SectionEnd
+          "@
+          Set-Content -Path portable.nsi -Value $nsi -Encoding UTF8
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { choco install nsis -y --no-progress | Out-Null }
+          & $makensis portable.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
+          if (-not (Test-Path dartpdf-windows-portable.exe)) { throw "portable exe not produced" }
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: app/dartpdf-windows-x64.zip
+          path: |
+            app/dartpdf-windows-x64.zip
+            app/dartpdf-windows-portable.exe
 
   macos:
     needs: setup

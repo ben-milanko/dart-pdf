@@ -102,13 +102,13 @@
       radial-gradient(50% 45% at 10% 0%, rgba(198,227,248,.35), transparent 70%);
     pointer-events: none;
   }
-  .hero-inner { position: relative; display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
-  .hero h1 { font-size: clamp(38px, 4.6vw, 58px); }
-  .hero .hl { position: relative; white-space: nowrap; z-index: 0; }
-  .hero .hl::after {
-    content: ""; position: absolute; left: -2px; right: -2px; bottom: .06em; height: .32em;
-    background: var(--amber); opacity: .9; z-index: -1; border-radius: 2px;
-    transform: skewX(-4deg);
+  .hero-inner { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 56px; align-items: center; }
+  .hero h1 { font-size: clamp(38px, 4.4vw, 54px); }
+  .hero .hl {
+    position: relative; z-index: 0;
+    background-image: linear-gradient(var(--amber), var(--amber));
+    background-repeat: no-repeat; background-position: 0 92%; background-size: 100% .30em;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
   }
   .hero p.sub { margin-top: 22px; font-size: 18px; color: var(--grey); max-width: 30em; }
   .hero-cta { margin-top: 30px; display: flex; gap: 14px; flex-wrap: wrap; }
@@ -124,7 +124,7 @@
   .device-bar { display: flex; align-items: center; gap: 7px; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); background: #fafbfc; }
   .device-bar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: #e2e6ea; }
   .device-bar i:nth-child(1){ background:#ff5f57; } .device-bar i:nth-child(2){ background:#febc2e; } .device-bar i:nth-child(3){ background:#28c840; }
-  .device-shot { display: block; width: 100%; background: #202124; }
+  .device-shot { display: block; width: 100%; height: auto; aspect-ratio: 1918 / 998; object-fit: cover; background: #202124; }
   .device::after {
     content: ""; position: absolute; left: 8%; right: 30%; top: 23%; height: 12px;
     background: var(--amber); opacity: .26; transform: skewX(-12deg); filter: blur(1px);
@@ -195,6 +195,8 @@
   .store-badge svg { width: 26px; height: 26px; flex: none; }
   .store-badge .s1 { font-size: 11px; font-weight: 600; opacity: .8; line-height: 1.2; display: block; white-space: nowrap; }
   .store-badge .s2 { font-size: 17px; font-weight: 700; line-height: 1.15; }
+  .store-badge.is-soon { background: #5f6368; cursor: default; }
+  .store-badge.is-soon:hover { transform: none; background: #5f6368; }
   .desktop-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 16px; }
   .dl-card {
     border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; background: var(--bg);
@@ -237,6 +239,11 @@
   .pkg:hover { border-color: #4a4d52; }
   .pkg code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #6fd0ff; font-size: 13.5px; }
   .pkg .ver { color: #8a9099; font-size: 12px; }
+  .eng-list { display: grid; gap: 10px; }
+  .eng { display: flex; align-items: baseline; gap: 14px; background: #232427; border: 1px solid #313337; border-radius: 11px; padding: 13px 15px; transition: border-color .2s ease; }
+  .eng:hover { border-color: #4a4d52; }
+  .eng code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #6fd0ff; font-size: 13.5px; flex: none; min-width: 128px; }
+  .eng span { font-size: 13px; color: #c2c6cb; line-height: 1.4; }
 
   /* ---------- Footer ---------- */
   footer { background: var(--paper); border-top: 1px solid var(--line); padding: 56px 0 40px; }
@@ -338,7 +345,7 @@
       <p class="sub">A full PDF editor — annotate, fill forms, sign, redact, and edit — that runs on iPhone, iPad, Mac, Android, Windows, Linux, and the web. No account, no uploads.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#download">Download</a>
-        <a class="btn btn-ghost" href="https://dart-pdf-demo.web.app" target="_blank" rel="noopener">
+        <a class="btn btn-ghost" href="https://app.dart-pdf.com" target="_blank" rel="noopener">
           Try it in your browser
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
         </a>
@@ -472,21 +479,21 @@
     </div>
 
     <div class="store-row reveal">
-      <a class="store-badge" href="#" aria-label="Download on the App Store">
+      <span class="store-badge is-soon" role="img" aria-label="DartPDF on the App Store — coming soon">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c.1 1-.3 2-1 2.8-.7.8-1.7 1.4-2.7 1.3-.1-1 .4-2 1-2.7.7-.8 1.8-1.4 2.7-1.4ZM19 17.2c-.5 1.2-.8 1.7-1.4 2.7-.9 1.4-2.2 3.1-3.7 3.1-1.4 0-1.7-.9-3.6-.9s-2.3.9-3.6.9c-1.5 0-2.7-1.6-3.6-2.9C-.9 16.4-1.2 11.5 1 9c1.1-1.4 2.7-2.2 4.2-2.2 1.6 0 2.6 1 3.9 1 1.3 0 2-1 3.9-1 1.4 0 2.8.7 3.9 2-3.4 1.9-2.9 6.8.1 8.4Z"/></svg>
-        <span><span class="s1">Download on the</span><span class="s2">App Store</span></span>
-      </a>
-      <a class="store-badge" href="#" aria-label="Get it on Google Play">
+        <span><span class="s1">Coming soon to the</span><span class="s2">App Store</span></span>
+      </span>
+      <span class="store-badge is-soon" role="img" aria-label="DartPDF on Google Play — coming soon">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3.2 14.5 12 4 20.8c-.4-.2-.6-.6-.6-1.1V4.3c0-.5.2-.9.6-1.1Z"/><path d="m16.3 10.2 2.9 1.7c.8.5.8 1.7 0 2.2l-2.9 1.7L13.7 12l2.6-1.8Z"/><path d="M4 3.2c.3-.2.7-.2 1.1 0l10 5.7-1.6 1.5L4 3.2Z" opacity=".85"/><path d="M4 20.8c.3.2.7.2 1.1 0l9.5-5.5-1.6-1.5L4 20.8Z" opacity=".7"/></svg>
-        <span><span class="s1">Get it on</span><span class="s2">Google Play</span></span>
-      </a>
+        <span><span class="s1">Coming soon to</span><span class="s2">Google Play</span></span>
+      </span>
     </div>
 
     <div class="desktop-grid reveal">
       <div class="dl-card">
         <div class="top">
           <svg class="os" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c.1 1-.3 2-1 2.8-.7.8-1.7 1.4-2.7 1.3-.1-1 .4-2 1-2.7.7-.8 1.8-1.4 2.7-1.4ZM19 17.2c-.5 1.2-.8 1.7-1.4 2.7-.9 1.4-2.2 3.1-3.7 3.1-1.4 0-1.7-.9-3.6-.9s-2.3.9-3.6.9c-1.5 0-2.7-1.6-3.6-2.9C-.9 16.4-1.2 11.5 1 9c1.1-1.4 2.7-2.2 4.2-2.2 1.6 0 2.6 1 3.9 1 1.3 0 2-1 3.9-1 1.4 0 2.8.7 3.9 2-3.4 1.9-2.9 6.8.1 8.4Z"/></svg>
-          <a class="soon" href="#" style="text-decoration:none;">.dmg</a>
+          <span class="soon">Coming soon</span>
         </div>
         <div><div class="name">macOS</div><div class="meta">Universal · Apple silicon &amp; Intel</div></div>
       </div>
@@ -507,7 +514,7 @@
       <div class="dl-card">
         <div class="top">
           <svg class="os" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.4 2.5 15.6 0 18M12 3c-2.5 2.4-2.5 15.6 0 18"/></svg>
-          <a class="soon" href="https://dart-pdf-demo.web.app" target="_blank" rel="noopener" style="text-decoration:none;">Open</a>
+          <a class="soon" href="https://app.dart-pdf.com" target="_blank" rel="noopener" style="text-decoration:none;">Open</a>
         </div>
         <div><div class="name">Web</div><div class="meta">Runs in any browser</div></div>
       </div>
@@ -526,7 +533,7 @@
     <div class="reveal">
       <p class="eyebrow" style="color:#6fd0ff;">Developers</p>
       <h2 style="margin-top:14px;">Built on an open-source, pure-Dart PDF engine.</h2>
-      <p>The rendering engine is fast — independently benchmarked to match or beat PDFium — and available as packages on pub.dev. No PDFium, no native bindings.</p>
+      <p>The engine is pure Dart — no PDFium, no native bindings — so the same code runs on the Dart VM, on desktop, and in the browser. It's open source and published as packages on pub.dev.</p>
       <div class="dev-cta">
         <a class="btn btn-primary" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2A10 10 0 0 0 8.8 21.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .3.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2Z"/></svg>
@@ -538,21 +545,14 @@
     <div class="reveal" style="transition-delay:.08s;">
       <div class="bench">
         <div class="b-top">
-          <span class="b-title">Render throughput</span>
-          <span class="b-pill">Independently benchmarked</span>
+          <span class="b-title">The engine, in packages</span>
+          <span class="b-pill">Apache-2.0</span>
         </div>
-        <div class="bar-row">
-          <div class="bl"><span>pure-Dart engine</span><span class="v">match / beat</span></div>
-          <div class="bar dart"><i style="width:100%"></i></div>
-        </div>
-        <div class="bar-row">
-          <div class="bl"><span>PDFium baseline</span><span class="v">reference</span></div>
-          <div class="bar other"><i style="width:88%"></i></div>
-        </div>
-        <div class="pkg-row">
-          <a class="pkg" href="https://pub.dev/packages/dart_pdf_editor" target="_blank" rel="noopener"><code>dart_pdf_editor</code><span class="ver">pub.dev</span></a>
-          <a class="pkg" href="https://pub.dev/packages/pdf_graphics" target="_blank" rel="noopener"><code>pdf_graphics</code><span class="ver">pub.dev</span></a>
-          <a class="pkg" href="https://pub.dev/packages/pdf_document" target="_blank" rel="noopener"><code>pdf_document</code><span class="ver">pub.dev</span></a>
+        <div class="eng-list">
+          <a class="eng" href="https://pub.dev/packages/pdf_cos" target="_blank" rel="noopener"><code>pdf_cos</code><span>PDF object model, parser, filters, xref</span></a>
+          <a class="eng" href="https://pub.dev/packages/pdf_document" target="_blank" rel="noopener"><code>pdf_document</code><span>Pages, fonts, encryption, signatures</span></a>
+          <a class="eng" href="https://pub.dev/packages/pdf_graphics" target="_blank" rel="noopener"><code>pdf_graphics</code><span>Content-stream interpreter and renderer</span></a>
+          <a class="eng" href="https://pub.dev/packages/dart_pdf_editor" target="_blank" rel="noopener"><code>dart_pdf_editor</code><span>Flutter viewer, editor and annotations</span></a>
         </div>
       </div>
     </div>

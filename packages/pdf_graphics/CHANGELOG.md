@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Reflow: `PdfReflowPage` now exposes `items` — text blocks and images
+  interleaved in reading order (`PdfReflowItem`/`PdfReflowImage`, with the
+  `blocks`/`images`/`text` getters unchanged). The extractor records placed
+  images with their page-space bounds and folds each into the read where it
+  sits, drops decorative rules and tiny icons, and de-duplicates repeated
+  watermarks. Bullet and numbered list items are split into their own
+  blocks (`PdfReflowBlock.isListItem`) instead of folding into the prose.
+
 ## 1.0.0
 
 First stable release. Changes since 0.1.0:
