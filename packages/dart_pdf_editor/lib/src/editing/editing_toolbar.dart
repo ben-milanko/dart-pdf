@@ -24,6 +24,36 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfViewerController viewerController,
 );
 
+/// A tool *type* — one dock group in [PdfEditingToolbar]. Pass a subset
+/// to [PdfEditingToolbar.groups] (or [PdfEditorFeatures.toolGroups]) to
+/// hide whole groups: e.g. `{PdfEditToolGroup.select,
+/// PdfEditToolGroup.markup}` shows only the Select and Markup groups.
+///
+/// This is the coarse axis. The finer [PdfEditingToolbar.tools] hides
+/// individual tools *within* the groups that survive this filter.
+enum PdfEditToolGroup {
+  /// Select / move / resize existing annotations.
+  select,
+
+  /// Text-markup actions (highlight, underline, strike out, squiggly).
+  markup,
+
+  /// Freehand drawing (ink) and the ink eraser.
+  draw,
+
+  /// Rectangle, ellipse, line, arrow, polyline, polygon.
+  shapes,
+
+  /// Text box, note, stamp, image, signature.
+  insert,
+
+  /// Distance, perimeter and area measurement.
+  measure,
+
+  /// Page content, form fields and redaction.
+  edit,
+}
+
 /// A ready-made toolbar for [PdfEditingController].
 ///
 /// The bar is organised as a **dock** of tool *groups* — Select, Markup,
@@ -52,6 +82,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.textPrompt = showPdfTextPrompt,
     this.palette = defaultPalette,
     this.tools,
+    this.groups,
     this.showMarkup = true,
     this.showUndoRedo = true,
     this.showColor = true,
@@ -84,8 +115,21 @@ class PdfEditingToolbar extends StatefulWidget {
   /// be armed through the controller.
   final Set<PdfEditTool>? tools;
 
+  /// The tool *types* (dock groups) to expose, null meaning all of them.
+  /// A group not in the set vanishes from the dock entirely — this is the
+  /// way to disable a whole tool type (Measure, Markup, Draw…) without
+  /// enumerating each of its tools in [tools].
+  ///
+  /// Combines with [tools] and [showMarkup]: a group shows only when it
+  /// is in this set (when given), is not emptied by [tools], and — for
+  /// Markup — [showMarkup] is true. Hiding a group only hides its UI; its
+  /// tools can still be armed through the controller.
+  final Set<PdfEditToolGroup>? groups;
+
   /// Whether the Markup group (highlight, underline, strike out, squiggly
-  /// — they act on the viewer's text selection) is shown.
+  /// — they act on the viewer's text selection) is shown. A convenience
+  /// for the common case; equivalent to dropping [PdfEditToolGroup.markup]
+  /// from [groups].
   final bool showMarkup;
 
   /// Whether the undo/redo buttons are shown. The viewer's ⌘Z/⇧⌘Z
@@ -257,9 +301,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   bool _shows(PdfEditTool tool) => widget.tools?.contains(tool) ?? true;
 
-  /// Whether [group] has any visible entry (markup gated by showMarkup,
-  /// tools gated by [PdfEditingToolbar.tools]).
+  /// Whether [group] has any visible entry (the whole group gated by
+  /// [PdfEditingToolbar.groups], markup also gated by showMarkup, tools
+  /// gated by [PdfEditingToolbar.tools]).
   bool _groupVisible(_ToolGroup group) {
+    final kind = PdfEditToolGroup.values.byName(group.id);
+    if (widget.groups != null && !widget.groups!.contains(kind)) return false;
     if (group.id == 'markup') return widget.showMarkup;
     return group.tools.any((e) => e.tool != null && _shows(e.tool!));
   }

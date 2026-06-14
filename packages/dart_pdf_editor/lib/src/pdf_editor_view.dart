@@ -38,6 +38,7 @@ class PdfEditorFeatures {
     this.styleControls = true,
     this.flatten = true,
     this.tools,
+    this.toolGroups,
   });
 
   /// The slim bar above the viewer (search, page number, panel
@@ -112,6 +113,12 @@ class PdfEditorFeatures {
   /// The tool buttons to offer, null meaning all of them. See
   /// [PdfEditingToolbar.tools].
   final Set<PdfEditTool>? tools;
+
+  /// The tool *types* (dock groups — Select, Markup, Draw, Shapes,
+  /// Insert, Measure, Edit) to offer, null meaning all of them. This is
+  /// the way to disable a whole tool type at once. See
+  /// [PdfEditingToolbar.groups].
+  final Set<PdfEditToolGroup>? toolGroups;
 }
 
 /// A drop-in PDF editor: the [PdfViewer] with every editing tool wired
@@ -625,6 +632,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       textPrompt: widget.textPrompt ?? showPdfTextPrompt,
                       palette: widget.palette,
                       tools: features.tools,
+                      groups: features.toolGroups,
                       showMarkup: features.markup,
                       showUndoRedo: features.undoRedo,
                       showColor: features.colorControls,
