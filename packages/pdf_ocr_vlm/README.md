@@ -103,6 +103,14 @@ over the scan — the page looks identical, but text can now be selected,
 searched, copied, and extracted. Pass `visible: true` to burn the layer in
 (useful for debugging the box alignment).
 
+### Try it in the example app
+
+The suite's example app (`packages/dart_pdf_editor/example`) wires this in:
+**More actions ▸ Add OCR text layer…** opens a dialog to supply the service
+endpoint, model name, and an optional API key/token (sent as
+`Authorization: Bearer …`), then OCRs every page and opens the result in a
+new tab. Point it at a server from [Run the model](#run-the-model-dotsocr-on-vllm).
+
 ### Wire it into the editor UI
 
 ```dart

@@ -2246,3 +2246,15 @@ parsing. README is the setup doc (SOTA landscape table, Docker/vLLM
 one-liner, the JSON contract + a ~30-line FastAPI/PaddleOCR reference
 adapter, cloud-VLM override example). Added to the root workspace list;
 deps http ^1.2.0. Not in the first-publish order yet (Ben's call).
+Example-app wiring (Ben: "with a way to supply creds or login"): main.dart
+'More actions ▸ Add OCR text layer…' (enabled iff a session tab is active)
+opens `_OcrSettingsDialog` (keys 'ocr-endpoint'/'ocr-model'/'ocr-api-key'/
+'ocr-run' — endpoint + model + optional bearer token, obscured, plus a
+'How to set up an OCR server' link to the package README), then runs
+`applyOcr` over every page behind `_OcrProgressDialog` (ValueNotifier page
+counter) and opens the result in a NEW tab '$title (OCR)'. Creds live in
+`_ViewerScreenState` (`_ocrEndpoint`/`_ocrModel`/`_ocrApiKey`) for the
+app's life — the API key is kept in MEMORY ONLY, never written to disk (so
+the example needs no shared_preferences for it). dep pdf_ocr_vlm ^0.1.0.
+The 9 example test failures are pre-existing on this machine (raster/
+headless) — identical set with and without this wiring, zero regressions.
