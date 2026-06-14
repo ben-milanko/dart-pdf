@@ -9,6 +9,7 @@ import 'annotation.dart';
 import 'content_elements.dart';
 import 'content_writer.dart';
 import 'document.dart';
+import 'font_embedder.dart';
 import 'form.dart';
 import 'image.dart';
 import 'measure.dart';

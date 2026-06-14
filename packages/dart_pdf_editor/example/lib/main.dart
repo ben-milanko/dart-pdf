@@ -47,6 +47,20 @@ Future<Uint8List?> _pickImage(BuildContext context) =>
     openFile(acceptedTypeGroups: const [_imageTypeGroup])
         .then((file) => file?.readAsBytes());
 
+/// Fonts the "Load font…" entry accepts.
+const _fontTypeGroup = XTypeGroup(
+  label: 'Fonts',
+  extensions: ['ttf', 'otf'],
+  mimeTypes: ['font/ttf', 'font/otf'],
+  uniformTypeIdentifiers: ['public.truetype-ttf-font', 'public.opentype-font'],
+);
+
+/// The font menu's "Load font…" picker: embeds the chosen TrueType or
+/// OpenType file so new text can use any font.
+Future<Uint8List?> _pickFont(BuildContext context) =>
+    openFile(acceptedTypeGroups: const [_fontTypeGroup])
+        .then((file) => file?.readAsBytes());
+
 void main() => runApp(const ViewerApp());
 
 class ViewerApp extends StatefulWidget {
@@ -571,6 +585,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           annotationMenuBuilder: _annotationMenuActions,
                           formImagePicker: _pickFormImage,
                           imagePicker: _pickImage,
+                          fontPicker: _pickFont,
                         ),
     );
   }

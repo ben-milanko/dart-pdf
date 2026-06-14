@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Full font selection for text boxes: a font menu (in the style popup and
+  the properties panel) offers the standard families, a set of bundled
+  full-Unicode fonts (DejaVu Sans/Serif/Mono), and "Load font…" — a
+  host-provided `PdfFontPicker` for any `.ttf`/`.otf` file. The chosen
+  font embeds into the document so the text renders and prints
+  identically everywhere. `PdfEditingController.activeFont`/`setCustomFont`
+  drive new text; editing an embedded-font box keeps its font.
+
 ## 1.0.0
 
 First stable release. Highlights since 0.1.0:

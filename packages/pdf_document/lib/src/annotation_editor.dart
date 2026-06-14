@@ -1212,7 +1212,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect rect,
     String text, {
     double fontSize = 12,
-    PdfStandardFont font = PdfStandardFont.helvetica,
+    PdfTextFont font = PdfStandardFont.helvetica,
     int color = 0x000000,
     int? fillColor,
     int? borderColor,
@@ -1220,6 +1220,9 @@ extension PdfAnnotationEditing on PdfEditor {
     String? author,
     String? name,
   }) {
+    // The font accumulates which glyphs the appearance shows (so an
+    // embedded font's /W and /ToUnicode cover exactly them); start fresh.
+    if (font is PdfEmbeddedFont) font.resetUsage();
     final w = _freeTextContent(rect, text,
         fontSize: fontSize,
         font: font,
@@ -1239,10 +1242,13 @@ extension PdfAnnotationEditing on PdfEditor {
     if (borderColor != null && borderWidth > 0) {
       dict['BS'] = _borderStyle(borderWidth);
     }
+    final fontResource = font is PdfEmbeddedFont
+        ? font.buildResource(_updater.addObject)
+        : _standardFont(font as PdfStandardFont);
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w, resources: _resources(font: _standardFont(font))),
+      _form(rect, w, resources: _resources(font: fontResource)),
       name: name,
     );
   }
@@ -1253,7 +1259,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect rect,
     String text, {
     required double fontSize,
-    required PdfStandardFont font,
+    required PdfTextFont font,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -1288,7 +1294,11 @@ extension PdfAnnotationEditing on PdfEditor {
     final lines = _wrap(text, fontSize, rect.width - 2 * pad, font: font);
     for (var i = 0; i < lines.length; i++) {
       if (i > 0) w.nextLine();
-      w.showText(lines[i]);
+      if (font is PdfEmbeddedFont) {
+        w.showGlyphHex(font.encodeHex(lines[i]));
+      } else {
+        w.showText(lines[i]);
+      }
     }
     w
       ..endText()
@@ -3087,14 +3097,14 @@ extension PdfAnnotationEditing on PdfEditor {
   /// Greedy word wrap with [font]'s metrics; a single word longer than
   /// [maxWidth] overflows (and is clipped by the appearance).
   List<String> _wrap(String text, double fontSize, double maxWidth,
-      {PdfStandardFont font = PdfStandardFont.helvetica}) {
+      {PdfTextFont font = PdfStandardFont.helvetica}) {
     final lines = <String>[];
     for (final paragraph in text.split('\n')) {
       var line = '';
       for (final word in paragraph.split(' ')) {
         final candidate = line.isEmpty ? word : '$line $word';
         if (line.isNotEmpty &&
-            measureStandardText(candidate, fontSize, font: font) > maxWidth) {
+            font.measure(candidate, fontSize) > maxWidth) {
           lines.add(line);
           line = word;
         } else {

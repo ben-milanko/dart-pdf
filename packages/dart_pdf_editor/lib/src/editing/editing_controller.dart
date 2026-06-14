@@ -549,10 +549,52 @@ class PdfEditingController extends ChangeNotifier {
   set fontSize(double value) => preferences.fontSize = value;
 
   /// Font family for free-text annotations — one of the standard PDF
-  /// text fonts (sans-serif, serif, monospace). Persisted.
+  /// text fonts (sans-serif, serif, monospace). Persisted. Selecting a
+  /// standard family also clears any [activeFont] (back to base-14).
   PdfStandardFont get fontFamily => preferences.fontFamily;
 
-  set fontFamily(PdfStandardFont value) => preferences.fontFamily = value;
+  set fontFamily(PdfStandardFont value) {
+    if (_activeFont != null) {
+      _activeFont = null;
+      notifyListeners();
+    }
+    preferences.fontFamily = value;
+  }
+
+  PdfEmbeddedFont? _activeFont;
+
+  /// An embedded TrueType/OpenType font selected for new free text, taking
+  /// precedence over [fontFamily] so authored text can use any font (not
+  /// just the base-14 faces). Null means a standard family.
+  ///
+  /// Not persisted — the font program is large, and recovering it from a
+  /// box's own appearance keeps editing lossless regardless. A session
+  /// starts on the standard fonts; reselect a bundled or custom font to
+  /// use it again.
+  PdfEmbeddedFont? get activeFont => _activeFont;
+
+  set activeFont(PdfEmbeddedFont? value) {
+    if (value == _activeFont) return;
+    _activeFont = value;
+    notifyListeners();
+  }
+
+  /// A human label for the font new free text will be written in — the
+  /// embedded font's family, or the standard family name.
+  String get activeFontLabel =>
+      _activeFont?.familyName ?? preferences.fontFamily.family.label;
+
+  /// Parses [bytes] as a TrueType (.ttf) or OpenType (.otf) font and
+  /// selects it for new free text via [activeFont]. Returns false when the
+  /// bytes aren't a usable font (and leaves the selection unchanged).
+  bool setCustomFont(Uint8List bytes) {
+    try {
+      activeFont = PdfEmbeddedFont.parse(bytes);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Opacity (0–1] new ink, shape, markup, and stamp annotations are
   /// created with. Free text and notes are always opaque. Persisted.
@@ -1103,7 +1145,7 @@ class PdfEditingController extends ChangeNotifier {
   void addFreeText(int pageIndex, PdfRect rect, String text) => apply(
       (e) => e.addFreeText(pageIndex, rect, text,
           fontSize: preferences.fontSize,
-          font: preferences.fontFamily,
+          font: _activeFont ?? preferences.fontFamily,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
@@ -2520,6 +2562,16 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// The font a free-text annotation should be re-created with on a text
+  /// or size edit: its embedded font recovered from the appearance when
+  /// present (so editing an embedded-font box keeps its font rather than
+  /// reverting to Helvetica), else the base-14 face parsed from /DA.
+  ({PdfTextFont font, double size}) _freeTextFontOf(PdfAnnotation annotation) {
+    final standard = _freeTextStyleOf(annotation);
+    final embedded = PdfEmbeddedFont.fromFreeText(annotation);
+    return (font: embedded ?? standard.font, size: standard.size);
+  }
+
   /// Whether the selection is a single free-text annotation whose font
   /// and size [restyleSelectedText] can change.
   bool get canRestyleSelectedText =>
@@ -2551,13 +2603,29 @@ class PdfEditingController extends ChangeNotifier {
       double? borderWidth}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canRestyleSelectedText) return;
-    final style = _freeTextStyleOf(annotation);
+    // Default to the box's own (possibly embedded) font, so changing only
+    // the size never silently converts an embedded font to Helvetica; an
+    // explicit [font] (the family picker) still wins.
+    final style = _freeTextFontOf(annotation);
     _rewriteSelected(annotation, annotation.contents ?? '',
         font: font ?? style.font,
         size: size ?? style.size,
         fill: fill,
         border: border,
         borderWidth: borderWidth);
+  }
+
+  /// Rewrites the selected free-text annotation in [font] — a base-14
+  /// face or an embedded TrueType/OpenType font — keeping its text, size,
+  /// place, color, and author. Unlike [restyleSelectedText] (which only
+  /// takes the standard families) this can switch a box to any embedded
+  /// font.
+  void restyleSelectedFont(PdfTextFont font) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canRestyleSelectedText) return;
+    final style = _freeTextFontOf(annotation);
+    _rewriteSelected(annotation, annotation.contents ?? '',
+        font: font, size: style.size);
   }
 
   /// Rewrites the selected annotation's text: same place, same style, new
@@ -2608,7 +2676,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   void _rewriteSelected(PdfAnnotation annotation, String text,
-      {PdfStandardFont? font,
+      {PdfTextFont? font,
       double? size,
       (int?,)? fill,
       (int?,)? border,
@@ -2629,7 +2697,7 @@ class PdfEditingController extends ChangeNotifier {
       e.removeAnnotation(page, annotation);
       switch (annotation.subtype) {
         case 'FreeText':
-          final style = _freeTextStyleOf(annotation);
+          final style = _freeTextFontOf(annotation);
           // the parsed style carries what /C alone can't: the text color
           // (from /DA) plus any background fill and border; a wrapped
           // [fill]/[border] overrides it (see restyleSelectedText)

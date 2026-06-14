@@ -14,6 +14,11 @@ typedef PdfFormImagePicker = Future<Uint8List?> Function(
 /// are accepted ([PdfEditingController.placeImage]).
 typedef PdfImagePicker = Future<Uint8List?> Function(BuildContext context);
 
+/// Supplies a TrueType (`.ttf`) or OpenType (`.otf`) font file the font
+/// menu's "Load font…" entry embeds for new text — typically a file
+/// picker. Return null to cancel ([PdfEditingController.setCustomFont]).
+typedef PdfFontPicker = Future<Uint8List?> Function(BuildContext context);
+
 /// Signature of the prompt the editing UI uses to ask for annotation text
 /// (free text, notes, stamps). Returns null when the user cancels.
 typedef PdfTextPrompt = Future<String?> Function(

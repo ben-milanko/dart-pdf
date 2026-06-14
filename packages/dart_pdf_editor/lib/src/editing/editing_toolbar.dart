@@ -10,6 +10,7 @@ import '../toast.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
+import 'editing_fonts.dart';
 import 'editing_measure.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -50,6 +51,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.fontPicker,
     this.palette = defaultPalette,
     this.tools,
     this.showMarkup = true,
@@ -73,6 +75,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How the font menu's "Load font…" entry obtains a custom `.ttf`/`.otf`
+  /// file. When null, only the standard families and bundled fonts are
+  /// offered (no custom loading).
+  final PdfFontPicker? fontPicker;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -1155,6 +1162,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         showColor: widget.showColor,
         fields: fields,
         fontChipTrigger: fields.font,
+        fontPicker: widget.fontPicker,
       ),
     ];
   }
@@ -1891,10 +1899,14 @@ class _StyleMenu extends StatefulWidget {
     required this.fields,
     this.showColor = true,
     this.fontChipTrigger = false,
+    this.fontPicker,
   });
 
   /// Which controls to show — see [_StyleFields].
   final _StyleFields fields;
+
+  /// How the font menu's "Load font…" entry loads a custom font.
+  final PdfFontPicker? fontPicker;
 
   final PdfEditingController controller;
 
@@ -2350,6 +2362,21 @@ class _StyleMenuState extends State<_StyleMenu> {
                         FontStyleToggles(
                           font: selectedStyle?.font ?? controller.fontFamily,
                           onChanged: _setFont,
+                        ),
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(children: [
+                        const SizedBox(width: 86, child: Text('More fonts')),
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: PdfFontMenuButton(
+                              controller: controller,
+                              fontPicker: widget.fontPicker,
+                            ),
+                          ),
                         ),
                       ]),
                     ),

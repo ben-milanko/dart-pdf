@@ -162,6 +162,7 @@ class PdfEditorView extends StatefulWidget {
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.fontPicker,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolbarLeading = const [],
@@ -236,6 +237,11 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
+
+  /// How the font menu's "Load font…" entry loads a custom `.ttf`/`.otf`
+  /// font to embed for new text. When null, only the standard families
+  /// and bundled fonts are offered.
+  final PdfFontPicker? fontPicker;
 
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
@@ -445,6 +451,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 showAuthor: features.authorEditable,
                 bottomSheet: bottomSheet,
+                fontPicker: widget.fontPicker,
               );
 
           final showThumbnailsPanel = features.thumbnails && showThumbnails;
@@ -623,6 +630,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       viewerController: _viewer,
                       // save lives in the header now, not the dock
                       textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                      fontPicker: widget.fontPicker,
                       palette: widget.palette,
                       tools: features.tools,
                       showMarkup: features.markup,

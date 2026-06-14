@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Embeddable fonts: `PdfEmbeddedFont.parse` reads a TrueType (`.ttf`) or
+  OpenType (`.otf`) file and `addFreeText` can now author text in it,
+  embedding the font as a full-Unicode Type0/CIDFontType2 (Identity-H)
+  composite with a `/ToUnicode` CMap — so authored text can use any font,
+  not just the base-14 faces, and stays selectable, searchable, and
+  portable. `PdfEmbeddedFont.fromFreeText` recovers the font from a box's
+  own appearance for lossless re-editing.
+
 ## 1.0.0
 
 First stable release. Changes since 0.1.0:
