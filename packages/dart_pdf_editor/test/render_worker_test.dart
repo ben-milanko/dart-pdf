@@ -90,6 +90,33 @@ void main() {
     });
   });
 
+  testWidgets('priority: the on-screen page preempts queued prefetch',
+      (tester) async {
+    await tester.runAsync(() async {
+      final worker = PdfRenderWorker.start(buildMultiPagePdf(2));
+      addTearDown(worker.dispose);
+      await worker.record(0); // warm up: the isolate is now spawned and idle
+
+      // Fire six prefetch records (priority 1) then one on-screen record
+      // (priority 0), all synchronously — so the first prefetch is in flight
+      // and the rest queue behind it. The high-priority request must be served
+      // next, ahead of the five still queued: completion order is
+      // [low0, HIGH, low1, ...]. Deterministic because record() enqueues
+      // synchronously before any isolate response can arrive.
+      final order = <String>[];
+      final futures = <Future<void>>[
+        for (var i = 0; i < 6; i++)
+          worker.record(0, priority: 1).then((_) => order.add('low$i')),
+        worker.record(1, priority: 0).then((_) => order.add('HIGH')),
+      ];
+      await Future.wait(futures);
+
+      expect(order.length, 7);
+      expect(order.indexOf('HIGH'), 1,
+          reason: 'high priority is served right after the in-flight prefetch');
+    });
+  });
+
   testWidgets('serves many pages over one long-lived isolate', (tester) async {
     await tester.runAsync(() async {
       final bytes = buildMultiPagePdf(3);

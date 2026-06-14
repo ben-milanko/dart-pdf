@@ -79,8 +79,9 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final sw = Stopwatch()..start();
       final size = PdfPageRenderer.pageSize(page);
       final ratio = _ratioFor(size);
+      // priority 1: prefetch yields to any on-screen page the worker owes
       final commands = worker != null && worker.isActive
-          ? await worker.record(index, annotations: annotations)
+          ? await worker.record(index, annotations: annotations, priority: 1)
           : null;
       if (_disposed || isFresh(index, page)) return;
       final ui.Image image;

@@ -307,8 +307,9 @@ class _PdfPageViewState extends State<PdfPageView> {
   Future<ui.Picture> _interpretPicture() async {
     final worker = widget.renderWorker;
     if (worker != null && worker.isActive) {
+      // priority 0: the on-screen page preempts background prefetch
       final commands = await worker.record(widget.previewIndex,
-          annotations: widget.showAnnotations);
+          annotations: widget.showAnnotations, priority: 0);
       if (commands != null) {
         return PdfPageRenderer.pictureFromCommands(widget.page, commands,
             pageColor: widget.pageColor);

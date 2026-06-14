@@ -36,8 +36,12 @@ abstract class PdfRenderWorker {
   ///
   /// [annotations] mirrors `PdfPageRenderer.renderPicture`'s flag: when false
   /// the page's annotations are left out of the recording.
+  ///
+  /// [priority] orders the worker's single queue — lower is served first, so
+  /// the on-screen page (0) preempts background prefetch (1) even though the
+  /// isolate processes one page at a time.
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-      {bool annotations = true});
+      {bool annotations = true, int priority = 0});
 
   /// Whether this worker actually offloads. False for the null fallback, so
   /// callers can skip the round-trip and render locally without asking.
