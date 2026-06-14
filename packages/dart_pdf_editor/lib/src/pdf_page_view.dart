@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'perf_log.dart';
 import 'preview_cache.dart';
 import 'render_scheduler.dart';
 import 'renderer.dart';
@@ -293,10 +294,19 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
     final generation = ++_renderGeneration;
-    final picture = await (_picture ??= PdfPageRenderer.renderPicture(
+    final firstInterpret = _picture == null;
+    final sw = Stopwatch()..start();
+    final picture = await (_picture ??= PdfPageRenderer.renderPictureRecorded(
         widget.page,
         pageColor: widget.pageColor,
         annotations: widget.showAnnotations));
+    sw.stop();
+    if (firstInterpret) {
+      PdfPerfLog.interpret(widget.previewIndex,
+          path: 'recorded',
+          interpretMs: sw.elapsedMicroseconds / 1000.0,
+          first: true);
+    }
     if (!mounted || generation != _renderGeneration) return;
     final effective = _effectiveRatio();
     // Skip the full-page readback when the cached raster is already at

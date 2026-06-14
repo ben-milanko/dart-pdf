@@ -195,9 +195,13 @@ class PdfPageRenderer {
   static Future<ui.Image> renderImage(PdfPage page,
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
-    final picture = await renderPicture(page,
-        pageColor: pageColor, annotations: annotations);
+      bool annotations = true,
+      bool recorded = false}) async {
+    final picture = recorded
+        ? await renderPictureRecorded(page,
+            pageColor: pageColor, annotations: annotations)
+        : await renderPicture(page,
+            pageColor: pageColor, annotations: annotations);
     try {
       return await rasterize(picture, pageSize(page), pixelRatio);
     } finally {

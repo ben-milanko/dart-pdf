@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'perf_log.dart';
 import 'renderer.dart';
 
 /// Low-resolution page previews shown while a page's full render is
@@ -71,10 +72,15 @@ class PdfPagePreviewCache extends ChangeNotifier {
       bool annotations = true}) async {
     if (_disposed || isFresh(index, page)) return;
     try {
+      final sw = Stopwatch()..start();
       final image = await PdfPageRenderer.renderImage(page,
           pixelRatio: _ratioFor(PdfPageRenderer.pageSize(page)),
           pageColor: pageColor,
-          annotations: annotations);
+          annotations: annotations,
+          recorded: true);
+      sw.stop();
+      PdfPerfLog.log('prerender page=$index '
+          'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
       _store(index, page, image);
     } catch (_) {
       // no preview is strictly better than a crash mid-scroll

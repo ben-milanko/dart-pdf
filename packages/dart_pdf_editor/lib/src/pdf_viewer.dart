@@ -19,6 +19,7 @@ import 'editing/text_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'page_geometry.dart';
+import 'perf_log.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'render_scheduler.dart';
@@ -1026,8 +1027,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // lapses and the page sharpens; the settle timer clears the burst.
     final opening =
         now - _scrollBurstStart < const Duration(milliseconds: 150);
-    _renderScheduler.holding =
-        opening || velocity > math.max(800, 2 * viewport);
+    final hold = opening || velocity > math.max(800, 2 * viewport);
+    PdfPerfLog.log('scroll page=${_controller.currentPage} '
+        'v=${velocity.toStringAsFixed(0)}px/s '
+        'threshold=${math.max(800, 2 * viewport).toStringAsFixed(0)} '
+        'opening=$opening hold=${hold ? 'ON' : 'off'}');
+    _renderScheduler.holding = hold;
   }
 
   @override
