@@ -76,6 +76,16 @@ void main() {
       expect(ap, contains('2 0 0 4 10 20 cm'));
     });
 
+    test('pasting a degenerate (zero-area) region is a no-op', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc);
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(100, 100, 100, 140));
+      editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 50, 50), snap);
+      expect(editor.hasChanges, isFalse);
+      expect(doc.page(0).annotations, isEmpty);
+    });
+
     test('a detached snapshot survives further edits to the source', () {
       final doc = PdfDocument.open(buildMultiPagePdf(1));
       final editor = PdfEditor(doc);
