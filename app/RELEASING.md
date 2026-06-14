@@ -58,7 +58,7 @@ membership needed). What that means concretely:
   id `dev.milanko.dartpdf` as an explicit App ID under the RES team. Apple does
   **not** require the bundle id to match RES's reverse-domain — an App ID is
   just a unique string owned by a team — so the existing id can stay. In Xcode,
-  set **Signing → Team** to RES's team (Team ID `<RES_TEAM_ID>`) for the Runner
+  set **Signing → Team** to RES's team (Team ID `N5K9GK8B27`) for the Runner
   target (iOS and macOS). Automatic signing then provisions against RES.
 - **Seller name.** If RES is an *Organization* account, the App Store listing's
   developer/seller name shown to users is **RES**, not an individual. That is the
