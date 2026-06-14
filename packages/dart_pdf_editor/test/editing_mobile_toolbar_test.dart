@@ -70,8 +70,14 @@ void main() {
     expect(swatch, findsNothing, reason: 'the eraser ignores colour');
 
     editing.tool = PdfEditTool.ink;
+    editing.color = const Color(0xFF123456); // a non-palette colour
     await tester.pump();
     expect(swatch, findsOneWidget, reason: 'ink paints in colour');
+
+    // tapping the swatch sets the creation colour
+    await tester.tap(swatch);
+    await tester.pump();
+    expect(editing.color, PdfEditingToolbar.defaultPalette.first);
   });
 
   testWidgets('a selection surfaces quick actions, not creation swatches',
@@ -91,5 +97,11 @@ void main() {
         reason: 'a selected annotation can be deleted from the dock');
     expect(swatch, findsNothing,
         reason: 'the creation swatches make way for the selection actions');
+
+    // and the action works: tapping it removes the annotation
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pump();
+    expect(editing.hasAnnotationSelection, isFalse);
+    expect(editing.isModified, isTrue, reason: 'the annotation was removed');
   });
 }
