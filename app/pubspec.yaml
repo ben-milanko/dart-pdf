@@ -36,5 +36,8 @@ dev_dependencies:
   pdf_viewer_example:
     path: ../packages/dart_pdf_editor/example
 
+  # Programmatically-built PDFs for widget tests.
+  pdf_test_fixtures: ^1.0.0
+
 flutter:
   uses-material-design: true

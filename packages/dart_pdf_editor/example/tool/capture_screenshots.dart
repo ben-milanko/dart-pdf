@@ -147,6 +147,18 @@ Future<void> _capture(String name) async {
 /// crops to it with `screencapture -R`. Falls back to the whole main
 /// display if the bounds can't be read (e.g. Automation not yet granted).
 Future<ProcessResult> _captureMacWindow(String path) async {
+  // Raise the app so no other window overlaps the cropped region —
+  // `screencapture -R` grabs the screen, not the window's backing store,
+  // so anything on top (a terminal, the IDE) would bleed in otherwise.
+  if (macProcess.isNotEmpty) {
+    await Process.run('osascript', [
+      '-e',
+      'tell application "System Events" to set frontmost of process '
+          '"$macProcess" to true',
+    ]);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+  }
+
   final selector = macProcess.isNotEmpty
       ? 'process "$macProcess"'
       : 'first process whose frontmost is true';
