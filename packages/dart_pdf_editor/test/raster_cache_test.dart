@@ -1,6 +1,7 @@
 // Persistent on-disk preview cache: previews render once, get written
 // through to a pluggable byte store as PNG, and load back on a later
 // (cold) session so the page paints soft content immediately.
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -87,5 +88,55 @@ void main() {
     // loadFromDisk must not disturb the fresh in-memory entry
     await tester.runAsync(() => cache.loadFromDisk(pages));
     expect(cache.isFresh(0, pages[0]), isTrue);
+  });
+
+  testWidgets('a PdfViewer with a rasterCache writes previews through to disk',
+      (tester) async {
+    final store = PdfMemoryCacheStore();
+    final raster = PdfRasterCache(PdfDiskCache(store));
+    final document = PdfDocument.open(buildMultiPagePdf(4));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          rasterCache: raster,
+          documentId: 'doc-A',
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // pages render on screen and write their previews through to the store
+    for (var i = 0; i < 100 && store.debugBytes == 0; i++) {
+      await settle(tester);
+    }
+    expect(store.debugBytes, greaterThan(0),
+        reason: 'on-screen renders should persist previews to the store');
+
+    // null documentId leaves the cache idle (no key to store under)
+    final idleStore = PdfMemoryCacheStore();
+    final idleController = PdfViewerController();
+    addTearDown(idleController.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: idleController,
+          initialFit: PdfViewerFit.width,
+          rasterCache: PdfRasterCache(PdfDiskCache(idleStore)),
+          // documentId omitted on purpose
+        ),
+      ),
+    ));
+    for (var i = 0; i < 20; i++) {
+      await settle(tester);
+    }
+    expect(idleStore.debugBytes, 0,
+        reason: 'without a documentId there is no safe key to store under');
   });
 }
