@@ -4,6 +4,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -519,24 +520,46 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
+  /// Moves the tab at [oldIndex] to [newIndex] (drag-reorder), keeping the
+  /// currently active document active wherever it lands. [newIndex] is already
+  /// adjusted for the removed item (the `onReorderItem` convention).
+  void _reorderTabs(int oldIndex, int newIndex) {
+    setState(() {
+      final active = _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
+      final moved = _tabs.removeAt(oldIndex);
+      _tabs.insert(newIndex, moved);
+      _activeIndex = _tabs.indexOf(active);
+    });
+  }
+
   Widget _buildTabStrip() {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
       child: SizedBox(
         height: _tabStripHeight,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          itemCount: _tabs.length + 1,
-          itemBuilder: (context, i) => i < _tabs.length
-              ? _buildTab(i)
-              : IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.add),
-                  tooltip: 'Open PDF in a new tab',
-                  onPressed: _pickAndOpen,
-                ),
+        child: Row(
+          children: [
+            Expanded(
+              child: ReorderableListView.builder(
+                key: const ValueKey('tab-strip'),
+                scrollDirection: Axis.horizontal,
+                // The whole tab is the drag handle (see _buildTab); the stock
+                // trailing handles don't fit a horizontal tab strip.
+                buildDefaultDragHandles: false,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                itemCount: _tabs.length,
+                onReorderItem: _reorderTabs,
+                itemBuilder: (context, i) => _buildTab(i),
+              ),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.add),
+              tooltip: 'Open PDF in a new tab',
+              onPressed: _pickAndOpen,
+            ),
+          ],
         ),
       ),
     );
@@ -573,36 +596,72 @@ class _EditorScreenState extends State<EditorScreen>
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-      child: Material(
-        color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
+    // Dragging anywhere on the tab reorders it; the tap/close gestures still
+    // win when the pointer doesn't travel (gesture arena resolves drag vs tap).
+    return _TabDragStartListener(
+      key: ValueKey(tab),
+      index: index,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+        child: Material(
+          color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8),
-          onTap: () => setState(() => _activeIndex = index),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 2),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 160),
-                  child: label(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 16),
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-                  tooltip: 'Close tab',
-                  onPressed: () => _closeTab(index),
-                ),
-              ],
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() => _activeIndex = index),
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12, right: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 160),
+                    child: label(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                    tooltip: 'Close tab',
+                    onPressed: () => _closeTab(index),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Starts a tab drag immediately for mouse pointers (the desktop expectation —
+/// a mouse drag never means scrolling the strip) but only after a long press
+/// for touch and stylus, so finger drags still scroll the tab strip. Plain
+/// taps are unaffected: both recognizers claim the pointer only once it moves
+/// past the slop.
+class _TabDragStartListener extends ReorderableDragStartListener {
+  const _TabDragStartListener({
+    super.key,
+    required super.index,
+    required super.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (event) {
+        SliverReorderableList.maybeOf(context)?.startItemDragReorder(
+          index: index,
+          event: event,
+          recognizer: (event.kind == PointerDeviceKind.mouse
+              ? ImmediateMultiDragGestureRecognizer(debugOwner: this)
+              : DelayedMultiDragGestureRecognizer(debugOwner: this))
+            ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context),
+        );
+      },
+      child: child,
     );
   }
 }
