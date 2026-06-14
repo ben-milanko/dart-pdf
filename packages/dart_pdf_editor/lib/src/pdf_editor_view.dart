@@ -171,6 +171,7 @@ class PdfEditorView extends StatefulWidget {
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.onSnapshot,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolbarLeading = const [],
@@ -245,6 +246,11 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
+
+  /// See [PdfViewer.onSnapshot]. The snapshot tool always keeps a vector
+  /// copy on the clipboard for in-app paste; this callback additionally
+  /// exports the captured raster image (copy/save/share).
+  final PdfSnapshotHandler? onSnapshot;
 
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
@@ -638,6 +644,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,
+                        onSnapshot: widget.onSnapshot,
                         editingTextPrompt: widget.textPrompt,
                         initialFit: widget.initialFit,
                         backgroundColor: widget.backgroundColor,

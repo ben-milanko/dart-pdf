@@ -2,6 +2,11 @@
 
 ## 1.1.0
 
+- Vector snapshots: `PdfEditor.captureVectorSnapshot` captures a page
+  region as detached vector graphics (`PdfVectorSnapshot`) and
+  `pasteVectorSnapshot` re-materializes it onto any page as a /Stamp
+  annotation whose appearance *draws* the captured content — so a snapshot
+  pasted back into the PDF stays vector (crisp at any zoom), Bluebeam-style.
 - Count tool: `PdfEditor.addCheckMark` places a Bluebeam-style check-mark
   stamp annotation (with `PdfAnnotation.isCheckMark`/`iconName`) — the
   building block for a running on-page tally.

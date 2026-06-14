@@ -2,6 +2,12 @@
 
 ## 1.1.0
 
+- Snapshot tool (`PdfEditTool.snapshot`, in the Edit toolbar): drag a
+  region to capture it, Bluebeam-style. The captured region is rendered to
+  a PNG handed to `PdfViewer.onSnapshot` (copy/save/share) AND kept on the
+  controller as detached **vector** graphics — paste it back into the PDF
+  with ⌘V/Ctrl+V or the right-click Paste (`PdfEditingController.
+  pasteSnapshot`) and it stays vector, crisp at any zoom.
 - Background rendering: heavy pages now interpret off the UI thread, so
   scrolling and drawing stay smooth on large/CAD documents.
   `PdfRenderWorker` runs page interpretation and image decode in a

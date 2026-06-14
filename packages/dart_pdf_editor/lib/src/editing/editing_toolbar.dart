@@ -298,6 +298,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           'Form fields — tap to select, double-tap to fill, drag to add'),
       _GroupTool.tool(PdfEditTool.redact, Icons.gradient,
           'Redact — drag a region, then apply'),
+      _GroupTool.tool(PdfEditTool.snapshot, Icons.crop,
+          'Snapshot — drag a region to capture it (paste back as vector)'),
     ]),
   ];
 
@@ -722,6 +724,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             PdfEditTool.content => 'Content',
             PdfEditTool.form => 'Form',
             PdfEditTool.redact => 'Redact',
+            PdfEditTool.snapshot => 'Snapshot',
             _ => _entryLabel(entry),
           },
           tooltip: _entryTip(entry),

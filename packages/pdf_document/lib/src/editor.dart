@@ -25,6 +25,7 @@ part 'form_editor.dart';
 part 'ocr_editor.dart';
 part 'page_editor.dart';
 part 'signature_editor.dart';
+part 'vector_snapshot.dart';
 
 /// High-level editing session over a [PdfDocument].
 ///
