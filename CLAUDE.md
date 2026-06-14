@@ -2218,3 +2218,31 @@ pdf_document/test/check_mark_test.dart (4) + dart_pdf_editor/test/
 editing_count_test.dart (6 — placement/clamp/colour, cross-page tally with
 undo/redo, viewer tap drops marks). The 14 Ghent render-baseline failures
 are pre-existing on this machine, unrelated.
+
+OCR engine plugin (Ben: "support SOTA OCR + docs to set it up"): the OCR
+seam (`PdfOcrEngine`/`applyOcr`, dart_pdf_editor) now has a shipping
+backend — a new workspace package **`packages/pdf_ocr_vlm`**
+(`VlmOcrEngine implements PdfOcrEngine`). It POSTs each page raster (PNG
+via `ui.Image.toByteData(format: png)`, no extra deps) to an out-of-process
+HTTP OCR service and maps the returned pixel boxes back through
+`PdfOcrPageImage.userSpaceRect`. Two paths: the default ctor speaks a small
+documented JSON contract (`{image,width,height} → {spans:[{text,bbox,
+confidence}]}`; lenient parser accepts spans/words/lines/results/regions/
+cells/data, bbox/box/rect or polygon/poly/points/quad, confidence/score/
+conf), and `VlmOcrEngine.dotsOcr(...)` targets a vLLM server hosting
+`rednote-hilab/dots.ocr` (current SOTA OSS doc-OCR VLM) over its
+OpenAI-compatible chat endpoint with NO adapter — `openAiChatRequestBody`
+sends the image+layout prompt, `dotsOcrResponseParser(categories)` reads
+the JSON-array-in-message-content (strips ```json fences) and keeps
+text-bearing layout categories (`dotsOcrTextCategories`; Picture/Table
+skipped). `requestBody`/`responseParser` typedefs are the override seams
+for cloud VLMs / PaddleOCR / Tesseract. CRITICAL: `PdfOcrSpan` lives in
+pdf_document (part of editor.dart), so the package depends on AND imports
+pdf_document, not just dart_pdf_editor. Tests (vlm_ocr_engine_test.dart, 5)
+use http's MockClient — no network/GPU: simple-contract request shape +
+pixel→user mapping, dots.ocr OpenAI shape + category filter, applyOcr
+end-to-end selectable layer, non-200 → VlmOcrException, polygon/varied-key
+parsing. README is the setup doc (SOTA landscape table, Docker/vLLM
+one-liner, the JSON contract + a ~30-line FastAPI/PaddleOCR reference
+adapter, cloud-VLM override example). Added to the root workspace list;
+deps http ^1.2.0. Not in the first-publish order yet (Ben's call).
