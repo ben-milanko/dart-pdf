@@ -76,6 +76,10 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      - name: Test pdf_ocr_vlm
+        working-directory: packages/pdf_ocr_vlm
+        run: flutter test
+
       - name: Test DartPDF app
         working-directory: app
         run: flutter test
