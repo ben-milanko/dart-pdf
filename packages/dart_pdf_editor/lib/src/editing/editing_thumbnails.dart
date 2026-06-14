@@ -845,8 +845,13 @@ class _PageThumbnailState extends State<_PageThumbnail> {
         if (!mounted || _pendingKey != key) return;
         final ui.Image image;
         if (commands != null) {
-          final picture = PdfPageRenderer.pictureFromCommands(page, commands,
+          final picture = await PdfPageRenderer.pictureFromCommands(
+              page, commands,
               pageColor: pageColor);
+          if (!mounted || _pendingKey != key) {
+            picture.dispose();
+            return;
+          }
           try {
             image = await PdfPageRenderer.rasterize(picture, size, ratio);
           } finally {

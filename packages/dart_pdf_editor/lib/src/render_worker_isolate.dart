@@ -201,8 +201,9 @@ void _workerMain(_WorkerInit init) {
   });
 }
 
-/// Records one page into a serialized command buffer, or null when it draws
-/// images (not serializable yet) or is out of range.
+/// Records one page into a serialized command buffer, or null when it is out of
+/// range or draws an image that cannot be serialized (an inline image — see
+/// [serializeCommands]). Image XObjects serialize via [document]'s `cos`.
 Uint8List? _recordPage(PdfDocument document, int pageIndex, bool annotations) {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
@@ -211,5 +212,5 @@ Uint8List? _recordPage(PdfDocument document, int pageIndex, bool annotations) {
   final interpreter = PdfInterpreter(cos: document.cos, device: recorder)
     ..drawPageOperations(page, ops);
   if (annotations) interpreter.drawAnnotations(page);
-  return serializeCommands(recorder.commands);
+  return serializeCommands(recorder.commands, cos: document.cos);
 }

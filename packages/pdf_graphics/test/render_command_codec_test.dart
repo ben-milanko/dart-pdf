@@ -5,9 +5,11 @@
 // codec preserves every command and value type (paths, colours, strokes,
 // gradients, meshes, text runs with glyph outlines, nested soft-mask groups).
 //
-// Image-bearing buffers are not serializable in this cut — serializeCommands
-// returns null and the caller renders that page locally — so those pages are
-// asserted to round-trip to null, not to a transcript.
+// Image XObjects serialize too (given the source document via `cos`):
+// serializeCommands inline-resolves the image's stream subgraph, so the buffer
+// round-trips to the same transcript (the transcript captures the image's
+// transform + alpha, which survive). Without a `cos`, or for an inline image,
+// the buffer still declines to null and the caller renders that page locally.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -170,7 +172,8 @@ void main() {
 
   // Real pages exercise the fragile callbacks: transparency groups, soft masks
   // (their drawMask content), blend modes, gradients, knockout — and images,
-  // which must round-trip to null (unsupported in this cut).
+  // which round-trip through the inline-resolved stream subgraph (given `cos`)
+  // to the same transcript, or decline to null without a `cos`.
   group('corpus round-trip', () {
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf',
@@ -198,13 +201,22 @@ void main() {
           PdfInterpreter(cos: doc.cos, device: recorder)
               .drawPageOperations(page, ops);
 
-          final bytes = serializeCommands(recorder.commands);
+          // Without a `cos`, image pages decline (null); image-free pages still
+          // serialize.
+          final noCos = serializeCommands(recorder.commands);
           if (recorder.imageRequests.isNotEmpty) {
-            expect(bytes, isNull,
-                reason: '$name page $i draws images — not serializable yet');
-            continue;
+            expect(noCos, isNull,
+                reason: '$name page $i draws images — declines without a cos');
+          } else {
+            expect(noCos, isNotNull, reason: '$name page $i has no images');
           }
-          expect(bytes, isNotNull, reason: '$name page $i has no images');
+
+          // With the document, image XObjects serialize via their inlined
+          // stream subgraph; the buffer round-trips to the same transcript.
+          // (An inline image would still decline — none in these fixtures.)
+          final bytes = serializeCommands(recorder.commands, cos: doc.cos);
+          expect(bytes, isNotNull,
+              reason: '$name page $i should serialize with a cos');
           final restored = deserializeCommands(bytes!);
           expect(_transcript(restored), equals(_transcript(recorder.commands)),
               reason: '$name page $i transcript diverged after round-trip');

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -24,11 +25,22 @@ import 'shading.dart';
 /// EXCEPT [PdfImageRequest], whose `stream` is a live [CosStream] (a COS
 /// dictionary plus encoded bytes, often with nested references — colour
 /// spaces, soft masks). Serializing that faithfully means serializing a slice
-/// of the COS object graph, which this cut does not do: [serializeCommands]
-/// returns `null` for any buffer that draws an image (including inside a
-/// soft-mask group), and the caller renders that page on the owning isolate
-/// instead. Image-free pages — the dense vector/text pages that dominate the
-/// interpret cost on CAD documents — serialize and offload.
+/// of the COS object graph: [serializeCommands] (given the source [CosDocument]
+/// via `cos`) does exactly that for image XObjects — it inline-resolves the
+/// image's stream subgraph (every [CosReference] replaced by a detached copy
+/// of its resolved target, and every nested stream's bytes decrypted-but-still-
+/// filtered so the consumer re-runs the filters), then writes that self-
+/// contained tree. The consumer reconstructs the stream and decodes it with the
+/// unchanged image decoder. This matters on CAD documents, whose drawing sheets
+/// carry embedded raster underlays — without it the heaviest pages decline and
+/// interpret synchronously on the UI thread.
+///
+/// Two cases still decline (the buffer serializes to `null`, and the caller
+/// renders the page on the owning isolate): an INLINE image (`BI .. ID .. EI`),
+/// whose `/CS` may name a page-resource colour space that isn't reachable from
+/// the stream alone; and any image when no `cos` is supplied. Image-free pages
+/// — the dense vector/text pages that also dominate the interpret cost —
+/// serialize regardless.
 ///
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
@@ -44,26 +56,30 @@ const int _tFillMesh = 4;
 const int _tStrokePath = 5;
 const int _tClipPath = 6;
 const int _tDrawText = 7;
-// tag 8 (drawImage) is reserved but never written — images trigger fallback.
+const int _tDrawImage = 8;
 const int _tSetBlendMode = 9;
 const int _tBeginGroup = 10;
 const int _tEndGroup = 11;
 const int _tBeginSoftMasked = 12;
 const int _tEndSoftMasked = 13;
 
-/// Thrown internally when an image command is hit; [serializeCommands]
-/// catches it and returns `null` so the caller falls back to a local render.
+/// Thrown internally when an image cannot be serialized (an inline image, or
+/// no [CosDocument] to resolve against); [serializeCommands] catches it and
+/// returns `null` so the caller falls back to a local render.
 class _UnserializableImage implements Exception {
   const _UnserializableImage();
 }
 
-/// Serializes [commands] to bytes, or returns `null` if the buffer draws any
-/// image (unsupported in this cut — see the class doc).
-Uint8List? serializeCommands(List<PdfRenderCommand> commands) {
+/// Serializes [commands] to bytes, or returns `null` if the buffer draws an
+/// image that cannot be serialized (see the class doc). Image XObjects are
+/// serialized by inline-resolving their stream subgraph against [cos]; pass it
+/// whenever the buffer may contain images.
+Uint8List? serializeCommands(List<PdfRenderCommand> commands,
+    {CosDocument? cos}) {
   final w = _Writer();
   w.u8(_formatVersion);
   try {
-    _writeCommands(w, commands);
+    _writeCommands(w, commands, cos);
   } on _UnserializableImage {
     return null;
   }
@@ -78,10 +94,10 @@ List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   return _readCommands(r);
 }
 
-void _writeCommands(_Writer w, List<PdfRenderCommand> commands) {
+void _writeCommands(_Writer w, List<PdfRenderCommand> commands, CosDocument? cos) {
   w.u32(commands.length);
   for (final command in commands) {
-    _writeCommand(w, command);
+    _writeCommand(w, command, cos);
   }
 }
 
@@ -94,7 +110,7 @@ List<PdfRenderCommand> _readCommands(_Reader r) {
   return out;
 }
 
-void _writeCommand(_Writer w, PdfRenderCommand command) {
+void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos) {
   switch (command) {
     case PdfSaveCommand():
       w.u8(_tSave);
@@ -139,8 +155,27 @@ void _writeCommand(_Writer w, PdfRenderCommand command) {
     case PdfDrawTextCommand(:final run):
       w.u8(_tDrawText);
       _writeTextRun(w, run);
-    case PdfDrawImageCommand():
-      throw const _UnserializableImage();
+    case PdfDrawImageCommand(:final request):
+      // Inline images can name a page-resource colour space unreachable from
+      // the stream alone; decline them. XObjects serialize as a self-contained
+      // (inline-resolved, decrypted) stream subgraph — any failure inlining or
+      // decrypting it declines too, so the page falls back to a local render
+      // rather than shipping a broken image.
+      if (request.isInline || cos == null) {
+        throw const _UnserializableImage();
+      }
+      final CosObject inlined;
+      try {
+        inlined = _inlineCos(cos, request.stream, 0);
+      } catch (_) {
+        throw const _UnserializableImage();
+      }
+      w.u8(_tDrawImage);
+      _writeMatrix(w, request.transform);
+      w.f64(request.alpha);
+      w.boolean(request.isStencil);
+      _writeColor(w, request.stencilColor);
+      _writeCos(w, inlined);
     case PdfSetBlendModeCommand(:final mode):
       w.u8(_tSetBlendMode);
       w.u8(mode.index);
@@ -166,7 +201,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command) {
       w.f64(backdropLuminance);
       w.f64(transferScale);
       w.f64(transferOffset);
-      _writeCommands(w, maskCommands); // nested
+      _writeCommands(w, maskCommands, cos); // nested
   }
 }
 
@@ -205,6 +240,23 @@ PdfRenderCommand _readCommand(_Reader r) {
       return PdfClipPathCommand(path, rule);
     case _tDrawText:
       return PdfDrawTextCommand(_readTextRun(r));
+    case _tDrawImage:
+      final transform = _readMatrix(r);
+      final alpha = r.f64();
+      final isStencil = r.boolean();
+      final stencilColor = _readColor(r);
+      final stream = _readCos(r) as CosStream;
+      // isInline forces value (content) cache keying on replay: the
+      // reconstructed stream is a fresh object every record, so stream-identity
+      // keying would miss the decoded-image cache and re-decode each scroll-by.
+      return PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: transform,
+        alpha: alpha,
+        isStencil: isStencil,
+        stencilColor: stencilColor,
+        isInline: true,
+      ));
     case _tSetBlendMode:
       return PdfSetBlendModeCommand(PdfBlendMode.values[r.u8()]);
     case _tBeginGroup:
@@ -465,6 +517,143 @@ PdfTextRun _readTextRun(_Reader r) {
   );
 }
 
+// --- image COS subgraph ---
+
+// COS value tags for the self-contained image stream tree.
+const int _cNull = 0;
+const int _cBool = 1;
+const int _cInt = 2;
+const int _cReal = 3;
+const int _cString = 4;
+const int _cName = 5;
+const int _cArray = 6;
+const int _cDict = 7;
+const int _cStream = 8;
+
+/// Returns a detached deep copy of [object] (resolved against [cos]) with every
+/// [CosReference] replaced by a copy of its target, so the result stands alone —
+/// the consumer can decode it with no access to the source document. Stream
+/// bytes are taken decrypted-but-still-filtered (encryption removed, filters
+/// left for the consumer to undo); on an unencrypted document that is the raw
+/// bytes unchanged. [depth] guards against pathological reference cycles.
+CosObject _inlineCos(CosDocument cos, CosObject? object, int depth) {
+  if (depth > 64) return CosNull.instance;
+  final r = cos.resolve(object);
+  if (r is CosStream) {
+    final dict = <String, CosObject>{};
+    r.dictionary.entries.forEach((k, v) {
+      dict[k] = _inlineCos(cos, v, depth + 1);
+    });
+    final raw = cos.decodeStreamData(r,
+        stopBeforeFilter: _firstFilterName(cos, r.dictionary));
+    dict['Length'] = CosInteger(raw.length);
+    return CosStream(CosDictionary(dict), raw);
+  }
+  if (r is CosDictionary) {
+    final dict = <String, CosObject>{};
+    r.entries.forEach((k, v) {
+      dict[k] = _inlineCos(cos, v, depth + 1);
+    });
+    return CosDictionary(dict);
+  }
+  if (r is CosArray) {
+    return CosArray([for (final it in r.items) _inlineCos(cos, it, depth + 1)]);
+  }
+  return r; // scalar (null/bool/int/real/string/name)
+}
+
+/// The first filter name on [dict] (`/Filter` as a name or array), or null when
+/// the stream is unfiltered — what [_inlineCos] stops before so the shipped
+/// bytes stay filtered (decryption alone is undone).
+String? _firstFilterName(CosDocument cos, CosDictionary dict) {
+  final filter = cos.resolve(dict['Filter']);
+  if (filter is CosName) return filter.value;
+  if (filter is CosArray) {
+    for (final f in filter.items) {
+      final name = cos.resolve(f);
+      if (name is CosName) return name.value;
+    }
+  }
+  return null;
+}
+
+void _writeCos(_Writer w, CosObject object) {
+  switch (object) {
+    case CosNull():
+      w.u8(_cNull);
+    case CosBoolean(:final value):
+      w.u8(_cBool);
+      w.boolean(value);
+    case CosInteger(:final value):
+      w.u8(_cInt);
+      w.i64(value);
+    case CosReal(:final value):
+      w.u8(_cReal);
+      w.f64(value);
+    case CosString(:final bytes, :final isHex):
+      w.u8(_cString);
+      w.bytes(bytes);
+      w.boolean(isHex);
+    case CosName(:final value):
+      w.u8(_cName);
+      w.str(value);
+    case CosArray(:final items):
+      w.u8(_cArray);
+      w.u32(items.length);
+      for (final it in items) {
+        _writeCos(w, it);
+      }
+    case CosStream(:final dictionary, :final rawBytes):
+      w.u8(_cStream);
+      _writeCos(w, dictionary);
+      w.bytes(rawBytes);
+    case CosDictionary(:final entries):
+      w.u8(_cDict);
+      w.u32(entries.length);
+      entries.forEach((k, v) {
+        w.str(k);
+        _writeCos(w, v);
+      });
+    case CosReference():
+      // _inlineCos resolves every reference away; a stray one decodes to null.
+      w.u8(_cNull);
+  }
+}
+
+CosObject _readCos(_Reader r) {
+  switch (r.u8()) {
+    case _cNull:
+      return CosNull.instance;
+    case _cBool:
+      return CosBoolean(r.boolean());
+    case _cInt:
+      return CosInteger(r.i64());
+    case _cReal:
+      return CosReal(r.f64());
+    case _cString:
+      final bytes = r.bytes();
+      return CosString(bytes, isHex: r.boolean());
+    case _cName:
+      return CosName(r.str());
+    case _cArray:
+      final n = r.u32();
+      return CosArray([for (var i = 0; i < n; i++) _readCos(r)]);
+    case _cStream:
+      final dict = _readCos(r) as CosDictionary;
+      return CosStream(dict, r.bytes());
+    case _cDict:
+      final n = r.u32();
+      final entries = <String, CosObject>{};
+      for (var i = 0; i < n; i++) {
+        final key = r.str();
+        entries[key] = _readCos(r);
+      }
+      return CosDictionary(entries);
+    default:
+      throw StateError('unknown COS tag');
+  }
+}
+
 // --- low-level reader/writer ---
 
 class _Writer {
@@ -480,6 +669,17 @@ class _Writer {
   void i32(int v) {
     final d = ByteData(4)..setInt32(0, v);
     _b.add(d.buffer.asUint8List());
+  }
+
+  void i64(int v) {
+    final d = ByteData(8)..setInt64(0, v);
+    _b.add(d.buffer.asUint8List());
+  }
+
+  /// A length-prefixed raw byte run (image stream bytes, COS string bytes).
+  void bytes(Uint8List xs) {
+    u32(xs.length);
+    _b.add(xs);
   }
 
   void f64(double v) {
@@ -540,6 +740,21 @@ class _Reader {
     final v = _data.getInt32(_o);
     _o += 4;
     return v;
+  }
+
+  int i64() {
+    final v = _data.getInt64(_o);
+    _o += 8;
+    return v;
+  }
+
+  /// Reads a length-prefixed raw byte run as a copy (a sublist view would alias
+  /// the whole transferred buffer and keep it alive).
+  Uint8List bytes() {
+    final n = u32();
+    final out = Uint8List.fromList(Uint8List.sublistView(_bytes, _o, _o + n));
+    _o += n;
+    return out;
   }
 
   double f64() {

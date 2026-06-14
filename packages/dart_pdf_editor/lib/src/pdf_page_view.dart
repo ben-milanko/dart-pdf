@@ -311,13 +311,21 @@ class _PdfPageViewState extends State<PdfPageView> {
       final commands = await worker.record(widget.previewIndex,
           annotations: widget.showAnnotations, priority: 0);
       if (commands != null) {
+        _lastInterpretPath = 'worker';
         return PdfPageRenderer.pictureFromCommands(widget.page, commands,
             pageColor: widget.pageColor);
       }
     }
+    // The worker may be active yet decline this page (it returns null), in
+    // which case the interpret runs here — the log must say so, not 'worker'.
+    _lastInterpretPath = 'recorded';
     return PdfPageRenderer.renderPictureRecorded(widget.page,
         pageColor: widget.pageColor, annotations: widget.showAnnotations);
   }
+
+  /// Which path [_interpretPicture] actually took, for the perf log — 'worker'
+  /// only when a command buffer came back and replayed, else 'recorded'.
+  String _lastInterpretPath = 'recorded';
 
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
@@ -329,7 +337,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     sw.stop();
     if (firstInterpret) {
       PdfPerfLog.interpret(widget.previewIndex,
-          path: widget.renderWorker?.isActive ?? false ? 'worker' : 'recorded',
+          path: _lastInterpretPath,
           interpretMs: sw.elapsedMicroseconds / 1000.0,
           first: true);
     }

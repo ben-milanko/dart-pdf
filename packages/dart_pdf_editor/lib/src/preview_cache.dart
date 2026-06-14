@@ -86,7 +86,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       if (_disposed || isFresh(index, page)) return;
       final ui.Image image;
       if (commands != null) {
-        final picture = PdfPageRenderer.pictureFromCommands(page, commands,
+        final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
             pageColor: pageColor);
         try {
           image = await PdfPageRenderer.rasterize(picture, size, ratio);

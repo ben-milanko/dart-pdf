@@ -132,20 +132,50 @@ class PdfPageRenderer {
   /// so this is just the cheap canvas replay plus the paper/transform setup,
   /// pixel-identical to [renderPictureRecorded].
   ///
-  /// Synchronous and image-free by construction: a page that draws images is
-  /// never offloaded (its buffer serializes to null), so a replayable buffer
-  /// has no image commands and needs no decode.
-  static ui.Picture pictureFromCommands(
+  /// The only UI-thread work besides the replay is decoding any images the
+  /// buffer carries (image XObjects serialize as self-contained streams; see
+  /// [serializeCommands]). Those decodes are shared through [PdfImageCache] like
+  /// every other render path — the reconstructed streams key by content, so a
+  /// page redrawn while scrolling reuses its decoded pixels instead of re-
+  /// running the codec. An image-free buffer decodes nothing.
+  static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
-      {Color pageColor = const Color(0xFFFFFFFF)}) {
+      {Color pageColor = const Color(0xFFFFFFFF)}) async {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    final images = requests.isEmpty
+        ? const <Object, ui.Image>{}
+        : await decodeImages(page.document.cos, requests,
+            cache: PdfImageCache.instance);
+
     final box = page.cropBox;
     final size = pageSize(page);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     _paintBackground(canvas, size, pageColor);
     _applyPageTransform(canvas, page, size, box);
-    replayCommands(commands, CanvasPdfDevice(canvas));
-    return recorder.endRecording();
+    replayCommands(commands, CanvasPdfDevice(canvas, images: images));
+    final picture = recorder.endRecording();
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
+  }
+
+  /// Gathers every image draw request in [commands], descending into soft-mask
+  /// groups (whose own commands can draw images), in replay order.
+  static void _collectImageRequests(
+      List<PdfRenderCommand> commands, List<PdfImageRequest> out) {
+    for (final command in commands) {
+      switch (command) {
+        case PdfDrawImageCommand(:final request):
+          out.add(request);
+        case PdfEndSoftMaskedCommand(:final maskCommands):
+          _collectImageRequests(maskCommands, out);
+        default:
+          break;
+      }
+    }
   }
 
   /// Paints the page paper under the content: an opaque white backing when

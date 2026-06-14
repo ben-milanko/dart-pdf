@@ -10,6 +10,7 @@ import 'dart:ui' as ui;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -41,7 +42,7 @@ void main() {
 
       final size = PdfPageRenderer.pageSize(page);
       final workerPicture =
-          PdfPageRenderer.pictureFromCommands(page, commands!);
+          await PdfPageRenderer.pictureFromCommands(page, commands!);
       final localPicture = await PdfPageRenderer.renderPictureRecorded(page);
       try {
         final workerPixels = await _rasterBytes(workerPicture, size);
@@ -55,16 +56,84 @@ void main() {
     });
   });
 
-  testWidgets('an image-bearing page declines (null → local render)',
+  testWidgets('an image XObject page offloads and replays identically',
       (tester) async {
     await tester.runAsync(() async {
       final bytes = PdfImageDocument.fromImageBytes([buildTestJpeg()]);
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+
+      final worker = PdfRenderWorker.start(bytes);
+      addTearDown(worker.dispose);
+
+      // The worker inline-resolves the image's stream subgraph and ships it;
+      // the main thread reconstructs and decodes it. The result must match the
+      // local recorded render pixel-for-pixel.
+      final commands = await worker.record(0);
+      expect(commands, isNotNull,
+          reason: 'an image XObject serializes via its inlined stream');
+
+      final size = PdfPageRenderer.pageSize(page);
+      final workerPicture =
+          await PdfPageRenderer.pictureFromCommands(page, commands!);
+      final localPicture = await PdfPageRenderer.renderPictureRecorded(page);
+      try {
+        final workerPixels = await _rasterBytes(workerPicture, size);
+        final localPixels = await _rasterBytes(localPicture, size);
+        expect(workerPixels, equals(localPixels),
+            reason: 'the decoded image must replay identically');
+      } finally {
+        workerPicture.dispose();
+        localPicture.dispose();
+      }
+    });
+  });
+
+  testWidgets('an image with an /SMask (nested stream) replays identically',
+      (tester) async {
+    await tester.runAsync(() async {
+      // A PNG with alpha embeds as a Flate RGB XObject plus an indirect /SMask
+      // stream — so inlining must descend into and decrypt the nested stream,
+      // and the decoder must rebuild the alpha. Compare worker vs local pixels.
+      final bytes = PdfImageDocument.fromImageBytes([_alphaPng()]);
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+
+      final worker = PdfRenderWorker.start(bytes);
+      addTearDown(worker.dispose);
+
+      final commands = await worker.record(0);
+      expect(commands, isNotNull,
+          reason: 'the image XObject and its /SMask serialize together');
+
+      final size = PdfPageRenderer.pageSize(page);
+      final workerPicture =
+          await PdfPageRenderer.pictureFromCommands(page, commands!);
+      final localPicture = await PdfPageRenderer.renderPictureRecorded(page);
+      try {
+        final workerPixels = await _rasterBytes(workerPicture, size);
+        final localPixels = await _rasterBytes(localPicture, size);
+        expect(workerPixels, equals(localPixels),
+            reason: 'the soft-masked image must replay identically');
+      } finally {
+        workerPicture.dispose();
+        localPicture.dispose();
+      }
+    });
+  });
+
+  testWidgets('an inline image still declines (null → local render)',
+      (tester) async {
+    await tester.runAsync(() async {
+      // A 4x4 inline image (BI .. ID .. EI) — declined because its /CS can name
+      // a page-resource colour space unreachable from the stream alone.
+      final bytes = _inlineImagePdf();
       final worker = PdfRenderWorker.start(bytes);
       addTearDown(worker.dispose);
 
       final commands = await worker.record(0);
       expect(commands, isNull,
-          reason: 'a page that draws an image is not serializable yet');
+          reason: 'an inline image is not serialized; the page renders locally');
     });
   });
 
@@ -128,9 +197,51 @@ void main() {
         final commands = await worker.record(i);
         // multi-page fixture pages are vector text, so all should offload
         expect(commands, isNotNull, reason: 'page $i should offload');
-        final picture = PdfPageRenderer.pictureFromCommands(doc.page(i), commands!);
+        final picture =
+            await PdfPageRenderer.pictureFromCommands(doc.page(i), commands!);
         picture.dispose();
       }
     });
   });
+}
+
+/// A small RGBA PNG with a varying alpha channel (so it embeds with an /SMask).
+Uint8List _alphaPng() {
+  final image = img.Image(width: 8, height: 8, numChannels: 4);
+  for (var y = 0; y < 8; y++) {
+    for (var x = 0; x < 8; x++) {
+      image.setPixelRgba(x, y, x * 32, y * 32, 128, (x + y) * 16);
+    }
+  }
+  return Uint8List.fromList(img.encodePng(image));
+}
+
+/// A one-page PDF whose only content is a 4x4 inline image (BI .. ID .. EI).
+Uint8List _inlineImagePdf() {
+  const content = 'q 100 0 0 100 50 50 cm '
+      'BI /W 4 /H 4 /CS /RGB /BPC 8 /F /AHx ID\n'
+      'e63030 ffffff e63030 ffffff\n'
+      'ffffff e63030 ffffff e63030\n'
+      'e63030 ffffff e63030 ffffff\n'
+      'ffffff e63030 ffffff e63030 >\nEI Q\n';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = buffer.length;
+  buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final o in offsets) {
+    buffer.write('${o.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer.write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
+      'startxref\n$xref\n%%EOF\n');
+  return Uint8List.fromList(buffer.toString().codeUnits);
 }
