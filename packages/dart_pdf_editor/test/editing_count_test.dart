@@ -123,5 +123,44 @@ void main() {
       expect(marks.every((a) => a.isCheckMark), isTrue);
       expect(editing.checkMarkCount, 2);
     });
+
+    testWidgets('the toolbar shows the running tally while the tool is armed',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => const SizedBox.expand(),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      const tally = ValueKey('pdf-count-tally');
+      // the tally chip only shows with the count tool armed
+      expect(find.byKey(tally), findsNothing);
+      editing.tool = PdfEditTool.count;
+      await tester.pump();
+      expect(find.byKey(tally), findsOneWidget);
+      expect(
+          find.descendant(of: find.byKey(tally), matching: find.text('0')),
+          findsOneWidget);
+
+      editing.placeCheckMark(0, 100, 100);
+      editing.placeCheckMark(0, 200, 200);
+      await tester.pump();
+      expect(
+          find.descendant(of: find.byKey(tally), matching: find.text('2')),
+          findsOneWidget);
+    });
   });
 }
