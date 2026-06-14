@@ -29,6 +29,20 @@ class ContentStreamParser {
     while (true) {
       final t = parser.peekToken();
       if (t.type == CosTokenType.eof) break;
+      // Numbers are by far the most common operand; take them directly. In a
+      // content stream a bare `N G R` is never an indirect reference (those
+      // only exist in the document body), so skip parseObject's reference
+      // lookahead — matching how reference renderers read content streams.
+      if (t.type == CosTokenType.integer) {
+        parser.nextToken();
+        operands.add(CosInteger(t.intValue));
+        continue;
+      }
+      if (t.type == CosTokenType.real) {
+        parser.nextToken();
+        operands.add(CosReal(t.realValue));
+        continue;
+      }
       if (t.type == CosTokenType.arrayOpen) {
         operands.add(_parseLenientArray(parser));
         continue;
@@ -67,6 +81,12 @@ class ContentStreamParser {
           return CosArray(items);
         case CosTokenType.eof:
           return CosArray(items); // unterminated — keep what parsed
+        case CosTokenType.integer:
+          parser.nextToken();
+          items.add(CosInteger(t.intValue));
+        case CosTokenType.real:
+          parser.nextToken();
+          items.add(CosReal(t.realValue));
         case CosTokenType.arrayOpen:
           items.add(_parseLenientArray(parser));
         case CosTokenType.keyword:
