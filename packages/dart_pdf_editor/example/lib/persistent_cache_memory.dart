@@ -1,8 +1,9 @@
 import 'package:pdf_document/pdf_document.dart';
 
-/// Web (and any `dart:io`-less platform) fallback: a session-only store.
+/// Ultimate fallback for a platform with neither `dart:io` nor JS interop:
+/// a session-only store.
 ///
-/// It still de-duplicates work within a run; for cross-session
-/// persistence on the web, implement [PdfCacheStore] over IndexedDB and
-/// return it here.
+/// Native platforms use the filesystem store and the web uses the
+/// IndexedDB store (see persistent_cache.dart); this one only de-duplicates
+/// work within a single run.
 PdfCacheStore createPersistentCacheStore() => PdfMemoryCacheStore();

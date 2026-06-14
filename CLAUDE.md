@@ -2312,11 +2312,19 @@ file; an edit revision's rebound previews make the prime a no-op) and on
 pageColor/annotation change. Shells: `PdfReader.rasterCache`/
 `PdfEditorView.rasterCache` pass through with the shell's `_documentKey`.
 Example: `persistent_cache.dart` is the host backend via conditional
-import — `persistent_cache_io.dart` (dart:io, one base64url-named file per
-key under systemTemp/dart_pdf_editor_cache; a real app points this at
-path_provider's app cache dir) on native, `persistent_cache_memory.dart`
-(session-only; a web app would back PdfCacheStore with IndexedDB) on web;
-one app-wide `PdfRasterCache` shared across tabs, passed to both shells.
+import (conditions evaluated in order, first match wins) —
+`persistent_cache_io.dart` (dart:io, one base64url-named file per key
+under systemTemp/dart_pdf_editor_cache; a real app points this at
+path_provider's app cache dir) on native (`dart.library.io`),
+`persistent_cache_web.dart` (an IndexedDB-backed PdfCacheStore via
+package:web + dart:js_interop — one object store keyed by the cache key,
+binary Uint8List values, each callback IDB request wrapped in a Future;
+localStorage is too small/synchronous for raster bytes) on web
+(`dart.library.js_interop`, which is ALSO true on the VM so io MUST be
+listed first), and `persistent_cache_memory.dart` (session-only) as the
+ultimate fallback; one app-wide `PdfRasterCache` shared across tabs,
+passed to both shells. The example needs a direct `web: ^1.1.0` dep to
+import package:web; the web build compiles (Wasm dry run passes).
 Tests: pdf_document disk_cache_test (12 — LRU/budget eviction, manifest
 persistence across instances, version-bump purge, namespace isolation,
 flaky-backend degradation, concurrent writes), pdf_graphics text_cache_test
