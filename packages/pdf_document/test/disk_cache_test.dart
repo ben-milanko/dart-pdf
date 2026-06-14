@@ -61,6 +61,20 @@ void main() {
       expect(await store.read('missing'), isNull);
       expect(store.debugLength, 1);
     });
+
+    test('delete, keys, clear, and byte accounting', () async {
+      final store = PdfMemoryCacheStore();
+      await store.write('a', _bytes('one'));
+      await store.write('b', _bytes('twelve')); // 6 bytes
+      expect(store.debugBytes, _bytes('one').length + _bytes('twelve').length);
+      expect((await store.keys())..sort(), ['a', 'b']);
+      await store.delete('a');
+      await store.delete('missing'); // no-op
+      expect(await store.keys(), ['b']);
+      await store.clear();
+      expect(store.debugLength, 0);
+      expect(await store.keys(), isEmpty);
+    });
   });
 
   group('PdfDiskCache', () {
@@ -126,6 +140,33 @@ void main() {
       await text.write('p0', _bytes('words'));
       expect(await rasters.read('p0'), _bytes('image'));
       expect(await text.read('p0'), _bytes('words'));
+    });
+
+    test('remove drops a single entry', () async {
+      final store = PdfMemoryCacheStore();
+      final cache = PdfDiskCache(store);
+      await cache.write('a', _bytes('x'));
+      await cache.write('b', _bytes('yy'));
+      await cache.remove('a');
+      await cache.remove('absent'); // no-op
+      expect(await cache.read('a'), isNull);
+      expect(await cache.read('b'), _bytes('yy'));
+      expect(await cache.debugLength, 1);
+      // the removal is durable: a fresh cache over the store agrees
+      final reopened = PdfDiskCache(store);
+      expect(await reopened.read('a'), isNull);
+      expect(await reopened.read('b'), _bytes('yy'));
+    });
+
+    test('a corrupt manifest is recovered as an empty cache', () async {
+      final store = PdfMemoryCacheStore();
+      // write a manifest the loader can't parse
+      await store.write('pdf/__manifest__', _bytes('not json at all'));
+      final cache = PdfDiskCache(store);
+      expect(await cache.debugLength, 0);
+      // still usable afterwards
+      await cache.write('a', _bytes('x'));
+      expect(await cache.read('a'), _bytes('x'));
     });
 
     test('clear empties the namespace', () async {
