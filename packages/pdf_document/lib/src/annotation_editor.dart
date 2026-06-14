@@ -1399,6 +1399,50 @@ extension PdfAnnotationEditing on PdfEditor {
     return (w, gs);
   }
 
+  /// Adds a count check-mark: a checkmark drawn inside [rect], modelled as
+  /// a /Stamp with /Name /Check so the editing UI can tally them
+  /// Bluebeam-style (see [PdfAnnotation.isCheckMark]). Being a stamp, it
+  /// inherits select/move/resize/rotate/delete from the annotation
+  /// machinery for free.
+  void addCheckMark(
+    int pageIndex,
+    PdfRect rect, {
+    int color = 0x2E7D32,
+    double opacity = 1,
+    String? author,
+    String? name,
+  }) {
+    final (w, gs) = _checkMarkContent(rect, color, opacity);
+    _addAnnotation(
+      pageIndex,
+      _markupDict('Stamp', rect, color, null, author)
+        ..['Name'] = const CosName('Check'),
+      _form(rect, w, resources: gs == null ? null : _resources(extGState: gs)),
+      name: name,
+    );
+  }
+
+  /// The check-mark appearance: a tick stroked inside [rect], centered in
+  /// its largest square so it stays proportional whatever the rect aspect.
+  (ContentWriter, CosDictionary?) _checkMarkContent(
+      PdfRect rect, int color, double opacity) {
+    final gs = _alphaState(opacity);
+    final w = ContentWriter();
+    if (gs != null) w.extGState('GS0');
+    final s = math.min(rect.width, rect.height);
+    final ox = rect.left + (rect.width - s) / 2;
+    final oy = rect.bottom + (rect.height - s) / 2;
+    w
+      ..strokeColor(color)
+      ..lineWidth(s * 0.16)
+      ..roundLines()
+      ..moveTo(ox + s * 0.18, oy + s * 0.50)
+      ..lineTo(ox + s * 0.42, oy + s * 0.26)
+      ..lineTo(ox + s * 0.82, oy + s * 0.74)
+      ..stroke();
+    return (w, gs);
+  }
+
   /// Inserts [image] (a decoded PNG or JPEG) as a /Stamp annotation whose
   /// appearance draws it scaled to fill [rect].
   ///

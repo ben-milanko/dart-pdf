@@ -1722,7 +1722,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.measurePerimeter ||
             PdfEditTool.measureArea:
         break; // taps add vertices; double-tap finishes
-      case PdfEditTool.note || PdfEditTool.content:
+      case PdfEditTool.note || PdfEditTool.content || PdfEditTool.count:
         break; // driven by taps
     }
   }
@@ -2510,6 +2510,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             await widget.textPrompt(context, title: 'Note', multiline: true);
         if (text == null || text.isEmpty) return;
         _controller.addNote(widget.pageIndex, x, y, text);
+      case PdfEditTool.count:
+        // each tap drops a check-mark and bumps the running tally
+        _controller.placeCheckMark(widget.pageIndex, x, y);
       case PdfEditTool.signature:
         _placeSignature(details.localPosition);
       case PdfEditTool.freeText:

@@ -287,6 +287,27 @@ void main() {
       expect(find.byIcon(Icons.palette), findsNothing);
     });
 
+    testWidgets('toolGroups hides whole tool types', (tester) async {
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          features: const PdfEditorFeatures(
+            toolGroups: {PdfEditToolGroup.select, PdfEditToolGroup.draw},
+          ),
+        ),
+      );
+      // the two kept groups show their dock chips...
+      expect(find.byKey(const ValueKey('pdf-group-select')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-group-draw')), findsOneWidget);
+      // ...and every other group is gone
+      expect(find.byKey(const ValueKey('pdf-group-markup')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-group-shapes')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-group-insert')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-group-measure')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-group-edit')), findsNothing);
+    });
+
     testWidgets('colorControls hides the color changer, keeps the style popup',
         (tester) async {
       await pump(

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Toolbar tool types can be disabled individually: the new
+  `PdfEditingToolbar.groups` (and `PdfEditorFeatures.toolGroups`) takes a
+  set of `PdfEditToolGroup` values (Select, Markup, Draw, Shapes, Insert,
+  Measure, Edit) — pass a subset to hide whole tool types at once,
+  without enumerating each tool in `tools`.
 - Reflow reading view: images and diagrams now appear inline with the
   text, decoded and laid out at their on-page aspect ratio in reading
   order; bullet/numbered lists read as separate, indented items.

@@ -2192,3 +2192,29 @@ Tests: editing_page_ops_test.dart — a "page selection" controller group
 widget tests set tester.view 800×1400 so the lazy list builds every tile,
 and drive modifiers with sendKeyDownEvent/sendKeyUpEvent(LogicalKeyboardKey
 .shift/.controlLeft) around the tap.
+
+Count tool / check-marks (Ben: "a check symbol they can place, like
+Bluebeam's count tool"): `PdfEditTool.count` — tapping drops a check-mark
+and keeps a running tally. pdf_document: `PdfEditor.addCheckMark(pageIndex,
+rect, {color, opacity, author, name})` (annotation_editor.dart) writes a
+tick (`_checkMarkContent` — a stroked 3-point path, round caps, centered in
+the rect's largest square so it stays proportional at any aspect) as a
+/Stamp with /Name /Check, so it inherits select/move/resize/rotate/delete
+for free; carries NO /Contents, so `pdfCanRestyleAnnotation` is false (the
+text-stamp restyle would regenerate over it, like image stamps).
+`PdfAnnotation.iconName` (/Name, distinct from `name` = /NM) +
+`isCheckMark` (Stamp + iconName 'Check'). Controller (editing_controller):
+`placeCheckMark(page, x, y, {size = checkMarkSize=18})` — centers a square
+mark on the tap, clamped to the crop box, following the selected
+color/opacity; `checkMarkCount` is the live document-wide tally
+(`_countCheckMarks` walks the pages counting isCheckMark, cached per
+revision via `_checkMarkCount`, invalidated in `_invalidateElements`, so
+undo/redo/delete keep it accurate). Per-tool style scope 'count' {color,
+opacity}. Overlay: count is a tap-place tool (`_onTapUp` →
+placeCheckMark; `_onPanStart` breaks like note/content). Toolbar: Insert
+group gains an Icons.task_alt 'Count' tool, and `_insertToolExtras` shows
+a tally Chip (key 'pdf-count-tally') while armed. Tests:
+pdf_document/test/check_mark_test.dart (4) + dart_pdf_editor/test/
+editing_count_test.dart (6 — placement/clamp/colour, cross-page tally with
+undo/redo, viewer tap drops marks). The 14 Ghent render-baseline failures
+are pre-existing on this machine, unrelated.
