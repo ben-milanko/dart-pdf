@@ -60,6 +60,25 @@ Built on the pure-Dart
 (file syntax) ← `pdf_document` (document semantics + editing) ←
 `pdf_graphics` (interpreter + fonts) ← `dart_pdf_editor` (Flutter widgets).
 
+## Performance
+
+Pure Dart, and fast: on a real-world corpus (49 files / 245 pages of
+CAD drawings, scans, reports, and forms) the parse + content-stream
+**interpreter is ~1.5× faster than PDFium** — the C++ engine Chrome
+uses — at **13.6 ms/page vs 20.6 ms/page** (scale 2). Full Flutter
+rasterization is 53.7 ms/page (2.6× PDFium); that remaining gap is image
+decoding and GPU raster, not the interpreter.
+
+| engine | ms/page | vs PDFium |
+|---|---|---|
+| dart-pdf interpret (pure Dart) | **13.6** | **1.52× faster** |
+| PDFium (open + rasterize) | 20.6 | 1.00× |
+| dart-pdf render (full Flutter raster) | 53.7 | 2.60× slower |
+
+Numbers and methodology — including reproducible harnesses that diff
+dart-pdf against PDFium file-by-file — are in
+[`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
+
 ## Viewing
 
 - Zooming/panning viewer with fit-page and fit-width modes, deep-zoom
