@@ -73,6 +73,12 @@ enum PdfEditTool {
   /// a tap places it; otherwise drag out a box and type the caption.
   stamp,
 
+  /// Tap to drop a check-mark and keep a running tally, like Bluebeam's
+  /// count tool. Each tap places a /Stamp check-mark annotation (so it can
+  /// be moved, resized, and deleted); [PdfEditingController.checkMarkCount]
+  /// is the live total.
+  count,
+
   /// Tap to place the saved hand-drawn signature
   /// ([PdfEditingController.signature]) as an Ink annotation.
   signature,
@@ -470,6 +476,7 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.freeText => 'freeText',
         PdfEditTool.note => 'note',
         PdfEditTool.stamp => 'stamp',
+        PdfEditTool.count => 'count',
         _ => null,
       };
 
@@ -508,6 +515,7 @@ class PdfEditingController extends ChangeNotifier {
           },
         PdfEditTool.note => const {'color'},
         PdfEditTool.stamp => const {'color', 'opacity'},
+        PdfEditTool.count => const {'color', 'opacity'},
         _ => const {},
       };
 
@@ -1320,6 +1328,51 @@ class PdfEditingController extends ChangeNotifier {
             opacity: preferences.opacity,
             author: author),
         pages: [pageIndex]);
+  }
+
+  // ---------------------------------------------------------------------
+  // count tool (check-marks)
+
+  /// The default check-mark side length, in PDF points. A tap with the
+  /// count tool drops a mark this big centered on the pointer.
+  static const double checkMarkSize = 18.0;
+
+  /// Drops a check-mark centered on ([x], [y]) in page space, [size] points
+  /// per side (clamped, with the centre, so the whole mark stays on the
+  /// page). The mark follows the selected toolbar [color] and [opacity] and
+  /// is a real /Stamp annotation, so it can be moved, resized, and deleted
+  /// like any other. This is the count tool's tap-to-place — repeated taps
+  /// build the tally exposed by [checkMarkCount], Bluebeam-style.
+  bool placeCheckMark(int pageIndex, double x, double y,
+      {double size = checkMarkSize}) {
+    final box = _page(pageIndex).cropBox;
+    final s = size.clamp(4.0, math.min(box.width, box.height) * 0.9);
+    final cx = x.clamp(box.left + s / 2, box.right - s / 2);
+    final cy = y.clamp(box.bottom + s / 2, box.top - s / 2);
+    return apply(
+        (e) => e.addCheckMark(pageIndex,
+            PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
+            color: _colorValue, opacity: preferences.opacity, author: author),
+        pages: [pageIndex]);
+  }
+
+  int? _checkMarkCount;
+
+  /// The live count of check-marks ([PdfAnnotation.isCheckMark]) across the
+  /// whole document — the count tool's running tally. Recomputed per
+  /// revision (so undo, delete, and remote edits keep it accurate) and
+  /// cached. Walking the pages is cheap (counts are small) and only happens
+  /// on demand, when the count UI reads it.
+  int get checkMarkCount => _checkMarkCount ??= _countCheckMarks();
+
+  int _countCheckMarks() {
+    var total = 0;
+    for (var i = 0; i < _document.pageCount; i++) {
+      for (final annotation in _page(i).annotations) {
+        if (annotation.isCheckMark) total++;
+      }
+    }
+    return total;
   }
 
   /// Bakes every page's annotation appearances into its content and
@@ -2715,6 +2768,7 @@ class PdfEditingController extends ChangeNotifier {
     _selectedElement = null;
     _form = null;
     _formResolved = false;
+    _checkMarkCount = null;
   }
 
   /// The content elements of [pageIndex] at the current revision.

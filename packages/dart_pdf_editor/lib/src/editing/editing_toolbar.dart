@@ -232,6 +232,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           _GroupTool.tool(
               PdfEditTool.note, Icons.sticky_note_2_outlined, 'Note'),
           _GroupTool.tool(PdfEditTool.stamp, Icons.approval, 'Stamp'),
+          _GroupTool.tool(PdfEditTool.count, Icons.task_alt,
+              'Count — tap to drop check-marks and tally them'),
           _GroupTool.tool(PdfEditTool.image, Icons.image_outlined,
               'Image — tap to place, or drag out a box'),
           _GroupTool.tool(PdfEditTool.signature, Icons.history_edu,
@@ -826,6 +828,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           icon: const Icon(Icons.restart_alt),
           tooltip: 'Draw a new signature…',
           onPressed: () => _drawSignature(context),
+        ),
+      if (controller.tool == PdfEditTool.count)
+        Tooltip(
+          message: 'Check-marks on the document',
+          child: Chip(
+            key: const ValueKey('pdf-count-tally'),
+            avatar: const Icon(Icons.task_alt, size: 18),
+            label: Text('${controller.checkMarkCount}'),
+            visualDensity: VisualDensity.compact,
+          ),
         ),
     ];
   }
