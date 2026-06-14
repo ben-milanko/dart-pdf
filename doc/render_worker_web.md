@@ -66,15 +66,21 @@ the URL is set).
 
 ## Status
 
-**Work in progress.** The code paths exist (`render_worker_web.dart`,
-`render_worker_web_entry.dart`) and mirror the isolate backend's priority queue
-and protocol, but the following still need doing — see issue #73:
+The backend is wired end to end. `render_worker_web.dart` (main-side worker) and
+`render_worker_web_entry.dart` (worker-side entry) mirror the isolate backend's
+priority queue and protocol, and the app is wired up:
 
-- A worked example in the example app (`example/web/pdf_render_worker.dart` plus
-  a build script) and verification under `flutter run -d chrome`.
-- Confirm `dart compile js` of the worker entry succeeds and the transferred
-  `ArrayBuffer`s round-trip (the protocol uses structured-clone *transfer*, not
-  copy).
+- `app/web/pdf_render_worker.dart` is the worker entry; `app/tool/build_web.sh`
+  compiles it (`dart compile js -O2`) before `flutter build web`, and
+  `app/lib/main.dart` sets `pdfRenderWorkerScriptUrl` on web.
+- `dart compile js` of the worker entry **succeeds** (~720 KB bundle), so the
+  `dart:js_interop` / `package:web` usage is valid on the web toolchain.
+
+Still open — see issue #73:
+
+- A runtime smoke check under `flutter run -d chrome` confirming the transferred
+  `ArrayBuffer`s round-trip live (the protocol uses structured-clone *transfer*,
+  not copy).
 - Decide whether to also offload the image *decode* (issue #73 item 1); on web
   that is even more valuable since there is no separate raster thread.
 
@@ -87,3 +93,29 @@ and protocol, but the following still need doing — see issue #73:
 - The worker holds a fixed snapshot of the document bytes, like the isolate; an
   editing session must restart the worker when the bytes change (the shells
   already do this on every revision).
+
+## WebAssembly (dart2wasm) hosts
+
+No special handling is needed when the main app is compiled to Wasm
+(`flutter build web --wasm`):
+
+- The worker is a **separately compiled JS bundle** loaded by URL, independent
+  of how the host is compiled — a dart2wasm app constructs and drives it just
+  like a dart2js app.
+- The client half (constructing the `web.Worker`, `postMessage`, reading
+  results) uses only `dart:js_interop` / `package:web`, which compile under
+  **both** dart2js and dart2wasm. The backend is selected on
+  `dart.library.js_interop` (provided on Wasm) — deliberately **not**
+  `dart.library.html`, which is unavailable on Wasm and would break the build.
+- The boundary carries **transferred `ArrayBuffer`s** (raw bytes), not Dart
+  objects, so neither side depends on the other's compilation. The host pays one
+  buffer copy from Wasm linear memory into a JS `ArrayBuffer` per document and
+  per result (via `.toJS`) — negligible.
+
+The worker itself stays JS (`dart compile js`) even under a Wasm host. Compiling
+*the worker* to Wasm (`dart compile wasm`) is possible but needs a different
+in-worker bootstrap (its `.mjs` loader instantiating the module) and buys little
+— the worker is already off the main thread. A skwasm host that sets COOP/COEP
+for its own raster threads keeps working unchanged: this is an ordinary
+same-origin dedicated worker with no `SharedArrayBuffer`, so those headers
+neither help nor hinder it.

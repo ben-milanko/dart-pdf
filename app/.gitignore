@@ -46,3 +46,8 @@ app.*.map.json
 
 # firebase deploy cache
 .firebase/
+
+# Compiled Web Worker render backend (built by tool/build_web.sh)
+web/pdf_render_worker.dart.js
+web/pdf_render_worker.dart.js.map
+web/pdf_render_worker.dart.js.deps
