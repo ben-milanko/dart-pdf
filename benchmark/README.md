@@ -15,25 +15,31 @@ without error), scale 2.0 (144 DPI), best-of-3 render passes, on the
 development Mac. PDFium 5.9.0 / libpdfium 150.0.7869.0. Captured 2026-06-14
 with the #52 render-perf work in place (shared parse, image-decode cache +
 fast-paths, cross-render font cache, inline path construction, text-show
-memoisation).
+memoisation, and a rewritten content-stream tokenizer).
 
 | engine | throughput | ms/page | vs PDFium |
 |---|---|---|---|
 | **PDFium** (open + rasterize) | 48.5 pages/s | 20.6 | 1.00× |
-| **dart-pdf interpret** (pure Dart, no raster) | 43.9 pages/s | 22.8 | **1.10× slower** |
-| **dart-pdf render** (full Flutter raster + readback) | 15.3 pages/s | 65.3 | **3.16× slower** |
+| **dart-pdf interpret** (pure Dart, no raster) | 73.6 pages/s | 13.6 | **1.52× faster** |
+| **dart-pdf render** (full Flutter raster + readback) | 18.6 pages/s | 53.7 | **2.60× slower** |
 
 Takeaways:
 
-- **The pure-Dart engine is within 10% of PDFium** — parse + content-stream
-  interpretation, the code that runs on the VM and the web. This is the path
-  the optimization work targeted.
-- **The full render path is 3.16× slower, and that gap is now Flutter, not the
-  interpreter.** interpret is 22.8 ms/page but render is 65.3, so ~42 ms/page
-  is Flutter's GPU rasterization + `toImage`/`toByteData` readback — entirely
-  outside the interpreter. The per-file split confirms it: a single giant-image
-  page renders at 0.11× (1862 ms raster vs **16.7 ms interpret**), while
-  text/vector documents interpret *faster* than PDFium rasterizes them.
+- **The pure-Dart engine is now ~1.5× faster than PDFium** — parse +
+  content-stream interpretation, the code that runs on the VM and the web. The
+  content-stream tokenizer rewrite (faster number/keyword/name lexing, no
+  reference lookahead on content operands) roughly halved parse time and is
+  what flipped this from 1.10× *slower* to 1.52× *faster*.
+- **The full render path is 2.60× slower, and that gap is Flutter, not the
+  interpreter.** interpret is 13.6 ms/page but render is 53.7, so ~40 ms/page
+  is image decoding + Flutter's GPU rasterization + `toImage`/`toByteData`
+  readback. A phase split of the render path (scale 2): parse 13.5, collect
+  2.3, image decode 18.1, paint 7.3, **GPU rasterize 16.7**, readback 0.7
+  ms/page. The decode and rasterize costs dominate; both lean on platform
+  codecs / GPU that PDFium reaches via an in-process CPU bitmap (no GPU upload
+  or readback). The per-file split confirms it: a single giant-image page
+  renders at 0.11×, while text/vector documents interpret *faster* than PDFium
+  rasterizes them.
 
 Absolute milliseconds are machine-specific; the **ratios** are the portable
 number. Re-run with `benchmark/run.sh corpus 2 10` (see Quick start).
