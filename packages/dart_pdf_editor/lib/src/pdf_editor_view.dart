@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'editing/editing_controller.dart';
 import 'editing/editing_menu.dart';
+import 'editing/editing_pencil.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_properties.dart';
 import 'editing/editing_sidebar.dart';
@@ -39,6 +41,7 @@ class PdfEditorFeatures {
     this.colorControls = true,
     this.styleControls = true,
     this.flatten = true,
+    this.pencilEraserToggle = true,
     this.tools,
     this.toolGroups,
   });
@@ -111,6 +114,12 @@ class PdfEditorFeatures {
 
   /// The toolbar's flatten-annotations button.
   final bool flatten;
+
+  /// Whether the Apple Pencil's hardware double-tap toggles the eraser
+  /// (iOS only; a no-op elsewhere, where the gesture doesn't exist). The
+  /// shell binds the native gesture via [PdfPencilInteraction]; see
+  /// [PdfEditingController.togglePencilEraser].
+  final bool pencilEraserToggle;
 
   /// The tool buttons to offer, null meaning all of them. See
   /// [PdfEditingToolbar.tools].
@@ -287,6 +296,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfViewerController? _ownedViewer;
   PdfViewportMemory? _viewportMemory;
 
+  // Routes the Apple Pencil's native double-tap to the session's eraser
+  // toggle. Created only on iOS (the only platform with the gesture) so the
+  // method-channel handler isn't claimed needlessly elsewhere.
+  PdfPencilInteraction? _pencil;
+
   // Offloads page interpretation to a background isolate (native; a no-op
   // fallback on web), keyed to the session's current document. Pure scrolling
   // spawns one worker; every edit revision produces a new document, so the
@@ -344,16 +358,29 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     }
     _reportedLength = _session.bytes.length;
     _session.addListener(_onSessionChanged);
+    _attachPencil();
     _syncWorker();
   }
 
   void _closeSession() {
+    _pencil?.dispose();
+    _pencil = null;
     _worker?.dispose();
     _worker = null;
     _workerDoc = null;
     _session.removeListener(_onSessionChanged);
     _ownedSession?.dispose();
     _ownedSession = null;
+  }
+
+  /// Binds the Apple Pencil double-tap to the session's eraser toggle on
+  /// iOS, where the gesture exists. The shell stays plugin-free — the host's
+  /// iOS runner registers the `UIPencilInteraction` and forwards it over
+  /// [PdfPencilInteraction.channel]; this is the Dart end.
+  void _attachPencil() {
+    if (!widget.features.pencilEraserToggle) return;
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    (_pencil ??= PdfPencilInteraction()).attach(_session);
   }
 
   /// Keeps [_worker] tied to the session's current document — see the field

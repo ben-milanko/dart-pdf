@@ -10,6 +10,7 @@ export 'src/editing/editing_controller.dart';
 export 'src/editing/editing_measure.dart';
 export 'src/editing/editing_menu.dart';
 export 'src/editing/editing_panel.dart';
+export 'src/editing/editing_pencil.dart';
 export 'src/editing/editing_preferences.dart';
 export 'src/editing/editing_properties.dart';
 export 'src/editing/editing_sidebar.dart';

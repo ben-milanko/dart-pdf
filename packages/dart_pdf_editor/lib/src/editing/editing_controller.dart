@@ -446,6 +446,10 @@ class PdfEditingController extends ChangeNotifier {
     if (value == _tool) return;
     // leaving the ink tool commits the drawing, like lifting the pen
     if (_tool == PdfEditTool.ink && value != PdfEditTool.ink) finishInk();
+    // arming anything but the eraser by other means breaks the pencil
+    // double-tap pairing (see [togglePencilEraser]) — the remembered tool
+    // is only valid while the eraser stays the toggled-on partner
+    if (value != PdfEditTool.eraser) _eraserToggledOn = false;
     _tool = value;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
@@ -455,6 +459,35 @@ class PdfEditingController extends ChangeNotifier {
     preferences.beginStyleScope(
         _styleScopeKey(value), _styleScopeFields(value));
     notifyListeners();
+  }
+
+  // Apple Pencil double-tap eraser toggle: the tool that was armed when the
+  // eraser was toggled on, and whether the current eraser arming came from a
+  // toggle (so toggling off restores exactly what was there — reader mode
+  // included — rather than a guessed default).
+  PdfEditTool? _toolBeforeEraserToggle;
+  bool _eraserToggledOn = false;
+
+  /// Toggles the eraser the way the Apple Pencil's hardware double-tap does
+  /// in drawing apps: the first call arms [PdfEditTool.eraser] remembering
+  /// whatever tool was active, and the next restores it (reader mode
+  /// included). Double-tapping while the eraser was armed by hand — never
+  /// paired through this method — falls back to [PdfEditTool.ink] so the
+  /// gesture always returns to drawing.
+  ///
+  /// Flutter exposes no framework event for the pencil's double-tap (or the
+  /// Pencil Pro squeeze), so a host wires the native iOS gesture to this; see
+  /// [PdfPencilInteraction], which the editor shells attach automatically.
+  void togglePencilEraser() {
+    if (_tool == PdfEditTool.eraser) {
+      tool = _eraserToggledOn ? _toolBeforeEraserToggle : PdfEditTool.ink;
+      _eraserToggledOn = false;
+      _toolBeforeEraserToggle = null;
+    } else {
+      _toolBeforeEraserToggle = _tool;
+      tool = PdfEditTool.eraser;
+      _eraserToggledOn = true; // set after the setter, which clears it
+    }
   }
 
   /// The persisted-style scope key for [tool] — its [PdfEditTool] name for

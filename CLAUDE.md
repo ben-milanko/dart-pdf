@@ -2258,3 +2258,39 @@ app's life — the API key is kept in MEMORY ONLY, never written to disk (so
 the example needs no shared_preferences for it). dep pdf_ocr_vlm ^0.1.0.
 The 9 example test failures are pre-existing on this machine (raster/
 headless) — identical set with and without this wiring, zero regressions.
+Apple Pencil double-tap → eraser (Ben: "double tap on apple pencil to
+switch to eraser and back"): the pencil's hardware double-tap (and Pencil
+Pro squeeze) is an iOS `UIPencilInteraction` — Flutter exposes NO framework
+event for it, so the gesture is bridged natively. Three layers. (1) Core
+pairing: `PdfEditingController.togglePencilEraser()` (editing_controller.dart)
+arms `PdfEditTool.eraser` remembering whatever tool was active and restores
+it exactly on the next call (reader mode/null included, via `_eraserToggledOn`
++ `_toolBeforeEraserToggle`); a hand-armed eraser (never paired through this)
+falls back to ink so the gesture always returns to drawing. The `tool` setter
+clears `_eraserToggledOn` whenever it's armed to anything but the eraser, so
+manually switching tools breaks the pairing cleanly (the toggle re-remembers
+on its next eraser arm). Pure Dart, fully tested. (2) Channel binding:
+`PdfPencilInteraction` (editing_pencil.dart, exported) owns
+`MethodChannel('dart_pdf_editor/pencil')`; `attach(controller)` sets the
+method-call handler so an incoming `pencilDoubleTap` calls
+`togglePencilEraser` (or a custom `onDoubleTap`), `dispose()` clears it. Only
+one handler per channel, so one editor at a time (documented). The package
+stays plugin-free — it only LISTENS; the host's native runner provides the
+gesture. (3) Shell wiring: `PdfEditorView` attaches a `PdfPencilInteraction`
+to its session in `_openSession`/`_closeSession`, gated to
+`defaultTargetPlatform == iOS` (`PdfEditorFeatures.pencilEraserToggle`,
+default true) so the channel handler isn't claimed needlessly on other
+platforms — which also keeps it OUT of widget tests (flutter_test's default
+platform is android), so existing shell/eraser tests are untouched. Native:
+both iOS runners (`app/ios` + `example/ios` AppDelegate.swift) register a
+`UIPencilInteraction` on the Flutter view in `applicationDidBecomeActive`
+(once `pencilInteraction == nil` and the FlutterViewController exists — the
+new implicit-engine template has no explicit window in didFinishLaunching;
+`rootFlutterViewController()` checks `window?.rootViewController` then the
+connected scenes) and forwards `pencilInteractionDidTap` over the channel.
+Tests: editing_pencil_test.dart (9 — all toggle branches incl. reader-mode
+restore + hand-armed-eraser→ink + pairing-break, channel double-tap toggles,
+custom action override, dispose clears the handler, unknown method ignored;
+the binding test delivers the call via
+`defaultBinaryMessenger.handlePlatformMessage` the way iOS does). macOS/
+Android/web get no pencil interaction (the gesture doesn't exist there).
