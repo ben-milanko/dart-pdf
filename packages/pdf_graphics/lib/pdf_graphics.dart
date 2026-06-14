@@ -17,5 +17,7 @@ export 'src/shading.dart';
 export 'src/matrix.dart';
 export 'src/mesh.dart';
 export 'src/path.dart';
+export 'src/recording_device.dart';
+export 'src/render_command.dart';
 export 'src/text_diff.dart';
 export 'src/text_extraction.dart';
