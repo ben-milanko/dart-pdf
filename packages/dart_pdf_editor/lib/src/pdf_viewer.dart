@@ -760,7 +760,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _panFlinger.stop();
       _touchFlinger.stop();
       if (_zoomModifierDown) {
-        _applyWheelZoom(scroll);
+        // not while a draw tool is armed — on the web a trackpad pinch
+        // surfaces as a modifier-flagged wheel event, and zooming would
+        // disrupt the stroke
+        if (!_drawToolArmed) _applyWheelZoom(scroll);
         return;
       }
       final matrix = _transform.value.clone();
@@ -2029,6 +2032,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     };
   }
 
+  /// Whether a freehand drawing tool (ink or eraser) is armed. In this
+  /// "drawing mode" the viewer's trackpad/wheel zoom paths stand down so
+  /// a stray pinch can't zoom the page out from under a stroke: on the
+  /// web a two-finger trackpad gesture arrives as a pinch
+  /// (`PointerScaleEvent`) that [InteractiveViewer] would otherwise apply
+  /// directly (its `scaleFactor` neutralization only covers wheel
+  /// scrolling). Touch pinch still zooms — it runs through
+  /// [_EagerPinchRecognizer], not these paths — so on-screen pinch-to-zoom
+  /// while drawing is unaffected; on a trackpad/wheel, switch to another
+  /// tool to zoom.
+  bool get _drawToolArmed {
+    final tool = widget.editing?.tool;
+    return tool == PdfEditTool.ink || tool == PdfEditTool.eraser;
+  }
+
   void _onSelectionStart(DragStartDetails details) {
     // a raw-drawing pointer may still win this arena (the overlay's
     // recognizers don't claim every kind) — it must not grab-pan the
@@ -2597,7 +2615,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     var delta = event.panDelta;
     if (_trackpadIntent == _TrackpadIntent.undecided) {
       _trackpadPendingPan += delta;
-      if ((event.scale - 1).abs() > 0.01) {
+      // a draw tool armed: never latch zoom, so a pinch can't scale the
+      // page mid-stroke — two-finger motion only scrolls
+      if ((event.scale - 1).abs() > 0.01 && !_drawToolArmed) {
         _trackpadIntent = _TrackpadIntent.zoom;
       } else if (_trackpadPendingPan.distance > 8) {
         _trackpadIntent = _TrackpadIntent.scroll;
@@ -2933,6 +2953,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                   // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
                   // disables InteractiveViewer's own (modifier-blind) version
                   scaleFactor: double.maxFinite,
+                  // a draw tool armed: stand IV's scale handling down so a
+                  // stray trackpad pinch (a PointerScaleEvent on the web,
+                  // which scaleFactor does NOT neutralize) can't zoom the
+                  // page out from under a stroke. Touch pinch still zooms
+                  // through _EagerPinchRecognizer, not IV.
+                  scaleEnabled: !_drawToolArmed,
                   minScale: widget.minZoom,
                   // scaling below "cover" needs a free boundary; our own
                   // clamping replaces InteractiveViewer's (live for wheel and
