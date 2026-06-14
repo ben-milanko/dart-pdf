@@ -8,6 +8,7 @@ import 'editing/editing_thumbnails.dart';
 import 'page_number_field.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
+import 'raster_cache.dart';
 import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
@@ -103,11 +104,18 @@ class PdfReader extends StatefulWidget {
     this.backgroundColor,
     this.pageColor,
     this.viewerTheme,
+    this.rasterCache,
   });
 
   /// The PDF to show. Replacing it (by identity) opens the new
   /// document in place.
   final Uint8List bytes;
+
+  /// Optional persistent on-disk preview cache (see [PdfRasterCache]).
+  /// Keyed by [documentId] (or the bytes' [pdfContentKey]), so reopening
+  /// a previously-seen document paints soft page content immediately.
+  /// Share one instance across the app to pool its byte budget.
+  final PdfRasterCache? rasterCache;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in [preferences]). Null
@@ -340,6 +348,8 @@ class _PdfReaderState extends State<PdfReader> {
                                 showAnnotations: prefs.showAnnotations,
                                 highlightFormFields: prefs.highlightFormFields,
                                 renderWorker: _worker,
+                                rasterCache: widget.rasterCache,
+                                documentId: _documentKey,
                               ),
                       ),
                     ),

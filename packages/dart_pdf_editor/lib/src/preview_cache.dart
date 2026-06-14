@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'perf_log.dart';
+import 'raster_cache.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
 
@@ -38,6 +39,42 @@ class PdfPagePreviewCache extends ChangeNotifier {
   // re-insert, eviction takes the first key.
   final _entries = <int, _PreviewEntry>{};
   bool _disposed = false;
+
+  /// Optional persistent backing (see [PdfRasterCache]). When set, fresh
+  /// previews are written through to disk as they render, and [loadFromDisk]
+  /// can prime the in-memory cache from a previous session. The viewer
+  /// binds this to the open document; null leaves the cache session-only,
+  /// exactly as before.
+  PdfRasterCache? disk;
+
+  /// Loads any persisted previews for [pages] into memory, so a cold open
+  /// of a previously-seen document paints soft content at once. Pages that
+  /// already hold a (fresher, in-session) preview are left alone, and the
+  /// loaded entries are bound to the current [pages] objects so the
+  /// background prerender treats them as done — the on-screen full render
+  /// still replaces them when it lands.
+  Future<void> loadFromDisk(List<PdfPage> pages) async {
+    final cache = disk;
+    if (cache == null || _disposed) return;
+    for (var i = 0; i < pages.length; i++) {
+      if (_disposed) return;
+      if (_entries.containsKey(i)) continue;
+      final image = await cache.loadPreview(i);
+      if (image == null) continue;
+      if (_disposed || _entries.containsKey(i)) {
+        image.dispose();
+        continue;
+      }
+      // adopt without writing back — these bytes just came from disk
+      _entries[i] = _PreviewEntry(pages[i], image);
+      while (_entries.length > capacity) {
+        final oldest = _entries.keys.first;
+        if (oldest == i) break;
+        _entries.remove(oldest)!.image.dispose();
+      }
+      notifyListeners();
+    }
+  }
 
   /// The preview for page [index], as a clone the caller owns (and must
   /// dispose), or null when none is cached. Counts as a use for LRU.
@@ -136,6 +173,10 @@ class PdfPagePreviewCache extends ChangeNotifier {
     while (_entries.length > capacity) {
       _entries.remove(_entries.keys.first)!.image.dispose();
     }
+    // Write through to disk so the next session opens with this preview
+    // already on screen. Fire-and-forget: the encode is a raster-thread
+    // readback and a slow/failed store must never stall rendering.
+    disk?.storePreview(index, image);
     notifyListeners();
   }
 

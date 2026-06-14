@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'demo_document.dart';
+import 'persistent_cache.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
@@ -110,6 +111,15 @@ class ViewerScreen extends StatefulWidget {
 
 class _ViewerScreenState extends State<ViewerScreen> {
   PdfEditingPreferences get _prefs => widget.prefs;
+
+  /// App-wide on-disk preview cache: a previously-opened document paints
+  /// soft page content immediately on reopen instead of blank paper, while
+  /// the full render computes. One shared instance pools the byte budget
+  /// across every tab; the backend is filesystem on native, in-memory on
+  /// web (see persistent_cache.dart).
+  final PdfRasterCache _rasterCache = PdfRasterCache(
+    PdfDiskCache(createPersistentCacheStore(), namespace: 'previews'),
+  );
 
   /// One entry per open document. Each tab owns its own edit session and
   /// viewer controller, so switching tabs preserves each document's
@@ -655,6 +665,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           documentId: tab.title,
                           controller: tab.viewer,
                           preferences: _prefs,
+                          rasterCache: _rasterCache,
                           onAction: _onAction,
                           pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
                         )
@@ -663,6 +674,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           documentId: tab.title,
                           controller: tab.session,
                           viewerController: tab.viewer,
+                          rasterCache: _rasterCache,
                           onSave: (saved) => unawaited(_saveAs(saved)),
                           onPickPdfToInsert: _pickPdfBytes,
                           onExportPages: (bytes) => unawaited(_saveAs(bytes)),

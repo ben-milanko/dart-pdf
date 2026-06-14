@@ -2258,3 +2258,71 @@ app's life — the API key is kept in MEMORY ONLY, never written to disk (so
 the example needs no shared_preferences for it). dep pdf_ocr_vlm ^0.1.0.
 The 9 example test failures are pre-existing on this machine (raster/
 headless) — identical set with and without this wiring, zero regressions.
+
+On-disk cache (Ben: "implement on-disk cache to further optimise the
+library; minimal deps, must work everywhere"): a pluggable persistent
+cache layered across the stack, matching the existing host-seam pattern
+(PdfOcrEngine/PdfImportSource) — the library never touches storage itself
+(dart:io stays banned below the Flutter layer, web keeps working), the
+host supplies a backend and the cache logic lives on top in pure Dart.
+Core (pdf_document, web-safe, zero new deps): `PdfCacheStore` (abstract
+async key→bytes: read/write/delete/keys/clear) + `PdfMemoryCacheStore`
+(the everywhere default + test double, copies buffers on write);
+`PdfDiskCache` wraps any store with versioning (a `version` mismatch
+purges the namespace on first use — bump it on a format/renderer change
+that invalidates cached bytes), a byte-budget LRU (`maxBytes`, default
+64MB, evicts least-recently-used; an entry bigger than the whole budget
+is skipped), and a PERSISTED manifest (key→size + LRU order stored under
+a reserved key, so eviction survives sessions). The version is NOT part
+of the key (it lives in the manifest) so a bump physically reclaims old
+bytes instead of orphaning them under a stale prefix. All ops serialize
+through an internal Future queue (the viewer fires many at once) and are
+best-effort — a throwing backend degrades to a miss, the queue keeps
+running (`_run` catches per-action, keeps the chain alive). `pdfContentKey`
+(FNV-1a over length + ~4KB sampled bytes) is the pdf_document-level
+content key (the editor's existing `pdfDocumentKey` stays; hosts with a
+path/URL pass that). Text layer (pdf_graphics): `pdfEncodePageText`/
+`pdfDecodePageText` — a compact little-endian binary codec for PdfPageText
+(magic+version word; pageIndex, full text, per-run text/startIndex/6×f64
+transform/width/4×f64 bounds), decode returns null on any mismatch (a
+miss). GOTCHA: BytesBuilder must be copy:true — the reused 8-byte scratch
+buffer is overwritten between writes, so copy:false retained live views
+and serialized garbage. `PdfPageTextCache(diskCache)` memoizes extraction
+(the same heavy content-stream walk rendering pays) keyed by
+documentKey+page: `get(docKey, page, compute)` reads on a hit, runs+caches
+compute on a miss. Raster layer (dart_pdf_editor): `PdfRasterCache(diskCache,
+{documentKey})` persists the SMALL low-res page previews (≤200px, tens of
+KB PNG each — not full rasters; modest budget, big win) so a cold reopen
+paints soft navigable content immediately instead of blank paper. PNG via
+`ui.Image.toByteData(format: png)` / decode via `ui.instantiateImageCodec`
+(no extra dep); empty documentKey no-ops (an un-bound cache is harmless);
+`forDocument(key)` derives a per-file view sharing one store+budget.
+Wired into `PdfPagePreviewCache` (new `disk` field): write-through in
+`_store` (fire-and-forget — the encode is a raster-thread readback, a slow
+store must never stall rendering), and `loadFromDisk(pages)` primes the
+in-memory cache from disk (skips pages with a fresher in-session entry,
+binds loaded entries to the current page objects so the prerender treats
+them as done and the on-screen full render still replaces them). Viewer:
+`PdfViewer.rasterCache` + `documentId`; `_bindRasterCache()` sets
+`_previews.disk = rasterCache.forDocument(key)` and post-frame
+`loadFromDisk(_pages)`. The disk key folds in pageColor+showAnnotations
+(both baked into a preview, so changing either must not load a mismatched
+raster) — rebinds/re-primes on document swap (prime only for a different
+file; an edit revision's rebound previews make the prime a no-op) and on
+pageColor/annotation change. Shells: `PdfReader.rasterCache`/
+`PdfEditorView.rasterCache` pass through with the shell's `_documentKey`.
+Example: `persistent_cache.dart` is the host backend via conditional
+import — `persistent_cache_io.dart` (dart:io, one base64url-named file per
+key under systemTemp/dart_pdf_editor_cache; a real app points this at
+path_provider's app cache dir) on native, `persistent_cache_memory.dart`
+(session-only; a web app would back PdfCacheStore with IndexedDB) on web;
+one app-wide `PdfRasterCache` shared across tabs, passed to both shells.
+Tests: pdf_document disk_cache_test (12 — LRU/budget eviction, manifest
+persistence across instances, version-bump purge, namespace isolation,
+flaky-backend degradation, concurrent writes), pdf_graphics text_cache_test
+(5 — codec round-trip incl. utf8/empty, junk→miss, compute-once-then-serve,
+keying), dart_pdf_editor raster_cache_test (3 — write-through→load-back as
+an image across two sessions, empty-key no-op, loadFromDisk leaves a fresh
+in-session preview alone). GOTCHA: tests must capture page objects ONCE
+(like the viewer's `_pages`) — repeated `document.page(i)` calls can return
+fresh wrappers, defeating the preview cache's identity-based `isFresh`.
