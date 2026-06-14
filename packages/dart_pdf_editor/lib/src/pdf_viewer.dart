@@ -360,6 +360,7 @@ class PdfViewer extends StatefulWidget {
     this.highlightFormFields = true,
     this.interactiveForms = true,
     this.pagePreviews = true,
+    this.previewWindow = 20,
     this.predictStrokes = true,
   });
 
@@ -491,6 +492,18 @@ class PdfViewer extends StatefulWidget {
   /// session plus up to ~40 MB of preview pixels on very long
   /// documents.
   final bool pagePreviews;
+
+  /// How many pages on each side of the current page the background
+  /// prerender ([pagePreviews]) warms. Each preview is a full synchronous
+  /// interpreter walk, so on a heavy document warming every page stutters
+  /// the UI thread for seconds after open; bounding the proactive warm to
+  /// a window around the viewport keeps it focused on pages the user might
+  /// fast-scroll to. The window recenters automatically as the user
+  /// navigates. Pages outside the window still get a preview for free when
+  /// they're scrolled onto screen (their on-screen render feeds the cache).
+  /// `<= 0` warms every page (the historical behavior — fine for short
+  /// documents where warming everything is cheap).
+  final int previewWindow;
 
   /// Draws a short speculative "lead" ahead of the pen while an ink stroke
   /// is in flight, forward-extrapolated from the recent samples' velocity
@@ -951,9 +964,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final top = offset;
       offset += height;
       if (top + height >= nearTop && top <= nearBottom) continue;
+      final distance = (i - current).abs();
+      // bound the proactive warm to a window around the viewport — far
+      // pages render on demand on arrival (render hold) and feed the
+      // cache for free when scrolled through (putFromPicture)
+      final window = widget.previewWindow;
+      if (window > 0 && distance > window) continue;
       if (_previewAttempts.contains(pages[i])) continue;
       if (_previews.isFresh(i, pages[i])) continue;
-      final distance = (i - current).abs();
       if (distance < bestDistance) {
         bestDistance = distance;
         best = i;
