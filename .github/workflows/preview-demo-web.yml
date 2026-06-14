@@ -53,12 +53,21 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
         run: |
-          printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          # The service-account secret may be raw JSON or base64-encoded
+          # JSON (the deploy action accepts either); write whichever it is.
+          if [ "$(printf '%s' "$FIREBASE_SA" | cut -c1)" = "{" ]; then
+            printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          else
+            printf '%s' "$FIREBASE_SA" | base64 -d > "$GOOGLE_APPLICATION_CREDENTIALS"
+          fi
           if ! npx -y firebase-tools@latest hosting:channel:list \
                 --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
                 > channels.json 2> list-err.txt; then
             echo "::warning::channel list failed; skipping prune"
-            sed -n '1,40p' list-err.txt || true
+            echo "---- stdout (--json error lands here) ----"
+            sed -n '1,60p' channels.json || true
+            echo "---- stderr ----"
+            grep -v '^npm warn' list-err.txt | sed -n '1,40p' || true
             exit 0
           fi
           node -e '
