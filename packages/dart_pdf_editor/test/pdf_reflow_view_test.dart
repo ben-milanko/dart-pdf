@@ -6,24 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
-/// A one-page PDF with two text paragraphs and a decodable 2×2 DeviceRGB image
-/// drawn between them.
-Uint8List _imagePdf() {
-  const hex = 'FF000000FF000000FFFFFFFF>';
-  const content = 'BT /F1 12 Tf 100 700 Td (Above the figure) Tj ET\n'
-      'q 200 0 0 120 100 480 cm /Im0 Do Q\n'
-      'BT /F1 12 Tf 100 360 Td (Below the figure) Tj ET';
-  final objects = <String>[
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
-        '/Resources << /Font << /F1 5 0 R >> /XObject << /Im0 6 0 R >> >> >>',
-    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    '<< /Type /XObject /Subtype /Image /Width 2 /Height 2 '
-        '/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode '
-        '/Length ${hex.length} >>\nstream\n$hex\nendstream',
-  ];
+Uint8List _assemble(List<String> objects) {
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
   for (var i = 0; i < objects.length; i++) {
@@ -43,13 +26,40 @@ Uint8List _imagePdf() {
   return ascii(buffer.toString());
 }
 
-Future<void> _settleReflow(WidgetTester tester) async {
-  // The view loads pages and decodes images off the first frame; poll until the
-  // FutureBuilder resolves (decoding needs real async via runAsync).
-  for (var i = 0; i < 50; i++) {
+/// A one-page PDF whose content is [content]; an `/Im0` image XObject (its
+/// stream body is [imageHex] decoded as ASCII-hex) and an `/F1` Helvetica
+/// font are available as resources.
+Uint8List _doc(String content,
+    {String imageHex = 'FF000000FF000000FFFFFFFF>'}) {
+  return _assemble([
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> /XObject << /Im0 6 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /XObject /Subtype /Image /Width 2 /Height 2 '
+        '/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode '
+        '/Length ${imageHex.length} >>\nstream\n$imageHex\nendstream',
+  ]);
+}
+
+String _text(num x, num y, String text, {int size = 12}) =>
+    'BT /F1 $size Tf $x $y Td ($text) Tj ET';
+
+const _imageContent = 'q 200 0 0 120 100 480 cm /Im0 Do Q';
+
+Uint8List _imagePdf() => _doc('${_text(100, 700, 'Above the figure')}\n'
+    '$_imageContent\n'
+    '${_text(100, 360, 'Below the figure')}');
+
+/// Pumps frames (driving real async for image decoding) until the
+/// FutureBuilder resolves and the loading spinner disappears.
+Future<void> _settle(WidgetTester tester) async {
+  for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 16));
     await Future<void>.delayed(const Duration(milliseconds: 5));
-    if (find.text('Above the figure').evaluate().isNotEmpty) return;
+    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) return;
   }
 }
 
@@ -60,7 +70,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: PdfReflowView(document: doc)),
       ));
-      await _settleReflow(tester);
+      await _settle(tester);
 
       expect(find.text('Above the figure'), findsOneWidget);
       expect(find.text('Below the figure'), findsOneWidget);
@@ -76,10 +86,84 @@ void main() {
           body: PdfReflowView(document: doc, showImages: false),
         ),
       ));
-      await _settleReflow(tester);
+      await _settle(tester);
 
       expect(find.text('Above the figure'), findsOneWidget);
       expect(find.byType(RawImage), findsNothing);
+    });
+  });
+
+  testWidgets('styles a heading and indents a list item', (tester) async {
+    await tester.runAsync(() async {
+      final doc = PdfDocument.open(_doc('${_text(100, 720, 'Big Heading', size: 24)}\n'
+          '${_text(100, 680, '- first item')}\n'
+          '${_text(100, 664, '- second item')}'));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfReflowView(document: doc)),
+      ));
+      await _settle(tester);
+
+      expect(find.text('Big Heading'), findsOneWidget);
+      // The list items render and hang under a left-indent Padding.
+      expect(find.text('- first item'), findsOneWidget);
+      final indented = tester.widgetList<Padding>(find.ancestor(
+        of: find.text('- first item'),
+        matching: find.byType(Padding),
+      ));
+      expect(
+        indented.any((p) =>
+            p.padding.resolve(TextDirection.ltr).left == 16),
+        isTrue,
+      );
+    });
+  });
+
+  testWidgets('falls back to a placeholder for an undecodable image',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The image declares 2x2 RGB (12 bytes) but provides one byte: decode
+      // fails, so the view surfaces a labelled placeholder instead.
+      final doc = PdfDocument.open(_doc(_imageContent, imageHex: '00>'));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfReflowView(document: doc)),
+      ));
+      await _settle(tester);
+
+      expect(find.byType(RawImage), findsNothing);
+      expect(find.byIcon(Icons.image_outlined), findsOneWidget);
+    });
+  });
+
+  testWidgets('shows a message when there is no extractable content',
+      (tester) async {
+    await tester.runAsync(() async {
+      final doc = PdfDocument.open(_doc('')); // blank page
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfReflowView(document: doc)),
+      ));
+      await _settle(tester);
+
+      expect(find.text('No extractable content'), findsOneWidget);
+    });
+  });
+
+  testWidgets('reloads when the document changes', (tester) async {
+    await tester.runAsync(() async {
+      final first = PdfDocument.open(_imagePdf());
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfReflowView(document: first)),
+      ));
+      await _settle(tester);
+      expect(find.text('Above the figure'), findsOneWidget);
+
+      final second = PdfDocument.open(_doc(_text(100, 700, 'A different page')));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfReflowView(document: second)),
+      ));
+      await _settle(tester);
+
+      expect(find.text('Above the figure'), findsNothing);
+      expect(find.text('A different page'), findsOneWidget);
     });
   });
 }
