@@ -388,7 +388,7 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
-    testWidgets('the selection bar rotates the selected pages',
+    testWidgets('the selection bar rotates, exports, and clears',
         (tester) async {
       tester.view.physicalSize = const Size(800, 1400);
       tester.view.devicePixelRatio = 1.0;
@@ -398,10 +398,15 @@ void main() {
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
+      Uint8List? exported;
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: Row(children: [
-            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            PdfThumbnailSidebar(
+              controller: editing,
+              viewerController: viewer,
+              onExportPages: (bytes) => exported = bytes,
+            ),
             const Expanded(child: SizedBox()),
           ]),
         ),
@@ -416,6 +421,7 @@ void main() {
       await tester.pump();
       expect(editing.selectedPages, [0, 1, 2]);
 
+      // rotate right, then left: the two cancel back to no rotation
       await tester.tap(
           find.byKey(const ValueKey('pdf-thumbnail-rotate-selected-cw')));
       await tester.pump();
@@ -425,6 +431,26 @@ void main() {
       expect(editing.document.page(3).rotation, 0);
       // the selection survives a visual rotation
       expect(editing.selectedPages, [0, 1, 2]);
+
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-thumbnail-rotate-selected-ccw')));
+      await tester.pump();
+      expect(editing.document.page(0).rotation, 0);
+      expect(editing.selectedPages, [0, 1, 2]);
+
+      // export hands the host the selected pages
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-thumbnail-export-selected')));
+      await tester.pump();
+      expect(exported, isNotNull);
+      expect(labelsOf(PdfDocument.open(exported!)),
+          ['Page 1', 'Page 2', 'Page 3']);
+
+      // clear empties the selection (and dismisses the bar)
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-thumbnail-clear-selection')));
+      await tester.pump();
+      expect(editing.hasPageSelection, isFalse);
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
