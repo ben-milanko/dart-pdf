@@ -78,8 +78,22 @@ jobs:
 
       - name: Test pdf_ocr_vlm
         working-directory: packages/pdf_ocr_vlm
-        run: flutter test
+        run: flutter test --coverage
+      - name: Upload pdf_ocr_vlm coverage
+        uses: codecov/codecov-action@v7
+        with:
+          files: packages/pdf_ocr_vlm/coverage/lcov.info
+          flags: pdf_ocr_vlm
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
       - name: Test DartPDF app
         working-directory: app
-        run: flutter test
+        run: flutter test --coverage
+      - name: Upload app coverage
+        uses: codecov/codecov-action@v7
+        with:
+          files: app/coverage/lcov.info
+          flags: app
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

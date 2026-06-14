@@ -18,6 +18,12 @@ flags:
   dart_pdf_editor:
     paths:
       - packages/dart_pdf_editor/lib
+  pdf_ocr_vlm:
+    paths:
+      - packages/pdf_ocr_vlm/lib
+  app:
+    paths:
+      - app/lib
 
 coverage:
   status:
@@ -26,7 +32,12 @@ coverage:
         informational: true
     patch:
       default:
-        informational: true
+        # New code (the PR diff) must be at least 90% covered.
+        target: 90%
+        # Allow a small slack so trivial diffs don't fail on rounding.
+        threshold: 1%
+        # Block the PR status when the diff drops below target.
+        informational: false
 
 comment:
   layout: "reach, diff, flags, files"
