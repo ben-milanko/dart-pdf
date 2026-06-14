@@ -25,8 +25,11 @@ String? pdfRenderWorkerScriptUrl;
 /// its own isolate (native), and answers [record] with the page's replayable
 /// [PdfRenderCommand] list, already deserialized from the wire format. The
 /// caller turns that into a `ui.Picture` with
-/// `PdfPageRenderer.pictureFromCommands` — no image decode is needed because
-/// image-bearing pages return null and are rendered locally instead.
+/// `PdfPageRenderer.pictureFromCommands` — a cheap replay. Image XObjects are
+/// serialized into the buffer, and the worker decodes them off-thread too
+/// (the premultiplied pixels ride on each command), so the main thread runs
+/// only the engine codec, never the pure-Dart inflate/colour-convert. Images
+/// that need the platform JPEG codec ship un-decoded and decode locally.
 ///
 /// The worker's document is a fixed snapshot of the bytes it was started with.
 /// It is therefore only correct for a document whose pages don't change under
@@ -43,9 +46,11 @@ abstract class PdfRenderWorker {
   static PdfRenderWorker start(Uint8List bytes) => startRenderWorker(bytes);
 
   /// Records page [pageIndex] off-thread and returns its replayable command
-  /// buffer, or null when the page can't be offloaded — it draws images (not
-  /// serializable in this cut), the worker failed or was disposed, or this
-  /// platform has no worker — and the caller must render the page locally.
+  /// buffer (image XObjects decoded off-thread and attached), or null when the
+  /// page can't be offloaded — it draws an inline image (`BI .. ID .. EI`,
+  /// which can name a page-resource colour space the stream can't reach), the
+  /// worker failed or was disposed, or this platform has no worker — and the
+  /// caller must render the page locally.
   ///
   /// [annotations] mirrors `PdfPageRenderer.renderPicture`'s flag: when false
   /// the page's annotations are left out of the recording.

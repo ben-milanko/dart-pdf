@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
 import 'device.dart';
+import 'image_pixels.dart';
 import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
@@ -74,12 +75,17 @@ class _UnserializableImage implements Exception {
 /// image that cannot be serialized (see the class doc). Image XObjects are
 /// serialized by inline-resolving their stream subgraph against [cos]; pass it
 /// whenever the buffer may contain images.
+/// When [decodeImages] is true, the serializer ALSO decodes each image's
+/// pixels off-thread (via the pure-Dart [decodePdfImagePixels]) and embeds the
+/// premultiplied RGBA beside the command, so the consumer skips the decode and
+/// only runs the engine codec — issue #73's image-decode offload. Images that
+/// need the platform JPEG codec carry no pixels and decode locally as before.
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
-    {CosDocument? cos}) {
+    {CosDocument? cos, bool decodeImages = false}) {
   final w = _Writer();
   w.u8(_formatVersion);
   try {
-    _writeCommands(w, commands, cos);
+    _writeCommands(w, commands, cos, decode: decodeImages);
   } on _UnserializableImage {
     return null;
   }
@@ -94,10 +100,11 @@ List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   return _readCommands(r);
 }
 
-void _writeCommands(_Writer w, List<PdfRenderCommand> commands, CosDocument? cos) {
+void _writeCommands(_Writer w, List<PdfRenderCommand> commands, CosDocument? cos,
+    {bool decode = false}) {
   w.u32(commands.length);
   for (final command in commands) {
-    _writeCommand(w, command, cos);
+    _writeCommand(w, command, cos, decode: decode);
   }
 }
 
@@ -110,7 +117,8 @@ List<PdfRenderCommand> _readCommands(_Reader r) {
   return out;
 }
 
-void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos) {
+void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
+    {bool decode = false}) {
   switch (command) {
     case PdfSaveCommand():
       w.u8(_tSave);
@@ -176,6 +184,16 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos) {
       w.boolean(request.isStencil);
       _writeColor(w, request.stencilColor);
       _writeCos(w, inlined);
+      // Optional off-thread decode: the premultiplied pixels ride beside the
+      // stream so the consumer skips the pure-Dart decode. The stream above is
+      // still written, so the pixels cache by content like a local render.
+      final decoded = decode ? decodePdfImagePixels(cos, request.stream) : null;
+      w.boolean(decoded != null);
+      if (decoded != null) {
+        w.u32(decoded.width);
+        w.u32(decoded.height);
+        w.bytes(decoded.rgba);
+      }
     case PdfSetBlendModeCommand(:final mode):
       w.u8(_tSetBlendMode);
       w.u8(mode.index);
@@ -201,7 +219,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos) {
       w.f64(backdropLuminance);
       w.f64(transferScale);
       w.f64(transferOffset);
-      _writeCommands(w, maskCommands, cos); // nested
+      _writeCommands(w, maskCommands, cos, decode: decode); // nested
   }
 }
 
@@ -246,6 +264,12 @@ PdfRenderCommand _readCommand(_Reader r) {
       final isStencil = r.boolean();
       final stencilColor = _readColor(r);
       final stream = _readCos(r) as CosStream;
+      PdfDecodedPixels? decoded;
+      if (r.boolean()) {
+        final width = r.u32();
+        final height = r.u32();
+        decoded = PdfDecodedPixels(r.bytes(), width, height);
+      }
       // isInline forces value (content) cache keying on replay: the
       // reconstructed stream is a fresh object every record, so stream-identity
       // keying would miss the decoded-image cache and re-decode each scroll-by.
@@ -256,6 +280,7 @@ PdfRenderCommand _readCommand(_Reader r) {
         isStencil: isStencil,
         stencilColor: stencilColor,
         isInline: true,
+        decoded: decoded,
       ));
     case _tSetBlendMode:
       return PdfSetBlendModeCommand(PdfBlendMode.values[r.u8()]);

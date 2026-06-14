@@ -95,5 +95,10 @@ Uint8List? _recordPage(PdfDocument document, int pageIndex, bool annotations) {
   final interpreter = PdfInterpreter(cos: document.cos, device: recorder)
     ..drawPageOperations(page, ops);
   if (annotations) interpreter.drawAnnotations(page);
-  return serializeCommands(recorder.commands, cos: document.cos);
+  // Decode the page's images in the worker too: the buffer carries
+  // premultiplied RGBA so the main thread only runs the engine codec. On web
+  // this matters more than on native — there is no separate raster thread, so
+  // the pure-Dart inflate/colour-convert would otherwise block frames. #73.
+  return serializeCommands(recorder.commands,
+      cos: document.cos, decodeImages: true);
 }

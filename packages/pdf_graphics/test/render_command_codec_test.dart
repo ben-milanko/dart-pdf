@@ -224,4 +224,85 @@ void main() {
       });
     }
   });
+
+  // The worker path: serializeCommands(decodeImages: true) decodes each image
+  // off-thread and embeds the premultiplied RGBA, so the reconstructed request
+  // carries pixels that match the pure-Dart decode — and the replay transcript
+  // is unchanged (the decode never alters the command shape).
+  group('image decode offload', () {
+    final files = <String>[
+      '../../test_corpora/ghent/1-CMYK/'
+          'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',
+      '../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf',
+    ];
+    for (final path in files) {
+      final file = File(path);
+      final name = path.split('/').last;
+      test(name, () {
+        if (!file.existsSync()) {
+          markTestSkipped('$path not found');
+          return;
+        }
+        final doc = PdfDocument.open(file.readAsBytesSync());
+        var sawDecoded = false;
+        for (var i = 0; i < doc.pageCount; i++) {
+          final page = doc.page(i);
+          final ops = ContentStreamParser.parse(page.contentBytes());
+          final recorder = RecordingPdfDevice();
+          PdfInterpreter(cos: doc.cos, device: recorder)
+              .drawPageOperations(page, ops);
+          final originals = recorder.imageRequests.toList();
+
+          final bytes = serializeCommands(recorder.commands,
+              cos: doc.cos, decodeImages: true);
+          if (bytes == null) continue; // inline image on the page: declines
+          final restored = deserializeCommands(bytes);
+          // The off-thread decode must not change what gets painted.
+          expect(_transcript(restored), equals(_transcript(recorder.commands)),
+              reason: '$name page $i transcript diverged with decodeImages');
+
+          final images = _imageCommands(restored);
+          expect(images.length, originals.length,
+              reason: '$name page $i image count diverged');
+          for (var k = 0; k < originals.length; k++) {
+            final expected = decodePdfImagePixels(doc.cos, originals[k].stream);
+            final got = images[k].request.decoded;
+            if (expected == null) {
+              expect(got, isNull,
+                  reason: '$name page $i image $k needs the platform codec — '
+                      'ships no pixels');
+            } else {
+              expect(got, isNotNull,
+                  reason: '$name page $i image $k should carry decoded pixels');
+              expect(got!.width, expected.width);
+              expect(got.height, expected.height);
+              expect(got.rgba, equals(expected.rgba),
+                  reason: '$name page $i image $k pixels diverged');
+              sawDecoded = true;
+            }
+          }
+        }
+        expect(sawDecoded, isTrue,
+            reason: '$name exercised no off-thread image decode');
+      });
+    }
+  });
+}
+
+/// Every image draw command in [commands], in replay (DFS) order, descending
+/// into soft-mask groups — the same order serializeCommands writes them.
+List<PdfDrawImageCommand> _imageCommands(List<PdfRenderCommand> commands) {
+  final out = <PdfDrawImageCommand>[];
+  void walk(List<PdfRenderCommand> cs) {
+    for (final c in cs) {
+      if (c is PdfDrawImageCommand) {
+        out.add(c);
+      } else if (c is PdfEndSoftMaskedCommand) {
+        walk(c.maskCommands);
+      }
+    }
+  }
+
+  walk(commands);
+  return out;
 }

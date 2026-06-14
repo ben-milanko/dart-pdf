@@ -198,9 +198,10 @@ class ImageCollector implements PdfDevice {
 /// [decodePdfImagePixels] for everything it can decode, with the residual
 /// platform-JPEG path (a non-CMYK DCTDecode base) handled here.
 ///
-/// Callers that already hold worker-decoded pixels pass [decoded] (keyed the
-/// same way as the cache); those images skip the decode entirely and only run
-/// `decodeImageFromPixels`.
+/// A request that carries worker-decoded pixels ([PdfImageRequest.decoded],
+/// already premultiplied) bypasses the decode and only runs the engine codec —
+/// the point of the offload — and the result still caches by content, so a
+/// later local render of the same image hits the cache.
 ///
 /// When a [cache] is given, decodes are shared across renders: a hit
 /// returns a clone, a miss decodes once, caches the master, and returns a
@@ -208,7 +209,7 @@ class ImageCollector implements PdfDevice {
 /// probes and direct tests).
 Future<Map<Object, ui.Image>> decodeImages(
     CosDocument cos, Iterable<PdfImageRequest> requests,
-    {PdfImageCache? cache, Map<Object, PdfDecodedPixels>? decoded}) async {
+    {PdfImageCache? cache}) async {
   final out = <Object, ui.Image>{};
   for (final request in requests) {
     final key = pdfImageKey(request);
@@ -219,12 +220,10 @@ Future<Map<Object, ui.Image>> decodeImages(
       continue;
     }
     try {
-      // Worker-decoded pixels (already premultiplied) bypass the decode and
-      // only need the engine codec — the whole point of the offload.
-      final supplied = decoded?[key];
-      final image = supplied != null
+      final decoded = request.decoded;
+      final image = decoded != null
           ? await _imageFromPremultiplied(
-              supplied.rgba, supplied.width, supplied.height)
+              decoded.rgba, decoded.width, decoded.height)
           : await _decodeOne(cos, request.stream);
       if (image != null) {
         out[key] = cache == null ? image : cache.put(key, image);

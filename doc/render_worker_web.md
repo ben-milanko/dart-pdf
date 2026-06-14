@@ -20,13 +20,19 @@ main app  ──postMessage(init: ArrayBuffer)──▶  Web Worker (pdf_render_
           ◀─postMessage(result: ArrayBuffer)─     transfers the buffer back
 
 main app: deserializeCommands + PdfPageRenderer.pictureFromCommands (cheap replay
-          + image decode) on the main thread, exactly like the isolate path.
+          + a final engine codec upload) on the main thread, like the isolate.
 ```
 
 The wire format is identical to the native backend — `serializeCommands` /
 `deserializeCommands` produce a plain `Uint8List`, and image XObjects travel as
-self-contained inline-resolved stream subgraphs — so the replay and image-decode
-path (`pictureFromCommands`) is shared.
+self-contained inline-resolved stream subgraphs — so the replay path
+(`pictureFromCommands`) is shared. The worker also runs the pure-Dart **image
+decode** (`serializeCommands(decodeImages: true)`): premultiplied RGBA rides
+beside each image command, so the main thread only runs `decodeImageFromPixels`,
+never the Flate inflate / colour-convert. On web that matters most — there is no
+separate raster thread, so an on-main-thread decode would block frames. Images
+that need the platform JPEG codec (a non-CMYK DCTDecode base) ship un-decoded
+and decode on the main thread as before.
 
 ## Do I have to do anything?
 
@@ -92,15 +98,23 @@ priority queue and protocol, and the app is wired up:
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
   CAD test doc: every page round-tripped through the worker (`path=worker`),
   the transferred `ArrayBuffer`s replay correctly, and the main-thread interpret
-  time roughly halved (the residual is replay + image decode). This surfaced a
-  real bug — the command codec used `ByteData.setInt64`/`getInt64`, which throw
-  on the web (no JS 64-bit int); now float64-encoded (exact ≤ 2^53).
+  time roughly halved. This surfaced a real bug — the command codec used
+  `ByteData.setInt64`/`getInt64`, which throw on the web (no JS 64-bit int);
+  now float64-encoded (exact ≤ 2^53).
+- **Image decode is offloaded too** (issue #73 item 1): the pure-Dart decode
+  moved into `pdf_graphics` (`decodePdfImagePixels`), and the worker runs it
+  during recording, shipping premultiplied RGBA. The main thread now only runs
+  the engine codec. Verify a raster-heavy CAD sheet with `PDF_PERF_LOG=true`:
+  the page goes crisp without a large synchronous decode in the trace.
 
 Still open — see issue #73:
 
-- Offload the image *decode* too (issue #73 item 1); on web that is even more
-  valuable since there is no separate raster thread, and it is the bulk of the
-  remaining per-page time.
+- The in-flight worker/isolate job can't be preempted yet (item 3): landing on
+  a page mid-prefetch still waits for that prefetch to finish. The fast-scroll
+  page preview covers the gap visually.
+- v1 ships decoded pixels on every record; a re-record of a page already
+  cached on the main side re-decodes in the worker (off-thread, so it never
+  janks — but it is redundant work). A `knownKeys` skip is the next refinement.
 
 ## Caveats
 

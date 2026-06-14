@@ -12,7 +12,16 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+/// The first image draw request in a recorded buffer, or null if it draws none.
+PdfImageRequest? _firstImage(List<PdfRenderCommand> commands) {
+  for (final c in commands) {
+    if (c is PdfDrawImageCommand) return c.request;
+  }
+  return null;
+}
 
 Future<Uint8List> _rasterBytes(ui.Picture picture, Size size) async {
   final image = await PdfPageRenderer.rasterize(picture, size, 1);
@@ -72,10 +81,14 @@ void main() {
       final commands = await worker.record(0);
       expect(commands, isNotNull,
           reason: 'an image XObject serializes via its inlined stream');
+      // A baseline JPEG needs the platform codec, so the worker can't decode
+      // it off-thread: it ships un-decoded and decodes locally.
+      expect(_firstImage(commands!)?.decoded, isNull,
+          reason: 'a JPEG image declines the off-thread decode');
 
       final size = PdfPageRenderer.pageSize(page);
       final workerPicture =
-          await PdfPageRenderer.pictureFromCommands(page, commands!);
+          await PdfPageRenderer.pictureFromCommands(page, commands);
       final localPicture = await PdfPageRenderer.renderPictureRecorded(page);
       try {
         final workerPixels = await _rasterBytes(workerPicture, size);
@@ -105,10 +118,16 @@ void main() {
       final commands = await worker.record(0);
       expect(commands, isNotNull,
           reason: 'the image XObject and its /SMask serialize together');
+      // A Flate RGB base under a soft mask is purely decodable, so the worker
+      // decodes it off-thread and ships premultiplied pixels — the offload.
+      final decoded = _firstImage(commands!)?.decoded;
+      expect(decoded, isNotNull,
+          reason: 'a Flate+SMask image decodes off-thread');
+      expect(decoded!.rgba.length, decoded.width * decoded.height * 4);
 
       final size = PdfPageRenderer.pageSize(page);
       final workerPicture =
-          await PdfPageRenderer.pictureFromCommands(page, commands!);
+          await PdfPageRenderer.pictureFromCommands(page, commands);
       final localPicture = await PdfPageRenderer.renderPictureRecorded(page);
       try {
         final workerPixels = await _rasterBytes(workerPicture, size);
