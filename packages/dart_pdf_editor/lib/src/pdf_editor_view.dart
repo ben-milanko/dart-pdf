@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 import 'editing/editing_controller.dart';
 import 'editing/editing_menu.dart';
@@ -11,6 +12,7 @@ import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
 import 'page_number_field.dart';
 import 'pdf_viewer.dart';
+import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'theme.dart';
@@ -278,6 +280,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfViewerController? _ownedViewer;
   PdfViewportMemory? _viewportMemory;
 
+  // Offloads page interpretation to a background isolate (native; a no-op
+  // fallback on web), keyed to the session's current document. Pure scrolling
+  // spawns one worker; every edit revision produces a new document, so the
+  // stale worker is dropped (pages render locally = correct) and a fresh one
+  // is started over the new bytes. Edits commit at most about once a second
+  // (stroke auto-commit, blur, fill), so respawning per revision is cheap
+  // enough without debouncing.
+  PdfRenderWorker? _worker;
+  PdfDocument? _workerDoc;
+
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
 
@@ -325,15 +337,34 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     }
     _reportedLength = _session.bytes.length;
     _session.addListener(_onSessionChanged);
+    _syncWorker();
   }
 
   void _closeSession() {
+    _worker?.dispose();
+    _worker = null;
+    _workerDoc = null;
     _session.removeListener(_onSessionChanged);
     _ownedSession?.dispose();
     _ownedSession = null;
   }
 
+  /// Keeps [_worker] tied to the session's current document — see the field
+  /// doc. A revision (edit, undo, redo) changes the document identity, so
+  /// the old worker is disposed and a new one started over the current bytes;
+  /// disposing first means the just-edited page renders locally (correctly)
+  /// until the new worker is ready.
+  void _syncWorker() {
+    if (identical(_session.document, _workerDoc)) return;
+    _worker?.dispose();
+    _worker = PdfRenderWorker.start(_session.bytes);
+    _workerDoc = _session.document;
+  }
+
   void _onSessionChanged() {
+    // the merged ListenableBuilder rebuilds the viewer on this same notify,
+    // so swapping the worker here is enough — no setState needed
+    _syncWorker();
     final length = _session.bytes.length;
     if (length == _reportedLength) return;
     _reportedLength = length;
@@ -605,6 +636,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,
                         highlightFormFields: prefs.highlightFormFields,
+                        renderWorker: _worker,
                       ),
                     ),
                     if (showAnnotationsPanel && !useSheets)
