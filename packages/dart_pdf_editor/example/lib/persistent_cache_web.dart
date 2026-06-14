@@ -24,25 +24,46 @@ const String _storeName = 'entries';
 class _IndexedDbCacheStore implements PdfCacheStore {
   Future<web.IDBDatabase>? _db;
 
-  Future<web.IDBDatabase> _open() {
-    return _db ??= () {
-      final completer = Completer<web.IDBDatabase>();
-      final request = web.window.indexedDB.open(_dbName, 1);
-      request.onupgradeneeded = (web.Event _) {
-        final db = request.result as web.IDBDatabase;
-        if (!db.objectStoreNames.contains(_storeName)) {
-          db.createObjectStore(_storeName);
-        }
-      }.toJS;
-      request.onsuccess = (web.Event _) {
-        completer.complete(request.result as web.IDBDatabase);
-      }.toJS;
-      request.onerror = (web.Event _) {
-        completer.completeError(
-            StateError('IndexedDB open failed: ${request.error?.message}'));
-      }.toJS;
-      return completer.future;
-    }();
+  Future<web.IDBDatabase> _open() => _db ??= _openEnsuringStore();
+
+  /// Opens the database and guarantees the object store exists.
+  ///
+  /// A brand-new database is created at version 1 and `onupgradeneeded`
+  /// adds the store. But if the database already exists *without* our
+  /// store — e.g. something opened it with no upgrade handler (a stray
+  /// `indexedDB.open(name)` from the console, an interrupted first run) —
+  /// reopening at the same version would never fire `onupgradeneeded`, so
+  /// every transaction would throw "object store not found". We detect
+  /// that and reopen at the next version to add the store.
+  Future<web.IDBDatabase> _openEnsuringStore() async {
+    var db = await _openAt(null);
+    if (!db.objectStoreNames.contains(_storeName)) {
+      final next = db.version + 1;
+      db.close();
+      db = await _openAt(next);
+    }
+    return db;
+  }
+
+  Future<web.IDBDatabase> _openAt(int? version) {
+    final completer = Completer<web.IDBDatabase>();
+    final request = version == null
+        ? web.window.indexedDB.open(_dbName)
+        : web.window.indexedDB.open(_dbName, version);
+    request.onupgradeneeded = (web.Event _) {
+      final db = request.result as web.IDBDatabase;
+      if (!db.objectStoreNames.contains(_storeName)) {
+        db.createObjectStore(_storeName);
+      }
+    }.toJS;
+    request.onsuccess = (web.Event _) {
+      completer.complete(request.result as web.IDBDatabase);
+    }.toJS;
+    request.onerror = (web.Event _) {
+      completer.completeError(
+          StateError('IndexedDB open failed: ${request.error?.message}'));
+    }.toJS;
+    return completer.future;
   }
 
   /// Wraps a single IDB request, mapping its result through [map] on
