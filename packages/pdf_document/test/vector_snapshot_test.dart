@@ -76,6 +76,23 @@ void main() {
       expect(ap, contains('2 0 0 4 10 20 cm'));
     });
 
+    test('paste with opacity < 1 adds an ExtGState alpha to the appearance', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc);
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      editor.pasteVectorSnapshot(0, const PdfRect(100, 100, 260, 140), snap,
+          opacity: 0.5);
+      final out = PdfDocument.open(editor.save());
+      final stamp = out.page(0).annotations.single;
+      final ap =
+          latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
+      expect(ap, contains('/GS0 gs'));
+      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
+      expect(out.cos.resolve(res['ExtGState']), isA<CosDictionary>());
+    });
+
     test('pasting a degenerate (zero-area) region is a no-op', () {
       final doc = PdfDocument.open(buildMultiPagePdf(1));
       final editor = PdfEditor(doc);
