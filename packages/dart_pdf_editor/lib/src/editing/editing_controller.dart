@@ -519,6 +519,12 @@ class PdfEditingController extends ChangeNotifier {
   void useMarkupStyleScope() =>
       preferences.beginStyleScope('markup', const {'color', 'opacity'});
 
+  /// Whether the armed [tool] creates annotations that carry a colour the
+  /// toolbar can offer — i.e. the tool's style scope remembers `color`.
+  /// False for tools that ignore colour (select, eraser, content, form,
+  /// redact, signature), so the colour swatches aren't shown beside them.
+  bool get toolUsesColor => _styleScopeFields(tool).contains('color');
+
   /// The color new annotations are created with. Persisted (these four
   /// style properties live in [preferences]).
   Color get color => preferences.color;

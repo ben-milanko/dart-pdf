@@ -1277,29 +1277,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               ),
             ]),
           ),
-          if (widget.showColor)
-            for (final color in widget.palette.take(3))
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: InkWell(
-                  onTap: () => _applyColor(color),
-                  customBorder: const CircleBorder(),
-                  child: Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: controller.color == color
-                            ? scheme.primary
-                            : scheme.outline,
-                        width: controller.color == color ? 3 : 1,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+          ..._mobileTrailing(context),
           const SizedBox(width: 6),
           _GroupChip.toolsHandle(
             key: const ValueKey('pdf-tools-handle'),
@@ -1308,6 +1286,71 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ]),
       ),
     );
+  }
+
+  /// The mobile dock's trailing cluster, between the active-tool label and
+  /// the Tools handle. It shows only what's relevant to the moment so the
+  /// colour swatches never sit dead next to a tool that ignores them.
+  /// A selected annotation gets its own quick actions (delete, edit text) —
+  /// the better use of the space the request asks for, since those were
+  /// otherwise unreachable from the dock; an armed colour-using tool gets
+  /// the swatches; anything else leaves the space to the tool label.
+  List<Widget> _mobileTrailing(BuildContext context) {
+    if (controller.hasAnnotationSelection) {
+      return [
+        IconButton(
+          icon: const Icon(Icons.delete_outline),
+          tooltip: switch (controller.selectedAnnotationSlots.length) {
+            1 => 'Delete annotation',
+            final n => 'Delete $n annotations',
+          },
+          visualDensity: VisualDensity.compact,
+          onPressed: controller.deleteSelected,
+        ),
+        if (controller.canEditSelectedText)
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Edit annotation text',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _editSelectedText(context),
+          ),
+      ];
+    }
+    if (widget.showColor && controller.toolUsesColor) {
+      return _mobileSwatches(context);
+    }
+    return const [];
+  }
+
+  /// The first three palette swatches, sized for the mobile dock.
+  List<Widget> _mobileSwatches(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    var i = 0;
+    return [
+      for (final color in widget.palette.take(3))
+        Padding(
+          key: ValueKey('pdf-mobile-swatch-${i++}'),
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: InkWell(
+            onTap: () => _applyColor(color),
+            customBorder: const CircleBorder(),
+            child: Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: controller.color == color
+                      ? scheme.primary
+                      : scheme.outline,
+                  width: controller.color == color ? 3 : 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ];
   }
 
   IconData _activeToolIcon(PdfEditTool? tool) {
