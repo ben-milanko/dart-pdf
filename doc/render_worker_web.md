@@ -91,8 +91,11 @@ The backend is wired end to end. `render_worker_web.dart` (main-side worker) and
 `render_worker_web_entry.dart` (worker-side entry) mirror the isolate backend's
 priority queue and protocol, and the app is wired up:
 
-- `dart run dart_pdf_editor:build_web_worker` builds the worker;
-  `app/lib/main.dart` sets `pdfRenderWorkerScriptUrl` on web.
+- `dart run dart_pdf_editor:build_web_worker` builds the worker; both
+  `app/lib/main.dart` and the example app set `pdfRenderWorkerScriptUrl` on
+  web. The live web deploys (the demo at `dart-pdf-demo.web.app` and the app at
+  `dartpdf-app.web.app`) build the worker and ship the `--wasm` renderer with
+  COOP/COEP headers — see `deploy-demo-web.yml` and the firebase configs.
 - `dart compile js` of the worker entry **succeeds** (~720 KB bundle), so the
   `dart:js_interop` / `package:web` usage is valid on the web toolchain.
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
@@ -107,11 +110,17 @@ priority queue and protocol, and the app is wired up:
   the engine codec. Verify a raster-heavy CAD sheet with `PDF_PERF_LOG=true`:
   the page goes crisp without a large synchronous decode in the trace.
 
+- **Superseded prefetches are cancelled** (issue #73 item 2): scrolling past a
+  page drops its still-queued render request (`PdfRenderWorker.cancel`) instead
+  of letting the worker grind through stale work, so the visible page's job is
+  reached sooner.
+
 Still open — see issue #73:
 
-- The in-flight worker/isolate job can't be preempted yet (item 3): landing on
-  a page mid-prefetch still waits for that prefetch to finish. The fast-scroll
-  page preview covers the gap visually.
+- The in-flight worker/isolate job still can't be *preempted* (item 3): a
+  request already executing in the worker runs to completion even if you land
+  on another page mid-prefetch. Only *queued* requests are cancelled (above);
+  the fast-scroll page preview covers the remaining gap visually.
 - v1 ships decoded pixels on every record; a re-record of a page already
   cached on the main side re-decodes in the worker (off-thread, so it never
   janks — but it is redundant work). A `knownKeys` skip is the next refinement.

@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:pdf_document/pdf_document.dart';
 
+import 'demo_brand_assets.dart';
+
 /// Where the demo's Flutter overlays sit, in PDF page coordinates. The
 /// document's artwork draws matching slots at the same rects, so the
 /// page-space ↔ view-space registration is visible on screen.
@@ -132,9 +134,12 @@ String _stream(String dict, String data) =>
 /// image XObjects with masks; and a page of annotations and form fields
 /// authored at build time through the dart-pdf editor API.
 Uint8List buildDemoPdf() {
+  // The masthead banner (top) and the corner app mark are stamped onto this
+  // page as image XObjects in _authorShowcase — real PNGs don't fit this
+  // text-only COS builder. The banner carries the wordmark + tagline, so the
+  // page no longer draws a plain-text title of its own.
   final page1 = StringBuffer()
-    ..write(_text(72, 730, 22, 'dart-pdf feature showcase'))
-    ..write(_text(72, 702, 12,
+    ..write(_text(72, 650, 12,
         'The blue boxes are PDF link annotations. Tapping them drives the Flutter app.'))
     ..write(_button(_incrementLink, 'Increment the counter'))
     ..write(_slot(DemoLayout.counterBadge))
@@ -547,6 +552,17 @@ Uint8List _authorShowcase(Uint8List base) {
     ..addNote(page, 550, 655, 'A sticky note', author: author)
     ..addStamp(page, const PdfRect(72, 460, 230, 505), 'APPROVED',
         color: 0x208040, author: author);
+
+  // Brand the title page: the banner masthead across the top and the app
+  // mark as a corner bug. Both are page content (not annotations), so the
+  // page-1 link/widget counts are untouched. Heights follow the source
+  // aspect (banner 960×300 ⇒ 3.2:1; mark square).
+  final banner = PdfEmbeddableImage.png(demoBannerPng());
+  final mark = PdfEmbeddableImage.png(demoLogoPng());
+  editor.stampPage(0, (s) {
+    s.image(banner, x: 126, y: 674, width: 360);
+    s.image(mark, x: 524, y: 82, width: 40);
+  });
 
   final form = editor.acroForm!;
   PdfFormField field(String name) =>
