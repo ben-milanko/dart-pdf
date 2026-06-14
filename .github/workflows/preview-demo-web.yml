@@ -54,9 +54,13 @@ jobs:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
         run: |
           printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          npx -y firebase-tools@13 hosting:channel:list \
-            --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
-            > channels.json || { echo "list failed; skipping prune"; exit 0; }
+          if ! npx -y firebase-tools@latest hosting:channel:list \
+                --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
+                > channels.json 2> list-err.txt; then
+            echo "::warning::channel list failed; skipping prune"
+            sed -n '1,40p' list-err.txt || true
+            exit 0
+          fi
           node -e '
             const fs = require("fs");
             const data = JSON.parse(fs.readFileSync("channels.json", "utf8"));
@@ -76,10 +80,10 @@ jobs:
           while IFS= read -r ch; do
             [ -z "$ch" ] && continue
             echo "Deleting stale preview channel: $ch"
-            npx -y firebase-tools@13 hosting:channel:delete "$ch" \
+            npx -y firebase-tools@latest hosting:channel:delete "$ch" \
               --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --force || true
           done < prune.txt
-          rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json prune.txt
+          rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json prune.txt list-err.txt
 
       # No channelId -> the action creates an ephemeral preview channel keyed
       # to this PR and comments the URL on it. The channel expires on its own.
