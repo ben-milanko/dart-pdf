@@ -60,21 +60,90 @@ class PdfPageRenderer {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    // The paper is opaque white; [pageColor] washes over it. A
-    // translucent page color (e.g. a copy-type tint) thus reads as a
-    // wash on white rather than compositing onto the viewer canvas
-    // behind the page. A fully opaque color makes the white backing a
-    // no-op, so this is free in the common case.
+    _paintBackground(canvas, size, pageColor);
+    _applyPageTransform(canvas, page, size, box);
+
+    final painting = PdfInterpreter(
+        cos: cos, device: CanvasPdfDevice(canvas, images: images))
+      ..drawPageOperations(page, pageOps);
+    if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
+    final picture = recorder.endRecording();
+    // The picture retains its own reference to every drawn image, so the
+    // decode handles (clones from the cache, or fresh decodes) can be freed
+    // now — the cache keeps the masters for the next render.
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
+  }
+
+  /// Renders [page] like [renderPicture] but by first recording the page's
+  /// interpreter callbacks into a portable [PdfRenderCommand] buffer (a
+  /// [RecordingPdfDevice]) and then replaying that buffer onto the canvas via
+  /// the unchanged [CanvasPdfDevice].
+  ///
+  /// The result is pixel-identical to [renderPicture] — the same canvas calls
+  /// happen in the same order — but the interpretation (the dominant cost: the
+  /// content-stream parse and walk) is now decoupled from the painting. This
+  /// is the seam the background-isolate work splits across: the recording half
+  /// is pure Dart and `dart:ui`-free, so it can move to a worker isolate, with
+  /// only this replay (cheap) and image decoding staying on the UI thread.
+  ///
+  /// For now both halves run on the calling isolate; this method exists so the
+  /// record/replay split can be exercised and proven equivalent before any
+  /// isolate machinery is introduced.
+  static Future<ui.Picture> renderPictureRecorded(PdfPage page,
+      {Color pageColor = const Color(0xFFFFFFFF),
+      bool annotations = true,
+      bool Function(PdfAnnotation)? skipAnnotation}) async {
+    final cos = page.document.cos;
+    final pageOps = ContentStreamParser.parse(page.contentBytes());
+
+    // Record the page into a flat command buffer. This single walk also
+    // discovers every image (the recording device's drawImage calls), so the
+    // separate scan-only collect pass [renderPicture] runs is unnecessary here.
+    final recorder = RecordingPdfDevice();
+    final recording = PdfInterpreter(cos: cos, device: recorder)
+      ..drawPageOperations(page, pageOps);
+    if (annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+
+    final images = await decodeImages(cos, recorder.imageRequests,
+        cache: PdfImageCache.instance);
+
+    final box = page.cropBox;
+    final size = pageSize(page);
+    final uiRecorder = ui.PictureRecorder();
+    final canvas = Canvas(uiRecorder);
+
+    _paintBackground(canvas, size, pageColor);
+    _applyPageTransform(canvas, page, size, box);
+
+    replayCommands(recorder.commands, CanvasPdfDevice(canvas, images: images));
+    final picture = uiRecorder.endRecording();
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
+  }
+
+  /// Paints the page paper under the content: an opaque white backing when
+  /// [pageColor] is translucent (so a tint washes over white rather than the
+  /// viewer canvas behind the page), then [pageColor]. A fully opaque colour
+  /// makes the white backing a no-op, so it is free in the common case.
+  static void _paintBackground(Canvas canvas, Size size, Color pageColor) {
     if (pageColor.a < 1.0) {
       canvas.drawRect(
         Offset.zero & size,
         Paint()..color = const Color(0xFFFFFFFF),
       );
     }
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = pageColor,
-    );
+    canvas.drawRect(Offset.zero & size, Paint()..color = pageColor);
+  }
+
+  /// Sets the canvas up in PDF user space: /Rotate, then the y-flip and crop
+  /// box origin, so interpreter output (page space, y-up) lands correctly.
+  static void _applyPageTransform(
+      Canvas canvas, PdfPage page, Size size, PdfRect box) {
     switch (page.rotation) {
       case 90:
         canvas.translate(size.width, 0);
@@ -90,19 +159,6 @@ class PdfPageRenderer {
     canvas.translate(0, box.height);
     canvas.scale(1, -1);
     canvas.translate(-box.left, -box.bottom);
-
-    final painting = PdfInterpreter(
-        cos: cos, device: CanvasPdfDevice(canvas, images: images))
-      ..drawPageOperations(page, pageOps);
-    if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
-    final picture = recorder.endRecording();
-    // The picture retains its own reference to every drawn image, so the
-    // decode handles (clones from the cache, or fresh decodes) can be freed
-    // now — the cache keeps the masters for the next render.
-    for (final image in images.values) {
-      image.dispose();
-    }
-    return picture;
   }
 
   /// Renders one annotation's appearance into a picture in the same page
@@ -124,20 +180,7 @@ class PdfPageRenderer {
     final size = pageSize(page);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    switch (page.rotation) {
-      case 90:
-        canvas.translate(size.width, 0);
-        canvas.rotate(math.pi / 2);
-      case 180:
-        canvas.translate(size.width, size.height);
-        canvas.rotate(math.pi);
-      case 270:
-        canvas.translate(0, size.height);
-        canvas.rotate(-math.pi / 2);
-    }
-    canvas.translate(0, box.height);
-    canvas.scale(1, -1);
-    canvas.translate(-box.left, -box.bottom);
+    _applyPageTransform(canvas, page, size, box);
 
     PdfInterpreter(cos: cos, device: CanvasPdfDevice(canvas, images: images))
         .drawAnnotation(page, annotation);
