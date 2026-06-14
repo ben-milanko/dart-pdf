@@ -51,3 +51,9 @@ app.*.map.json
 web/pdf_render_worker.dart.js
 web/pdf_render_worker.dart.js.map
 web/pdf_render_worker.dart.js.deps
+
+# Chrome perf-loop tooling artifacts (tool/perf/)
+tool/perf/node_modules/
+tool/perf/package-lock.json
+tool/perf/results.ndjson
+tool/perf/loop.log
