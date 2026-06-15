@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'editing/editing_controller.dart';
 import 'editing/editing_menu.dart';
@@ -12,6 +13,7 @@ import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
 import 'page_number_field.dart';
 import 'pdf_viewer.dart';
+import 'raster_cache.dart';
 import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
@@ -179,6 +181,8 @@ class PdfEditorView extends StatefulWidget {
     this.backgroundColor,
     this.pageColor,
     this.viewerTheme,
+    this.rasterCache,
+    this.textCache,
   })  : assert((bytes == null) != (controller == null),
             'Provide bytes or a controller, not both.'),
         assert(controller == null || preferences == null,
@@ -187,6 +191,18 @@ class PdfEditorView extends StatefulWidget {
   /// The PDF to edit. The widget owns the session; replacing the bytes
   /// (by identity) opens a fresh session in place.
   final Uint8List? bytes;
+
+  /// Optional persistent on-disk preview cache (see [PdfRasterCache]).
+  /// Keyed by [documentId] (or, with [bytes], their [pdfContentKey]), so
+  /// reopening a previously-seen document paints soft page content
+  /// immediately. Share one instance across the app to pool its budget.
+  final PdfRasterCache? rasterCache;
+
+  /// Optional persistent on-disk text cache (see [PdfPageTextCache]).
+  /// Threaded to the viewer, but only consulted in read-only mode — an
+  /// active edit session mutates page content, so its text is never served
+  /// from the content-keyed persistent cache (in-memory only).
+  final PdfPageTextCache? textCache;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in the preferences).
@@ -645,6 +661,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         showAnnotations: prefs.showAnnotations,
                         highlightFormFields: prefs.highlightFormFields,
                         renderWorker: _worker,
+                        rasterCache: widget.rasterCache,
+                        textCache: widget.textCache,
+                        documentId: _documentKey,
                       ),
                     ),
                     if (showAnnotationsPanel && !useSheets)
