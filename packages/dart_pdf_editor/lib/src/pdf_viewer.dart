@@ -367,6 +367,7 @@ class PdfViewer extends StatefulWidget {
     this.predictStrokes = true,
     this.renderWorker,
     this.rasterCache,
+    this.textCache,
     this.documentId,
   });
 
@@ -378,6 +379,14 @@ class PdfViewer extends StatefulWidget {
   /// previously-seen document shows soft content immediately instead of
   /// blank paper. Requires [pagePreviews]; null keeps previews session-only.
   final PdfRasterCache? rasterCache;
+
+  /// Persistent on-disk text cache (see [PdfPageTextCache]). When set with
+  /// [documentId], full-document search extraction is read back from the
+  /// store on a cold reopen instead of re-walking every page's content
+  /// stream. Used only when [editing] is null — an edit session mutates the
+  /// page content, so its text is never served from the (content-keyed)
+  /// persistent cache, only the per-revision in-memory cache.
+  final PdfPageTextCache? textCache;
 
   /// Stable identity for [document], keying its entries in [rasterCache].
   /// A host that has a file path or URL should pass it; otherwise pass the
@@ -1506,11 +1515,29 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     );
   }
 
+  /// Page [index]'s extracted text, from the per-revision in-memory cache,
+  /// then the persistent [PdfViewer.textCache] (cold reopen, async), then a
+  /// fresh extraction. The persistent cache is consulted only for a static
+  /// document ([PdfViewer.editing] null and a [PdfViewer.documentId] to key
+  /// by) — an edit session mutates page content, so its text stays
+  /// in-memory-only to avoid serving a stale content-keyed entry.
+  Future<PdfPageText> _extractText(int index) async {
+    final cached = _textCache[index];
+    if (cached != null) return cached;
+    final textCache = widget.textCache;
+    final key = widget.documentId;
+    if (textCache != null && key != null && widget.editing == null) {
+      final text = await textCache.get(
+          key, index, () => PdfTextExtractor.extract(widget.document, index));
+      return _textCache[index] ??= text;
+    }
+    return _textCache[index] ??= PdfTextExtractor.extract(widget.document, index);
+  }
+
   Future<List<PdfSearchResult>> _searchAllPages(String query) async {
     final results = <PdfSearchResult>[];
     for (var i = 0; i < _pages.length; i++) {
-      final text =
-          _textCache[i] ??= PdfTextExtractor.extract(widget.document, i);
+      final text = await _extractText(i);
       for (final match in text.findAll(query)) {
         results.add(_snippetFor(text, match));
       }

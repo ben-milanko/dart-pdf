@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show PdfPageTextCache;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_ocr_vlm/pdf_ocr_vlm.dart';
 import 'package:share_plus/share_plus.dart';
@@ -112,13 +113,18 @@ class ViewerScreen extends StatefulWidget {
 class _ViewerScreenState extends State<ViewerScreen> {
   PdfEditingPreferences get _prefs => widget.prefs;
 
-  /// App-wide on-disk preview cache: a previously-opened document paints
-  /// soft page content immediately on reopen instead of blank paper, while
-  /// the full render computes. One shared instance pools the byte budget
-  /// across every tab; the backend is filesystem on native, in-memory on
-  /// web (see persistent_cache.dart).
-  final PdfRasterCache _rasterCache = PdfRasterCache(
-    PdfDiskCache(createPersistentCacheStore(), namespace: 'previews'),
+  /// App-wide on-disk caches sharing one persistent backend (filesystem on
+  /// native, IndexedDB on web — see persistent_cache.dart). The raster
+  /// cache makes a reopened document paint soft page content immediately
+  /// instead of blank paper; the text cache lets search reuse a prior
+  /// session's extraction instead of re-walking every page. Separate
+  /// namespaces keep their byte budgets independent.
+  final PdfCacheStore _cacheStore = createPersistentCacheStore();
+  late final PdfRasterCache _rasterCache = PdfRasterCache(
+    PdfDiskCache(_cacheStore, namespace: 'previews'),
+  );
+  late final PdfPageTextCache _textCache = PdfPageTextCache(
+    PdfDiskCache(_cacheStore, namespace: 'text'),
   );
 
   /// One entry per open document. Each tab owns its own edit session and
@@ -666,6 +672,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           controller: tab.viewer,
                           preferences: _prefs,
                           rasterCache: _rasterCache,
+                          textCache: _textCache,
                           onAction: _onAction,
                           pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
                         )
@@ -675,6 +682,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           controller: tab.session,
                           viewerController: tab.viewer,
                           rasterCache: _rasterCache,
+                          textCache: _textCache,
                           onSave: (saved) => unawaited(_saveAs(saved)),
                           onPickPdfToInsert: _pickPdfBytes,
                           onExportPages: (bytes) => unawaited(_saveAs(bytes)),

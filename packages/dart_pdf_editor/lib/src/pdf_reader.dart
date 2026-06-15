@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
@@ -105,6 +106,7 @@ class PdfReader extends StatefulWidget {
     this.pageColor,
     this.viewerTheme,
     this.rasterCache,
+    this.textCache,
   });
 
   /// The PDF to show. Replacing it (by identity) opens the new
@@ -116,6 +118,11 @@ class PdfReader extends StatefulWidget {
   /// a previously-seen document paints soft page content immediately.
   /// Share one instance across the app to pool its byte budget.
   final PdfRasterCache? rasterCache;
+
+  /// Optional persistent on-disk text cache (see [PdfPageTextCache]). Keyed
+  /// by [documentId], so reopening a document searches it without re-walking
+  /// every page's content stream.
+  final PdfPageTextCache? textCache;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in [preferences]). Null
@@ -349,6 +356,7 @@ class _PdfReaderState extends State<PdfReader> {
                                 highlightFormFields: prefs.highlightFormFields,
                                 renderWorker: _worker,
                                 rasterCache: widget.rasterCache,
+                                textCache: widget.textCache,
                                 documentId: _documentKey,
                               ),
                       ),

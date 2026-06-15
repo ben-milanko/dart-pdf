@@ -2290,7 +2290,16 @@ buffer is overwritten between writes, so copy:false retained live views
 and serialized garbage. `PdfPageTextCache(diskCache)` memoizes extraction
 (the same heavy content-stream walk rendering pays) keyed by
 documentKey+page: `get(docKey, page, compute)` reads on a hit, runs+caches
-compute on a miss. Raster layer (dart_pdf_editor): `PdfRasterCache(diskCache,
+compute on a miss. Wired into the viewer via `PdfViewer.textCache` (+
+threaded through `PdfReader`/`PdfEditorView`): `_searchAllPages` routes
+each page through `_extractText`, which checks the per-revision in-memory
+`_textCache`, then the persistent cache, then a fresh extraction. GUARDED
+on `editing == null` AND a non-null `documentId` — an edit session mutates
+page content, so its text stays in-memory-only (the persistent cache is
+content-keyed and would otherwise go stale after an edit); the reader,
+whose document is static, reads search text back from disk on a cold
+reopen. Form fills don't affect page-content extraction, so the reader's
+formController doesn't compromise the guard. Raster layer (dart_pdf_editor): `PdfRasterCache(diskCache,
 {documentKey})` persists the SMALL low-res page previews (≤200px, tens of
 KB PNG each — not full rasters; modest budget, big win) so a cold reopen
 paints soft navigable content immediately instead of blank paper. PNG via

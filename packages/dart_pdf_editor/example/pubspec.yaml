@@ -13,6 +13,7 @@ dependencies:
   flutter:
     sdk: flutter
   pdf_document: ^1.0.0
+  pdf_graphics: ^1.0.0
   dart_pdf_editor: ^1.0.0
   pdf_ocr_vlm: ^0.1.0
   share_plus: ^13.1.0
