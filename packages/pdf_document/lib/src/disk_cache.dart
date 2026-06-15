@@ -91,6 +91,19 @@ class PdfDiskCache {
   bool _manifestDirty = false;
   Future<void> _queue = Future<void>.value();
 
+  // Manifest-flush coalescing. The manifest is O(entries), so rewriting it
+  // on every write is O(n) per write and O(n^2) over a whole document — a
+  // measurable cost on large CAD/scan files. Instead a burst of writes
+  // flushes the manifest once, when the queue drains (`_pendingWrites`
+  // hits 0), with a hard cap (`_flushBatchMax`) so a never-ending stream
+  // still persists periodically. This is safe because the manifest only
+  // has to survive to the next *cold* start; the in-memory `_sizes` table
+  // is always current within a session, and `read` already tolerates a
+  // stale manifest (a missing data key is forgotten on access).
+  int _pendingWrites = 0;
+  int _writesSinceFlush = 0;
+  static const int _flushBatchMax = 64;
+
   // The version is NOT part of the key (it lives in the manifest), so a
   // version bump can physically reclaim the old bytes instead of orphaning
   // them under a stale prefix.
@@ -121,7 +134,16 @@ class PdfDiskCache {
 
   /// Stores [bytes] under [key] (replacing any previous value) and evicts
   /// least-recently-used entries until the total fits [maxBytes].
-  Future<void> write(String key, Uint8List bytes) => _run(() async {
+  ///
+  /// The manifest write is coalesced (see the `_pendingWrites` note): an
+  /// isolated `await`ed write still persists immediately, but a burst —
+  /// the viewer caching a whole document's previews at once — flushes the
+  /// manifest just once when the burst drains.
+  Future<void> write(String key, Uint8List bytes) {
+    _pendingWrites++;
+    return _run(() async {
+      var changed = false;
+      try {
         // An entry larger than the whole budget would force-evict
         // everything and still not fit — skip it rather than thrash.
         if (bytes.length > maxBytes) return;
@@ -131,9 +153,21 @@ class PdfDiskCache {
         _sizes[key] = bytes.length;
         _totalBytes += bytes.length;
         _manifestDirty = true;
+        changed = true;
         await _evictToBudget(keep: key);
-        await _flushManifest();
-      });
+      } finally {
+        _pendingWrites--;
+        if (changed) _writesSinceFlush++;
+        // Flush once the burst drains, or after a capped batch so a
+        // continuous stream still persists. `_flushManifest` no-ops when
+        // nothing is dirty, so a flush here is free if this write skipped.
+        if (_pendingWrites == 0 || _writesSinceFlush >= _flushBatchMax) {
+          _writesSinceFlush = 0;
+          await _flushManifest();
+        }
+      }
+    });
+  }
 
   /// Drops [key] from the cache.
   Future<void> remove(String key) => _run(() async {
@@ -150,6 +184,17 @@ class PdfDiskCache {
         _sizes.clear();
         _totalBytes = 0;
         _manifestDirty = false;
+        _writesSinceFlush = 0;
+      });
+
+  /// Persists any manifest changes deferred by write-coalescing right now.
+  ///
+  /// Writes settle their manifest on their own shortly after a burst ends,
+  /// so this is optional; call it from an app-pause/close handler to
+  /// guarantee the manifest survives a kill that lands mid-burst.
+  Future<void> flush() => _run(() async {
+        _writesSinceFlush = 0;
+        await _flushManifest();
       });
 
   /// Number of cached entries (test hook).

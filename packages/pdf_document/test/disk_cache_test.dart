@@ -215,5 +215,45 @@ void main() {
       final reopened = PdfDiskCache(store);
       expect(await reopened.debugLength, 20);
     });
+
+    test('a write burst coalesces into a single manifest flush', () async {
+      final store = _FlakyStore(); // counts backend writes
+      final cache = PdfDiskCache(store);
+      const n = 100;
+      await Future.wait([
+        for (var i = 0; i < n; i++) cache.write('k$i', Uint8List(8)),
+      ]);
+      // n data writes; the manifest used to be rewritten once per write
+      // (2n total). Coalesced, the burst flushes the manifest a handful of
+      // times at most (the _flushBatchMax cap), never per-write.
+      expect(store.writes, lessThan(n + 10),
+          reason: 'manifest rewrite should not scale with the burst size');
+      // ...and the persisted manifest is still complete and correct.
+      final reopened = PdfDiskCache(store);
+      expect(await reopened.debugLength, n);
+      expect(await reopened.read('k0'), isNotNull);
+      expect(await reopened.read('k${n - 1}'), isNotNull);
+    });
+
+    test('an isolated write persists its manifest immediately', () async {
+      final store = PdfMemoryCacheStore();
+      final cache = PdfDiskCache(store);
+      await cache.write('solo', _bytes('x')); // no burst around it
+      // a fresh cache sees it without any explicit flush()
+      expect(await PdfDiskCache(store).read('solo'), _bytes('x'));
+    });
+
+    test('flush() forces a deferred manifest write', () async {
+      final store = PdfMemoryCacheStore();
+      final cache = PdfDiskCache(store);
+      // Fire a burst without awaiting it, then flush explicitly.
+      final burst = Future.wait([
+        for (var i = 0; i < 50; i++) cache.write('k$i', Uint8List(8)),
+      ]);
+      await cache.flush();
+      await burst;
+      await cache.flush();
+      expect(await PdfDiskCache(store).debugLength, 50);
+    });
   });
 }
