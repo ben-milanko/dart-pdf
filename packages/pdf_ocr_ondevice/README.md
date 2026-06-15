@@ -4,7 +4,7 @@ On-device, **downloadable** OCR for [`dart_pdf_editor`](https://pub.dev/packages
 
 Adds a selectable, searchable, *invisible* text layer over scanned (image-only)
 PDF pages — running entirely on the device, with **no per-page network call**.
-A small OCR model (PaddleOCR PP-OCRv5 *mobile*, ~15 MB) downloads once, is cached
+A small OCR model (PaddleOCR PP-OCRv5 *mobile*, ~21 MB) downloads once, is cached
 under the app-support directory, and then runs locally on
 [ONNX Runtime](https://onnxruntime.ai).
 
@@ -59,17 +59,28 @@ final result = editor.save(); // selectable/searchable text layer added
 await engine.dispose();
 ```
 
-## Hosting the model bundle
+## The default model bundle
 
-ONNX OCR networks are binaries this repository does **not** ship in-tree, so
-`PdfOcrModels.ppOcrV5Mobile` points its file URLs at a release you publish. To
-produce the bundle:
+`PdfOcrModels.ppOcrV5Mobile` downloads its files from the
+[`ocr-models-v1`](https://github.com/ben-milanko/dart-pdf/releases/tag/ocr-models-v1)
+GitHub release — nothing to host, it works out of the box. Each file's
+`sha256` is pinned in the descriptor, so a corrupted or tampered download is
+rejected.
+
+The bundle is the official PaddleOCR **PP-OCRv5 mobile** detection +
+recognition models converted to ONNX with
+[`paddle2onnx`](https://github.com/PaddlePaddle/Paddle2ONNX), plus the
+recognizer's character dictionary. See **Model license & attribution** below.
+
+### Rolling your own bundle
+
+To host elsewhere (or ship a different model), reproduce the conversion and
+supply your own `PdfOcrModel`:
 
 1. Download PP-OCRv5 mobile detection + recognition inference models from
    [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) (and the matching
    `ppocrv5_dict.txt`).
-2. Convert each to ONNX with
-   [`paddle2onnx`](https://github.com/PaddlePaddle/Paddle2ONNX):
+2. Convert each to ONNX with `paddle2onnx`:
 
    ```bash
    paddle2onnx --model_dir PP-OCRv5_mobile_det \
@@ -80,12 +91,26 @@ produce the bundle:
      --save_file PP-OCRv5_mobile_rec.onnx
    ```
 
-3. Upload `PP-OCRv5_mobile_det.onnx`, `PP-OCRv5_mobile_rec.onnx`, and
-   `ppocrv5_dict.txt` as assets on a GitHub release tagged `ocr-models-v1`
-   (the default URLs), or anywhere else and supply your own `PdfOcrModel`.
-4. Set each file's `sha256` in the descriptor so downloads are integrity
-   checked. Until the assets exist the download 404s with a clear
-   `PdfOcrModelException`.
+3. Upload the two `.onnx` files and `ppocrv5_dict.txt` as release assets (or
+   anywhere reachable) and point a custom `PdfOcrModel` at them.
+4. Set each file's `sha256` in your descriptor so downloads are integrity
+   checked.
+
+## Model license & attribution
+
+The default bundle is a **derivative work of PaddleOCR PP-OCRv5 mobile**
+(Copyright © PaddlePaddle Authors), redistributed under the **Apache License
+2.0** — the same license as this package. The `.onnx` files are the official
+PaddlePaddle inference models converted to ONNX with `paddle2onnx` (opset 14;
+no weights retrained or altered); `ppocrv5_dict.txt` is the recognizer's
+character dictionary extracted verbatim from the official config. The
+[`ocr-models-v1`](https://github.com/ben-milanko/dart-pdf/releases/tag/ocr-models-v1)
+release carries the full `LICENSE.txt` + `NOTICE.txt`.
+
+Sources:
+[PP-OCRv5_mobile_det](https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det) ·
+[PP-OCRv5_mobile_rec](https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec) ·
+[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR).
 
 ### A custom model / hosting
 

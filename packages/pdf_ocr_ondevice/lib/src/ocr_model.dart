@@ -114,12 +114,12 @@ class PdfOcrModel {
 /// Built-in model descriptors.
 ///
 /// **Hosting note.** ONNX OCR bundles are not tiny binaries this repository
-/// ships in-tree, so the default [ppOcrV5Mobile] points its file URLs at
-/// release assets you publish yourself (the package README has the exact
-/// `paddle2onnx` conversion + upload recipe). Until those assets exist the
-/// download will 404 with a clear error; swap in your own [PdfOcrModel] (any
-/// URLs + SHA-256s) via [PdfOcrModelManager] / [OnDeviceOcrEngine] at any
-/// time.
+/// ships in-tree, so the default [ppOcrV5Mobile] points its file URLs at the
+/// `ocr-models-v1` GitHub release (PP-OCRv5 mobile converted to ONNX; see the
+/// package README for the `paddle2onnx` recipe and Apache-2.0 attribution).
+/// To host the bundle elsewhere — or use a different model — swap in your own
+/// [PdfOcrModel] (any URLs + SHA-256s) via [PdfOcrModelManager] /
+/// [OnDeviceOcrEngine] at any time.
 abstract final class PdfOcrModels {
   PdfOcrModels._();
 
@@ -129,35 +129,43 @@ abstract final class PdfOcrModels {
     'https://github.com/ben-milanko/dart-pdf/releases/download/ocr-models-v1/',
   );
 
-  /// PP-OCRv5 *mobile* — the small (~5M-parameter, ~15 MB total) classic
+  /// PP-OCRv5 *mobile* — the small (~5M-parameter, ~21 MB total) classic
   /// detect+recognize pipeline. Runs on CPU on every supported platform; the
-  /// recommended offline default. Latin/English dictionary.
+  /// recommended offline default. Multilingual dictionary (CJK + Latin), so
+  /// it reads English/Latin scans out of the box.
   ///
-  /// Ships with **no `sha256`** on its files (so it resolves before you've
-  /// hosted a bundle): the download is then *not* integrity-checked. When you
-  /// publish the bundle, fill each file's [PdfOcrModelFile.sha256] (copy this
-  /// descriptor, or build your own) so a corrupted or tampered download is
-  /// rejected.
+  /// The bundle is hosted on the `ocr-models-v1` GitHub release, so every
+  /// file carries its `sha256` and a corrupted or tampered download is
+  /// rejected. The `.onnx` files are the official PaddlePaddle PP-OCRv5 mobile
+  /// models converted to ONNX with `paddle2onnx`; the dictionary is the
+  /// recognizer's character list. All Apache-2.0 (see the release's
+  /// `NOTICE.txt` and the package README for attribution).
   static final PdfOcrModel ppOcrV5Mobile = PdfOcrModel(
-    id: 'pp-ocrv5-mobile-en',
-    displayName: 'PP-OCRv5 mobile (English/Latin)',
+    id: 'pp-ocrv5-mobile',
+    displayName: 'PP-OCRv5 mobile (multilingual)',
     description: 'Lightweight on-device OCR (PaddleOCR PP-OCRv5 mobile). '
         'Runs offline on CPU.',
     languages: const ['en'],
     detection: PdfOcrModelFile(
       name: 'det.onnx',
       url: _defaultBundleBase.resolve('PP-OCRv5_mobile_det.onnx'),
-      sizeBytes: 4700000,
+      sha256:
+          'd5de5df358366210d16419b9636a2fc1efa5d7a20688f38a7869ec7b1a4f4f7d',
+      sizeBytes: 4819576,
     ),
     recognition: PdfOcrModelFile(
       name: 'rec.onnx',
       url: _defaultBundleBase.resolve('PP-OCRv5_mobile_rec.onnx'),
-      sizeBytes: 10400000,
+      sha256:
+          '0030c6b05fbe29b07a93701503938d637efe7423325e2efb2bd7c8f220d40a8d',
+      sizeBytes: 16557298,
     ),
     dictionary: PdfOcrModelFile(
       name: 'dict.txt',
       url: _defaultBundleBase.resolve('ppocrv5_dict.txt'),
-      sizeBytes: 80000,
+      sha256:
+          'd1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b',
+      sizeBytes: 74012,
     ),
   );
 }
