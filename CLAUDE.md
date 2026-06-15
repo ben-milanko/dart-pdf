@@ -2344,7 +2344,6 @@ an image across two sessions, empty-key no-op, loadFromDisk leaves a fresh
 in-session preview alone). GOTCHA: tests must capture page objects ONCE
 (like the viewer's `_pages`) — repeated `document.page(i)` calls can return
 fresh wrappers, defeating the preview cache's identity-based `isFresh`.
-
 Search options (Ben: "the search panel should allow for additional
 controls, match case, full word, etc."): match-case / whole-word / regex
 toggles for document search. pdf_graphics `PdfPageText.findAll` grew
@@ -2397,3 +2396,27 @@ them, panel toggles, persist+seed via tester.runAsync for the async prefs
 load — a bare `await prefs.ready` hangs under widget-test FakeAsync) and
 editing_preferences_test (+3 assertions: round-trip + defaults for the
 three flags).
+Rotate pages from the thumbnail strip (Ben: "add a tool to rotate
+selected pages from the thumbnail strip"): `PdfEditor.rotatePages(indices,
+degrees)` (page_editor.dart) writes each page's /Rotate = current display
+rotation + degrees, normalized to 0/90/180/270, explicitly onto the page
+dict (overrides inherited /Rotate); degrees must be a multiple of 90, a
+full turn / empty selection is a no-op, out-of-range index throws. It's a
+visual edit only — the page tree/indices are untouched, so unlike
+move/remove it does NOT clear the page selection. Controller
+(editing_controller.dart): `rotatePages(indices, degrees)` (filters to
+valid indices, `apply(pages: targets)` so only those thumbnails
+re-render via pageRenderStamp; preserves `_selectedPages`) +
+`rotateSelectedPages([degrees = 90])` (operates on `_selectedPages`, no-op
+when empty). UI (editing_thumbnails.dart): the multi-select bar (shown at
+selectedPageCount > 1) gained rotate-left/right actions
+('pdf-thumbnail-rotate-selected-ccw'/'-cw'), and each tile a rotate-right
+button ('pdf-thumbnail-rotate-<index>', no Tooltip — Semantics label, like
+the delete button, so it's safe inside the ReorderableListView). The
+selection bar was reshaped into a count line + a `Wrap` of compact
+IconButtons (`_selectionAction`) so the (now up to five) actions flow onto
+a second line instead of overflowing the ~142px strip. Tests:
+pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
+full-turn/empty no-op, non-quarter + out-of-range reject) and
+dart_pdf_editor editing_page_ops_test (controller round-trips + selection
+survives; strip widget tests for the bar + per-tile button).

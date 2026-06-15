@@ -75,6 +75,49 @@ void main() {
     });
   });
 
+  group('rotate', () {
+    test('rotatePages turns the named pages clockwise', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(3));
+      final editor = PdfEditor(doc)..rotatePages([0, 2], 90);
+      final out = reopened(editor);
+      expect(out.page(0).rotation, 90);
+      expect(out.page(1).rotation, 0);
+      expect(out.page(2).rotation, 90);
+    });
+
+    test('rotation accumulates onto the current display rotation', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(2));
+      final editor = PdfEditor(doc)
+        ..rotatePages([0], 90)
+        ..rotatePages([0], 90);
+      expect(reopened(editor).page(0).rotation, 180);
+    });
+
+    test('a counterclockwise turn normalizes to 0..270', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc)..rotatePages([0], -90);
+      expect(reopened(editor).page(0).rotation, 270);
+    });
+
+    test('a full turn (or no pages) changes nothing', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)))
+        ..rotatePages([0], 360)
+        ..rotatePages([], 90);
+      expect(editor.hasChanges, isFalse);
+    });
+
+    test('a non-quarter turn is rejected', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)));
+      expect(() => editor.rotatePages([0], 45), throwsArgumentError);
+      expect(editor.hasChanges, isFalse);
+    });
+
+    test('an out-of-range index is rejected', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)));
+      expect(() => editor.rotatePages([5], 90), throwsRangeError);
+    });
+  });
+
   group('insert blank page', () {
     test('appends a blank page sized to request', () {
       final doc = PdfDocument.open(buildMultiPagePdf(2));

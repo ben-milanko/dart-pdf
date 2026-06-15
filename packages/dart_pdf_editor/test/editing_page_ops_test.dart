@@ -196,6 +196,44 @@ void main() {
       addTearDown(editing.dispose);
       expect(editing.exportSelectedPages(), isNull);
     });
+
+    test('rotateSelectedPages turns the selection and keeps it', () {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      editing.selectPage(0);
+      editing.togglePageSelection(2);
+      expect(editing.rotateSelectedPages(90), isTrue);
+      expect(editing.document.page(0).rotation, 90);
+      expect(editing.document.page(1).rotation, 0);
+      expect(editing.document.page(2).rotation, 90);
+      // a visual rotation does not shift indices, so the selection survives
+      expect(editing.selectedPages, [0, 2]);
+      editing.undo();
+      expect(editing.document.page(0).rotation, 0);
+    });
+
+    test('rotateSelectedPages counterclockwise normalizes', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      editing.selectPage(1);
+      expect(editing.rotateSelectedPages(-90), isTrue);
+      expect(editing.document.page(1).rotation, 270);
+    });
+
+    test('rotateSelectedPages is a no-op with nothing selected', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      expect(editing.rotateSelectedPages(), isFalse);
+      expect(editing.isModified, isFalse);
+    });
+
+    test('rotatePages targets explicit indices', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      expect(editing.rotatePages([1], 180), isTrue);
+      expect(editing.document.page(1).rotation, 180);
+      expect(editing.rotatePages([], 90), isFalse);
+    });
   });
 
   group('page range dialog', () {
@@ -347,6 +385,98 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pump();
       expect(editing.selectedPages, [0, 2]);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('the selection bar rotates, exports, and clears',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      Uint8List? exported;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(
+              controller: editing,
+              viewerController: viewer,
+              onExportPages: (bytes) => exported = bytes,
+            ),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('Page 1'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(editing.selectedPages, [0, 1, 2]);
+
+      // rotate right, then left: the two cancel back to no rotation
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-thumbnail-rotate-selected-cw')));
+      await tester.pump();
+      expect(editing.document.page(0).rotation, 90);
+      expect(editing.document.page(1).rotation, 90);
+      expect(editing.document.page(2).rotation, 90);
+      expect(editing.document.page(3).rotation, 0);
+      // the selection survives a visual rotation
+      expect(editing.selectedPages, [0, 1, 2]);
+
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-thumbnail-rotate-selected-ccw')));
+      await tester.pump();
+      expect(editing.document.page(0).rotation, 0);
+      expect(editing.selectedPages, [0, 1, 2]);
+
+      // export hands the host the selected pages
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-thumbnail-export-selected')));
+      await tester.pump();
+      expect(exported, isNotNull);
+      expect(labelsOf(PdfDocument.open(exported!)),
+          ['Page 1', 'Page 2', 'Page 3']);
+
+      // clear empties the selection (and dismisses the bar)
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-thumbnail-clear-selection')));
+      await tester.pump();
+      expect(editing.hasPageSelection, isFalse);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
+    testWidgets('a per-tile rotate button turns one page', (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-rotate-1')));
+      await tester.pump();
+      expect(editing.document.page(0).rotation, 0);
+      expect(editing.document.page(1).rotation, 90);
       await tester.pump(const Duration(seconds: 2));
     });
 

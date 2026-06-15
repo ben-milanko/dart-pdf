@@ -265,6 +265,27 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     if (bytes != null) onExport(bytes);
   }
 
+  /// A compact icon button for the multi-select bar — tight enough that
+  /// several fit (and wrap) within the narrow strip.
+  Widget _selectionAction({
+    required String key,
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) =>
+      IconButton(
+        key: ValueKey(key),
+        icon: Icon(icon, size: 18),
+        tooltip: tooltip,
+        style: IconButton.styleFrom(
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(32, 32),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        onPressed: onPressed,
+      );
+
   void _onResizeDelta(double delta) => setState(() {
         _dragWidth = (_width + delta).clamp(widget.minWidth, widget.maxWidth);
       });
@@ -329,45 +350,57 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
             // navigation cursor — the per-tile delete handles it)
             if (controller.selectedPageCount > 1)
               Padding(
-                padding:
-                    EdgeInsets.fromLTRB(8 + inset, 2, _extraRightPadding + inset, 0),
-                child: Row(
+                padding: EdgeInsets.fromLTRB(
+                    8 + inset, 2, _extraRightPadding + inset, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        '${controller.selectedPageCount} selected',
-                        style: Theme.of(context).textTheme.labelMedium,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                    Text(
+                      '${controller.selectedPageCount} selected',
+                      style: Theme.of(context).textTheme.labelMedium,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    if (widget.onExportPages != null)
-                      IconButton(
-                        key: const ValueKey('pdf-thumbnail-export-selected'),
-                        icon: const Icon(Icons.file_download_outlined, size: 18),
-                        tooltip: 'Export selected pages',
-                        style: IconButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
+                    // a Wrap (not a Row) so the action buttons flow onto a
+                    // second line on the narrow strip instead of overflowing
+                    Wrap(
+                      children: [
+                        if (widget.allowPageEditing) ...[
+                          _selectionAction(
+                            key: 'pdf-thumbnail-rotate-selected-ccw',
+                            icon: Icons.rotate_left,
+                            tooltip: 'Rotate selected pages left',
+                            onPressed: () =>
+                                controller.rotateSelectedPages(-90),
+                          ),
+                          _selectionAction(
+                            key: 'pdf-thumbnail-rotate-selected-cw',
+                            icon: Icons.rotate_right,
+                            tooltip: 'Rotate selected pages right',
+                            onPressed: () =>
+                                controller.rotateSelectedPages(90),
+                          ),
+                        ],
+                        if (widget.onExportPages != null)
+                          _selectionAction(
+                            key: 'pdf-thumbnail-export-selected',
+                            icon: Icons.file_download_outlined,
+                            tooltip: 'Export selected pages',
+                            onPressed: _exportSelected,
+                          ),
+                        if (widget.allowPageEditing)
+                          _selectionAction(
+                            key: 'pdf-thumbnail-delete-selected',
+                            icon: Icons.delete_outline,
+                            tooltip: 'Delete selected pages',
+                            onPressed: () => controller.removeSelectedPages(),
+                          ),
+                        _selectionAction(
+                          key: 'pdf-thumbnail-clear-selection',
+                          icon: Icons.close,
+                          tooltip: 'Clear selection',
+                          onPressed: controller.clearPageSelection,
                         ),
-                        onPressed: _exportSelected,
-                      ),
-                    if (widget.allowPageEditing)
-                      IconButton(
-                        key: const ValueKey('pdf-thumbnail-delete-selected'),
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        tooltip: 'Delete selected pages',
-                        style: IconButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () => controller.removeSelectedPages(),
-                      ),
-                    IconButton(
-                      key: const ValueKey('pdf-thumbnail-clear-selection'),
-                      icon: const Icon(Icons.close, size: 18),
-                      tooltip: 'Clear selection',
-                      style: IconButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: controller.clearPageSelection,
+                      ],
                     ),
                   ],
                 ),
@@ -731,13 +764,28 @@ class _PageTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelMedium),
                 ),
+                // No Tooltip on these buttons: a Tooltip is an OverlayPortal,
+                // and an OverlayPortal inside a ReorderableListView item
+                // crashes when the item is reactivated during a layout pass
+                // (the strip's bottom-sheet LayoutBuilder, or a reorder) — it
+                // mutates the overlay's RenderObject mid-layout. A Semantics
+                // label keeps the buttons accessible without one.
+                if (allowPageEditing)
+                  Semantics(
+                    label: 'Rotate page right',
+                    button: true,
+                    child: IconButton(
+                      key: ValueKey('pdf-thumbnail-rotate-$pageIndex'),
+                      icon: const Icon(Icons.rotate_right, size: 16),
+                      style: IconButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(28, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => controller.rotatePages([pageIndex], 90),
+                    ),
+                  ),
                 if (allowPageEditing && document.pageCount > 1)
-                  // No Tooltip here: a Tooltip is an OverlayPortal, and an
-                  // OverlayPortal inside a ReorderableListView item crashes
-                  // when the item is reactivated during a layout pass (the
-                  // strip's bottom-sheet LayoutBuilder, or a reorder) — it
-                  // mutates the overlay's RenderObject mid-layout. A
-                  // Semantics label keeps the button accessible without one.
                   Semantics(
                     label: 'Delete page',
                     button: true,
