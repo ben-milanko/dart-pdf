@@ -103,6 +103,96 @@
     }
   </style>
 
+  <!-- Browser-local OCR bridge. Flutter web calls __dartPdfOcrRecognize with
+       a page image data URL. Transformers.js and Florence-2 are fetched lazily
+       on first use, then recognition runs in the browser rather than on an OCR
+       app server. -->
+  <script>
+    (function () {
+      var florencePromise = null;
+      async function hasWebGpuFp16() {
+        try {
+          if (!navigator.gpu) return false;
+          var adapter = await navigator.gpu.requestAdapter();
+          return !!(adapter && adapter.features &&
+            adapter.features.has('shader-f16'));
+        } catch (_) {
+          return false;
+        }
+      }
+      async function florence() {
+        if (!florencePromise) {
+          florencePromise = (async function () {
+            var transformers = await import(
+              'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0'
+            );
+            var modelId = 'onnx-community/Florence-2-base-ft';
+            var processor = await transformers.AutoProcessor
+              .from_pretrained(modelId);
+            var tokenizer = await transformers.AutoTokenizer
+              .from_pretrained(modelId);
+            var fp16 = await hasWebGpuFp16();
+            var model = await transformers.Florence2ForConditionalGeneration
+              .from_pretrained(modelId, {
+                device: navigator.gpu ? 'webgpu' : 'wasm',
+                dtype: {
+                  embed_tokens: fp16 ? 'fp16' : 'fp32',
+                  vision_encoder: fp16 ? 'fp16' : 'fp32',
+                  encoder_model: 'q4',
+                  decoder_model_merged: 'q4'
+                }
+              });
+            var textInputs = tokenizer('a');
+            var pixelValues = transformers.full([1, 3, 768, 768], 0.0);
+            await model.generate({
+              ...textInputs,
+              pixel_values: pixelValues,
+              max_new_tokens: 1
+            });
+            return {
+              model: model,
+              processor: processor,
+              tokenizer: tokenizer,
+              RawImage: transformers.RawImage
+            };
+          })();
+        }
+        return florencePromise;
+      }
+      window.__dartPdfOcrRecognize = async function (imageDataUrl) {
+        var bundle = await florence();
+        var image = await bundle.RawImage?.fromURL?.(imageDataUrl);
+        if (!image) {
+          var transformers = await import(
+            'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0'
+          );
+          image = await transformers.RawImage.fromURL(imageDataUrl);
+        }
+        var imageSize = image.size;
+        var visionInputs = await bundle.processor(image);
+        var task = '<OCR_WITH_REGION>';
+        var prompts = bundle.processor.construct_prompts(task);
+        var textInputs = bundle.tokenizer(prompts);
+        var generatedIds = await bundle.model.generate({
+          ...textInputs,
+          ...visionInputs,
+          max_new_tokens: 1024,
+          num_beams: 1,
+          do_sample: false
+        });
+        var generatedText = bundle.tokenizer.batch_decode(generatedIds, {
+          skip_special_tokens: false
+        })[0];
+        var result = bundle.processor.post_process_generation(
+          generatedText,
+          task,
+          imageSize
+        );
+        return JSON.stringify(result);
+      };
+    })();
+  </script>
+
   <!-- File Handling API bridge: when the installed PWA is launched to open a
        .pdf, buffer the file(s) until the Dart side registers a consumer, then
        forward each as { name, bytes }. -->

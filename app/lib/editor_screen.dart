@@ -640,10 +640,12 @@ class _EditorScreenState extends State<EditorScreen>
             PopupMenuItem(
               key: const ValueKey('menu-ocr'),
               value: () => unawaited(_runOcr()),
-              child: const ListTile(
-                leading: Icon(Icons.document_scanner_outlined),
-                title: Text('Add OCR text layer…'),
-                subtitle: Text('On-device · selectable text over scans'),
+              child: ListTile(
+                leading: const Icon(Icons.document_scanner_outlined),
+                title: const Text('Add OCR text layer…'),
+                subtitle: Text(kIsWeb
+                    ? 'AI in-browser · selectable text over scans'
+                    : 'On-device · selectable text over scans'),
                 contentPadding: EdgeInsets.zero,
               ),
             ),
