@@ -26,6 +26,9 @@ dependencies:
   url_launcher: ^6.3.0
   shared_preferences: ^2.3.0
   desktop_drop: ^0.7.0
+  # Reads the version stamped into the build artifact (derived from the
+  # pubspec version above), so the About box can't drift from the release.
+  package_info_plus: ^10.0.0
 
 dev_dependencies:
   flutter_test:
