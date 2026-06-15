@@ -12,12 +12,14 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/painting.dart';
+import 'package:dart_pdf_editor_app/editor_screen.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_ocr_ondevice/pdf_ocr_ondevice.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Paints [text] as black-on-white at a generous size and returns PNG bytes —
 /// a stand-in for a scanned page (no embedded text, just pixels).
@@ -93,5 +95,68 @@ void main() {
     print('OCR extracted: "${got.trim()}" ($spans spans)');
     expect(got, contains('Invoice'));
     expect(got, contains('12345'));
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
+  testWidgets('OCR runs in the background (app-bar chip, PDF still shown)',
+      (tester) async {
+    // Pre-cache the model so the menu action starts OCR with no confirm
+    // dialog (the download is a separate, one-time step).
+    final manager = PdfOcrModelManager();
+    final model = PdfOcrModels.ppOcrV5Mobile;
+    if (!await manager.isDownloaded(model)) await manager.download(model);
+    manager.close();
+
+    // A multi-page scan so recognition lasts long enough to observe.
+    final png = await _scanPng('Invoice Number 12345');
+    final scanned = PdfImageDocument.fromImageBytes(List.filled(6, png));
+
+    SharedPreferences.setMockInitialValues({});
+    final prefs = PdfEditingPreferences();
+    addTearDown(prefs.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        initialDocument: (bytes: scanned, title: 'Scan.pdf'),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Start OCR from the More menu.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-ocr')));
+    await tester.pump(); // dispatch the action
+
+    // Wait for the background job to spin up (engine load + first page).
+    const chip = ValueKey('ocr-status-chip');
+    var sawChip = false;
+    for (var i = 0; i < 100 && !sawChip; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      sawChip = find.byKey(chip).evaluate().isNotEmpty;
+    }
+
+    // It is NON-blocking: the progress chip is in the app bar, there is no
+    // OCR dialog covering the page, and the document stays on screen.
+    expect(sawChip, isTrue,
+        reason: 'background OCR should show an app-bar progress chip');
+    expect(find.byKey(const ValueKey('ocr-progress')), findsNothing,
+        reason: 'no blocking OCR progress dialog');
+    expect(find.byKey(const ValueKey('ocr-download-confirm')), findsNothing,
+        reason: 'model was cached, so no dialog is up while OCR runs');
+    expect(find.byType(PdfEditorView), findsOneWidget,
+        reason: 'the PDF stays visible/interactive while OCR runs');
+    expect(find.byKey(const ValueKey('ocr-status-cancel')), findsOneWidget);
+
+    // Let it finish: the result opens in a new "(OCR)" tab and the chip clears.
+    var sawTab = false;
+    for (var i = 0; i < 600 && !sawTab; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      sawTab = find.text('Scan.pdf (OCR)').evaluate().isNotEmpty;
+    }
+    expect(sawTab, isTrue, reason: 'OCR result should open in a new tab');
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(chip), findsNothing,
+        reason: 'the chip clears once the job completes');
   }, timeout: const Timeout(Duration(minutes: 5)));
 }

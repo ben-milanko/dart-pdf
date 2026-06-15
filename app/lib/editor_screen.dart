@@ -230,8 +230,9 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Adds an invisible, selectable/searchable OCR text layer over the active
   /// document, running entirely on-device (pdf_ocr_ondevice). The model
-  /// downloads once on first use; the result opens in a new tab and the
-  /// original is left untouched.
+  /// downloads once on first use; OCR runs in the **background** (progress in
+  /// the app bar, cancellable) so the user keeps interacting with the PDF.
+  /// The result opens in a new tab; the original is left untouched.
   Future<void> _runOcr() async {
     final tab = _active;
     final bytes = tab?.session?.bytes;
@@ -239,17 +240,19 @@ class _EditorScreenState extends State<EditorScreen>
       _toast('Open a document before running OCR');
       return;
     }
-    final result = await _ocr.run(
+    // Snapshot the title now — the source tab may be closed before OCR ends.
+    final title = tab.title;
+    await _ocr.start(
       context,
       bytes: bytes,
-      title: tab.title,
+      title: title,
       onToast: (message) {
         if (mounted) _toast(message);
       },
+      onComplete: (result) {
+        if (mounted) _openBytes(result, '$title (OCR)');
+      },
     );
-    if (result != null && mounted) {
-      _openBytes(result, '${tab.title} (OCR)');
-    }
   }
 
   /// Closes the tab at [index], confirming first when it has unsaved edits.
@@ -551,6 +554,14 @@ class _EditorScreenState extends State<EditorScreen>
 
   List<Widget> _buildActions(DocumentTab? tab) {
     return [
+      // Background OCR progress (when a job is running) — non-blocking, so the
+      // user keeps using the PDF while hundreds of pages are recognized.
+      ValueListenableBuilder<OcrJobStatus?>(
+        valueListenable: _ocr.status,
+        builder: (context, status, _) => status == null
+            ? const SizedBox.shrink()
+            : _OcrStatusChip(status: status, onCancel: _ocr.cancel),
+      ),
       if (tab?.viewer != null)
         ListenableBuilder(
           listenable: tab!.viewer!,
@@ -830,6 +841,63 @@ class _DropOverlay extends StatelessWidget {
               const SizedBox(height: 8),
               const Text('Drop PDF to open'),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact app-bar indicator for a running background OCR job: a progress
+/// ring, a short label, and a cancel button.
+class _OcrStatusChip extends StatelessWidget {
+  const _OcrStatusChip({required this.status, required this.onCancel});
+
+  final OcrJobStatus status;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: 'OCR · ${status.title}',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Material(
+          key: const ValueKey('ocr-status-chip'),
+          color: scheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    value: status.fraction,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  status.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSecondaryContainer,
+                  ),
+                ),
+                IconButton(
+                  key: const ValueKey('ocr-status-cancel'),
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Cancel OCR',
+                  onPressed: onCancel,
+                ),
+              ],
+            ),
           ),
         ),
       ),
