@@ -77,7 +77,7 @@ void main() {
 
   test('download can be canceled and removes the partial file', () async {
     final cancelToken = PdfOcrDownloadCancelToken();
-    final client = MockClient((req) async {
+    final client = _StreamingClient((req) async {
       return http.StreamedResponse(
         Stream<List<int>>.fromIterable([
           [1, 2],
@@ -147,8 +147,7 @@ void main() {
     manager.close();
   });
 
-  test('download skips files already present and delete clears them',
-      () async {
+  test('download skips files already present and delete clears them', () async {
     var detHits = 0;
     final client = MockClient((req) async {
       final name = req.url.pathSegments.last;
@@ -174,4 +173,15 @@ void main() {
     );
     manager.close();
   });
+}
+
+class _StreamingClient extends http.BaseClient {
+  _StreamingClient(this._handler);
+
+  final Future<http.StreamedResponse> Function(http.BaseRequest request)
+      _handler;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _handler(request);
 }
