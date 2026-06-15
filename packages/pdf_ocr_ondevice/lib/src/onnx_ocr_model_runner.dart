@@ -31,6 +31,7 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     required this.detectionModelPath,
     required this.recognitionModelPath,
     required this.dictionaryPath,
+    this.runtimeModelDirectory,
     this.detectionSideLimit = 960,
     this.detectionMean = const [0.485, 0.456, 0.406],
     this.detectionStd = const [0.229, 0.224, 0.225],
@@ -45,6 +46,15 @@ class OnnxOcrModelRunner implements OcrModelRunner {
   final String detectionModelPath;
   final String recognitionModelPath;
   final String dictionaryPath;
+
+  /// Optional directory used to stage model files for ONNX Runtime.
+  ///
+  /// This is primarily for tests. On Windows, some ONNX Runtime builds fail to
+  /// open model paths containing non-ASCII user/profile characters because the
+  /// path is handed through the native boundary as a narrow string. The runner
+  /// therefore copies model files to an ASCII-only staging directory before
+  /// constructing native sessions.
+  final Directory? runtimeModelDirectory;
   final int detectionSideLimit;
   final List<double> detectionMean;
   final List<double> detectionStd;
@@ -69,11 +79,126 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     if (_det != null) return;
     OrtEnv.instance.init();
     final options = OrtSessionOptions();
-    _det = OrtSession.fromFile(File(detectionModelPath), options);
-    _rec = OrtSession.fromFile(File(recognitionModelPath), options);
-    final dict = await File(dictionaryPath).readAsString();
-    _decoder = CtcDecoder(parseDictionary(dict),
-        applySoftmax: recognitionEmitsLogits);
+    final paths = await _runtimePaths(
+      detectionModelPath: detectionModelPath,
+      recognitionModelPath: recognitionModelPath,
+      dictionaryPath: dictionaryPath,
+      stagingDirectory: runtimeModelDirectory,
+    );
+    _det = OrtSession.fromFile(File(paths.detection), options);
+    _rec = OrtSession.fromFile(File(paths.recognition), options);
+    final dict = await File(paths.dictionary).readAsString();
+    _decoder =
+        CtcDecoder(parseDictionary(dict), applySoftmax: recognitionEmitsLogits);
+  }
+
+  static Future<({String detection, String recognition, String dictionary})>
+      runtimePathsForTesting({
+    required String detectionModelPath,
+    required String recognitionModelPath,
+    required String dictionaryPath,
+    Directory? stagingDirectory,
+    bool forceWindowsStaging = false,
+  }) =>
+          _runtimePaths(
+            detectionModelPath: detectionModelPath,
+            recognitionModelPath: recognitionModelPath,
+            dictionaryPath: dictionaryPath,
+            stagingDirectory: stagingDirectory,
+            forceWindowsStaging: forceWindowsStaging,
+          );
+
+  static Future<({String detection, String recognition, String dictionary})>
+      _runtimePaths({
+    required String detectionModelPath,
+    required String recognitionModelPath,
+    required String dictionaryPath,
+    Directory? stagingDirectory,
+    bool forceWindowsStaging = false,
+  }) async {
+    if (!forceWindowsStaging && !Platform.isWindows) {
+      return (
+        detection: detectionModelPath,
+        recognition: recognitionModelPath,
+        dictionary: dictionaryPath,
+      );
+    }
+
+    final sourcePaths = [
+      detectionModelPath,
+      recognitionModelPath,
+      dictionaryPath
+    ];
+    if (sourcePaths.every(_isAsciiPath)) {
+      return (
+        detection: detectionModelPath,
+        recognition: recognitionModelPath,
+        dictionary: dictionaryPath,
+      );
+    }
+
+    final root = stagingDirectory ?? await _defaultRuntimeModelDirectory();
+    await root.create(recursive: true);
+    if (!_isAsciiPath(root.path)) {
+      throw FileSystemException(
+        'OCR model staging directory must contain only ASCII characters '
+        'on Windows',
+        root.path,
+      );
+    }
+
+    final det = await _copyForRuntime(detectionModelPath, root,
+        'detection-${_stableSuffix(detectionModelPath)}.onnx');
+    final rec = await _copyForRuntime(recognitionModelPath, root,
+        'recognition-${_stableSuffix(recognitionModelPath)}.onnx');
+    final dict = await _copyForRuntime(dictionaryPath, root,
+        'dictionary-${_stableSuffix(dictionaryPath)}.txt');
+    return (detection: det.path, recognition: rec.path, dictionary: dict.path);
+  }
+
+  static Future<Directory> _defaultRuntimeModelDirectory() async {
+    for (final envName in const ['PROGRAMDATA', 'TEMP', 'TMP']) {
+      final value = Platform.environment[envName];
+      if (value == null || value.isEmpty || !_isAsciiPath(value)) continue;
+      final dir =
+          Directory('$value${Platform.pathSeparator}dart_pdf_ocr_runtime');
+      try {
+        await dir.create(recursive: true);
+        return dir;
+      } catch (_) {
+        // Try the next candidate.
+      }
+    }
+    return Directory('${Directory.current.path}${Platform.pathSeparator}'
+        '.dart_pdf_ocr_runtime');
+  }
+
+  static Future<File> _copyForRuntime(
+      String sourcePath, Directory targetDir, String targetName) async {
+    final source = File(sourcePath);
+    final target =
+        File('${targetDir.path}${Platform.pathSeparator}$targetName');
+    if (await target.exists() &&
+        await target.length() == await source.length()) {
+      return target;
+    }
+    final part = File('${target.path}.part');
+    if (await part.exists()) await part.delete();
+    await source.copy(part.path);
+    if (await target.exists()) await target.delete();
+    return part.rename(target.path);
+  }
+
+  static bool _isAsciiPath(String path) =>
+      path.codeUnits.every((unit) => unit <= 0x7f);
+
+  static String _stableSuffix(String path) {
+    var hash = 0x811c9dc5;
+    for (final unit in path.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
   }
 
   @override
@@ -125,8 +250,8 @@ class OnnxOcrModelRunner implements OcrModelRunner {
 
   Future<Float32List> _runDetection(
       OrtSession session, Float32List input, int width, int height) async {
-    final tensor = OrtValueTensor.createTensorWithDataList(
-        input, [1, 3, height, width]);
+    final tensor =
+        OrtValueTensor.createTensorWithDataList(input, [1, 3, height, width]);
     final runOptions = OrtRunOptions();
     try {
       final outputs = await session
