@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:js_util' as js_util;
-import 'dart:typed_data';
+import 'dart:js_interop';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart' show Rect;
 import 'package:pdf_document/pdf_document.dart';
 
 import 'ocr_status.dart';
@@ -109,9 +107,14 @@ class OnDeviceOcr {
     }
   }
 
-  static bool get _hasBridge =>
-      js_util.hasProperty(js_util.globalThis, '__dartPdfOcrRecognize');
+  static bool get _hasBridge => _ocrBridge != null;
 }
+
+@JS('__dartPdfOcrRecognize')
+external JSAny? get _ocrBridge;
+
+@JS('__dartPdfOcrRecognize')
+external JSPromise<JSString> _recognizeWithBrowserOcr(String imageDataUrl);
 
 class _BrowserOcrEngine implements PdfOcrEngine {
   Future<void> warmUp() async {
@@ -186,7 +189,10 @@ class _BrowserOcrEngine implements PdfOcrEngine {
   static List<String>? _listOfStrings(Object? value) {
     if (value is String) return [value];
     if (value is! List) return null;
-    return [for (final item in value) if (item != null) item.toString()];
+    return [
+      for (final item in value)
+        if (item != null) item.toString()
+    ];
   }
 
   static List<Rect>? _listOfBoxes(Object? value) {
@@ -201,7 +207,10 @@ class _BrowserOcrEngine implements PdfOcrEngine {
 
   static Rect? _rect(Object? value) {
     if (value is! List || value.length < 4) return null;
-    final nums = [for (final v in value) if (v is num) v.toDouble()];
+    final nums = [
+      for (final v in value)
+        if (v is num) v.toDouble()
+    ];
     if (nums.length < 4) return null;
     if (nums.length >= 8) {
       var minX = double.infinity, minY = double.infinity;
@@ -233,16 +242,8 @@ class _BrowserOcrEngine implements PdfOcrEngine {
   }
 
   static Future<Object?> _recognizeDataUrl(String dataUrl) async {
-    final promise = js_util.callMethod<Object?>(
-      js_util.globalThis,
-      '__dartPdfOcrRecognize',
-      [dataUrl],
-    );
-    final result = await js_util.promiseToFuture<Object?>(promise);
-    if (result is! String) {
-      throw StateError('browser OCR returned an unexpected response');
-    }
-    return jsonDecode(result);
+    final result = await _recognizeWithBrowserOcr(dataUrl).toDart;
+    return jsonDecode(result.toDart);
   }
 }
 
@@ -254,8 +255,8 @@ class _WebOcrConfirmDialog extends StatelessWidget {
     return AlertDialog(
       key: const ValueKey('ocr-web-settings'),
       title: const Text('Run AI OCR in this browser?'),
-      content: const ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 520),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
         child: Text(
           'Web OCR downloads a Florence-2 vision-language model and runs it '
           'locally with WebGPU/WASM through Transformers.js. The PDF pages stay '
