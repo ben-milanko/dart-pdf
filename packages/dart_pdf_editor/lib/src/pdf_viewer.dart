@@ -22,6 +22,7 @@ import 'page_geometry.dart';
 import 'perf_log.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
+import 'raster_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
 import 'scrollbar.dart';
@@ -365,9 +366,33 @@ class PdfViewer extends StatefulWidget {
     this.previewWindow = 20,
     this.predictStrokes = true,
     this.renderWorker,
+    this.rasterCache,
+    this.textCache,
+    this.documentId,
   });
 
   final PdfDocument document;
+
+  /// Persistent on-disk preview cache (see [PdfRasterCache]). When set
+  /// together with [documentId], page previews are written through to the
+  /// backing store as they render and loaded back on a cold open, so a
+  /// previously-seen document shows soft content immediately instead of
+  /// blank paper. Requires [pagePreviews]; null keeps previews session-only.
+  final PdfRasterCache? rasterCache;
+
+  /// Persistent on-disk text cache (see [PdfPageTextCache]). When set with
+  /// [documentId], full-document search extraction is read back from the
+  /// store on a cold reopen instead of re-walking every page's content
+  /// stream. Used only when [editing] is null — an edit session mutates the
+  /// page content, so its text is never served from the (content-keyed)
+  /// persistent cache, only the per-revision in-memory cache.
+  final PdfPageTextCache? textCache;
+
+  /// Stable identity for [document], keying its entries in [rasterCache].
+  /// A host that has a file path or URL should pass it; otherwise pass the
+  /// [pdfContentKey] of the bytes. Without it the [rasterCache] stays idle
+  /// (there is no safe key to store under).
+  final String? documentId;
 
   /// Offloads page interpretation (the content-stream parse + walk, the
   /// dominant render cost) to a background isolate, so heavy pages flying
@@ -736,6 +761,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         if (animation != null) _transform.value = animation.value;
       });
     _loadPages();
+    _bindRasterCache();
     _scroll.addListener(_onScroll);
     _scroll.addListener(_onScrollForDetail);
     _transform.addListener(_onTransformChanged);
@@ -1098,6 +1124,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       } else {
         _previews.clear();
       }
+      // re-point (and, for a different file, re-prime) the persistent
+      // preview backing; an edit revision keeps its rebound previews so the
+      // prime is a no-op there
+      _bindRasterCache(prime: !sameGeometry);
       _previewAttempts.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
       if (!sameGeometry) {
@@ -1117,10 +1147,17 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     }
     if (oldWidget.pageColor != widget.pageColor ||
         oldWidget.showAnnotations != widget.showAnnotations) {
-      // previews bake the paper color and annotation visibility in
+      // previews bake the paper color and annotation visibility in, so the
+      // disk key changes with them too — rebind and re-prime under the new key
       _previews.clear();
+      _bindRasterCache();
       _previewAttempts.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+    } else if (!identical(oldWidget.rasterCache, widget.rasterCache) ||
+        oldWidget.documentId != widget.documentId) {
+      // the host swapped the cache or the document's identity without
+      // changing the document object (e.g. a path became known)
+      _bindRasterCache();
     }
   }
 
@@ -1148,6 +1185,33 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
             : page.cropBox.height / math.max(1e-6, page.cropBox.width),
     ];
     _controller._setPageCount(count);
+  }
+
+  /// The disk-raster key for the current document under the current paper
+  /// color and annotation visibility — those are baked into a preview, so
+  /// changing either must not load a mismatched cached raster.
+  String? _rasterKey() {
+    final id = widget.documentId;
+    if (id == null) return null;
+    return '$id|${widget.pageColor.toARGB32()}|${widget.showAnnotations}';
+  }
+
+  /// Binds (or unbinds) the preview cache's persistent backing to the open
+  /// document and, when [prime] is set, loads any previews stored in a
+  /// previous session so a cold open paints soft content immediately.
+  void _bindRasterCache({bool prime = true}) {
+    final raster = widget.rasterCache;
+    final key = _rasterKey();
+    if (!widget.pagePreviews || raster == null || key == null) {
+      _previews.disk = null;
+      return;
+    }
+    _previews.disk = raster.forDocument(key);
+    if (!prime) return;
+    final pages = _pages;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_previews.loadFromDisk(pages));
+    });
   }
 
   static bool _isRotatedSideways(PdfPage page) =>
@@ -1451,11 +1515,29 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     );
   }
 
+  /// Page [index]'s extracted text, from the per-revision in-memory cache,
+  /// then the persistent [PdfViewer.textCache] (cold reopen, async), then a
+  /// fresh extraction. The persistent cache is consulted only for a static
+  /// document ([PdfViewer.editing] null and a [PdfViewer.documentId] to key
+  /// by) — an edit session mutates page content, so its text stays
+  /// in-memory-only to avoid serving a stale content-keyed entry.
+  Future<PdfPageText> _extractText(int index) async {
+    final cached = _textCache[index];
+    if (cached != null) return cached;
+    final textCache = widget.textCache;
+    final key = widget.documentId;
+    if (textCache != null && key != null && widget.editing == null) {
+      final text = await textCache.get(
+          key, index, () => PdfTextExtractor.extract(widget.document, index));
+      return _textCache[index] ??= text;
+    }
+    return _textCache[index] ??= PdfTextExtractor.extract(widget.document, index);
+  }
+
   Future<List<PdfSearchResult>> _searchAllPages(String query) async {
     final results = <PdfSearchResult>[];
     for (var i = 0; i < _pages.length; i++) {
-      final text =
-          _textCache[i] ??= PdfTextExtractor.extract(widget.document, i);
+      final text = await _extractText(i);
       for (final match in text.findAll(query)) {
         results.add(_snippetFor(text, match));
       }
