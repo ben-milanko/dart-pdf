@@ -1543,15 +1543,27 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   Future<List<PdfSearchResult>> _searchAllPages(String query) async {
     final results = <PdfSearchResult>[];
     for (var i = 0; i < _pages.length; i++) {
+      // A newer keystroke has superseded this search — stop grinding pages
+      // immediately instead of interpreting every remaining content stream
+      // (100–420ms each) only for the caller to discard the result. Without
+      // this, each keystroke on a heavy document stacks another full-document
+      // walk on the event loop and the field chugs: the next search sets
+      // _query as soon as it runs (during one of the yields below), so this
+      // cheap synchronous check lets the stale walk bail at the next page.
+      if (_controller._query != query) return const [];
       final text = await _extractText(i);
       for (final match in text.findAll(query)) {
         results.add(_snippetFor(text, match));
       }
-      // yield between pages so long documents don't freeze the UI
+      // Yield to the event loop every few pages so frames paint and the
+      // superseding search gets a chance to run (a microtask wouldn't let
+      // timers/rendering in, so this is a Duration.zero delay).
       if (i % 5 == 4) await Future<void>.delayed(Duration.zero);
     }
     return results;
   }
+
+  static final RegExp _whitespaceRun = RegExp(r'\s+');
 
   /// Context for one hit: the rest of its line, capped to a handful of
   /// words each side with ellipses marking what was cut.
@@ -1564,7 +1576,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     if (lineEnd < 0) lineEnd = s.length;
     final from = math.max(lineStart, match.start - beforeChars);
     final to = math.min(lineEnd, match.end + afterChars);
-    String squash(String part) => part.replaceAll(RegExp(r'\s+'), ' ');
+    String squash(String part) => part.replaceAll(_whitespaceRun, ' ');
     return PdfSearchResult(
       match: match,
       prefix: (from > lineStart ? '… ' : '') +
