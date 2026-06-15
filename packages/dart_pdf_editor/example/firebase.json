@@ -7,6 +7,18 @@
         "source": "**",
         "destination": "/index.html"
       }
+    ],
+    "headers": [
+      { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/flutter_service_worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      {
+        "comment": "Cross-origin isolation: required for SharedArrayBuffer, which skwasm's multithreaded (--wasm) renderer uses. Without these, the wasm renderer falls back to single-threaded skwasm_heavy. COEP:require-corp means every subresource must be same-origin or send CORP/CORS; the Flutter shell + skwasm assets and the render worker are all same-origin, and PDFs are loaded from the local file picker (not fetched), so this is safe here.",
+        "source": "**",
+        "headers": [
+          { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+          { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" }
+        ]
+      }
     ]
   }
 }

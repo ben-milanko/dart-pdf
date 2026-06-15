@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 0.1.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.5.0
@@ -26,11 +26,21 @@ dependencies:
   url_launcher: ^6.3.0
   shared_preferences: ^2.3.0
   desktop_drop: ^0.7.0
+  # Reads the version stamped into the build artifact (derived from the
+  # pubspec version above), so the About box can't drift from the release.
+  package_info_plus: ^10.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # Only used by tool/screenshots_main.dart (not by lib/) to borrow the
+  # example's feature-showcase document for marketing screenshots.
+  pdf_viewer_example:
+    path: ../packages/dart_pdf_editor/example
+
+  # Programmatically-built PDFs for widget tests.
+  pdf_test_fixtures: ^1.0.0
 
 flutter:
   uses-material-design: true

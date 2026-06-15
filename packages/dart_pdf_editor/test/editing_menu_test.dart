@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -210,13 +211,114 @@ void main() {
       expect(identical(received!.controller, editing), isTrue);
     });
 
-    testWidgets('right-click on empty page space shows nothing',
+    testWidgets('right-click on empty page space shows no annotation menu',
         (tester) async {
       final editing = await pumpViewer(tester);
 
       await rightClick(tester, viewPoint(450, 400));
       expect(find.text('Bring to front'), findsNothing);
       expect(editing.hasAnnotationSelection, isFalse);
+    });
+  });
+
+  group('text context menu (mouse)', () {
+    // a plain reader (no editing controller); fixture text 'Page 1' sits
+    // at 72,720 in 24pt Helvetica ('Page' spans x 72..120)
+    Future<PdfViewerController> pumpReader(WidgetTester tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: PdfDocument.open(buildMultiPagePdf(1)),
+            controller: controller,
+          ),
+        ),
+      ));
+      await tester.pump();
+      return controller;
+    }
+
+    Future<void> rightClick(WidgetTester tester, Offset at) async {
+      await tester.tapAt(at,
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('right-click on a word selects it and opens the text menu',
+        (tester) async {
+      final controller = await pumpReader(tester);
+
+      await rightClick(tester, viewPoint(100, 720)); // 'Page'
+      expect(controller.selectedText, 'Page');
+      expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-menu-select-all')),
+          findsOneWidget);
+      final copy = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-text-menu-copy')));
+      expect(copy.enabled, isTrue);
+    });
+
+    testWidgets('Copy puts the selection on the system clipboard',
+        (tester) async {
+      await pumpReader(tester);
+      final copied = <String?>[];
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String?);
+        }
+        return null;
+      });
+
+      await rightClick(tester, viewPoint(100, 720));
+      await tester.tap(find.byKey(const ValueKey('pdf-text-menu-copy')));
+      await tester.pumpAndSettle();
+      expect(copied, ['Page']);
+    });
+
+    testWidgets('Select all selects the whole page text', (tester) async {
+      final controller = await pumpReader(tester);
+
+      await rightClick(tester, viewPoint(100, 720));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-text-menu-select-all')));
+      await tester.pumpAndSettle();
+      expect(controller.selectedText, 'Page 1');
+    });
+
+    testWidgets('Copy is disabled over blank space, Select all stays on',
+        (tester) async {
+      final controller = await pumpReader(tester);
+
+      await rightClick(tester, viewPoint(450, 400)); // no text here
+      expect(controller.hasSelection, isFalse);
+      final copy = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-text-menu-copy')));
+      expect(copy.enabled, isFalse);
+      final all = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')));
+      expect(all.enabled, isTrue);
+    });
+
+    testWidgets('a right-click inside an existing selection keeps it',
+        (tester) async {
+      final controller = await pumpReader(tester);
+
+      // first right-click selects the word 'Page' and opens the menu
+      await rightClick(tester, viewPoint(100, 720));
+      expect(controller.selectedText, 'Page');
+      // dismiss the menu (tap the modal barrier) without clearing the
+      // viewer's text selection
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(controller.selectedText, 'Page');
+
+      // a second right-click inside the selection must not collapse it
+      // back to a single word
+      await rightClick(tester, viewPoint(110, 720));
+      expect(controller.selectedText, 'Page');
     });
   });
 }

@@ -109,6 +109,19 @@ class PdfAnnotation {
     return nm is CosString ? nm.text : null;
   }
 
+  /// The /Name appearance/icon name (§12.5.6.x): the named icon a /Text
+  /// or /Stamp annotation draws (e.g. `Comment`, `Approved`, `Check`).
+  /// Distinct from [name], which reads /NM.
+  String? get iconName {
+    final n = document.cos.resolve(dict['Name']);
+    return n is CosName ? n.value : null;
+  }
+
+  /// Whether this is a count check-mark: a /Stamp whose /Name is `Check`,
+  /// placed by the editor's count tool. The editing UI tallies these
+  /// Bluebeam-style.
+  bool get isCheckMark => subtype == 'Stamp' && iconName == 'Check';
+
   /// The /C color as 0xRRGGBB, if present. Gray and CMYK component
   /// counts are converted; an empty array (explicit "no color") and
   /// malformed entries resolve to null.

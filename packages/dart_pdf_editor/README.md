@@ -159,6 +159,34 @@ toggle that swaps in `PdfReader`) plus the app-side concerns: file
 open/save dialogs, theme mode, and Flutter overlays pinned onto PDF
 pages. It runs on all six platforms.
 
+## Web rendering
+
+On the web the viewer renders on the main thread by default — nothing to
+configure. For heavy/CAD documents you can move page interpretation and
+image decode onto a **Web Worker** (the web counterpart of the native
+background isolate): build the worker bundle, then point the app at it.
+
+```sh
+dart run dart_pdf_editor:build_web_worker   # writes web/pdf_render_worker.dart.js
+```
+
+```dart
+void main() {
+  if (kIsWeb) {
+    pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+  }
+  runApp(...);
+}
+```
+
+`PdfReader`/`PdfEditorView` pick it up automatically, and if the script is
+missing it degrades to main-thread rendering — it's a pure opt-in upgrade.
+For multithreaded WebAssembly raster, build with `flutter build web --wasm`
+and serve the cross-origin-isolation headers (`Cross-Origin-Opener-Policy:
+same-origin`, `Cross-Origin-Embedder-Policy: require-corp`). Full setup, the
+dart2wasm-host notes, and the worker protocol are in
+[doc/render_worker_web.md](https://github.com/ben-milanko/dart-pdf/blob/main/doc/render_worker_web.md).
+
 ## Under the hood
 
 Encrypted files (RC4/AES-128/AES-256, encrypt-on-write), digital

@@ -2,6 +2,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
+import 'image_pixels.dart';
 import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
@@ -125,9 +126,19 @@ class PdfImageRequest {
     this.isStencil = false,
     this.stencilColor = PdfColor.black,
     this.isInline = false,
+    this.decoded,
   });
 
   final CosStream stream;
+
+  /// Premultiplied RGBA pixels decoded off-thread by a [PdfRenderWorker] and
+  /// carried back with the recorded command, or null when this image is to be
+  /// decoded locally (every non-worker render path). When present the
+  /// consumer hands these straight to the engine codec instead of running the
+  /// pure-Dart decode — the point of the worker's image-decode offload. The
+  /// [stream] is still serialized so the decoded pixels cache by content like
+  /// every other render path.
+  final PdfDecodedPixels? decoded;
 
   /// True for inline images (`BI .. ID .. EI`). Their [stream] is
   /// synthesized fresh on every interpretation pass, so consumers that

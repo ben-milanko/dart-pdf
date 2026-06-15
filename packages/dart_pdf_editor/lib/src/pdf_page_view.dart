@@ -6,8 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'perf_log.dart';
 import 'preview_cache.dart';
 import 'render_scheduler.dart';
+import 'render_worker.dart';
 import 'renderer.dart';
 
 /// Displays a single PDF page, rendered natively in Dart.
@@ -31,9 +33,17 @@ class PdfPageView extends StatefulWidget {
     this.renderScheduler,
     this.previewCache,
     this.previewIndex = 0,
+    this.renderWorker,
   });
 
   final PdfPage page;
+
+  /// Offloads this page's interpretation (the content-stream parse + walk)
+  /// to a background isolate when set and [showAnnotations] matches a
+  /// serializable page — the picture is then replayed cheaply on this
+  /// thread. Image-bearing pages and the null fallback render locally. Must
+  /// be a worker started over the same bytes [page] belongs to.
+  final PdfRenderWorker? renderWorker;
 
   /// Shared low-res previews (see [PdfPagePreviewCache]): while this
   /// page's full render is pending — most visibly under [renderHold]
@@ -192,6 +202,13 @@ class _PdfPageViewState extends State<PdfPageView> {
       oldWidget.renderScheduler?.cancel(this);
       // the new scheduler picks this page up on its next _render
     }
+    if (oldWidget.previewIndex != widget.previewIndex) {
+      // The lazy list reused this State for a different page (it scrolled into
+      // this slot): cancel the old page's queued worker request — the user
+      // scrolled past it, so decoding it now would only delay the page now on
+      // screen. The in-flight one can't be preempted; this clears the backlog.
+      oldWidget.renderWorker?.cancel(oldWidget.previewIndex, priority: 0);
+    }
     if (!identical(oldWidget.previewCache, widget.previewCache) ||
         oldWidget.previewIndex != widget.previewIndex) {
       oldWidget.previewCache?.removeListener(_onPreviewCacheChanged);
@@ -220,6 +237,11 @@ class _PdfPageViewState extends State<PdfPageView> {
   void dispose() {
     widget.renderHold?.removeListener(_onRenderHoldChanged);
     widget.renderScheduler?.cancel(this);
+    // Scrolled out of the cache window: drop this page's queued worker request
+    // so the worker's next slot serves a page still on screen (the abandoned
+    // result is ignored — _interpretPicture's !mounted guard skips the local
+    // fallback). No-op if nothing is queued for it.
+    widget.renderWorker?.cancel(widget.previewIndex, priority: 0);
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _dropPicture();
     _image?.dispose();
@@ -289,15 +311,82 @@ class _PdfPageViewState extends State<PdfPageView> {
     await _renderNow();
   }
 
+  /// Interprets the page into a picture, off the UI thread when a worker is
+  /// available and the page is serializable, else locally. The worker path
+  /// records the page on a background isolate and replays the returned
+  /// command buffer here (cheap); image-bearing pages come back null and
+  /// fall through to the local recorded render.
+  Future<ui.Picture> _interpretPicture() async {
+    final pageIndex = widget.previewIndex;
+    final worker = widget.renderWorker;
+    if (worker != null && worker.isActive) {
+      // priority 0: the on-screen page preempts background prefetch
+      final commands = await worker.record(pageIndex,
+          annotations: widget.showAnnotations, priority: 0);
+      // Abandoned while the worker ran — the State was disposed or the lazy
+      // list recycled it onto another page (this is the cancel() path: a
+      // cancelled request returns null). Skip the local fallback: the page is
+      // gone, so a re-interpret would burn the UI thread for nothing — exactly
+      // what the worker exists to avoid. Note we DON'T gate on the render
+      // generation here: a newer same-page render (e.g. a zoom mid-interpret)
+      // reuses this very future, so the picture must still be produced for it.
+      if (_abandoned(pageIndex)) return _emptyPicture();
+      if (commands != null) {
+        _lastInterpretPath = 'worker';
+        return PdfPageRenderer.pictureFromCommands(widget.page, commands,
+            pageColor: widget.pageColor);
+      }
+    }
+    if (_abandoned(pageIndex)) return _emptyPicture();
+    // The worker may be active yet decline this page (it returns null), in
+    // which case the interpret runs here — the log must say so, not 'worker'.
+    _lastInterpretPath = 'recorded';
+    return PdfPageRenderer.renderPictureRecorded(widget.page,
+        pageColor: widget.pageColor, annotations: widget.showAnnotations);
+  }
+
+  /// Whether the page this render was for is gone — the widget unmounted, or
+  /// the lazy list recycled this State onto a different page. Picture
+  /// production stops here (no wasted local interpret); painting is gated
+  /// separately by [_superseded], which also rejects a stale generation.
+  bool _abandoned(int pageIndex) => !mounted || widget.previewIndex != pageIndex;
+
+  /// Whether a render started at ([generation], [pageIndex]) must not paint —
+  /// [_abandoned], or a newer render bumped the generation past this one.
+  bool _superseded(int generation, int pageIndex) =>
+      _abandoned(pageIndex) || generation != _renderGeneration;
+
+  /// A zero-op picture for an abandoned render. Never painted (the caller's
+  /// [_superseded] guards discard it); it only satisfies the return type.
+  ui.Picture _emptyPicture() {
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder);
+    return recorder.endRecording();
+  }
+
+  /// Which path [_interpretPicture] actually took, for the perf log — 'worker'
+  /// only when a command buffer came back and replayed, else 'recorded'.
+  String _lastInterpretPath = 'recorded';
+
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
     final generation = ++_renderGeneration;
-    final picture = await (_picture ??= PdfPageRenderer.renderPicture(
-        widget.page,
-        pageColor: widget.pageColor,
-        annotations: widget.showAnnotations));
-    if (!mounted || generation != _renderGeneration) return;
+    final pageIndex = widget.previewIndex;
+    final firstInterpret = _picture == null;
+    final sw = Stopwatch()..start();
+    final picture = await (_picture ??= _interpretPicture());
+    sw.stop();
+    // Bail before logging when superseded — an abandoned interpret (page
+    // recycled, disposed, or cancelled prefetch) never paints, so logging it
+    // as a 'recorded' interpret would be a phantom UI-thread cost.
+    if (_superseded(generation, pageIndex)) return;
+    if (firstInterpret) {
+      PdfPerfLog.interpret(pageIndex,
+          path: _lastInterpretPath,
+          interpretMs: sw.elapsedMicroseconds / 1000.0,
+          first: true);
+    }
     final effective = _effectiveRatio();
     // Skip the full-page readback when the cached raster is already at
     // this resolution: a settle that only moved the detail patch reaches
@@ -310,7 +399,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (stale) {
       final image = await PdfPageRenderer.rasterize(
           picture, PdfPageRenderer.pageSize(widget.page), effective);
-      if (!mounted || generation != _renderGeneration) {
+      if (_superseded(generation, pageIndex)) {
         image.dispose();
         return;
       }

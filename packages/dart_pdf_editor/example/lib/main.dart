@@ -5,11 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show PdfPageTextCache;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_ocr_vlm/pdf_ocr_vlm.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'demo_document.dart';
+import 'persistent_cache.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
@@ -61,7 +64,17 @@ Future<Uint8List?> _pickFont(BuildContext context) =>
     openFile(acceptedTypeGroups: const [_fontTypeGroup])
         .then((file) => file?.readAsBytes());
 
-void main() => runApp(const ViewerApp());
+void main() {
+  // On web, point the render worker at its compiled script so the heavy page
+  // interpretation + image decode run in a dedicated Web Worker instead of on
+  // the UI thread (the deploy workflow compiles it with
+  // `dart run dart_pdf_editor:build_web_worker`). With no script present the
+  // worker degrades to local rendering, so this is safe before a worker build.
+  if (kIsWeb) {
+    pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+  }
+  runApp(const ViewerApp());
+}
 
 class ViewerApp extends StatefulWidget {
   const ViewerApp({super.key});
@@ -114,6 +127,20 @@ class ViewerScreen extends StatefulWidget {
 class _ViewerScreenState extends State<ViewerScreen> {
   PdfEditingPreferences get _prefs => widget.prefs;
 
+  /// App-wide on-disk caches sharing one persistent backend (filesystem on
+  /// native, IndexedDB on web — see persistent_cache.dart). The raster
+  /// cache makes a reopened document paint soft page content immediately
+  /// instead of blank paper; the text cache lets search reuse a prior
+  /// session's extraction instead of re-walking every page. Separate
+  /// namespaces keep their byte budgets independent.
+  final PdfCacheStore _cacheStore = createPersistentCacheStore();
+  late final PdfRasterCache _rasterCache = PdfRasterCache(
+    PdfDiskCache(_cacheStore, namespace: 'previews'),
+  );
+  late final PdfPageTextCache _textCache = PdfPageTextCache(
+    PdfDiskCache(_cacheStore, namespace: 'text'),
+  );
+
   /// One entry per open document. Each tab owns its own edit session and
   /// viewer controller, so switching tabs preserves each document's
   /// edits, undo history, and any demo-specific state.
@@ -126,6 +153,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// Demo of the two drop-in widgets: the toggle swaps the full
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
+
+  /// OCR connection settings, supplied through the credentials dialog and
+  /// remembered for the app's lifetime (the API key is deliberately kept in
+  /// memory only — the example never writes a secret to disk). Defaults to a
+  /// local vLLM/dots.ocr server; see the pdf_ocr_vlm README to run one.
+  String _ocrEndpoint = 'http://localhost:8000/v1/chat/completions';
+  String _ocrModel = 'model';
+  String? _ocrApiKey;
 
   /// GoTo and the standard named page actions never get here (the viewer
   /// follows them itself). Custom-scheme URIs are dispatched as app
@@ -418,6 +453,77 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Adds an invisible, selectable/searchable OCR text layer over the
+  /// active document using a self-hosted vision-language OCR model
+  /// (pdf_ocr_vlm). Prompts for the service endpoint and an optional API
+  /// key/token first, then runs every page and opens the result in a new
+  /// tab. The original is left untouched.
+  Future<void> _runOcr() async {
+    final tab = _active;
+    final bytes = tab?.session?.bytes;
+    if (tab == null || bytes == null) {
+      _toast('Open a document before running OCR');
+      return;
+    }
+
+    // Supply / confirm the OCR service credentials.
+    final settings = await showDialog<_OcrSettings>(
+      context: context,
+      builder: (_) => _OcrSettingsDialog(
+        endpoint: _ocrEndpoint,
+        model: _ocrModel,
+        apiKey: _ocrApiKey,
+        onOpenDocs: () => _openLink(Uri.parse(
+            'https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_ocr_vlm')),
+      ),
+    );
+    if (settings == null) return; // cancelled
+    setState(() {
+      _ocrEndpoint = settings.endpoint;
+      _ocrModel = settings.model;
+      _ocrApiKey = settings.apiKey;
+    });
+
+    final progress = ValueNotifier<String>('Preparing…');
+    if (!mounted) return;
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _OcrProgressDialog(progress: progress),
+    ));
+
+    final engine = VlmOcrEngine.dotsOcr(
+      endpoint: Uri.parse(settings.endpoint),
+      model: settings.model.isEmpty ? 'model' : settings.model,
+      apiKey: (settings.apiKey?.isNotEmpty ?? false) ? settings.apiKey : null,
+    );
+    try {
+      final editor = PdfEditor(PdfDocument.open(bytes));
+      final count = editor.document.pageCount;
+      var spans = 0;
+      for (var i = 0; i < count; i++) {
+        progress.value = 'Recognising page ${i + 1} of $count…';
+        spans += await editor.applyOcr(i, engine, pixelRatio: 2);
+      }
+      final result = editor.save();
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // dismiss progress
+      _openBytes(result, '${tab.title} (OCR)');
+      _toast('OCR added $spans text spans — the page text is now selectable');
+    } on VlmOcrException catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      _toast('OCR failed: ${e.message}');
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      _toast('OCR failed: $e');
+    } finally {
+      engine.close();
+      progress.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final tab = _active;
@@ -508,6 +614,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
             onSelected: (action) => action(),
             itemBuilder: (context) => [
               PopupMenuItem(
+                value: () => unawaited(_runOcr()),
+                enabled: tab?.session != null,
+                child: const ListTile(
+                  leading: Icon(Icons.document_scanner_outlined),
+                  title: Text('Add OCR text layer…'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
                 value: () => _openLink(_githubUrl),
                 child: const ListTile(
                   leading: Icon(Icons.code),
@@ -569,6 +685,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           documentId: tab.title,
                           controller: tab.viewer,
                           preferences: _prefs,
+                          rasterCache: _rasterCache,
+                          textCache: _textCache,
                           onAction: _onAction,
                           pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
                         )
@@ -577,6 +695,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           documentId: tab.title,
                           controller: tab.session,
                           viewerController: tab.viewer,
+                          rasterCache: _rasterCache,
+                          textCache: _textCache,
                           onSave: (saved) => unawaited(_saveAs(saved)),
                           onPickPdfToInsert: _pickPdfBytes,
                           onExportPages: (bytes) => unawaited(_saveAs(bytes)),
@@ -730,6 +850,168 @@ class _DocumentTab {
     session?.dispose();
     viewer?.dispose();
     noteField.dispose();
+  }
+}
+
+/// The OCR service connection the credentials dialog returns.
+class _OcrSettings {
+  const _OcrSettings({required this.endpoint, required this.model, this.apiKey});
+
+  final String endpoint;
+  final String model;
+  final String? apiKey;
+}
+
+/// Collects the OCR service endpoint, model name, and an optional API
+/// key/token before a run — the "supply credentials / login" step. The key
+/// is sent as an `Authorization: Bearer …` header by the engine.
+class _OcrSettingsDialog extends StatefulWidget {
+  const _OcrSettingsDialog({
+    required this.endpoint,
+    required this.model,
+    required this.apiKey,
+    required this.onOpenDocs,
+  });
+
+  final String endpoint;
+  final String model;
+  final String? apiKey;
+  final VoidCallback onOpenDocs;
+
+  @override
+  State<_OcrSettingsDialog> createState() => _OcrSettingsDialogState();
+}
+
+class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
+  late final _endpoint = TextEditingController(text: widget.endpoint);
+  late final _model = TextEditingController(text: widget.model);
+  late final _apiKey = TextEditingController(text: widget.apiKey ?? '');
+  bool _obscureKey = true;
+
+  @override
+  void dispose() {
+    _endpoint.dispose();
+    _model.dispose();
+    _apiKey.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Run OCR'),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Adds a selectable, searchable text layer over scanned pages '
+              'using a vision-language OCR model you host (dots.ocr on vLLM, '
+              'or any OpenAI-compatible OCR endpoint).',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const ValueKey('ocr-endpoint'),
+              controller: _endpoint,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Service endpoint',
+                hintText: 'http://localhost:8000/v1/chat/completions',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('ocr-model'),
+              controller: _model,
+              decoration: const InputDecoration(
+                labelText: 'Model name',
+                hintText: 'model',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('ocr-api-key'),
+              controller: _apiKey,
+              obscureText: _obscureKey,
+              decoration: InputDecoration(
+                labelText: 'API key / token (optional)',
+                helperText: 'Sent as Authorization: Bearer …',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                      _obscureKey ? Icons.visibility : Icons.visibility_off),
+                  tooltip: _obscureKey ? 'Show' : 'Hide',
+                  onPressed: () => setState(() => _obscureKey = !_obscureKey),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                icon: const Icon(Icons.help_outline, size: 18),
+                label: const Text('How to set up an OCR server'),
+                onPressed: widget.onOpenDocs,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          key: const ValueKey('ocr-run'),
+          icon: const Icon(Icons.document_scanner_outlined),
+          label: const Text('Run OCR'),
+          onPressed: () {
+            final endpoint = _endpoint.text.trim();
+            if (endpoint.isEmpty) return;
+            final key = _apiKey.text.trim();
+            Navigator.of(context).pop(_OcrSettings(
+              endpoint: endpoint,
+              model: _model.text.trim(),
+              apiKey: key.isEmpty ? null : key,
+            ));
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// Modal shown while OCR runs; [progress] reports the current page.
+class _OcrProgressDialog extends StatelessWidget {
+  const _OcrProgressDialog({required this.progress});
+
+  final ValueListenable<String> progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      content: Row(
+        children: [
+          const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: ValueListenableBuilder<String>(
+              valueListenable: progress,
+              builder: (context, value, _) => Text(value),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

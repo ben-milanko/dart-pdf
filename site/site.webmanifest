@@ -1,0 +1,11 @@
+{
+  "name": "DartPDF",
+  "short_name": "DartPDF",
+  "icons": [
+    { "src": "/assets/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/assets/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ],
+  "theme_color": "#0169b4",
+  "background_color": "#ffffff",
+  "display": "browser"
+}

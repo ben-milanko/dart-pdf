@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../page_range_dialog.dart';
 import '../pdf_viewer.dart';
+import '../render_worker.dart';
 import '../renderer.dart';
 import '../scrollbar.dart';
 import '../toast.dart';
@@ -61,9 +62,15 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.bottomSheet = false,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.renderWorker,
   });
 
   final PdfEditingController controller;
+
+  /// Offloads tile interpretation to a background isolate (see
+  /// [PdfViewer.renderWorker]) so rasterizing thumbnails of heavy pages
+  /// doesn't block the UI thread. Pass the same worker the viewer uses.
+  final PdfRenderWorker? renderWorker;
 
   /// The viewer to navigate when a thumbnail is tapped.
   final PdfViewerController viewerController;
@@ -387,6 +394,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                       allowPageEditing: widget.allowPageEditing,
                       cache: _cache,
                       tileWidth: _tileWidth,
+                      renderWorker: widget.renderWorker,
                     );
                     // without the drag listener no reorder can ever start
                     return widget.allowPageEditing
@@ -603,6 +611,7 @@ class _PageTile extends StatelessWidget {
     required this.allowPageEditing,
     required this.cache,
     required this.tileWidth,
+    required this.renderWorker,
   });
 
   final PdfEditingController controller;
@@ -613,6 +622,7 @@ class _PageTile extends StatelessWidget {
   final bool allowPageEditing;
   final _ThumbnailCache cache;
   final double tileWidth;
+  final PdfRenderWorker? renderWorker;
 
   /// WCAG-style contrast ratio between two opaque colors.
   static double _contrast(Color a, Color b) {
@@ -700,6 +710,7 @@ class _PageTile extends StatelessWidget {
                         showAnnotations: showAnnotations,
                         cache: cache,
                         tileWidth: tileWidth,
+                        renderWorker: renderWorker,
                       ),
                     ),
                     if (viewport != null)
@@ -759,6 +770,7 @@ class _PageThumbnail extends StatefulWidget {
     required this.showAnnotations,
     required this.cache,
     required this.tileWidth,
+    required this.renderWorker,
   });
 
   final PdfEditingController controller;
@@ -767,6 +779,7 @@ class _PageThumbnail extends StatefulWidget {
   final bool showAnnotations;
   final _ThumbnailCache cache;
   final double tileWidth;
+  final PdfRenderWorker? renderWorker;
 
   @override
   State<_PageThumbnail> createState() => _PageThumbnailState();
@@ -809,6 +822,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     final pageColor = widget.pageColor;
     final annotations = widget.showAnnotations;
     final cache = widget.cache;
+    final worker = widget.renderWorker;
     cache.enqueue(() async {
       // superseded (newer revision, resize) or already landed — skip
       if (!mounted || _pendingKey != key) return;
@@ -819,10 +833,36 @@ class _PageThumbnailState extends State<_PageThumbnail> {
         final page = controller.pageAt(pageIndex);
         final size = PdfPageRenderer.pageSize(page);
         if (size.width <= 0 || size.height <= 0) return;
-        final image = await PdfPageRenderer.renderImage(page,
-            pixelRatio: pixelWidth / size.width,
-            pageColor: pageColor,
-            annotations: annotations);
+        final ratio = pixelWidth / size.width;
+        // priority 2: thumbnails yield to the on-screen page (0) and its
+        // previews (1); the heavy interpret runs on the isolate, only the
+        // small replay + raster stays here. Image pages and the web
+        // fallback return null and rasterize locally as before.
+        final commands = worker != null && worker.isActive
+            ? await worker.record(pageIndex,
+                annotations: annotations, priority: 2)
+            : null;
+        if (!mounted || _pendingKey != key) return;
+        final ui.Image image;
+        if (commands != null) {
+          final picture = await PdfPageRenderer.pictureFromCommands(
+              page, commands,
+              pageColor: pageColor);
+          if (!mounted || _pendingKey != key) {
+            picture.dispose();
+            return;
+          }
+          try {
+            image = await PdfPageRenderer.rasterize(picture, size, ratio);
+          } finally {
+            picture.dispose();
+          }
+        } else {
+          image = await PdfPageRenderer.renderImage(page,
+              pixelRatio: ratio,
+              pageColor: pageColor,
+              annotations: annotations);
+        }
         PdfThumbnailSidebar.debugRasterizations++;
         cache.put(key, image);
         if (!mounted || _pendingKey != key) return;

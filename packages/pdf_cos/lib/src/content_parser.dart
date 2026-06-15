@@ -22,93 +22,163 @@ class ContentOperation {
 class ContentStreamParser {
   ContentStreamParser._();
 
+  /// Shared immutable [CosInteger]s for the small values that saturate a
+  /// content stream — text/graphics-state modes, glyph indices, colour
+  /// components, small coordinates. Content streams are integer-dense, and
+  /// a [CosInteger] is an immutable value object, so handing out one shared
+  /// instance per small value spares millions of allocations on heavy (CAD)
+  /// pages without changing any observable behaviour (equality is by value).
+  static final List<CosInteger> _smallInts =
+      List<CosInteger>.generate(258, (i) => CosInteger(i - 1));
+
+  static CosObject _intObject(int value) =>
+      (value >= -1 && value <= 256) ? _smallInts[value + 1] : CosInteger(value);
+
   static List<ContentOperation> parse(Uint8List content) {
+    // Drive the lexer directly rather than through [CosParser]: a content
+    // stream is a flat token stream (no indirect references, so none of
+    // parseObject's `N G R` lookahead applies), and on a 10 MB CAD page the
+    // peek/lookahead-list traffic and the per-operation operand copy
+    // dominate. Pulling tokens straight from the lexer and handing each
+    // finished operation its own operand list (no copy, no clear) roughly
+    // halves the parse.
     final operations = <ContentOperation>[];
-    final parser = CosParser(content);
-    final operands = <CosObject>[];
+    final lexer = CosLexer(content);
+    var operands = <CosObject>[];
     while (true) {
-      final t = parser.peekToken();
-      if (t.type == CosTokenType.eof) break;
-      // Numbers are by far the most common operand; take them directly. In a
-      // content stream a bare `N G R` is never an indirect reference (those
-      // only exist in the document body), so skip parseObject's reference
-      // lookahead — matching how reference renderers read content streams.
-      if (t.type == CosTokenType.integer) {
-        parser.nextToken();
-        operands.add(CosInteger(t.intValue));
-        continue;
-      }
-      if (t.type == CosTokenType.real) {
-        parser.nextToken();
-        operands.add(CosReal(t.realValue));
-        continue;
-      }
-      if (t.type == CosTokenType.arrayOpen) {
-        operands.add(_parseLenientArray(parser));
-        continue;
-      }
-      if (t.type != CosTokenType.keyword) {
-        operands.add(parser.parseObject());
-        continue;
-      }
-      switch (t.textValue) {
-        // true/false/null are operands, not operators
-        case 'true' || 'false' || 'null':
-          operands.add(parser.parseObject());
-        case 'BI':
-          operations.add(_parseInlineImage(parser));
-          operands.clear();
+      final t = lexer.nextToken();
+      switch (t.type) {
+        case CosTokenType.eof:
+          return operations;
+        // Numbers are by far the most common operand (every coordinate,
+        // colour, index); build them inline on the hot path.
+        case CosTokenType.integer:
+          operands.add(_intObject(t.intValue));
+        case CosTokenType.real:
+          operands.add(CosReal(t.realValue));
+        case CosTokenType.keyword:
+          final keyword = t.textValue;
+          // true/false/null are operands, not operators.
+          switch (keyword) {
+            case 'true':
+              operands.add(const CosBoolean(true));
+            case 'false':
+              operands.add(const CosBoolean(false));
+            case 'null':
+              operands.add(CosNull.instance);
+            case 'BI':
+              operations.add(_parseInlineImage(lexer));
+              operands = <CosObject>[];
+            default:
+              // Hand the operation ownership of the operand list and start a
+              // fresh one — equivalent to `List.of(operands)` then clear,
+              // minus the element copy.
+              operations.add(ContentOperation(keyword, operands));
+              operands = <CosObject>[];
+          }
         default:
-          parser.nextToken();
-          operations.add(ContentOperation(t.textValue, List.of(operands)));
-          operands.clear();
+          operands.add(_parseObject(lexer, t));
       }
     }
-    return operations;
   }
 
-  /// Parses an array operand, dropping stray operators found inside it.
-  /// Real-world generators emit junk like `[(a) 0.0 Tc -250.0 (b)] TJ`;
-  /// a strict parse would abort the whole page on the `Tc`.
-  static CosArray _parseLenientArray(CosParser parser) {
-    parser.nextToken(); // [
+  /// Parses one operand object from [first] (already consumed). Mirrors
+  /// [CosParser.parseObject] for the object kinds that appear in content
+  /// streams — no indirect references, no streams.
+  static CosObject _parseObject(CosLexer lexer, CosToken first) {
+    switch (first.type) {
+      case CosTokenType.integer:
+        return _intObject(first.intValue);
+      case CosTokenType.real:
+        return CosReal(first.realValue);
+      case CosTokenType.string:
+        return CosString(first.bytesValue);
+      case CosTokenType.hexString:
+        return CosString(first.bytesValue, isHex: true);
+      case CosTokenType.name:
+        return CosName(first.textValue);
+      case CosTokenType.arrayOpen:
+        return _parseLenientArray(lexer);
+      case CosTokenType.dictOpen:
+        return _parseDictionary(lexer);
+      case CosTokenType.keyword:
+        switch (first.textValue) {
+          case 'true':
+            return const CosBoolean(true);
+          case 'false':
+            return const CosBoolean(false);
+          case 'null':
+            return CosNull.instance;
+        }
+        throw CosParseException(
+            'unexpected keyword "${first.textValue}"', first.offset);
+      case CosTokenType.eof:
+        throw CosParseException('unexpected end of input', first.offset);
+      case CosTokenType.arrayClose:
+      case CosTokenType.dictClose:
+        throw CosParseException('unexpected token $first', first.offset);
+    }
+  }
+
+  /// Parses an array operand (the `[` already consumed), dropping stray
+  /// operators found inside it. Real-world generators emit junk like
+  /// `[(a) 0.0 Tc -250.0 (b)] TJ`; a strict parse would abort the whole page
+  /// on the `Tc`.
+  static CosArray _parseLenientArray(CosLexer lexer) {
     final items = <CosObject>[];
     while (true) {
-      final t = parser.peekToken();
+      final t = lexer.nextToken();
       switch (t.type) {
         case CosTokenType.arrayClose:
-          parser.nextToken();
           return CosArray(items);
         case CosTokenType.eof:
           return CosArray(items); // unterminated — keep what parsed
         case CosTokenType.integer:
-          parser.nextToken();
-          items.add(CosInteger(t.intValue));
+          items.add(_intObject(t.intValue));
         case CosTokenType.real:
-          parser.nextToken();
           items.add(CosReal(t.realValue));
-        case CosTokenType.arrayOpen:
-          items.add(_parseLenientArray(parser));
         case CosTokenType.keyword:
           if (t.textValue == 'true' ||
               t.textValue == 'false' ||
               t.textValue == 'null') {
-            items.add(parser.parseObject());
-          } else {
-            parser.nextToken(); // stray operator — drop it
+            items.add(_parseObject(lexer, t));
           }
+          // else: stray operator — drop it
         default:
-          items.add(parser.parseObject());
+          items.add(_parseObject(lexer, t));
       }
     }
   }
 
-  static ContentOperation _parseInlineImage(CosParser parser) {
-    parser.nextToken(); // BI
+  /// Parses a dictionary operand (the `<<` already consumed). Content-stream
+  /// dictionaries are property lists for marked content (`BDC`/`DP`); they
+  /// never carry a stream.
+  static CosDictionary _parseDictionary(CosLexer lexer) {
     final dict = CosDictionary();
     while (true) {
-      final t = parser.peekToken();
-      if (t.isKeyword('ID')) break;
+      final t = lexer.nextToken();
+      if (t.type == CosTokenType.dictClose) return dict;
+      if (t.type == CosTokenType.eof) {
+        throw CosParseException('unterminated dictionary', t.offset);
+      }
+      if (t.type != CosTokenType.name) {
+        throw CosParseException(
+            'expected name as dictionary key, found $t', t.offset);
+      }
+      dict[t.textValue] = _parseObject(lexer, lexer.nextToken());
+    }
+  }
+
+  static ContentOperation _parseInlineImage(CosLexer lexer) {
+    // `BI` already consumed.
+    final dict = CosDictionary();
+    CosToken idToken;
+    while (true) {
+      final t = lexer.nextToken();
+      if (t.isKeyword('ID')) {
+        idToken = t;
+        break;
+      }
       if (t.type == CosTokenType.eof) {
         throw CosParseException('unterminated inline image', t.offset);
       }
@@ -116,13 +186,11 @@ class ContentStreamParser {
         throw CosParseException(
             'expected name in inline image dictionary, found $t', t.offset);
       }
-      parser.nextToken();
-      dict[t.textValue] = parser.parseObject();
+      dict[t.textValue] = _parseObject(lexer, lexer.nextToken());
     }
-    final idToken = parser.nextToken(); // ID
 
     // Exactly one whitespace byte separates ID from the data (§8.9.7).
-    final bytes = parser.bytes;
+    final bytes = lexer.bytes;
     final dataStart =
         _skipInlineImageDataSeparator(bytes, idToken.offset + 'ID'.length);
     final p = _inlineImageEnd(bytes, dataStart, dict);
@@ -131,7 +199,7 @@ class ContentStreamParser {
       dataEnd--;
     }
     final data = Uint8List.sublistView(bytes, dataStart, dataEnd);
-    parser.seek(p + 'EI'.length);
+    lexer.position = p + 'EI'.length;
     return ContentOperation('BI', [dict, CosString(data)]);
   }
 

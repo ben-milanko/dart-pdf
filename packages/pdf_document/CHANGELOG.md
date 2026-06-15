@@ -10,6 +10,14 @@
   portable. `PdfEmbeddedFont.fromFreeText` recovers the font from a box's
   own appearance for lossless re-editing.
 
+## 1.1.0
+
+- Count tool: `PdfEditor.addCheckMark` places a Bluebeam-style check-mark
+  stamp annotation (with `PdfAnnotation.isCheckMark`/`iconName`) — the
+  building block for a running on-page tally.
+- Fix: JPEG 2000 tile-part desynchronization, and indexed Lab color
+  palettes now decode correctly.
+
 ## 1.0.0
 
 First stable release. Changes since 0.1.0:

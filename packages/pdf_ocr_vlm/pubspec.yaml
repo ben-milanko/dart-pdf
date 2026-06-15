@@ -1,0 +1,32 @@
+name: pdf_ocr_vlm
+description: >-
+  Vision-language-model OCR engine for dart_pdf_editor — add a selectable,
+  searchable text layer over scanned PDF pages using a self-hosted SOTA OCR
+  model (dots.ocr) or any HTTP OCR service.
+version: 0.1.0
+repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_ocr_vlm
+issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
+topics:
+  - pdf
+  - ocr
+  - text-recognition
+  - scanned-documents
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dart_pdf_editor: ^1.0.0
+  pdf_document: ^1.0.0
+  http: ^1.2.0
+
+dev_dependencies:
+  pdf_graphics: ^1.0.0
+  pdf_test_fixtures: ^1.0.0
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter

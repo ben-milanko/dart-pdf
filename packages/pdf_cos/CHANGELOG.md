@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- Performance: a faster content-stream tokenizer — the heart of the
+  render-speed work that puts dart-pdf ahead of PDFium on the benchmark
+  corpus.
+- Fix: JPEG 2000 tile-part desynchronization, and indexed Lab color
+  palettes now decode correctly.
+
 ## 1.0.0
 
 First stable release. Changes since 0.1.0:

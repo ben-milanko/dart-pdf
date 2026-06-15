@@ -33,7 +33,16 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter build web --release
+      # Compile the dedicated Web Worker that runs page interpretation + image
+      # decode off the UI thread. Without it the viewer silently falls back to
+      # on-thread rendering, so heavy PDFs hang the demo while scrolling.
+      - name: Build the render worker
+        working-directory: packages/dart_pdf_editor/example
+        run: dart run dart_pdf_editor:build_web_worker
+
+      # --wasm builds the skwasm (WebAssembly) renderer; the COOP/COEP headers
+      # in firebase.json make it multithreaded (SharedArrayBuffer).
+      - run: flutter build web --release --wasm
         working-directory: packages/dart_pdf_editor/example
 
       - uses: FirebaseExtended/action-hosting-deploy@v0

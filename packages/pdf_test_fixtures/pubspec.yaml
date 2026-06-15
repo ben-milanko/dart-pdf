@@ -2,7 +2,7 @@ name: pdf_test_fixtures
 description: >-
   Programmatically-built PDF files for testing PDF tooling. Builders compute
   every offset, so fixtures are always structurally correct.
-version: 1.0.0
+version: 1.1.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_test_fixtures
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -20,7 +20,7 @@ environment:
 
 dependencies:
   crypto: ^3.0.0
-  pdf_cos: ^1.0.0
+  pdf_cos: ^1.1.0
 
 dev_dependencies:
   lints: ^5.0.0

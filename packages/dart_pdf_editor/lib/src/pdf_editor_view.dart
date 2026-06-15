@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'editing/editing_controller.dart';
 import 'editing/editing_menu.dart';
@@ -11,6 +13,8 @@ import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
 import 'page_number_field.dart';
 import 'pdf_viewer.dart';
+import 'raster_cache.dart';
+import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'theme.dart';
@@ -38,6 +42,7 @@ class PdfEditorFeatures {
     this.styleControls = true,
     this.flatten = true,
     this.tools,
+    this.toolGroups,
   });
 
   /// The slim bar above the viewer (search, page number, panel
@@ -112,6 +117,12 @@ class PdfEditorFeatures {
   /// The tool buttons to offer, null meaning all of them. See
   /// [PdfEditingToolbar.tools].
   final Set<PdfEditTool>? tools;
+
+  /// The tool *types* (dock groups — Select, Markup, Draw, Shapes,
+  /// Insert, Measure, Edit) to offer, null meaning all of them. This is
+  /// the way to disable a whole tool type at once. See
+  /// [PdfEditingToolbar.groups].
+  final Set<PdfEditToolGroup>? toolGroups;
 }
 
 /// A drop-in PDF editor: the [PdfViewer] with every editing tool wired
@@ -171,6 +182,8 @@ class PdfEditorView extends StatefulWidget {
     this.backgroundColor,
     this.pageColor,
     this.viewerTheme,
+    this.rasterCache,
+    this.textCache,
   })  : assert((bytes == null) != (controller == null),
             'Provide bytes or a controller, not both.'),
         assert(controller == null || preferences == null,
@@ -179,6 +192,18 @@ class PdfEditorView extends StatefulWidget {
   /// The PDF to edit. The widget owns the session; replacing the bytes
   /// (by identity) opens a fresh session in place.
   final Uint8List? bytes;
+
+  /// Optional persistent on-disk preview cache (see [PdfRasterCache]).
+  /// Keyed by [documentId] (or, with [bytes], their [pdfContentKey]), so
+  /// reopening a previously-seen document paints soft page content
+  /// immediately. Share one instance across the app to pool its budget.
+  final PdfRasterCache? rasterCache;
+
+  /// Optional persistent on-disk text cache (see [PdfPageTextCache]).
+  /// Threaded to the viewer, but only consulted in read-only mode — an
+  /// active edit session mutates page content, so its text is never served
+  /// from the content-keyed persistent cache (in-memory only).
+  final PdfPageTextCache? textCache;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in the preferences).
@@ -284,6 +309,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfViewerController? _ownedViewer;
   PdfViewportMemory? _viewportMemory;
 
+  // Offloads page interpretation to a background isolate (native; a no-op
+  // fallback on web), keyed to the session's current document. Pure scrolling
+  // spawns one worker; every edit revision produces a new document, so the
+  // stale worker is dropped (pages render locally = correct) and a fresh one
+  // is started over the new bytes. Edits commit at most about once a second
+  // (stroke auto-commit, blur, fill), so respawning per revision is cheap
+  // enough without debouncing.
+  PdfRenderWorker? _worker;
+  PdfDocument? _workerDoc;
+
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
 
@@ -331,15 +366,34 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     }
     _reportedLength = _session.bytes.length;
     _session.addListener(_onSessionChanged);
+    _syncWorker();
   }
 
   void _closeSession() {
+    _worker?.dispose();
+    _worker = null;
+    _workerDoc = null;
     _session.removeListener(_onSessionChanged);
     _ownedSession?.dispose();
     _ownedSession = null;
   }
 
+  /// Keeps [_worker] tied to the session's current document — see the field
+  /// doc. A revision (edit, undo, redo) changes the document identity, so
+  /// the old worker is disposed and a new one started over the current bytes;
+  /// disposing first means the just-edited page renders locally (correctly)
+  /// until the new worker is ready.
+  void _syncWorker() {
+    if (identical(_session.document, _workerDoc)) return;
+    _worker?.dispose();
+    _worker = PdfRenderWorker.start(_session.bytes);
+    _workerDoc = _session.document;
+  }
+
   void _onSessionChanged() {
+    // the merged ListenableBuilder rebuilds the viewer on this same notify,
+    // so swapping the worker here is enough — no setState needed
+    _syncWorker();
     final length = _session.bytes.length;
     if (length == _reportedLength) return;
     _reportedLength = length;
@@ -427,6 +481,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                renderWorker: _worker,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
               PdfSearchResultsPanel(
@@ -612,6 +667,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,
                         highlightFormFields: prefs.highlightFormFields,
+                        renderWorker: _worker,
+                        rasterCache: widget.rasterCache,
+                        textCache: widget.textCache,
+                        documentId: _documentKey,
                       ),
                     ),
                     if (showAnnotationsPanel && !useSheets)
@@ -633,6 +692,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       fontPicker: widget.fontPicker,
                       palette: widget.palette,
                       tools: features.tools,
+                      groups: features.toolGroups,
                       showMarkup: features.markup,
                       showUndoRedo: features.undoRedo,
                       showColor: features.colorControls,

@@ -1,7 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
+- Performance: a substantially faster interpreter — font-info caching,
+  inlined path building, text-show memoization, a shared content-stream
+  parse, and scan-only image collection. dart-pdf now renders faster than
+  PDFium across the benchmark corpus.
+- Background rendering: a record/replay split (`PdfRenderCommand` +
+  `RecordingDevice`) captures a page's draw operations so interpretation
+  can run off the UI thread — the pure-Dart foundation for the editor's
+  background-isolate and Web Worker render backends.
 - Reflow: `PdfReflowPage` now exposes `items` — text blocks and images
   interleaved in reading order (`PdfReflowItem`/`PdfReflowImage`, with the
   `blocks`/`images`/`text` getters unchanged). The extractor records placed
@@ -9,6 +17,12 @@
   sits, drops decorative rules and tiny icons, and de-duplicates repeated
   watermarks. Bullet and numbered list items are split into their own
   blocks (`PdfReflowBlock.isListItem`) instead of folding into the prose.
+- Fonts: CJK CMap decoders for EUC-JP, GBK, Big5, and UHC charsets, so more
+  non-embedded CJK text renders and stays selectable.
+- Patterns: tiling-pattern color approximation when a glyph's font is
+  substituted.
+- Fix: JPEG 2000 tile-part desynchronization, and indexed Lab color
+  palettes now decode correctly.
 
 ## 1.0.0
 
