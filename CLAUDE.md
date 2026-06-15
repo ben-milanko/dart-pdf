@@ -2368,12 +2368,16 @@ to its session in `_openSession`/`_closeSession`, gated to
 default true) so the channel handler isn't claimed needlessly on other
 platforms — which also keeps it OUT of widget tests (flutter_test's default
 platform is android), so existing shell/eraser tests are untouched. Native:
-both iOS runners (`app/ios` + `example/ios` AppDelegate.swift) register a
-`UIPencilInteraction` on the Flutter view in `applicationDidBecomeActive`
-(once `pencilInteraction == nil` and the FlutterViewController exists — the
-new implicit-engine template has no explicit window in didFinishLaunching;
-`rootFlutterViewController()` checks `window?.rootViewController` then the
-connected scenes) and forwards `pencilInteractionDidTap` over the channel.
+both iOS runners (`app/ios` + `example/ios`) are SCENE-BASED
+(`UIApplicationSceneManifest` + `FlutterSceneDelegate`), so the interaction
+is installed from `SceneDelegate.scene(_:willConnectTo:)` — NOT the
+AppDelegate. `AppDelegate.applicationDidBecomeActive` is never called under
+the scene lifecycle (the original PR wired it there and the gesture silently
+never reached Dart on device — that was the bug); the file-open channel was
+already correctly in the SceneDelegate for the same reason.
+`setupPencilInteraction()` registers a `UIPencilInteraction` on
+`window?.rootViewController`'s Flutter view (once `pencilInteraction == nil`)
+and the SceneDelegate's `pencilInteractionDidTap` forwards over the channel.
 The native side does NOT decide the action: it reads
 `UIPencilInteraction.preferredTapAction` (the user's Settings → Apple Pencil
 choice) and forwards it as `{'preferredAction': name}`, so the Dart policy
