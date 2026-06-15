@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added `PdfOcrDownloadCancelToken` so hosts can wire a Cancel button to
+  in-flight model downloads; cancellation removes partial files and throws
+  `PdfOcrModelDownloadCanceled`.
+- Expanded the README download example to display file/overall progress and
+  show where to call `cancel()`.
+
 ## 0.1.0
 
 - Initial release. On-device, downloadable OCR for `dart_pdf_editor`.

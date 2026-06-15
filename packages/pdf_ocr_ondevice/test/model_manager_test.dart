@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -71,6 +72,44 @@ void main() {
     expect(progress, isNotEmpty);
     expect(progress.last.receivedBytes, 4 + 4 + 2);
     expect(progress.last.fraction, closeTo(1.0, 1e-9));
+    manager.close();
+  });
+
+  test('download can be canceled and removes the partial file', () async {
+    final cancelToken = PdfOcrDownloadCancelToken();
+    final client = MockClient((req) async {
+      return http.StreamedResponse(
+        Stream<List<int>>.fromIterable([
+          [1, 2],
+          [3, 4],
+        ]),
+        200,
+        contentLength: 4,
+      );
+    });
+    final manager = managerWith(client);
+    final model = _modelFor(base);
+    final progress = <PdfOcrDownloadProgress>[];
+
+    await expectLater(
+      manager.download(
+        model,
+        cancelToken: cancelToken,
+        onProgress: (p) {
+          progress.add(p);
+          cancelToken.cancel();
+        },
+      ),
+      throwsA(isA<PdfOcrModelDownloadCanceled>()),
+    );
+
+    expect(progress, isNotEmpty);
+    expect(await manager.isDownloaded(model), isFalse);
+    final dir = await manager.directory(model);
+    final leftovers = dir.existsSync()
+        ? dir.listSync().where((e) => e.path.endsWith('.part')).toList()
+        : const [];
+    expect(leftovers, isEmpty);
     manager.close();
   });
 
