@@ -33,6 +33,7 @@ export 'src/pdf_reader.dart';
 export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
 export 'src/preview_cache.dart';
+export 'src/raster_cache.dart';
 export 'src/render_scheduler.dart';
 export 'src/render_worker.dart';
 export 'src/renderer.dart';
