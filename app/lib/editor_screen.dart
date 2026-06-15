@@ -613,6 +613,15 @@ class _EditorScreenState extends State<EditorScreen>
         tooltip: 'Open PDF in a new tab',
         onPressed: _pickAndOpen,
       ),
+      if (tab?.session != null && OnDeviceOcr.isSupported)
+        IconButton(
+          key: const ValueKey('ocr-action'),
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.document_scanner_outlined),
+          tooltip:
+              kIsWeb ? 'Add AI OCR text layer' : 'Add on-device OCR text layer',
+          onPressed: () => unawaited(_runOcr()),
+        ),
       PopupMenuButton<VoidCallback>(
         icon: const Icon(Icons.more_vert),
         tooltip: 'More',
