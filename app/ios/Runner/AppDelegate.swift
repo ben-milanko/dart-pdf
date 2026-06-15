@@ -60,6 +60,20 @@ import UIKit
 @available(iOS 12.1, *)
 extension AppDelegate: UIPencilInteractionDelegate {
   func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
-    pencilChannel?.invokeMethod("pencilDoubleTap", arguments: nil)
+    // Forward the user's Settings → Apple Pencil choice so the Dart side
+    // honors it (notably "Off"); the runner doesn't decide the action.
+    pencilChannel?.invokeMethod(
+      "pencilDoubleTap",
+      arguments: ["preferredAction": preferredActionName()])
+  }
+
+  private func preferredActionName() -> String {
+    switch UIPencilInteraction.preferredTapAction {
+    case .ignore: return "ignore"
+    case .switchEraser: return "switchEraser"
+    case .switchPrevious: return "switchPrevious"
+    case .showColorPalette: return "showColorPalette"
+    @unknown default: return "unspecified"
+    }
   }
 }

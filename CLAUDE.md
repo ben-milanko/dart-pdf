@@ -2288,9 +2288,21 @@ both iOS runners (`app/ios` + `example/ios` AppDelegate.swift) register a
 new implicit-engine template has no explicit window in didFinishLaunching;
 `rootFlutterViewController()` checks `window?.rootViewController` then the
 connected scenes) and forwards `pencilInteractionDidTap` over the channel.
-Tests: editing_pencil_test.dart (9 — all toggle branches incl. reader-mode
-restore + hand-armed-eraser→ink + pairing-break, channel double-tap toggles,
-custom action override, dispose clears the handler, unknown method ignored;
-the binding test delivers the call via
-`defaultBinaryMessenger.handlePlatformMessage` the way iOS does). macOS/
+The native side does NOT decide the action: it reads
+`UIPencilInteraction.preferredTapAction` (the user's Settings → Apple Pencil
+choice) and forwards it as `{'preferredAction': name}`, so the Dart policy
+honors it — `PdfPencilTapAction` {ignore, switchEraser, switchPrevious,
+showColorPalette, showInkAttributes, runSystemShortcut, unspecified};
+`togglesEraser` is true only for the tool-switch actions (+ unspecified, the
+out-of-the-box default / legacy action-less call), so "Off" (ignore) and the
+palette/shortcut choices are left alone rather than hijacked into an eraser
+toggle. A custom `onDoubleTap` (now `PdfPencilTapHandler` = receives the
+action) fully overrides the policy. Putting the decision in testable Dart
+(the Swift can't compile in the review env) is deliberate. Tests:
+editing_pencil_test.dart (14 — all toggle branches incl. reader-mode
+restore + hand-armed-eraser→ink + pairing-break; channel switchEraser/
+action-less toggles, ignore + showColorPalette no-op, custom handler gets the
+action + overrides, dispose clears the handler, unknown method ignored, plus
+PdfPencilTapAction.fromName/togglesEraser; the binding tests deliver the call
+via `defaultBinaryMessenger.handlePlatformMessage` the way iOS does). macOS/
 Android/web get no pencil interaction (the gesture doesn't exist there).

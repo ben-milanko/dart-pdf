@@ -76,38 +76,75 @@ void main() {
 
   group('PdfPencilInteraction', () {
     // Delivers a native call to the channel's registered handler, the way the
-    // iOS UIPencilInteraction does at runtime.
-    Future<void> sendDoubleTap() {
+    // iOS UIPencilInteraction does at runtime — optionally carrying the user's
+    // preferred-action choice.
+    Future<void> sendDoubleTap([String? preferredAction]) {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       return messenger.handlePlatformMessage(
         PdfPencilInteraction.channel.name,
-        PdfPencilInteraction.channel.codec.encodeMethodCall(
-            const MethodCall(PdfPencilInteraction.doubleTapMethod)),
+        PdfPencilInteraction.channel.codec.encodeMethodCall(MethodCall(
+            PdfPencilInteraction.doubleTapMethod,
+            preferredAction == null
+                ? null
+                : {'preferredAction': preferredAction})),
         (_) {},
       );
     }
 
-    test('a channel double-tap toggles the eraser', () async {
+    test('a "switch eraser" double-tap toggles the eraser', () async {
+      final c = controller();
+      final pencil = PdfPencilInteraction()..attach(c);
+      addTearDown(pencil.dispose);
+
+      await sendDoubleTap('switchEraser');
+      expect(c.tool, PdfEditTool.eraser);
+
+      await sendDoubleTap('switchEraser');
+      expect(c.tool, isNull);
+    });
+
+    test('an action-less double-tap still toggles (out-of-the-box default)',
+        () async {
       final c = controller();
       final pencil = PdfPencilInteraction()..attach(c);
       addTearDown(pencil.dispose);
 
       await sendDoubleTap();
       expect(c.tool, PdfEditTool.eraser);
-
-      await sendDoubleTap();
-      expect(c.tool, isNull);
     });
 
-    test('a custom action overrides the eraser toggle', () async {
+    test('"off" (ignore) honors the user and does nothing', () async {
       final c = controller();
-      var taps = 0;
-      final pencil = PdfPencilInteraction(onDoubleTap: () => taps++)..attach(c);
+      c.tool = PdfEditTool.ink;
+      final pencil = PdfPencilInteraction()..attach(c);
       addTearDown(pencil.dispose);
 
-      await sendDoubleTap();
-      expect(taps, 1);
+      await sendDoubleTap('ignore');
+      expect(c.tool, PdfEditTool.ink, reason: 'the gesture was turned off');
+    });
+
+    test('a non-eraser action (show palette) is left alone', () async {
+      final c = controller();
+      c.tool = PdfEditTool.ink;
+      final pencil = PdfPencilInteraction()..attach(c);
+      addTearDown(pencil.dispose);
+
+      await sendDoubleTap('showColorPalette');
+      expect(c.tool, PdfEditTool.ink, reason: 'not our action to hijack');
+    });
+
+    test('a custom handler overrides the policy and gets the action',
+        () async {
+      final c = controller();
+      final actions = <PdfPencilTapAction>[];
+      final pencil = PdfPencilInteraction(onDoubleTap: actions.add)..attach(c);
+      addTearDown(pencil.dispose);
+
+      await sendDoubleTap('ignore');
+      await sendDoubleTap('switchEraser');
+      expect(actions,
+          [PdfPencilTapAction.ignore, PdfPencilTapAction.switchEraser]);
       expect(c.tool, isNull, reason: 'the controller toggle is bypassed');
     });
 
@@ -119,7 +156,7 @@ void main() {
       pencil.dispose();
       expect(pencil.isAttached, isFalse);
 
-      await sendDoubleTap();
+      await sendDoubleTap('switchEraser');
       expect(c.tool, isNull, reason: 'the handler was cleared');
     });
 
@@ -131,6 +168,28 @@ void main() {
       final result = await pencil.handleMethodCall(const MethodCall('bogus'));
       expect(result, isNull);
       expect(c.tool, isNull);
+    });
+  });
+
+  group('PdfPencilTapAction', () {
+    test('fromName maps known names and defaults the rest to unspecified', () {
+      expect(PdfPencilTapAction.fromName('ignore'), PdfPencilTapAction.ignore);
+      expect(PdfPencilTapAction.fromName('switchEraser'),
+          PdfPencilTapAction.switchEraser);
+      expect(PdfPencilTapAction.fromName('switchPrevious'),
+          PdfPencilTapAction.switchPrevious);
+      expect(PdfPencilTapAction.fromName(null), PdfPencilTapAction.unspecified);
+      expect(PdfPencilTapAction.fromName('garbage'),
+          PdfPencilTapAction.unspecified);
+    });
+
+    test('only the tool-switch actions toggle the eraser', () {
+      expect(PdfPencilTapAction.switchEraser.togglesEraser, isTrue);
+      expect(PdfPencilTapAction.switchPrevious.togglesEraser, isTrue);
+      expect(PdfPencilTapAction.unspecified.togglesEraser, isTrue);
+      expect(PdfPencilTapAction.ignore.togglesEraser, isFalse);
+      expect(PdfPencilTapAction.showColorPalette.togglesEraser, isFalse);
+      expect(PdfPencilTapAction.runSystemShortcut.togglesEraser, isFalse);
     });
   });
 }
