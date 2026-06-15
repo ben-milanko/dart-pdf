@@ -33,22 +33,27 @@ class PickedPdf {
   final String? path;
 }
 
+/// Opens the system file picker for a PDF. Returns null when the user cancels.
+Future<XFile?> pickPdfFile() =>
+    openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+
 /// Opens the system file picker and reads the chosen PDF. Returns null when
 /// the user cancels. Throws if the file can't be read — callers surface that.
 Future<PickedPdf?> pickPdf() async {
-  final file = await openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+  final file = await pickPdfFile();
   if (file == null) return null;
   final bytes = await file.readAsBytes();
-  // file_selector returns the real path on desktop; on web/mobile `path` is
-  // a tmp/sandbox location we don't treat as a writable origin.
-  final path = (!kIsWeb &&
-          (defaultTargetPlatform == TargetPlatform.macOS ||
-              defaultTargetPlatform == TargetPlatform.windows ||
-              defaultTargetPlatform == TargetPlatform.linux))
-      ? file.path
-      : null;
-  return PickedPdf(file.name, bytes, path: path);
+  return PickedPdf(file.name, bytes, path: originPathForPickedFile(file));
 }
+
+/// The picked file's writable origin on desktop, or null on web/mobile where
+/// the path is only a tmp/sandbox location.
+String? originPathForPickedFile(XFile file) => (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux))
+    ? file.path
+    : null;
 
 /// Picks a PDF and returns just its bytes (null when cancelled) — the source
 /// for "Insert PDF…" and document comparison.

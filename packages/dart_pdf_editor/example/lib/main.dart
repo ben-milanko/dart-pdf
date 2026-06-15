@@ -218,23 +218,48 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   /// Opens [bytes] in a brand-new tab and makes it the active one.
   void _openBytes(Uint8List bytes, String title, {bool isDemo = false}) {
-    setState(() {
-      _tabs.add(_DocumentTab.document(
-        title: title,
-        bytes: bytes,
-        preferences: _prefs,
-        isDemo: isDemo,
-      ));
-      _activeIndex = _tabs.length - 1;
-    });
+    _addTab(_DocumentTab.document(
+      title: title,
+      bytes: bytes,
+      preferences: _prefs,
+      isDemo: isDemo,
+    ));
   }
 
   /// Adds a tab that just reports an open failure.
   void _openError(String title, String error) {
+    _addTab(_DocumentTab.error(title: title, error: error));
+  }
+
+  /// Adds [tab] as the active tab.
+  void _addTab(_DocumentTab tab) {
     setState(() {
-      _tabs.add(_DocumentTab.error(title: title, error: error));
+      _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
     });
+  }
+
+  /// Adds a placeholder tab immediately so large files don't leave the app
+  /// looking idle while their bytes are read and parsed. Returns the exact
+  /// tab object so the async completion can replace it, unless the user
+  /// closes it first.
+  _DocumentTab _openLoading(String title) {
+    final tab = _DocumentTab.loading(title: title);
+    _addTab(tab);
+    return tab;
+  }
+
+  void _replaceLoadingTab(_DocumentTab loading, _DocumentTab replacement) {
+    final index = _tabs.indexOf(loading);
+    if (index == -1) {
+      replacement.dispose();
+      return;
+    }
+    setState(() {
+      _tabs[index] = replacement;
+      _activeIndex = index;
+    });
+    loading.dispose();
   }
 
   void _openDemo() =>
@@ -347,10 +372,30 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Future<void> _pickFile() async {
     final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
     if (file == null) return;
+    final loading = _openLoading(file.name);
     try {
-      _openBytes(await file.readAsBytes(), file.name);
+      final bytes = await file.readAsBytes();
+      // Let the loading tab paint before constructing the edit session, which
+      // synchronously opens the PDF and can be noticeable for large files.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.document(
+          title: file.name,
+          bytes: bytes,
+          preferences: _prefs,
+        ),
+      );
     } catch (e) {
-      _openError(file.name, 'Could not open ${file.name}\n$e');
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.error(
+          title: file.name,
+          error: 'Could not open ${file.name}\n$e',
+        ),
+      );
     }
   }
 
@@ -386,10 +431,25 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Future<void> _openPath(String path) async {
     final name = path.split(RegExp(r'[/\\]')).last;
+    final loading = _openLoading(name);
     try {
-      _openBytes(await XFile(path).readAsBytes(), name);
+      final bytes = await XFile(path).readAsBytes();
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.document(
+          title: name,
+          bytes: bytes,
+          preferences: _prefs,
+        ),
+      );
     } catch (e) {
-      _openError(name, 'Could not open $path\n$e');
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.error(title: name, error: 'Could not open $path\n$e'),
+      );
     }
   }
 
@@ -689,9 +749,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 ],
               ),
             )
-          : tab.error != null
-              ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
-              : tab.isComparison
+          : tab.isLoading
+              ? _OpeningDocument(title: tab.title)
+              : tab.error != null
+                  ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
+                  : tab.isComparison
                   ? PdfComparisonView(
                       key: ValueKey(tab),
                       before: tab.compareBefore!,
@@ -815,10 +877,46 @@ class _ViewerScreenState extends State<ViewerScreen> {
 /// Height of the AppBar's tab strip.
 const double _tabStripHeight = 42;
 
+class _OpeningDocument extends StatelessWidget {
+  const _OpeningDocument({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Semantics(
+        label: 'Opening document',
+        liveRegion: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              title.isEmpty ? 'Opening PDF…' : 'Opening $title…',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// One open document. Holds its own edit session and viewer controller
 /// so switching tabs preserves edits, undo history, scroll position,
 /// and any demo-specific overlay state.
 class _DocumentTab {
+  _DocumentTab.loading({required this.title})
+      : session = null,
+        viewer = null,
+        isDemo = false,
+        error = null,
+        compareBefore = null,
+        compareAfter = null,
+        isLoading = true;
+
   _DocumentTab.document({
     required this.title,
     required Uint8List bytes,
@@ -828,14 +926,16 @@ class _DocumentTab {
         viewer = PdfViewerController(),
         error = null,
         compareBefore = null,
-        compareAfter = null;
+        compareAfter = null,
+        isLoading = false;
 
   _DocumentTab.error({required this.title, required this.error})
       : session = null,
         viewer = null,
         isDemo = false,
         compareBefore = null,
-        compareAfter = null;
+        compareAfter = null,
+        isLoading = false;
 
   /// A document-comparison tab: hosts a [PdfComparisonView] over two
   /// files. No edit session or viewer controller of its own.
@@ -848,11 +948,13 @@ class _DocumentTab {
         isDemo = false,
         error = null,
         compareBefore = before,
-        compareAfter = after;
+        compareAfter = after,
+        isLoading = false;
 
   final String title;
   final String? error;
   final bool isDemo;
+  final bool isLoading;
 
   /// The two documents a comparison tab diffs; null on every other tab.
   final Uint8List? compareBefore;

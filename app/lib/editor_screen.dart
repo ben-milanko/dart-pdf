@@ -135,30 +135,90 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Opens [bytes] in a brand-new tab and makes it active, recording a recent.
   void _openBytes(Uint8List bytes, String title, {String? originPath}) {
-    setState(() {
-      _tabs.add(DocumentTab.document(
-        title: title,
-        bytes: bytes,
-        preferences: _prefs,
-        originPath: originPath,
-      ));
-      _activeIndex = _tabs.length - 1;
-    });
+    _addTab(DocumentTab.document(
+      title: title,
+      bytes: bytes,
+      preferences: _prefs,
+      originPath: originPath,
+    ));
     _recents.add(title: title, path: originPath);
   }
 
   void _openError(String title, String error) {
+    _addTab(DocumentTab.error(title: title, error: error));
+  }
+
+  void _addTab(DocumentTab tab) {
     setState(() {
-      _tabs.add(DocumentTab.error(title: title, error: error));
+      _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
     });
   }
 
+  DocumentTab _openLoading(String title, {String? originPath}) {
+    final tab = DocumentTab.loading(title: title, originPath: originPath);
+    _addTab(tab);
+    return tab;
+  }
+
+  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) {
+    final index = _tabs.indexOf(loading);
+    if (index == -1) {
+      replacement.dispose();
+      return false;
+    }
+    setState(() {
+      _tabs[index] = replacement;
+      _activeIndex = index;
+    });
+    loading.dispose();
+    return true;
+  }
+
+  Future<void> _openLoadedBytes(
+    Future<Uint8List> bytesFuture, {
+    required String title,
+    String? originPath,
+    String? errorTitle,
+  }) async {
+    final loading = _openLoading(title, originPath: originPath);
+    try {
+      final bytes = await bytesFuture;
+      // Let the loading tab paint before constructing the edit session, which
+      // synchronously opens the PDF and can be noticeable for large files.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final opened = _replaceLoadingTab(
+        loading,
+        DocumentTab.document(
+          title: title,
+          bytes: bytes,
+          preferences: _prefs,
+          originPath: originPath,
+        ),
+      );
+      if (opened) _recents.add(title: title, path: originPath);
+    } catch (e) {
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        DocumentTab.error(
+          title: errorTitle ?? title,
+          error: 'Could not open ${errorTitle ?? title}\n$e',
+        ),
+      );
+    }
+  }
+
   Future<void> _pickAndOpen() async {
     try {
-      final picked = await pickPdf();
-      if (picked == null) return;
-      _openBytes(picked.bytes, picked.name, originPath: picked.path);
+      final file = await pickPdfFile();
+      if (file == null) return;
+      await _openLoadedBytes(
+        file.readAsBytes(),
+        title: file.name,
+        originPath: originPathForPickedFile(file),
+      );
     } catch (e) {
       _openError('Open failed', 'Could not open the selected file\n$e');
     }
@@ -166,12 +226,13 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Opens a file the OS handed us (association, share, launch arg).
   Future<void> _openIncoming(IncomingFile file) async {
-    try {
-      final bytes = file.bytes ?? await readPdfAtPath(file.path!);
-      _openBytes(bytes, file.name, originPath: file.path);
-    } catch (e) {
-      _openError(file.name, 'Could not open ${file.name}\n$e');
-    }
+    await _openLoadedBytes(
+      file.bytes == null
+          ? readPdfAtPath(file.path!)
+          : Future<Uint8List>.value(file.bytes!),
+      title: file.name,
+      originPath: file.path,
+    );
   }
 
   /// Opens PDFs dropped onto the window (desktop and web). Non-PDFs are
@@ -179,15 +240,14 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _onFilesDropped(List<DropItem> items) async {
     for (final item in items) {
       if (!item.name.toLowerCase().endsWith('.pdf')) continue;
-      try {
-        final bytes = await item.readAsBytes();
-        // desktop_drop exposes a real path on desktop; on web it's a blob ref
-        // we don't treat as a writable origin.
-        final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
-        _openBytes(bytes, item.name, originPath: path);
-      } catch (e) {
-        _openError(item.name, 'Could not open ${item.name}\n$e');
-      }
+      // desktop_drop exposes a real path on desktop; on web it's a blob ref
+      // we don't treat as a writable origin.
+      final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
+      await _openLoadedBytes(
+        item.readAsBytes(),
+        title: item.name,
+        originPath: path,
+      );
     }
   }
 
@@ -197,12 +257,32 @@ class _EditorScreenState extends State<EditorScreen>
       await _pickAndOpen();
       return;
     }
+    final loading = _openLoading(entry.title, originPath: path);
     try {
       final bytes = await readPdfAtPath(path);
-      _openBytes(bytes, entry.title, originPath: path);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final opened = _replaceLoadingTab(
+        loading,
+        DocumentTab.document(
+          title: entry.title,
+          bytes: bytes,
+          preferences: _prefs,
+          originPath: path,
+        ),
+      );
+      if (opened) _recents.add(title: entry.title, path: path);
     } catch (e) {
       await _recents.remove(entry.id);
-      if (mounted) _toast('Could not reopen ${entry.title}');
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        DocumentTab.error(
+          title: entry.title,
+          error: 'Could not open ${entry.title}\n$e',
+        ),
+      );
+      _toast('Could not reopen ${entry.title}');
     }
   }
 
@@ -501,6 +581,9 @@ class _EditorScreenState extends State<EditorScreen>
         onOpenRecent: _openRecent,
       );
     }
+    if (tab.isLoading) {
+      return _OpeningDocument(title: tab.title);
+    }
     if (tab.error != null) {
       return Center(child: Text(tab.error!, textAlign: TextAlign.center));
     }
@@ -773,6 +856,33 @@ class _EditorScreenState extends State<EditorScreen>
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OpeningDocument extends StatelessWidget {
+  const _OpeningDocument({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Semantics(
+        label: 'Opening document',
+        liveRegion: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              title.isEmpty ? 'Opening PDF…' : 'Opening $title…',
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );

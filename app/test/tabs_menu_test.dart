@@ -65,6 +65,29 @@ void main() {
     await openTab(tester, 'gamma.pdf');
   }
 
+  testWidgets('incoming file shows an opening indicator', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+
+    const codec = StandardMethodCodec();
+    final message = codec.encodeMethodCall(
+      MethodCall('openFile', {'name': 'slow.pdf', 'bytes': buildClassicPdf()}),
+    );
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      IncomingFileService.channelName,
+      message,
+      (_) {},
+    );
+    await tester.pump();
+
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('Opening slow.pdf…'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(tabTitle('slow.pdf'), findsOneWidget);
+  });
+
   testWidgets('right-click opens the tab context menu', (tester) async {
     await openTabs(tester);
 

@@ -4,9 +4,18 @@ import 'package:flutter/foundation.dart';
 /// One open document. Holds its own edit session and viewer controller so
 /// switching tabs preserves edits, undo history, and scroll position.
 ///
-/// A tab is one of three kinds: a normal editable [document], an [error]
-/// placeholder, or a two-file [comparison].
+/// A tab is one of four kinds: a normal editable [document], a [loading]
+/// placeholder, an [error] placeholder, or a two-file [comparison].
 class DocumentTab {
+  DocumentTab.loading({required this.title, this.originPath})
+      : session = null,
+        viewer = null,
+        savedLength = 0,
+        error = null,
+        compareBefore = null,
+        compareAfter = null,
+        isLoading = true;
+
   DocumentTab.document({
     required this.title,
     required Uint8List bytes,
@@ -17,7 +26,8 @@ class DocumentTab {
         savedLength = bytes.length,
         error = null,
         compareBefore = null,
-        compareAfter = null;
+        compareAfter = null,
+        isLoading = false;
 
   DocumentTab.error({required this.title, required this.error})
       : session = null,
@@ -25,7 +35,8 @@ class DocumentTab {
         originPath = null,
         savedLength = 0,
         compareBefore = null,
-        compareAfter = null;
+        compareAfter = null,
+        isLoading = false;
 
   /// A document-comparison tab hosting a [PdfComparisonView] over two files.
   DocumentTab.comparison({
@@ -38,10 +49,12 @@ class DocumentTab {
         originPath = null,
         savedLength = 0,
         compareBefore = before,
-        compareAfter = after;
+        compareAfter = after,
+        isLoading = false;
 
   final String title;
   final String? error;
+  final bool isLoading;
 
   /// The writable on-disk origin (desktop), when the document was opened from
   /// a real path. Save writes back here; updated when a Save As lands on a new
