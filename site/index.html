@@ -274,7 +274,9 @@
     .features { grid-template-columns: repeat(2, 1fr); }
     .device-tag { right: 14px; }
     .nav-links { display: none; }
+    .nav-right .btn { display: none; }
     .menu-btn { display: inline-flex; }
+    .nav { gap: 12px; }
     .hero .hl { white-space: normal; }
   }
   @media (max-width: 600px) {
@@ -283,7 +285,6 @@
     .features { grid-template-columns: 1fr; }
     .desktop-grid { grid-template-columns: repeat(2, 1fr); }
     .hero { padding: 44px 0 24px; }
-    .nav-right .btn-text { display: none; }
   }
 
   /* mobile menu */
@@ -291,6 +292,11 @@
   .mobile-menu.open { display: block; }
   .mobile-menu a { display: block; padding: 12px 28px; font-weight: 600; font-size: 16px; color: var(--ink-soft); }
   .mobile-menu a:hover { background: var(--tint-soft); }
+  .mobile-menu .menu-cta {
+    margin: 10px 28px 6px; padding: 13px 18px; border-radius: 11px; text-align: center;
+    background: var(--grad); color: #fff; font-weight: 700; box-shadow: 0 6px 18px -6px rgba(1,105,180,.6);
+  }
+  .mobile-menu .menu-cta:hover { background: var(--grad); color: #fff; }
 </style>
 </head>
 <body>
@@ -339,6 +345,7 @@
     <a href="#developers">Developers</a>
     <a href="https://app.dart-pdf.com" target="_blank" rel="noopener">Open in browser</a>
     <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
+    <a class="menu-cta" href="#download">Download</a>
   </div>
 </header>
 
