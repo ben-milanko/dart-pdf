@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../renderer.dart';
 import 'editing_measure.dart';
 import 'editing_preferences.dart';
 import 'line_style.dart';
@@ -108,6 +110,14 @@ enum PdfEditTool {
   /// selection. Marks render as a hatched preview until burned with
   /// [PdfEditingController.applyRedactions], which is irreversible.
   redact,
+
+  /// Drag out a rectangle to capture that region of the page as a raster
+  /// image, like Bluebeam's Snapshot. The captured PNG is rendered through
+  /// [PdfEditingController.captureSnapshot] and handed to
+  /// [PdfViewer.onSnapshot] — typically to copy it to the clipboard, save,
+  /// or share it; with no handler the tool does nothing. It only reads the
+  /// page: no annotation or page content is written.
+  snapshot,
 }
 
 /// Text-markup kinds for [PdfEditingController.addMarkup].
@@ -1659,6 +1669,37 @@ class PdfEditingController extends ChangeNotifier {
   /// should come through here.
   PdfPage pageAt(int index) => _page(index);
 
+  /// Renders [region] of page [pageIndex] to PNG bytes — the capture
+  /// behind the Snapshot tool ([PdfEditTool.snapshot]).
+  ///
+  /// [region] is page raster space: points with y down, after /Rotate —
+  /// i.e. a view position divided by the view scale (`PdfPageGeometry`).
+  /// The overlay therefore passes the dragged box straight through.
+  /// [pixelRatio] scales the output resolution (2 keeps a snapshot crisp
+  /// at 100% zoom). [pageColor] and [annotations] should match how the
+  /// page is displayed, so the snapshot looks like what's on screen.
+  /// Returns null for a degenerate (sub-pixel) region.
+  Future<Uint8List?> captureSnapshot(int pageIndex, Rect region,
+      {double pixelRatio = 2,
+      Color pageColor = const Color(0xFFFFFFFF),
+      bool annotations = true}) async {
+    if (region.width < 1 || region.height < 1) return null;
+    final picture = await PdfPageRenderer.renderPicture(pageAt(pageIndex),
+        pageColor: pageColor, annotations: annotations);
+    try {
+      final image =
+          await PdfPageRenderer.rasterizeRegion(picture, region, pixelRatio);
+      try {
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        return data?.buffer.asUint8List();
+      } finally {
+        image.dispose();
+      }
+    } finally {
+      picture.dispose();
+    }
+  }
+
   PdfAnnotation? _annotationAt((int, int) selected) {
     final (page, index) = selected;
     if (page < 0 || page >= _document.pageCount) return null;
@@ -2137,6 +2178,8 @@ class PdfEditingController extends ChangeNotifier {
     _clipboard = snapshots;
     _clipboardSourcePage = _selected.last.$1;
     _pasteCount = 0;
+    // the most recent copy wins ⌘V (see [copyVectorSnapshot])
+    _snapshotClipboard = null;
     notifyListeners();
     return snapshots.length;
   }
@@ -2198,6 +2241,94 @@ class PdfEditingController extends ChangeNotifier {
     _selected
       ..clear()
       ..addAll([for (var i = total - count; i < total; i++) (pageIndex, i)]);
+    notifyListeners();
+    return true;
+  }
+
+  // ---------------------------------------------------------------------
+  // snapshot clipboard (the Snapshot tool's vector paste)
+
+  /// The in-app snapshot clipboard: a detached vector copy of a page
+  /// region ([captureVectorSnapshot]) that survives edits, undo, and
+  /// document swaps. Filled by the Snapshot tool, consumed by
+  /// [pasteSnapshot].
+  PdfVectorSnapshot? _snapshotClipboard;
+  int _snapshotPasteCount = 0;
+
+  /// The object number of the captured form materialized by the last paste
+  /// of [_snapshotClipboard] into the current document — reused so repeat
+  /// pastes share one XObject instead of re-embedding the page content.
+  /// Reset whenever a fresh snapshot is captured.
+  int? _snapshotCapturedRef;
+
+  /// Whether [pasteSnapshot] has a captured region to paste.
+  bool get hasSnapshotClipboard => _snapshotClipboard != null;
+
+  /// The captured region on the snapshot clipboard, or null.
+  PdfVectorSnapshot? get snapshotClipboard => _snapshotClipboard;
+
+  /// Captures [region] (PDF user space) of [pageIndex] as a detached
+  /// vector snapshot — the page graphics under the region, copied inline,
+  /// with the page's /Rotate baked in. Read-only: the document is
+  /// untouched. See [PdfVectorSnapshotEditing.captureVectorSnapshot].
+  PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region) =>
+      PdfEditor(_document).captureVectorSnapshot(pageIndex, region);
+
+  /// Captures [region] of [pageIndex] and keeps it on the snapshot
+  /// clipboard for [pasteSnapshot] — the copy half of the Snapshot tool.
+  /// The most recent copy wins, so this also drops the annotation
+  /// clipboard. Returns the captured snapshot.
+  PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region) {
+    final snapshot = captureVectorSnapshot(pageIndex, region);
+    _snapshotClipboard = snapshot;
+    _snapshotPasteCount = 0;
+    _snapshotCapturedRef = null;
+    _clipboard = const [];
+    notifyListeners();
+    return snapshot;
+  }
+
+  /// Pastes the snapshot clipboard onto [pageIndex] as a vector /Stamp
+  /// annotation (movable / resizable / deletable), preserving the captured
+  /// graphics as vectors.
+  ///
+  /// With [at] the region centers on that page point (a right-click /
+  /// ⌘V at the cursor). Without it the paste keeps the captured position,
+  /// cascading 12pt down-right per repeat. The region always clamps into
+  /// the page's crop box. Returns whether anything was pasted.
+  bool pasteSnapshot(int pageIndex, {(double, double)? at}) {
+    final snapshot = _snapshotClipboard;
+    if (snapshot == null) return false;
+    if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    final w = snapshot.displayWidth, h = snapshot.displayHeight;
+    if (w <= 0 || h <= 0) return false;
+    double left, bottom;
+    if (at != null) {
+      left = at.$1 - w / 2;
+      bottom = at.$2 - h / 2;
+    } else {
+      final cascade = 12.0 * _snapshotPasteCount;
+      left = snapshot.region.left + cascade;
+      bottom = snapshot.region.bottom - cascade;
+    }
+    final box = _page(pageIndex).cropBox;
+    left += _clampShift(left, left + w, box.left, box.right);
+    bottom += _clampShift(bottom, bottom + h, box.bottom, box.top);
+    final target = PdfRect(left, bottom, left + w, bottom + h);
+    int? captured;
+    final pasted = apply((e) {
+      captured = e.pasteVectorSnapshot(pageIndex, target, snapshot,
+          author: author, sharedObject: _snapshotCapturedRef);
+    }, pages: [pageIndex]);
+    if (!pasted) return false;
+    // remember the shared captured form so repeat pastes reuse it
+    _snapshotCapturedRef = captured;
+    _snapshotPasteCount++;
+    tool = PdfEditTool.select;
+    final total = _page(pageIndex).annotations.length;
+    _selected
+      ..clear()
+      ..add((pageIndex, total - 1));
     notifyListeners();
     return true;
   }

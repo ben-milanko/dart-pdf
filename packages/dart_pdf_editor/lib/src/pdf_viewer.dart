@@ -351,6 +351,7 @@ class PdfViewer extends StatefulWidget {
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.onSnapshot,
     this.pageSpacing = 12,
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
@@ -458,6 +459,11 @@ class PdfViewer extends StatefulWidget {
   /// insert — typically a file picker returning PNG or JPEG bytes. With
   /// none, the image tool does nothing.
   final PdfImagePicker? imagePicker;
+
+  /// Receives a region captured by the snapshot tool
+  /// ([PdfEditTool.snapshot]) — typically to copy it to the clipboard,
+  /// save it, or share it. With none, the snapshot tool does nothing.
+  final PdfSnapshotHandler? onSnapshot;
 
   final double pageSpacing;
 
@@ -2029,10 +2035,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// current page's cascade.
   void _onPaste() {
     final editing = widget.editing;
-    if (editing == null || !editing.hasAnnotationClipboard) return;
+    if (editing == null) return;
+    // a captured snapshot pastes back as vector graphics; otherwise the
+    // annotation clipboard (the most recent copy wins, mirroring the
+    // controller's clipboards)
+    final snapshot = editing.hasSnapshotClipboard;
+    if (!snapshot && !editing.hasAnnotationClipboard) return;
     final local = _lastPointerLocal;
     final point = local == null ? null : _pagePointAt(local);
-    if (point != null) {
+    if (snapshot) {
+      if (point != null) {
+        editing.pasteSnapshot(point.$1, at: (point.$2, point.$3));
+      } else {
+        editing.pasteSnapshot(_controller.currentPage);
+      }
+    } else if (point != null) {
       editing.pasteAnnotations(point.$1, at: (point.$2, point.$3));
     } else {
       editing.pasteAnnotations(_controller.currentPage);
@@ -2999,6 +3016,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                     widget.editingTextPrompt ?? showPdfTextPrompt,
                 formImagePicker: widget.formImagePicker,
                 imagePicker: widget.imagePicker,
+                onSnapshot: widget.onSnapshot,
                 onPanViewport: _grabPanBy,
                 onPanViewportEnd: _flingViewport,
                 onShowAnnotationMenu: _showSelectionMenu,
@@ -3354,6 +3372,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.editingTextPrompt,
     required this.formImagePicker,
     required this.imagePicker,
+    required this.onSnapshot,
     required this.onPanViewport,
     required this.onPanViewportEnd,
     required this.onShowAnnotationMenu,
@@ -3402,6 +3421,9 @@ class _PdfViewerPage extends StatefulWidget {
   final PdfTextPrompt editingTextPrompt;
   final PdfFormImagePicker? formImagePicker;
   final PdfImagePicker? imagePicker;
+
+  /// See [EditingPageOverlay.onSnapshot].
+  final PdfSnapshotHandler? onSnapshot;
   final void Function(Offset delta) onPanViewport;
 
   /// See [EditingPageOverlay.onPanViewportEnd].
@@ -3559,6 +3581,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               textPrompt: widget.editingTextPrompt,
                               formImagePicker: widget.formImagePicker,
                               imagePicker: widget.imagePicker,
+                              onSnapshot: widget.onSnapshot,
                               pageColor: widget.pageColor,
                               showAnnotations: widget.showAnnotations,
                               onPanViewport: widget.onPanViewport,

@@ -80,6 +80,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.predictStrokes = true,
     this.formImagePicker,
     this.imagePicker,
+    this.onSnapshot,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
@@ -98,6 +99,10 @@ class EditingPageOverlay extends StatefulWidget {
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
   /// insert. With none, the image tool does nothing.
   final PdfImagePicker? imagePicker;
+
+  /// Receives a region captured by the snapshot tool
+  /// ([PdfEditTool.snapshot]). With none, the snapshot tool does nothing.
+  final PdfSnapshotHandler? onSnapshot;
 
   /// The paper color the page is displayed with — the eyedropper's
   /// raster must match what's on screen.
@@ -1673,7 +1678,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
             PdfEditTool.image ||
-            PdfEditTool.redact:
+            PdfEditTool.redact ||
+            PdfEditTool.snapshot:
         setState(() {
           _dragStart = position;
           _dragCurrent = position;
@@ -2335,6 +2341,30 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _controller.newFormFieldKind, widget.pageIndex, rect);
       case PdfEditTool.redact:
         _controller.addRedaction(widget.pageIndex, rect);
+      case PdfEditTool.snapshot:
+        // always keep a vector copy on the clipboard so it can paste back
+        // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
+        // callback is an optional export of the raster image on top
+        final vector =
+            _controller.copyVectorSnapshot(widget.pageIndex, rect);
+        final handler = widget.onSnapshot;
+        if (handler == null) return;
+        // page raster space (post-/Rotate, y down) = view space / scale —
+        // the same mapping the eyedropper's sampler uses
+        final s = _geometry.scale;
+        final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
+            viewRect.right / s, viewRect.bottom / s);
+        final bytes = await _controller.captureSnapshot(widget.pageIndex, region,
+            pageColor: widget.pageColor, annotations: widget.showAnnotations);
+        if (bytes == null || !mounted) return;
+        await handler(
+            context,
+            PdfSnapshot(
+              pageIndex: widget.pageIndex,
+              pageRect: rect,
+              pngBytes: bytes,
+              vector: vector,
+            ));
       default:
         break;
     }
@@ -3799,6 +3829,15 @@ class _EditingPreviewPainter extends CustomPainter {
               ..strokeWidth = 1);
       case PdfEditTool.redact:
         paintRedactionHatch(canvas, rect);
+      case PdfEditTool.snapshot:
+        // a selection marquee, like the region grab in a screenshot tool
+        canvas.drawRect(rect, Paint()..color = _chrome.withAlpha(0x1A));
+        canvas.drawRect(
+            rect,
+            Paint()
+              ..color = _chrome
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1 * chromeScale);
       default:
         canvas.drawRect(rect, paint);
     }

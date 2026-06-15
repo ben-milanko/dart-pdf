@@ -439,6 +439,44 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Exports a Snapshot tool capture as a PNG image — a save dialog on
+  /// desktop, a download on the web, the share sheet on phones. The vector
+  /// copy of the same region stays on the editor's clipboard, so ⌘V/Ctrl+V
+  /// (or the right-click Paste) drops it back into the PDF as vectors.
+  Future<void> _saveSnapshot(BuildContext context, PdfSnapshot snapshot) async {
+    const name = 'snapshot.png';
+    final file =
+        XFile.fromData(snapshot.pngBytes, mimeType: 'image/png', name: name);
+    if (kIsWeb) {
+      await file.saveTo(name);
+      _toast('Downloaded $name — paste back into the PDF with Ctrl+V');
+      return;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android || TargetPlatform.iOS:
+        final box = context.findRenderObject() as RenderBox?;
+        final origin =
+            box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+        await SharePlus.instance.share(ShareParams(
+          files: [file],
+          fileNameOverrides: [name],
+          sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+        ));
+      default:
+        final location = await getSaveLocation(
+          suggestedName: name,
+          acceptedTypeGroups: const [_imageTypeGroup],
+        );
+        if (location == null) return;
+        try {
+          await file.saveTo(location.path);
+          _toast('Saved $name — paste back into the PDF with ⌘V');
+        } catch (e) {
+          _toast('Save failed: $e');
+        }
+    }
+  }
+
   /// Adds an invisible, selectable/searchable OCR text layer over the
   /// active document using a self-hosted vision-language OCR model
   /// (pdf_ocr_vlm). Prompts for the service endpoint and an optional API
@@ -691,6 +729,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                           annotationMenuBuilder: _annotationMenuActions,
                           formImagePicker: _pickFormImage,
                           imagePicker: _pickImage,
+                          onSnapshot: _saveSnapshot,
                         ),
     );
   }
