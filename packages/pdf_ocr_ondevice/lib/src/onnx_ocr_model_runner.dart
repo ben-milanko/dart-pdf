@@ -39,6 +39,7 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     this.detectionThreshold = 0.3,
     this.boxScoreThreshold = 0.5,
     this.unclipRatio = 1.6,
+    this.recognitionEmitsLogits = false,
   });
 
   final String detectionModelPath;
@@ -53,6 +54,12 @@ class OnnxOcrModelRunner implements OcrModelRunner {
   final double boxScoreThreshold;
   final double unclipRatio;
 
+  /// Set this when the recognition model emits raw logits rather than softmax
+  /// probabilities, so confidences are softmaxed before use. PaddleOCR's
+  /// exported PP-OCR rec model already ends in a softmax, so the default is
+  /// false; flip it for a logits-only export.
+  final bool recognitionEmitsLogits;
+
   OrtSession? _det;
   OrtSession? _rec;
   CtcDecoder? _decoder;
@@ -65,7 +72,8 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     _det = OrtSession.fromFile(File(detectionModelPath), options);
     _rec = OrtSession.fromFile(File(recognitionModelPath), options);
     final dict = await File(dictionaryPath).readAsString();
-    _decoder = CtcDecoder(parseDictionary(dict));
+    _decoder = CtcDecoder(parseDictionary(dict),
+        applySoftmax: recognitionEmitsLogits);
   }
 
   @override
@@ -101,9 +109,10 @@ class OnnxOcrModelRunner implements OcrModelRunner {
       final crop = image.crop(box.rect);
       final input = recognitionInput(crop,
           targetHeight: recognitionImageHeight, maxWidth: recognitionMaxWidth);
-      final (logits: logits, timesteps: t, vocab: v) = await _runRecognition(
-          rec, input.tensor, recognitionImageHeight, recognitionMaxWidth);
-      final result = decoder.decode(logits, t, v);
+      final (predictions: predictions, timesteps: t, vocab: v) =
+          await _runRecognition(
+              rec, input.tensor, recognitionImageHeight, recognitionMaxWidth);
+      final result = decoder.decode(predictions, t, v);
       if (result.text.trim().isEmpty) continue;
       lines.add(RecognizedTextLine(
         text: result.text,
@@ -132,7 +141,7 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     }
   }
 
-  Future<({Float32List logits, int timesteps, int vocab})> _runRecognition(
+  Future<({Float32List predictions, int timesteps, int vocab})> _runRecognition(
       OrtSession session, Float32List input, int height, int width) async {
     final tensor =
         OrtValueTensor.createTensorWithDataList(input, [1, 3, height, width]);
@@ -143,11 +152,11 @@ class OnnxOcrModelRunner implements OcrModelRunner {
       final raw = outputs?.first?.value;
       // Recognition output is [1, T, vocab].
       final shape = _innerShape(raw);
-      final logits = _flatten(raw);
+      final predictions = _flatten(raw);
       _release(outputs);
       final vocab = shape.last;
-      final timesteps = vocab > 0 ? logits.length ~/ vocab : 0;
-      return (logits: logits, timesteps: timesteps, vocab: vocab);
+      final timesteps = vocab > 0 ? predictions.length ~/ vocab : 0;
+      return (predictions: predictions, timesteps: timesteps, vocab: vocab);
     } finally {
       tensor.release();
       runOptions.release();

@@ -42,6 +42,30 @@ void main() {
     expect(r.confidence, 1.0);
   });
 
+  test('raw logits without softmax overstate confidence (clamp to 1.0)', () {
+    // A confident-looking logit row [.., 8.0, ..] taken as a probability is
+    // clamped to 1.0 — the bug applySoftmax fixes.
+    final raw = CtcDecoder(['a', 'b', 'c', ' ']);
+    final logits = Float32List(vocab)..[1] = 8.0; // argmax 'a', logit 8
+    expect(raw.decode(logits, 1, vocab).confidence, 1.0);
+  });
+
+  test('applySoftmax turns logits into a real probability', () {
+    final soft = CtcDecoder(['a', 'b', 'c', ' '], applySoftmax: true);
+    // 'a' wins with logit 2.0 over four 0.0s: softmax = e^2/(e^2+4) ≈ 0.649.
+    final logits = Float32List(vocab)..[1] = 2.0;
+    final r = soft.decode(logits, 1, vocab);
+    expect(r.text, 'a');
+    expect(r.confidence, closeTo(0.649, 0.005));
+    expect(r.confidence, lessThan(1.0)); // minConfidence is now meaningful
+  });
+
+  test('softmax of an unambiguous row approaches 1', () {
+    final soft = CtcDecoder(['a', 'b', 'c', ' '], applySoftmax: true);
+    final logits = Float32List(vocab)..[2] = 20.0; // 'b' dominates
+    expect(soft.decode(logits, 1, vocab).confidence, closeTo(1.0, 1e-3));
+  });
+
   test('parseDictionary keeps order and appends a space token', () {
     final dict = parseDictionary('a\nb\nc\n');
     expect(dict, ['a', 'b', 'c', ' ']);

@@ -2277,7 +2277,11 @@ already-present files) + pure-Dart pipeline pieces (`OcrImage` crop/bilinear
 resize, `preprocess.dart` det-resize-to-÷32 + NCHW normalize + rec input,
 `db_postprocess.dart` probmap→boxes via 4-connected flood-fill + unclip +
 scale-back — axis-aligned not minAreaRect, fine for horizontal runs,
-`ctc_decode.dart` greedy CTC + PP-OCR dict parse) are ALL unit-tested;
+`ctc_decode.dart` greedy CTC + PP-OCR dict parse — confidence is the
+per-step max PROBABILITY: PaddleOCR's exported rec model ends in a softmax
+so scores are already probs (`applySoftmax`=false default, mirrors
+CTCLabelDecode), with `applySoftmax`/`recognitionEmitsLogits` for raw-logit
+exports so confidence/minConfidence never go dead) are ALL unit-tested;
 only `OnnxOcrModelRunner`'s two `OrtSession.run` calls are
 sandbox-unverifiable (no GPU/model/native libs here — same honesty posture
 as #76's GPU path). `OnDeviceOcrEngine implements PdfOcrEngine` takes any

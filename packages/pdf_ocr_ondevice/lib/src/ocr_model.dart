@@ -132,6 +132,12 @@ abstract final class PdfOcrModels {
   /// PP-OCRv5 *mobile* — the small (~5M-parameter, ~15 MB total) classic
   /// detect+recognize pipeline. Runs on CPU on every supported platform; the
   /// recommended offline default. Latin/English dictionary.
+  ///
+  /// Ships with **no `sha256`** on its files (so it resolves before you've
+  /// hosted a bundle): the download is then *not* integrity-checked. When you
+  /// publish the bundle, fill each file's [PdfOcrModelFile.sha256] (copy this
+  /// descriptor, or build your own) so a corrupted or tampered download is
+  /// rejected.
   static final PdfOcrModel ppOcrV5Mobile = PdfOcrModel(
     id: 'pp-ocrv5-mobile-en',
     displayName: 'PP-OCRv5 mobile (English/Latin)',
