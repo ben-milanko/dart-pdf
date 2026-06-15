@@ -20,6 +20,10 @@ dependencies:
   dart_pdf_editor: ^1.0.0
   pdf_document: ^1.0.0
 
+  # On-device, downloadable OCR — adds a selectable text layer over scans
+  # without leaving the device (native platforms only).
+  pdf_ocr_ondevice: ^0.1.0
+
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
   share_plus: ^13.1.0
@@ -33,6 +37,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^5.0.0
   # Only used by tool/screenshots_main.dart (not by lib/) to borrow the
   # example's feature-showcase document for marketing screenshots.
@@ -41,6 +47,10 @@ dev_dependencies:
 
   # Programmatically-built PDFs for widget tests.
   pdf_test_fixtures: ^1.0.0
+
+  # Text extraction, used by the on-device OCR integration test to assert
+  # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
+  pdf_graphics: ^1.0.0
 
 flutter:
   uses-material-design: true

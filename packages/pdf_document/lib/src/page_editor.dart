@@ -53,6 +53,33 @@ extension PdfPageOperations on PdfEditor {
         [for (var i = 0; i < count; i++) if (!doomed.contains(i)) leaves[i]]);
   }
 
+  /// Rotates the pages at [indices] clockwise by [degrees] (a multiple of
+  /// 90; negative turns counterclockwise), updating each page's /Rotate.
+  /// The new rotation is the page's current display rotation plus
+  /// [degrees], normalized to 0/90/180/270 and written explicitly onto the
+  /// page dictionary (so it overrides any value inherited from an ancestor).
+  void rotatePages(Iterable<int> indices, int degrees) {
+    if (degrees % 90 != 0) {
+      throw ArgumentError.value(
+          degrees, 'degrees', 'must be a multiple of 90');
+    }
+    final count = document.pageCount;
+    final targets = {...indices};
+    for (final i in targets) {
+      RangeError.checkValidIndex(i, null, 'indices', count);
+    }
+    if (targets.isEmpty || degrees % 360 == 0) return;
+    for (final i in targets) {
+      final page = document.page(i);
+      final dict = page.dict;
+      var next = (page.rotation + degrees) % 360;
+      if (next < 0) next += 360;
+      dict['Rotate'] = CosInteger(next);
+      _updater.markChanged(dict);
+    }
+    document.invalidatePageCache();
+  }
+
   /// Inserts a new blank page [at] the given index (default: appended at
   /// the end), sized [width] × [height] points (default: US Letter,
   /// 612 × 792). The page carries an empty /Resources dictionary and no

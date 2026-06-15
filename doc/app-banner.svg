@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="240" viewBox="0 0 1280 240" role="img"
+     aria-label="DartPDF — the official PDF editor app. Get it at dart-pdf.com">
+  <!-- Promotion banner for the official DartPDF app (app/). Filter-free so
+       GitHub's SVG sanitizer renders it inline; text uses a generic sans
+       fallback. Render a PNG on macOS if a pixel-perfect copy is needed
+       (rsvg-convert -w 2560 app-banner.svg -o app-banner.png). -->
+  <defs>
+    <linearGradient id="ab-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16BAFD"/>
+      <stop offset="1" stop-color="#0169B4"/>
+    </linearGradient>
+    <linearGradient id="ab-ink" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0175C2"/>
+      <stop offset="1" stop-color="#13B9FD"/>
+    </linearGradient>
+    <linearGradient id="ab-cta" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#16BAFD"/>
+      <stop offset="1" stop-color="#0175C2"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="240" rx="20" fill="#202124"/>
+
+  <!-- the mark, scaled from logo.svg -->
+  <g transform="translate(64 48) scale(0.140625)">
+    <rect width="1024" height="1024" rx="224" fill="url(#ab-bg)"/>
+    <path d="M 304 192 H 612 L 752 332 V 800 Q 752 832 720 832 H 304 Q 272 832 272 800 V 224 Q 272 192 304 192 Z"
+          fill="#FFFFFF"/>
+    <path d="M 612 192 L 752 332 H 646 Q 612 332 612 298 Z" fill="#C6E3F8"/>
+    <rect x="332" y="396" width="216" height="34" rx="17" fill="#8FA6B5"/>
+    <rect x="332" y="478" width="384" height="40" rx="20" fill="#FFC93C"/>
+    <rect x="332" y="566" width="340" height="32" rx="16" fill="#C4D2DC"/>
+    <path d="M 330 748 C 384 642 462 642 506 716 C 542 776 584 772 618 718 C 646 674 686 690 702 712"
+          fill="none" stroke="url(#ab-ink)" stroke-width="32" stroke-linecap="round"/>
+  </g>
+
+  <text x="248" y="92" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="58" font-weight="bold" fill="#FFFFFF">DartPDF</text>
+  <text x="250" y="134" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="26" fill="#9AA0A6">The official PDF editor app, built on this SDK</text>
+  <text x="250" y="176" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="22" fill="#5F6368">Edit, annotate, sign &amp; fill PDFs — entirely on your device</text>
+
+  <!-- call to action -->
+  <rect x="980" y="86" width="236" height="68" rx="34" fill="url(#ab-cta)"/>
+  <text x="1098" y="129" text-anchor="middle"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="28" font-weight="bold" fill="#FFFFFF">Get the app</text>
+</svg>

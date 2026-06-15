@@ -24,6 +24,9 @@ void main() {
       a.showReflowView = true;
       a.lineStartEnding = PdfLineEnding.circle;
       a.lineEndEnding = PdfLineEnding.closedArrow;
+      a.searchMatchCase = true;
+      a.searchWholeWord = true;
+      a.searchRegex = true;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -41,6 +44,9 @@ void main() {
       expect(b.showReflowView, isTrue);
       expect(b.lineStartEnding, PdfLineEnding.circle);
       expect(b.lineEndEnding, PdfLineEnding.closedArrow);
+      expect(b.searchMatchCase, isTrue);
+      expect(b.searchWholeWord, isTrue);
+      expect(b.searchRegex, isTrue);
     });
 
     test('empty storage leaves the defaults', () async {
@@ -61,6 +67,9 @@ void main() {
       expect(prefs.lineEndEnding, PdfLineEnding.none);
       expect(prefs.highlightFormFields, isTrue);
       expect(prefs.showReflowView, isFalse);
+      expect(prefs.searchMatchCase, isFalse);
+      expect(prefs.searchWholeWord, isFalse);
+      expect(prefs.searchRegex, isFalse);
     });
 
     test('a value set while loading is not clobbered by stored data', () async {

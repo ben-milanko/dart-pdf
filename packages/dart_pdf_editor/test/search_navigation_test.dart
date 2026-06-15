@@ -125,6 +125,56 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
     });
 
+    testWidgets('search options change matching and re-run live',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      // pages read 'Page 1', 'Page 2', 'Page 3'
+      await pumpViewer(tester, controller, buildMultiPagePdf(3));
+
+      // case-insensitive by default
+      unawaited(controller.search('page'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.matchCount, 3);
+
+      // toggling match case re-runs the active search with no second call
+      controller.setSearchOptions(const PdfSearchOptions(matchCase: true));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchOptions.matchCase, isTrue);
+      expect(controller.matchCount, 0); // 'page' != 'Page'
+
+      // whole word: a substring no longer matches, the full word does
+      controller.setSearchOptions(const PdfSearchOptions(wholeWord: true));
+      unawaited(controller.search('Pag'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.matchCount, 0);
+      unawaited(controller.search('Page'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.matchCount, 3);
+
+      // regex mode; an invalid pattern yields nothing rather than throwing
+      controller.setSearchOptions(const PdfSearchOptions(regex: true));
+      unawaited(controller.search(r'Page \d'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.matchCount, 3);
+      unawaited(controller.search('['));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.matchCount, 0);
+    });
+
+    testWidgets('setting options with no query just stores them',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(2));
+
+      controller.setSearchOptions(const PdfSearchOptions(wholeWord: true));
+      await tester.pump();
+      expect(controller.searchOptions.wholeWord, isTrue);
+      expect(controller.query, isEmpty);
+      expect(controller.matchCount, 0);
+    });
+
     testWidgets('goToMatch makes a match current and navigates there',
         (tester) async {
       final controller = PdfViewerController();
@@ -282,6 +332,73 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
     });
 
+    testWidgets('the option toggles drive the controller and re-search',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(3),
+          above: PdfSearchField(controller: controller));
+
+      await tester.enterText(find.byKey(fieldKey), 'page');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.matchCount, 3);
+
+      // the three toggles are present
+      expect(find.byKey(const ValueKey('pdf-search-match-case')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-search-whole-word')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-search-regex')), findsOneWidget);
+
+      // tapping match case re-runs the live search
+      await tester.tap(find.byKey(const ValueKey('pdf-search-match-case')));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchOptions.matchCase, isTrue);
+      expect(controller.matchCount, 0);
+
+      // and toggling it back restores the matches
+      await tester.tap(find.byKey(const ValueKey('pdf-search-match-case')));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchOptions.matchCase, isFalse);
+      expect(controller.matchCount, 3);
+    });
+
+    testWidgets('toggles persist to and seed from preferences',
+        (tester) async {
+      // a stored option seeds the controller once preferences load
+      SharedPreferences.setMockInitialValues(
+          {'dart_pdf_editor.editing.searchWholeWord': true});
+      final preferences = PdfEditingPreferences();
+      addTearDown(preferences.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(2),
+          above: PdfSearchField(
+              controller: controller, preferences: preferences));
+
+      // let the async preference load (and the bar's seeding) run, then
+      // rebuild — the stored whole-word option lands on the controller
+      await tester.runAsync(() => preferences.ready);
+      await tester.pump();
+      expect(controller.searchOptions.wholeWord, isTrue);
+
+      // toggling match case writes through to the preferences immediately
+      await tester.tap(find.byKey(const ValueKey('pdf-search-match-case')));
+      await tester.pump();
+      expect(controller.searchOptions.matchCase, isTrue);
+      expect(preferences.searchMatchCase, isTrue);
+    });
+
+    testWidgets('showOptions: false hides the toggles', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(2),
+          above: PdfSearchField(controller: controller, showOptions: false));
+
+      expect(find.byKey(const ValueKey('pdf-search-match-case')), findsNothing);
+    });
+
     testWidgets('enter on a changed query searches afresh', (tester) async {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);
@@ -339,6 +456,27 @@ void main() {
           isTrue);
       // any touch gesture leaves the viewer's double-tap timer pending
       await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('the panel hosts the option toggles and they re-search',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(3),
+          beside: PdfSearchResultsPanel(controller: controller));
+
+      // toggles are present even before a query is entered
+      expect(find.byKey(const ValueKey('pdf-search-whole-word')),
+          findsOneWidget);
+
+      unawaited(controller.search('page'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(find.text('3 matches'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-search-match-case')));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchOptions.matchCase, isTrue);
+      expect(find.text('No matches for “page”'), findsOneWidget);
     });
 
     testWidgets('an unmatched query says so', (tester) async {

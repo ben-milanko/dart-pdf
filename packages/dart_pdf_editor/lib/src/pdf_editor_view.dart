@@ -182,6 +182,7 @@ class PdfEditorView extends StatefulWidget {
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.onSnapshot,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolbarLeading = const [],
@@ -270,6 +271,11 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
+
+  /// See [PdfViewer.onSnapshot]. The snapshot tool always keeps a vector
+  /// copy on the clipboard for in-app paste; this callback additionally
+  /// exports the captured raster image (copy/save/share).
+  final PdfSnapshotHandler? onSnapshot;
 
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
@@ -577,6 +583,33 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       child: properties(bottomSheet: true),
                     ),
                 ];
+          // On a phone the toolbar collapses to a solid bar (see
+          // PdfEditingToolbar.mobileBreakpoint); floating it over the page
+          // there hides the bottom of the content behind it, so dock it
+          // below the viewer instead, where it takes its own layout space.
+          // Above the breakpoint it stays a set of transparent floating
+          // cards with the page showing through the gaps.
+          final showToolbar = features.toolbar && sheets.isEmpty;
+          final dockToolbar = showToolbar &&
+              constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
+          final toolbar = !showToolbar
+              ? null
+              : PdfEditingToolbar(
+                  controller: session,
+                  viewerController: _viewer,
+                  // save lives in the header now, not the dock
+                  textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                  palette: widget.palette,
+                  tools: features.tools,
+                  groups: features.toolGroups,
+                  showMarkup: features.markup,
+                  showUndoRedo: features.undoRedo,
+                  showColor: features.colorControls,
+                  showStyle: features.styleControls,
+                  showFlatten: features.flatten,
+                  leading: widget.toolbarLeading,
+                  trailing: widget.toolbarTrailing,
+                );
           return Column(children: [
             if (features.headerBar)
               PdfShellBar(
@@ -586,6 +619,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       controller: _viewer,
                       searchController: _searchField,
                       focusNode: _searchFocus,
+                      preferences: prefs,
+                      // the match-case / whole-word / regex controls live in
+                      // the results panel here, keeping the header compact
+                      showOptions: !features.searchResultsPanel,
                     ),
                     if (features.searchResultsPanel)
                       PdfShellToggleButton(
@@ -658,9 +695,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 ],
               ),
             Expanded(
-              // the toolbar floats over the bottom of the content,
-              // Acrobat/Bluebeam-style, rather than sitting in a solid
-              // edge-to-edge bar below it
+              // on wide screens the toolbar floats over the bottom of the
+              // content, Acrobat/Bluebeam-style; on phones it docks below
+              // (see dockToolbar) so its solid bar never hides the page
               child: Stack(children: [
                 Positioned.fill(
                   // keyed so a panel appearing never recreates the viewer
@@ -681,6 +718,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,
+                        onSnapshot: widget.onSnapshot,
                         editingTextPrompt: widget.textPrompt,
                         initialFit: widget.initialFit,
                         backgroundColor: widget.backgroundColor,
@@ -699,31 +737,19 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       properties(bottomSheet: false),
                   ]),
                 ),
-                if (features.toolbar && sheets.isEmpty)
+                if (toolbar != null && !dockToolbar)
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    child: PdfEditingToolbar(
-                      controller: session,
-                      viewerController: _viewer,
-                      // save lives in the header now, not the dock
-                      textPrompt: widget.textPrompt ?? showPdfTextPrompt,
-                      palette: widget.palette,
-                      tools: features.tools,
-                      groups: features.toolGroups,
-                      showMarkup: features.markup,
-                      showUndoRedo: features.undoRedo,
-                      showColor: features.colorControls,
-                      showStyle: features.styleControls,
-                      showFlatten: features.flatten,
-                      leading: widget.toolbarLeading,
-                      trailing: widget.toolbarTrailing,
-                    ),
+                    child: toolbar,
                   ),
                 if (sheets.isNotEmpty) pdfShellBottomSheets(sheets),
               ]),
             ),
+            // the mobile (solid-bar) toolbar docks below the content so it
+            // never covers the page; the floating variant stays in the Stack
+            if (toolbar != null && dockToolbar) toolbar,
           ]);
         },
       );

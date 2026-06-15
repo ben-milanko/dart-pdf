@@ -5,6 +5,15 @@
 [![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg)](https://codecov.io/gh/ben-milanko/dart-pdf)
 [![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](LICENSE)
 
+> [!TIP]
+> **Want the app, not the SDK?** [**DartPDF**](https://dart-pdf.com) is the
+> official PDF editor built on this library — edit, annotate, sign, and fill
+> PDFs entirely on your device, with no account and no uploads. Get it at
+> [dart-pdf.com](https://dart-pdf.com) or
+> [open it in your browser](https://app.dart-pdf.com).
+
+[![DartPDF — the official PDF editor app, built on this SDK. Get the app at dart-pdf.com](doc/app-banner.svg)](https://dart-pdf.com)
+
 A PDF renderer and editor written entirely in Dart, for use in Flutter
 apps. No PDFium, no platform channels.
 

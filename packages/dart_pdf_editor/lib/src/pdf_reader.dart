@@ -298,6 +298,7 @@ class _PdfReaderState extends State<PdfReader> {
                       controller: _viewer,
                       searchController: _searchField,
                       focusNode: _searchFocus,
+                      preferences: prefs,
                     ),
                   if (features.pageNumber && !prefs.showReflowView)
                     Padding(

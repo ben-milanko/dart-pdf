@@ -170,9 +170,12 @@ class PdfEditingToolbar extends StatefulWidget {
     Color(0xFF000000), // black
   ];
 
-  /// Below this width the dock collapses and tools move into a bottom
-  /// sheet. Above it, the desktop dock + contextual strip show.
-  static const _mobileBreakpoint = 600.0;
+  /// Below this width the dock collapses to a solid bar and tools move
+  /// into a bottom sheet. Above it, the desktop dock + contextual strip
+  /// show as floating cards. Hosts can read this to decide whether to
+  /// dock the toolbar (below this width it's a solid bar, so floating it
+  /// over the page would hide content) or let it float.
+  static const mobileBreakpoint = 600.0;
 
   @override
   State<PdfEditingToolbar> createState() => _PdfEditingToolbarState();
@@ -298,6 +301,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           'Form fields — tap to select, double-tap to fill, drag to add'),
       _GroupTool.tool(PdfEditTool.redact, Icons.gradient,
           'Redact — drag a region, then apply'),
+      _GroupTool.tool(PdfEditTool.snapshot, Icons.crop,
+          'Snapshot — drag a region to capture it (paste back as vector)'),
     ]),
   ];
 
@@ -565,7 +570,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           listenable: Listenable.merge([controller, viewerController]),
           builder: (context, _) => LayoutBuilder(
             builder: (context, constraints) =>
-                constraints.maxWidth < PdfEditingToolbar._mobileBreakpoint
+                constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint
                     ? _buildMobile(context)
                     : _buildDesktop(context),
           ),
@@ -722,6 +727,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             PdfEditTool.content => 'Content',
             PdfEditTool.form => 'Form',
             PdfEditTool.redact => 'Redact',
+            PdfEditTool.snapshot => 'Snapshot',
             _ => _entryLabel(entry),
           },
           tooltip: _entryTip(entry),
