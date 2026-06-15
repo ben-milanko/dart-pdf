@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required to download the on-device OCR model on first use
+         (pdf_ocr_ondevice). The debug/profile manifests already grant this;
+         release builds need it declared here too. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="DartPDF"
         android:name="${applicationName}"
