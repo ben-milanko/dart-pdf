@@ -42,18 +42,22 @@ void main() {
       final ap = latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
       expect(ap, contains('/Cap Do'));
 
-      // /Cap is a Form XObject whose BBox is the source region and whose
-      // content is the page's own operators — i.e. real vectors, not a raster
+      // /Cap is a Form XObject in an upright [0 0 dW dH] box whose content
+      // is the page's own operators under the capture matrix — i.e. real
+      // vectors, not a raster
       final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
           as CosDictionary;
       final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
       final cap = out.cos.resolve(xobj['Cap']) as CosStream;
       expect(_name(cap.dictionary['Subtype']), 'Form');
       final bbox = out.cos.resolve(cap.dictionary['BBox']) as CosArray;
+      // an unrotated page: the box is the region's size at the origin
       expect([for (final v in bbox.items) _num(out.cos.resolve(v))],
-          [60.0, 700.0, 220.0, 740.0]);
+          [0.0, 0.0, 160.0, 40.0]);
       final capContent = latin1.decode(out.cos.decodeStreamData(cap));
       expect(capContent, contains('(Page 1) Tj'));
+      // the capture matrix translates the region's origin to the box origin
+      expect(capContent, contains('1 0 0 1 -60 -700 cm'));
 
       // the page's font resource travels with the form (the text resolves)
       final capRes =
@@ -74,6 +78,74 @@ void main() {
       final ap = latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
       // cm: 2 0 0 4 (10 - 2*0) (20 - 4*0) = 2 0 0 4 10 20
       expect(ap, contains('2 0 0 4 10 20 cm'));
+    });
+
+    test('capture bakes the page /Rotate (90° swaps the displayed size)', () {
+      final doc = PdfDocument.open(buildNestedPageTreePdf());
+      expect(doc.page(0).rotation, 90); // sanity: page 0 is rotated
+      final editor = PdfEditor(doc);
+      // a 300x200 user-space region on a 90° page displays as 200x300
+      final snap = editor.captureVectorSnapshot(0, const PdfRect(50, 50, 350, 250));
+      expect(snap.displayWidth, 200);
+      expect(snap.displayHeight, 300);
+
+      editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 300), snap);
+      final out = PdfDocument.open(editor.save());
+      final stamp = out.page(0).annotations.single;
+      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
+      final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
+      final cap = out.cos.resolve(xobj['Cap']) as CosStream;
+      final bbox = out.cos.resolve(cap.dictionary['BBox']) as CosArray;
+      expect([for (final v in bbox.items) _num(out.cos.resolve(v))],
+          [0.0, 0.0, 200.0, 300.0]);
+      // the baked rotation cm for a 90° page: [0 -1 1 0 -ry0 rx1]
+      expect(latin1.decode(out.cos.decodeStreamData(cap)),
+          contains('0 -1 1 0 -50 350 cm'));
+    });
+
+    test('repeat pastes of one snapshot share a single captured form', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc);
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      final ref1 =
+          editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 160, 40), snap);
+      final ref2 = editor.pasteVectorSnapshot(
+          0, const PdfRect(200, 0, 360, 40), snap,
+          sharedObject: ref1);
+      expect(ref2, ref1); // the second paste reuses the first form
+
+      final out = PdfDocument.open(editor.save());
+      final stamps = out.page(0).annotations;
+      expect(stamps, hasLength(2));
+      int capNum(PdfAnnotation a) {
+        final res = out.cos.resolve(a.normalAppearance!.dictionary['Resources'])
+            as CosDictionary;
+        final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
+        // stored as an indirect reference, not resolved inline
+        return (xobj.entries['Cap'] as CosReference).objectNumber;
+      }
+      expect(capNum(stamps[0]), capNum(stamps[1]));
+    });
+
+    test('paste with a stale shared object re-materializes the form', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc);
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      // a bogus object number doesn't resolve to a form — paste makes its own
+      final ref = editor.pasteVectorSnapshot(
+          0, const PdfRect(0, 0, 160, 40), snap,
+          sharedObject: 99999);
+      expect(ref, isNot(99999));
+      expect(ref, greaterThan(0));
+      final out = PdfDocument.open(editor.save());
+      final stamp = out.page(0).annotations.single;
+      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
+      final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
+      expect(out.cos.resolve(xobj['Cap']), isA<CosStream>());
     });
 
     test('paste with opacity < 1 adds an ExtGState alpha to the appearance', () {

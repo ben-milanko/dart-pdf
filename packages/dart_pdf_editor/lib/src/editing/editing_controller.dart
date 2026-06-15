@@ -2233,6 +2233,12 @@ class PdfEditingController extends ChangeNotifier {
   PdfVectorSnapshot? _snapshotClipboard;
   int _snapshotPasteCount = 0;
 
+  /// The object number of the captured form materialized by the last paste
+  /// of [_snapshotClipboard] into the current document — reused so repeat
+  /// pastes share one XObject instead of re-embedding the page content.
+  /// Reset whenever a fresh snapshot is captured.
+  int? _snapshotCapturedRef;
+
   /// Whether [pasteSnapshot] has a captured region to paste.
   bool get hasSnapshotClipboard => _snapshotClipboard != null;
 
@@ -2240,9 +2246,9 @@ class PdfEditingController extends ChangeNotifier {
   PdfVectorSnapshot? get snapshotClipboard => _snapshotClipboard;
 
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
-  /// vector snapshot — the page graphics under the region, copied inline.
-  /// Read-only: the document is untouched. See
-  /// [PdfVectorSnapshotEditing.captureVectorSnapshot].
+  /// vector snapshot — the page graphics under the region, copied inline,
+  /// with the page's /Rotate baked in. Read-only: the document is
+  /// untouched. See [PdfVectorSnapshotEditing.captureVectorSnapshot].
   PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region) =>
       PdfEditor(_document).captureVectorSnapshot(pageIndex, region);
 
@@ -2254,6 +2260,7 @@ class PdfEditingController extends ChangeNotifier {
     final snapshot = captureVectorSnapshot(pageIndex, region);
     _snapshotClipboard = snapshot;
     _snapshotPasteCount = 0;
+    _snapshotCapturedRef = null;
     _clipboard = const [];
     notifyListeners();
     return snapshot;
@@ -2271,8 +2278,7 @@ class PdfEditingController extends ChangeNotifier {
     final snapshot = _snapshotClipboard;
     if (snapshot == null) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
-    final region = snapshot.region;
-    final w = region.width, h = region.height;
+    final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
     double left, bottom;
     if (at != null) {
@@ -2280,18 +2286,21 @@ class PdfEditingController extends ChangeNotifier {
       bottom = at.$2 - h / 2;
     } else {
       final cascade = 12.0 * _snapshotPasteCount;
-      left = region.left + cascade;
-      bottom = region.bottom - cascade;
+      left = snapshot.region.left + cascade;
+      bottom = snapshot.region.bottom - cascade;
     }
     final box = _page(pageIndex).cropBox;
     left += _clampShift(left, left + w, box.left, box.right);
     bottom += _clampShift(bottom, bottom + h, box.bottom, box.top);
     final target = PdfRect(left, bottom, left + w, bottom + h);
-    final pasted = apply(
-        (e) => e.pasteVectorSnapshot(pageIndex, target, snapshot,
-            author: author),
-        pages: [pageIndex]);
+    int? captured;
+    final pasted = apply((e) {
+      captured = e.pasteVectorSnapshot(pageIndex, target, snapshot,
+          author: author, sharedObject: _snapshotCapturedRef);
+    }, pages: [pageIndex]);
     if (!pasted) return false;
+    // remember the shared captured form so repeat pastes reuse it
+    _snapshotCapturedRef = captured;
     _snapshotPasteCount++;
     tool = PdfEditTool.select;
     final total = _page(pageIndex).annotations.length;
