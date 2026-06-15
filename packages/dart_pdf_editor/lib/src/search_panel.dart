@@ -24,6 +24,7 @@ class PdfSearchField extends StatefulWidget {
     this.focusNode,
     this.hintText = 'Search',
     this.showOptions = true,
+    this.preferences,
   });
 
   final PdfViewerController controller;
@@ -35,6 +36,10 @@ class PdfSearchField extends StatefulWidget {
   /// Whether to show the match-case / whole-word / regex toggle buttons
   /// beside the field. They drive [PdfViewerController.searchOptions].
   final bool showOptions;
+
+  /// When given, the match-case / whole-word / regex toggles persist to
+  /// (and seed from) these preferences, so they survive across sessions.
+  final PdfEditingPreferences? preferences;
 
   /// Optional external text controller — pass one to clear or prefill
   /// the field from the host (e.g. when a new document opens).
@@ -153,7 +158,8 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
           if (widget.showOptions)
             Padding(
               padding: const EdgeInsets.only(left: 4),
-              child: _SearchOptionsBar(controller: controller),
+              child: _SearchOptionsBar(
+                  controller: controller, preferences: widget.preferences),
             ),
           if (hasQuery && !controller.isSearching) ...[
             Padding(
@@ -420,7 +426,9 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: _SearchOptionsBar(controller: controller),
+                      child: _SearchOptionsBar(
+                          controller: controller,
+                          preferences: widget.preferences),
                     ),
                   ),
                   const Divider(height: 1),
@@ -456,15 +464,57 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
 /// sensitivity, whole word, and regular expression — driving
 /// [PdfViewerController.searchOptions]. Shared by [PdfSearchField] and
 /// [PdfSearchResultsPanel].
-class _SearchOptionsBar extends StatelessWidget {
-  const _SearchOptionsBar({required this.controller});
+///
+/// With [preferences] the toggles persist: the bar seeds the controller
+/// from the stored values once they load, and a toggle writes back.
+class _SearchOptionsBar extends StatefulWidget {
+  const _SearchOptionsBar({required this.controller, this.preferences});
 
   final PdfViewerController controller;
+  final PdfEditingPreferences? preferences;
+
+  @override
+  State<_SearchOptionsBar> createState() => _SearchOptionsBarState();
+}
+
+class _SearchOptionsBarState extends State<_SearchOptionsBar> {
+  @override
+  void initState() {
+    super.initState();
+    // Seed the controller from the stored options once they have loaded.
+    // ready completes after the frame, so setSearchOptions runs outside any
+    // build; the prefs' own _modified guard means a programmatic change
+    // before load still wins.
+    final prefs = widget.preferences;
+    if (prefs != null) {
+      prefs.ready.then((_) {
+        if (!mounted) return;
+        final p = widget.preferences;
+        if (p == null) return;
+        widget.controller.setSearchOptions(PdfSearchOptions(
+          matchCase: p.searchMatchCase,
+          wholeWord: p.searchWholeWord,
+          regex: p.searchRegex,
+        ));
+      });
+    }
+  }
+
+  void _apply(PdfSearchOptions next) {
+    widget.controller.setSearchOptions(next);
+    final prefs = widget.preferences;
+    if (prefs != null) {
+      prefs
+        ..searchMatchCase = next.matchCase
+        ..searchWholeWord = next.wholeWord
+        ..searchRegex = next.regex;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final options = controller.searchOptions;
+    final options = widget.controller.searchOptions;
 
     Widget toggle({
       required String keyName,
@@ -486,7 +536,7 @@ class _SearchOptionsBar extends StatelessWidget {
                 ? scheme.onSecondaryContainer
                 : scheme.onSurfaceVariant,
           ),
-          onPressed: () => controller.setSearchOptions(next),
+          onPressed: () => _apply(next),
           icon: Text(
             glyph,
             style: const TextStyle(

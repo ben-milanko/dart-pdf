@@ -72,6 +72,9 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _showReflowView = false;
   bool _showPropertiesPanel = false;
   bool _showSearchResultsPanel = false;
+  bool _searchMatchCase = false;
+  bool _searchWholeWord = false;
+  bool _searchRegex = false;
   double? _thumbnailSidebarWidth;
   double? _annotationSidebarWidth;
   double? _propertiesPanelWidth;
@@ -193,6 +196,11 @@ class PdfEditingPreferences extends ChangeNotifier {
       _showSearchResultsPanel =
           store.getBool('${_prefix}showSearchResultsPanel') ??
               _showSearchResultsPanel;
+      _searchMatchCase =
+          store.getBool('${_prefix}searchMatchCase') ?? _searchMatchCase;
+      _searchWholeWord =
+          store.getBool('${_prefix}searchWholeWord') ?? _searchWholeWord;
+      _searchRegex = store.getBool('${_prefix}searchRegex') ?? _searchRegex;
       _propertiesPanelWidth =
           store.getDouble('${_prefix}propertiesPanelWidth') ??
               _propertiesPanelWidth;
@@ -768,6 +776,39 @@ class PdfEditingPreferences extends ChangeNotifier {
     _write((s) => value == null
         ? s.remove('${_prefix}searchPanelWidth')
         : s.setDouble('${_prefix}searchPanelWidth', value));
+    notifyListeners();
+  }
+
+  /// Whether document search matches case (see `PdfSearchOptions.matchCase`).
+  /// Persisted so the search toggles survive reopening the app.
+  bool get searchMatchCase => _searchMatchCase;
+
+  set searchMatchCase(bool value) {
+    if (value == _searchMatchCase) return;
+    _searchMatchCase = value;
+    _write((s) => s.setBool('${_prefix}searchMatchCase', value));
+    notifyListeners();
+  }
+
+  /// Whether document search matches whole words only (see
+  /// `PdfSearchOptions.wholeWord`). Persisted.
+  bool get searchWholeWord => _searchWholeWord;
+
+  set searchWholeWord(bool value) {
+    if (value == _searchWholeWord) return;
+    _searchWholeWord = value;
+    _write((s) => s.setBool('${_prefix}searchWholeWord', value));
+    notifyListeners();
+  }
+
+  /// Whether document search treats the query as a regular expression (see
+  /// `PdfSearchOptions.regex`). Persisted.
+  bool get searchRegex => _searchRegex;
+
+  set searchRegex(bool value) {
+    if (value == _searchRegex) return;
+    _searchRegex = value;
+    _write((s) => s.setBool('${_prefix}searchRegex', value));
     notifyListeners();
   }
 }

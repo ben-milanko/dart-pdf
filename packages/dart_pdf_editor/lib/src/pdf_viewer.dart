@@ -74,6 +74,11 @@ class PdfSearchOptions {
 
   /// When true, the query is a regular expression rather than literal text.
   /// An invalid pattern simply yields no matches.
+  ///
+  /// Matching runs synchronously on the calling (UI) thread with no
+  /// timeout, so a catastrophically backtracking pattern over a very large
+  /// page can briefly stall the frame — acceptable for local desktop use,
+  /// but a host exposing this to untrusted input should guard it.
   final bool regex;
 
   PdfSearchOptions copyWith({bool? matchCase, bool? wholeWord, bool? regex}) =>

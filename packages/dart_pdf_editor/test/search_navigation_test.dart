@@ -364,6 +364,32 @@ void main() {
       expect(controller.matchCount, 3);
     });
 
+    testWidgets('toggles persist to and seed from preferences',
+        (tester) async {
+      // a stored option seeds the controller once preferences load
+      SharedPreferences.setMockInitialValues(
+          {'dart_pdf_editor.editing.searchWholeWord': true});
+      final preferences = PdfEditingPreferences();
+      addTearDown(preferences.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(2),
+          above: PdfSearchField(
+              controller: controller, preferences: preferences));
+
+      // let the async preference load (and the bar's seeding) run, then
+      // rebuild — the stored whole-word option lands on the controller
+      await tester.runAsync(() => preferences.ready);
+      await tester.pump();
+      expect(controller.searchOptions.wholeWord, isTrue);
+
+      // toggling match case writes through to the preferences immediately
+      await tester.tap(find.byKey(const ValueKey('pdf-search-match-case')));
+      await tester.pump();
+      expect(controller.searchOptions.matchCase, isTrue);
+      expect(preferences.searchMatchCase, isTrue);
+    });
+
     testWidgets('showOptions: false hides the toggles', (tester) async {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);

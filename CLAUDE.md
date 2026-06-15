@@ -2287,8 +2287,27 @@ Shell wiring: the editor shell (`PdfEditorView`) passes
 results panel carries the controls, keeping the compact (≤600px) header
 from pushing the annotation/properties toggles off-screen (the
 pdf-shell-annotations-toggle tap-misses otherwise); the reader (no results
-panel) keeps the inline field toggles. Tests: pdf_graphics
+panel) keeps the inline field toggles. Persistence (Ben follow-up: "the
+three toggles aren't persisted like sibling search prefs"):
+`PdfEditingPreferences.searchMatchCase/searchWholeWord/searchRegex` (three
+bool keys — NOT a `PdfSearchOptions` field, since editing_preferences sits
+below pdf_viewer and importing it would cycle pdf_viewer→editing_controller
+→editing_preferences→pdf_viewer); the now-stateful `_SearchOptionsBar`
+takes `preferences` and bridges: seeds the controller from the stored
+flags via `prefs.ready.then` in initState (after the frame, so
+setSearchOptions never fires during build; the prefs' _modified guard keeps
+a programmatic pre-load change winning) and write-throughs on every toggle.
+`PdfSearchField` gained a `preferences` param; both shells pass `prefs` to
+their field (and the panel already had it). Regex caveat documented (Ben:
+"runs synchronously with no ReDoS/timeout guard, undocumented"): dartdoc on
+`PdfSearchOptions.regex` and `findAll`'s regex param notes matching is
+synchronous on the calling thread with no timeout — fine for local desktop,
+a host exposing it to untrusted input should guard it (no isolate/timeout
+added; Ben called the desktop behaviour acceptable). Tests: pdf_graphics
 text_extraction_test (+2: whole-word boundaries, regex incl. invalid →
-empty); dart_pdf_editor search_navigation_test (+5: controller re-run per
+empty); dart_pdf_editor search_navigation_test (+6: controller re-run per
 option, no-query store, field toggles re-search, showOptions:false hides
-them, panel toggles).
+them, panel toggles, persist+seed via tester.runAsync for the async prefs
+load — a bare `await prefs.ready` hangs under widget-test FakeAsync) and
+editing_preferences_test (+3 assertions: round-trip + defaults for the
+three flags).

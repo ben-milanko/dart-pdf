@@ -104,7 +104,9 @@ class PdfPageText {
   /// With [wholeWord] only matches whose surrounding characters are not
   /// letters/digits/underscore count. With [regex] the query is a Dart
   /// regular expression (an invalid pattern yields no matches rather than
-  /// throwing). [caseSensitive] applies to both literal and regex search.
+  /// throwing); matching is synchronous with no timeout, so a pathological
+  /// (catastrophically backtracking) pattern over a large page can block
+  /// the caller. [caseSensitive] applies to both literal and regex search.
   List<PdfTextMatch> findAll(
     String query, {
     bool caseSensitive = false,
