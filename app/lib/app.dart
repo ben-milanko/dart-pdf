@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'editor_screen.dart';
@@ -19,6 +20,19 @@ class DartPdfEditorApp extends StatefulWidget {
 
 class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   final _prefs = PdfEditingPreferences();
+
+  @override
+  void initState() {
+    super.initState();
+    // On web, point the render worker at its compiled script so page
+    // interpretation runs in a dedicated Web Worker (built by tool/build_web.sh;
+    // see doc/render_worker_web.md). Ignored on native, where the background
+    // isolate needs no script. With no compiled script present the worker simply
+    // degrades to local rendering, so this is safe even before a worker build.
+    if (kIsWeb) {
+      pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+    }
+  }
 
   @override
   void dispose() {
