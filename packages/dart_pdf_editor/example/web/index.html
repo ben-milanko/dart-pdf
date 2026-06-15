@@ -29,10 +29,126 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
+  <!-- Browser chrome matches the splash gradient. -->
+  <meta name="theme-color" content="#0169B4">
+
   <title>dart-pdf demo</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Branded loading splash: shown immediately, before Flutter boots, and
+       faded out on the first rendered frame so the user never sees a blank
+       page on a cold start (the wasm/JS bundle can take a few seconds). -->
+  <style>
+    #dartpdf-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #16BAFD 0%, #0169B4 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+      opacity: 1;
+      transition: opacity 0.45s ease;
+    }
+    #dartpdf-splash.dartpdf-splash--hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #dartpdf-splash .dartpdf-splash__mark {
+      width: 132px;
+      height: 132px;
+      filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.28));
+      animation: dartpdf-splash-pop 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    #dartpdf-splash .dartpdf-splash__title {
+      margin-top: 30px;
+      color: #ffffff;
+      font-size: 27px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+    }
+    #dartpdf-splash .dartpdf-splash__subtitle {
+      margin-top: 8px;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 14px;
+      font-weight: 400;
+    }
+    #dartpdf-splash .dartpdf-splash__spinner {
+      margin-top: 38px;
+      width: 34px;
+      height: 34px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: dartpdf-splash-spin 0.9s linear infinite;
+    }
+    @keyframes dartpdf-splash-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes dartpdf-splash-pop {
+      from { transform: scale(0.82); opacity: 0; }
+      to   { transform: scale(1);    opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #dartpdf-splash .dartpdf-splash__mark { animation: none; }
+      #dartpdf-splash .dartpdf-splash__spinner { animation-duration: 1.6s; }
+    }
+    @media (prefers-color-scheme: dark) {
+      #dartpdf-splash {
+        background: linear-gradient(135deg, #0a4f7a 0%, #042f4d 100%);
+      }
+    }
+  </style>
 </head>
 <body>
+  <!-- Loading splash (removed once Flutter renders its first frame). -->
+  <div id="dartpdf-splash" role="status" aria-label="Loading the dart-pdf demo">
+    <svg class="dartpdf-splash__mark" viewBox="0 0 1024 1024"
+         xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="splashBg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#16BAFD"/>
+          <stop offset="1" stop-color="#0169B4"/>
+        </linearGradient>
+        <linearGradient id="splashInk" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#0175C2"/>
+          <stop offset="1" stop-color="#13B9FD"/>
+        </linearGradient>
+      </defs>
+      <rect width="1024" height="1024" rx="224" fill="url(#splashBg)"/>
+      <path d="M 304 192 H 612 L 752 332 V 800 Q 752 832 720 832 H 304 Q 272 832 272 800 V 224 Q 272 192 304 192 Z"
+            fill="#FFFFFF"/>
+      <path d="M 612 192 L 752 332 H 646 Q 612 332 612 298 Z" fill="#C6E3F8"/>
+      <rect x="332" y="396" width="216" height="34" rx="17" fill="#8FA6B5"/>
+      <rect x="332" y="478" width="384" height="40" rx="20" fill="#FFC93C"/>
+      <rect x="332" y="566" width="340" height="32" rx="16" fill="#C4D2DC"/>
+      <path d="M 330 748 C 384 642 462 642 506 716 C 542 776 584 772 618 718 C 646 674 686 690 702 712"
+            fill="none" stroke="url(#splashInk)" stroke-width="32" stroke-linecap="round"/>
+    </svg>
+    <div class="dartpdf-splash__title">dart-pdf</div>
+    <div class="dartpdf-splash__subtitle">Loading the demo…</div>
+    <div class="dartpdf-splash__spinner"></div>
+  </div>
+  <script>
+    (function () {
+      function hideSplash() {
+        var s = document.getElementById('dartpdf-splash');
+        if (!s) return;
+        s.classList.add('dartpdf-splash--hidden');
+        window.setTimeout(function () {
+          if (s && s.parentNode) s.parentNode.removeChild(s);
+        }, 500);
+      }
+      // Flutter dispatches this on the document once the first frame paints.
+      window.addEventListener('flutter-first-frame', hideSplash);
+      // Safety net: never leave the splash up if the event is missed.
+      window.setTimeout(hideSplash, 15000);
+    })();
+  </script>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

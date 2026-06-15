@@ -848,6 +848,39 @@ void main() {
           findsNothing);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('phone: the editing toolbar docks below the viewer',
+        (tester) async {
+      // Below PdfEditingToolbar.mobileBreakpoint the toolbar is a solid
+      // bar; floating it over the page would hide the bottom of the
+      // content, so it docks below the viewer and takes its own space.
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+
+      final toolbar = find.byType(PdfEditingToolbar);
+      expect(toolbar, findsOneWidget);
+      // docked = no vertical overlap with the viewer (the toolbar's top is
+      // at or below the viewer's bottom)
+      final viewerBottom = tester.getRect(find.byType(PdfViewer)).bottom;
+      final toolbarTop = tester.getRect(toolbar).top;
+      expect(toolbarTop, greaterThanOrEqualTo(viewerBottom - 0.5));
+    });
+
+    testWidgets('wide: the editing toolbar floats over the viewer',
+        (tester) async {
+      // Above the breakpoint the toolbar is transparent floating cards —
+      // it sits over the bottom of the page (Acrobat/Bluebeam-style).
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+
+      final toolbar = find.byType(PdfEditingToolbar);
+      expect(toolbar, findsOneWidget);
+      final viewerBottom = tester.getRect(find.byType(PdfViewer)).bottom;
+      final toolbarTop = tester.getRect(toolbar).top;
+      expect(toolbarTop, lessThan(viewerBottom),
+          reason: 'the floating toolbar overlaps the viewer');
+    });
   });
 
   group('shell header bar', () {
