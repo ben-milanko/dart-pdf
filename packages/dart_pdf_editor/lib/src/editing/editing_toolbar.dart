@@ -297,6 +297,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     _ToolGroup('edit', 'Edit', Icons.design_services, [
       _GroupTool.tool(
           PdfEditTool.content, Icons.format_shapes, 'Edit page content'),
+      _GroupTool.tool(PdfEditTool.contentDelete, Icons.content_cut,
+          'Delete content — drag a region to remove page content'),
       _GroupTool.tool(PdfEditTool.form, Icons.ballot_outlined,
           'Form fields — tap to select, double-tap to fill, drag to add'),
       _GroupTool.tool(PdfEditTool.redact, Icons.gradient,
@@ -731,6 +733,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           icon: entry.icon,
           label: switch (tool) {
             PdfEditTool.content => 'Content',
+            PdfEditTool.contentDelete => 'Delete',
             PdfEditTool.form => 'Form',
             PdfEditTool.redact => 'Redact',
             PdfEditTool.snapshot => 'Snapshot',

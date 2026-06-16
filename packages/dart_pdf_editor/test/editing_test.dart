@@ -304,6 +304,18 @@ void main() {
       expect(editing.elementsOn(0).elements.single.text, 'Page 1');
     });
 
+    test('deleteElementsInRect removes bounded content in a region', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      expect(editing.deleteElementsInRect(
+          0, const PdfRect(70, 715, 160, 750)), 1);
+      expect(editing.elementsOn(0).elements, isEmpty);
+
+      editing.undo();
+      expect(editing.deleteElementsInRect(
+          0, const PdfRect(300, 300, 360, 360)), 0);
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+    });
+
     test('arming a non-content tool clears the element selection', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..tool = PdfEditTool.content;
@@ -826,6 +838,31 @@ void main() {
       await tester.tap(find.byTooltip('Ellipse (O)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ellipse);
+
+      final toolbarScrollables = find.descendant(
+          of: find.byType(PdfEditingToolbar), matching: find.byType(Scrollable));
+      final dockScrollable = toolbarScrollables.last;
+      final stripScrollable = toolbarScrollables.first;
+      final editChip = find.byKey(const ValueKey('pdf-group-edit'));
+      await tester.scrollUntilVisible(editChip, 80, scrollable: dockScrollable);
+      await tester.tap(editChip);
+      await tester.pump();
+      final contentDeleteButton = find.byTooltip(
+          'Delete content — drag a region to remove page content');
+      await tester.scrollUntilVisible(contentDeleteButton, 80,
+          scrollable: stripScrollable);
+      await tester.tap(contentDeleteButton);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.contentDelete);
+
+      final shapesChip = find.byKey(const ValueKey('pdf-group-shapes'));
+      await tester.scrollUntilVisible(shapesChip, -80,
+          scrollable: dockScrollable);
+      await tester.tap(shapesChip);
+      await tester.pump();
+      await tester.tap(find.byTooltip('Ellipse (O)'));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.ellipse);
       // re-tapping the active tool drops back to Select (not a no-tool
       // limbo) so you can immediately select and move things
       await tester.tap(find.byTooltip('Ellipse (O)'));
@@ -834,7 +871,10 @@ void main() {
 
       editing.addRectangle(0, const PdfRect(100, 650, 250, 750));
       await tester.pump();
-      await tester.tap(find.byTooltip('Undo (⌘Z)'));
+      final undoButton = find.byTooltip('Undo (⌘Z)');
+      await tester.scrollUntilVisible(undoButton, -80,
+          scrollable: dockScrollable);
+      await tester.tap(undoButton);
       await tester.pump();
       expect(editing.document.page(0).annotations, isEmpty);
       await settle(tester);
@@ -860,6 +900,27 @@ void main() {
       await tester.tapAt(view(80, 725));
       await settle(tester);
       await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await settle(tester);
+      expect(editing.elementsOn(0).elements, isEmpty);
+    });
+
+    testWidgets('the content delete tool drags a region to remove content',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+
+      final from = view(60, 755);
+      final to = view(180, 705);
+      final gesture = await tester.startGesture(from);
+      await gesture.moveTo(Offset.lerp(from, to, 0.5)!);
+      await tester.pump();
+      final painter = editingOverlayPainter(tester);
+      expect(painter.tool, PdfEditTool.contentDelete);
+      expect(painter.dragRect, isNotNull);
+
+      await gesture.moveTo(to);
+      await gesture.up();
       await settle(tester);
       expect(editing.elementsOn(0).elements, isEmpty);
     });

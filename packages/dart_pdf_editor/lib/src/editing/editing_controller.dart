@@ -97,6 +97,11 @@ enum PdfEditTool {
   /// content stream itself, not annotations.
   content,
 
+  /// Drag a rectangular region to delete every page-content element whose
+  /// bounds overlap it, like Bluebeam's content erase/delete tool. This
+  /// edits the page's content stream directly and ignores annotations.
+  contentDelete,
+
   /// Interactive forms: tap a field widget to fill it (text fields open
   /// an inline editor, check boxes and radio buttons toggle, choice
   /// fields offer their options), drag on empty page area to add a new
@@ -3000,6 +3005,27 @@ class PdfEditingController extends ChangeNotifier {
     if (_selectedElement == null) return;
     _selectedElement = null;
     notifyListeners();
+  }
+
+  bool _intersects(PdfRect a, PdfRect b) {
+    final hit = a.intersect(b);
+    return hit.width > 0 && hit.height > 0;
+  }
+
+  /// Deletes every bounded page-content element that overlaps [rect].
+  /// Returns the number of elements removed. Unbounded elements (for
+  /// example full-page shadings whose geometry could not be tracked) are
+  /// left alone so a region drag only affects visible content in the box.
+  int deleteElementsInRect(int pageIndex, PdfRect rect) {
+    final elements = elementsOn(pageIndex);
+    final ids = [
+      for (final element in elements.elements)
+        if (element.bounds case final bounds? when _intersects(bounds, rect))
+          element.id,
+    ];
+    if (ids.isEmpty) return 0;
+    apply((e) => e.deleteElements(elements, ids), pages: [pageIndex]);
+    return ids.length;
   }
 
   /// Deletes the selected content element from its page's content stream.

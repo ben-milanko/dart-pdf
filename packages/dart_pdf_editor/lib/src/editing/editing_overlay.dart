@@ -1679,7 +1679,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.stamp ||
             PdfEditTool.image ||
             PdfEditTool.redact ||
-            PdfEditTool.snapshot:
+            PdfEditTool.snapshot ||
+            PdfEditTool.contentDelete:
         setState(() {
           _dragStart = position;
           _dragCurrent = position;
@@ -2341,6 +2342,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _controller.newFormFieldKind, widget.pageIndex, rect);
       case PdfEditTool.redact:
         _controller.addRedaction(widget.pageIndex, rect);
+      case PdfEditTool.contentDelete:
+        _controller.deleteElementsInRect(widget.pageIndex, rect);
       case PdfEditTool.snapshot:
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
@@ -3829,6 +3832,16 @@ class _EditingPreviewPainter extends CustomPainter {
               ..strokeWidth = 1);
       case PdfEditTool.redact:
         paintRedactionHatch(canvas, rect);
+      case PdfEditTool.contentDelete:
+        // Same region marquee as Snapshot, but orange to signal permanent
+        // page-content edits rather than a read-only capture.
+        canvas.drawRect(rect, Paint()..color = _elementChrome.withAlpha(0x1A));
+        canvas.drawRect(
+            rect,
+            Paint()
+              ..color = _elementChrome
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1 * chromeScale);
       case PdfEditTool.snapshot:
         // a selection marquee, like the region grab in a screenshot tool
         canvas.drawRect(rect, Paint()..color = _chrome.withAlpha(0x1A));
