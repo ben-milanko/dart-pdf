@@ -367,6 +367,7 @@ typedef _AfterGhost = ({
   Rect to,
   Rect? source,
   ui.Picture? sourceClean,
+  Color? sourceWash,
   double rotation,
   double localAngle,
   bool flipX,
@@ -3313,6 +3314,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // paint that same picture at rest so vector paste feedback is immediate
     // instead of waiting for the full-page raster. Dragging keeps using the
     // normal ghost path, and explicit commit afterimages take precedence.
+    final selectedAnnotation = _controller.selectedAnnotation;
+    final washRestGhost = selectedAnnotation?.subtype == 'FreeText';
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
@@ -3322,8 +3325,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             picture: _ghost!,
             from: selected,
             to: selected,
-            source: null,
-            sourceClean: null,
+            source: washRestGhost ? selected : null,
+            sourceClean: washRestGhost ? _sourceCleanPicture : null,
+            sourceWash: washRestGhost
+                ? Color.alphaBlend(widget.pageColor, const Color(0xFFFFFFFF))
+                : null,
             rotation: 0.0,
             localAngle: 0.0,
             flipX: false,
@@ -3337,6 +3343,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             to: _afterGhostTo!,
             source: _afterGhostSourceRect,
             sourceClean: _afterGhostSourceClean,
+            sourceWash: null,
             rotation: _afterGhostRotation,
             localAngle: _afterGhostLocalAngle,
             flipX: _afterGhostFlipX,
@@ -4485,6 +4492,12 @@ class _EditingPreviewPainter extends CustomPainter {
         canvas.scale(geometry.scale);
         canvas.drawPicture(sourceClean);
         canvas.restore();
+      } else if (source != null && committed.sourceWash != null) {
+        final page = Offset.zero & size;
+        final clipped = source.inflate(2).intersect(page);
+        if (!clipped.isEmpty) {
+          canvas.drawRect(clipped, Paint()..color = committed.sourceWash!);
+        }
       }
       // full strength: this *is* the committed result, standing in for
       // the raster that hasn't landed yet

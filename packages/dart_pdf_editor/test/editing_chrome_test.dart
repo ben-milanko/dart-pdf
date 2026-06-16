@@ -285,13 +285,61 @@ void main() {
       await tester.pumpWidget(tree(0.7));
       await tester.pump();
       origin = tester.getTopLeft(find.byType(EditingPageOverlay));
-      expect(tester.getTopLeft(find.byKey(editorKey)) - origin,
+      expect(
+          tester.getTopLeft(find.byKey(editorKey)) - origin,
           offsetMoreOrLessEquals(geom(0.7).toViewRect(box).topLeft,
               epsilon: 0.5));
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
+    });
+  });
+
+  group('stale-raster text restyles', () {
+    testWidgets('wash the old FreeText footprint under the new appearance',
+        (tester) async {
+      const pageColor = Color(0xFFB3E5FC);
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 600, 300, 660), 'Font swap')
+        ..tool = PdfEditTool.select;
+      addTearDown(editing.dispose);
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      editing.restyleSelectedText(font: PdfStandardFont.times);
+
+      final cropBox = editing.document.page(0).cropBox;
+      final geometry = PdfPageGeometry(
+        cropBox: cropBox,
+        rotation: 0,
+        viewSize: Size(cropBox.width * 0.5, cropBox.height * 0.5),
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Material(
+          child: Center(
+            child: SizedBox(
+              width: geometry.viewSize.width,
+              height: geometry.viewSize.height,
+              child: EditingPageOverlay(
+                controller: editing,
+                pageIndex: 0,
+                geometry: geometry,
+                textPrompt: showPdfTextPrompt,
+                pageColor: pageColor,
+                rasterCurrent: false,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final painter = overlayPainter(tester);
+      final after = painter.afterGhost;
+      expect(after, isNotNull);
+      expect(after.source, isNotNull);
+      expect(after.sourceWash, pageColor);
+      expect(after.to, geometry.toViewRect(editing.selectedAnnotation!.rect));
     });
   });
 }
