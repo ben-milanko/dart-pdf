@@ -97,6 +97,11 @@ enum PdfEditTool {
   /// content stream itself, not annotations.
   content,
 
+  /// Drag a rectangular region to delete every page-content element whose
+  /// bounds overlap it, like Bluebeam's content erase/delete tool. This
+  /// edits the page's content stream directly and ignores annotations.
+  contentDelete,
+
   /// Interactive forms: tap a field widget to fill it (text fields open
   /// an inline editor, check boxes and radio buttons toggle, choice
   /// fields offer their options), drag on empty page area to add a new
@@ -532,7 +537,13 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.rectangle ||
         PdfEditTool.ellipse ||
         PdfEditTool.polygon =>
-          const {'color', 'strokeWidth', 'opacity', 'lineStyle', 'shapeFillColor'},
+          const {
+            'color',
+            'strokeWidth',
+            'opacity',
+            'lineStyle',
+            'shapeFillColor'
+          },
         PdfEditTool.line || PdfEditTool.polyline => const {
             'color',
             'strokeWidth',
@@ -541,8 +552,12 @@ class PdfEditingController extends ChangeNotifier {
             'lineStartEnding',
             'lineEndEnding',
           },
-        PdfEditTool.arrow =>
-          const {'color', 'strokeWidth', 'opacity', 'lineStyle'},
+        PdfEditTool.arrow => const {
+            'color',
+            'strokeWidth',
+            'opacity',
+            'lineStyle'
+          },
         PdfEditTool.measureDistance ||
         PdfEditTool.measurePerimeter ||
         PdfEditTool.measureArea =>
@@ -950,9 +965,9 @@ class PdfEditingController extends ChangeNotifier {
   /// Marks a single rectangular region for redaction (a /Redact
   /// annotation, fill black). This is the MARK phase — nothing is removed
   /// until [applyRedactions]. Undoable like any other edit until burned.
-  void addRedaction(int pageIndex, PdfRect rect) => apply(
-      (e) => e.addRedaction(pageIndex, [rect], author: author),
-      pages: [pageIndex]);
+  void addRedaction(int pageIndex, PdfRect rect) =>
+      apply((e) => e.addRedaction(pageIndex, [rect], author: author),
+          pages: [pageIndex]);
 
   /// Marks the text runs in [quadsByPage] for redaction (one /Redact
   /// annotation per page, fill black), e.g. from a text selection. Mirrors
@@ -1034,9 +1049,8 @@ class PdfEditingController extends ChangeNotifier {
               dashPattern: _lineDashPattern,
               startEnding:
                   arrow ? PdfLineEnding.none : preferences.lineStartEnding,
-              endEnding: arrow
-                  ? PdfLineEnding.closedArrow
-                  : preferences.lineEndEnding,
+              endEnding:
+                  arrow ? PdfLineEnding.closedArrow : preferences.lineEndEnding,
               author: author),
           pages: [pageIndex]);
 
@@ -1393,8 +1407,8 @@ class PdfEditingController extends ChangeNotifier {
     final cx = x.clamp(box.left + s / 2, box.right - s / 2);
     final cy = y.clamp(box.bottom + s / 2, box.top - s / 2);
     return apply(
-        (e) => e.addCheckMark(pageIndex,
-            PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
+        (e) => e.addCheckMark(
+            pageIndex, PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
             color: _colorValue, opacity: preferences.opacity, author: author),
         pages: [pageIndex]);
   }
@@ -1583,9 +1597,8 @@ class PdfEditingController extends ChangeNotifier {
   /// returns false) when nothing is selected or the selection would empty
   /// the document — at least one page must remain. Clears the selection.
   bool removeSelectedPages() {
-    final doomed = _selectedPages
-        .where((i) => i >= 0 && i < _document.pageCount)
-        .toList();
+    final doomed =
+        _selectedPages.where((i) => i >= 0 && i < _document.pageCount).toList();
     if (doomed.isEmpty || doomed.length >= _document.pageCount) return false;
     _selected.clear();
     _selectedPages.clear();
@@ -2690,8 +2703,7 @@ class PdfEditingController extends ChangeNotifier {
   /// /PolyLine in place — one revision, one undo, and the annotation
   /// keeps its /Annots slot and object number. Pass null for an axis to
   /// leave it unchanged.
-  void setSelectedLineEndings(
-      {PdfLineEnding? start, PdfLineEnding? end}) {
+  void setSelectedLineEndings({PdfLineEnding? start, PdfLineEnding? end}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canSetLineEndings) return;
     apply(
@@ -3002,6 +3014,27 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _intersects(PdfRect a, PdfRect b) {
+    final hit = a.intersect(b);
+    return hit.width > 0 && hit.height > 0;
+  }
+
+  /// Deletes every bounded page-content element that overlaps [rect].
+  /// Returns the number of elements removed. Unbounded elements (for
+  /// example full-page shadings whose geometry could not be tracked) are
+  /// left alone so a region drag only affects visible content in the box.
+  int deleteElementsInRect(int pageIndex, PdfRect rect) {
+    final elements = elementsOn(pageIndex);
+    final ids = [
+      for (final element in elements.elements)
+        if (element.bounds case final bounds? when _intersects(bounds, rect))
+          element.id,
+    ];
+    if (ids.isEmpty) return 0;
+    apply((e) => e.deleteElements(elements, ids), pages: [pageIndex]);
+    return ids.length;
+  }
+
   /// Deletes the selected content element from its page's content stream.
   void deleteSelectedElement() {
     final selected = _selectedElement;
@@ -3086,8 +3119,7 @@ class PdfEditingController extends ChangeNotifier {
     final form = acroForm;
     if (form == null) return const [];
     final annotations = _page(pageIndex).annotations;
-    final result =
-        <(PdfFormField, int, PdfAnnotation)>[];
+    final result = <(PdfFormField, int, PdfAnnotation)>[];
     for (final annotation in annotations) {
       if (annotation.subtype != 'Widget' ||
           annotation.isHidden ||

@@ -304,6 +304,18 @@ void main() {
       expect(editing.elementsOn(0).elements.single.text, 'Page 1');
     });
 
+    test('deleteElementsInRect removes bounded content in a region', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(70, 715, 160, 750)), 1);
+      expect(editing.elementsOn(0).elements, isEmpty);
+
+      editing.undo();
+      expect(editing.deleteElementsInRect(0, const PdfRect(300, 300, 360, 360)),
+          0);
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+    });
+
     test('arming a non-content tool clears the element selection', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..tool = PdfEditTool.content;
@@ -860,6 +872,17 @@ void main() {
       await tester.tapAt(view(80, 725));
       await settle(tester);
       await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await settle(tester);
+      expect(editing.elementsOn(0).elements, isEmpty);
+    });
+
+    testWidgets('the content delete tool drags a region to remove content',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+
+      await drag(tester, view(60, 755), view(180, 705));
       await settle(tester);
       expect(editing.elementsOn(0).elements, isEmpty);
     });
