@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -13,6 +13,7 @@ import 'editing/editing_sidebar.dart';
 import 'editing/editing_thumbnails.dart';
 import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
+import 'editing/tool_shortcuts.dart';
 import 'page_number_field.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
@@ -194,6 +195,7 @@ class PdfEditorView extends StatefulWidget {
     this.onSnapshot,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
+    this.toolShortcuts = pdfEditToolShortcuts,
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
     this.initialFit = PdfViewerFit.page,
@@ -299,6 +301,11 @@ class PdfEditorView extends StatefulWidget {
   /// The toolbar's color palette.
   final List<Color> palette;
 
+  /// Single-key shortcuts for arming editing tools. Threaded to both the
+  /// embedded [PdfViewer] bindings and [PdfEditingToolbar] tooltip labels.
+  /// Pass an empty map to disable tool shortcuts.
+  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
+
   /// Custom widgets shown before the stock editing toolbar controls.
   ///
   /// Builders receive this editor view's edit session and viewer
@@ -350,6 +357,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   final _searchField = TextEditingController();
   final _searchFocus = FocusNode();
+  late Map<PdfEditTool, LogicalKeyboardKey> _toolShortcuts;
 
   /// The revision length last reported through onDocumentChanged —
   /// revisions are byte prefixes of one buffer, so equal length means
@@ -375,6 +383,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   @override
   void initState() {
     super.initState();
+    _toolShortcuts =
+        Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
     _openSession();
     // remember and restore where the user left this document
     final key = _documentKey;
@@ -445,6 +455,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   @override
   void didUpdateWidget(PdfEditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!mapEquals(widget.toolShortcuts, oldWidget.toolShortcuts)) {
+      _toolShortcuts =
+          Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
+    }
     if (widget.controller != oldWidget.controller ||
         !identical(widget.bytes, oldWidget.bytes) ||
         widget.documentId != oldWidget.documentId) {
@@ -624,6 +638,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   palette: widget.palette,
                   tools: features.tools,
                   groups: features.toolGroups,
+                  toolShortcuts: _toolShortcuts,
                   showMarkup: features.markup,
                   showUndoRedo: features.undoRedo,
                   showColor: features.colorControls,
@@ -635,7 +650,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
             icon: Icons.display_settings_outlined,
-            label: 'View',
+            label: 'Settings',
             onPressed: () {
               showPdfShellViewOptionsSheet(
                 context,
@@ -645,6 +660,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 author: features.author,
                 authorName: session.author,
                 onAuthorPressed: _promptAuthor,
+                toolShortcuts: _toolShortcuts,
+                onToolShortcutsChanged: (value) =>
+                    setState(() => _toolShortcuts = value),
+                tools: features.tools,
               );
             },
           );
@@ -714,7 +733,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageColor: features.pageColorEditable,
                         author: features.author,
                         authorName: session.author,
-                        onAuthorPressed: _promptAuthor),
+                        onAuthorPressed: _promptAuthor,
+                        toolShortcuts: _toolShortcuts,
+                        onToolShortcutsChanged: (value) =>
+                            setState(() => _toolShortcuts = value),
+                        tools: features.tools),
                   PdfShellPanelSwitch(
                     key: const ValueKey('pdf-shell-panels'),
                     items: panelItems,
@@ -785,6 +808,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                               onSnapshot: widget.onSnapshot,
                               editingTextPrompt: widget.textPrompt,
                               initialFit: widget.initialFit,
+                              toolShortcuts: _toolShortcuts,
                               backgroundColor: widget.backgroundColor,
                               pageColor: pageColor,
                               showAnnotations: prefs.showAnnotations,

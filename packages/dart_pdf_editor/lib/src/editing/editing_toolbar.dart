@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfStandardFontFamily;
 
@@ -83,6 +84,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.palette = defaultPalette,
     this.tools,
     this.groups,
+    this.toolShortcuts = pdfEditToolShortcuts,
     this.showMarkup = true,
     this.showUndoRedo = true,
     this.showColor = true,
@@ -107,6 +109,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// The colors offered for new annotations.
   final List<Color> palette;
+
+  /// Shortcut labels to show in tooltips. Keep this in sync with
+  /// [PdfViewer.toolShortcuts] when rebinding keys in the stock editor UI.
+  /// Tools omitted from the map show no shortcut label.
+  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
 
   /// The tools to expose, null meaning all of them. A group disappears
   /// from the dock when none of its tools are in the set. Sub-controls
@@ -1571,9 +1578,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// A tool's tooltip with its keyboard shortcut appended (e.g.
   /// "Rectangle (R)"), so the bindings in [pdfEditToolShortcuts] are
   /// discoverable on hover. Markups and unbound tools keep the plain tip.
-  static String _entryTip(_GroupTool entry) {
+  String _entryTip(_GroupTool entry) {
     final tool = entry.tool;
-    final key = tool == null ? null : pdfEditToolShortcutLabel(tool);
+    final key = tool == null
+        ? null
+        : pdfEditToolShortcutLabel(tool, shortcuts: widget.toolShortcuts);
     return key == null ? entry.tip : '${entry.tip} ($key)';
   }
 

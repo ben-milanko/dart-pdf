@@ -329,7 +329,7 @@ class _PdfReaderState extends State<PdfReader> {
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-view-options'),
                       icon: Icons.display_settings_outlined,
-                      label: 'View',
+                      label: 'Settings',
                       onPressed: () {
                         showPdfShellViewOptionsSheet(
                           context,

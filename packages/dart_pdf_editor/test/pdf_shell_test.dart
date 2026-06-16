@@ -222,6 +222,23 @@ void main() {
           find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
     });
 
+    testWidgets('settings opens keyboard shortcuts submenu', (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Keyboard shortcuts'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.text('R'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcuts-reset')),
+          findsOneWidget);
+    });
+
     testWidgets('view options can switch the editor to reflow text',
         (tester) async {
       final prefs = PdfEditingPreferences();
