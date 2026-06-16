@@ -1,5 +1,4 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -159,7 +158,6 @@ void main() {
   testWidgets(
       'right-click offers opening the source folder for file-backed tabs',
       (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
     await tester.pump();
     await openTab(tester, 'alpha.pdf', path: '/Users/ben/Documents/alpha.pdf');
@@ -168,8 +166,19 @@ void main() {
 
     expect(find.byKey(const ValueKey('tab-menu-open-folder')), findsOneWidget);
     expect(find.text('Open in Finder'), findsOneWidget);
-    debugDefaultTargetPlatformOverride = null;
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('right-click hides folder action for memory-only tabs',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+
+    await rightClickTab(tester, 'alpha.pdf');
+
+    expect(find.byKey(const ValueKey('tab-menu-open-folder')), findsNothing);
+    expect(find.byKey(const ValueKey('tab-menu-close')), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets('Close others leaves only the clicked tab', (tester) async {
     await openTabs(tester);
