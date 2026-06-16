@@ -598,6 +598,34 @@ void main() {
       expect(saved!.length, editing.bytes.length);
     });
 
+    testWidgets('Ctrl+Shift+S saves through onSaveAs', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      List<int>? saved;
+      List<int>? savedAs;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onSave: (bytes) => saved = bytes,
+          onSaveAs: (bytes) => savedAs = bytes,
+        ),
+      );
+      // focus the viewer the way a user would: click it, so the
+      // shell's CallbackShortcuts has a focused descendant
+      await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(saved, isNull);
+      expect(savedAs, isNotNull);
+      expect(savedAs!.length, editing.bytes.length);
+    });
+
     testWidgets('swapping bytes opens a fresh session', (tester) async {
       final viewer = PdfViewerController();
       addTearDown(viewer.dispose);

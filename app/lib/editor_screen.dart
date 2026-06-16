@@ -660,6 +660,7 @@ class _EditorScreenState extends State<EditorScreen>
       controller: tab.session,
       viewerController: tab.viewer,
       onSave: (_) => unawaited(_save(tab)),
+      onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
       onPickPdfToInsert: pickPdfBytes,
       onExportPages: (bytes) =>
