@@ -13,30 +13,31 @@ doc/marketing/<target>/<platform>/NN-name.png     framed store shots (gradient +
 
 ## How it works
 
-1. **Self-driving entry** — each target has a screenshot build that walks a
+1. Self-driving entry. Each target has a screenshot build that walks a
    fixed list of showcase scenes, holds each still, and prints a marker line:
-   - `app/tool/screenshots_main.dart` (hero / editor / dark — all on a loaded
+   - `app/tool/screenshots_main.dart` (hero / editor / dark, all on a loaded
      showcase document; the hero is the clean page, editor + dark add the
      page-thumbnail panel)
    - `packages/dart_pdf_editor/example/lib/screenshots_main.dart`
      (document / graphics / annotations / markup / reader)
 
-   Markers: `@@SHOT@@ <name>` (scene settled — grab it) and `@@SHOT_DONE@@`.
+   Markers: `@@SHOT@@ <name>` (scene settled, grab it) and `@@SHOT_DONE@@`.
 
-2. **Host orchestrator** — `tool/capture_screenshots.dart` runs the entry with
+2. Host orchestrator. `tool/capture_screenshots.dart` runs the entry with
    `flutter run`, watches stdout for markers, and fires the platform's native
    screenshot tool per marker:
-   - iOS — `xcrun simctl io <udid> screenshot`
-   - Android — `adb exec-out screencap -p`
-   - macOS — `screencapture -l <windowID>` grabs the window's own backing store.
+   - iOS: `xcrun simctl io <udid> screenshot`
+   - Android: `adb exec-out screencap -p`
+   - macOS: `screencapture -l <windowID>` grabs the window's own backing store.
      The window id comes from a tiny CoreGraphics helper (built at runtime) that
-     finds the largest on-screen window of the app's pid — the pid we *launched*,
+     finds the largest on-screen window of the app's pid. That is the pid we
+     *launched*,
      parsed from the run output, so an installed copy of the same-named app is
      never grabbed instead. No Automation permission, occlusion-proof, and it
      works on a background window. (Falls back to a System Events bounds +
      `-R` region crop, then a full-display grab, if the helper is unavailable.)
 
-3. **Marketing compose** — `tool/compose_marketing.dart` drops each capture onto
+3. Marketing compose. `tool/compose_marketing.dart` drops each capture onto
    a brand-gradient canvas with a headline + subtitle, rounded corners, and a
    soft shadow, rendered to the exact store size with `rsvg-convert`. The
    standalone-app shots also get a hand-drawn markup flourish (ink squiggle /
@@ -53,8 +54,8 @@ doc/marketing/<target>/<platform>/NN-name.png     framed store shots (gradient +
 
 The iPhone simulator captures natively at 1320 × 2868, already a valid 6.9"
 App Store size. macOS is captured a window at a time via its CGWindowID
-(`screencapture -l`), which grabs the window's own backing store — no Automation
-permission, occlusion-proof, and it works even while the window is in the
+(`screencapture -l`), which grabs the window's own backing store. It needs no
+Automation permission, is occlusion-proof, and works even while the window is in the
 background. The pid is the one *we* launched (parsed from the run output), so an
 installed copy of the same-named app is never captured by mistake. The marketing
 canvas (1440 × 900) pins the macOS store dimension; pick a larger valid size only
@@ -88,7 +89,7 @@ Useful env: `FLUTTER` (flutter binary; defaults to fvm then PATH),
 - **macOS**: the desktop build toolchain. The primary capture path
   (`screencapture -l`) needs **Screen Recording** permission for the terminal
   (granted once, like any screen capture) but **no** Automation permission, and
-  it never raises the window — captures run unobtrusively in the background. The
+  it never raises the window. Captures run unobtrusively in the background. The
   optional window-resize step (and the `-R` fallback crop) do use Automation; if
   that's not granted, the window is simply captured at its default size.
 

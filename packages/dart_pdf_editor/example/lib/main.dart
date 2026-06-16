@@ -11,6 +11,7 @@ import 'package:pdf_ocr_vlm/pdf_ocr_vlm.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'demo_brand_assets.dart';
 import 'demo_document.dart';
 import 'persistent_cache.dart';
 
@@ -63,6 +64,18 @@ const _fontTypeGroup = XTypeGroup(
 Future<Uint8List?> _pickFont(BuildContext context) =>
     openFile(acceptedTypeGroups: const [_fontTypeGroup])
         .then((file) => file?.readAsBytes());
+
+@visibleForTesting
+String pdfSavePathWithExtension(String path) {
+  final trimmed = path.trimRight();
+  if (trimmed.isEmpty) return 'document.pdf';
+  final slash = trimmed.lastIndexOf('/');
+  final backslash = trimmed.lastIndexOf('\\');
+  final separator = slash > backslash ? slash : backslash;
+  final basename = trimmed.substring(separator + 1);
+  if (basename.toLowerCase().endsWith('.pdf')) return trimmed;
+  return '$trimmed.pdf';
+}
 
 void main() {
   // On web, point the render worker at its compiled script so the heavy page
@@ -215,6 +228,86 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  void _cycleTheme() {
+    _prefs.themeMode = switch (_prefs.themeMode) {
+      ThemeMode.system => ThemeMode.light,
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.system,
+    };
+  }
+
+  String get _nextThemeLabel => switch (_prefs.themeMode) {
+        ThemeMode.system => 'Theme: system — switch to light',
+        ThemeMode.light => 'Theme: light — switch to dark',
+        ThemeMode.dark => 'Theme: dark — switch to system',
+      };
+
+  List<PopupMenuEntry<VoidCallback>> _appMenuItems(_DocumentTab? tab) => [
+        PopupMenuItem(
+          value: _openDemo,
+          child: const ListTile(
+            leading: Icon(Icons.auto_awesome),
+            title: Text('Open the interactive demo'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: () => unawaited(_runOcr()),
+          enabled: tab?.session != null,
+          child: const ListTile(
+            leading: Icon(Icons.document_scanner_outlined),
+            title: Text('OCR…'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem(
+          value: _compareWith,
+          enabled: tab?.session != null,
+          child: const ListTile(
+            leading: Icon(Icons.compare_arrows),
+            title: Text('Compare with another PDF…'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem(
+          value: () => setState(() => _readOnly = !_readOnly),
+          enabled: tab?.session != null,
+          child: ListTile(
+            leading: Icon(_readOnly ? Icons.edit : Icons.edit_off),
+            title:
+                Text(_readOnly ? 'Switch to edit mode' : 'Switch to read-only'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: _cycleTheme,
+          child: ListTile(
+            leading: const Icon(Icons.dark_mode),
+            title: Text(_nextThemeLabel),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: () => _openLink(_githubUrl),
+          child: const ListTile(
+            leading: Icon(Icons.code),
+            title: Text('View source on GitHub'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem(
+          value: () => _openLink(_pubDevUrl),
+          child: const ListTile(
+            leading: Icon(Icons.inventory_2_outlined),
+            title: Text('dart_pdf_editor on pub.dev'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ];
+
   void _toast(String message) {
     // Floating in the bottom-right corner on desktop, so toasts stay a
     // compact pill off to the side and never cover the chrome; a
@@ -232,23 +325,48 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   /// Opens [bytes] in a brand-new tab and makes it the active one.
   void _openBytes(Uint8List bytes, String title, {bool isDemo = false}) {
-    setState(() {
-      _tabs.add(_DocumentTab.document(
-        title: title,
-        bytes: bytes,
-        preferences: _prefs,
-        isDemo: isDemo,
-      ));
-      _activeIndex = _tabs.length - 1;
-    });
+    _addTab(_DocumentTab.document(
+      title: title,
+      bytes: bytes,
+      preferences: _prefs,
+      isDemo: isDemo,
+    ));
   }
 
   /// Adds a tab that just reports an open failure.
   void _openError(String title, String error) {
+    _addTab(_DocumentTab.error(title: title, error: error));
+  }
+
+  /// Adds [tab] as the active tab.
+  void _addTab(_DocumentTab tab) {
     setState(() {
-      _tabs.add(_DocumentTab.error(title: title, error: error));
+      _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
     });
+  }
+
+  /// Adds a placeholder tab immediately so large files don't leave the app
+  /// looking idle while their bytes are read and parsed. Returns the exact
+  /// tab object so the async completion can replace it, unless the user
+  /// closes it first.
+  _DocumentTab _openLoading(String title) {
+    final tab = _DocumentTab.loading(title: title);
+    _addTab(tab);
+    return tab;
+  }
+
+  void _replaceLoadingTab(_DocumentTab loading, _DocumentTab replacement) {
+    final index = _tabs.indexOf(loading);
+    if (index == -1) {
+      replacement.dispose();
+      return;
+    }
+    setState(() {
+      _tabs[index] = replacement;
+      _activeIndex = index;
+    });
+    loading.dispose();
   }
 
   void _openDemo() =>
@@ -361,10 +479,30 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Future<void> _pickFile() async {
     final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
     if (file == null) return;
+    final loading = _openLoading(file.name);
     try {
-      _openBytes(await file.readAsBytes(), file.name);
+      final bytes = await file.readAsBytes();
+      // Let the loading tab paint before constructing the edit session, which
+      // synchronously opens the PDF and can be noticeable for large files.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.document(
+          title: file.name,
+          bytes: bytes,
+          preferences: _prefs,
+        ),
+      );
     } catch (e) {
-      _openError(file.name, 'Could not open ${file.name}\n$e');
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.error(
+          title: file.name,
+          error: 'Could not open ${file.name}\n$e',
+        ),
+      );
     }
   }
 
@@ -400,10 +538,25 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Future<void> _openPath(String path) async {
     final name = path.split(RegExp(r'[/\\]')).last;
+    final loading = _openLoading(name);
     try {
-      _openBytes(await XFile(path).readAsBytes(), name);
+      final bytes = await XFile(path).readAsBytes();
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.document(
+          title: name,
+          bytes: bytes,
+          preferences: _prefs,
+        ),
+      );
     } catch (e) {
-      _openError(name, 'Could not open $path\n$e');
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.error(title: name, error: 'Could not open $path\n$e'),
+      );
     }
   }
 
@@ -421,7 +574,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// tablets (where apps can't write outside their sandbox directly).
   Future<void> _saveAs(Uint8List bytes) async {
     final name = _saveFileName();
-    final file = XFile.fromData(bytes, mimeType: 'application/pdf');
+    final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
     if (kIsWeb) {
       await file.saveTo(name);
       _toast('Downloaded $name');
@@ -445,8 +598,47 @@ class _ViewerScreenState extends State<ViewerScreen> {
         );
         if (location == null) return;
         try {
+          final path = pdfSavePathWithExtension(location.path);
+          await file.saveTo(path);
+          _toast('Saved to $path');
+        } catch (e) {
+          _toast('Save failed: $e');
+        }
+    }
+  }
+
+  /// Exports a Snapshot tool capture as a PNG image — a save dialog on
+  /// desktop, a download on the web, the share sheet on phones. The vector
+  /// copy of the same region stays on the editor's clipboard, so ⌘V/Ctrl+V
+  /// (or the right-click Paste) drops it back into the PDF as vectors.
+  Future<void> _saveSnapshot(BuildContext context, PdfSnapshot snapshot) async {
+    const name = 'snapshot.png';
+    final file =
+        XFile.fromData(snapshot.pngBytes, mimeType: 'image/png', name: name);
+    if (kIsWeb) {
+      await file.saveTo(name);
+      _toast('Downloaded $name — paste back into the PDF with Ctrl+V');
+      return;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android || TargetPlatform.iOS:
+        final box = context.findRenderObject() as RenderBox?;
+        final origin =
+            box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+        await SharePlus.instance.share(ShareParams(
+          files: [file],
+          fileNameOverrides: [name],
+          sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+        ));
+      default:
+        final location = await getSaveLocation(
+          suggestedName: name,
+          acceptedTypeGroups: const [_imageTypeGroup],
+        );
+        if (location == null) return;
+        try {
           await file.saveTo(location.path);
-          _toast('Saved to ${location.path}');
+          _toast('Saved $name — paste back into the PDF with ⌘V');
         } catch (e) {
           _toast('Save failed: $e');
         }
@@ -529,17 +721,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final tab = _active;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-            tab == null || tab.title.isEmpty ? 'dart-pdf viewer' : tab.title,
-            overflow: TextOverflow.ellipsis),
-        // a browser-style tab strip under the title; hidden until the
-        // first document is open
-        bottom: _tabs.isEmpty
-            ? null
-            : PreferredSize(
-                preferredSize: const Size.fromHeight(_tabStripHeight),
-                child: _buildTabStrip(),
-              ),
+        leading: _buildAppMenu(tab),
+        leadingWidth: _appMenuLeadingWidth,
+        centerTitle: false,
+        title: _tabs.isEmpty ? const Text('dart-pdf viewer') : _buildTabStrip(),
+        titleSpacing: _tabs.isEmpty ? null : 8,
         actions: [
           if (tab?.viewer != null)
             ListenableBuilder(
@@ -556,91 +742,6 @@ class _ViewerScreenState extends State<ViewerScreen> {
                       },
                     ),
             ),
-          // every plain action is compact: the row overflows an 800px
-          // window (the widget-test viewport included) at full density
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(_readOnly ? Icons.edit_off : Icons.edit),
-            tooltip: _readOnly
-                ? 'Read-only (PdfReader) — tap to edit'
-                : 'Editing (PdfEditorView) — tap for read-only',
-            onPressed: () => setState(() => _readOnly = !_readOnly),
-          ),
-          ListenableBuilder(
-            listenable: _prefs,
-            builder: (context, _) => IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: Icon(switch (_prefs.themeMode) {
-                ThemeMode.system => Icons.brightness_auto,
-                ThemeMode.light => Icons.light_mode,
-                ThemeMode.dark => Icons.dark_mode,
-              }),
-              tooltip: switch (_prefs.themeMode) {
-                ThemeMode.system => 'Theme: system — tap for light',
-                ThemeMode.light => 'Theme: light — tap for dark',
-                ThemeMode.dark => 'Theme: dark — tap for system',
-              },
-              onPressed: () => _prefs.themeMode = switch (_prefs.themeMode) {
-                ThemeMode.system => ThemeMode.light,
-                ThemeMode.light => ThemeMode.dark,
-                ThemeMode.dark => ThemeMode.system,
-              },
-            ),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.auto_awesome),
-            tooltip: 'Open the interactive demo in a new tab',
-            onPressed: _openDemo,
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.compare_arrows),
-            tooltip: 'Compare with another PDF…',
-            onPressed: _compareWith,
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.folder_open),
-            tooltip: 'Open PDF in a new tab',
-            onPressed: _pickFile,
-          ),
-          // Compare + project links share one overflow slot so the action
-          // row stays inside the 800px test window (every standalone
-          // button would push it over).
-          PopupMenuButton<VoidCallback>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: 'More actions',
-            onSelected: (action) => action(),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: () => unawaited(_runOcr()),
-                enabled: tab?.session != null,
-                child: const ListTile(
-                  leading: Icon(Icons.document_scanner_outlined),
-                  title: Text('Add OCR text layer…'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: () => _openLink(_githubUrl),
-                child: const ListTile(
-                  leading: Icon(Icons.code),
-                  title: Text('View source on GitHub'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: () => _openLink(_pubDevUrl),
-                child: const ListTile(
-                  leading: Icon(Icons.inventory_2_outlined),
-                  title: Text('dart_pdf_editor on pub.dev'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ],
-          ),
         ],
       ),
       // each tab is keyed so switching rebuilds against its own
@@ -665,76 +766,135 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 ],
               ),
             )
-          : tab.error != null
-              ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
-              : tab.isComparison
-                  ? PdfComparisonView(
-                      key: ValueKey(tab),
-                      before: tab.compareBefore!,
-                      after: tab.compareAfter!,
-                    )
-                  // the two drop-in widgets carry all the PDF chrome (search,
-                  // page number, panels, toolbar) — the app supplies the edit
-                  // session, its file handling, and the demo's app-side wiring
-                  : _readOnly
-                      ? PdfReader(
+          : tab.isLoading
+              ? _OpeningDocument(title: tab.title)
+              : tab.error != null
+                  ? Center(child: Text(tab.error!, textAlign: TextAlign.center))
+                  : tab.isComparison
+                      ? PdfComparisonView(
                           key: ValueKey(tab),
-                          bytes: tab.session!.bytes,
-                          // a stable id per document so reopening it (across
-                          // app restarts) restores its scroll position and zoom
-                          documentId: tab.title,
-                          controller: tab.viewer,
-                          preferences: _prefs,
-                          rasterCache: _rasterCache,
-                          textCache: _textCache,
-                          onAction: _onAction,
-                          pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
+                          before: tab.compareBefore!,
+                          after: tab.compareAfter!,
                         )
-                      : PdfEditorView(
-                          key: ValueKey(tab),
-                          documentId: tab.title,
-                          controller: tab.session,
-                          viewerController: tab.viewer,
-                          rasterCache: _rasterCache,
-                          textCache: _textCache,
-                          onSave: (saved) => unawaited(_saveAs(saved)),
-                          onPickPdfToInsert: _pickPdfBytes,
-                          onExportPages: (bytes) => unawaited(_saveAs(bytes)),
-                          onAction: _onAction,
-                          pageOverlayBuilder: tab.isDemo ? _demoOverlays : null,
-                          annotationMenuBuilder: _annotationMenuActions,
-                          formImagePicker: _pickFormImage,
-                          imagePicker: _pickImage,
-                          fontPicker: _pickFont,
-                        ),
+                      // the two drop-in widgets carry all the PDF chrome (search,
+                      // page number, panels, toolbar) — the app supplies the edit
+                      // session, its file handling, and the demo's app-side wiring
+                      : _readOnly
+                          ? PdfReader(
+                              key: ValueKey(tab),
+                              bytes: tab.session!.bytes,
+                              // a stable id per document so reopening it (across
+                              // app restarts) restores its scroll position and zoom
+                              documentId: tab.title,
+                              controller: tab.viewer,
+                              preferences: _prefs,
+                              rasterCache: _rasterCache,
+                              textCache: _textCache,
+                              onAction: _onAction,
+                              pageOverlayBuilder:
+                                  tab.isDemo ? _demoOverlays : null,
+                            )
+                          : PdfEditorView(
+                              key: ValueKey(tab),
+                              documentId: tab.title,
+                              controller: tab.session,
+                              viewerController: tab.viewer,
+                              rasterCache: _rasterCache,
+                              textCache: _textCache,
+                              onSave: (saved) => unawaited(_saveAs(saved)),
+                              onPickPdfToInsert: _pickPdfBytes,
+                              onExportPages: (bytes) =>
+                                  unawaited(_saveAs(bytes)),
+                              onAction: _onAction,
+                              pageOverlayBuilder:
+                                  tab.isDemo ? _demoOverlays : null,
+                              annotationMenuBuilder: _annotationMenuActions,
+                              formImagePicker: _pickFormImage,
+                              imagePicker: _pickImage,
+                              fontPicker: _pickFont,
+                              onSnapshot: _saveSnapshot,
+                            ),
     );
   }
 
-  /// The horizontally scrolling row of open-document tabs plus the
+  Widget _buildAppMenu(_DocumentTab? tab) => PopupMenuButton<VoidCallback>(
+        key: const ValueKey('dartpdf-app-menu'),
+        iconSize: _appMenuIconSize,
+        icon: Image.memory(
+          demoLogoPng(),
+          width: _appMenuIconSize,
+          height: _appMenuIconSize,
+          semanticLabel: 'DartPDF',
+        ),
+        tooltip: 'DartPDF menu',
+        onSelected: (action) => action(),
+        itemBuilder: (context) => _appMenuItems(tab),
+      );
+
+  /// The horizontally scrolling row of open-document tabs plus the sticky
   /// new-tab button.
   Widget _buildTabStrip() {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      child: SizedBox(
-        height: _tabStripHeight,
-        // the new-tab button is the last item in the scrolling row, so it
-        // always rides immediately after the final tab
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          itemCount: _tabs.length + 1,
-          itemBuilder: (context, i) => i < _tabs.length
-              ? _buildTab(i)
-              : IconButton(
+    return SizedBox(
+      height: _tabStripHeight,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const buttonWidth = 40.0;
+          final maxTabsWidth = (constraints.maxWidth - buttonWidth)
+              .clamp(0.0, double.infinity)
+              .toDouble();
+          final desiredTabsWidth = _estimatedTabStripWidth(context);
+          final tabsWidth =
+              desiredTabsWidth < maxTabsWidth ? desiredTabsWidth : maxTabsWidth;
+          return Row(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              if (tabsWidth > 0)
+                SizedBox(
+                  width: tabsWidth,
+                  child: ListView.builder(
+                    key: const ValueKey('tab-strip'),
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    itemCount: _tabs.length,
+                    itemBuilder: (context, i) => _buildTab(i),
+                  ),
+                ),
+              SizedBox(
+                width: buttonWidth,
+                height: _tabStripHeight,
+                child: IconButton(
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: buttonWidth),
                   icon: const Icon(Icons.add),
                   tooltip: 'Open PDF in a new tab',
                   onPressed: _pickFile,
                 ),
-        ),
+              ),
+            ],
+          );
+        },
       ),
     );
+  }
+
+  double _estimatedTabStripWidth(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
+    final direction = Directionality.of(context);
+    var width = 8.0; // Horizontal list padding.
+    for (final tab in _tabs) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: tab.title.isEmpty ? 'Untitled' : tab.title,
+          style: style,
+        ),
+        maxLines: 1,
+        textDirection: direction,
+      )..layout(maxWidth: 160);
+      width += 4 + 12 + painter.width.clamp(40.0, 160.0).toDouble() + 30;
+    }
+    return width;
   }
 
   Widget _buildTab(int index) {
@@ -790,11 +950,49 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
 /// Height of the AppBar's tab strip.
 const double _tabStripHeight = 42;
+const double _appMenuLeadingWidth = 60;
+const double _appMenuIconSize = 24;
+
+class _OpeningDocument extends StatelessWidget {
+  const _OpeningDocument({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Semantics(
+        label: 'Opening document',
+        liveRegion: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              title.isEmpty ? 'Opening PDF…' : 'Opening $title…',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// One open document. Holds its own edit session and viewer controller
 /// so switching tabs preserves edits, undo history, scroll position,
 /// and any demo-specific overlay state.
 class _DocumentTab {
+  _DocumentTab.loading({required this.title})
+      : session = null,
+        viewer = null,
+        isDemo = false,
+        error = null,
+        compareBefore = null,
+        compareAfter = null,
+        isLoading = true;
+
   _DocumentTab.document({
     required this.title,
     required Uint8List bytes,
@@ -804,14 +1002,16 @@ class _DocumentTab {
         viewer = PdfViewerController(),
         error = null,
         compareBefore = null,
-        compareAfter = null;
+        compareAfter = null,
+        isLoading = false;
 
   _DocumentTab.error({required this.title, required this.error})
       : session = null,
         viewer = null,
         isDemo = false,
         compareBefore = null,
-        compareAfter = null;
+        compareAfter = null,
+        isLoading = false;
 
   /// A document-comparison tab: hosts a [PdfComparisonView] over two
   /// files. No edit session or viewer controller of its own.
@@ -824,11 +1024,13 @@ class _DocumentTab {
         isDemo = false,
         error = null,
         compareBefore = before,
-        compareAfter = after;
+        compareAfter = after,
+        isLoading = false;
 
   final String title;
   final String? error;
   final bool isDemo;
+  final bool isLoading;
 
   /// The two documents a comparison tab diffs; null on every other tab.
   final Uint8List? compareBefore;
@@ -855,7 +1057,8 @@ class _DocumentTab {
 
 /// The OCR service connection the credentials dialog returns.
 class _OcrSettings {
-  const _OcrSettings({required this.endpoint, required this.model, this.apiKey});
+  const _OcrSettings(
+      {required this.endpoint, required this.model, this.apiKey});
 
   final String endpoint;
   final String model;

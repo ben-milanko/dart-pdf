@@ -1,19 +1,19 @@
 # DartPDF landing page
 
-The marketing landing page for the **DartPDF** app — a single self-contained
+The marketing landing page for the **DartPDF** app. It is a single self-contained
 static site (HTML + CSS, no build step). Generated from
 [`doc/landing-prompt.md`](../doc/landing-prompt.md) via Claude Design and wired
 up against the real product facts.
 
 ## Files
 
-- `index.html` — the landing page (hero, features, privacy band, download,
+- `index.html` is the landing page (hero, features, privacy band, download,
   developers, footer). Self-contained: only external dependency is the Manrope
   web font from Google Fonts.
-- `privacy.html` — the privacy policy, mirroring `app/PRIVACY.md`. This is the
+- `privacy.html` is the privacy policy, mirroring `app/PRIVACY.md`. This is the
   URL to use for the App Store / Play Store "privacy policy" listing field.
-- `assets/editor-screenshot.png` — the hero screenshot of the editor.
-- `firebase.json` / `.firebaserc` — Firebase Hosting config.
+- `assets/editor-screenshot.png` is the hero screenshot of the editor.
+- `firebase.json` / `.firebaserc` are the Firebase Hosting config.
 
 ## Local preview
 
@@ -30,7 +30,7 @@ live under that project:
 
 | Site | `.web.app` | Custom domain | Serves |
 |---|---|---|---|
-| `dart-pdf-demo` | `dart-pdf-demo.web.app` | — | the SDK showcase demo (`packages/dart_pdf_editor/example`) |
+| `dart-pdf-demo` | `dart-pdf-demo.web.app` | none | the SDK demo (`packages/dart_pdf_editor/example`) |
 | `dartpdf` | `dartpdf.web.app` | `dart-pdf.com`, `www.dart-pdf.com` | this landing page (`site/`) |
 | `dartpdf-app` | `dartpdf-app.web.app` | `app.dart-pdf.com` | the DartPDF web app (`app/`, `flutter build web`) |
 

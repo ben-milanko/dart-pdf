@@ -1,12 +1,12 @@
-# dart-pdf vs PDFium — render benchmarks
+# dart-pdf vs PDFium render benchmarks
 
 Performance harnesses that time dart-pdf rendering against **PDFium** (the
 C++ engine Chrome uses) over the same corpus of PDFs, and emit a side-by-side
 comparison table (ms/page, pages/s, speedup ratio).
 
 PDFium comes from [`pypdfium2`](https://pypi.org/project/pypdfium2/), which
-bundles a prebuilt PDFium binary — no system PDFium build or `pdfium_test`
-needed.
+bundles a prebuilt PDFium binary. You do not need a system PDFium build or
+`pdfium_test`.
 
 ## Latest results
 
@@ -25,12 +25,12 @@ memoisation, and a rewritten content-stream tokenizer).
 
 Takeaways:
 
-- **The pure-Dart engine is now ~1.5× faster than PDFium** — parse +
+- **The pure-Dart engine is now ~1.5x faster than PDFium** for parse +
   content-stream interpretation, the code that runs on the VM and the web. The
   content-stream tokenizer rewrite (faster number/keyword/name lexing, no
   reference lookahead on content operands) roughly halved parse time and is
   what flipped this from 1.10× *slower* to 1.52× *faster*.
-- **The full render path is 2.60× slower, and that gap is Flutter, not the
+- **The full render path is 2.60x slower, and that gap is Flutter, not the
   interpreter.** interpret is 13.6 ms/page but render is 53.7, so ~40 ms/page
   is image decoding + Flutter's GPU rasterization + `toImage`/`toByteData`
   readback. A phase split of the render path (scale 2): parse 13.5, collect
@@ -38,7 +38,7 @@ Takeaways:
   ms/page. The decode and rasterize costs dominate; both lean on platform
   codecs / GPU that PDFium reaches via an in-process CPU bitmap (no GPU upload
   or readback). The per-file split confirms it: a single giant-image page
-  renders at 0.11×, while text/vector documents interpret *faster* than PDFium
+  renders at 0.11x, while text/vector documents interpret *faster* than PDFium
   rasterizes them.
 
 Absolute milliseconds are machine-specific; the **ratios** are the portable
@@ -55,7 +55,7 @@ Three harnesses, all writing the same JSON schema so they line up file-by-file:
 | `benchmark_interpret.dart` | dart-pdf interpreter | open + interpret to a `NullDevice` (no raster) | fvm Dart |
 
 `benchmark_render_test.dart` is the **apples-to-apples** comparison with
-PDFium — both produce a rasterized bitmap at the same scale. dart-pdf's
+PDFium. Both produce a rasterized bitmap at the same scale. dart-pdf's
 rasterization runs on Flutter's engine, so that harness is a `flutter test`
 file (it skips in CI unless `PDF_BENCHMARK_DIR` is set).
 
@@ -135,7 +135,7 @@ python3 benchmark/compare.py ... --md         # GitHub Markdown table
 python3 benchmark/compare.py ... --per-file    # every file (default: slowest 25)
 ```
 
-Example (8-file pdfjs subset, scale 2 — illustrative, not a hardware-neutral
+Example (8-file pdfjs subset, scale 2; illustrative, not a hardware-neutral
 result):
 
 ```
@@ -151,7 +151,7 @@ page count the tools agree on, so the throughput numbers are comparable.
 
 ## Corpus
 
-Anything works — point the harnesses at a directory (searched recursively) or a
+Anything works: point the harnesses at a directory (searched recursively) or a
 single file. The checked-in `test_corpora/pdfjs` (171 edge-case PDFs) and
 `test_corpora/ghent` (54 print-conformance PDFs) make a reproducible default;
 Ben's git-ignored `corpus/` (real-world CAD/scans/reports) is the realistic

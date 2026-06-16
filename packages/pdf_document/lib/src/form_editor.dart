@@ -21,7 +21,9 @@ extension PdfFormFilling on PdfEditor {
   /// /V stores [value] verbatim (UTF-16BE when it leaves Latin-1); the
   /// generated appearance replaces characters the byte-encoded
   /// appearance fonts cannot show with spaces.
-  void setTextValue(PdfFormField field, String value, {bool? multiline}) {
+  void setTextValue(PdfFormField field, String value,
+      {bool? multiline,
+      PdfTextDirection textDirection = PdfTextDirection.auto}) {
     _checkFillable(field, const {PdfFieldType.text});
     if (multiline != null && multiline != field.isMultiline) {
       field.dict['Ff'] = CosInteger(multiline
@@ -29,7 +31,7 @@ extension PdfFormFilling on PdfEditor {
           : field.flags & ~PdfFormField.multilineFlag);
     }
     field.dict['V'] = CosString.fromText(value);
-    _regenerateVariableText(field, value);
+    _regenerateVariableText(field, value, textDirection: textDirection);
     _finishFieldEdit(field);
   }
 
@@ -57,8 +59,9 @@ extension PdfFormFilling on PdfEditor {
         ..restore();
 
       final form = _widgetForm(w, h, writer,
-          resources:
-              CosDictionary({'XObject': CosDictionary({'Img0': imageRef})}));
+          resources: CosDictionary({
+            'XObject': CosDictionary({'Img0': imageRef})
+          }));
       _setNormalAppearance(widget, form);
       if (!identical(widget, field.dict)) _stageFormDict(field, widget);
     }
@@ -88,8 +91,7 @@ extension PdfFormFilling on PdfEditor {
   /// Sets a combo or list box to the option matching [value] (export or
   /// display form). Combo boxes with the Edit flag accept free text.
   void setChoiceValue(PdfFormField field, String value) {
-    _checkFillable(
-        field, const {PdfFieldType.comboBox, PdfFieldType.listBox});
+    _checkFillable(field, const {PdfFieldType.comboBox, PdfFieldType.listBox});
     final options = field.options;
     var display = value;
     var export = value;
@@ -104,9 +106,11 @@ extension PdfFormFilling on PdfEditor {
     final editable = field.type == PdfFieldType.comboBox &&
         field.flags & PdfFormField.editFlag != 0;
     if (index < 0 && options.isNotEmpty && !editable) {
-      throw ArgumentError.value(value, 'value',
+      throw ArgumentError.value(
+          value,
+          'value',
           'not an option of "${field.name}" '
-          '(${options.map((o) => o.$1).join(', ')})');
+              '(${options.map((o) => o.$1).join(', ')})');
     }
     field.dict['V'] = CosString.fromText(export);
     if (field.type == PdfFieldType.listBox && index >= 0) {
@@ -276,7 +280,8 @@ extension PdfFormFilling on PdfEditor {
         [for (final c in text.codeUnits) c <= 0xFF ? c : 0x20]);
   }
 
-  void _regenerateVariableText(PdfFormField field, String rawText) {
+  void _regenerateVariableText(PdfFormField field, String rawText,
+      {PdfTextDirection textDirection = PdfTextDirection.auto}) {
     final text = sanitizeFieldText(rawText);
     final cos = document.cos;
     final da = _parseDefaultAppearance(field.defaultAppearance);
@@ -318,6 +323,9 @@ extension PdfFormFilling on PdfEditor {
         lines = [single];
       }
 
+      final resolvedDirection = field.quadding == 2
+          ? PdfTextDirection.rtl
+          : textDirection.resolve(rawText);
       final writer = ContentWriter()..raw('/Tx BMC');
       writer.save();
       _paintWidgetDecorations(writer, widget, w, h);
@@ -341,12 +349,14 @@ extension PdfFormFilling on PdfEditor {
         final x = switch (field.quadding) {
           1 => (w - lineWidth) / 2 < pad ? pad : (w - lineWidth) / 2,
           2 => w - pad - lineWidth < pad ? pad : w - pad - lineWidth,
+          _ when resolvedDirection == PdfTextDirection.rtl =>
+            w - pad - lineWidth < pad ? pad : w - pad - lineWidth,
           _ => pad,
         };
         final y = firstY - i * size * 1.15;
         writer
           ..textAt(x - prevX, y - prevY)
-          ..showText(lines[i]);
+          ..showText(pdfVisualText(lines[i], resolvedDirection));
         prevX = x;
         prevY = y;
       }
@@ -465,8 +475,8 @@ extension PdfFormFilling on PdfEditor {
 
   /// Splits a /DA string into the font selection and the remaining
   /// (color) operators, replayed verbatim into the appearance.
-  ({String fontName, double fontSize, String colorOps})
-      _parseDefaultAppearance(String? da) {
+  ({String fontName, double fontSize, String colorOps}) _parseDefaultAppearance(
+      String? da) {
     final tokens =
         (da ?? '').split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
     var fontName = 'Helv';
@@ -540,8 +550,8 @@ extension PdfFormFilling on PdfEditor {
 
   /// Greedy word wrap using [measure]; a single overlong word overflows
   /// (and is clipped by the appearance).
-  List<String> _wrapWith(double Function(String, double) measure,
-      String text, double fontSize, double maxWidth) {
+  List<String> _wrapWith(double Function(String, double) measure, String text,
+      double fontSize, double maxWidth) {
     final lines = <String>[];
     for (final paragraph in text.split('\n')) {
       var line = '';

@@ -4,7 +4,7 @@
 [![pub points](https://img.shields.io/pub/points/pdf_cos)](https://pub.dev/packages/pdf_cos/score)
 [![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg?flag=pdf_cos)](https://codecov.io/gh/ben-milanko/dart-pdf)
-[![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
 
 The COS (Carousel Object System) layer of the
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): everything a
@@ -52,3 +52,5 @@ final info = doc.trailer['Info'];
 | [`pdf_document`](https://pub.dev/packages/pdf_document) | pages, annotations, forms, signatures, editing |
 | [`pdf_graphics`](https://pub.dev/packages/pdf_graphics) | content interpreter, fonts, text extraction |
 | [`dart_pdf_editor`](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer + editing UI |
+| [`pdf_ocr_ondevice`](https://pub.dev/packages/pdf_ocr_ondevice) | optional native offline OCR engine |
+| [`pdf_ocr_vlm`](https://pub.dev/packages/pdf_ocr_vlm) | optional HTTP/VLM OCR engine |

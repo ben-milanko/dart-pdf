@@ -22,6 +22,8 @@ jobs:
         pdf_document:packages/pdf_document
         pdf_graphics:packages/pdf_graphics
         dart_pdf_editor:packages/dart_pdf_editor
+        pdf_ocr_vlm:packages/pdf_ocr_vlm
+        pdf_ocr_ondevice:packages/pdf_ocr_ondevice
 
     steps:
       - uses: actions/checkout@v6

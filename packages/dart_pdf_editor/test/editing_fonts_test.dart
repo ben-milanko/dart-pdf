@@ -85,6 +85,17 @@ void main() {
       final a1 = c.document.page(0).annotations.last;
       expect(isType0(c, a1), isTrue);
     });
+
+    test('placeFreeText respects the active embedded font', () {
+      final c = PdfEditingController(buildMultiPagePdf(1))
+        ..setCustomFont(_fontBytes);
+
+      expect(c.placeFreeText(0, 180, 620, 'pasted'), isTrue);
+
+      final a = c.document.page(0).annotations.last;
+      expect(daOf(c, a), contains('/F0'));
+      expect(isType0(c, a), isTrue);
+    });
   });
 
   group('font menu UI', () {

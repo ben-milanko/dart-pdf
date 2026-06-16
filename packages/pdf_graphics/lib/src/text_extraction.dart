@@ -100,27 +100,73 @@ class PdfPageText {
   final List<PdfExtractedRun> runs;
 
   /// Finds non-overlapping occurrences of [query].
-  List<PdfTextMatch> findAll(String query, {bool caseSensitive = false}) {
+  ///
+  /// With [wholeWord] only matches whose surrounding characters are not
+  /// letters/digits/underscore count. With [regex] the query is a Dart
+  /// regular expression (an invalid pattern yields no matches rather than
+  /// throwing); matching is synchronous with no timeout, so a pathological
+  /// (catastrophically backtracking) pattern over a large page can block
+  /// the caller. [caseSensitive] applies to both literal and regex search.
+  List<PdfTextMatch> findAll(
+    String query, {
+    bool caseSensitive = false,
+    bool wholeWord = false,
+    bool regex = false,
+  }) {
     if (query.isEmpty) return const [];
+    final matches = <PdfTextMatch>[];
+    if (regex) {
+      final RegExp pattern;
+      try {
+        pattern = RegExp(query, caseSensitive: caseSensitive, multiLine: true);
+      } on FormatException {
+        return const []; // invalid pattern — surface no matches, don't throw
+      }
+      for (final match in pattern.allMatches(text)) {
+        if (match.start == match.end) continue; // skip zero-width hits
+        if (wholeWord && !_isWholeWord(match.start, match.end)) continue;
+        matches.add(_matchAt(match.start, match.end));
+      }
+      return matches;
+    }
     final haystack = caseSensitive ? text : text.toLowerCase();
     final needle = caseSensitive ? query : query.toLowerCase();
-    final matches = <PdfTextMatch>[];
     var from = 0;
     while (true) {
       final index = haystack.indexOf(needle, from);
       if (index < 0) break;
       final end = index + needle.length;
-      final quads = quadsFor(index, end);
-      matches.add(PdfTextMatch(
-        pageIndex: pageIndex,
-        start: index,
-        end: end,
-        rects: [for (final quad in quads) quad.bounds],
-        quads: quads,
-      ));
+      if (!wholeWord || _isWholeWord(index, end)) {
+        matches.add(_matchAt(index, end));
+      }
       from = end;
     }
     return matches;
+  }
+
+  PdfTextMatch _matchAt(int start, int end) {
+    final quads = quadsFor(start, end);
+    return PdfTextMatch(
+      pageIndex: pageIndex,
+      start: start,
+      end: end,
+      rects: [for (final quad in quads) quad.bounds],
+      quads: quads,
+    );
+  }
+
+  /// Whether [text]`[start..end)` is bounded by non-word characters on both
+  /// sides (or the string edge) — the "match whole word" test.
+  bool _isWholeWord(int start, int end) =>
+      !_isWordChar(start - 1) && !_isWordChar(end);
+
+  bool _isWordChar(int index) {
+    if (index < 0 || index >= text.length) return false;
+    final c = text.codeUnitAt(index);
+    return (c >= 0x30 && c <= 0x39) || // 0-9
+        (c >= 0x41 && c <= 0x5A) || // A-Z
+        (c >= 0x61 && c <= 0x7A) || // a-z
+        c == 0x5F; // _
   }
 
   /// Axis-aligned page-space rectangles covering the characters

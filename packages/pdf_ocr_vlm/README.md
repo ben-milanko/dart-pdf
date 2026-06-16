@@ -1,15 +1,15 @@
 # pdf_ocr_vlm
 
-[![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
 
 A pluggable **OCR engine** for the
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf). It adds an
 invisible, selectable, searchable text layer over scanned (image-only) PDF
-pages, using a **state-of-the-art vision-language OCR model** that you
-self-host — or any HTTP OCR service you wrap to a small JSON contract.
+pages. It can call a self-hosted vision-language OCR model or any HTTP OCR
+service you wrap to a small JSON contract.
 
 `dart_pdf_editor` ships the OCR *seam* (`PdfOcrEngine`,
-`PdfEditor.applyOcr`) but no engine — OCR is a large native/GPU/cloud
+`PdfEditor.applyOcr`) but no engine. OCR is a large native/GPU/cloud
 subsystem that doesn't belong inside a pure-Dart PDF toolkit. This package
 fills that seam over HTTP, so the heavy model runs out of process (a Docker
 container, a GPU box, a cloud endpoint) and your Flutter app stays thin.
@@ -32,7 +32,7 @@ container, a GPU box, a cloud endpoint) and your Flutter app stays thin.
 Document OCR has moved from detector+recognizer pipelines (Tesseract,
 EasyOCR) to **vision-language models** that read layout, reading order, and
 text in one pass and return structured JSON with bounding boxes. The
-current leaders (open-weight, self-hostable, and returning boxes — which is
+current leaders (open-weight, self-hostable, and returning boxes, which is
 what an over-the-scan text layer needs):
 
 | Model | Size | Notes |
@@ -40,11 +40,11 @@ what an over-the-scan text layer needs):
 | **dots.ocr** (`rednote-hilab/dots.ocr`) | ~1.7B | Layout + reading order + text in one model, 100+ languages, returns `bbox`+`category`+`text` JSON. **This package's default preset.** |
 | **PaddleOCR-VL** | ~0.9B | Strong multilingual; OpenAI-compatible serving. |
 | **GOT-OCR 2.0** | 580M | Runs on ~4 GB VRAM; Markdown/LaTeX output. |
-| **Qwen3-VL / DeepSeek-OCR / GLM-OCR** | 0.9–3B | General VLMs / OCR-specialized; box quality varies. |
-| Cloud frontier (Gemini 3 Flash, Claude, GPT) | — | Highest accuracy, no GPU to run, per-call cost; box support varies. |
+| **Qwen3-VL / DeepSeek-OCR / GLM-OCR** | 0.9-3B | General VLMs / OCR-specialized; box quality varies. |
+| Cloud frontier (Gemini 3 Flash, Claude, GPT) | n/a | Highest accuracy, no GPU to run, per-call cost; box support varies. |
 
 This package defaults to **dots.ocr on [vLLM](https://docs.vllm.ai)**: it is
-open, small enough for a single consumer GPU, multilingual, and — crucially —
+open, small enough for a single consumer GPU, multilingual, and, crucially,
 returns per-block pixel bounding boxes that map cleanly onto the page. You
 can point the same engine at any of the others (see
 [Other backends](#other-backends)).
@@ -62,11 +62,11 @@ can point the same engine at any of the others (see
 
 ```yaml
 dependencies:
-  dart_pdf_editor: ^1.0.0
-  pdf_ocr_vlm: ^0.1.0
+  dart_pdf_editor: ^1.2.0
+  pdf_ocr_vlm: ^1.2.0
 ```
 
-`pdf_ocr_vlm` works wherever Flutter runs (mobile, desktop, **web**) — it
+`pdf_ocr_vlm` works wherever Flutter runs: mobile, desktop, and **web**. It
 only does an HTTP POST, so the model can live anywhere reachable. Make sure
 the OCR service is CORS-enabled if you call it from a web build.
 
@@ -99,7 +99,7 @@ Future<Uint8List> ocrEntirePdf(Uint8List bytes) async {
 
 `applyOcr` rasterizes the page, hands the raster to the engine, and writes
 each recognized word as **invisible text (render mode 3)** placed exactly
-over the scan — the page looks identical, but text can now be selected,
+over the scan. The page looks identical, but text can now be selected,
 searched, copied, and extracted. Pass `visible: true` to burn the layer in
 (useful for debugging the box alignment).
 
@@ -138,7 +138,7 @@ IconButton(
 ## Run the model (dots.ocr on vLLM)
 
 The official image serves an **OpenAI-compatible** chat endpoint, which
-`VlmOcrEngine.dotsOcr` speaks directly — **no adapter server needed**.
+`VlmOcrEngine.dotsOcr` speaks directly. No adapter server is needed.
 
 With Docker + an NVIDIA GPU:
 
@@ -180,13 +180,13 @@ final engine = VlmOcrEngine.dotsOcr(
 `dotsOcr` sends the page image plus the dots.ocr layout prompt, then reads
 the JSON array the model returns (`[{bbox, category, text}, ...]`),
 keeps the text-bearing blocks (`Text`, `Title`, `Section-header`,
-`List-item`, `Caption`, `Footnote`, `Page-header`, `Page-footer` — `Picture`
+`List-item`, `Caption`, `Footnote`, `Page-header`, `Page-footer`; `Picture`
 and `Table` are skipped by default), and maps each pixel `bbox` onto the
 page. Override `categories:` to include tables/formulas.
 
 > **No GPU?** dots.ocr also runs (slowly) on CPU via vLLM/transformers for
 > trials, and the same preset works against a cloud-hosted dots.ocr or any
-> OpenAI-compatible OCR VLM — just change `endpoint`, `model`, and `apiKey`.
+> OpenAI-compatible OCR VLM. Change `endpoint`, `model`, and `apiKey`.
 
 ---
 
@@ -194,9 +194,9 @@ page. Override `categories:` to include tables/formulas.
 
 If you'd rather front your own engine (PaddleOCR, Surya, docTR, Tesseract, a
 custom pipeline), wrap it in a tiny HTTP service that speaks this contract
-and use the **default constructor** — no preset, no custom Dart.
+and use the **default constructor**. No preset or custom Dart is needed.
 
-**Request** — `POST <endpoint>`, `Content-Type: application/json`:
+**Request:** `POST <endpoint>`, `Content-Type: application/json`:
 
 ```json
 {
@@ -209,7 +209,7 @@ and use the **default constructor** — no preset, no custom Dart.
 }
 ```
 
-**Response** — `200`, a list of recognized fragments. Boxes are in **raster
+**Response:** `200`, a list of recognized fragments. Boxes are in **raster
 pixels, top-left origin** (the same `width`×`height` you were sent):
 
 ```json
@@ -307,7 +307,7 @@ geometry.
 | `VlmOcrException` | Thrown on transport / status / parse failures. |
 
 `applyOcr`'s own options live in `dart_pdf_editor`: `pixelRatio` (OCR raster
-resolution — 2 ≈ 144 dpi, raise for small type), `minConfidence`, `visible`,
+resolution; 2 ≈ 144 dpi, raise for small type), `minConfidence`, `visible`,
 and `font`.
 
 ---
@@ -315,14 +315,14 @@ and `font`.
 ## Tips & limitations
 
 - **Resolution drives accuracy.** Start at `pixelRatio: 2`; small or dense
-  type wants `2.5`–`3`. Higher = larger PNG = slower request.
+  type wants `2.5`-`3`. Higher = larger PNG = slower request.
 - **The layer is byte-encoded text.** Code points outside Latin-1 still
   position correctly (selection/search boxes line up) but render as `?` if
   you make the layer `visible`; invisible layers extract the original text.
-- **Already-digital PDFs don't need OCR** — they have real text already.
+- **Already-digital PDFs don't need OCR.** They have real text already.
   Use this for scans and image-only pages.
 - **Box granularity** follows the model. dots.ocr returns block/line boxes,
-  so selection snaps to lines, not individual words — fine for search and
+  so selection snaps to lines, not individual words. That is fine for search and
   copy. A word-level engine (PaddleOCR/Tesseract) over the simple contract
   gives word boxes.
 - **Network & privacy.** Page rasters leave the device. For sensitive
@@ -330,4 +330,4 @@ and `font`.
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).

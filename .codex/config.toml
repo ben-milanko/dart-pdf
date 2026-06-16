@@ -1,0 +1,4 @@
+# AGENTS.md is intentionally long for this repo because it captures renderer,
+# editor, corpus, and test gotchas. Raise the project instruction budget so
+# cloud/local Codex agents do not truncate it at the default 32 KiB.
+project_doc_max_bytes = 256000

@@ -298,6 +298,23 @@ class _PdfReaderState extends State<PdfReader> {
                       controller: _viewer,
                       searchController: _searchField,
                       focusNode: _searchFocus,
+                      preferences: prefs,
+                    ),
+                  if (features.pageNumber && !prefs.showReflowView)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: PdfPageNumberField(controller: _viewer),
+                    ),
+                  if (!prefs.showReflowView)
+                    PdfShellZoomControl(controller: _viewer),
+                ],
+                compactLeading: [
+                  if (features.search && !prefs.showReflowView)
+                    PdfSearchField(
+                      controller: _viewer,
+                      searchController: _searchField,
+                      focusNode: _searchFocus,
+                      preferences: prefs,
                     ),
                   if (features.pageNumber && !prefs.showReflowView)
                     Padding(
@@ -311,11 +328,42 @@ class _PdfReaderState extends State<PdfReader> {
                         preferences: prefs,
                         reflow: true,
                         pageColor: features.pageColorEditable),
+                  PdfShellPanelSwitch(items: [
+                    if (features.thumbnails)
+                      PdfShellPanelItem(
+                        key: const ValueKey('pdf-shell-thumbnails-toggle'),
+                        icon: Icons.grid_view,
+                        tooltip: 'Pages',
+                        selected: showThumbnails,
+                        onPressed: () =>
+                            prefs.showThumbnailSidebar = !showThumbnails,
+                      ),
+                  ]),
+                ],
+                compactSheetChildren: [
+                  if (!prefs.showReflowView)
+                    PdfShellZoomControl(controller: _viewer),
+                ],
+                compactControls: [
+                  if (features.viewOptions)
+                    PdfShellControlItem(
+                      key: const ValueKey('pdf-shell-view-options'),
+                      icon: Icons.display_settings_outlined,
+                      label: 'View',
+                      onPressed: () {
+                        showPdfShellViewOptionsSheet(
+                          context,
+                          preferences: prefs,
+                          reflow: true,
+                          pageColor: features.pageColorEditable,
+                        );
+                      },
+                    ),
                   if (features.thumbnails)
-                    PdfShellToggleButton(
+                    PdfShellControlItem(
                       key: const ValueKey('pdf-shell-thumbnails-toggle'),
                       icon: Icons.grid_view,
-                      tooltip: 'Pages',
+                      label: 'Pages',
                       selected: showThumbnails,
                       onPressed: () =>
                           prefs.showThumbnailSidebar = !showThumbnails,

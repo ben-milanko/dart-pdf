@@ -83,7 +83,10 @@ Future<void> showPdfAnnotationMenu({
   (double, double)? pagePoint,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
-  final canPaste = controller.hasAnnotationClipboard;
+  // a captured snapshot pastes back as vector graphics; otherwise the
+  // annotation clipboard (the most recent copy wins)
+  final canPasteSnapshot = controller.hasSnapshotClipboard;
+  final canPaste = canPasteSnapshot || controller.hasAnnotationClipboard;
   final hasSelection = request.annotations.isNotEmpty;
   if (!hasSelection && !canPaste) return;
   final stock = <PdfAnnotationMenuItem>[
@@ -106,8 +109,9 @@ Future<void> showPdfAnnotationMenu({
       label: 'Paste',
       icon: Icons.paste,
       enabled: canPaste,
-      onSelected: (request) =>
-          request.controller.pasteAnnotations(pageIndex, at: pagePoint),
+      onSelected: (request) => canPasteSnapshot
+          ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
+          : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
     ),
     if (hasSelection) ...[
       PdfAnnotationMenuItem(

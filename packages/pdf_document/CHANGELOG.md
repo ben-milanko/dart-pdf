@@ -10,10 +10,28 @@
   portable. `PdfEmbeddedFont.fromFreeText` recovers the font from a box's
   own appearance for lossless re-editing.
 
+## 1.2.1
+
+- Add a package example for pub.dev scoring.
+
+## 1.2.0
+
+- OCR text-layer injection is now used by the standalone app's downloadable
+  on-device OCR flow.
+- Version bump to keep the dart-pdf package suite aligned at 1.2.0.
+
 ## 1.1.0
 
+- Page rotation: `PdfEditor.rotatePages(indices, degrees)` turns the named
+  pages clockwise by a multiple of 90° (negative for counterclockwise),
+  accumulating onto each page's current `/Rotate`.
+- Vector snapshots: `PdfEditor.captureVectorSnapshot` captures a page
+  region as detached vector graphics (`PdfVectorSnapshot`) and
+  `pasteVectorSnapshot` re-materializes it onto any page as a /Stamp
+  annotation whose appearance *draws* the captured content, so a snapshot
+  pasted back into the PDF stays vector (crisp at any zoom), Bluebeam-style.
 - Count tool: `PdfEditor.addCheckMark` places a Bluebeam-style check-mark
-  stamp annotation (with `PdfAnnotation.isCheckMark`/`iconName`) — the
+  stamp annotation (with `PdfAnnotation.isCheckMark`/`iconName`). It is the
   building block for a running on-page tally.
 - Fix: JPEG 2000 tile-part desynchronization, and indexed Lab color
   palettes now decode correctly.
@@ -38,18 +56,18 @@ First stable release. Changes since 0.1.0:
 - Page assembly: `PdfEditor.insertBlankPage` adds a new empty page at any
   position (sized to request, default US Letter), and
   `PdfDocument.extractPageRange` exports a contiguous span of pages as a
-  standalone PDF — alongside the existing `appendPagesFrom` (insert pages
+  standalone PDF alongside the existing `appendPagesFrom` (insert pages
   from another document) and `extractPages` (arbitrary subset).
 - OCR text-layer injection: `PdfEditor.injectTextLayer` writes recognized
-  `PdfOcrSpan`s onto a page as invisible (render mode 3) text — sized and
-  horizontally scaled to sit over each word — so a scanned, image-only page
+  `PdfOcrSpan`s onto a page as invisible (render mode 3) text, sized and
+  horizontally scaled to sit over each word. A scanned, image-only page
   becomes selectable, searchable, and extractable without changing how it
   looks. `applyOcr` (with a pluggable engine) lives in `dart_pdf_editor`.
 - `PdfImageDocument`: assemble a brand-new PDF from a list of PNG/JPEG
-  images, one page per image — the pure-Dart half of image/Office
+  images, one page per image. This is the pure-Dart half of image/Office
   ingestion (multi-page TIFF, scans, camera shots).
 - `PdfImportSource`: a host-provided seam for converting foreign formats
-  (DOCX/XLSX/PPTX, …) to PDF bytes. Interface only — dart-pdf does not
+  (DOCX/XLSX/PPTX, …) to PDF bytes. Interface only; dart-pdf does not
   implement OOXML→PDF layout.
 
 ## 0.1.0

@@ -2,6 +2,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// One filter, every platform: desktop and web match on the extension,
 /// Android on the MIME type, iOS/macOS on the uniform type identifier —
@@ -33,22 +34,27 @@ class PickedPdf {
   final String? path;
 }
 
+/// Opens the system file picker for a PDF. Returns null when the user cancels.
+Future<XFile?> pickPdfFile() =>
+    openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+
 /// Opens the system file picker and reads the chosen PDF. Returns null when
 /// the user cancels. Throws if the file can't be read — callers surface that.
 Future<PickedPdf?> pickPdf() async {
-  final file = await openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+  final file = await pickPdfFile();
   if (file == null) return null;
   final bytes = await file.readAsBytes();
-  // file_selector returns the real path on desktop; on web/mobile `path` is
-  // a tmp/sandbox location we don't treat as a writable origin.
-  final path = (!kIsWeb &&
-          (defaultTargetPlatform == TargetPlatform.macOS ||
-              defaultTargetPlatform == TargetPlatform.windows ||
-              defaultTargetPlatform == TargetPlatform.linux))
-      ? file.path
-      : null;
-  return PickedPdf(file.name, bytes, path: path);
+  return PickedPdf(file.name, bytes, path: originPathForPickedFile(file));
 }
+
+/// The picked file's writable origin on desktop, or null on web/mobile where
+/// the path is only a tmp/sandbox location.
+String? originPathForPickedFile(XFile file) => (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux))
+    ? file.path
+    : null;
 
 /// Picks a PDF and returns just its bytes (null when cancelled) — the source
 /// for "Insert PDF…" and document comparison.
@@ -94,12 +100,60 @@ class SaveResult {
   factory SaveResult.downloaded(String name) =>
       SaveResult._('Downloaded $name', succeeded: true);
   factory SaveResult.shared() => const SaveResult._('Shared', succeeded: true);
-  factory SaveResult.failed(Object error) => SaveResult._('Save failed: $error');
+  factory SaveResult.failed(Object error) =>
+      SaveResult._('Save failed: $error');
 }
 
 /// Reads a PDF straight from a known on-disk [path] — used to reopen a recent
 /// file. Throws if it can't be read (caller drops the stale recent entry).
 Future<Uint8List> readPdfAtPath(String path) => XFile(path).readAsBytes();
+
+/// Whether the current platform can open a local file's containing folder in
+/// the system file manager. Desktop only: mobile/web origins are either absent
+/// or not meaningful outside the app sandbox.
+bool get supportsOpenContainingFolder => supportsInPlaceSave;
+
+/// User-facing label for the tab context-menu action that opens a tab's source
+/// folder in the platform file manager.
+String get openContainingFolderLabel {
+  if (defaultTargetPlatform == TargetPlatform.macOS) return 'Open in Finder';
+  if (defaultTargetPlatform == TargetPlatform.windows) {
+    return 'Open in File Explorer';
+  }
+  return 'Open containing folder';
+}
+
+/// Returns the parent directory for a platform path without importing dart:io
+/// (this library must keep compiling for web). Handles both POSIX and Windows
+/// separators, plus simple roots like `/` and `C:\`.
+String? containingFolderPath(String path) {
+  var trimmed = path.trim();
+  if (trimmed.isEmpty) return null;
+  while (
+      trimmed.length > 1 && (trimmed.endsWith('/') || trimmed.endsWith(r'\'))) {
+    trimmed = trimmed.substring(0, trimmed.length - 1);
+  }
+  final slash = trimmed.lastIndexOf('/');
+  final backslash = trimmed.lastIndexOf(r'\');
+  final index = slash > backslash ? slash : backslash;
+  if (index < 0) return null;
+  if (index == 0) return trimmed.substring(0, 1);
+  // Preserve `C:\` as the parent of `C:\file.pdf`.
+  if (index == 2 && trimmed.length > 1 && trimmed[1] == ':') {
+    return trimmed.substring(0, 3);
+  }
+  return trimmed.substring(0, index);
+}
+
+/// Opens [path]'s containing folder in Finder / File Explorer / the Linux file
+/// manager. Returns false when there is no usable origin path or the platform
+/// refuses to launch it.
+Future<bool> openContainingFolder(String? path) async {
+  if (!supportsOpenContainingFolder || path == null) return false;
+  final folder = containingFolderPath(path);
+  if (folder == null) return false;
+  return launchUrl(Uri.file(folder), mode: LaunchMode.externalApplication);
+}
 
 /// Whether the current platform supports overwriting a file in place by path.
 /// Desktop only: web has no filesystem, and mobile content URIs are typically

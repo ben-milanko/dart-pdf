@@ -11,7 +11,7 @@ class AppInfo {
   static const tagline = 'A fully native Flutter PDF editor';
   static const sourceUrl = 'https://github.com/ben-milanko/dart-pdf';
 
-  static String version = '1.1.0';
+  static String version = '1.2.0';
 
   /// Populates [version] from the platform package metadata. Best-effort: any
   /// failure leaves the fallback in place.

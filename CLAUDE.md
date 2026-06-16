@@ -2258,7 +2258,50 @@ app's life — the API key is kept in MEMORY ONLY, never written to disk (so
 the example needs no shared_preferences for it). dep pdf_ocr_vlm ^0.1.0.
 The 9 example test failures are pre-existing on this machine (raster/
 headless) — identical set with and without this wiring, zero regressions.
-
+On-device downloadable OCR (Ben, follow-on from #76: a downloadable OCR
+module for the full app on native platforms): #76 shipped the OCR *seam*
+(`PdfOcrEngine`/`applyOcr`) and `pdf_ocr_vlm` (HTTP/cloud tier — dots.ocr
+over vLLM). This adds the OFFLINE tier as a new workspace package
+**`packages/pdf_ocr_ondevice`** — PP-OCRv5 *mobile* (the small ~5M-param
+classic detect→recognize pipeline, NOT a billion-param VLM) on ONNX Runtime
+(`onnxruntime ^1.4.1`, prebuilt for android/ios/macos/windows/linux; web
+unsupported). Tiering rationale: SOTA accuracy (dots.ocr 1.7B, PaddleOCR-VL
+0.9B) is GPU-class → stays the HTTP tier; the small PP-OCR pipeline is what
+runs on-device everywhere and its per-line boxes are the right shape for
+`injectTextLayer`'s invisible selectable layer. Design splits the genuinely
+testable core from the unverifiable inference: `PdfOcrModelManager`
+(download/cache under app-support via path_provider, SHA-256 verify,
+atomic .part→rename, progress stream, `isSupported` platform gate, skip
+already-present files) + pure-Dart pipeline pieces (`OcrImage` crop/bilinear
+resize, `preprocess.dart` det-resize-to-÷32 + NCHW normalize + rec input,
+`db_postprocess.dart` probmap→boxes via 4-connected flood-fill + unclip +
+scale-back — axis-aligned not minAreaRect, fine for horizontal runs,
+`ctc_decode.dart` greedy CTC + PP-OCR dict parse — confidence is the
+per-step max PROBABILITY: PaddleOCR's exported rec model ends in a softmax
+so scores are already probs (`applySoftmax`=false default, mirrors
+CTCLabelDecode), with `applySoftmax`/`recognitionEmitsLogits` for raw-logit
+exports so confidence/minConfidence never go dead) are ALL unit-tested;
+only `OnnxOcrModelRunner`'s two `OrtSession.run` calls are
+sandbox-unverifiable (no GPU/model/native libs here — same honesty posture
+as #76's GPU path). `OnDeviceOcrEngine implements PdfOcrEngine` takes any
+`OcrModelRunner` (engine + geometry mapping fully tested with a fake runner;
+`fromDownloadedModel(manager, model)` builds the ONNX runner). MODEL HOSTING:
+ONNX bundles aren't shipped in-tree — `PdfOcrModels.ppOcrV5Mobile` points its
+file URLs at a `ocr-models-v1` GitHub release Ben must publish (paddle2onnx
+recipe in the package README); `sha256` is OPTIONAL (null skips verify) so
+the default works once assets exist, and a missing asset 404s with a clear
+`PdfOcrModelException`. App wiring (`app/lib/ocr.dart` `OnDeviceOcr` +
+editor_screen More-menu 'Add OCR text layer…' key 'menu-ocr', gated on
+`OnDeviceOcr.isSupported` && a session): confirm-download dialog (~MB from
+`approxSizeBytes`) → progress download → per-page `applyOcr` progress →
+opens result in a new '(OCR)' tab, original untouched, all failures toast.
+dart:io IS used in this leaf package (file cache) — that's allowed here
+(it's an app-tier native-only OCR package, outside the pure-Dart PDF
+layering chain). Tests: pdf_ocr_ondevice (27 — ctc/db/preprocess/ocr_image
+pure, model_manager via MockClient+temp dir, engine end-to-end via fake
+runner + rendered page) and app/test/ocr_menu_test.dart (2). Added to root
+workspace after pdf_ocr_vlm. Not in the first-publish order (Ben's call,
+like pdf_ocr_vlm).
 On-disk cache (Ben: "implement on-disk cache to further optimise the
 library; minimal deps, must work everywhere"): a pluggable persistent
 cache layered across the stack, matching the existing host-seam pattern
@@ -2343,3 +2386,132 @@ an image across two sessions, empty-key no-op, loadFromDisk leaves a fresh
 in-session preview alone). GOTCHA: tests must capture page objects ONCE
 (like the viewer's `_pages`) — repeated `document.page(i)` calls can return
 fresh wrappers, defeating the preview cache's identity-based `isFresh`.
+
+Apple Pencil double-tap → eraser (Ben: "double tap on apple pencil to
+switch to eraser and back"): the pencil's hardware double-tap (and Pencil
+Pro squeeze) is an iOS `UIPencilInteraction` — Flutter exposes NO framework
+event for it, so the gesture is bridged natively. Three layers. (1) Core
+pairing: `PdfEditingController.togglePencilEraser()` (editing_controller.dart)
+arms `PdfEditTool.eraser` remembering whatever tool was active and restores
+it exactly on the next call (reader mode/null included, via `_eraserToggledOn`
++ `_toolBeforeEraserToggle`); a hand-armed eraser (never paired through this)
+falls back to ink so the gesture always returns to drawing. The `tool` setter
+clears `_eraserToggledOn` whenever it's armed to anything but the eraser, so
+manually switching tools breaks the pairing cleanly (the toggle re-remembers
+on its next eraser arm). Pure Dart, fully tested. (2) Channel binding:
+`PdfPencilInteraction` (editing_pencil.dart, exported) owns
+`MethodChannel('dart_pdf_editor/pencil')`; `attach(controller)` sets the
+method-call handler so an incoming `pencilDoubleTap` calls
+`togglePencilEraser` (or a custom `onDoubleTap`), `dispose()` clears it. Only
+one handler per channel, so one editor at a time (documented). The package
+stays plugin-free — it only LISTENS; the host's native runner provides the
+gesture. (3) Shell wiring: `PdfEditorView` attaches a `PdfPencilInteraction`
+to its session in `_openSession`/`_closeSession`, gated to
+`defaultTargetPlatform == iOS` (`PdfEditorFeatures.pencilEraserToggle`,
+default true) so the channel handler isn't claimed needlessly on other
+platforms — which also keeps it OUT of widget tests (flutter_test's default
+platform is android), so existing shell/eraser tests are untouched. Native:
+both iOS runners (`app/ios` + `example/ios`) are SCENE-BASED
+(`UIApplicationSceneManifest` + `FlutterSceneDelegate`), so the interaction
+is installed from `SceneDelegate.scene(_:willConnectTo:)` — NOT the
+AppDelegate. `AppDelegate.applicationDidBecomeActive` is never called under
+the scene lifecycle (the original PR wired it there and the gesture silently
+never reached Dart on device — that was the bug); the file-open channel was
+already correctly in the SceneDelegate for the same reason.
+`setupPencilInteraction()` registers a `UIPencilInteraction` on
+`window?.rootViewController`'s Flutter view (once `pencilInteraction == nil`)
+and the SceneDelegate's `pencilInteractionDidTap` forwards over the channel.
+The native side does NOT decide the action: it reads
+`UIPencilInteraction.preferredTapAction` (the user's Settings → Apple Pencil
+choice) and forwards it as `{'preferredAction': name}`, so the Dart policy
+honors it — `PdfPencilTapAction` {ignore, switchEraser, switchPrevious,
+showColorPalette, showInkAttributes, runSystemShortcut, unspecified};
+`togglesEraser` is true only for the tool-switch actions (+ unspecified, the
+out-of-the-box default / legacy action-less call), so "Off" (ignore) and the
+palette/shortcut choices are left alone rather than hijacked into an eraser
+toggle. A custom `onDoubleTap` (now `PdfPencilTapHandler` = receives the
+action) fully overrides the policy. Putting the decision in testable Dart
+(the Swift can't compile in the review env) is deliberate. Tests:
+editing_pencil_test.dart (14 — all toggle branches incl. reader-mode
+restore + hand-armed-eraser→ink + pairing-break; channel switchEraser/
+action-less toggles, ignore + showColorPalette no-op, custom handler gets the
+action + overrides, dispose clears the handler, unknown method ignored, plus
+PdfPencilTapAction.fromName/togglesEraser; the binding tests deliver the call
+via `defaultBinaryMessenger.handlePlatformMessage` the way iOS does). macOS/
+Android/web get no pencil interaction (the gesture doesn't exist there).
+Search options (Ben: "the search panel should allow for additional
+controls, match case, full word, etc."): match-case / whole-word / regex
+toggles for document search. pdf_graphics `PdfPageText.findAll` grew
+`wholeWord` (matches bounded by non-word chars — `_isWholeWord`/
+`_isWordChar`, [0-9A-Za-z_]) and `regex` (Dart RegExp; an invalid pattern
+yields no matches rather than throwing; zero-width hits skipped) beside
+the existing `caseSensitive`; the literal path still advances by needle
+length and the shared `_matchAt` builds quads from start/end so snippets/
+highlights are mode-agnostic. `PdfSearchOptions` (pdf_viewer.dart,
+exported — matchCase/wholeWord/regex, const default, copyWith + value ==)
+rides `PdfViewerController.searchOptions`; `search(query, {options})`
+captures the options and guards supersession on BOTH query and options;
+`setSearchOptions(opts)` re-runs the active search live (or just stores
+them with no query). `_searchAllPages` threads them into findAll; the
+extracted-text cache is option-independent so it's reused. UI
+(search_panel.dart): shared private `_SearchOptionsBar` — three toggle
+IconButtons (glyphs 'Aa'/'W'/'.*', tooltips, selected = secondaryContainer
+fill, keys 'pdf-search-match-case'/'-whole-word'/'-regex') driving
+setSearchOptions. `PdfSearchField` shows it inline (flag `showOptions`,
+default true); `PdfSearchResultsPanel` shows it in a header bar above the
+results (flag `showOptions`, default true) — the panel build now wraps the
+state body (`_body`, extracted) under the options bar + a Divider, scrollbar
+scoped to the body. Options persist across clearSearch (VS Code style).
+Shell wiring: the editor shell (`PdfEditorView`) passes
+`showOptions: !features.searchResultsPanel` to its header field — the
+results panel carries the controls, keeping the compact (≤600px) header
+from pushing the annotation/properties toggles off-screen (the
+pdf-shell-annotations-toggle tap-misses otherwise); the reader (no results
+panel) keeps the inline field toggles. Persistence (Ben follow-up: "the
+three toggles aren't persisted like sibling search prefs"):
+`PdfEditingPreferences.searchMatchCase/searchWholeWord/searchRegex` (three
+bool keys — NOT a `PdfSearchOptions` field, since editing_preferences sits
+below pdf_viewer and importing it would cycle pdf_viewer→editing_controller
+→editing_preferences→pdf_viewer); the now-stateful `_SearchOptionsBar`
+takes `preferences` and bridges: seeds the controller from the stored
+flags via `prefs.ready.then` in initState (after the frame, so
+setSearchOptions never fires during build; the prefs' _modified guard keeps
+a programmatic pre-load change winning) and write-throughs on every toggle.
+`PdfSearchField` gained a `preferences` param; both shells pass `prefs` to
+their field (and the panel already had it). Regex caveat documented (Ben:
+"runs synchronously with no ReDoS/timeout guard, undocumented"): dartdoc on
+`PdfSearchOptions.regex` and `findAll`'s regex param notes matching is
+synchronous on the calling thread with no timeout — fine for local desktop,
+a host exposing it to untrusted input should guard it (no isolate/timeout
+added; Ben called the desktop behaviour acceptable). Tests: pdf_graphics
+text_extraction_test (+2: whole-word boundaries, regex incl. invalid →
+empty); dart_pdf_editor search_navigation_test (+6: controller re-run per
+option, no-query store, field toggles re-search, showOptions:false hides
+them, panel toggles, persist+seed via tester.runAsync for the async prefs
+load — a bare `await prefs.ready` hangs under widget-test FakeAsync) and
+editing_preferences_test (+3 assertions: round-trip + defaults for the
+three flags).
+Rotate pages from the thumbnail strip (Ben: "add a tool to rotate
+selected pages from the thumbnail strip"): `PdfEditor.rotatePages(indices,
+degrees)` (page_editor.dart) writes each page's /Rotate = current display
+rotation + degrees, normalized to 0/90/180/270, explicitly onto the page
+dict (overrides inherited /Rotate); degrees must be a multiple of 90, a
+full turn / empty selection is a no-op, out-of-range index throws. It's a
+visual edit only — the page tree/indices are untouched, so unlike
+move/remove it does NOT clear the page selection. Controller
+(editing_controller.dart): `rotatePages(indices, degrees)` (filters to
+valid indices, `apply(pages: targets)` so only those thumbnails
+re-render via pageRenderStamp; preserves `_selectedPages`) +
+`rotateSelectedPages([degrees = 90])` (operates on `_selectedPages`, no-op
+when empty). UI (editing_thumbnails.dart): the multi-select bar (shown at
+selectedPageCount > 1) gained rotate-left/right actions
+('pdf-thumbnail-rotate-selected-ccw'/'-cw'), and each tile a rotate-right
+button ('pdf-thumbnail-rotate-<index>', no Tooltip — Semantics label, like
+the delete button, so it's safe inside the ReorderableListView). The
+selection bar was reshaped into a count line + a `Wrap` of compact
+IconButtons (`_selectionAction`) so the (now up to five) actions flow onto
+a second line instead of overflowing the ~142px strip. Tests:
+pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
+full-turn/empty no-op, non-quarter + out-of-range reject) and
+dart_pdf_editor editing_page_ops_test (controller round-trips + selection
+survives; strip widget tests for the bar + per-tile button).
