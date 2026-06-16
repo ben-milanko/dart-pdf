@@ -143,6 +143,27 @@ void main() {
     expect((painter.color as Color).toARGB32(), 0xFF1565C0);
   });
 
+  testWidgets('the ink cursor follows a mouse-drawn stroke', (tester) async {
+    final editing = await pumpViewer(tester);
+    editing
+      ..inkCommitDelay = null
+      ..tool = PdfEditTool.ink;
+    await tester.pump();
+
+    final start = view(250, 450);
+    final end = view(330, 420);
+    await hoverAt(tester, start);
+    final g = await tester.startGesture(start, kind: PointerDeviceKind.mouse);
+    await tester.pump();
+
+    await g.moveTo(end);
+    await tester.pump();
+    await g.up();
+    await tester.pump();
+
+    expect(overlayPainter(tester).penCursor, end);
+  });
+
   testWidgets('leaving the page retracts the painted pen dot', (tester) async {
     final editing = await pumpViewer(tester);
     editing.tool = PdfEditTool.ink;

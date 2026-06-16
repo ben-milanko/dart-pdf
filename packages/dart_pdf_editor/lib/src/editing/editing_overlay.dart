@@ -601,6 +601,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
+        _penCursor = event.localPosition;
         // no setState: the active stroke lives on its own repaint layer
         _activeStroke = [_geometry.toPagePoint(event.localPosition)];
         _activeStrokePressures = pressure == null ? null : [pressure];
@@ -642,6 +643,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
+      _penCursor = event.localPosition;
       _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
       _activeStrokePressures
           ?.add(_pointerPressure ?? _activeStrokePressures!.last);
@@ -1661,6 +1663,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
+        // While the mouse is pressed, hover events stop. Keep the painted
+        // pen cursor's stored position moving with the drag so it reappears
+        // at the stroke end, not where the stroke started.
+        _penCursor = position;
         // no setState: the active stroke lives on its own repaint layer
         _activeStroke = [_geometry.toPagePoint(position)];
         // the first event decides: a pressure device varies the whole
@@ -1934,6 +1940,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _reportMovePreview();
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
+      _penCursor = position;
       _activeStroke!.add(_geometry.toPagePoint(position));
       _activeStrokePressures
           ?.add(_pointerPressure ?? _activeStrokePressures!.last);
