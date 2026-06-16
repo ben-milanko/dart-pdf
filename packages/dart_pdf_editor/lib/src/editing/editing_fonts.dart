@@ -54,6 +54,7 @@ void pdfApplyFont(PdfEditingController controller, PdfTextFont font) {
   } else if (font is PdfEmbeddedFont) {
     controller.activeFont = font;
   }
+  if (controller.restyleEditingTextSelection(font: font)) return;
   if (controller.canRestyleSelectedText) {
     controller.restyleSelectedFont(font);
   }
@@ -136,8 +137,7 @@ Future<void> showPdfFontMenu({
   List<PdfBundledFont> bundled = pdfBundledFonts,
 }) async {
   final box = context.findRenderObject() as RenderBox?;
-  final overlay =
-      Overlay.of(context).context.findRenderObject() as RenderBox?;
+  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
   if (box == null || overlay == null) return;
   final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
   final bottomRight =

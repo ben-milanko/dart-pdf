@@ -197,4 +197,35 @@ void main() {
       expect(font.glyphForRune(0x03A9), greaterThan(0));
     });
   });
+
+  group('rich FreeText', () {
+    test('writes multiple fonts, sizes, and colors into one annotation', () {
+      final doc = roundTrip((e) => e.addFreeTextRich(
+            0,
+            const PdfRect(72, 600, 360, 680),
+            const [
+              PdfFreeTextRun('Sans ', font: PdfStandardFont.helvetica),
+              PdfFreeTextRun('Serif',
+                  font: PdfStandardFont.timesBold,
+                  fontSize: 20,
+                  color: 0xFF0000),
+            ],
+          ));
+      final ft = doc.page(0).annotations.single;
+      expect(ft.contents, 'Sans Serif');
+
+      final content = appearanceText(doc, ft);
+      expect(content, contains('/Helv 12 Tf'));
+      expect(content, contains('/TimesBold 20 Tf'));
+      expect(content, contains('1 0 0 rg'));
+      expect(content, contains('(Sans ) Tj'));
+      expect(content, contains('(Serif) Tj'));
+
+      final resources =
+          doc.cos.resolve(ft.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
+      final fonts = doc.cos.resolve(resources['Font']) as CosDictionary;
+      expect(fonts.entries.keys, containsAll(['Helv', 'TimesBold']));
+    });
+  });
 }

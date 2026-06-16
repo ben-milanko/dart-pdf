@@ -16,6 +16,187 @@ import 'editing_controller.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
+TextDirection _flutterTextDirection(String text) =>
+    pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
+
+String? _textEditUiFamily(PdfTextFont font) {
+  if (font is! PdfStandardFont) return null;
+  return switch (font.family) {
+    PdfStandardFontFamily.sans => 'Helvetica',
+    PdfStandardFontFamily.serif => 'Times New Roman',
+    PdfStandardFontFamily.mono => 'Courier',
+  };
+}
+
+FontWeight _textEditWeight(PdfTextFont font) =>
+    font is PdfStandardFont && font.isBold
+        ? FontWeight.bold
+        : FontWeight.normal;
+
+FontStyle _textEditSlant(PdfTextFont font) =>
+    font is PdfStandardFont && font.isItalic
+        ? FontStyle.italic
+        : FontStyle.normal;
+
+class _TextEditStyle {
+  const _TextEditStyle(
+      {required this.font, required this.size, required this.color});
+
+  final PdfTextFont font;
+  final double size;
+  final Color color;
+
+  _TextEditStyle merge({PdfTextFont? font, double? size, int? color}) =>
+      _TextEditStyle(
+        font: font ?? this.font,
+        size: size ?? this.size,
+        color: color == null ? this.color : Color(0xFF000000 | color),
+      );
+
+  TextStyle toTextStyle(double scale) => TextStyle(
+        color: color,
+        fontSize: size * scale,
+        height: 1.2,
+        fontFamily: _textEditUiFamily(font),
+        fontWeight: _textEditWeight(font),
+        fontStyle: _textEditSlant(font),
+      );
+
+  PdfFreeTextRun toRun(String text) => PdfFreeTextRun(text,
+      font: font, fontSize: size, color: color.toARGB32() & 0xFFFFFF);
+}
+
+class _TextEditStyleRange {
+  const _TextEditStyleRange(this.start, this.end, this.style);
+
+  final int start;
+  final int end;
+  final _TextEditStyle style;
+}
+
+class _RichTextEditingController extends TextEditingController {
+  _RichTextEditingController();
+
+  _TextEditStyle defaultStyle = const _TextEditStyle(
+      font: PdfStandardFont.helvetica, size: 14, color: Color(0xFF000000));
+  double scale = 1;
+  final List<_TextEditStyleRange> _ranges = [];
+
+  void resetStyles(_TextEditStyle style) {
+    defaultStyle = style;
+    _ranges.clear();
+  }
+
+  bool get hasRichStyles => _ranges.isNotEmpty;
+
+  void applyStyle(TextSelection selection,
+      {PdfTextFont? font, double? size, int? color}) {
+    if (!selection.isValid || selection.isCollapsed) return;
+    final start = math.max(0, math.min(selection.start, selection.end));
+    final end = math.min(text.length, math.max(selection.start, selection.end));
+    if (start >= end) return;
+    final next = <_TextEditStyleRange>[];
+    for (final range in _ranges) {
+      if (range.end <= start || range.start >= end) {
+        next.add(range);
+        continue;
+      }
+      if (range.start < start) {
+        next.add(_TextEditStyleRange(range.start, start, range.style));
+      }
+      if (range.end > end) {
+        next.add(_TextEditStyleRange(end, range.end, range.style));
+      }
+    }
+    next.add(_TextEditStyleRange(start, end,
+        _styleAt(start).merge(font: font, size: size, color: color)));
+    _ranges
+      ..clear()
+      ..addAll(_mergeRanges(next));
+    notifyListeners();
+  }
+
+  List<PdfFreeTextRun> toPdfRuns() {
+    final value = text;
+    if (value.isEmpty) return const [];
+    final ranges = _mergeRanges([
+      for (final range in _ranges)
+        if (range.start < value.length && range.end > 0)
+          _TextEditStyleRange(range.start.clamp(0, value.length),
+              range.end.clamp(0, value.length), range.style)
+    ]);
+    final result = <PdfFreeTextRun>[];
+    var offset = 0;
+    for (final range in ranges) {
+      if (offset < range.start) {
+        result.add(defaultStyle.toRun(value.substring(offset, range.start)));
+      }
+      result.add(range.style.toRun(value.substring(range.start, range.end)));
+      offset = range.end;
+    }
+    if (offset < value.length) {
+      result.add(defaultStyle.toRun(value.substring(offset)));
+    }
+    return result;
+  }
+
+  _TextEditStyle _styleAt(int offset) {
+    for (final range in _ranges.reversed) {
+      if (offset >= range.start && offset < range.end) return range.style;
+    }
+    return defaultStyle;
+  }
+
+  static List<_TextEditStyleRange> _mergeRanges(
+      List<_TextEditStyleRange> ranges) {
+    ranges.sort((a, b) => a.start.compareTo(b.start));
+    final out = <_TextEditStyleRange>[];
+    for (final range in ranges) {
+      if (range.start >= range.end) continue;
+      if (out.isNotEmpty &&
+          out.last.end == range.start &&
+          identical(out.last.style.font, range.style.font) &&
+          out.last.style.size == range.style.size &&
+          out.last.style.color == range.style.color) {
+        final last = out.removeLast();
+        out.add(_TextEditStyleRange(last.start, range.end, last.style));
+      } else {
+        out.add(range);
+      }
+    }
+    return out;
+  }
+
+  @override
+  TextSpan buildTextSpan(
+      {required BuildContext context,
+      TextStyle? style,
+      required bool withComposing}) {
+    final value = text;
+    if (value.isEmpty || _ranges.isEmpty) {
+      return TextSpan(text: value, style: style);
+    }
+    final children = <InlineSpan>[];
+    var offset = 0;
+    for (final range in _mergeRanges(List.of(_ranges))) {
+      if (range.start >= value.length) continue;
+      final start = range.start.clamp(0, value.length);
+      final end = range.end.clamp(0, value.length);
+      if (offset < start) {
+        children.add(TextSpan(text: value.substring(offset, start)));
+      }
+      children.add(TextSpan(
+          text: value.substring(start, end),
+          style: range.style.toTextStyle(scale)));
+      offset = end;
+    }
+    if (offset < value.length) {
+      children.add(TextSpan(text: value.substring(offset)));
+    }
+    return TextSpan(style: style, children: children);
+  }
+}
+
 /// A single-selection move drag's floating preview: the dragged
 /// annotation's appearance, reported up to [PdfViewer] so it paints above
 /// every page.
@@ -80,6 +261,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.predictStrokes = true,
     this.formImagePicker,
     this.imagePicker,
+    this.onSnapshot,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
@@ -98,6 +280,10 @@ class EditingPageOverlay extends StatefulWidget {
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
   /// insert. With none, the image tool does nothing.
   final PdfImagePicker? imagePicker;
+
+  /// Receives a region captured by the snapshot tool
+  /// ([PdfEditTool.snapshot]). With none, the snapshot tool does nothing.
+  final PdfSnapshotHandler? onSnapshot;
 
   /// The paper color the page is displayed with — the eyedropper's
   /// raster must match what's on screen.
@@ -173,6 +359,18 @@ typedef _InkPaint = ({
   List<List<double>?> pressures,
   Color color,
   double strokeWidth,
+});
+
+typedef _AfterGhost = ({
+  ui.Picture picture,
+  Rect from,
+  Rect to,
+  Rect? source,
+  ui.Picture? sourceClean,
+  double rotation,
+  double localAngle,
+  bool flipX,
+  bool flipY,
 });
 
 /// A Square/Circle drawn for a resize preview (or its committed
@@ -334,7 +532,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   PdfRect? _textEditPageRect;
   bool _textEditExisting = false;
   PdfEditTool? _textEditTool;
-  late final TextEditingController _textEditText = TextEditingController();
+  late final _RichTextEditingController _textEditText =
+      _RichTextEditingController()..addListener(_onTextEditChanged);
   late final FocusNode _textEditFocus = FocusNode()
     ..addListener(_onTextEditFocus);
   PdfStandardFont _textEditFont = PdfStandardFont.helvetica;
@@ -346,6 +545,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // so the inline editor and afterimage sit on the artwork instead of
   // snapping back to horizontal
   double _textEditRotation = 0;
+  int _textEditStyleRevision = 0;
 
   // form-tool text fill: when set, the inline editor commits into this
   // field's /V instead of creating a free-text annotation
@@ -384,6 +584,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ui.Picture? _resizeCleanPicture;
   Object? _resizeCleanFor;
 
+  // Clean page for a selected annotation's original footprint. Move commits
+  // clip this into the source rect so the annotation disappears without
+  // covering underlying page content with a paper-colored box.
+  ui.Picture? _sourceCleanPicture;
+  Object? _sourceCleanFor;
+
   // rubber-band selection (mouse drags on empty page area)
   Offset? _marqueeStart;
   Offset? _marqueeCurrent;
@@ -413,6 +619,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Rect? _afterGhostFrom;
   Rect? _afterGhostTo;
   Rect? _afterGhostSourceRect;
+  ui.Picture? _afterGhostSourceClean;
   double _afterGhostRotation = 0;
   double _afterGhostLocalAngle = 0;
   bool _afterGhostFlipX = false;
@@ -487,6 +694,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _tool == PdfEditTool.select ||
       (_tool == null && _controller.hasAnnotationSelection);
 
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant EditingPageOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      _controller.addListener(_onControllerChanged);
+    }
+  }
+
   /// Shift/⌘/Ctrl held — a click toggles membership, a marquee adds.
   static bool get _additiveModifier {
     final keyboard = HardwareKeyboard.instance;
@@ -507,9 +729,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// A finger should pan the viewer (not draw): the draw tool is armed
   /// but finger-drawing is off, so touch is reserved for scrolling.
   bool get _fingerPansViewport =>
-      _drawTool &&
-      !_controller.fingerDrawsInk &&
-      widget.onPanViewport != null;
+      _drawTool && !_controller.fingerDrawsInk && widget.onPanViewport != null;
   bool get _polyTool =>
       _tool == PdfEditTool.polyline ||
       _tool == PdfEditTool.polygon ||
@@ -598,6 +818,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
+        _penCursor = event.localPosition;
         // no setState: the active stroke lives on its own repaint layer
         _activeStroke = [_geometry.toPagePoint(event.localPosition)];
         _activeStrokePressures = pressure == null ? null : [pressure];
@@ -639,6 +860,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
+      _penCursor = event.localPosition;
       _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
       _activeStrokePressures
           ?.add(_pointerPressure ?? _activeStrokePressures!.last);
@@ -777,8 +999,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             slot,
             () => (
                   strokes: strokes,
-                  pressures:
-                      List<List<double>?>.filled(strokes.length, null),
+                  pressures: List<List<double>?>.filled(strokes.length, null),
                   color: const Color(0xFF000000),
                   strokeWidth:
                       (annotation.borderWidth ?? 1) * _geometry.scale * 1.7 + 4,
@@ -958,6 +1179,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhostFrom = null;
     _afterGhostTo = null;
     _afterGhostSourceRect = null;
+    _afterGhostSourceClean?.dispose();
+    _afterGhostSourceClean = null;
     _afterGhostRotation = 0;
     _afterGhostLocalAngle = 0;
     _afterGhostFlipX = false;
@@ -987,14 +1210,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// annotation stays inverted while the page re-renders.
   ///
   /// [washSource] paints the old on-raster footprint over with paper before
-  /// the new raster lands, so a resize/rotate's larger/spun old appearance
-  /// doesn't poke out behind the afterimage. A pure *move* leaves it false:
-  /// its source and destination are disjoint, so an opaque paper wash there
-  /// covers nothing the afterimage redraws — it just blanks the page content
-  /// under the old spot (most visibly *through* a translucent markup) until
-  /// the re-render lands, which reads as the content flashing back in. The
-  /// stale annotation lingering at the old spot instead is continuous with
-  /// the drag (it was painted there the whole time) and far less jarring.
+  /// the new raster lands, so the stale raster does not keep showing the
+  /// annotation at its previous position during the commit gap.
   void _commitWithGhost(VoidCallback commit,
       {Rect? to,
       double rotation = 0,
@@ -1016,6 +1233,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhostFrom = from;
     _afterGhostTo = to;
     _afterGhostSourceRect = washSource ? source : null;
+    if (washSource && _sourceCleanPicture != null) {
+      _afterGhostSourceClean = _sourceCleanPicture;
+      _sourceCleanPicture = null;
+      _sourceCleanFor = null;
+    }
     _afterGhostRotation = rotation;
     _afterGhostLocalAngle = localAngle;
     _afterGhostFlipX = flipX;
@@ -1215,6 +1437,53 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
+  /// Keeps a clean page (without the selected annotation) ready for move
+  /// commits, so the old location can be erased by restoring the real page
+  /// content instead of painting a white/paper rectangle over it.
+  Future<void> _ensureSourceClean() async {
+    final slots = _controller.selectedAnnotationSlots;
+    if (slots.length != 1 || slots.single.$1 != widget.pageIndex) {
+      _sourceCleanPicture?.dispose();
+      _sourceCleanPicture = null;
+      _sourceCleanFor = null;
+      return;
+    }
+    final annotation =
+        _controller.annotationAt(widget.pageIndex, slots.single.$2);
+    if (annotation == null) return;
+    final key = (
+      document: _controller.document,
+      page: widget.pageIndex,
+      annotation: annotation.dict,
+      color: widget.pageColor,
+      showAnnotations: widget.showAnnotations,
+    );
+    if (_sourceCleanFor == key) return;
+    _sourceCleanFor = key;
+    final name = annotation.name;
+    try {
+      final picture = await PdfPageRenderer.renderPicture(
+        _controller.pageAt(widget.pageIndex),
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+        skipAnnotation: (a) =>
+            identical(a.dict, annotation.dict) ||
+            (name != null && a.name == name),
+      );
+      if (!mounted || _sourceCleanFor != key) {
+        picture.dispose();
+        return;
+      }
+      setState(() {
+        _sourceCleanPicture?.dispose();
+        _sourceCleanPicture = picture;
+      });
+    } catch (_) {
+      // If the clean render fails, leave the stale raster alone rather than
+      // painting an opaque box over the page content.
+    }
+  }
+
   /// Drops the lifted clean-page picture once a resize drag ends.
   void _clearResizeClean() {
     _resizeCleanPicture?.dispose();
@@ -1222,8 +1491,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _resizeCleanFor = null;
   }
 
+  void _clearSourceClean() {
+    _sourceCleanPicture?.dispose();
+    _sourceCleanPicture = null;
+    _sourceCleanFor = null;
+  }
+
   @override
   void dispose() {
+    _controller.removeListener(_onControllerChanged);
     if (_textEditRect != null) _controller.setEditingText(false);
     // if THIS overlay was mid-move, drop the shared cross-page preview
     // before disposing [_ghost] so a neighbour page can't paint freed
@@ -1235,11 +1511,29 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       ..dispose();
     _textEditText.dispose();
     _ghost?.dispose();
-    _afterGhost?.dispose();
+    _clearAfterimage();
     _resizeCleanPicture?.dispose();
+    _clearSourceClean();
     _flashController.dispose();
     _activeStrokeRepaint.dispose();
     super.dispose();
+  }
+
+  void _onTextEditChanged() {
+    if (_textEditRect == null) return;
+    _controller.setEditingTextSelection(_textEditText.selection);
+    if (mounted) setState(() {});
+  }
+
+  void _onControllerChanged() {
+    if (_textEditRect == null) return;
+    final revision = _controller.editingTextStyleRevision;
+    if (revision == _textEditStyleRevision) return;
+    _textEditStyleRevision = revision;
+    final request = _controller.editingTextStyleRequest;
+    if (request == null) return;
+    _textEditText.applyStyle(_textEditText.selection,
+        font: request.font, size: request.size, color: request.color);
   }
 
   Offset _handleCenter(Rect rect, _Handle handle) => Offset(
@@ -1481,6 +1775,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         rotation = chrome.$2;
       }
     }
+    final defaultFont = existing
+        ? (style?.font ?? _controller.fontFamily)
+        : (_controller.activeFont ?? _controller.fontFamily);
+    final defaultSize = style?.size ?? _controller.fontSize;
+    final defaultColor = annotationColor != null
+        ? Color(0xFF000000 | annotationColor)
+        : _controller.color;
+    _textEditText.resetStyles(_TextEditStyle(
+        font: defaultFont, size: defaultSize, color: defaultColor));
     _textEditText.text = existing ? (_controller.selectedText ?? '') : '';
     setState(() {
       _textEditRect = rect;
@@ -1488,11 +1791,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditRotation = rotation;
       _textEditExisting = existing;
       _textEditTool = _tool;
-      _textEditFont = style?.font ?? _controller.fontFamily;
-      _textEditSize = style?.size ?? _controller.fontSize;
-      _textEditColor = annotationColor != null
-          ? Color(0xFF000000 | annotationColor)
-          : _controller.color;
+      _textEditFont =
+          defaultFont is PdfStandardFont ? defaultFont : _controller.fontFamily;
+      _textEditSize = defaultSize;
+      _textEditColor = defaultColor;
       _textEditFill = existing
           ? (parsed?.fillColor != null
               ? Color(0xFF000000 | parsed!.fillColor!)
@@ -1518,6 +1820,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
         .firstMatch(field.defaultAppearance ?? '');
     final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
+    final formFont = tf == null
+        ? PdfStandardFont.helvetica
+        : PdfStandardFont.fromName(tf.group(1)!);
+    final formSize = size > 0 ? size : 12.0;
+    _textEditText.resetStyles(_TextEditStyle(
+        font: formFont, size: formSize, color: const Color(0xFF000000)));
     _textEditText.text = field.value ?? '';
     setState(() {
       _textEditRect = _geometry.toViewRect(rect);
@@ -1527,12 +1835,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditTool = _tool;
       _textEditFieldName = field.name;
       _textEditMultiline = field.isMultiline;
-      _textEditFont = tf == null
-          ? PdfStandardFont.helvetica
-          : PdfStandardFont.fromName(tf.group(1)!);
+      _textEditFont = formFont;
       // an auto-size /DA (0 Tf) edits at a readable default; the
       // committed appearance derives its own size as usual
-      _textEditSize = size > 0 ? size : 12;
+      _textEditSize = formSize;
       _textEditColor = const Color(0xFF000000);
       _textEditFill = null;
     });
@@ -1574,6 +1880,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     final text = _textEditText.text.trimRight();
     final existing = _textEditExisting;
+    final richRuns =
+        _textEditText.hasRichStyles ? _textEditText.toPdfRuns() : null;
     final font = _textEditFont;
     final size = _textEditSize;
     final color = _textEditColor;
@@ -1582,12 +1890,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _closeTextEditor();
     final before = _controller.document;
     if (existing) {
-      if (text.isNotEmpty && text != _controller.selectedText) {
+      if (text.isNotEmpty && richRuns != null) {
+        _controller.setSelectedRichText(richRuns);
+      } else if (text.isNotEmpty && text != _controller.selectedText) {
         _controller.setSelectedText(text);
       }
     } else if (text.isNotEmpty) {
-      _controller.addFreeText(
-          widget.pageIndex, _geometry.toPageRect(rect), text);
+      if (richRuns != null) {
+        _controller.addFreeTextRich(
+            widget.pageIndex, _geometry.toPageRect(rect), richRuns);
+      } else {
+        _controller.addFreeText(
+            widget.pageIndex, _geometry.toPageRect(rect), text);
+      }
     }
     if (identical(before, _controller.document)) return;
     // the editor's rendering, frozen until the new revision's raster
@@ -1659,6 +1974,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
+        // While the mouse is pressed, hover events stop. Keep the painted
+        // pen cursor's stored position moving with the drag so it reappears
+        // at the stroke end, not where the stroke started.
+        _penCursor = position;
         // no setState: the active stroke lives on its own repaint layer
         _activeStroke = [_geometry.toPagePoint(position)];
         // the first event decides: a pressure device varies the whole
@@ -1673,7 +1992,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
             PdfEditTool.image ||
-            PdfEditTool.redact:
+            PdfEditTool.redact ||
+            PdfEditTool.snapshot:
         setState(() {
           _dragStart = position;
           _dragCurrent = position;
@@ -1797,6 +2117,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _moveCurrent = position;
           _cursor = SystemMouseCursors.move; // 4-arrow while dragging
         });
+        _ensureSourceClean();
         return;
       }
     }
@@ -1809,6 +2130,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _moveCurrent = position;
         _cursor = SystemMouseCursors.move;
       });
+      _ensureSourceClean();
       return;
     }
     final mouseLike = details.kind == null ||
@@ -1907,10 +2229,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // pointer delta rotates into the local frame
         final delta = position - _moveStart!;
         // holding Shift locks the original aspect ratio
-        final aspectRatio = HardwareKeyboard.instance.isShiftPressed &&
-                _resizeFrom!.height > 0
-            ? _resizeFrom!.width / _resizeFrom!.height
-            : null;
+        final aspectRatio =
+            HardwareKeyboard.instance.isShiftPressed && _resizeFrom!.height > 0
+                ? _resizeFrom!.width / _resizeFrom!.height
+                : null;
         final (resized, flipX, flipY) = _resizedRect(
             _resizeFrom!,
             _resizeHandle!,
@@ -1931,6 +2253,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _reportMovePreview();
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
+      _penCursor = position;
       _activeStroke!.add(_geometry.toPagePoint(position));
       _activeStrokePressures
           ?.add(_pointerPressure ?? _activeStrokePressures!.last);
@@ -2098,12 +2421,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
       }
       final (x1, y1) = _geometry.toPagePoint(moveCurrent);
-      // a move's source and destination are disjoint, so don't wash the old
-      // spot — the opaque paper wash would blank the page content there
-      // until the re-render lands and then flash it back (see _commitWithGhost)
+      // Wash the old spot so the stale raster does not leave a second copy
+      // behind while the committed revision re-renders.
       _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
-          to: _selectedViewRect?.shift(moveCurrent - moveStart),
-          washSource: false);
+          to: _selectedViewRect?.shift(moveCurrent - moveStart));
     } else if (stroke != null && stroke.isNotEmpty) {
       _controller.addInkStroke(widget.pageIndex, stroke,
           pressures: strokePressures);
@@ -2335,6 +2656,30 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _controller.newFormFieldKind, widget.pageIndex, rect);
       case PdfEditTool.redact:
         _controller.addRedaction(widget.pageIndex, rect);
+      case PdfEditTool.snapshot:
+        // always keep a vector copy on the clipboard so it can paste back
+        // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
+        // callback is an optional export of the raster image on top
+        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect);
+        final handler = widget.onSnapshot;
+        if (handler == null) return;
+        // page raster space (post-/Rotate, y down) = view space / scale —
+        // the same mapping the eyedropper's sampler uses
+        final s = _geometry.scale;
+        final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
+            viewRect.right / s, viewRect.bottom / s);
+        final bytes = await _controller.captureSnapshot(
+            widget.pageIndex, region,
+            pageColor: widget.pageColor, annotations: widget.showAnnotations);
+        if (bytes == null || !mounted) return;
+        await handler(
+            context,
+            PdfSnapshot(
+              pageIndex: widget.pageIndex,
+              pageRect: rect,
+              pngBytes: bytes,
+              vector: vector,
+            ));
       default:
         break;
     }
@@ -2870,20 +3215,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     required Color? background,
     required double rotation,
   }) {
+    final direction = _flutterTextDirection(text);
     final box = Container(
       key: key,
       color: background,
       padding: EdgeInsets.all(3 * _geometry.scale),
-      alignment: Alignment.topLeft,
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: size * _geometry.scale,
-          height: 1.2,
-          fontFamily: _uiFamily(font),
-          fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
-          fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
+      alignment: AlignmentDirectional.topStart.resolve(direction),
+      child: Directionality(
+        textDirection: direction,
+        child: Text(
+          text,
+          textAlign: TextAlign.start,
+          textHeightBehavior: const TextHeightBehavior(
+            applyHeightToFirstAscent: false,
+          ),
+          style: TextStyle(
+            color: color,
+            fontSize: size * _geometry.scale,
+            height: 1.2,
+            fontFamily: _uiFamily(font),
+            fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
+            fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
+          ),
         ),
       ),
     );
@@ -2906,7 +3259,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   @override
   Widget build(BuildContext context) {
+    _textEditText.scale = _geometry.scale;
     _ensureGhost();
+    _ensureSourceClean();
     // the afterimage has served once the committed revision's raster is
     // on screen — or is stale once the document moved past that revision
     if (_afterDocument != null &&
@@ -2951,6 +3306,43 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final rotating = _rotateStartAngle != null;
     final dragging =
         _resizeHandle != null || moveDelta != Offset.zero || rotating;
+    // When an edit (notably a vector-snapshot paste from ⌘V/the context
+    // menu) swaps in a new document, the page raster still shows the old
+    // revision until the async re-render lands. If the newly selected
+    // annotation's appearance has already been recorded for drag previews,
+    // paint that same picture at rest so vector paste feedback is immediate
+    // instead of waiting for the full-page raster. Dragging keeps using the
+    // normal ghost path, and explicit commit afterimages take precedence.
+    final _AfterGhost? restGhost = !widget.rasterCurrent &&
+            !dragging &&
+            _afterGhost == null &&
+            _ghost != null &&
+            selected != null
+        ? (
+            picture: _ghost!,
+            from: selected,
+            to: selected,
+            source: null,
+            sourceClean: null,
+            rotation: 0.0,
+            localAngle: 0.0,
+            flipX: false,
+            flipY: false,
+          )
+        : null;
+    final _AfterGhost? afterGhost = _afterGhost != null
+        ? (
+            picture: _afterGhost!,
+            from: _afterGhostFrom!,
+            to: _afterGhostTo!,
+            source: _afterGhostSourceRect,
+            sourceClean: _afterGhostSourceClean,
+            rotation: _afterGhostRotation,
+            localAngle: _afterGhostLocalAngle,
+            flipX: _afterGhostFlipX,
+            flipY: _afterGhostFlipY,
+          )
+        : restGhost;
     // a free-text resize re-wraps at constant font size — preview the
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
@@ -2958,11 +3350,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a Square/Circle resize regenerates at a constant stroke width:
     // preview that (live during the drag, then the frozen afterimage)
     // instead of the ghost, whose line would stretch and snap back
-    final shapeResize = wrapResize == null &&
-            _resizeHandle != null &&
-            _resizeRect != null
-        ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
-        : _afterShapeResize;
+    final shapeResize =
+        wrapResize == null && _resizeHandle != null && _resizeRect != null
+            ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
+            : _afterShapeResize;
     // strokes beyond the pending ink: the committed-ink afterimage (held
     // until the new raster lands) and the signature tool's live preview
     final committedInk = widget.rasterCurrent
@@ -3136,8 +3527,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost:
-                        wrapResize == null && shapeResize == null ? _ghost : null,
+                    ghost: wrapResize == null && shapeResize == null
+                        ? _ghost
+                        : null,
                     shapeResize: shapeResize,
                     ghostFrom: _resizeHandle != null && _resizeAngle != 0
                         ? _resizeFrom
@@ -3154,7 +3546,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // free-text resize lift: hide the original box's
                     // footprint with the page rendered without it (or an
                     // opaque-paper wash until that lands)
-                    resizeClean: wrapResize != null ? _resizeCleanPicture : null,
+                    resizeClean:
+                        wrapResize != null ? _resizeCleanPicture : null,
                     resizeHideRect: wrapResize != null ? _resizeFrom : null,
                     resizeHideAngle: _resizeAngle,
                     resizeHideWash: Color.alphaBlend(
@@ -3180,18 +3573,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         : null,
                     penOpacity: _controller.opacity,
                     rotateCursor: _rotateCursor,
-                    afterGhost: _afterGhost != null
-                        ? (
-                            picture: _afterGhost!,
-                            from: _afterGhostFrom!,
-                            to: _afterGhostTo!,
-                            source: _afterGhostSourceRect,
-                            rotation: _afterGhostRotation,
-                            localAngle: _afterGhostLocalAngle,
-                            flipX: _afterGhostFlipX,
-                            flipY: _afterGhostFlipY,
-                          )
-                        : null,
+                    afterGhost: afterGhost,
                     afterShape: _afterShape,
                     afterPath: _afterPath,
                     showHandles: selected != null &&
@@ -3304,46 +3686,74 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   const Color(0xFF1E88E5),
                               width: 1.5 * _chromeScale),
                         ),
-                        child: TextField(
-                          key: ValueKey(_textEditFieldName == null
-                              ? 'pdf-freetext-editor'
-                              : 'pdf-form-text-editor'),
-                          controller: _textEditText,
-                          focusNode: _textEditFocus,
-                          autofocus: true,
-                          // single-line form fields edit single-line: Enter
-                          // commits instead of inserting a newline
-                          maxLines:
-                              _textEditFieldName == null || _textEditMultiline
-                                  ? null
-                                  : 1,
-                          expands:
-                              _textEditFieldName == null || _textEditMultiline,
-                          onSubmitted: (_) => _commitTextEdit(),
-                          textAlignVertical:
-                              _textEditFieldName == null || _textEditMultiline
-                                  ? TextAlignVertical.top
-                                  : TextAlignVertical.center,
-                          cursorColor: _textEditColor,
-                          // mirrors the committed appearance: same size in view
-                          // pixels, same 1.2 leading, matching family and color
-                          style: TextStyle(
-                            color: _textEditColor,
-                            fontSize: _textEditSize * _geometry.scale,
-                            height: 1.2,
-                            fontFamily: _uiFamily(_textEditFont),
-                            fontWeight: _textEditFont.isBold
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            fontStyle: _textEditFont.isItalic
-                                ? FontStyle.italic
-                                : FontStyle.normal,
-                          ),
-                          decoration: InputDecoration(
-                            isCollapsed: true,
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.all(3 * _geometry.scale),
-                          ),
+                        child: ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: _textEditText,
+                          builder: (context, value, _) {
+                            final direction = _flutterTextDirection(value.text);
+                            return Directionality(
+                              textDirection: direction,
+                              child: TextField(
+                                key: ValueKey(_textEditFieldName == null
+                                    ? 'pdf-freetext-editor'
+                                    : 'pdf-form-text-editor'),
+                                controller: _textEditText,
+                                focusNode: _textEditFocus,
+                                autofocus: true,
+                                // single-line form fields edit single-line:
+                                // Enter commits instead of inserting a newline
+                                maxLines: _textEditFieldName == null ||
+                                        _textEditMultiline
+                                    ? null
+                                    : 1,
+                                expands: _textEditFieldName == null ||
+                                    _textEditMultiline,
+                                onSubmitted: (_) => _commitTextEdit(),
+                                textDirection: direction,
+                                textAlign: TextAlign.start,
+                                textAlignVertical: _textEditFieldName == null ||
+                                        _textEditMultiline
+                                    ? TextAlignVertical.top
+                                    : TextAlignVertical.center,
+                                cursorColor: _textEditColor,
+                                // mirrors the committed appearance: same size
+                                // in view pixels, same 1.2 leading, matching
+                                // family and color
+                                style: TextStyle(
+                                  color: _textEditColor,
+                                  fontSize: _textEditSize * _geometry.scale,
+                                  height: 1.2,
+                                  fontFamily: _uiFamily(_textEditFont),
+                                  fontWeight: _textEditFont.isBold
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  fontStyle: _textEditFont.isItalic
+                                      ? FontStyle.italic
+                                      : FontStyle.normal,
+                                ),
+                                decoration: InputDecoration(
+                                  isCollapsed: true,
+                                  border: InputBorder.none,
+                                  // PDF free-text appearances put the first
+                                  // baseline exactly one ascent below the top
+                                  // padding. Flutter splits the extra 1.2
+                                  // line-height leading above and below
+                                  // editable text, so trim that half-leading
+                                  // from the top padding to avoid a small
+                                  // edit-time layout jump.
+                                  contentPadding: EdgeInsets.fromLTRB(
+                                    3 * _geometry.scale,
+                                    math.max(
+                                      0,
+                                      3 * _geometry.scale -
+                                          0.1 * _textEditSize * _geometry.scale,
+                                    ),
+                                    3 * _geometry.scale,
+                                    3 * _geometry.scale,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -3468,8 +3878,8 @@ void _paintInkStrokes(
         final c1 = geometry.toViewOffset(c1x, c1y);
         final c2 = geometry.toViewOffset(c2x, c2y);
         final b = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
-        segment.strokeWidth = pdfInkStrokeWidth(
-            strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
+        segment.strokeWidth =
+            pdfInkStrokeWidth(strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
         canvas.drawPath(
             Path()
               ..moveTo(a.dx, a.dy)
@@ -3506,6 +3916,9 @@ class _ActiveStrokePainter extends CustomPainter {
 
   final _EditingPageOverlayState _state;
 
+  @visibleForTesting
+  Offset? get debugPenCursor => _state._penCursor;
+
   @override
   void paint(Canvas canvas, Size size) {
     final stroke = _state._activeStroke;
@@ -3533,10 +3946,43 @@ class _ActiveStrokePainter extends CustomPainter {
       _state._controller.color,
       _state._controller.strokeWidth * geometry.scale,
     );
+    final cursor = _state._penCursor;
+    if (cursor != null && _state._tool == PdfEditTool.ink) {
+      _paintPenCursor(
+        canvas,
+        cursor,
+        strokeWidth: _state._controller.strokeWidth * geometry.scale,
+        chromeScale: _state._chromeScale,
+        color: _state._controller.color,
+        opacity: _state._controller.opacity,
+      );
+    }
   }
 
   @override
   bool shouldRepaint(_ActiveStrokePainter oldDelegate) => false;
+}
+
+void _paintPenCursor(
+  Canvas canvas,
+  Offset center, {
+  required double strokeWidth,
+  required double chromeScale,
+  required Color color,
+  required double opacity,
+}) {
+  final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
+  canvas.drawCircle(
+      center, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
+  canvas.drawCircle(
+      center, r, Paint()..color = color.withValues(alpha: opacity));
+  canvas.drawCircle(
+      center,
+      r,
+      Paint()
+        ..color = const Color(0xB3FFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 * chromeScale);
 }
 
 class _EditingPreviewPainter extends CustomPainter {
@@ -3715,18 +4161,9 @@ class _EditingPreviewPainter extends CustomPainter {
 
   /// A just-committed move/resize/rotate, kept painted at full strength
   /// until the new revision's raster lands. [source] is the old
-  /// on-raster position, washed out first so a slow page rerender
-  /// doesn't leave a visible duplicate behind the afterimage.
-  final ({
-    ui.Picture picture,
-    Rect from,
-    Rect to,
-    Rect? source,
-    double rotation,
-    double localAngle,
-    bool flipX,
-    bool flipY,
-  })? afterGhost;
+  /// on-raster position; when [sourceClean] is ready, that rect is restored
+  /// from a clean page render so no duplicate or paper-colored box remains.
+  final _AfterGhost? afterGhost;
 
   /// A just-committed shape's drag preview, same deal.
   final ({
@@ -3799,6 +4236,15 @@ class _EditingPreviewPainter extends CustomPainter {
               ..strokeWidth = 1);
       case PdfEditTool.redact:
         paintRedactionHatch(canvas, rect);
+      case PdfEditTool.snapshot:
+        // a selection marquee, like the region grab in a screenshot tool
+        canvas.drawRect(rect, Paint()..color = _chrome.withAlpha(0x1A));
+        canvas.drawRect(
+            rect,
+            Paint()
+              ..color = _chrome
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1 * chromeScale);
       default:
         canvas.drawRect(rect, paint);
     }
@@ -3820,10 +4266,8 @@ class _EditingPreviewPainter extends CustomPainter {
     }
     final layered = s.opacity < 1;
     if (layered) {
-      canvas.saveLayer(
-          s.rect.inflate(s.strokeWidth + 2),
-          Paint()
-            ..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
+      canvas.saveLayer(s.rect.inflate(s.strokeWidth + 2),
+          Paint()..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
     }
     final stroking = s.stroke != null && s.strokeWidth > 0;
     final inset = stroking ? s.strokeWidth / 2 : 0.0;
@@ -4034,11 +4478,13 @@ class _EditingPreviewPainter extends CustomPainter {
     final committed = afterGhost;
     if (committed != null) {
       final source = committed.source;
-      if (source != null) {
-        canvas.drawRect(
-          source.inflate(2),
-          Paint()..color = fadeColor.withValues(alpha: 0.92),
-        );
+      final sourceClean = committed.sourceClean;
+      if (source != null && sourceClean != null) {
+        canvas.save();
+        canvas.clipRect(source.inflate(2));
+        canvas.scale(geometry.scale);
+        canvas.drawPicture(sourceClean);
+        canvas.restore();
       }
       // full strength: this *is* the committed result, standing in for
       // the raster that hasn't landed yet
@@ -4187,18 +4633,14 @@ class _EditingPreviewPainter extends CustomPainter {
     // to the stroke width, with a halo + hairline so it reads on any page
     final pen = penCursor;
     if (pen != null) {
-      final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
-      canvas.drawCircle(pen, r + 1.5 * chromeScale,
-          Paint()..color = const Color(0x33000000));
-      canvas.drawCircle(
-          pen, r, Paint()..color = color.withValues(alpha: penOpacity));
-      canvas.drawCircle(
-          pen,
-          r,
-          Paint()
-            ..color = const Color(0xB3FFFFFF)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1 * chromeScale);
+      _paintPenCursor(
+        canvas,
+        pen,
+        strokeWidth: strokeWidth,
+        chromeScale: chromeScale,
+        color: color,
+        opacity: penOpacity,
+      );
     }
 
     // the rotate knob's cursor: a curved arrow (no system rotation cursor)
