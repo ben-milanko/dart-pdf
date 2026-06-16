@@ -2083,6 +2083,25 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// selected annotation.
   double? _draggingStroke;
   double? _draggingOpacity;
+  bool _holdingTextEditFocus = false;
+
+  @override
+  void dispose() {
+    _endTextEditFocusHold();
+    super.dispose();
+  }
+
+  void _beginTextEditFocusHold() {
+    if (_holdingTextEditFocus || !controller.isEditingText) return;
+    _holdingTextEditFocus = true;
+    controller.beginEditingTextFocusHold();
+  }
+
+  void _endTextEditFocusHold() {
+    if (!_holdingTextEditFocus) return;
+    _holdingTextEditFocus = false;
+    controller.endEditingTextFocusHold();
+  }
 
   void _setFont(PdfStandardFont font) {
     controller.fontFamily = font; // the new default either way
@@ -2261,6 +2280,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   @override
   Widget build(BuildContext context) {
     return MenuAnchor(
+      onClose: _endTextEditFocusHold,
       menuChildren: [
         // the menu lives in its own overlay, outside the toolbar's
         // ListenableBuilder — it needs its own listener to track sliders
@@ -2519,20 +2539,40 @@ class _StyleMenuState extends State<_StyleMenu> {
       builder: (context, menu, _) => ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
-          void toggle() => menu.isOpen ? menu.close() : menu.open();
+          void toggle() {
+            if (menu.isOpen) {
+              menu.close();
+              return;
+            }
+            _beginTextEditFocusHold();
+            menu.open();
+          }
+
           final tip =
               widget.fields.eraser ? 'Eraser size' : 'Stroke, opacity, font';
+          Widget holdOnPointerDown(Widget child) => Listener(
+                onPointerDown: (_) => _beginTextEditFocusHold(),
+                child: Focus(
+                  canRequestFocus: false,
+                  descendantsAreFocusable: false,
+                  child: child,
+                ),
+              );
           if (widget.fontChipTrigger) {
-            return _FontChip(
-              controller: controller,
-              tooltip: tip,
-              onTap: toggle,
+            return holdOnPointerDown(
+              _FontChip(
+                controller: controller,
+                tooltip: tip,
+                onTap: toggle,
+              ),
             );
           }
-          return IconButton(
-            icon: const Icon(Icons.tune),
-            tooltip: tip,
-            onPressed: toggle,
+          return holdOnPointerDown(
+            IconButton(
+              icon: const Icon(Icons.tune),
+              tooltip: tip,
+              onPressed: toggle,
+            ),
           );
         },
       ),

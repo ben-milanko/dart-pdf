@@ -737,6 +737,8 @@ class PdfEditingController extends ChangeNotifier {
   int _editingTextStyleRevision = 0;
   ({PdfTextFont? font, double? size, int? color})? _editingTextStyleRequest;
   int _editSelectedTextRevision = 0;
+  int _editingTextFocusHoldCount = 0;
+  int _editingTextFocusHoldRevision = 0;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
   /// on a page. While it is, the viewer releases its keyboard shortcuts —
@@ -755,6 +757,10 @@ class PdfEditingController extends ChangeNotifier {
       get editingTextStyleRequest => _editingTextStyleRequest;
 
   int get editSelectedTextRevision => _editSelectedTextRevision;
+
+  bool get isEditingTextFocusCommitHeld => _editingTextFocusHoldCount > 0;
+
+  int get editingTextFocusHoldRevision => _editingTextFocusHoldRevision;
 
   /// Marks an in-place text editor open/closed. Called by the page
   /// overlay that owns the editor.
@@ -794,6 +800,19 @@ class PdfEditingController extends ChangeNotifier {
     _editSelectedTextRevision++;
     notifyListeners();
     return true;
+  }
+
+  void beginEditingTextFocusHold() {
+    _editingTextFocusHoldCount++;
+    _editingTextFocusHoldRevision++;
+    notifyListeners();
+  }
+
+  void endEditingTextFocusHold() {
+    if (_editingTextFocusHoldCount == 0) return;
+    _editingTextFocusHoldCount--;
+    _editingTextFocusHoldRevision++;
+    notifyListeners();
   }
 
   // ---------------------------------------------------------------------

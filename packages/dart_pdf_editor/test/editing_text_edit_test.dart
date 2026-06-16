@@ -516,10 +516,18 @@ void main() {
       await tester.pump();
       expect(editing.hasEditingTextSelection, isTrue);
 
-      expect(
-          editing.restyleEditingTextSelection(
-              font: PdfStandardFont.timesBold, color: 0xFF0000),
-          isTrue);
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+      expect(editing.hasEditingTextSelection, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
       await tester.pump();
 
       final span = field.controller!.buildTextSpan(
@@ -531,7 +539,6 @@ void main() {
             (child) => child.text == 'world',
           );
       expect(styled.style?.fontFamily, 'Times New Roman');
-      expect(styled.style?.fontWeight, FontWeight.bold);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
