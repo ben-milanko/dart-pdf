@@ -457,6 +457,97 @@ class PdfShellBar extends StatelessWidget {
   }
 }
 
+class PdfShellZoomControl extends StatefulWidget {
+  const PdfShellZoomControl({super.key, required this.controller});
+
+  final PdfViewerController controller;
+
+  @override
+  State<PdfShellZoomControl> createState() => _PdfShellZoomControlState();
+}
+
+class _PdfShellZoomControlState extends State<PdfShellZoomControl> {
+  static const List<double> _presets = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.viewportChanges.addListener(_changed);
+  }
+
+  @override
+  void didUpdateWidget(PdfShellZoomControl oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    oldWidget.controller.viewportChanges.removeListener(_changed);
+    widget.controller.viewportChanges.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.viewportChanges.removeListener(_changed);
+    super.dispose();
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final zoom = widget.controller.zoom;
+    final percent = (zoom * 100).round();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        PopupMenuButton<double>(
+          key: const ValueKey('pdf-shell-zoom-menu'),
+          tooltip: 'Zoom',
+          initialValue: _nearestPreset(zoom),
+          onSelected: widget.controller.setZoom,
+          itemBuilder: (context) => [
+            for (final value in _presets)
+              PopupMenuItem<double>(
+                key: ValueKey('pdf-shell-zoom-${(value * 100).round()}'),
+                value: value,
+                child: Text('${(value * 100).round()}%'),
+              ),
+          ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '$percent%',
+                  key: const ValueKey('pdf-shell-zoom-label'),
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const Icon(Icons.arrow_drop_down),
+              ],
+            ),
+          ),
+        ),
+        IconButton(
+          key: const ValueKey('pdf-shell-zoom-reset'),
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.fit_screen),
+          tooltip: 'Reset zoom',
+          onPressed:
+              (zoom - 1).abs() < 0.005 ? null : widget.controller.resetZoom,
+        ),
+      ],
+    );
+  }
+
+  double? _nearestPreset(double zoom) {
+    for (final value in _presets) {
+      if ((value - zoom).abs() < 0.005) return value;
+    }
+    return null;
+  }
+}
+
 class _ShellSheetSectionLabel extends StatelessWidget {
   const _ShellSheetSectionLabel(this.text);
 

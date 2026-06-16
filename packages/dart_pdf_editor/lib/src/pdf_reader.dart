@@ -305,6 +305,8 @@ class _PdfReaderState extends State<PdfReader> {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
+                  if (!prefs.showReflowView)
+                    PdfShellZoomControl(controller: _viewer),
                 ],
                 trailing: [
                   if (features.viewOptions)

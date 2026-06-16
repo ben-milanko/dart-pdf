@@ -694,6 +694,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                   if (features.search && !reflowActive) ...[
                     PdfSearchField(
                       controller: _viewer,
