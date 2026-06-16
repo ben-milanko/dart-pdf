@@ -42,3 +42,13 @@ flutter:
     - assets/fonts/DejaVuSans.ttf
     - assets/fonts/DejaVuSerif.ttf
     - assets/fonts/DejaVuSansMono.ttf
+  fonts:
+    - family: DejaVu Sans
+      fonts:
+        - asset: assets/fonts/DejaVuSans.ttf
+    - family: DejaVu Serif
+      fonts:
+        - asset: assets/fonts/DejaVuSerif.ttf
+    - family: DejaVu Sans Mono
+      fonts:
+        - asset: assets/fonts/DejaVuSansMono.ttf

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfStandardFontFamily;
+    show PdfLineEnding, PdfStandardFont;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -2086,10 +2086,6 @@ class _StyleMenuState extends State<_StyleMenu> {
     }
   }
 
-  void _setFontFamily(PdfStandardFontFamily family, PdfStandardFont current) =>
-      _setFont(PdfStandardFont.styled(family,
-          bold: current.isBold, italic: current.isItalic));
-
   static int? _rgb(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
 
@@ -2471,50 +2467,6 @@ class _StyleMenuState extends State<_StyleMenu> {
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Font')),
                         Expanded(
-                          child: SegmentedButton<PdfStandardFontFamily>(
-                            segments: const [
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.sans,
-                                  label: Text('Sans')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.serif,
-                                  label: Text('Serif')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.mono,
-                                  label: Text('Mono')),
-                            ],
-                            selected: {
-                              (selectedStyle?.font ?? controller.fontFamily)
-                                  .family
-                            },
-                            showSelectedIcon: false,
-                            style: const ButtonStyle(
-                              visualDensity: VisualDensity.compact,
-                              padding: WidgetStatePropertyAll(
-                                  EdgeInsets.symmetric(horizontal: 8)),
-                            ),
-                            onSelectionChanged: (selection) => _setFontFamily(
-                                selection.single,
-                                selectedStyle?.font ?? controller.fontFamily),
-                          ),
-                        ),
-                      ]),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Row(children: [
-                        const SizedBox(width: 86, child: Text('Style')),
-                        FontStyleToggles(
-                          font: selectedStyle?.font ?? controller.fontFamily,
-                          onChanged: _setFont,
-                        ),
-                      ]),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Row(children: [
-                        const SizedBox(width: 86, child: Text('More fonts')),
-                        Expanded(
                           child: Align(
                             alignment: Alignment.centerLeft,
                             child: PdfFontMenuButton(
@@ -2522,6 +2474,16 @@ class _StyleMenuState extends State<_StyleMenu> {
                               fontPicker: widget.fontPicker,
                             ),
                           ),
+                        ),
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(children: [
+                        const SizedBox(width: 86, child: Text('Style')),
+                        FontStyleToggles(
+                          font: selectedStyle?.font ?? controller.fontFamily,
+                          onChanged: _setFont,
                         ),
                       ]),
                     ),

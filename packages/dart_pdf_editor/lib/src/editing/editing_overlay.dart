@@ -12,7 +12,9 @@ import 'package:pdf_document/pdf_document.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
+import 'editing_color_picker.dart';
 import 'editing_controller.dart';
+import 'editing_fonts.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
@@ -195,6 +197,103 @@ class _RichTextEditingController extends TextEditingController {
     }
     return TextSpan(style: style, children: children);
   }
+}
+
+class _ScaledTextSelectionControls extends MaterialTextSelectionControls
+    with TextSelectionHandleControls {
+  _ScaledTextSelectionControls(this.scale, this.color);
+
+  final double scale;
+  final Color color;
+
+  double get _s => scale.isFinite && scale > 0 ? scale : 1.0;
+
+  @override
+  Widget buildHandle(
+      BuildContext context, TextSelectionHandleType type, double textLineHeight,
+      [VoidCallback? onTap]) {
+    return SizedBox.fromSize(
+      size: getHandleSize(textLineHeight),
+      child: CustomPaint(
+        painter: _InlineTextHandlePainter(
+          color: color,
+          scale: _s,
+          type: type,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Offset getHandleAnchor(TextSelectionHandleType type, double textLineHeight) {
+    final size = getHandleSize(textLineHeight);
+    return switch (type) {
+      TextSelectionHandleType.left => Offset(size.width / 2, size.height),
+      TextSelectionHandleType.right ||
+      TextSelectionHandleType.collapsed =>
+        Offset(size.width / 2, 0),
+    };
+  }
+
+  @override
+  Size getHandleSize(double textLineHeight) => Size(36 * _s, 34 * _s);
+}
+
+class _InlineTextHandlePainter extends CustomPainter {
+  _InlineTextHandlePainter({
+    required this.color,
+    required this.scale,
+    required this.type,
+  });
+
+  final Color color;
+  final double scale;
+  final TextSelectionHandleType type;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = scale;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3 * s
+      ..strokeCap = StrokeCap.round;
+    final fill = Paint()..color = color;
+    final cx = size.width / 2;
+    final radius = 7 * s;
+    final gap = 2 * s;
+    if (type == TextSelectionHandleType.left) {
+      canvas.drawLine(
+          Offset(cx, 2 * radius + gap), Offset(cx, size.height), paint);
+      canvas.drawCircle(Offset(cx, radius), radius, fill);
+      return;
+    }
+    canvas.drawLine(
+        Offset(cx, 0), Offset(cx, size.height - 2 * radius - gap), paint);
+    canvas.drawCircle(Offset(cx, size.height - radius), radius, fill);
+  }
+
+  @override
+  bool shouldRepaint(_InlineTextHandlePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.scale != scale ||
+      oldDelegate.type != type;
+}
+
+Color _inlineTextHandleColor(BuildContext context) {
+  final theme = PdfViewerTheme.of(context);
+  return theme.selectionHandleColor ??
+      theme.annotationChromeColor ??
+      const Color(0xFF2196F3);
+}
+
+enum _InlineTextFontChoice {
+  sans,
+  serif,
+  mono,
+  bundledSans,
+  bundledSerif,
+  bundledMono
 }
 
 /// A single-selection move drag's floating preview: the dragged
@@ -541,6 +640,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   double _textEditSize = 14; // pt
   Color _textEditColor = const Color(0xFF000000);
   Color? _textEditFill; // the box background the commit will paint
+  bool _textEditStyleMenuOpen = false;
   // resting view-space rotation of the box being edited (radians,
   // clockwise positive): nonzero only when editing already-rotated text,
   // so the inline editor and afterimage sit on the artwork instead of
@@ -1944,7 +2044,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// (Escape cancels first, so by the time the unfocus arrives the
   /// session is already gone and this is a no-op.)
   void _onTextEditFocus() {
-    if (!_textEditFocus.hasFocus) _commitTextEdit();
+    if (!_textEditFocus.hasFocus && !_textEditStyleMenuOpen) _commitTextEdit();
   }
 
   void _panStart(DragStartDetails details) {
@@ -3088,6 +3188,210 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
+  bool get _canStyleInlineTextSelection {
+    final selection = _textEditText.selection;
+    return _textEditRect != null && selection.isValid && !selection.isCollapsed;
+  }
+
+  _TextEditStyle _currentInlineTextStyle() {
+    final selection = _textEditText.selection;
+    final offset = selection.isValid
+        ? math.min(selection.baseOffset, selection.extentOffset)
+        : 0;
+    return _textEditText._styleAt(offset.clamp(0, _textEditText.text.length));
+  }
+
+  void _applyInlineTextStyle({PdfTextFont? font, double? size, Color? color}) {
+    if (!_canStyleInlineTextSelection) return;
+    final rgb = color == null ? null : color.toARGB32() & 0xFFFFFF;
+    if (font is PdfStandardFont) {
+      _controller.fontFamily = font;
+    } else if (font is PdfEmbeddedFont) {
+      _controller.activeFont = font;
+    }
+    if (size != null) _controller.fontSize = size;
+    if (color != null) _controller.color = Color(0xFF000000 | rgb!);
+    _controller.setEditingTextSelection(_textEditText.selection);
+    _controller.restyleEditingTextSelection(font: font, size: size, color: rgb);
+  }
+
+  Future<void> _showInlineTextFontMenu(BuildContext context) async {
+    if (!_canStyleInlineTextSelection) return;
+    final box = context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null) return;
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight =
+        box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay);
+    _textEditStyleMenuOpen = true;
+    _textEditFocus.requestFocus();
+    final choice = await showMenu<_InlineTextFontChoice>(
+        context: context,
+        position: RelativeRect.fromRect(
+            Rect.fromPoints(topLeft, bottomRight), Offset.zero & overlay.size),
+        items: const [
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-std-sans'),
+              value: _InlineTextFontChoice.sans,
+              child: Text('Sans (Helvetica)',
+                  style: TextStyle(fontFamily: 'Helvetica'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-std-serif'),
+              value: _InlineTextFontChoice.serif,
+              child: Text('Serif (Times)',
+                  style: TextStyle(fontFamily: 'Times New Roman'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-std-mono'),
+              value: _InlineTextFontChoice.mono,
+              child: Text('Mono (Courier)',
+                  style: TextStyle(fontFamily: 'Courier'))),
+          PopupMenuDivider(),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-bundled-sans'),
+              value: _InlineTextFontChoice.bundledSans,
+              child: Text('DejaVu Sans',
+                  style: TextStyle(
+                      fontFamily: 'DejaVu Sans', package: 'dart_pdf_editor'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-bundled-serif'),
+              value: _InlineTextFontChoice.bundledSerif,
+              child: Text('DejaVu Serif',
+                  style: TextStyle(
+                      fontFamily: 'DejaVu Serif', package: 'dart_pdf_editor'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-bundled-mono'),
+              value: _InlineTextFontChoice.bundledMono,
+              child: Text('DejaVu Sans Mono',
+                  style: TextStyle(
+                      fontFamily: 'DejaVu Sans Mono',
+                      package: 'dart_pdf_editor'))),
+        ]);
+    _textEditStyleMenuOpen = false;
+    if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
+    if (choice == null || !mounted || !_canStyleInlineTextSelection) return;
+    final current = _currentInlineTextStyle().font;
+    PdfStandardFont standard(PdfStandardFontFamily family) =>
+        PdfStandardFont.styled(family,
+            bold: current is PdfStandardFont && current.isBold,
+            italic: current is PdfStandardFont && current.isItalic);
+    switch (choice) {
+      case _InlineTextFontChoice.sans:
+        _applyInlineTextStyle(font: standard(PdfStandardFontFamily.sans));
+      case _InlineTextFontChoice.serif:
+        _applyInlineTextStyle(font: standard(PdfStandardFontFamily.serif));
+      case _InlineTextFontChoice.mono:
+        _applyInlineTextStyle(font: standard(PdfStandardFontFamily.mono));
+      case _InlineTextFontChoice.bundledSans:
+      case _InlineTextFontChoice.bundledSerif:
+      case _InlineTextFontChoice.bundledMono:
+        final index = switch (choice) {
+          _InlineTextFontChoice.bundledSans => 0,
+          _InlineTextFontChoice.bundledSerif => 1,
+          _InlineTextFontChoice.bundledMono => 2,
+          _ => 0,
+        };
+        try {
+          final bytes = await loadBundledFont(pdfBundledFonts[index]);
+          if (mounted && _canStyleInlineTextSelection) {
+            _applyInlineTextStyle(font: PdfEmbeddedFont.parse(bytes));
+          }
+        } catch (_) {
+          // Missing/corrupt bundled assets leave the current style alone.
+        }
+    }
+  }
+
+  Future<void> _pickInlineTextColor(BuildContext context, Color initial) async {
+    if (!_canStyleInlineTextSelection) return;
+    _textEditStyleMenuOpen = true;
+    _textEditFocus.requestFocus();
+    final picked = await showPdfColorPicker(context, initial: initial);
+    _textEditStyleMenuOpen = false;
+    if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
+    if (picked != null && mounted) _applyInlineTextStyle(color: picked);
+  }
+
+  Widget _buildInlineTextStyleChip(Rect editorRect) {
+    final s = _chromeScale;
+    final current = _currentInlineTextStyle();
+    final above = editorRect.top - 54 * s >= 0;
+    final width = _geometry.viewSize.width;
+    final halfChip = 108 * s;
+    final anchor = Offset(
+      width <= 2 * halfChip
+          ? width / 2
+          : editorRect.center.dx.clamp(halfChip, width - halfChip),
+      above ? editorRect.top - 10 * s : editorRect.bottom + 10 * s,
+    );
+    final enabled = _canStyleInlineTextSelection;
+    final iconColor = Color(0xFF000000 | (current.color.toARGB32() & 0xFFFFFF));
+    return Positioned(
+      left: anchor.dx,
+      top: anchor.dy,
+      child: FractionalTranslation(
+        translation: Offset(-0.5, above ? -1 : 0),
+        child: Transform.scale(
+          scale: s,
+          alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
+          child: Focus(
+            canRequestFocus: false,
+            descendantsAreFocusable: false,
+            child: Material(
+              key: const ValueKey('pdf-inline-text-style-chip'),
+              elevation: 3,
+              borderRadius: BorderRadius.circular(22),
+              clipBehavior: Clip.antiAlias,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Builder(builder: (buttonContext) {
+                  return IconButton(
+                    key: const ValueKey('pdf-inline-text-font'),
+                    icon: const Icon(Icons.font_download_outlined),
+                    tooltip: 'Font',
+                    onPressed: enabled
+                        ? () => _showInlineTextFontMenu(buttonContext)
+                        : null,
+                  );
+                }),
+                IconButton(
+                  key: const ValueKey('pdf-inline-text-size-down'),
+                  icon: const Icon(Icons.text_decrease),
+                  tooltip: 'Smaller',
+                  onPressed: enabled
+                      ? () => _applyInlineTextStyle(
+                          size: (current.size - 1).clamp(8, 48).toDouble())
+                      : null,
+                ),
+                IconButton(
+                  key: const ValueKey('pdf-inline-text-size-up'),
+                  icon: const Icon(Icons.text_increase),
+                  tooltip: 'Larger',
+                  onPressed: enabled
+                      ? () => _applyInlineTextStyle(
+                          size: (current.size + 1).clamp(8, 48).toDouble())
+                      : null,
+                ),
+                Builder(builder: (buttonContext) {
+                  return IconButton(
+                    key: const ValueKey('pdf-inline-text-color'),
+                    icon: Icon(Icons.format_color_text, color: iconColor),
+                    tooltip: 'Color',
+                    onPressed: enabled
+                        ? () async {
+                            await _pickInlineTextColor(
+                                buttonContext, iconColor);
+                          }
+                        : null,
+                  );
+                }),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// The running measurement readout during placement — the formatted
   /// distance/perimeter/area, and the view-space point it should ride.
   /// Null when no measurement tool is mid-placement.
@@ -3722,6 +4026,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     ? TextAlignVertical.top
                                     : TextAlignVertical.center,
                                 cursorColor: _textEditColor,
+                                selectionControls: _ScaledTextSelectionControls(
+                                    _chromeScale,
+                                    _inlineTextHandleColor(context)),
+                                contextMenuBuilder:
+                                    (context, editableTextState) {
+                                  final menu =
+                                      AdaptiveTextSelectionToolbar.editableText(
+                                          editableTextState: editableTextState);
+                                  if (_chromeScale == 1) return menu;
+                                  return Transform.scale(
+                                    scale: _chromeScale,
+                                    alignment: Alignment.topCenter,
+                                    child: menu,
+                                  );
+                                },
                                 // mirrors the committed appearance: same size
                                 // in view pixels, same 1.2 leading, matching
                                 // family and color
@@ -3766,6 +4085,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     ),
                   ),
                 ),
+              if (_textEditRect != null &&
+                  _textEditFieldName == null &&
+                  _controller.hasTouchInput)
+                _buildInlineTextStyleChip(_textEditRect!),
               if (showChip) _buildSelectionChip(chrome?.$1 ?? selected),
               if (_measureReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor),

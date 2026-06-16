@@ -806,6 +806,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// A selection handle is being dragged (chip hidden meanwhile).
   bool _handleDragging = false;
+  Offset _handleDragTextOffset = Offset.zero;
 
   /// The widget inside the zoom transform whose render box maps handle
   /// drags' global positions back into list coordinates.
@@ -2588,10 +2589,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// A handle drag begins: the dragged end becomes the moving focus and
   /// the opposite end the fixed anchor, whichever way the original
   /// selection was made.
-  void _onHandleDragStart(bool start) {
+  void _onHandleDragStart(
+      bool start, Offset globalPosition, Offset globalTextPosition) {
     final range = _selRange;
     if (range == null) return;
     _wordAnchor = null;
+    _handleDragTextOffset = globalTextPosition - globalPosition;
     setState(() {
       _selAnchor = start ? range.$2 : range.$1;
       _selFocus = start ? range.$1 : range.$2;
@@ -2603,7 +2606,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final box = _listSpaceKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     // through the render tree, so the zoom transform is applied for free
-    final local = box.globalToLocal(globalPosition);
+    final local = box.globalToLocal(globalPosition + _handleDragTextOffset);
     final position = _textPositionAt(local, tolerance: double.infinity);
     if (position == null || position == _selFocus) return;
     setState(() => _selFocus = position);
@@ -2612,7 +2615,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   void _onHandleDragEnd() {
     if (!_handleDragging) return;
-    setState(() => _handleDragging = false);
+    setState(() {
+      _handleDragging = false;
+      _handleDragTextOffset = Offset.zero;
+    });
   }
 
   Future<void> _copyAndDismiss() async {
@@ -2709,6 +2715,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         _selFocus = null;
         _touchSelecting = false;
         _handleDragging = false;
+        _handleDragTextOffset = Offset.zero;
       });
     }
     _controller._setSelection('');
@@ -4079,7 +4086,9 @@ class _PageTextSelection {
   /// Whether the Copy/Select-All chip shows on this page.
   final bool chip;
 
-  final void Function(bool isStart) onDragStart;
+  final void Function(
+          bool isStart, Offset globalPosition, Offset globalTextPosition)
+      onDragStart;
   final void Function(Offset globalPosition) onDragUpdate;
   final VoidCallback onDragEnd;
   final VoidCallback onCopy;
@@ -4199,7 +4208,9 @@ class _SelectionHandle extends StatelessWidget {
   final bool isStart;
   final double chromeScale;
   final Color color;
-  final void Function(bool isStart) onDragStart;
+  final void Function(
+          bool isStart, Offset globalPosition, Offset globalTextPosition)
+      onDragStart;
   final void Function(Offset globalPosition) onDragUpdate;
   final VoidCallback onDragEnd;
 
@@ -4209,6 +4220,8 @@ class _SelectionHandle extends StatelessWidget {
     final ballSpace = 16 * s; // ball diameter + gap, above or below
     final hitWidth = 36 * s;
     final x = isStart ? rect.left : rect.right;
+    final textEndpoint = Offset(
+        hitWidth / 2, isStart ? ballSpace + rect.height / 2 : rect.height / 2);
     return Positioned(
       left: x - hitWidth / 2,
       top: isStart ? rect.top - ballSpace : rect.top,
@@ -4221,7 +4234,11 @@ class _SelectionHandle extends StatelessWidget {
               GestureRecognizerFactoryWithHandlers<_EagerPanRecognizer>(
             () => _EagerPanRecognizer(debugOwner: this),
             (recognizer) => recognizer
-              ..onStart = ((_) => onDragStart(isStart))
+              ..onStart = ((details) => onDragStart(
+                  isStart,
+                  details.globalPosition,
+                  details.globalPosition +
+                      (textEndpoint - details.localPosition) / s))
               ..onUpdate = ((details) => onDragUpdate(details.globalPosition))
               ..onEnd = ((_) => onDragEnd())
               ..onCancel = onDragEnd,

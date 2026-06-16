@@ -768,8 +768,9 @@ class PdfEditingController extends ChangeNotifier {
   void setEditingTextSelection(TextSelection selection) {
     if (!_editingText) return;
     if (_editingTextSelection == selection) return;
+    final hadSelection = hasEditingTextSelection;
     _editingTextSelection = selection;
-    notifyListeners();
+    if (hadSelection != hasEditingTextSelection) notifyListeners();
   }
 
   bool restyleEditingTextSelection(

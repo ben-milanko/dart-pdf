@@ -126,6 +126,15 @@ class _LoadChoice extends _FontChoice {
   const _LoadChoice();
 }
 
+Text _fontChoiceText(String label,
+        {String? fontFamily, String? package, FontWeight? weight}) =>
+    Text(label,
+        style: TextStyle(
+          fontFamily: fontFamily,
+          package: package,
+          fontWeight: weight,
+        ));
+
 /// Pops a font menu anchored at [context]'s widget and applies the pick:
 /// the standard families, the [bundled] fonts, then "Load font…" (when a
 /// [fontPicker] is given). Bundled and custom fonts embed into the
@@ -152,24 +161,27 @@ Future<void> showPdfFontMenu({
       const PopupMenuItem(
         key: ValueKey('pdf-font-std-sans'),
         value: _StandardChoice(PdfStandardFontFamily.sans),
-        child: Text('Sans (Helvetica)'),
+        child:
+            Text('Sans (Helvetica)', style: TextStyle(fontFamily: 'Helvetica')),
       ),
       const PopupMenuItem(
         key: ValueKey('pdf-font-std-serif'),
         value: _StandardChoice(PdfStandardFontFamily.serif),
-        child: Text('Serif (Times)'),
+        child: Text('Serif (Times)',
+            style: TextStyle(fontFamily: 'Times New Roman')),
       ),
       const PopupMenuItem(
         key: ValueKey('pdf-font-std-mono'),
         value: _StandardChoice(PdfStandardFontFamily.mono),
-        child: Text('Mono (Courier)'),
+        child: Text('Mono (Courier)', style: TextStyle(fontFamily: 'Courier')),
       ),
       if (bundled.isNotEmpty) const PopupMenuDivider(),
       for (var i = 0; i < bundled.length; i++)
         PopupMenuItem(
           key: ValueKey('pdf-font-bundled-$i'),
           value: _BundledChoice(bundled[i]),
-          child: Text(bundled[i].label),
+          child: _fontChoiceText(bundled[i].label,
+              fontFamily: bundled[i].label, package: 'dart_pdf_editor'),
         ),
       if (fontPicker != null) ...[
         const PopupMenuDivider(),
@@ -189,7 +201,12 @@ Future<void> showPdfFontMenu({
 
   switch (choice) {
     case _StandardChoice(:final family):
-      pdfApplyFont(controller, PdfStandardFont.styled(family));
+      final current =
+          controller.selectedTextStyle?.font ?? controller.fontFamily;
+      pdfApplyFont(
+          controller,
+          PdfStandardFont.styled(family,
+              bold: current.isBold, italic: current.isItalic));
     case _BundledChoice(:final font):
       try {
         final bytes = await loadBundledFont(font);
