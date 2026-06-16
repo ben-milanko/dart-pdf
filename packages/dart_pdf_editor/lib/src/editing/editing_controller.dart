@@ -3105,15 +3105,24 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Erases page content inside [rect]. Elements fully covered by the
-  /// rectangle are deleted; partially-covered elements are clipped so the
-  /// portion outside the rectangle remains visible. Returns the number of
-  /// bounded elements affected.
+  /// Deletes every bounded page-content element whose bounds overlap
+  /// [rect]. Unbounded elements are left alone because there is no reliable
+  /// hit box for a region delete. Returns the number of elements removed.
   int deleteElementsInRect(int pageIndex, PdfRect rect) {
-    var count = 0;
-    apply((e) => count = e.eraseElementsInRect(elementsOn(pageIndex), rect),
-        pages: [pageIndex]);
-    return count;
+    final elements = elementsOn(pageIndex);
+    final ids = [
+      for (final element in elements.elements)
+        if (element.bounds case final bounds? when _intersects(bounds, rect))
+          element.id,
+    ];
+    if (ids.isEmpty) return 0;
+    apply((e) => e.deleteElements(elements, ids), pages: [pageIndex]);
+    return ids.length;
+  }
+
+  static bool _intersects(PdfRect a, PdfRect b) {
+    final hit = a.intersect(b);
+    return hit.width > 0 && hit.height > 0;
   }
 
   /// Deletes the selected content element from its page's content stream.
