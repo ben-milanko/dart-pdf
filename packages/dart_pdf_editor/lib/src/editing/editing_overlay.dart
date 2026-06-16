@@ -993,14 +993,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// annotation stays inverted while the page re-renders.
   ///
   /// [washSource] paints the old on-raster footprint over with paper before
-  /// the new raster lands, so a resize/rotate's larger/spun old appearance
-  /// doesn't poke out behind the afterimage. A pure *move* leaves it false:
-  /// its source and destination are disjoint, so an opaque paper wash there
-  /// covers nothing the afterimage redraws — it just blanks the page content
-  /// under the old spot (most visibly *through* a translucent markup) until
-  /// the re-render lands, which reads as the content flashing back in. The
-  /// stale annotation lingering at the old spot instead is continuous with
-  /// the drag (it was painted there the whole time) and far less jarring.
+  /// the new raster lands, so the stale raster does not keep showing the
+  /// annotation at its previous position during the commit gap.
   void _commitWithGhost(VoidCallback commit,
       {Rect? to,
       double rotation = 0,
@@ -2109,12 +2103,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
       }
       final (x1, y1) = _geometry.toPagePoint(moveCurrent);
-      // a move's source and destination are disjoint, so don't wash the old
-      // spot — the opaque paper wash would blank the page content there
-      // until the re-render lands and then flash it back (see _commitWithGhost)
+      // Wash the old spot so the stale raster does not leave a second copy
+      // behind while the committed revision re-renders.
       _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
-          to: _selectedViewRect?.shift(moveCurrent - moveStart),
-          washSource: false);
+          to: _selectedViewRect?.shift(moveCurrent - moveStart));
     } else if (stroke != null && stroke.isNotEmpty) {
       _controller.addInkStroke(widget.pageIndex, stroke,
           pressures: strokePressures);
@@ -4134,7 +4126,7 @@ class _EditingPreviewPainter extends CustomPainter {
       if (source != null) {
         canvas.drawRect(
           source.inflate(2),
-          Paint()..color = fadeColor.withValues(alpha: 0.92),
+          Paint()..color = fadeColor.withValues(alpha: 1),
         );
       }
       // full strength: this *is* the committed result, standing in for

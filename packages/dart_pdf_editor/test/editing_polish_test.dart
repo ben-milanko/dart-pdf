@@ -37,6 +37,8 @@ bool patchHas(ByteData data, int width, int height, double x, double y,
 
 bool strongBlue(int r, int g, int b, int a) => a > 150 && b > 150 && r < 120;
 bool strongRed(int r, int g, int b, int a) => a > 150 && r > 180 && g < 120;
+bool redTint(int r, int g, int b, int a) =>
+    a > 200 && r > 245 && (g < 245 || b < 245);
 
 Future<ByteData> capture(WidgetTester tester, GlobalKey boundary) async {
   final image = await tester.runAsync(() async {
@@ -297,16 +299,17 @@ void main() {
       final data = await capture(tester, boundary);
       expect(patchHas(data, 800, 600, edge.dx, edge.dy, 4, strongRed), isTrue,
           reason: 'the moved annotation should stay painted post-commit');
-      // a move no longer washes the old spot: the opaque paper wash there
-      // would blank the page content under the previous location until the
-      // re-render lands, then flash it back. Instead the (stale) raster is
-      // left showing the square at its old place — continuous with the drag
-      // and consistent with how undo/redo leave the previous raster up — so
-      // its red border is still present here until the new raster lands.
+      // The source footprint is washed immediately so the stale raster does
+      // not leave a duplicate annotation at the old location during the
+      // commit gap.
       final oldEdge = view(100, 700) - const Offset(0, 33);
       expect(patchHas(data, 800, 600, oldEdge.dx, oldEdge.dy, 4, strongRed),
-          isTrue,
-          reason: 'the old position is left to the stale raster, not washed');
+          isFalse,
+          reason: 'the old position should be hidden during the commit gap');
+      expect(
+          patchHas(data, 800, 600, oldEdge.dx, oldEdge.dy, 4, redTint), isFalse,
+          reason:
+              'the wash should be opaque paper, not a translucent red tint');
       // let the double-tap recognizer's timer expire
       await tester.pump(const Duration(milliseconds: 400));
     });
