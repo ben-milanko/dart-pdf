@@ -2116,10 +2116,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// ⌘X/Ctrl+X: cut the selected annotations (copy + delete).
   void _onCut() => widget.editing?.cutSelectedAnnotations();
 
-  /// ⌘V/Ctrl+V: paste the annotation clipboard at the cursor — the page
-  /// and point under the last pointer, like the right-click paste. With
-  /// no pointer seen yet (touch / keyboard-only) it falls back to the
-  /// current page's cascade.
+  /// ⌘V/Ctrl+V: paste the in-app annotation/snapshot clipboard at the
+  /// cursor. When that clipboard is empty, read plain text from the
+  /// system clipboard and create a FreeText annotation at the same point.
+  /// With no pointer seen yet (touch / keyboard-only) annotation paste
+  /// falls back to the current page's cascade; text paste lands in the
+  /// current page's center.
   void _onPaste() {
     final editing = widget.editing;
     if (editing == null) return;
@@ -2127,7 +2129,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // annotation clipboard (the most recent copy wins, mirroring the
     // controller's clipboards)
     final snapshot = editing.hasSnapshotClipboard;
-    if (!snapshot && !editing.hasAnnotationClipboard) return;
+    if (!snapshot && !editing.hasAnnotationClipboard) {
+      unawaited(_pasteSystemClipboardText(editing));
+      return;
+    }
     final local = _lastPointerLocal;
     final point = local == null ? null : _pagePointAt(local);
     if (snapshot) {
@@ -2141,6 +2146,25 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     } else {
       editing.pasteAnnotations(_controller.currentPage);
     }
+  }
+
+  Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (text == null || text.trim().isEmpty) return;
+    if (!mounted || widget.editing != editing) return;
+    final local = _lastPointerLocal;
+    final point = local == null ? null : _pagePointAt(local);
+    if (point != null) {
+      editing.placeFreeText(point.$1, point.$2, point.$3, text);
+      return;
+    }
+    if (_pages.isEmpty) return;
+    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
+    if (page < 0 || page >= _pages.length) return;
+    final box = _pages[page].cropBox;
+    editing.placeFreeText(
+        page, (box.left + box.right) / 2, (box.bottom + box.top) / 2, text);
   }
 
   /// ⌘A/Ctrl+A: with the select tool armed (or an annotation selection

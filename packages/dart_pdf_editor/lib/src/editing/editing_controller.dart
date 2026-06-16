@@ -1162,6 +1162,45 @@ class PdfEditingController extends ChangeNotifier {
           author: author),
       pages: [pageIndex]);
 
+  /// Places [text] as a default-sized FreeText annotation centered on
+  /// ([x], [y]) in page space. This is used by keyboard paste from the
+  /// system text clipboard, so the text lands under the cursor like
+  /// annotation paste. The box is clamped into the page's crop box and
+  /// the new annotation is selected.
+  bool placeFreeText(int pageIndex, double x, double y, String text,
+      {double width = 220}) {
+    final value = text.trimRight();
+    if (value.trim().isEmpty) return false;
+    if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    final box = _page(pageIndex).cropBox;
+    final fontSize = preferences.fontSize;
+    final lineHeight = fontSize * 1.2;
+    final lines = value.split('\n').length.clamp(1, 12);
+    final w = width.clamp(48.0, box.width * 0.9);
+    final h = (lineHeight * lines + fontSize).clamp(24.0, box.height * 0.9);
+    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
+    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
+    final rect = PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
+    final pasted = apply(
+        (e) => e.addFreeText(pageIndex, rect, value,
+            fontSize: fontSize,
+            font: preferences.fontFamily,
+            color: _colorValue,
+            fillColor: _rgbOf(preferences.textFillColor),
+            borderColor: _rgbOf(preferences.textBorderColor),
+            borderWidth: preferences.strokeWidth,
+            author: author),
+        pages: [pageIndex]);
+    if (!pasted) return false;
+    tool = PdfEditTool.select;
+    final total = _page(pageIndex).annotations.length;
+    _selected
+      ..clear()
+      ..add((pageIndex, total - 1));
+    notifyListeners();
+    return true;
+  }
+
   void addStamp(int pageIndex, PdfRect rect, String text, {int? color}) =>
       apply(
           (e) => e.addStamp(pageIndex, rect, text,
