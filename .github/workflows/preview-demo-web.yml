@@ -99,10 +99,62 @@ jobs:
 
       # No channelId -> the action creates an ephemeral preview channel keyed
       # to this PR and comments the URL on it. The channel expires on its own.
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - id: deploy
+        uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
+          disableComment: true
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
           projectId: dart-pdf-demo
           expires: 7d
           entryPoint: packages/dart_pdf_editor/example
+
+      - name: Comment preview URL
+        uses: actions/github-script@v8
+        env:
+          PREVIEW_LABEL: Example demo preview
+          PREVIEW_MARKER: dart-pdf-demo-preview
+          PREVIEW_URL: ${{ steps.deploy.outputs.details_url }}
+          PREVIEW_EXPIRES: ${{ steps.deploy.outputs.expire_time_formatted }}
+        with:
+          script: |
+            const marker = `<!-- ${{ env.PREVIEW_MARKER }} -->`;
+            const label = process.env.PREVIEW_LABEL;
+            const url = process.env.PREVIEW_URL;
+            const expires = process.env.PREVIEW_EXPIRES;
+            const sha = context.sha.slice(0, 7);
+            const body = [
+              marker,
+              `### ${label}`,
+              '',
+              `Visit the **${label}** preview URL for this PR (updated for commit ${sha}):`,
+              '',
+              url,
+              '',
+              `(expires ${expires})`,
+              '',
+              '🔥 via Firebase Hosting GitHub Action 🌎',
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

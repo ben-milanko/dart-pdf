@@ -1,6 +1,9 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
@@ -56,6 +59,26 @@ void main() {
       final annotation = editing.document.page(0).annotations.single;
       expect(annotation.contents, 'Rewritten');
       expect(annotation.defaultAppearance, contains('/Cour 18 Tf'));
+    });
+
+    test('autosizeSelectedTextBox fits the selected box to its contents', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..fontFamily = PdfStandardFont.courier
+        ..fontSize = 18
+        ..addFreeText(0, const PdfRect(100, 600, 500, 720), 'Wide line\nshort');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      editing.autosizeSelectedTextBox();
+
+      final annotation = editing.document.page(0).annotations.single;
+      final expectedWidth =
+          measureStandardText('Wide line', 18, font: PdfStandardFont.courier) +
+              6;
+      expect(annotation.rect.left, 100);
+      expect(annotation.rect.top, 720);
+      expect(annotation.rect.width, closeTo(expectedWidth, 0.01));
+      expect(annotation.rect.height, closeTo(18 * 1.2 * 2 + 6, 0.01));
+      expect(editing.selectedAnnotation, isNotNull);
     });
 
     test('text fill and border preferences flow into new free text', () {
@@ -187,6 +210,35 @@ void main() {
       return (editing, viewer);
     }
 
+    testWidgets('Alt+Z autosizes the selected free-text box', (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..fontFamily = PdfStandardFont.courier
+        ..fontSize = 18
+        ..addFreeText(0, const PdfRect(100, 600, 500, 720), 'Wide line')
+        ..selectAnnotation(0, 0);
+      await tester.pump();
+
+      // Focus the viewer the way a user would before using a shortcut.
+      await tester.tapAt(view(400, 400));
+      await tester.pump();
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+
+      final annotation = editing.document.page(0).annotations.single;
+      final expectedWidth =
+          measureStandardText('Wide line', 18, font: PdfStandardFont.courier) +
+              6;
+      expect(annotation.rect.width, closeTo(expectedWidth, 0.01));
+      await settle(tester);
+    });
+
     testWidgets('dragging out a text box opens an inline editor that commits',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -252,6 +304,35 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the inline editor follows RTL text while typing',
+        (tester) async {
+      const rtl = 'ڕێباز';
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(300, 640));
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      await tester.enterText(find.byKey(editorKey), rtl);
+      await tester.pump();
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.textDirection, TextDirection.rtl);
+      expect(field.textAlign, TextAlign.start);
+      expect(Directionality.of(tester.element(find.byKey(editorKey))),
+          TextDirection.rtl);
+
+      await tap(tester, view(450, 400)); // outside the box: commit
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, rtl);
+      expect(
+          (editing.document.cos.resolve(annotation.dict['Q']) as CosInteger)
+              .value,
+          2);
+      await settle(tester);
+    });
+
     testWidgets('Escape cancels the editor without committing', (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing.tool = PdfEditTool.freeText;
@@ -285,6 +366,35 @@ void main() {
       expect(editing.isModified, isFalse,
           reason: 'backspace must not delete annotations or undo edits');
       expect(find.byKey(editorKey), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets('mouse double-click on free text opens the inline editor',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(60, 700, 180, 750), 'Original');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // This point also sits over the page-content word "Page". The
+      // viewer's raw mouse double-click word selector must stand down so
+      // the editing overlay can treat the second click as text-box edit.
+      final overTextBoxAndPageText = view(100, 720);
+      await tester.tapAt(overTextBoxAndPageText, kind: PointerDeviceKind.mouse);
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(editing.selectedAnnotation?.subtype, 'FreeText');
+
+      await tester.tapAt(overTextBoxAndPageText, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(viewer.selectedText, isEmpty);
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.controller!.text, 'Original');
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();

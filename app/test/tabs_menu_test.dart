@@ -30,10 +30,14 @@ void main() {
 
   // Delivers a PDF to the running app the way the OS would (a warm-start
   // "open with"), opening it in a new tab.
-  Future<void> openTab(WidgetTester tester, String name) async {
+  Future<void> openTab(WidgetTester tester, String name, {String? path}) async {
     const codec = StandardMethodCodec();
     final message = codec.encodeMethodCall(
-      MethodCall('openFile', {'name': name, 'bytes': buildClassicPdf()}),
+      MethodCall('openFile', {
+        'name': name,
+        'bytes': buildClassicPdf(),
+        if (path != null) 'path': path,
+      }),
     );
     await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
       IncomingFileService.channelName,
@@ -150,6 +154,31 @@ void main() {
     expect(find.byKey(const ValueKey('tab-menu-close-right')), findsOneWidget);
     expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
   });
+
+  testWidgets(
+      'right-click offers opening the source folder for file-backed tabs',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf', path: '/Users/ben/Documents/alpha.pdf');
+
+    await rightClickTab(tester, 'alpha.pdf');
+
+    expect(find.byKey(const ValueKey('tab-menu-open-folder')), findsOneWidget);
+    expect(find.text('Open in Finder'), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('right-click hides folder action for memory-only tabs',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+
+    await rightClickTab(tester, 'alpha.pdf');
+
+    expect(find.byKey(const ValueKey('tab-menu-open-folder')), findsNothing);
+    expect(find.byKey(const ValueKey('tab-menu-close')), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets('Close others leaves only the clicked tab', (tester) async {
     await openTabs(tester);

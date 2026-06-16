@@ -37,6 +37,8 @@ bool patchHas(ByteData data, int width, int height, double x, double y,
 
 bool strongBlue(int r, int g, int b, int a) => a > 150 && b > 150 && r < 120;
 bool strongRed(int r, int g, int b, int a) => a > 150 && r > 180 && g < 120;
+bool darkText(int r, int g, int b, int a) =>
+    a > 200 && r < 80 && g < 80 && b < 80;
 
 Future<ByteData> capture(WidgetTester tester, GlobalKey boundary) async {
   final image = await tester.runAsync(() async {
@@ -270,17 +272,17 @@ void main() {
       final (editing, boundary) = await pumpViewer(tester);
       editing
         ..color = const Color(0xFFFF0000)
-        ..addRectangle(0, const PdfRect(100, 650, 250, 750))
+        ..addRectangle(0, const PdfRect(50, 690, 200, 750))
         ..tool = PdfEditTool.select;
       await tester.pump();
-      await tester.tapAt(view(175, 700));
+      await tester.tapAt(view(125, 720));
       // selection and the drag-preview ghost settle here
       await tester.pumpAndSettle(const Duration(milliseconds: 350));
       expect(editing.selectedAnnotation, isNotNull);
 
-      final gesture = await tester.startGesture(view(175, 700));
-      await gesture.moveTo(view(255, 550));
-      await gesture.moveTo(view(335, 400));
+      final gesture = await tester.startGesture(view(125, 720));
+      await gesture.moveTo(view(205, 570));
+      await gesture.moveTo(view(285, 420));
       await tester.pump();
       await gesture.up();
       await tester.pump();
@@ -289,24 +291,25 @@ void main() {
       // a widget test — the afterimage must keep the square visible at
       // its new place (its red left border, shifted by the drag delta)
       expect(editing.document.page(0).annotations.single.rect.left,
-          closeTo(260, 1));
+          closeTo(210, 1));
       // sample the square's left border off the edge midpoint — the
       // white resize-handle knob sits exactly there
-      final delta = view(335, 400) - view(175, 700);
-      final edge = view(100, 700) + delta - const Offset(0, 33);
+      final delta = view(285, 420) - view(125, 720);
+      final edge = view(50, 720) + delta - const Offset(0, 33);
       final data = await capture(tester, boundary);
       expect(patchHas(data, 800, 600, edge.dx, edge.dy, 4, strongRed), isTrue,
           reason: 'the moved annotation should stay painted post-commit');
-      // a move no longer washes the old spot: the opaque paper wash there
-      // would blank the page content under the previous location until the
-      // re-render lands, then flash it back. Instead the (stale) raster is
-      // left showing the square at its old place — continuous with the drag
-      // and consistent with how undo/redo leave the previous raster up — so
-      // its red border is still present here until the new raster lands.
-      final oldEdge = view(100, 700) - const Offset(0, 33);
+      // The source footprint is restored from a clean page render immediately
+      // so the stale raster does not leave a duplicate annotation or a white
+      // box at the old location during the commit gap.
+      final oldEdge = view(50, 720) - const Offset(0, 33);
       expect(patchHas(data, 800, 600, oldEdge.dx, oldEdge.dy, 4, strongRed),
+          isFalse,
+          reason: 'the old position should be hidden during the commit gap');
+      final oldText = view(92, 720);
+      expect(patchHas(data, 800, 600, oldText.dx, oldText.dy, 12, darkText),
           isTrue,
-          reason: 'the old position is left to the stale raster, not washed');
+          reason: 'the old location should show page content, not a white box');
       // let the double-tap recognizer's timer expire
       await tester.pump(const Duration(milliseconds: 400));
     });

@@ -51,6 +51,18 @@ Future<Uint8List?> _pickImage(BuildContext context) =>
     openFile(acceptedTypeGroups: const [_imageTypeGroup])
         .then((file) => file?.readAsBytes());
 
+@visibleForTesting
+String pdfSavePathWithExtension(String path) {
+  final trimmed = path.trimRight();
+  if (trimmed.isEmpty) return 'document.pdf';
+  final slash = trimmed.lastIndexOf('/');
+  final backslash = trimmed.lastIndexOf('\\');
+  final separator = slash > backslash ? slash : backslash;
+  final basename = trimmed.substring(separator + 1);
+  if (basename.toLowerCase().endsWith('.pdf')) return trimmed;
+  return '$trimmed.pdf';
+}
+
 void main() {
   // On web, point the render worker at its compiled script so the heavy page
   // interpretation + image decode run in a dedicated Web Worker instead of on
@@ -548,7 +560,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// tablets (where apps can't write outside their sandbox directly).
   Future<void> _saveAs(Uint8List bytes) async {
     final name = _saveFileName();
-    final file = XFile.fromData(bytes, mimeType: 'application/pdf');
+    final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: name);
     if (kIsWeb) {
       await file.saveTo(name);
       _toast('Downloaded $name');
@@ -572,8 +584,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         );
         if (location == null) return;
         try {
-          await file.saveTo(location.path);
-          _toast('Saved to ${location.path}');
+          final path = pdfSavePathWithExtension(location.path);
+          await file.saveTo(path);
+          _toast('Saved to $path');
         } catch (e) {
           _toast('Save failed: $e');
         }

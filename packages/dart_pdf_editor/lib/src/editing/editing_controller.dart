@@ -459,8 +459,22 @@ class PdfEditingController extends ChangeNotifier {
 
   set tool(PdfEditTool? value) {
     if (value == _tool) return;
-    // leaving the ink tool commits the drawing, like lifting the pen
-    if (_tool == PdfEditTool.ink && value != PdfEditTool.ink) finishInk();
+    // leaving the ink tool commits the drawing, like lifting the pen.
+    //
+    // Switching directly from ink to the eraser is the latency-sensitive
+    // path used by Apple Pencil double-tap.  A pending ink commit can rewrite
+    // the PDF and trigger a raster refresh, which made the eraser button feel
+    // sticky.  Arm the eraser and repaint the toolbar/cursor first, then let
+    // the commit run in the next event-loop turn; the ink is still committed
+    // before any subsequent pointer event can erase it.
+    final deferInkCommit = _tool == PdfEditTool.ink &&
+        value == PdfEditTool.eraser &&
+        hasPendingInk;
+    if (_tool == PdfEditTool.ink &&
+        value != PdfEditTool.ink &&
+        !deferInkCommit) {
+      finishInk();
+    }
     // arming anything but the eraser by other means breaks the pencil
     // double-tap pairing (see [togglePencilEraser]) — the remembered tool
     // is only valid while the eraser stays the toggled-on partner
@@ -474,6 +488,7 @@ class PdfEditingController extends ChangeNotifier {
     preferences.beginStyleScope(
         _styleScopeKey(value), _styleScopeFields(value));
     notifyListeners();
+    if (deferInkCommit) Timer.run(finishInk);
   }
 
   // Apple Pencil double-tap eraser toggle: the tool that was armed when the
@@ -1175,6 +1190,45 @@ class PdfEditingController extends ChangeNotifier {
           borderWidth: preferences.strokeWidth,
           author: author),
       pages: [pageIndex]);
+
+  /// Places [text] as a default-sized FreeText annotation centered on
+  /// ([x], [y]) in page space. This is used by keyboard paste from the
+  /// system text clipboard, so the text lands under the cursor like
+  /// annotation paste. The box is clamped into the page's crop box and
+  /// the new annotation is selected.
+  bool placeFreeText(int pageIndex, double x, double y, String text,
+      {double width = 220}) {
+    final value = text.trimRight();
+    if (value.trim().isEmpty) return false;
+    if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    final box = _page(pageIndex).cropBox;
+    final fontSize = preferences.fontSize;
+    final lineHeight = fontSize * 1.2;
+    final lines = value.split('\n').length.clamp(1, 12);
+    final w = width.clamp(48.0, box.width * 0.9);
+    final h = (lineHeight * lines + fontSize).clamp(24.0, box.height * 0.9);
+    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
+    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
+    final rect = PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
+    final pasted = apply(
+        (e) => e.addFreeText(pageIndex, rect, value,
+            fontSize: fontSize,
+            font: preferences.fontFamily,
+            color: _colorValue,
+            fillColor: _rgbOf(preferences.textFillColor),
+            borderColor: _rgbOf(preferences.textBorderColor),
+            borderWidth: preferences.strokeWidth,
+            author: author),
+        pages: [pageIndex]);
+    if (!pasted) return false;
+    tool = PdfEditTool.select;
+    final total = _page(pageIndex).annotations.length;
+    _selected
+      ..clear()
+      ..add((pageIndex, total - 1));
+    notifyListeners();
+    return true;
+  }
 
   void addStamp(int pageIndex, PdfRect rect, String text, {int? color}) =>
       apply(
@@ -2052,8 +2106,12 @@ class PdfEditingController extends ChangeNotifier {
     // surviving annotations may land in different slots
     _selected.clear();
     apply((e) {
+      final byPage = <int, List<PdfAnnotation>>{};
       for (final (page, annotation) in targets) {
-        e.removeAnnotation(page, annotation);
+        (byPage[page] ??= []).add(annotation);
+      }
+      for (final entry in byPage.entries) {
+        e.removeAnnotations(entry.key, entry.value);
       }
     }, pages: [for (final (page, _) in targets) page]);
   }
@@ -2782,6 +2840,39 @@ class PdfEditingController extends ChangeNotifier {
     final annotation = selectedAnnotation;
     if (annotation?.subtype != 'FreeText') return null;
     return _freeTextStyleOf(annotation!);
+  }
+
+  PdfRect _autosizeTextRect(PdfAnnotation annotation, String text,
+      {required PdfStandardFont font, required double size}) {
+    const pad = 3.0;
+    final lines = text.split('\n');
+    final maxLineWidth = lines.fold<double>(0, (max, line) {
+      final w = measureStandardText(line, size, font: font);
+      return w > max ? w : max;
+    });
+    final width = math.max(24.0, maxLineWidth + 2 * pad);
+    final height = math.max(18.0, lines.length * size * 1.2 + 2 * pad);
+    final page = _page(_selected.last.$1);
+    final bounds = page.cropBox;
+    final left = annotation.rect.left
+        .clamp(bounds.left, math.max(bounds.left, bounds.right - width))
+        .toDouble();
+    final top = annotation.rect.top
+        .clamp(math.min(bounds.top, bounds.bottom + height), bounds.top)
+        .toDouble();
+    return PdfRect(left, top - height, left + width, top);
+  }
+
+  /// Shrinks or grows the selected free-text annotation to the natural
+  /// bounds of its contents. Explicit newlines are preserved and the box is
+  /// anchored at its current top-left corner, clamped to the page crop box.
+  void autosizeSelectedTextBox() {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canRestyleSelectedText) return;
+    final style = _freeTextStyleOf(annotation);
+    final rect = _autosizeTextRect(annotation, annotation.contents ?? '',
+        font: style.font, size: style.size);
+    resizeSelected(rect);
   }
 
   /// Rewrites the selected free-text annotation with a new [font] and/or

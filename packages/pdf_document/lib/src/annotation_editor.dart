@@ -560,10 +560,10 @@ extension PdfAnnotationEditing on PdfEditor {
       dict['OverlayText'] = CosString.fromText(overlayText);
       dict['Repeat'] = const CosBoolean(false);
       final rgb = ContentWriter.rgbComponents(overlayTextColor);
-      dict['DA'] = CosString(Uint8List.fromList(latin1.encode(
-          '/Helv ${ContentWriter.fmt(overlayFontSize)} Tf '
-          '${ContentWriter.fmt(rgb[0])} ${ContentWriter.fmt(rgb[1])} '
-          '${ContentWriter.fmt(rgb[2])} rg')));
+      dict['DA'] = CosString(Uint8List.fromList(
+          latin1.encode('/Helv ${ContentWriter.fmt(overlayFontSize)} Tf '
+              '${ContentWriter.fmt(rgb[0])} ${ContentWriter.fmt(rgb[1])} '
+              '${ContentWriter.fmt(rgb[2])} rg')));
     }
     _addAnnotation(
       pageIndex,
@@ -1083,7 +1083,8 @@ extension PdfAnnotationEditing on PdfEditor {
           'or pass a measure');
     }
     final minPoints = kind == PdfMeasurementKind.distance ? 2 : 3;
-    if (points.length < (kind == PdfMeasurementKind.perimeter ? 2 : minPoints)) {
+    if (points.length <
+        (kind == PdfMeasurementKind.perimeter ? 2 : minPoints)) {
       throw ArgumentError.value(points, 'points',
           'needs ${kind == PdfMeasurementKind.area ? 3 : 2}+ points');
     }
@@ -1151,8 +1152,7 @@ extension PdfAnnotationEditing on PdfEditor {
         CosReal(points.last.$1),
         CosReal(points.last.$2),
       ]);
-      dict['LE'] = CosArray(
-          [const CosName('None'), const CosName('None')]);
+      dict['LE'] = CosArray([const CosName('None'), const CosName('None')]);
     } else {
       dict['Vertices'] = _pointArray(points);
     }
@@ -1161,7 +1161,8 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, content, resources: _resources(extGState: gs, font: _helvetica())),
+      _form(rect, content,
+          resources: _resources(extGState: gs, font: _helvetica())),
       name: name,
     );
   }
@@ -1213,6 +1214,7 @@ extension PdfAnnotationEditing on PdfEditor {
     String text, {
     double fontSize = 12,
     PdfStandardFont font = PdfStandardFont.helvetica,
+    PdfTextDirection textDirection = PdfTextDirection.auto,
     int color = 0x000000,
     int? fillColor,
     int? borderColor,
@@ -1223,6 +1225,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _freeTextContent(rect, text,
         fontSize: fontSize,
         font: font,
+        textDirection: textDirection,
         color: color,
         fillColor: fillColor,
         borderColor: borderColor,
@@ -1235,7 +1238,8 @@ extension PdfAnnotationEditing on PdfEditor {
         '/${font.resourceName} ${ContentWriter.fmt(fontSize)} Tf';
     final dict = _markupDict('FreeText', rect, fillColor ?? color, text, author)
       ..['DA'] = CosString.fromText(da)
-      ..['Q'] = const CosInteger(0);
+      ..['Q'] = CosInteger(
+          textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0);
     if (borderColor != null && borderWidth > 0) {
       dict['BS'] = _borderStyle(borderWidth);
     }
@@ -1254,6 +1258,7 @@ extension PdfAnnotationEditing on PdfEditor {
     String text, {
     required double fontSize,
     required PdfStandardFont font,
+    required PdfTextDirection textDirection,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -1282,13 +1287,25 @@ extension PdfAnnotationEditing on PdfEditor {
       ..beginText()
       ..font(font.resourceName, fontSize)
       ..leading(fontSize * 1.2)
-      ..fillColor(color)
-      // first baseline sits one ascent below the top padding
-      ..textAt(rect.left + pad, rect.top - pad - fontSize * font.ascent / 1000);
+      ..fillColor(color);
+    // first baseline sits one ascent below the top padding
+    final firstY = rect.top - pad - fontSize * font.ascent / 1000;
     final lines = _wrap(text, fontSize, rect.width - 2 * pad, font: font);
+    final resolvedDirection = textDirection.resolve(text);
+    var prevX = 0.0;
+    var prevY = 0.0;
     for (var i = 0; i < lines.length; i++) {
-      if (i > 0) w.nextLine();
-      w.showText(lines[i]);
+      final line = lines[i];
+      final width = measureStandardText(line, fontSize, font: font);
+      final x = resolvedDirection == PdfTextDirection.rtl
+          ? rect.right - pad - width
+          : rect.left + pad;
+      final y = firstY - i * fontSize * 1.2;
+      w
+        ..textAt(x - prevX, y - prevY)
+        ..showText(pdfVisualText(line, resolvedDirection));
+      prevX = x;
+      prevY = y;
     }
     w
       ..endText()
@@ -1478,25 +1495,39 @@ extension PdfAnnotationEditing on PdfEditor {
       _markupDict('Stamp', rect, 0xC03030, null, author),
       _form(rect, w,
           resources: _resources(
-              extGState: gs,
-              xObject: CosDictionary({'Img0': imageRef}))),
+              extGState: gs, xObject: CosDictionary({'Img0': imageRef}))),
       name: name,
     );
   }
 
   /// Removes [annotation] from the page, along with its popup, if any.
   void removeAnnotation(int pageIndex, PdfAnnotation annotation) {
+    removeAnnotations(pageIndex, [annotation]);
+  }
+
+  /// Removes [annotations] from the page, along with their popups, if any.
+  ///
+  /// This is equivalent to calling [removeAnnotation] for every annotation,
+  /// but scans and rewrites the page's /Annots array once. Use it for
+  /// multi-select deletes so large annotation sets do not pay an O(n × m)
+  /// identity scan plus one staged replacement per removed item.
+  void removeAnnotations(int pageIndex, Iterable<PdfAnnotation> annotations) {
     final cos = document.cos;
     final page = document.page(pageIndex);
     final raw = page.dict['Annots'];
     final array = cos.resolve(raw);
     if (array is! CosArray) return;
-    final popup = cos.resolve(annotation.dict['Popup']);
+    final targets = Set<CosDictionary>.identity();
+    for (final annotation in annotations) {
+      targets.add(annotation.dict);
+      final popup = cos.resolve(annotation.dict['Popup']);
+      if (popup is CosDictionary) targets.add(popup);
+    }
+    if (targets.isEmpty) return;
     final before = array.items.length;
     array.items.removeWhere((item) {
       final resolved = cos.resolve(item);
-      return identical(resolved, annotation.dict) ||
-          (popup is CosDictionary && identical(resolved, popup));
+      return resolved is CosDictionary && targets.contains(resolved);
     });
     if (array.items.length == before) return;
     if (raw is CosReference) {
@@ -1611,8 +1642,8 @@ extension PdfAnnotationEditing on PdfEditor {
             ..._endingExtent(
                 endings.$2, points.last, points[points.length - 2], width),
           ];
-    final rect =
-        _pointBounds([...points, ...endingPoints], width + (dashed ? width : 0));
+    final rect = _pointBounds(
+        [...points, ...endingPoints], width + (dashed ? width : 0));
     final form = annotation.normalAppearance;
     final gs = _alphaState(form == null ? 1 : _appearanceOpacity(form));
     final w = _lineContent(points,
@@ -2082,6 +2113,7 @@ extension PdfAnnotationEditing on PdfEditor {
         final w = _freeTextContent(to, annotation.contents ?? '',
             fontSize: style.fontSize,
             font: font,
+            textDirection: _annotationTextDirection(annotation),
             color: style.color,
             fillColor: style.fillColor,
             borderColor: style.borderColor,
@@ -2693,9 +2725,9 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _shapeContent(subtype, rect, strokeColor, strokeWidth, fillColor,
         dashPattern: dash, hasAlpha: gs != null);
 
-    final dict =
-        _markupDict(subtype, rect, strokeColor ?? fillColor!, contents, author)
-          ..['BS'] = _borderStyle(stroking ? strokeWidth : 0, dashPattern: dash);
+    final dict = _markupDict(
+        subtype, rect, strokeColor ?? fillColor!, contents, author)
+      ..['BS'] = _borderStyle(stroking ? strokeWidth : 0, dashPattern: dash);
     if (fillColor != null) {
       dict['IC'] = CosArray([
         for (final c in ContentWriter.rgbComponents(fillColor)) CosReal(c),
@@ -2772,8 +2804,8 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     if (dashed) w.dash(const []);
     if (points.length >= 2) {
-      _drawEnding(w, startEnding, points.first, points[1], strokeColor,
-          strokeWidth);
+      _drawEnding(
+          w, startEnding, points.first, points[1], strokeColor, strokeWidth);
       _drawEnding(w, endEnding, points.last, points[points.length - 2],
           strokeColor, strokeWidth);
     }
@@ -2857,8 +2889,12 @@ extension PdfAnnotationEditing on PdfEditor {
       case PdfLineEnding.circle:
         final r = s * 0.4;
         return (
-          vertices: [(tip.$1 + r, tip.$2), (tip.$1, tip.$2 + r),
-            (tip.$1 - r, tip.$2), (tip.$1, tip.$2 - r)],
+          vertices: [
+            (tip.$1 + r, tip.$2),
+            (tip.$1, tip.$2 + r),
+            (tip.$1 - r, tip.$2),
+            (tip.$1, tip.$2 - r)
+          ],
           closed: true,
           filled: true,
           isCircle: true,
@@ -3148,5 +3184,11 @@ extension PdfAnnotationEditing on PdfEditor {
       lines.add(line);
     }
     return lines;
+  }
+
+  PdfTextDirection _annotationTextDirection(PdfAnnotation annotation) {
+    final q = document.cos.resolve(annotation.dict['Q']);
+    if (q is CosInteger && q.value == 2) return PdfTextDirection.rtl;
+    return PdfTextDirection.auto;
   }
 }

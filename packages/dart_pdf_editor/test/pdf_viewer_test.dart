@@ -769,6 +769,21 @@ void main() {
     expect(controller.zoom, greaterThan(1));
   });
 
+  testWidgets('default max zoom supports deep inspection of long plots',
+      (tester) async {
+    final controller = await pumpViewer(tester);
+    final pointer = TestPointer(12, PointerDeviceKind.mouse);
+    pointer.hover(const Offset(400, 300));
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, -1000)));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+
+    expect(controller.zoom, greaterThan(6));
+  });
+
   testWidgets('tapping a URI link surfaces the action', (tester) async {
     final actions = <PdfAction>[];
     final annotations = <PdfAnnotation>[];

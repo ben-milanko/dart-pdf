@@ -143,6 +143,23 @@ void main() {
       expect(editing.document.page(0).annotations.single.subtype, 'Ink');
     });
 
+    test('switching from ink to eraser defers the pending drawing commit',
+        () async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..tool = PdfEditTool.ink
+        ..addInkStroke(0, [(100, 100), (150, 130)])
+        ..tool = PdfEditTool.eraser;
+
+      expect(editing.tool, PdfEditTool.eraser);
+      expect(editing.hasPendingInk, isTrue,
+          reason: 'the eraser should arm before the PDF rewrite runs');
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(editing.hasPendingInk, isFalse);
+      expect(editing.document.page(0).annotations.single.subtype, 'Ink');
+    });
+
     test('addMarkup highlights the given quads', () {
       final editing = PdfEditingController(buildMultiPagePdf(2))
         ..addMarkup(PdfMarkupKind.highlight, {
@@ -805,10 +822,41 @@ void main() {
       await tester.pump();
       expect(editing.selectedAnnotation, isNull);
       expect(editing.tool, PdfEditTool.select);
+      expect(editing.document.page(0).annotations.single.subtype, 'Square');
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       expect(editing.tool, isNull);
+      expect(editing.document.page(0).annotations.single.subtype, 'Square');
+      await settle(tester);
+    });
+
+    testWidgets('escape commits fresh ink instead of discarding it',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+
+      // Focus the viewer before arming ink, so the Escape shortcut is active
+      // without creating an extra dot through a page tap.
+      await tester.tapAt(view(400, 400));
+      await tester.pump();
+
+      editing
+        ..tool = PdfEditTool.ink
+        ..addInkStroke(0, [(100, 650), (160, 690)]);
+      await tester.pump();
+      expect(editing.hasPendingInk, isTrue);
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(editing.tool, isNull);
+      expect(editing.hasPendingInk, isFalse);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Ink');
+      final painter = editingOverlayPainter(tester);
+      expect(painter.extraInk, hasLength(1),
+          reason: 'the committed stroke stays painted until the raster lands');
       await settle(tester);
     });
 

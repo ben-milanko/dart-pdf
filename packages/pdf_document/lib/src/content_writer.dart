@@ -1,6 +1,100 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+/// Logical text direction for text appearances authored by this package.
+///
+/// [auto] uses the first strong directional character in the text. When no
+/// strong RTL character is present, it resolves to [ltr].
+enum PdfTextDirection { ltr, rtl, auto }
+
+extension PdfTextDirectionResolution on PdfTextDirection {
+  /// Resolves [auto] from [text], otherwise returns this value unchanged.
+  PdfTextDirection resolve(String text) {
+    if (this != PdfTextDirection.auto) return this;
+    return pdfTextLooksRtl(text) ? PdfTextDirection.rtl : PdfTextDirection.ltr;
+  }
+}
+
+/// True when [text]'s first strong directional character is RTL.
+bool pdfTextLooksRtl(String text) {
+  for (final rune in text.runes) {
+    if (_isRtlRune(rune)) return true;
+    if (_isLtrRune(rune)) return false;
+  }
+  return false;
+}
+
+/// Converts one logical line to the visual order needed by simple PDF text
+/// showing operators, which always advance in stream order.
+///
+/// This is a small Unicode-bidi subset tailored for appearance streams with
+/// simple fonts: RTL letter runs are reversed, LTR/number runs keep their
+/// internal order, and run order is reversed for RTL paragraphs. It handles
+/// common Hebrew/mixed-number cases without adding a shaping dependency.
+String pdfVisualText(String text, PdfTextDirection direction) {
+  final resolved = direction.resolve(text);
+  if (resolved == PdfTextDirection.ltr) return text;
+
+  final runs = <_BidiRun>[];
+  final buffer = StringBuffer();
+  _BidiKind? current;
+
+  void flush() {
+    if (current == null) return;
+    runs.add(_BidiRun(current!, buffer.toString()));
+    buffer.clear();
+    current = null;
+  }
+
+  for (final rune in text.runes) {
+    final kind = _bidiKind(rune);
+    if (current != null && kind != current) flush();
+    current = kind;
+    buffer.writeCharCode(rune);
+  }
+  flush();
+
+  final out = StringBuffer();
+  for (final run in runs.reversed) {
+    out.write(run.kind == _BidiKind.rtl ? _reverseRunes(run.text) : run.text);
+  }
+  return out.toString();
+}
+
+String _reverseRunes(String text) =>
+    String.fromCharCodes(text.runes.toList().reversed);
+
+enum _BidiKind { ltr, rtl, neutral }
+
+class _BidiRun {
+  const _BidiRun(this.kind, this.text);
+
+  final _BidiKind kind;
+  final String text;
+}
+
+_BidiKind _bidiKind(int rune) {
+  if (_isRtlRune(rune)) return _BidiKind.rtl;
+  if (_isLtrRune(rune) || _isNumberRune(rune)) return _BidiKind.ltr;
+  return _BidiKind.neutral;
+}
+
+bool _isNumberRune(int rune) => rune >= 0x30 && rune <= 0x39;
+
+bool _isLtrRune(int rune) =>
+    (rune >= 0x0041 && rune <= 0x005A) ||
+    (rune >= 0x0061 && rune <= 0x007A) ||
+    (rune >= 0x00C0 && rune <= 0x02AF) ||
+    (rune >= 0x0370 && rune <= 0x03FF) ||
+    (rune >= 0x0400 && rune <= 0x052F);
+
+bool _isRtlRune(int rune) =>
+    (rune >= 0x0590 && rune <= 0x08FF) ||
+    (rune >= 0xFB1D && rune <= 0xFDFF) ||
+    (rune >= 0xFE70 && rune <= 0xFEFF) ||
+    (rune >= 0x10800 && rune <= 0x10FFF) ||
+    (rune >= 0x1E800 && rune <= 0x1EDFF);
+
 /// Builds content-stream bytes operator by operator.
 ///
 /// Coordinates are PDF user space. Output is plain Latin-1 text; characters
@@ -271,28 +365,35 @@ enum PdfStandardFont {
   helvetica('Helvetica', 'Helv', 718, helveticaWidths, 556,
       PdfStandardFontFamily.sans),
   helveticaBold('Helvetica-Bold', 'HelvBold', 718, helveticaBoldWidths, 556,
-      PdfStandardFontFamily.sans, bold: true),
+      PdfStandardFontFamily.sans,
+      bold: true),
   helveticaOblique('Helvetica-Oblique', 'HelvObl', 718, helveticaWidths, 556,
-      PdfStandardFontFamily.sans, italic: true),
+      PdfStandardFontFamily.sans,
+      italic: true),
   helveticaBoldOblique('Helvetica-BoldOblique', 'HelvBoldObl', 718,
       helveticaBoldWidths, 556, PdfStandardFontFamily.sans,
       bold: true, italic: true),
   times('Times-Roman', 'TiRo', 683, timesRomanWidths, 500,
       PdfStandardFontFamily.serif),
   timesBold('Times-Bold', 'TimesBold', 683, timesBoldWidths, 500,
-      PdfStandardFontFamily.serif, bold: true),
+      PdfStandardFontFamily.serif,
+      bold: true),
   timesItalic('Times-Italic', 'TimesItalic', 683, timesItalicWidths, 500,
-      PdfStandardFontFamily.serif, italic: true),
+      PdfStandardFontFamily.serif,
+      italic: true),
   timesBoldItalic('Times-BoldItalic', 'TimesBoldItalic', 683,
       timesBoldItalicWidths, 500, PdfStandardFontFamily.serif,
       bold: true, italic: true),
   courier('Courier', 'Cour', 629, null, 600, PdfStandardFontFamily.mono),
-  courierBold('Courier-Bold', 'CourBold', 629, null, 600,
-      PdfStandardFontFamily.mono, bold: true),
-  courierOblique('Courier-Oblique', 'CourObl', 629, null, 600,
-      PdfStandardFontFamily.mono, italic: true),
+  courierBold(
+      'Courier-Bold', 'CourBold', 629, null, 600, PdfStandardFontFamily.mono,
+      bold: true),
+  courierOblique(
+      'Courier-Oblique', 'CourObl', 629, null, 600, PdfStandardFontFamily.mono,
+      italic: true),
   courierBoldOblique('Courier-BoldOblique', 'CourBoldObl', 629, null, 600,
-      PdfStandardFontFamily.mono, bold: true, italic: true);
+      PdfStandardFontFamily.mono,
+      bold: true, italic: true);
 
   const PdfStandardFont(this.baseFont, this.resourceName, this.ascent,
       this._widths, this._fallbackWidth, this.family,

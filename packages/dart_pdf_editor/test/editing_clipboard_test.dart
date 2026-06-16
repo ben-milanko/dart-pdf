@@ -295,6 +295,32 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('Ctrl+V pastes system clipboard text as a text box',
+        (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return const <String, Object?>{'text': 'Pasted note'};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      final (editing, _) = await pumpEditor(tester);
+      await tester.tapAt(view(400, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await tester.pump();
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'FreeText');
+      expect(annotation.contents, 'Pasted note');
+      expect(annotation.rect, const PdfRect(290, 384.6, 510, 415.4));
+      expect(editing.selectedAnnotationSlots, [(0, 0)]);
+      await settle(tester);
+    });
+
     testWidgets('the context menu copies, and pastes at the click point',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

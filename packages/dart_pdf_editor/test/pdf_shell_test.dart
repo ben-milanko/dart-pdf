@@ -42,11 +42,38 @@ void main() {
           find.byKey(const ValueKey('pdf-page-number-field')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-shell-view-options')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-shell-zoom-reset')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-thumbnails-toggle')),
           findsOneWidget);
       // view-only: no editing toolbar anywhere
       expect(find.byType(PdfEditingToolbar), findsNothing);
       expect(find.byType(PdfViewer), findsOneWidget);
+    });
+
+    testWidgets('zoom menu changes and resets viewer zoom', (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(2), controller: viewer));
+
+      expect(
+          find.byKey(const ValueKey('pdf-shell-zoom-label')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-menu')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-150')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(viewer.zoom, closeTo(1.5, 0.01));
+      expect(find.text('150%'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-reset')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(viewer.zoom, closeTo(1, 0.01));
+      expect(find.text('100%'), findsOneWidget);
     });
 
     testWidgets('PdfReaderFeatures.none leaves just the pages', (tester) async {
@@ -598,6 +625,60 @@ void main() {
       expect(saved!.length, editing.bytes.length);
     });
 
+    testWidgets('Ctrl+Shift+S saves through onSaveAs', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      List<int>? saved;
+      List<int>? savedAs;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onSave: (bytes) => saved = bytes,
+          onSaveAs: (bytes) => savedAs = bytes,
+        ),
+      );
+      // focus the viewer the way a user would: click it, so the
+      // shell's CallbackShortcuts has a focused descendant
+      await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(saved, isNull);
+      expect(savedAs, isNotNull);
+      expect(savedAs!.length, editing.bytes.length);
+    });
+
+    testWidgets('Meta+Shift+S saves through onSaveAs', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      List<int>? saved;
+      List<int>? savedAs;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onSave: (bytes) => saved = bytes,
+          onSaveAs: (bytes) => savedAs = bytes,
+        ),
+      );
+      await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+      expect(saved, isNull);
+      expect(savedAs, isNotNull);
+      expect(savedAs!.length, editing.bytes.length);
+    });
+
     testWidgets('swapping bytes opens a fresh session', (tester) async {
       final viewer = PdfViewerController();
       addTearDown(viewer.dispose);
@@ -798,10 +879,12 @@ void main() {
           find.byKey(const ValueKey('pdf-shell-view-options')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-shell-annotations-toggle')),
           findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsNothing);
 
       await openShellControls(tester);
 
       expect(find.text('Controls'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-shell-view-options')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-annotations-toggle')),

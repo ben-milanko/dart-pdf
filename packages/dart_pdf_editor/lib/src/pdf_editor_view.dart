@@ -166,7 +166,8 @@ class PdfEditorFeatures {
 /// need programmatic access pass their own [controller] instead of
 /// [bytes] — exactly one of the two must be given. [onSave] receives
 /// the current revision's bytes from the toolbar's save button or the
-/// ⌘S / Ctrl+S shortcut; [onDocumentChanged] fires after every revision
+/// ⌘S / Ctrl+S shortcut. [onSaveAs] receives the same bytes from
+/// ⌘⇧S / Ctrl+Shift+S; [onDocumentChanged] fires after every revision
 /// (edit, undo, redo) for hosts that autosave.
 ///
 /// The widget is a plain body: give it bounded space (a [Scaffold]
@@ -182,6 +183,7 @@ class PdfEditorView extends StatefulWidget {
     this.preferences,
     this.features = const PdfEditorFeatures(),
     this.onSave,
+    this.onSaveAs,
     this.showSaveButton = true,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
@@ -250,6 +252,10 @@ class PdfEditorView extends StatefulWidget {
   /// shortcut) are off when null. Writing the bytes somewhere is the
   /// app's job.
   final void Function(Uint8List bytes)? onSave;
+
+  /// Receives the current revision's bytes when ⌘⇧S / Ctrl+Shift+S is hit;
+  /// the save-as dialog or share/download flow is the app's job.
+  final void Function(Uint8List bytes)? onSaveAs;
 
   /// Whether the stock shell chrome shows its Save button when [onSave]
   /// is present. Hosts can set this false when they provide their own
@@ -475,6 +481,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   void _save() => widget.onSave?.call(_session.bytes);
 
+  void _saveAs() => widget.onSaveAs?.call(_session.bytes);
+
   Future<void> _promptAuthor() async {
     final session = _session;
     final name = await showPdfTextPrompt(context,
@@ -694,6 +702,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                   if (features.search && !reflowActive) ...[
                     PdfSearchField(
                       controller: _viewer,
@@ -705,6 +714,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       showOptions: !features.searchResultsPanel,
                     ),
                   ],
+                ],
+                compactLeading: [
+                  if (features.pageNumber && !reflowActive)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: PdfPageNumberField(controller: _viewer),
+                    ),
+                  if (features.search && !reflowActive)
+                    PdfSearchField(
+                      controller: _viewer,
+                      searchController: _searchField,
+                      focusNode: _searchFocus,
+                      preferences: prefs,
+                      showOptions: !features.searchResultsPanel,
+                    ),
                 ],
                 trailing: [
                   if (features.viewOptions)
@@ -732,6 +756,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       label: const Text('Save'),
                       onPressed: _save,
                     ),
+                ],
+                compactSheetChildren: [
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
                   if (features.viewOptions) viewOptionsControl,
@@ -829,10 +856,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             _focusSearch,
       },
       // ⌘S / Ctrl+S saves through the host's [onSave], the same path the
-      // toolbar's save button takes.
+      // toolbar's save button takes. ⌘⇧S / Ctrl+Shift+S invokes the
+      // host's Save As path when one is provided.
       if (widget.onSave != null) ...{
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _save,
+      },
+      if (widget.onSaveAs != null) ...{
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true):
+            _saveAs,
+        const SingleActivator(LogicalKeyboardKey.keyS,
+            control: true, shift: true): _saveAs,
       },
     };
     if (bindings.isNotEmpty) {

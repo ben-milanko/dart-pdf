@@ -207,6 +207,17 @@ class PdfViewerController extends ChangeNotifier {
 
   Future<void> jumpToPage(int index) async => _state?._jumpToPage(index);
 
+  /// Sets the viewer zoom around the center of the viewport.
+  ///
+  /// A zoom of 1 is fit-width/100%; values below 1 zoom out by relaying
+  /// the pages, and values above 1 zoom into a movable window over the
+  /// fit-width layout. The value is clamped to the attached viewer's
+  /// [PdfViewer.minZoom] and [PdfViewer.maxZoom].
+  void setZoom(double zoom) => _state?._setZoomFromController(zoom);
+
+  /// Resets the zoom to fit-width/100% around the center of the viewport.
+  void resetZoom() => setZoom(1);
+
   /// Scrolls — and zooms in when that helps — so [rect] (page space on
   /// [pageIndex]) sits centered in the viewport, filling around 40% of
   /// it. Never zooms out below 100% or in past [PdfViewer.maxZoom]. The
@@ -424,7 +435,7 @@ class PdfViewer extends StatefulWidget {
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
     this.minZoom = 0.25,
-    this.maxZoom = 6,
+    this.maxZoom = 24,
     this.doubleTapZoom = 2.5,
     this.backgroundColor,
     this.pageColor = const Color(0xFFFFFFFF),
@@ -551,6 +562,11 @@ class PdfViewer extends StatefulWidget {
   /// Smallest zoom factor; below 1 the page shrinks past fit-width and
   /// floats centered in the viewport.
   final double minZoom;
+
+  /// Largest zoom factor above fit-width. The default is intentionally high
+  /// for very wide engineering plots and long drawings: fit-width makes each
+  /// PDF point tiny on screen, and the deep-zoom detail patch keeps the
+  /// visible slice sharp without forcing a full-page raster at this scale.
   final double maxZoom;
   final double doubleTapZoom;
 
@@ -945,6 +961,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// InteractiveViewer transform (a window over fit-width pages); at or
   /// below 1 the pages themselves lay out smaller, so zooming out shows
   /// more of the document rather than a shrunken viewport.
+  void _setZoomFromController(double target) {
+    _zoomTo(target, Offset(_viewWidth / 2, _viewHeight / 2));
+  }
+
   void _zoomTo(double target, Offset focal) {
     final zoom = target.clamp(widget.minZoom, widget.maxZoom);
     if (zoom <= 1) {
@@ -2116,10 +2136,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// ⌘X/Ctrl+X: cut the selected annotations (copy + delete).
   void _onCut() => widget.editing?.cutSelectedAnnotations();
 
-  /// ⌘V/Ctrl+V: paste the annotation clipboard at the cursor — the page
-  /// and point under the last pointer, like the right-click paste. With
-  /// no pointer seen yet (touch / keyboard-only) it falls back to the
-  /// current page's cascade.
+  /// ⌘V/Ctrl+V: paste the in-app annotation/snapshot clipboard at the
+  /// cursor. When that clipboard is empty, read plain text from the
+  /// system clipboard and create a FreeText annotation at the same point.
+  /// With no pointer seen yet (touch / keyboard-only) annotation paste
+  /// falls back to the current page's cascade; text paste lands in the
+  /// current page's center.
   void _onPaste() {
     final editing = widget.editing;
     if (editing == null) return;
@@ -2127,7 +2149,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // annotation clipboard (the most recent copy wins, mirroring the
     // controller's clipboards)
     final snapshot = editing.hasSnapshotClipboard;
-    if (!snapshot && !editing.hasAnnotationClipboard) return;
+    if (!snapshot && !editing.hasAnnotationClipboard) {
+      unawaited(_pasteSystemClipboardText(editing));
+      return;
+    }
     final local = _lastPointerLocal;
     final point = local == null ? null : _pagePointAt(local);
     if (snapshot) {
@@ -2141,6 +2166,25 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     } else {
       editing.pasteAnnotations(_controller.currentPage);
     }
+  }
+
+  Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (text == null || text.trim().isEmpty) return;
+    if (!mounted || widget.editing != editing) return;
+    final local = _lastPointerLocal;
+    final point = local == null ? null : _pagePointAt(local);
+    if (point != null) {
+      editing.placeFreeText(point.$1, point.$2, point.$3, text);
+      return;
+    }
+    if (_pages.isEmpty) return;
+    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
+    if (page < 0 || page >= _pages.length) return;
+    final box = _pages[page].cropBox;
+    editing.placeFreeText(
+        page, (box.left + box.right) / 2, (box.bottom + box.top) / 2, text);
   }
 
   /// ⌘A/Ctrl+A: with the select tool armed (or an annotation selection
@@ -2183,8 +2227,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Escape backs out of editing state layer by layer before it clears
-  /// the text selection: annotation or element selection → pending ink →
-  /// armed tool.
+  /// the text selection: annotation or element selection → armed tool →
+  /// pending ink.
+  ///
+  /// Leaving the ink tool commits any pending stroke through the
+  /// controller's tool setter. Escape must not throw away a fresh drawing;
+  /// the toolbar's explicit discard action is the destructive path.
   void _onEscape() {
     final editing = widget.editing;
     if (editing != null) {
@@ -2200,12 +2248,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         editing.clearElementSelection();
         return;
       }
-      if (editing.hasPendingInk) {
-        editing.discardInk();
-        return;
-      }
       if (editing.tool != null) {
         editing.tool = null;
+        return;
+      }
+      if (editing.hasPendingInk) {
+        editing.finishInk();
         return;
       }
     }
@@ -2258,10 +2306,33 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         (event.localPosition - downLocal).distance >= kTouchSlop) {
       return; // it became a double-click-drag, handled by the pan flow
     }
+    if (_editingTextBoxAt(event.localPosition)) {
+      return; // let the editing overlay turn the click into in-place edit
+    }
     // the viewer's own tap recognizer fires after this raw event and
     // would immediately clear the selection made here
     _suppressTap = true;
     _selectWordAt(event.localPosition);
+  }
+
+  /// Whether a default/select-mode mouse click at [local] is over a
+  /// free-text annotation that the editing overlay can edit in place.
+  ///
+  /// The viewer detects mouse double-clicks from raw pointer events so
+  /// normal overlay buttons are not delayed by a double-tap recognizer.
+  /// Raw events also see clicks that land on the editing overlay, so a
+  /// double-click into a selected text box must stand down here; otherwise
+  /// the page-content word selector consumes the second click before the
+  /// overlay can open its inline editor.
+  bool _editingTextBoxAt(Offset local) {
+    final editing = widget.editing;
+    if (editing == null || editing.isPickingColor) return false;
+    final tool = editing.tool;
+    if (tool != null && tool != PdfEditTool.select) return false;
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    final hit = editing.selectableAnnotationAt(point.$1, point.$2, point.$3);
+    return hit?.$2.subtype == 'FreeText';
   }
 
   /// Whether a pointer of [kind] is drawing through the editing
@@ -3147,6 +3218,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                       editing.undo,
                   const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
                       editing.undo,
+                  const SingleActivator(LogicalKeyboardKey.keyZ, alt: true):
+                      editing.autosizeSelectedTextBox,
                   const SingleActivator(LogicalKeyboardKey.keyZ,
                       meta: true, shift: true): editing.redo,
                   const SingleActivator(LogicalKeyboardKey.keyZ,
@@ -3657,7 +3730,9 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   builder: (context, _) => editing.tool == null &&
                           !editing.isPickingColor &&
                           !editing.hasAnnotationSelection &&
-                          editing.pendingFlash == null
+                          editing.pendingFlash == null &&
+                          (_rastered ||
+                              editing.committedInkOn(widget.index) == null)
                       ? const SizedBox.shrink()
                       : Positioned.fill(
                           child: ValueListenableBuilder<double>(

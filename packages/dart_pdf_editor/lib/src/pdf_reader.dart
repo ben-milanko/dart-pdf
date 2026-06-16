@@ -305,6 +305,22 @@ class _PdfReaderState extends State<PdfReader> {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
+                  if (!prefs.showReflowView)
+                    PdfShellZoomControl(controller: _viewer),
+                ],
+                compactLeading: [
+                  if (features.search && !prefs.showReflowView)
+                    PdfSearchField(
+                      controller: _viewer,
+                      searchController: _searchField,
+                      focusNode: _searchFocus,
+                      preferences: prefs,
+                    ),
+                  if (features.pageNumber && !prefs.showReflowView)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: PdfPageNumberField(controller: _viewer),
+                    ),
                 ],
                 trailing: [
                   if (features.viewOptions)
@@ -323,6 +339,10 @@ class _PdfReaderState extends State<PdfReader> {
                             prefs.showThumbnailSidebar = !showThumbnails,
                       ),
                   ]),
+                ],
+                compactSheetChildren: [
+                  if (!prefs.showReflowView)
+                    PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
                   if (features.viewOptions)
