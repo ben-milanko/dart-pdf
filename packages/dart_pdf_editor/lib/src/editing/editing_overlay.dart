@@ -2907,6 +2907,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       alignment: Alignment.topLeft,
       child: Text(
         text,
+        textHeightBehavior: const TextHeightBehavior(
+          applyHeightToFirstAscent: false,
+        ),
         style: TextStyle(
           color: color,
           fontSize: size * _geometry.scale,
@@ -3372,7 +3375,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                           decoration: InputDecoration(
                             isCollapsed: true,
                             border: InputBorder.none,
-                            contentPadding: EdgeInsets.all(3 * _geometry.scale),
+                            // PDF free-text appearances put the first baseline
+                            // exactly one ascent below the top padding. Flutter
+                            // splits the extra 1.2 line-height leading above
+                            // and below editable text, so trim that half-leading
+                            // from the top padding to avoid a small edit-time
+                            // layout jump.
+                            contentPadding: EdgeInsets.fromLTRB(
+                              3 * _geometry.scale,
+                              math.max(
+                                0,
+                                3 * _geometry.scale -
+                                    0.1 * _textEditSize * _geometry.scale,
+                              ),
+                              3 * _geometry.scale,
+                              3 * _geometry.scale,
+                            ),
                           ),
                         ),
                       ),
