@@ -22,6 +22,16 @@ dynamic overlayPainter(WidgetTester tester) => tester
         .first)
     .painter;
 
+dynamic activeStrokePainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .singleWhere(
+      (painter) => painter.runtimeType.toString() == '_ActiveStrokePainter',
+    );
+
 /// The overlay's own MouseRegion cursor (the one wrapping the preview
 /// painter) — what the system shows while hovering.
 MouseCursor regionCursor(WidgetTester tester) {
@@ -158,6 +168,7 @@ void main() {
 
     await g.moveTo(end);
     await tester.pump();
+    expect(activeStrokePainter(tester).debugPenCursor, end);
     await g.up();
     await tester.pump();
 

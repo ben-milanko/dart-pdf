@@ -3582,6 +3582,9 @@ class _ActiveStrokePainter extends CustomPainter {
 
   final _EditingPageOverlayState _state;
 
+  @visibleForTesting
+  Offset? get debugPenCursor => _state._penCursor;
+
   @override
   void paint(Canvas canvas, Size size) {
     final stroke = _state._activeStroke;
@@ -3609,10 +3612,43 @@ class _ActiveStrokePainter extends CustomPainter {
       _state._controller.color,
       _state._controller.strokeWidth * geometry.scale,
     );
+    final cursor = _state._penCursor;
+    if (cursor != null && _state._tool == PdfEditTool.ink) {
+      _paintPenCursor(
+        canvas,
+        cursor,
+        strokeWidth: _state._controller.strokeWidth * geometry.scale,
+        chromeScale: _state._chromeScale,
+        color: _state._controller.color,
+        opacity: _state._controller.opacity,
+      );
+    }
   }
 
   @override
   bool shouldRepaint(_ActiveStrokePainter oldDelegate) => false;
+}
+
+void _paintPenCursor(
+  Canvas canvas,
+  Offset center, {
+  required double strokeWidth,
+  required double chromeScale,
+  required Color color,
+  required double opacity,
+}) {
+  final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
+  canvas.drawCircle(
+      center, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
+  canvas.drawCircle(
+      center, r, Paint()..color = color.withValues(alpha: opacity));
+  canvas.drawCircle(
+      center,
+      r,
+      Paint()
+        ..color = const Color(0xB3FFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 * chromeScale);
 }
 
 class _EditingPreviewPainter extends CustomPainter {
@@ -4270,18 +4306,14 @@ class _EditingPreviewPainter extends CustomPainter {
     // to the stroke width, with a halo + hairline so it reads on any page
     final pen = penCursor;
     if (pen != null) {
-      final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
-      canvas.drawCircle(
-          pen, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
-      canvas.drawCircle(
-          pen, r, Paint()..color = color.withValues(alpha: penOpacity));
-      canvas.drawCircle(
-          pen,
-          r,
-          Paint()
-            ..color = const Color(0xB3FFFFFF)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1 * chromeScale);
+      _paintPenCursor(
+        canvas,
+        pen,
+        strokeWidth: strokeWidth,
+        chromeScale: chromeScale,
+        color: color,
+        opacity: penOpacity,
+      );
     }
 
     // the rotate knob's cursor: a curved arrow (no system rotation cursor)
