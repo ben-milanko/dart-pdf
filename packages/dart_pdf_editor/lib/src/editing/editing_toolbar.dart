@@ -1010,6 +1010,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   tooltip: 'Edit annotation text',
                   onPressed: () => _editSelectedText(context),
                 ),
+              if (controller.canRestyleSelectedText)
+                IconButton(
+                  icon: const Icon(Icons.fit_screen),
+                  tooltip: 'Autosize text box (Alt+Z)',
+                  onPressed: controller.autosizeSelectedTextBox,
+                ),
             ]),
           ),
           if (settings.isNotEmpty) ...[

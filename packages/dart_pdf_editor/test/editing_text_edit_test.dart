@@ -58,6 +58,26 @@ void main() {
       expect(annotation.defaultAppearance, contains('/Cour 18 Tf'));
     });
 
+    test('autosizeSelectedTextBox fits the selected box to its contents', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..fontFamily = PdfStandardFont.courier
+        ..fontSize = 18
+        ..addFreeText(0, const PdfRect(100, 600, 500, 720), 'Wide line\nshort');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      editing.autosizeSelectedTextBox();
+
+      final annotation = editing.document.page(0).annotations.single;
+      final expectedWidth =
+          measureStandardText('Wide line', 18, font: PdfStandardFont.courier) +
+              6;
+      expect(annotation.rect.left, 100);
+      expect(annotation.rect.top, 720);
+      expect(annotation.rect.width, closeTo(expectedWidth, 0.01));
+      expect(annotation.rect.height, closeTo(18 * 1.2 * 2 + 6, 0.01));
+      expect(editing.selectedAnnotation, isNotNull);
+    });
+
     test('text fill and border preferences flow into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..strokeWidth = 3
@@ -186,6 +206,35 @@ void main() {
       await tester.pump();
       return (editing, viewer);
     }
+
+    testWidgets('Alt+Z autosizes the selected free-text box', (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..fontFamily = PdfStandardFont.courier
+        ..fontSize = 18
+        ..addFreeText(0, const PdfRect(100, 600, 500, 720), 'Wide line')
+        ..selectAnnotation(0, 0);
+      await tester.pump();
+
+      // Focus the viewer the way a user would before using a shortcut.
+      await tester.tapAt(view(400, 400));
+      await tester.pump();
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+
+      final annotation = editing.document.page(0).annotations.single;
+      final expectedWidth =
+          measureStandardText('Wide line', 18, font: PdfStandardFont.courier) +
+              6;
+      expect(annotation.rect.width, closeTo(expectedWidth, 0.01));
+      await settle(tester);
+    });
 
     testWidgets('dragging out a text box opens an inline editor that commits',
         (tester) async {

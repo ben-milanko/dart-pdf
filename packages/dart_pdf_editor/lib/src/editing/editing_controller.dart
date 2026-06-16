@@ -2772,6 +2772,39 @@ class PdfEditingController extends ChangeNotifier {
     return _freeTextStyleOf(annotation!);
   }
 
+  PdfRect _autosizeTextRect(PdfAnnotation annotation, String text,
+      {required PdfStandardFont font, required double size}) {
+    const pad = 3.0;
+    final lines = text.split('\n');
+    final maxLineWidth = lines.fold<double>(0, (max, line) {
+      final w = measureStandardText(line, size, font: font);
+      return w > max ? w : max;
+    });
+    final width = math.max(24.0, maxLineWidth + 2 * pad);
+    final height = math.max(18.0, lines.length * size * 1.2 + 2 * pad);
+    final page = _page(_selected.last.$1);
+    final bounds = page.cropBox;
+    final left = annotation.rect.left
+        .clamp(bounds.left, math.max(bounds.left, bounds.right - width))
+        .toDouble();
+    final top = annotation.rect.top
+        .clamp(math.min(bounds.top, bounds.bottom + height), bounds.top)
+        .toDouble();
+    return PdfRect(left, top - height, left + width, top);
+  }
+
+  /// Shrinks or grows the selected free-text annotation to the natural
+  /// bounds of its contents. Explicit newlines are preserved and the box is
+  /// anchored at its current top-left corner, clamped to the page crop box.
+  void autosizeSelectedTextBox() {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canRestyleSelectedText) return;
+    final style = _freeTextStyleOf(annotation);
+    final rect = _autosizeTextRect(annotation, annotation.contents ?? '',
+        font: style.font, size: style.size);
+    resizeSelected(rect);
+  }
+
   /// Rewrites the selected free-text annotation with a new [font] and/or
   /// [size], keeping its text, place, color, and author. The selection
   /// survives (the annotation keeps its /Annots slot).

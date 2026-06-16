@@ -3147,6 +3147,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                       editing.undo,
                   const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
                       editing.undo,
+                  const SingleActivator(LogicalKeyboardKey.keyZ, alt: true):
+                      editing.autosizeSelectedTextBox,
                   const SingleActivator(LogicalKeyboardKey.keyZ,
                       meta: true, shift: true): editing.redo,
                   const SingleActivator(LogicalKeyboardKey.keyZ,
