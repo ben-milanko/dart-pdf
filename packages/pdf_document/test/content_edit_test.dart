@@ -98,8 +98,8 @@ void main() {
     test('deleting one text run leaves its sibling in place', () {
       final doc = PdfDocument.open(buildContentPdf(richContent));
       final elements = PdfPageElements.of(doc, 0);
-      final second = elements.elements
-          .firstWhere((e) => e.text == 'second line');
+      final second =
+          elements.elements.firstWhere((e) => e.text == 'second line');
       final editor = PdfEditor(doc)..deleteElements(elements, [second.id]);
       final out = PdfDocument.open(editor.save());
       expect(pageText(out), contains('(first line) Tj'));
@@ -112,8 +112,7 @@ void main() {
       final doc = PdfDocument.open(buildContentPdf(
           "BT /F1 12 Tf 14 TL 72 700 Td (one) Tj (two) ' (three) ' ET"));
       final elements = PdfPageElements.of(doc, 0);
-      final two =
-          elements.elements.firstWhere((e) => e.text == 'two');
+      final two = elements.elements.firstWhere((e) => e.text == 'two');
       final editor = PdfEditor(doc)..deleteElements(elements, [two.id]);
       final out = PdfDocument.open(editor.save());
       final text = pageText(out);
@@ -121,14 +120,50 @@ void main() {
       expect(text, contains('T*'));
       // 'three' still lands two leadings below 700
       final reparsed = PdfPageElements.of(out, 0);
-      final three =
-          reparsed.elements.firstWhere((e) => e.text == 'three');
+      final three = reparsed.elements.firstWhere((e) => e.text == 'three');
       expect(three.bounds!.bottom, closeTo(700 - 28 - 2.4, 0.01));
     });
 
+    test('erasing a region clips partial hits instead of dropping them', () {
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(
+          editor.eraseElementsInRect(
+              elements, const PdfRect(115, 110, 125, 120)),
+          1);
+
+      final out = PdfDocument.open(editor.save());
+      final text = pageText(out);
+      expect(text, contains('100 100 50 40 re'));
+      expect(text, contains('W n'));
+      expect(text, contains('Q'));
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.path),
+          hasLength(1));
+    });
+
+    test('erasing a region deletes fully-covered hits', () {
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(
+          editor.eraseElementsInRect(elements, const PdfRect(95, 95, 155, 145)),
+          1);
+
+      final out = PdfDocument.open(editor.save());
+      expect(pageText(out), isNot(contains('100 100 50 40 re')));
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.path),
+          isEmpty);
+    });
+
     test('inline images round-trip through a rewrite', () {
-      final doc = PdfDocument.open(buildContentPdf(
-          '100 100 10 10 re f\n'
+      final doc = PdfDocument.open(buildContentPdf('100 100 10 10 re f\n'
           'q 5 0 0 5 10 10 cm BI /W 2 /H 1 /CS /G /BPC 8 ID \xa0\xa1 EI Q\n'));
       final elements = PdfPageElements.of(doc, 0);
       expect(elements.elements[1].kind, PdfElementKind.inlineImage);
@@ -137,8 +172,7 @@ void main() {
       final out = PdfDocument.open(editor.save());
       final reparsed = PdfPageElements.of(out, 0);
       expect(reparsed.elements.single.kind, PdfElementKind.inlineImage);
-      final bi = reparsed.operations[
-          reparsed.elements.single.start];
+      final bi = reparsed.operations[reparsed.elements.single.start];
       expect((bi.operands[1] as CosString).bytes, [0xa0, 0xa1]);
     });
   });
@@ -161,8 +195,8 @@ void main() {
     });
 
     test('TJ string elements replace individually', () {
-      final doc = PdfDocument.open(buildContentPdf(
-          'BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
       final editor = PdfEditor(doc);
       // a match across the split is honestly out of reach
       expect(editor.replaceText(0, 'split', 'joined'), 0);
@@ -172,8 +206,7 @@ void main() {
     });
 
     test('composite Type0 runs are skipped', () {
-      final bytes = buildContentPdf(
-          'BT /F1 12 Tf 72 700 Td (find me) Tj ET');
+      final bytes = buildContentPdf('BT /F1 12 Tf 72 700 Td (find me) Tj ET');
       // rewrite the font to claim /Subtype /Type0
       final doc = PdfDocument.open(ascii(latin1
           .decode(bytes)
@@ -198,8 +231,8 @@ void main() {
       expect(text, contains('(APPROVED) Tj'));
       expect(text.indexOf('APPROVED'), greaterThan(text.indexOf('Hello')));
 
-      final fonts = out.cos.resolve(out.page(0).resources['Font'])
-          as CosDictionary;
+      final fonts =
+          out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
       final stampFont = out.cos.resolve(fonts['StF1']) as CosDictionary;
       expect(stampFont['BaseFont'], const CosName('Helvetica-Bold'));
       // the original font reference is untouched
@@ -222,14 +255,13 @@ void main() {
     test('rotated text writes a rotation matrix', () {
       final doc = PdfDocument.open(buildClassicPdf());
       final editor = PdfEditor(doc)
-        ..stampPage(0,
-            (s) => s.text('DRAFT', x: 100, y: 100, angleDegrees: 45));
+        ..stampPage(
+            0, (s) => s.text('DRAFT', x: 100, y: 100, angleDegrees: 45));
       final out = PdfDocument.open(editor.save());
       expect(pageText(out), contains('0.707'));
     });
 
-    test('stamping a page with inherited resources copies them privately',
-        () {
+    test('stamping a page with inherited resources copies them privately', () {
       final doc = PdfDocument.open(buildNestedPageTreePdf());
       final editor = PdfEditor(doc)
         ..stampPage(0, (s) => s.text('stamp', x: 5, y: 5));
@@ -257,11 +289,10 @@ void main() {
       ]);
       final doc = PdfDocument.open(buildClassicPdf());
       final editor = PdfEditor(doc)
-        ..stampPage(0,
-            (s) => s.jpegImage(jpeg, x: 100, y: 500, width: 200));
+        ..stampPage(0, (s) => s.jpegImage(jpeg, x: 100, y: 500, width: 200));
       final out = PdfDocument.open(editor.save());
-      final xobjects = out.cos.resolve(out.page(0).resources['XObject'])
-          as CosDictionary;
+      final xobjects =
+          out.cos.resolve(out.page(0).resources['XObject']) as CosDictionary;
       final image = out.cos.resolve(xobjects['Im1']) as CosStream;
       expect(image.dictionary['Width'], const CosInteger(4));
       expect(image.dictionary['Height'], const CosInteger(3));
@@ -284,8 +315,8 @@ void main() {
             (s) => s.image(PdfEmbeddableImage.decode(png),
                 x: 50, y: 60, height: 100));
       final out = PdfDocument.open(editor.save());
-      final xobjects = out.cos.resolve(out.page(0).resources['XObject'])
-          as CosDictionary;
+      final xobjects =
+          out.cos.resolve(out.page(0).resources['XObject']) as CosDictionary;
       final image = out.cos.resolve(xobjects['Im1']) as CosStream;
       expect(image.dictionary['Width'], const CosInteger(2));
       expect(image.dictionary['Height'], const CosInteger(2));
@@ -293,8 +324,7 @@ void main() {
       expect(image.dictionary['ColorSpace'], const CosName('DeviceRGB'));
       expect(out.cos.decodeStreamData(image),
           [255, 0, 0, 0, 255, 0, 0, 0, 255, 10, 20, 30]);
-      final smask =
-          out.cos.resolve(image.dictionary['SMask']) as CosStream;
+      final smask = out.cos.resolve(image.dictionary['SMask']) as CosStream;
       expect(smask.dictionary['ColorSpace'], const CosName('DeviceGray'));
       expect(out.cos.decodeStreamData(smask), [255, 128, 0, 77]);
       // square pixels, height 100 → width 100

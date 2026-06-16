@@ -306,13 +306,19 @@ void main() {
 
     test('deleteElementsInRect removes bounded content in a region', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
-      expect(editing.deleteElementsInRect(
-          0, const PdfRect(70, 715, 160, 750)), 1);
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(70, 715, 160, 750)), 1);
       expect(editing.elementsOn(0).elements, isEmpty);
 
       editing.undo();
-      expect(editing.deleteElementsInRect(
-          0, const PdfRect(300, 300, 360, 360)), 0);
+      expect(
+          editing.deleteElementsInRect(0, const PdfRect(80, 720, 85, 725)), 1);
+      expect(editing.elementsOn(0).elements.single.text, 'Page 1',
+          reason: 'a partial hit is clipped, not dropped');
+
+      editing.undo();
+      expect(editing.deleteElementsInRect(0, const PdfRect(300, 300, 360, 360)),
+          0);
       expect(editing.elementsOn(0).elements.single.text, 'Page 1');
     });
 
@@ -840,15 +846,16 @@ void main() {
       expect(editing.tool, PdfEditTool.ellipse);
 
       final toolbarScrollables = find.descendant(
-          of: find.byType(PdfEditingToolbar), matching: find.byType(Scrollable));
+          of: find.byType(PdfEditingToolbar),
+          matching: find.byType(Scrollable));
       final dockScrollable = toolbarScrollables.last;
       final stripScrollable = toolbarScrollables.first;
       final editChip = find.byKey(const ValueKey('pdf-group-edit'));
       await tester.scrollUntilVisible(editChip, 80, scrollable: dockScrollable);
       await tester.tap(editChip);
       await tester.pump();
-      final contentDeleteButton = find.byTooltip(
-          'Delete content — drag a region to remove page content');
+      final contentDeleteButton = find
+          .byTooltip('Delete content — drag a region to remove page content');
       await tester.scrollUntilVisible(contentDeleteButton, 80,
           scrollable: stripScrollable);
       await tester.tap(contentDeleteButton);

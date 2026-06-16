@@ -131,16 +131,14 @@ class PdfPageElements {
           if (stack.isNotEmpty) ctm = stack.removeLast();
         case 'cm':
           if (operands.length >= 6) {
-            ctm = _multiply(
-                (
-                  number(operands[0]),
-                  number(operands[1]),
-                  number(operands[2]),
-                  number(operands[3]),
-                  number(operands[4]),
-                  number(operands[5]),
-                ),
-                ctm);
+            ctm = _multiply((
+              number(operands[0]),
+              number(operands[1]),
+              number(operands[2]),
+              number(operands[3]),
+              number(operands[4]),
+              number(operands[5]),
+            ), ctm);
           }
 
         // path construction
@@ -252,10 +250,9 @@ class PdfPageElements {
 
         // XObjects, inline images, shading
         case 'Do':
-          final name =
-              operands.isNotEmpty && operands[0] is CosName
-                  ? (operands[0] as CosName).value
-                  : null;
+          final name = operands.isNotEmpty && operands[0] is CosName
+              ? (operands[0] as CosName).value
+              : null;
           final xobjects = cos.resolve(resources['XObject']);
           final xobject = name != null && xobjects is CosDictionary
               ? cos.resolve(xobjects[name])
@@ -302,16 +299,25 @@ class PdfPageElements {
 
   /// Serializes [operations] back into content-stream bytes, skipping the
   /// operation indexes in [drop] and writing [replacements] instead where
-  /// provided (used to keep the side effects of `'` and `"`).
+  /// provided (used to keep the side effects of `'` and `"`). Optional
+  /// [prefixes] and [suffixes] wrap operations without changing their
+  /// parsed representation, used by region erasing to clip a partially-hit
+  /// element instead of dropping the whole thing.
   Uint8List serialize({
     Set<int> drop = const {},
     Map<int, String> replacements = const {},
+    Map<int, String> prefixes = const {},
+    Map<int, String> suffixes = const {},
   }) {
     final out = BytesBuilder();
     for (var i = 0; i < operations.length; i++) {
+      final prefix = prefixes[i];
+      if (prefix != null) out.add(latin1.encode(prefix));
       if (drop.contains(i)) {
         final replacement = replacements[i];
         if (replacement != null) out.add(latin1.encode('$replacement\n'));
+        final suffix = suffixes[i];
+        if (suffix != null) out.add(latin1.encode(suffix));
         continue;
       }
       final op = operations[i];
@@ -325,6 +331,8 @@ class PdfPageElements {
           ..add(const [0x20]);
       }
       out.add(latin1.encode('${op.operator}\n'));
+      final suffix = suffixes[i];
+      if (suffix != null) out.add(latin1.encode(suffix));
     }
     return out.takeBytes();
   }

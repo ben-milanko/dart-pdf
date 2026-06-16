@@ -49,6 +49,87 @@ extension PdfContentEditing on PdfEditor {
         page, elements.serialize(drop: drop, replacements: replacements));
   }
 
+  /// Region erasing. Removes the part of every bounded element that falls
+  /// inside [rect]. Elements fully contained by [rect] are deleted; elements
+  /// that cross the rectangle are preserved under a clipping path that covers
+  /// the rest of the page, so content outside the drag area remains visible.
+  /// Returns how many elements were deleted or clipped.
+  int eraseElementsInRect(PdfPageElements elements, PdfRect rect) {
+    final page = document.page(elements.pageIndex);
+    final pageBox = page.cropBox;
+    final erase = rect.intersect(pageBox);
+    if (erase.width <= 0 || erase.height <= 0) return 0;
+
+    final clip = _outsideRectClip(pageBox, erase);
+    final drop = <int>{};
+    final replacements = <int, String>{};
+    final prefixes = <int, String>{};
+    final suffixes = <int, String>{};
+    var changed = 0;
+
+    for (final element in elements.elements) {
+      final bounds = element.bounds;
+      if (bounds == null || !_intersects(bounds, erase)) continue;
+      changed++;
+      if (_containsRect(erase, bounds) || clip == null) {
+        for (var i = element.start; i < element.end; i++) {
+          drop.add(i);
+        }
+        final op = elements.operations[element.start];
+        if (op.operator == "'") {
+          replacements[element.start] = 'T*';
+        } else if (op.operator == '"' && op.operands.length >= 3) {
+          final aw = _num(op.operands[0]);
+          final ac = _num(op.operands[1]);
+          replacements[element.start] =
+              '${ContentWriter.fmt(aw)} Tw ${ContentWriter.fmt(ac)} Tc T*';
+        }
+      } else {
+        prefixes[element.start] = 'q\n$clip';
+        suffixes[element.end - 1] = 'Q\n';
+      }
+    }
+
+    if (changed == 0) return 0;
+    _setContent(
+        page,
+        elements.serialize(
+            drop: drop,
+            replacements: replacements,
+            prefixes: prefixes,
+            suffixes: suffixes));
+    return changed;
+  }
+
+  static bool _intersects(PdfRect a, PdfRect b) {
+    final hit = a.intersect(b);
+    return hit.width > 0 && hit.height > 0;
+  }
+
+  static bool _containsRect(PdfRect outer, PdfRect inner) =>
+      outer.left <= inner.left &&
+      outer.bottom <= inner.bottom &&
+      outer.right >= inner.right &&
+      outer.top >= inner.top;
+
+  static String? _outsideRectClip(PdfRect page, PdfRect erase) {
+    final out = StringBuffer();
+
+    void addRect(double x, double y, double w, double h) {
+      if (w <= 0 || h <= 0) return;
+      out.writeln('${ContentWriter.fmt(x)} ${ContentWriter.fmt(y)} '
+          '${ContentWriter.fmt(w)} ${ContentWriter.fmt(h)} re');
+    }
+
+    addRect(page.left, page.bottom, erase.left - page.left, page.height);
+    addRect(erase.right, page.bottom, page.right - erase.right, page.height);
+    addRect(erase.left, page.bottom, erase.width, erase.bottom - page.bottom);
+    addRect(erase.left, erase.top, erase.width, page.top - erase.top);
+    if (out.isEmpty) return null;
+    out.write('W n\n');
+    return out.toString();
+  }
+
   /// Tier 3 — text editing. Replaces occurrences of [find] with [replace]
   /// inside individual text-showing operations on page [index] and
   /// returns how many were rewritten.
@@ -204,15 +285,15 @@ extension PdfContentEditing on PdfEditor {
       ]);
     }
     final contents = cos.resolve(dict['Contents']) as CosArray;
-    contents.items.add(_updater.addObject(CosStream(
-        CosDictionary({'Length': CosInteger(bytes.length)}), bytes)));
+    contents.items.add(_updater.addObject(
+        CosStream(CosDictionary({'Length': CosInteger(bytes.length)}), bytes)));
     _updater.markChanged(dict);
   }
 
   /// Replaces the page's entire content with one new stream.
   void _setContent(PdfPage page, Uint8List bytes) {
-    page.dict['Contents'] = _updater.addObject(CosStream(
-        CosDictionary({'Length': CosInteger(bytes.length)}), bytes));
+    page.dict['Contents'] = _updater.addObject(
+        CosStream(CosDictionary({'Length': CosInteger(bytes.length)}), bytes));
     _updater.markChanged(page.dict);
     _wrappedPages.remove(page.dict);
   }
@@ -295,9 +376,7 @@ class PdfStamp {
       content.lineWidth(lineWidth);
     }
     content.rect(x, y, width, height);
-    content.op(fillColor != null
-        ? (strokeColor != null ? 'B' : 'f')
-        : 'S');
+    content.op(fillColor != null ? (strokeColor != null ? 'B' : 'f') : 'S');
     content.restore();
   }
 
@@ -332,8 +411,8 @@ class PdfStamp {
     final h = height ?? w * img.height / img.width;
 
     final name = _freeName(_xobjects, 'Im');
-    _xobjects[name] = _editor._updater.addObject(
-        img.toXObject((smask) => _editor._updater.addObject(smask)));
+    _xobjects[name] = _editor._updater
+        .addObject(img.toXObject((smask) => _editor._updater.addObject(smask)));
 
     content.save();
     content.concatMatrix(w, 0, 0, h, x, y);
@@ -349,8 +428,8 @@ class PdfStamp {
     if (existing is CosDictionary && _resources[key] is! CosReference) {
       return existing;
     }
-    final copy = CosDictionary(
-        {if (existing is CosDictionary) ...existing.entries});
+    final copy =
+        CosDictionary({if (existing is CosDictionary) ...existing.entries});
     _resources[key] = copy;
     return copy;
   }
@@ -385,4 +464,3 @@ class PdfStamp {
     return '$prefix$i';
   }
 }
-
