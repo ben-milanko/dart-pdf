@@ -809,6 +809,25 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('escape cancels color picking first', (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..tool = PdfEditTool.rectangle
+        ..startColorPick();
+      await tester.pump();
+      expect(editing.isPickingColor, isTrue);
+      await tester.tapAt(view(400, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(editing.isPickingColor, isFalse);
+      expect(editing.tool, PdfEditTool.rectangle,
+          reason: 'the armed tool is a later Escape layer');
+
+      await settle(tester);
+    });
+
     testWidgets('escape backs out: selection, then tool', (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing
