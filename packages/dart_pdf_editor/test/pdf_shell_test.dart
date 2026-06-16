@@ -626,6 +626,32 @@ void main() {
       expect(savedAs!.length, editing.bytes.length);
     });
 
+    testWidgets('Meta+Shift+S saves through onSaveAs', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      List<int>? saved;
+      List<int>? savedAs;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onSave: (bytes) => saved = bytes,
+          onSaveAs: (bytes) => savedAs = bytes,
+        ),
+      );
+      await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+      expect(saved, isNull);
+      expect(savedAs, isNotNull);
+      expect(savedAs!.length, editing.bytes.length);
+    });
+
     testWidgets('swapping bytes opens a fresh session', (tester) async {
       final viewer = PdfViewerController();
       addTearDown(viewer.dispose);
