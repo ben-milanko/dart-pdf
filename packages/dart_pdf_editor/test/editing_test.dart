@@ -143,6 +143,23 @@ void main() {
       expect(editing.document.page(0).annotations.single.subtype, 'Ink');
     });
 
+    test('switching from ink to eraser defers the pending drawing commit',
+        () async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..tool = PdfEditTool.ink
+        ..addInkStroke(0, [(100, 100), (150, 130)])
+        ..tool = PdfEditTool.eraser;
+
+      expect(editing.tool, PdfEditTool.eraser);
+      expect(editing.hasPendingInk, isTrue,
+          reason: 'the eraser should arm before the PDF rewrite runs');
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(editing.hasPendingInk, isFalse);
+      expect(editing.document.page(0).annotations.single.subtype, 'Ink');
+    });
+
     test('addMarkup highlights the given quads', () {
       final editing = PdfEditingController(buildMultiPagePdf(2))
         ..addMarkup(PdfMarkupKind.highlight, {

@@ -454,8 +454,22 @@ class PdfEditingController extends ChangeNotifier {
 
   set tool(PdfEditTool? value) {
     if (value == _tool) return;
-    // leaving the ink tool commits the drawing, like lifting the pen
-    if (_tool == PdfEditTool.ink && value != PdfEditTool.ink) finishInk();
+    // leaving the ink tool commits the drawing, like lifting the pen.
+    //
+    // Switching directly from ink to the eraser is the latency-sensitive
+    // path used by Apple Pencil double-tap.  A pending ink commit can rewrite
+    // the PDF and trigger a raster refresh, which made the eraser button feel
+    // sticky.  Arm the eraser and repaint the toolbar/cursor first, then let
+    // the commit run in the next event-loop turn; the ink is still committed
+    // before any subsequent pointer event can erase it.
+    final deferInkCommit = _tool == PdfEditTool.ink &&
+        value == PdfEditTool.eraser &&
+        hasPendingInk;
+    if (_tool == PdfEditTool.ink &&
+        value != PdfEditTool.ink &&
+        !deferInkCommit) {
+      finishInk();
+    }
     // arming anything but the eraser by other means breaks the pencil
     // double-tap pairing (see [togglePencilEraser]) — the remembered tool
     // is only valid while the eraser stays the toggled-on partner
@@ -469,6 +483,7 @@ class PdfEditingController extends ChangeNotifier {
     preferences.beginStyleScope(
         _styleScopeKey(value), _styleScopeFields(value));
     notifyListeners();
+    if (deferInkCommit) Timer.run(finishInk);
   }
 
   // Apple Pencil double-tap eraser toggle: the tool that was armed when the
