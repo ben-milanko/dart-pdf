@@ -647,6 +647,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // snapping back to horizontal
   double _textEditRotation = 0;
   int _textEditStyleRevision = 0;
+  int _editSelectedTextRevision = 0;
 
   // form-tool text fill: when set, the inline editor commits into this
   // field's /V instead of creating a free-text annotation
@@ -1627,6 +1628,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onControllerChanged() {
+    final editRevision = _controller.editSelectedTextRevision;
+    if (editRevision != _editSelectedTextRevision) {
+      _editSelectedTextRevision = editRevision;
+      if (_textEditRect == null &&
+          _controller.selectedAnnotationSlot?.$1 == widget.pageIndex &&
+          _controller.selectedAnnotation?.subtype == 'FreeText') {
+        final rect = _selectedViewRect;
+        if (rect != null) _openTextEditor(rect, existing: true);
+      }
+    }
     if (_textEditRect == null) return;
     final revision = _controller.editingTextStyleRevision;
     if (revision == _textEditStyleRevision) return;

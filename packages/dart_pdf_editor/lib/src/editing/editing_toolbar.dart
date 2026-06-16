@@ -546,6 +546,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Future<void> _editSelectedText(BuildContext context) async {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return;
+    if (annotation.subtype == 'FreeText' &&
+        controller.requestEditSelectedTextInline()) {
+      return;
+    }
     final text = await widget.textPrompt(
       context,
       title: switch (annotation.subtype) {
@@ -1017,6 +1021,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               ),
               if (controller.canEditSelectedText)
                 IconButton(
+                  key: const ValueKey('pdf-edit-selected-text'),
                   icon: const Icon(Icons.edit),
                   tooltip: 'Edit annotation text',
                   onPressed: () => _editSelectedText(context),
@@ -1406,6 +1411,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ),
         if (controller.canEditSelectedText)
           IconButton(
+            key: const ValueKey('pdf-edit-selected-text'),
             icon: const Icon(Icons.edit),
             tooltip: 'Edit annotation text',
             visualDensity: VisualDensity.compact,

@@ -471,6 +471,73 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('toolbar edit opens free text inline for character styling',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      editing
+        ..addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world')
+        ..tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-edit-selected-text')));
+      await tester.pump();
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+      expect(editing.hasEditingTextSelection, isTrue);
+
+      expect(
+          editing.restyleEditingTextSelection(
+              font: PdfStandardFont.timesBold, color: 0xFF0000),
+          isTrue);
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!.whereType<TextSpan>().singleWhere(
+            (child) => child.text == 'world',
+          );
+      expect(styled.style?.fontFamily, 'Times New Roman');
+      expect(styled.style?.fontWeight, FontWeight.bold);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
     testWidgets('inline text selection can change font size and color',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

@@ -736,6 +736,7 @@ class PdfEditingController extends ChangeNotifier {
   TextSelection? _editingTextSelection;
   int _editingTextStyleRevision = 0;
   ({PdfTextFont? font, double? size, int? color})? _editingTextStyleRequest;
+  int _editSelectedTextRevision = 0;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
   /// on a page. While it is, the viewer releases its keyboard shortcuts —
@@ -752,6 +753,8 @@ class PdfEditingController extends ChangeNotifier {
 
   ({PdfTextFont? font, double? size, int? color})?
       get editingTextStyleRequest => _editingTextStyleRequest;
+
+  int get editSelectedTextRevision => _editSelectedTextRevision;
 
   /// Marks an in-place text editor open/closed. Called by the page
   /// overlay that owns the editor.
@@ -778,6 +781,17 @@ class PdfEditingController extends ChangeNotifier {
     if (!hasEditingTextSelection) return false;
     _editingTextStyleRequest = (font: font, size: size, color: color);
     _editingTextStyleRevision++;
+    notifyListeners();
+    return true;
+  }
+
+  bool requestEditSelectedTextInline() {
+    if (_selected.length != 1 ||
+        selectedAnnotation?.subtype != 'FreeText' ||
+        selectedAnnotation?.isLockedContents == true) {
+      return false;
+    }
+    _editSelectedTextRevision++;
     notifyListeners();
     return true;
   }
