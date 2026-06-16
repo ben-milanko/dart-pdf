@@ -2183,17 +2183,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Escape backs out of editing state layer by layer before it clears
-  /// the text selection: annotation or element selection → pending ink →
-  /// armed tool.
+  /// the text selection: element selection → pending ink → creation tool →
+  /// annotation selection → select tool.
   void _onEscape() {
     final editing = widget.editing;
     if (editing != null) {
       if (editing.isPickingColor) {
         editing.cancelColorPick();
-        return;
-      }
-      if (editing.hasAnnotationSelection) {
-        editing.clearAnnotationSelection();
         return;
       }
       if (editing.selectedElement != null) {
@@ -2202,6 +2198,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       }
       if (editing.hasPendingInk) {
         editing.discardInk();
+        return;
+      }
+      if (editing.tool != null && editing.tool != PdfEditTool.select) {
+        editing.tool = null;
+        return;
+      }
+      if (editing.hasAnnotationSelection) {
+        editing.clearAnnotationSelection();
         return;
       }
       if (editing.tool != null) {

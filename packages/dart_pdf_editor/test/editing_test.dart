@@ -790,6 +790,25 @@ void main() {
           reason: 'a same-geometry revision swap must not reset the scroll');
     });
 
+    testWidgets('escape backs out of creation tools before selection',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.rectangle;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(250, 600));
+      expect(editing.document.page(0).annotations.single.subtype, 'Square');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(editing.tool, isNull);
+      expect(editing.document.page(0).annotations.single.subtype, 'Square');
+      expect(editing.document.page(0).annotations, hasLength(1),
+          reason: 'Escape must not delete the fresh annotation');
+
+      await settle(tester);
+    });
+
     testWidgets('escape backs out: selection, then tool', (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing
