@@ -25,6 +25,9 @@ flags:
     paths:
       - app/lib
 
+ignore:
+  - "**/test/**"
+
 coverage:
   status:
     project:
