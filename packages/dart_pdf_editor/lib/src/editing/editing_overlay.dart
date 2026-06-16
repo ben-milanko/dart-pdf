@@ -512,9 +512,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// A finger should pan the viewer (not draw): the draw tool is armed
   /// but finger-drawing is off, so touch is reserved for scrolling.
   bool get _fingerPansViewport =>
-      _drawTool &&
-      !_controller.fingerDrawsInk &&
-      widget.onPanViewport != null;
+      _drawTool && !_controller.fingerDrawsInk && widget.onPanViewport != null;
   bool get _polyTool =>
       _tool == PdfEditTool.polyline ||
       _tool == PdfEditTool.polygon ||
@@ -782,8 +780,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             slot,
             () => (
                   strokes: strokes,
-                  pressures:
-                      List<List<double>?>.filled(strokes.length, null),
+                  pressures: List<List<double>?>.filled(strokes.length, null),
                   color: const Color(0xFF000000),
                   strokeWidth:
                       (annotation.borderWidth ?? 1) * _geometry.scale * 1.7 + 4,
@@ -992,14 +989,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// annotation stays inverted while the page re-renders.
   ///
   /// [washSource] paints the old on-raster footprint over with paper before
-  /// the new raster lands, so a resize/rotate's larger/spun old appearance
-  /// doesn't poke out behind the afterimage. A pure *move* leaves it false:
-  /// its source and destination are disjoint, so an opaque paper wash there
-  /// covers nothing the afterimage redraws — it just blanks the page content
-  /// under the old spot (most visibly *through* a translucent markup) until
-  /// the re-render lands, which reads as the content flashing back in. The
-  /// stale annotation lingering at the old spot instead is continuous with
-  /// the drag (it was painted there the whole time) and far less jarring.
+  /// the new raster lands, so the stale raster does not keep showing the
+  /// annotation at its previous position during the commit gap.
   void _commitWithGhost(VoidCallback commit,
       {Rect? to,
       double rotation = 0,
@@ -1913,10 +1904,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // pointer delta rotates into the local frame
         final delta = position - _moveStart!;
         // holding Shift locks the original aspect ratio
-        final aspectRatio = HardwareKeyboard.instance.isShiftPressed &&
-                _resizeFrom!.height > 0
-            ? _resizeFrom!.width / _resizeFrom!.height
-            : null;
+        final aspectRatio =
+            HardwareKeyboard.instance.isShiftPressed && _resizeFrom!.height > 0
+                ? _resizeFrom!.width / _resizeFrom!.height
+                : null;
         final (resized, flipX, flipY) = _resizedRect(
             _resizeFrom!,
             _resizeHandle!,
@@ -2104,12 +2095,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
       }
       final (x1, y1) = _geometry.toPagePoint(moveCurrent);
-      // a move's source and destination are disjoint, so don't wash the old
-      // spot — the opaque paper wash would blank the page content there
-      // until the re-render lands and then flash it back (see _commitWithGhost)
+      // Wash the old spot so the stale raster does not leave a second copy
+      // behind while the committed revision re-renders.
       _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
-          to: _selectedViewRect?.shift(moveCurrent - moveStart),
-          washSource: false);
+          to: _selectedViewRect?.shift(moveCurrent - moveStart));
     } else if (stroke != null && stroke.isNotEmpty) {
       _controller.addInkStroke(widget.pageIndex, stroke,
           pressures: strokePressures);
@@ -2345,8 +2334,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
         // callback is an optional export of the raster image on top
-        final vector =
-            _controller.copyVectorSnapshot(widget.pageIndex, rect);
+        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect);
         final handler = widget.onSnapshot;
         if (handler == null) return;
         // page raster space (post-/Rotate, y down) = view space / scale —
@@ -2354,7 +2342,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         final s = _geometry.scale;
         final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
             viewRect.right / s, viewRect.bottom / s);
-        final bytes = await _controller.captureSnapshot(widget.pageIndex, region,
+        final bytes = await _controller.captureSnapshot(
+            widget.pageIndex, region,
             pageColor: widget.pageColor, annotations: widget.showAnnotations);
         if (bytes == null || !mounted) return;
         await handler(
@@ -2988,11 +2977,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a Square/Circle resize regenerates at a constant stroke width:
     // preview that (live during the drag, then the frozen afterimage)
     // instead of the ghost, whose line would stretch and snap back
-    final shapeResize = wrapResize == null &&
-            _resizeHandle != null &&
-            _resizeRect != null
-        ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
-        : _afterShapeResize;
+    final shapeResize =
+        wrapResize == null && _resizeHandle != null && _resizeRect != null
+            ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
+            : _afterShapeResize;
     // strokes beyond the pending ink: the committed-ink afterimage (held
     // until the new raster lands) and the signature tool's live preview
     final committedInk = widget.rasterCurrent
@@ -3166,8 +3154,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost:
-                        wrapResize == null && shapeResize == null ? _ghost : null,
+                    ghost: wrapResize == null && shapeResize == null
+                        ? _ghost
+                        : null,
                     shapeResize: shapeResize,
                     ghostFrom: _resizeHandle != null && _resizeAngle != 0
                         ? _resizeFrom
@@ -3184,7 +3173,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // free-text resize lift: hide the original box's
                     // footprint with the page rendered without it (or an
                     // opaque-paper wash until that lands)
-                    resizeClean: wrapResize != null ? _resizeCleanPicture : null,
+                    resizeClean:
+                        wrapResize != null ? _resizeCleanPicture : null,
                     resizeHideRect: wrapResize != null ? _resizeFrom : null,
                     resizeHideAngle: _resizeAngle,
                     resizeHideWash: Color.alphaBlend(
@@ -3498,8 +3488,8 @@ void _paintInkStrokes(
         final c1 = geometry.toViewOffset(c1x, c1y);
         final c2 = geometry.toViewOffset(c2x, c2y);
         final b = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
-        segment.strokeWidth = pdfInkStrokeWidth(
-            strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
+        segment.strokeWidth =
+            pdfInkStrokeWidth(strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
         canvas.drawPath(
             Path()
               ..moveTo(a.dx, a.dy)
@@ -3859,10 +3849,8 @@ class _EditingPreviewPainter extends CustomPainter {
     }
     final layered = s.opacity < 1;
     if (layered) {
-      canvas.saveLayer(
-          s.rect.inflate(s.strokeWidth + 2),
-          Paint()
-            ..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
+      canvas.saveLayer(s.rect.inflate(s.strokeWidth + 2),
+          Paint()..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
     }
     final stroking = s.stroke != null && s.strokeWidth > 0;
     final inset = stroking ? s.strokeWidth / 2 : 0.0;
@@ -4227,8 +4215,8 @@ class _EditingPreviewPainter extends CustomPainter {
     final pen = penCursor;
     if (pen != null) {
       final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
-      canvas.drawCircle(pen, r + 1.5 * chromeScale,
-          Paint()..color = const Color(0x33000000));
+      canvas.drawCircle(
+          pen, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
       canvas.drawCircle(
           pen, r, Paint()..color = color.withValues(alpha: penOpacity));
       canvas.drawCircle(
