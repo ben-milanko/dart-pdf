@@ -1,3 +1,5 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -285,6 +287,35 @@ void main() {
       expect(editing.isModified, isFalse,
           reason: 'backspace must not delete annotations or undo edits');
       expect(find.byKey(editorKey), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets('mouse double-click on free text opens the inline editor',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(60, 700, 180, 750), 'Original');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // This point also sits over the page-content word "Page". The
+      // viewer's raw mouse double-click word selector must stand down so
+      // the editing overlay can treat the second click as text-box edit.
+      final overTextBoxAndPageText = view(100, 720);
+      await tester.tapAt(overTextBoxAndPageText, kind: PointerDeviceKind.mouse);
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(editing.selectedAnnotation?.subtype, 'FreeText');
+
+      await tester.tapAt(overTextBoxAndPageText, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(viewer.selectedText, isEmpty);
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.controller!.text, 'Original');
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();

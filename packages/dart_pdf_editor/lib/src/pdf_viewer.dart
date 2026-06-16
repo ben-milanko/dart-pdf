@@ -2258,10 +2258,33 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         (event.localPosition - downLocal).distance >= kTouchSlop) {
       return; // it became a double-click-drag, handled by the pan flow
     }
+    if (_editingTextBoxAt(event.localPosition)) {
+      return; // let the editing overlay turn the click into in-place edit
+    }
     // the viewer's own tap recognizer fires after this raw event and
     // would immediately clear the selection made here
     _suppressTap = true;
     _selectWordAt(event.localPosition);
+  }
+
+  /// Whether a default/select-mode mouse click at [local] is over a
+  /// free-text annotation that the editing overlay can edit in place.
+  ///
+  /// The viewer detects mouse double-clicks from raw pointer events so
+  /// normal overlay buttons are not delayed by a double-tap recognizer.
+  /// Raw events also see clicks that land on the editing overlay, so a
+  /// double-click into a selected text box must stand down here; otherwise
+  /// the page-content word selector consumes the second click before the
+  /// overlay can open its inline editor.
+  bool _editingTextBoxAt(Offset local) {
+    final editing = widget.editing;
+    if (editing == null || editing.isPickingColor) return false;
+    final tool = editing.tool;
+    if (tool != null && tool != PdfEditTool.select) return false;
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    final hit = editing.selectableAnnotationAt(point.$1, point.$2, point.$3);
+    return hit?.$2.subtype == 'FreeText';
   }
 
   /// Whether a pointer of [kind] is drawing through the editing
