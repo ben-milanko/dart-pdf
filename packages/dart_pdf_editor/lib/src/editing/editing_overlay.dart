@@ -512,9 +512,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// A finger should pan the viewer (not draw): the draw tool is armed
   /// but finger-drawing is off, so touch is reserved for scrolling.
   bool get _fingerPansViewport =>
-      _drawTool &&
-      !_controller.fingerDrawsInk &&
-      widget.onPanViewport != null;
+      _drawTool && !_controller.fingerDrawsInk && widget.onPanViewport != null;
   bool get _polyTool =>
       _tool == PdfEditTool.polyline ||
       _tool == PdfEditTool.polygon ||
@@ -782,8 +780,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             slot,
             () => (
                   strokes: strokes,
-                  pressures:
-                      List<List<double>?>.filled(strokes.length, null),
+                  pressures: List<List<double>?>.filled(strokes.length, null),
                   color: const Color(0xFF000000),
                   strokeWidth:
                       (annotation.borderWidth ?? 1) * _geometry.scale * 1.7 + 4,
@@ -1913,10 +1910,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // pointer delta rotates into the local frame
         final delta = position - _moveStart!;
         // holding Shift locks the original aspect ratio
-        final aspectRatio = HardwareKeyboard.instance.isShiftPressed &&
-                _resizeFrom!.height > 0
-            ? _resizeFrom!.width / _resizeFrom!.height
-            : null;
+        final aspectRatio =
+            HardwareKeyboard.instance.isShiftPressed && _resizeFrom!.height > 0
+                ? _resizeFrom!.width / _resizeFrom!.height
+                : null;
         final (resized, flipX, flipY) = _resizedRect(
             _resizeFrom!,
             _resizeHandle!,
@@ -2345,8 +2342,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
         // callback is an optional export of the raster image on top
-        final vector =
-            _controller.copyVectorSnapshot(widget.pageIndex, rect);
+        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect);
         final handler = widget.onSnapshot;
         if (handler == null) return;
         // page raster space (post-/Rotate, y down) = view space / scale —
@@ -2354,7 +2350,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         final s = _geometry.scale;
         final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
             viewRect.right / s, viewRect.bottom / s);
-        final bytes = await _controller.captureSnapshot(widget.pageIndex, region,
+        final bytes = await _controller.captureSnapshot(
+            widget.pageIndex, region,
             pageColor: widget.pageColor, annotations: widget.showAnnotations);
         if (bytes == null || !mounted) return;
         await handler(
@@ -2981,6 +2978,29 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final rotating = _rotateStartAngle != null;
     final dragging =
         _resizeHandle != null || moveDelta != Offset.zero || rotating;
+    // When an edit (notably a vector-snapshot paste from ⌘V/the context
+    // menu) swaps in a new document, the page raster still shows the old
+    // revision until the async re-render lands. If the newly selected
+    // annotation's appearance has already been recorded for drag previews,
+    // paint that same picture at rest so vector paste feedback is immediate
+    // instead of waiting for the full-page raster. Dragging keeps using the
+    // normal ghost path, and explicit commit afterimages take precedence.
+    final restGhost = !widget.rasterCurrent &&
+            !dragging &&
+            _afterGhost == null &&
+            _ghost != null &&
+            selected != null
+        ? (
+            picture: _ghost!,
+            from: selected,
+            to: selected,
+            source: null as Rect?,
+            rotation: 0.0,
+            localAngle: 0.0,
+            flipX: false,
+            flipY: false,
+          )
+        : null;
     // a free-text resize re-wraps at constant font size — preview the
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
@@ -2988,11 +3008,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a Square/Circle resize regenerates at a constant stroke width:
     // preview that (live during the drag, then the frozen afterimage)
     // instead of the ghost, whose line would stretch and snap back
-    final shapeResize = wrapResize == null &&
-            _resizeHandle != null &&
-            _resizeRect != null
-        ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
-        : _afterShapeResize;
+    final shapeResize =
+        wrapResize == null && _resizeHandle != null && _resizeRect != null
+            ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
+            : _afterShapeResize;
     // strokes beyond the pending ink: the committed-ink afterimage (held
     // until the new raster lands) and the signature tool's live preview
     final committedInk = widget.rasterCurrent
@@ -3166,8 +3185,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost:
-                        wrapResize == null && shapeResize == null ? _ghost : null,
+                    ghost: wrapResize == null && shapeResize == null
+                        ? _ghost
+                        : null,
                     shapeResize: shapeResize,
                     ghostFrom: _resizeHandle != null && _resizeAngle != 0
                         ? _resizeFrom
@@ -3184,7 +3204,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // free-text resize lift: hide the original box's
                     // footprint with the page rendered without it (or an
                     // opaque-paper wash until that lands)
-                    resizeClean: wrapResize != null ? _resizeCleanPicture : null,
+                    resizeClean:
+                        wrapResize != null ? _resizeCleanPicture : null,
                     resizeHideRect: wrapResize != null ? _resizeFrom : null,
                     resizeHideAngle: _resizeAngle,
                     resizeHideWash: Color.alphaBlend(
@@ -3221,7 +3242,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             flipX: _afterGhostFlipX,
                             flipY: _afterGhostFlipY,
                           )
-                        : null,
+                        : restGhost,
                     afterShape: _afterShape,
                     afterPath: _afterPath,
                     showHandles: selected != null &&
@@ -3498,8 +3519,8 @@ void _paintInkStrokes(
         final c1 = geometry.toViewOffset(c1x, c1y);
         final c2 = geometry.toViewOffset(c2x, c2y);
         final b = geometry.toViewOffset(stroke[i + 1].$1, stroke[i + 1].$2);
-        segment.strokeWidth = pdfInkStrokeWidth(
-            strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
+        segment.strokeWidth =
+            pdfInkStrokeWidth(strokeWidth, (pressure[i] + pressure[i + 1]) / 2);
         canvas.drawPath(
             Path()
               ..moveTo(a.dx, a.dy)
@@ -3859,10 +3880,8 @@ class _EditingPreviewPainter extends CustomPainter {
     }
     final layered = s.opacity < 1;
     if (layered) {
-      canvas.saveLayer(
-          s.rect.inflate(s.strokeWidth + 2),
-          Paint()
-            ..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
+      canvas.saveLayer(s.rect.inflate(s.strokeWidth + 2),
+          Paint()..color = Color.fromRGBO(0, 0, 0, s.opacity.clamp(0.0, 1.0)));
     }
     final stroking = s.stroke != null && s.strokeWidth > 0;
     final inset = stroking ? s.strokeWidth / 2 : 0.0;
@@ -4227,8 +4246,8 @@ class _EditingPreviewPainter extends CustomPainter {
     final pen = penCursor;
     if (pen != null) {
       final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
-      canvas.drawCircle(pen, r + 1.5 * chromeScale,
-          Paint()..color = const Color(0x33000000));
+      canvas.drawCircle(
+          pen, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
       canvas.drawCircle(
           pen, r, Paint()..color = color.withValues(alpha: penOpacity));
       canvas.drawCircle(
