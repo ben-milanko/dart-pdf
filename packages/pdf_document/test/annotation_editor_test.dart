@@ -430,6 +430,25 @@ void main() {
     expect(reopened.page(0).annotations.length, before - 1);
   });
 
+  test('removeAnnotations deletes multiple annotations in one edit', () {
+    final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addSquare(0, const PdfRect(100, 100, 200, 150))
+      ..addNote(0, 300, 700, 'remove me')
+      ..addCircle(0, const PdfRect(250, 100, 350, 150))
+      ..addFreeText(0, const PdfRect(120, 500, 260, 540), 'keep me');
+    final doc = PdfDocument.open(first.save());
+    final annotations = doc.page(0).annotations;
+
+    final editor = PdfEditor(doc)
+      ..removeAnnotations(0, [annotations[0], annotations[1], annotations[2]]);
+    final reopened = PdfDocument.open(editor.save());
+
+    final remaining = reopened.page(0).annotations;
+    expect(remaining, hasLength(1));
+    expect(remaining.single.subtype, 'FreeText');
+    expect(remaining.single.contents, 'keep me');
+  });
+
   test('bringAnnotationsToFront moves entries to the end of /Annots', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addSquare(0, const PdfRect(100, 100, 200, 150))

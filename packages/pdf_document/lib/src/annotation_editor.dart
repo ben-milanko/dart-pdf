@@ -1486,17 +1486,33 @@ extension PdfAnnotationEditing on PdfEditor {
 
   /// Removes [annotation] from the page, along with its popup, if any.
   void removeAnnotation(int pageIndex, PdfAnnotation annotation) {
+    removeAnnotations(pageIndex, [annotation]);
+  }
+
+  /// Removes [annotations] from the page, along with their popups, if any.
+  ///
+  /// This is equivalent to calling [removeAnnotation] for every annotation,
+  /// but scans and rewrites the page's /Annots array once. Use it for
+  /// multi-select deletes so large annotation sets do not pay an O(n × m)
+  /// identity scan plus one staged replacement per removed item.
+  void removeAnnotations(
+      int pageIndex, Iterable<PdfAnnotation> annotations) {
     final cos = document.cos;
     final page = document.page(pageIndex);
     final raw = page.dict['Annots'];
     final array = cos.resolve(raw);
     if (array is! CosArray) return;
-    final popup = cos.resolve(annotation.dict['Popup']);
+    final targets = Set<CosDictionary>.identity();
+    for (final annotation in annotations) {
+      targets.add(annotation.dict);
+      final popup = cos.resolve(annotation.dict['Popup']);
+      if (popup is CosDictionary) targets.add(popup);
+    }
+    if (targets.isEmpty) return;
     final before = array.items.length;
     array.items.removeWhere((item) {
       final resolved = cos.resolve(item);
-      return identical(resolved, annotation.dict) ||
-          (popup is CosDictionary && identical(resolved, popup));
+      return resolved is CosDictionary && targets.contains(resolved);
     });
     if (array.items.length == before) return;
     if (raw is CosReference) {

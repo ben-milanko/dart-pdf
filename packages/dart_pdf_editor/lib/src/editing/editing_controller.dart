@@ -2039,8 +2039,12 @@ class PdfEditingController extends ChangeNotifier {
     // surviving annotations may land in different slots
     _selected.clear();
     apply((e) {
+      final byPage = <int, List<PdfAnnotation>>{};
       for (final (page, annotation) in targets) {
-        e.removeAnnotation(page, annotation);
+        (byPage[page] ??= []).add(annotation);
+      }
+      for (final entry in byPage.entries) {
+        e.removeAnnotations(entry.key, entry.value);
       }
     }, pages: [for (final (page, _) in targets) page]);
   }
