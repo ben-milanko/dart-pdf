@@ -35,6 +35,7 @@ class EditorScreen extends StatefulWidget {
     required this.prefs,
     this.launchArgs = const [],
     this.initialDocument,
+    this.saveBytesAsOverride,
   });
 
   final PdfEditingPreferences prefs;
@@ -46,6 +47,14 @@ class EditorScreen extends StatefulWidget {
   /// platform. Used by screenshot/integration harnesses (and handy in
   /// tests) to land directly in the editor without a file picker.
   final ({Uint8List bytes, String title})? initialDocument;
+
+  /// Test seam for save-as. Production uses the platform implementation in
+  /// [saveBytesAs].
+  final Future<SaveResult> Function(
+    BuildContext context,
+    Uint8List bytes,
+    String suggestedName,
+  )? saveBytesAsOverride;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -465,11 +474,11 @@ class _EditorScreenState extends State<EditorScreen>
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
         ? await saveBytesToPath(bytes, tab.originPath!)
-        : await saveBytesAs(context, bytes, tab.title);
+        : await _saveBytesAs(bytes, tab.title);
     if (!mounted) return;
     if (inPlace && !result.succeeded) {
       // The origin couldn't be written (moved, read-only) — offer save-as.
-      result = await saveBytesAs(context, bytes, tab.title);
+      result = await _saveBytesAs(bytes, tab.title);
       if (!mounted) return;
     }
     if (result.succeeded) {
@@ -482,6 +491,18 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     if (result.message != null) _toast(result.message!);
+  }
+
+  Future<SaveResult> _saveBytesAs(Uint8List bytes, String suggestedName) {
+    final override = widget.saveBytesAsOverride;
+    if (override != null) return override(context, bytes, suggestedName);
+    return saveBytesAs(context, bytes, suggestedName);
+  }
+
+  void _saveActive({bool saveAs = false}) {
+    final tab = _active;
+    if (tab?.session == null) return;
+    unawaited(_save(tab!, saveAs: saveAs));
   }
 
   // --- link actions --------------------------------------------------------
@@ -596,7 +617,7 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   Widget build(BuildContext context) {
     final tab = _active;
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         leading: _buildAppMenu(tab),
         leadingWidth: _appMenuLeadingWidth,
@@ -619,6 +640,16 @@ class _EditorScreenState extends State<EditorScreen>
           ],
         ),
       ),
+    );
+    if (tab?.session == null) return scaffold;
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyS,
+            control: true, shift: true): () => _saveActive(saveAs: true),
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true):
+            () => _saveActive(saveAs: true),
+      },
+      child: scaffold,
     );
   }
 
