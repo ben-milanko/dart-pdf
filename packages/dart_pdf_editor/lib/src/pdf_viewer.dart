@@ -424,7 +424,7 @@ class PdfViewer extends StatefulWidget {
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
     this.minZoom = 0.25,
-    this.maxZoom = 6,
+    this.maxZoom = 24,
     this.doubleTapZoom = 2.5,
     this.backgroundColor,
     this.pageColor = const Color(0xFFFFFFFF),
@@ -551,6 +551,11 @@ class PdfViewer extends StatefulWidget {
   /// Smallest zoom factor; below 1 the page shrinks past fit-width and
   /// floats centered in the viewport.
   final double minZoom;
+
+  /// Largest zoom factor above fit-width. The default is intentionally high
+  /// for very wide engineering plots and long drawings: fit-width makes each
+  /// PDF point tiny on screen, and the deep-zoom detail patch keeps the
+  /// visible slice sharp without forcing a full-page raster at this scale.
   final double maxZoom;
   final double doubleTapZoom;
 
