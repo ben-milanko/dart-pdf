@@ -183,6 +183,18 @@ typedef _InkPaint = ({
   double strokeWidth,
 });
 
+typedef _AfterGhost = ({
+  ui.Picture picture,
+  Rect from,
+  Rect to,
+  Rect? source,
+  ui.Picture? sourceClean,
+  double rotation,
+  double localAngle,
+  bool flipX,
+  bool flipY,
+});
+
 /// A Square/Circle drawn for a resize preview (or its committed
 /// afterimage). The editor *regenerates* a shape's appearance at the new
 /// rect with a constant stroke width rather than stretching the old one,
@@ -3065,7 +3077,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // paint that same picture at rest so vector paste feedback is immediate
     // instead of waiting for the full-page raster. Dragging keeps using the
     // normal ghost path, and explicit commit afterimages take precedence.
-    final restGhost = !widget.rasterCurrent &&
+    final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
             _ghost != null &&
@@ -3074,13 +3086,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             picture: _ghost!,
             from: selected,
             to: selected,
-            source: null as Rect?,
+            source: null,
+            sourceClean: null,
             rotation: 0.0,
             localAngle: 0.0,
             flipX: false,
             flipY: false,
           )
         : null;
+    final _AfterGhost? afterGhost = _afterGhost != null
+        ? (
+            picture: _afterGhost!,
+            from: _afterGhostFrom!,
+            to: _afterGhostTo!,
+            source: _afterGhostSourceRect,
+            sourceClean: _afterGhostSourceClean,
+            rotation: _afterGhostRotation,
+            localAngle: _afterGhostLocalAngle,
+            flipX: _afterGhostFlipX,
+            flipY: _afterGhostFlipY,
+          )
+        : restGhost;
     // a free-text resize re-wraps at constant font size — preview the
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
@@ -3311,19 +3337,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         : null,
                     penOpacity: _controller.opacity,
                     rotateCursor: _rotateCursor,
-                    afterGhost: _afterGhost != null
-                        ? (
-                            picture: _afterGhost!,
-                            from: _afterGhostFrom!,
-                            to: _afterGhostTo!,
-                            source: _afterGhostSourceRect,
-                            sourceClean: _afterGhostSourceClean,
-                            rotation: _afterGhostRotation,
-                            localAngle: _afterGhostLocalAngle,
-                            flipX: _afterGhostFlipX,
-                            flipY: _afterGhostFlipY,
-                          )
-                        : restGhost,
+                    afterGhost: afterGhost,
                     afterShape: _afterShape,
                     afterPath: _afterPath,
                     showHandles: selected != null &&
@@ -3871,17 +3885,7 @@ class _EditingPreviewPainter extends CustomPainter {
   /// until the new revision's raster lands. [source] is the old
   /// on-raster position; when [sourceClean] is ready, that rect is restored
   /// from a clean page render so no duplicate or paper-colored box remains.
-  final ({
-    ui.Picture picture,
-    Rect from,
-    Rect to,
-    Rect? source,
-    ui.Picture? sourceClean,
-    double rotation,
-    double localAngle,
-    bool flipX,
-    bool flipY,
-  })? afterGhost;
+  final _AfterGhost? afterGhost;
 
   /// A just-committed shape's drag preview, same deal.
   final ({
