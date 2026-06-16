@@ -330,8 +330,8 @@ void main() {
       editing.undo();
       expect(
           editing.deleteElementsInRect(0, const PdfRect(80, 720, 85, 725)), 1);
-      expect(editing.elementsOn(0).elements, isEmpty,
-          reason: 'a partial hit still deletes the bounded element');
+      expect(editing.elementsOn(0).elements.single.text, 'age 1',
+          reason: 'a partial hit snaps to the nearest character');
 
       editing.undo();
       expect(editing.deleteElementsInRect(0, const PdfRect(300, 300, 360, 360)),

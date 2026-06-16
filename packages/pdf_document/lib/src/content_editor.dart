@@ -49,6 +49,61 @@ extension PdfContentEditing on PdfEditor {
         page, elements.serialize(drop: drop, replacements: replacements));
   }
 
+  /// Deletes every bounded page-content element whose bounds overlap [rect].
+  /// Text runs are sliced to character boundaries when [rect] only covers
+  /// part of the run; non-text elements are removed as whole elements.
+  ///
+  /// Returns how many bounded elements were affected. Unbounded elements are
+  /// skipped because a region delete has no reliable hit box for them.
+  int deleteElementsInRect(PdfPageElements elements, PdfRect rect) {
+    final page = document.page(elements.pageIndex);
+    final drop = <int>{};
+    final replacements = <int, String>{};
+    var changed = 0;
+
+    void dropElement(PdfContentElement element) {
+      for (var i = element.start; i < element.end; i++) {
+        drop.add(i);
+      }
+      final op = elements.operations[element.start];
+      final sideEffects = _textSideEffectReplacement(op);
+      if (sideEffects != null) replacements[element.start] = sideEffects;
+    }
+
+    for (final element in elements.elements) {
+      final bounds = element.bounds;
+      if (bounds == null || !_intersects(bounds, rect)) continue;
+
+      if (element.kind == PdfElementKind.text) {
+        final slice = _textSlice(element, rect);
+        if (slice == null) continue;
+        changed++;
+        if (slice.start == 0 && slice.end == element.text!.length) {
+          dropElement(element);
+          continue;
+        }
+        final op = elements.operations[element.start];
+        final bytes = _shownBytes(op);
+        if (bytes == null || bytes.length != element.text!.length) {
+          dropElement(element);
+          continue;
+        }
+        drop.add(element.start);
+        replacements[element.start] =
+            _slicedTextReplacement(op, bytes, slice.start, slice.end);
+        continue;
+      }
+
+      changed++;
+      dropElement(element);
+    }
+
+    if (changed == 0) return 0;
+    _setContent(
+        page, elements.serialize(drop: drop, replacements: replacements));
+    return changed;
+  }
+
   /// Region erasing. Removes the part of every bounded element that falls
   /// inside [rect]. Elements fully contained by [rect] are deleted; elements
   /// that cross the rectangle are preserved under a clipping path that covers
@@ -111,6 +166,84 @@ extension PdfContentEditing on PdfEditor {
       outer.bottom <= inner.bottom &&
       outer.right >= inner.right &&
       outer.top >= inner.top;
+
+  static ({int start, int end})? _textSlice(
+      PdfContentElement element, PdfRect rect) {
+    final text = element.text;
+    final bounds = element.bounds;
+    if (text == null || text.isEmpty || bounds == null) return null;
+
+    final horizontal = bounds.width >= bounds.height;
+    final axisStart = horizontal ? bounds.left : bounds.bottom;
+    final axisEnd = horizontal ? bounds.right : bounds.top;
+    final eraseStart =
+        math.max(axisStart, horizontal ? rect.left : rect.bottom);
+    final eraseEnd = math.min(axisEnd, horizontal ? rect.right : rect.top);
+    final axisLength = axisEnd - axisStart;
+    if (axisLength <= 0 || eraseEnd <= eraseStart) return null;
+
+    final totalWidth = measureHelvetica(text, 1);
+    if (totalWidth <= 0) return null;
+    final eraseUnits0 = (eraseStart - axisStart) / axisLength * totalWidth;
+    final eraseUnits1 = (eraseEnd - axisStart) / axisLength * totalWidth;
+
+    var first = -1;
+    var last = -1;
+    var cursor = 0.0;
+    for (var i = 0; i < text.length; i++) {
+      final next = cursor + measureHelvetica(text[i], 1);
+      if (next > eraseUnits0 && cursor < eraseUnits1) {
+        first = first < 0 ? i : first;
+        last = i + 1;
+      }
+      cursor = next;
+    }
+    if (first < 0 || last <= first) return null;
+    return (start: first, end: last);
+  }
+
+  static Uint8List? _shownBytes(ContentOperation op) {
+    if (op.operator == 'TJ' && op.operands.isNotEmpty) {
+      final array = op.operands[0];
+      if (array is! CosArray) return null;
+      final out = BytesBuilder();
+      for (final item in array.items) {
+        if (item is CosString) out.add(item.bytes);
+      }
+      return out.takeBytes();
+    }
+
+    final stringIndex = op.operator == '"' ? 2 : 0;
+    if (op.operands.length <= stringIndex) return null;
+    final string = op.operands[stringIndex];
+    return string is CosString ? string.bytes : null;
+  }
+
+  static String? _textSideEffectReplacement(ContentOperation op) {
+    if (op.operator == "'") return 'T*';
+    if (op.operator == '"' && op.operands.length >= 3) {
+      final aw = _num(op.operands[0]);
+      final ac = _num(op.operands[1]);
+      return '${ContentWriter.fmt(aw)} Tw ${ContentWriter.fmt(ac)} Tc T*';
+    }
+    return null;
+  }
+
+  static String _slicedTextReplacement(
+      ContentOperation op, Uint8List bytes, int start, int end) {
+    final erased = latin1.decode(Uint8List.sublistView(bytes, start, end));
+    final gap = -measureHelvetica(erased, 1) * 1000;
+    final items = <CosObject>[
+      if (start > 0) CosString(Uint8List.sublistView(bytes, 0, start)),
+      if (end < bytes.length) CosReal(gap),
+      if (end < bytes.length)
+        CosString(Uint8List.sublistView(bytes, end, bytes.length)),
+    ];
+    final show =
+        '${latin1.decode(CosSerializer.serialize(CosArray(items)))} TJ';
+    final sideEffects = _textSideEffectReplacement(op);
+    return sideEffects == null ? show : '$sideEffects\n$show';
+  }
 
   static String? _outsideRectClip(PdfRect page, PdfRect erase) {
     final out = StringBuffer();

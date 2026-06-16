@@ -3105,19 +3105,27 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Deletes every bounded page-content element whose bounds overlap
-  /// [rect]. Unbounded elements are left alone because there is no reliable
-  /// hit box for a region delete. Returns the number of elements removed.
+  /// Deletes every bounded non-text page-content element whose bounds overlap
+  /// [rect]. Text runs are sliced to the nearest character bounds.
+  /// Unbounded elements are left alone because there is no reliable hit box
+  /// for a region delete. Returns the number of elements affected.
   int deleteElementsInRect(int pageIndex, PdfRect rect) {
     final elements = elementsOn(pageIndex);
-    final ids = [
-      for (final element in elements.elements)
-        if (element.bounds case final bounds? when _intersects(bounds, rect))
-          element.id,
-    ];
-    if (ids.isEmpty) return 0;
-    apply((e) => e.deleteElements(elements, ids), pages: [pageIndex]);
-    return ids.length;
+    var hasHit = false;
+    for (final element in elements.elements) {
+      final bounds = element.bounds;
+      if (bounds != null && _intersects(bounds, rect)) {
+        hasHit = true;
+        break;
+      }
+    }
+    if (!hasHit) {
+      return 0;
+    }
+    var count = 0;
+    apply((e) => count = e.deleteElementsInRect(elements, rect),
+        pages: [pageIndex]);
+    return count;
   }
 
   static bool _intersects(PdfRect a, PdfRect b) {

@@ -124,6 +124,26 @@ void main() {
       expect(three.bounds!.bottom, closeTo(700 - 28 - 2.4, 0.01));
     });
 
+    test('region deleting part of a text run slices to character bounds', () {
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(
+          editor.deleteElementsInRect(
+              elements, const PdfRect(72, 700, 90, 710)),
+          1);
+
+      final out = PdfDocument.open(editor.save());
+      final reparsed = PdfPageElements.of(out, 0);
+      expect(
+          reparsed.elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          [' line', 'second line']);
+      expect(pageText(out), contains('TJ'));
+      expect(pageText(out), isNot(contains('(first line) Tj')));
+    });
+
     test('erasing a region clips partial hits instead of dropping them', () {
       final doc = PdfDocument.open(buildContentPdf(richContent));
       final elements = PdfPageElements.of(doc, 0);
