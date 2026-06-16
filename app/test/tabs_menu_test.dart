@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30,10 +31,14 @@ void main() {
 
   // Delivers a PDF to the running app the way the OS would (a warm-start
   // "open with"), opening it in a new tab.
-  Future<void> openTab(WidgetTester tester, String name) async {
+  Future<void> openTab(WidgetTester tester, String name, {String? path}) async {
     const codec = StandardMethodCodec();
     final message = codec.encodeMethodCall(
-      MethodCall('openFile', {'name': name, 'bytes': buildClassicPdf()}),
+      MethodCall('openFile', {
+        'name': name,
+        'bytes': buildClassicPdf(),
+        if (path != null) 'path': path,
+      }),
     );
     await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
       IncomingFileService.channelName,
@@ -149,6 +154,21 @@ void main() {
     expect(find.byKey(const ValueKey('tab-menu-close-others')), findsOneWidget);
     expect(find.byKey(const ValueKey('tab-menu-close-right')), findsOneWidget);
     expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
+  });
+
+  testWidgets(
+      'right-click offers opening the source folder for file-backed tabs',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf', path: '/Users/ben/Documents/alpha.pdf');
+
+    await rightClickTab(tester, 'alpha.pdf');
+
+    expect(find.byKey(const ValueKey('tab-menu-open-folder')), findsOneWidget);
+    expect(find.text('Open in Finder'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('Close others leaves only the clicked tab', (tester) async {

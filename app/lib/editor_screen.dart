@@ -390,6 +390,14 @@ class _EditorScreenState extends State<EditorScreen>
         Offset.zero & overlay.size,
       ),
       items: [
+        if (supportsOpenContainingFolder && tab.originPath != null) ...[
+          PopupMenuItem(
+            key: const ValueKey('tab-menu-open-folder'),
+            value: _TabMenuAction.openFolder,
+            child: Text(openContainingFolderLabel),
+          ),
+          const PopupMenuDivider(),
+        ],
         const PopupMenuItem(
           key: ValueKey('tab-menu-close'),
           value: _TabMenuAction.close,
@@ -421,6 +429,9 @@ class _EditorScreenState extends State<EditorScreen>
     final i = _tabs.indexOf(tab);
     if (i < 0) return;
     switch (selected) {
+      case _TabMenuAction.openFolder:
+        final opened = await openContainingFolder(tab.originPath);
+        if (!opened && mounted) _toast('Could not open containing folder');
       case _TabMenuAction.close:
         await _closeTabs([tab]);
       case _TabMenuAction.closeOthers:
@@ -1040,7 +1051,7 @@ class _OpeningDocument extends StatelessWidget {
 }
 
 /// The actions offered by a tab's right-click context menu.
-enum _TabMenuAction { close, closeOthers, closeRight, closeAll }
+enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 
 /// Starts a tab drag immediately for mouse pointers (the desktop expectation —
 /// a mouse drag never means scrolling the strip) but only after a long press
