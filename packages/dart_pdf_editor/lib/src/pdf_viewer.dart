@@ -207,6 +207,17 @@ class PdfViewerController extends ChangeNotifier {
 
   Future<void> jumpToPage(int index) async => _state?._jumpToPage(index);
 
+  /// Sets the viewer zoom around the center of the viewport.
+  ///
+  /// A zoom of 1 is fit-width/100%; values below 1 zoom out by relaying
+  /// the pages, and values above 1 zoom into a movable window over the
+  /// fit-width layout. The value is clamped to the attached viewer's
+  /// [PdfViewer.minZoom] and [PdfViewer.maxZoom].
+  void setZoom(double zoom) => _state?._setZoomFromController(zoom);
+
+  /// Resets the zoom to fit-width/100% around the center of the viewport.
+  void resetZoom() => setZoom(1);
+
   /// Scrolls — and zooms in when that helps — so [rect] (page space on
   /// [pageIndex]) sits centered in the viewport, filling around 40% of
   /// it. Never zooms out below 100% or in past [PdfViewer.maxZoom]. The
@@ -945,6 +956,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// InteractiveViewer transform (a window over fit-width pages); at or
   /// below 1 the pages themselves lay out smaller, so zooming out shows
   /// more of the document rather than a shrunken viewport.
+  void _setZoomFromController(double target) {
+    _zoomTo(target, Offset(_viewWidth / 2, _viewHeight / 2));
+  }
+
   void _zoomTo(double target, Offset focal) {
     final zoom = target.clamp(widget.minZoom, widget.maxZoom);
     if (zoom <= 1) {

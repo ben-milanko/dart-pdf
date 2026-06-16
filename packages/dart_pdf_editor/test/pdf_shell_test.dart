@@ -42,11 +42,38 @@ void main() {
           find.byKey(const ValueKey('pdf-page-number-field')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-shell-view-options')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-shell-zoom-reset')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-thumbnails-toggle')),
           findsOneWidget);
       // view-only: no editing toolbar anywhere
       expect(find.byType(PdfEditingToolbar), findsNothing);
       expect(find.byType(PdfViewer), findsOneWidget);
+    });
+
+    testWidgets('zoom menu changes and resets viewer zoom', (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(2), controller: viewer));
+
+      expect(
+          find.byKey(const ValueKey('pdf-shell-zoom-label')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-menu')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-150')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(viewer.zoom, closeTo(1.5, 0.01));
+      expect(find.text('150%'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-reset')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(viewer.zoom, closeTo(1, 0.01));
+      expect(find.text('100%'), findsOneWidget);
     });
 
     testWidgets('PdfReaderFeatures.none leaves just the pages', (tester) async {
@@ -798,10 +825,12 @@ void main() {
           find.byKey(const ValueKey('pdf-shell-view-options')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-shell-annotations-toggle')),
           findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsNothing);
 
       await openShellControls(tester);
 
       expect(find.text('Controls'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-shell-view-options')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-annotations-toggle')),

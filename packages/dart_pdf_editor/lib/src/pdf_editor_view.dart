@@ -694,6 +694,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                   if (features.search && !reflowActive) ...[
                     PdfSearchField(
                       controller: _viewer,
@@ -705,6 +706,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       showOptions: !features.searchResultsPanel,
                     ),
                   ],
+                ],
+                compactLeading: [
+                  if (features.pageNumber && !reflowActive)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: PdfPageNumberField(controller: _viewer),
+                    ),
+                  if (features.search && !reflowActive)
+                    PdfSearchField(
+                      controller: _viewer,
+                      searchController: _searchField,
+                      focusNode: _searchFocus,
+                      preferences: prefs,
+                      showOptions: !features.searchResultsPanel,
+                    ),
                 ],
                 trailing: [
                   if (features.viewOptions)
@@ -732,6 +748,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       label: const Text('Save'),
                       onPressed: _save,
                     ),
+                ],
+                compactSheetChildren: [
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
                   if (features.viewOptions) viewOptionsControl,
