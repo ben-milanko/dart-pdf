@@ -950,6 +950,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// like the trackpad and scrollbar paths) and whatever the extents
   /// can't absorb pans the zoom window, horizontal deltas pan the zoom
   /// window.
+  ///
+  /// Shift+wheel scrolls horizontally (the conventional axis swap): a
+  /// vertical Scrollable already flips its own axis for shift+mouse-wheel
+  /// and finds no dx to consume, so it steps aside and the event lands
+  /// here with the vertical delta intact — redirect it into a horizontal
+  /// pan of the zoom window.
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
     GestureBinding.instance.pointerSignalResolver.register(event, (event) {
@@ -968,11 +974,24 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final matrix = _transform.value.clone();
       final scale = matrix.getMaxScaleOnAxis();
       final zoomed = scale > 1.01;
-      if (zoomed) matrix.storage[12] -= scroll.scrollDelta.dx;
-      if (_scroll.hasClients && scroll.scrollDelta.dy != 0) {
+      var dx = scroll.scrollDelta.dx;
+      var dy = scroll.scrollDelta.dy;
+      // Shift+wheel pans horizontally instead of scrolling vertically.
+      // Limited to the mouse, matching the Scrollable's own shift-flip:
+      // a trackpad pan already carries a real horizontal delta, and only
+      // agreeing on that mouse-only rule keeps the list and this handler
+      // from both claiming the event.
+      if (dy != 0 &&
+          scroll.kind == PointerDeviceKind.mouse &&
+          HardwareKeyboard.instance.isShiftPressed) {
+        dx = dy;
+        dy = 0;
+      }
+      if (zoomed) matrix.storage[12] -= dx;
+      if (_scroll.hasClients && dy != 0) {
         final position = _scroll.position;
         // deltas are screen pixels; the list lives under the zoom transform
-        final target = position.pixels + scroll.scrollDelta.dy / scale;
+        final target = position.pixels + dy / scale;
         final clamped =
             target.clamp(position.minScrollExtent, position.maxScrollExtent);
         if (clamped != position.pixels) position.jumpTo(clamped);
