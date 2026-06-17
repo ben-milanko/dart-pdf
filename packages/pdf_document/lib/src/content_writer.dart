@@ -27,10 +27,13 @@ bool pdfTextLooksRtl(String text) {
 /// Converts one logical line to the visual order needed by simple PDF text
 /// showing operators, which always advance in stream order.
 ///
-/// This is a small Unicode-bidi subset tailored for appearance streams with
-/// simple fonts: RTL letter runs are reversed, LTR/number runs keep their
-/// internal order, and run order is reversed for RTL paragraphs. It handles
-/// common Hebrew/mixed-number cases without adding a shaping dependency.
+/// This is a subset of the Unicode Bidirectional Algorithm (UAX#9) tailored
+/// for appearance streams: RTL letter runs (including Arabic presentation
+/// forms) are reversed, LTR/number runs keep their internal order, and run
+/// order is reversed for RTL paragraphs. Neutral characters (spaces,
+/// punctuation) between two runs of the same direction inherit that
+/// direction, so parentheses and punctuation follow their surrounding text
+/// correctly.
 String pdfVisualText(String text, PdfTextDirection direction) {
   final resolved = direction.resolve(text);
   if (resolved == PdfTextDirection.ltr) return text;
@@ -54,11 +57,40 @@ String pdfVisualText(String text, PdfTextDirection direction) {
   }
   flush();
 
+  // Resolve neutral runs: a neutral run between two runs of the same
+  // strong direction inherits that direction. Remaining neutrals inherit
+  // the paragraph direction (RTL here).
+  for (var i = 0; i < runs.length; i++) {
+    if (runs[i].kind != _BidiKind.neutral) continue;
+    final prev = _prevStrongKind(runs, i);
+    final next = _nextStrongKind(runs, i);
+    if (prev != null && prev == next) {
+      runs[i] = _BidiRun(prev, runs[i].text);
+    } else {
+      // Paragraph direction is RTL.
+      runs[i] = _BidiRun(_BidiKind.rtl, runs[i].text);
+    }
+  }
+
   final out = StringBuffer();
   for (final run in runs.reversed) {
     out.write(run.kind == _BidiKind.rtl ? _reverseRunes(run.text) : run.text);
   }
   return out.toString();
+}
+
+_BidiKind? _prevStrongKind(List<_BidiRun> runs, int index) {
+  for (var i = index - 1; i >= 0; i--) {
+    if (runs[i].kind != _BidiKind.neutral) return runs[i].kind;
+  }
+  return null;
+}
+
+_BidiKind? _nextStrongKind(List<_BidiRun> runs, int index) {
+  for (var i = index + 1; i < runs.length; i++) {
+    if (runs[i].kind != _BidiKind.neutral) return runs[i].kind;
+  }
+  return null;
 }
 
 String _reverseRunes(String text) =>
@@ -91,7 +123,7 @@ bool _isLtrRune(int rune) =>
 bool _isRtlRune(int rune) =>
     (rune >= 0x0590 && rune <= 0x08FF) ||
     (rune >= 0xFB1D && rune <= 0xFDFF) ||
-    (rune >= 0xFE70 && rune <= 0xFEFF) ||
+    (rune >= 0xFE70 && rune <= 0xFEFF) || // Arabic Presentation Forms B
     (rune >= 0x10800 && rune <= 0x10FFF) ||
     (rune >= 0x1E800 && rune <= 0x1EDFF);
 

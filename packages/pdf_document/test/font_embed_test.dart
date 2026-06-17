@@ -198,6 +198,84 @@ void main() {
     });
   });
 
+  group('font subsetting', () {
+    test('subset is smaller than the full font', () {
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      font.encodeHex('AB');
+      final doc = roundTrip((e) => e.addFreeText(
+            0, const PdfRect(72, 600, 320, 680), 'AB', font: font));
+      final ft = doc.page(0).annotations.single;
+      final resources =
+          doc.cos.resolve(ft.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
+      final fonts = doc.cos.resolve(resources['Font']) as CosDictionary;
+      final type0 = doc.cos.resolve(fonts['F0']) as CosDictionary;
+      final descendants =
+          doc.cos.resolve(type0['DescendantFonts']) as CosArray;
+      final cidFont =
+          doc.cos.resolve(descendants.items.single) as CosDictionary;
+      final descriptor =
+          doc.cos.resolve(cidFont['FontDescriptor']) as CosDictionary;
+      final fontFile = doc.cos.resolve(descriptor['FontFile2']) as CosStream;
+      final program = doc.cos.decodeStreamData(fontFile);
+      expect(program.length, lessThan(fontBytes.length),
+          reason: 'subset should be smaller than the full font');
+    });
+
+    test('subset preserves glyph IDs', () {
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      final gidA = font.glyphForRune('A'.codeUnitAt(0));
+      expect(gidA, greaterThan(0));
+      font.encodeHex('A');
+      final doc = roundTrip((e) => e.addFreeText(
+            0, const PdfRect(72, 600, 320, 680), 'A', font: font));
+      final ft = doc.page(0).annotations.single;
+      final content = appearanceText(doc, ft);
+      final gidHex = gidA.toRadixString(16).padLeft(4, '0');
+      expect(content.toLowerCase(), contains('<$gidHex>'));
+    });
+  });
+
+  group('Arabic shaping', () {
+    test('encodeShapedHex maps Arabic to presentation forms', () {
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      // Shape two Behs: initial + final
+      final hex = font.encodeShapedHex('بب');
+      expect(hex.length, 8, reason: 'two glyphs × 4 hex chars each');
+    });
+
+    test('measureShaped accounts for contextual forms', () {
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      final shapedWidth = font.measureShaped('بب', 12);
+      expect(shapedWidth, greaterThan(0));
+    });
+
+    test('encodeShapedHex with no Arabic returns same as encodeHex', () {
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      final shaped = font.encodeShapedHex('Hello');
+      font.resetUsage();
+      final plain = font.encodeHex('Hello');
+      expect(shaped, plain);
+    });
+
+    test('ToUnicode maps shaped glyphs back to original characters', () {
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      final doc = roundTrip((e) => e.addFreeText(
+            0, const PdfRect(72, 600, 320, 680), 'بب',
+            font: font, fontSize: 14));
+      final ft = doc.page(0).annotations.single;
+      final resources =
+          doc.cos.resolve(ft.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
+      final fonts = doc.cos.resolve(resources['Font']) as CosDictionary;
+      final type0 = doc.cos.resolve(fonts['F0']) as CosDictionary;
+      final toUnicode = doc.cos.resolve(type0['ToUnicode']) as CosStream;
+      final cmap = latin1.decode(doc.cos.decodeStreamData(toUnicode));
+      // The ToUnicode should map back to U+0628 (Beh), not to presentation forms
+      expect(cmap.toLowerCase(), contains('0628'));
+    });
+  });
+
   group('rich FreeText', () {
     test('writes multiple fonts, sizes, and colors into one annotation', () {
       final doc = roundTrip((e) => e.addFreeTextRich(

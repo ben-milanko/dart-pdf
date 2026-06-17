@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -249,5 +250,67 @@ void main() {
     final content = widgetAppearance(doc, field);
     expect(content, contains('(checked     ) Tj'));
     expect(content, isNot(contains('?')));
+  });
+
+  group('embedded font form filling', () {
+    late PdfEmbeddedFont font;
+
+    setUp(() {
+      font = PdfEmbeddedFont.parse(
+          File('test/fonts/DejaVuSans.ttf').readAsBytesSync());
+    });
+
+    test('embeddedFont writes hex glyphs instead of byte strings', () {
+      final doc = fill((e, f) => e.setTextValue(
+            f.fieldNamed('name')!, 'Hello',
+            embeddedFont: font));
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      expect(field.value, 'Hello');
+      final content = widgetAppearance(doc, field);
+      expect(content, contains('> Tj'), reason: 'hex glyph string');
+      expect(content, isNot(contains('(Hello) Tj')),
+          reason: 'should NOT use byte-encoded text');
+    });
+
+    test('embeddedFont produces a Type0 font resource', () {
+      final doc = fill((e, f) => e.setTextValue(
+            f.fieldNamed('name')!, 'Test',
+            embeddedFont: font));
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      final cos = doc.cos;
+      final ap = cos.resolve(field.widgets[0]['AP']) as CosDictionary;
+      final n = cos.resolve(ap['N']) as CosStream;
+      final resources =
+          cos.resolve(n.dictionary['Resources']) as CosDictionary;
+      final fonts = cos.resolve(resources['Font']) as CosDictionary;
+      final fontObj = cos.resolve(fonts.entries.values.first);
+      expect(fontObj, isA<CosDictionary>());
+      expect((cos.resolve((fontObj as CosDictionary)['Subtype']) as CosName)
+              .value,
+          'Type0');
+    });
+
+    test('embeddedFont skips sanitization for non-Latin-1 text', () {
+      const text = 'café Ω';
+      final doc = fill((e, f) => e.setTextValue(
+            f.fieldNamed('name')!, text,
+            embeddedFont: font));
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      expect(field.value, text);
+      final content = widgetAppearance(doc, field);
+      // Should contain hex glyph codes, not sanitized spaces
+      expect(content, contains('> Tj'));
+      expect(content, isNot(contains('(caf')));
+    });
+
+    test('embeddedFont uses font ascent for baseline calculation', () {
+      final doc = fill((e, f) => e.setTextValue(
+            f.fieldNamed('name')!, 'Baseline test',
+            embeddedFont: font));
+      final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+      final content = widgetAppearance(doc, field);
+      expect(content, contains('/Tx BMC'));
+      expect(content, contains('/${font.resourceName}'));
+    });
   });
 }

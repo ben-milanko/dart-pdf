@@ -15,6 +15,7 @@ import 'image.dart';
 import 'measure.dart';
 import 'page.dart';
 import 'rect.dart';
+import 'text_shaper.dart';
 
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';

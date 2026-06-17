@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'annotation.dart';
 import 'content_writer.dart';
+import 'text_shaper.dart';
 
 /// A TrueType/OpenType font program, parsed and ready to embed in a PDF as
 /// a full-Unicode composite (Type0) font.
@@ -283,18 +284,66 @@ class PdfEmbeddedFont implements PdfTextFont {
     return out.toString();
   }
 
+  /// Encodes [text] as a hex string of big-endian 2-byte glyph ids,
+  /// with Arabic shaping applied when the text contains Arabic script
+  /// characters. The shaped glyphs are recorded for /W and /ToUnicode
+  /// generation with correct original-character mappings.
+  ///
+  /// When [shape] is true (the default), Arabic contextual forms and
+  /// lam-alef ligatures are applied before glyph lookup. Set it to false
+  /// only when the text is already in presentation-form order.
+  String encodeShapedHex(String text, {bool shape = true}) {
+    if (!shape || !pdfTextNeedsShaping(text)) return encodeHex(text);
+    final shaped = pdfShapeText(text, font: this);
+    final out = StringBuffer();
+    final shapedRunes = shaped.text.runes.toList();
+    for (var i = 0; i < shapedRunes.length; i++) {
+      final rune = shapedRunes[i];
+      final gid = glyphForRune(rune);
+      // Map the glyph back to the ORIGINAL rune(s) for /ToUnicode,
+      // so text extraction recovers the logical text.
+      for (final orig in shaped.originalRunes[i]) {
+        _gidToRune.putIfAbsent(gid, () => orig);
+      }
+      out.write((gid >> 8).toRadixString(16).padLeft(2, '0'));
+      out.write((gid & 0xFF).toRadixString(16).padLeft(2, '0'));
+    }
+    return out.toString();
+  }
+
+  /// Measures [text] in points at [fontSize], with Arabic shaping applied
+  /// when the text contains Arabic script characters.
+  double measureShaped(String text, double fontSize) {
+    if (!pdfTextNeedsShaping(text)) return measure(text, fontSize);
+    final shaped = pdfShapeText(text, font: this);
+    var total = 0;
+    for (final rune in shaped.text.runes) {
+      total += advanceForGlyph(glyphForRune(rune));
+    }
+    return total * fontSize / 1000;
+  }
+
   /// Builds the /Font resource dictionary `{ resourceName: <Type0 dict> }`,
   /// registering the descendant CIDFont, FontDescriptor, embedded font
   /// program, and ToUnicode CMap as indirect objects through [addObject].
   ///
+  /// When [subset] is true (the default for TrueType fonts) and enough
+  /// font tables are present, embeds only the glyphs shown since the last
+  /// [resetUsage]. CFF fonts are always embedded in full (CFF subsetting
+  /// is not implemented).
+  ///
   /// Covers the glyphs shown since the last [resetUsage] (always including
   /// .notdef). Call this *after* the content stream is built.
-  CosDictionary buildResource(CosReference Function(CosObject) addObject) {
-    final compressed = Uint8List.fromList(const ZLibEncoder().encode(_bytes));
+  CosDictionary buildResource(CosReference Function(CosObject) addObject,
+      {bool subset = true}) {
+    final fontProgram = subset && !_isCff
+        ? (_subsetTrueType() ?? _bytes)
+        : _bytes;
+    final compressed = Uint8List.fromList(const ZLibEncoder().encode(fontProgram));
 
     final fontFileDict = CosDictionary({
       'Length': CosInteger(compressed.length),
-      'Length1': CosInteger(_bytes.length),
+      'Length1': CosInteger(fontProgram.length),
       'Filter': const CosName('FlateDecode'),
     });
     if (_isCff) fontFileDict['Subtype'] = const CosName('OpenType');
@@ -342,6 +391,260 @@ class PdfEmbeddedFont implements PdfTextFont {
     });
 
     return CosDictionary({resourceName: type0});
+  }
+
+  // -----------------------------------------------------------------------
+  // TrueType subsetting
+  // -----------------------------------------------------------------------
+
+  /// Builds a minimal TrueType font containing only the glyphs recorded
+  /// in [_gidToRune] (plus .notdef, glyph 0). Returns null when the
+  /// source font lacks the tables needed for subsetting (glyf/loca/head).
+  ///
+  /// The subset keeps glyph IDs stable (Identity-H encoding requires
+  /// that glyph IDs in the content stream match the font) by writing
+  /// empty glyph outlines for all IDs below the maximum used glyph.
+  Uint8List? _subsetTrueType() {
+    if (_isCff) return null;
+    final gids = {0, ..._gidToRune.keys};
+    if (gids.isEmpty) return null;
+
+    final data = ByteData.sublistView(_bytes);
+    final numTables = data.getUint16(4);
+    final tables = <String, ({int offset, int length})>{};
+    for (var i = 0; i < numTables; i++) {
+      final rec = 12 + i * 16;
+      final tag = String.fromCharCodes(_bytes, rec, rec + 4);
+      tables[tag] = (
+        offset: data.getUint32(rec + 8),
+        length: data.getUint32(rec + 12)
+      );
+    }
+
+    final glyf = tables['glyf'];
+    final loca = tables['loca'];
+    final headT = tables['head'];
+    if (glyf == null || loca == null || headT == null) return null;
+
+    // Read indexToLocFormat from 'head' table (offset 50).
+    final indexToLocFormat = data.getInt16(headT.offset + 50);
+    final isLong = indexToLocFormat == 1;
+
+    // Read the number of glyphs from 'maxp'.
+    final maxpT = tables['maxp'];
+    if (maxpT == null) return null;
+    final numGlyphs = data.getUint16(maxpT.offset + 4);
+
+    // Read all loca offsets.
+    final locaOffsets = <int>[];
+    for (var i = 0; i <= numGlyphs; i++) {
+      if (isLong) {
+        locaOffsets.add(data.getUint32(loca.offset + i * 4));
+      } else {
+        locaOffsets.add(data.getUint16(loca.offset + i * 2) * 2);
+      }
+    }
+
+    // The maximum glyph ID we need to keep. All IDs up to this must
+    // have entries (empty for unused ones).
+    final maxGid = gids.reduce((a, b) => a > b ? a : b);
+    final subsetNumGlyphs = maxGid + 1;
+
+    // Build the subset glyf and loca tables.
+    final newGlyf = BytesBuilder(copy: true);
+    final newLocaOffsets = <int>[];
+
+    for (var gid = 0; gid < subsetNumGlyphs; gid++) {
+      newLocaOffsets.add(newGlyf.length);
+      if (gids.contains(gid) && gid < numGlyphs) {
+        final start = locaOffsets[gid];
+        final end = locaOffsets[gid + 1];
+        if (end > start) {
+          final glyfData = Uint8List.sublistView(
+              _bytes, glyf.offset + start, glyf.offset + end);
+          newGlyf.add(glyfData);
+          // Pad to even boundary.
+          if (glyfData.length.isOdd) newGlyf.addByte(0);
+        }
+      }
+      // Unused glyph: offset == next offset (zero-length).
+    }
+    newLocaOffsets.add(newGlyf.length);
+
+    final newGlyfBytes = newGlyf.takeBytes();
+
+    // Build the new loca table.
+    final newLocaBytes = isLong
+        ? Uint8List(newLocaOffsets.length * 4)
+        : Uint8List(newLocaOffsets.length * 2);
+    final newLocaData = ByteData.sublistView(newLocaBytes);
+    for (var i = 0; i < newLocaOffsets.length; i++) {
+      if (isLong) {
+        newLocaData.setUint32(i * 4, newLocaOffsets[i]);
+      } else {
+        newLocaData.setUint16(i * 2, newLocaOffsets[i] ~/ 2);
+      }
+    }
+
+    // Build a new hmtx with advances for the subset.
+    final subsetHmtx = _subsetHmtx(subsetNumGlyphs);
+
+    // Patch maxp.numGlyphs.
+    final maxpBytes = Uint8List.fromList(Uint8List.sublistView(
+        _bytes, maxpT.offset, maxpT.offset + maxpT.length));
+    ByteData.sublistView(maxpBytes).setUint16(4, subsetNumGlyphs);
+
+    // Tables to include in the subset, with their new bytes.
+    final subsetTables = <String, Uint8List>{};
+
+    // Copy tables that don't need modification.
+    for (final tag in ['head', 'hhea', 'cmap', 'name', 'post', 'OS/2']) {
+      final t = tables[tag];
+      if (t != null) {
+        subsetTables[tag] = Uint8List.sublistView(
+            _bytes, t.offset, t.offset + t.length);
+      }
+    }
+
+    // Replace modified tables.
+    subsetTables['glyf'] = newGlyfBytes;
+    subsetTables['loca'] = newLocaBytes;
+    subsetTables['maxp'] = maxpBytes;
+    subsetTables['hmtx'] = subsetHmtx;
+
+    return _assembleSfnt(subsetTables);
+  }
+
+  /// Builds a subset hmtx table with entries for [count] glyphs.
+  Uint8List _subsetHmtx(int count) {
+    // Each long metric record: 2 bytes advance + 2 bytes LSB = 4 bytes.
+    final out = Uint8List(count * 4);
+    final outData = ByteData.sublistView(out);
+    final srcData = ByteData.sublistView(_bytes);
+
+    // Find the original hmtx offset.
+    final numTables = srcData.getUint16(4);
+    int? hmtxOffset;
+    for (var i = 0; i < numTables; i++) {
+      final rec = 12 + i * 16;
+      final tag = String.fromCharCodes(_bytes, rec, rec + 4);
+      if (tag == 'hmtx') {
+        hmtxOffset = srcData.getUint32(rec + 8);
+        break;
+      }
+    }
+    if (hmtxOffset == null) return out;
+
+    for (var gid = 0; gid < count; gid++) {
+      int advance, lsb;
+      if (gid < _numHMetrics) {
+        advance = srcData.getUint16(hmtxOffset + gid * 4);
+        lsb = srcData.getInt16(hmtxOffset + gid * 4 + 2);
+      } else {
+        // Monospaced tail: last advance width, LSB from the leftSideBearing
+        // array after the long metrics.
+        advance = _numHMetrics > 0
+            ? srcData.getUint16(hmtxOffset + (_numHMetrics - 1) * 4)
+            : 0;
+        final lsbOffset =
+            hmtxOffset + _numHMetrics * 4 + (gid - _numHMetrics) * 2;
+        lsb = lsbOffset + 2 <= _bytes.length
+            ? srcData.getInt16(lsbOffset)
+            : 0;
+      }
+      outData.setUint16(gid * 4, advance);
+      outData.setInt16(gid * 4 + 2, lsb);
+    }
+    return out;
+  }
+
+  /// Assembles a valid sfnt (TrueType) file from the given tables.
+  static Uint8List _assembleSfnt(Map<String, Uint8List> tables) {
+    final tags = tables.keys.toList()..sort();
+    final numTables = tags.length;
+
+    // Table directory: 12 bytes header + 16 bytes per table.
+    final headerSize = 12 + numTables * 16;
+    var offset = headerSize;
+
+    // Pad each table to 4-byte boundary.
+    final paddedTables = <String, Uint8List>{};
+    for (final tag in tags) {
+      final raw = tables[tag]!;
+      final padded = raw.length % 4 == 0
+          ? raw
+          : Uint8List(raw.length + (4 - raw.length % 4))
+        ..setRange(0, raw.length, raw);
+      paddedTables[tag] = padded;
+    }
+
+    // Total size.
+    var totalSize = headerSize;
+    for (final padded in paddedTables.values) {
+      totalSize += padded.length;
+    }
+
+    final out = Uint8List(totalSize);
+    final outData = ByteData.sublistView(out);
+
+    // sfnt header: version 1.0 for TrueType.
+    outData.setUint32(0, 0x00010000);
+    outData.setUint16(4, numTables);
+    // searchRange, entrySelector, rangeShift
+    var searchRange = 1;
+    var entrySelector = 0;
+    while (searchRange * 2 <= numTables) {
+      searchRange *= 2;
+      entrySelector++;
+    }
+    searchRange *= 16;
+    outData.setUint16(6, searchRange);
+    outData.setUint16(8, entrySelector);
+    outData.setUint16(10, numTables * 16 - searchRange);
+
+    // Table records + data.
+    offset = headerSize;
+    for (var i = 0; i < tags.length; i++) {
+      final tag = tags[i];
+      final rec = 12 + i * 16;
+      final raw = tables[tag]!;
+      final padded = paddedTables[tag]!;
+
+      // Tag (4 bytes ASCII).
+      for (var j = 0; j < 4; j++) {
+        out[rec + j] = tag.codeUnitAt(j);
+      }
+      // Checksum.
+      outData.setUint32(rec + 4, _checksum(padded));
+      // Offset.
+      outData.setUint32(rec + 8, offset);
+      // Length (unpadded).
+      outData.setUint32(rec + 12, raw.length);
+
+      out.setRange(offset, offset + padded.length, padded);
+      offset += padded.length;
+    }
+
+    return out;
+  }
+
+  static int _checksum(Uint8List data) {
+    var sum = 0;
+    final view = ByteData.sublistView(data);
+    final words = data.length ~/ 4;
+    for (var i = 0; i < words; i++) {
+      sum = (sum + view.getUint32(i * 4)) & 0xFFFFFFFF;
+    }
+    // Remaining bytes (when length is not a multiple of 4).
+    final remain = data.length - words * 4;
+    if (remain > 0) {
+      var last = 0;
+      for (var i = 0; i < remain; i++) {
+        last |= data[words * 4 + i] << (24 - i * 8);
+      }
+      sum = (sum + last) & 0xFFFFFFFF;
+    }
+    return sum;
   }
 
   /// A /W array with one entry per used glyph: `gid [ width ]`.

@@ -18,12 +18,14 @@ extension PdfFormFilling on PdfEditor {
   /// the appearance regenerates — pass true to let long values wrap in
   /// fields authored as single-line. Null leaves the flag alone.
   ///
-  /// /V stores [value] verbatim (UTF-16BE when it leaves Latin-1); the
-  /// generated appearance replaces characters the byte-encoded
-  /// appearance fonts cannot show with spaces.
+  /// When [embeddedFont] is provided, the appearance is generated with
+  /// full Unicode support (Arabic shaping, glyph subsetting) via the
+  /// embedded font instead of the form's default byte-encoded simple
+  /// font. /V stores [value] verbatim (UTF-16BE when it leaves Latin-1).
   void setTextValue(PdfFormField field, String value,
       {bool? multiline,
-      PdfTextDirection textDirection = PdfTextDirection.auto}) {
+      PdfTextDirection textDirection = PdfTextDirection.auto,
+      PdfEmbeddedFont? embeddedFont}) {
     _checkFillable(field, const {PdfFieldType.text});
     if (multiline != null && multiline != field.isMultiline) {
       field.dict['Ff'] = CosInteger(multiline
@@ -31,7 +33,8 @@ extension PdfFormFilling on PdfEditor {
           : field.flags & ~PdfFormField.multilineFlag);
     }
     field.dict['V'] = CosString.fromText(value);
-    _regenerateVariableText(field, value, textDirection: textDirection);
+    _regenerateVariableText(field, value,
+        textDirection: textDirection, embeddedFont: embeddedFont);
     _finishFieldEdit(field);
   }
 
@@ -281,11 +284,15 @@ extension PdfFormFilling on PdfEditor {
   }
 
   void _regenerateVariableText(PdfFormField field, String rawText,
-      {PdfTextDirection textDirection = PdfTextDirection.auto}) {
-    final text = sanitizeFieldText(rawText);
+      {PdfTextDirection textDirection = PdfTextDirection.auto,
+      PdfEmbeddedFont? embeddedFont}) {
+    final ef = embeddedFont;
+    final text = ef != null ? rawText : sanitizeFieldText(rawText);
     final cos = document.cos;
     final da = _parseDefaultAppearance(field.defaultAppearance);
-    final fontDict = _formFont(field.form, da.fontName);
+    final fontDict = ef != null ? null : _formFont(field.form, da.fontName);
+    final fontName = ef != null ? ef.resourceName : da.fontName;
+    final useShaping = ef != null && pdfTextNeedsShaping(rawText);
 
     for (final widget in field.widgets) {
       final rect = pdfRectFrom(cos, widget['Rect']);
@@ -293,15 +300,17 @@ extension PdfFormFilling on PdfEditor {
       final w = rect.width, h = rect.height;
       const pad = 2.0;
 
-      double measure(String s, double size) =>
-          _measureFieldText(fontDict, s, size);
+      double measure(String s, double size) {
+        if (useShaping) return ef.measureShaped(s, size);
+        if (ef != null) return ef.measure(s, size);
+        return _measureFieldText(fontDict, s, size);
+      }
 
       final multiline = field.isMultiline;
       var size = da.fontSize;
       List<String> lines;
       if (multiline) {
         if (size == 0) {
-          // auto-size: shrink until the wrapped block fits the height
           size = 12;
           while (size > 4) {
             lines = _wrapWith(measure, text, size, w - 2 * pad);
@@ -334,11 +343,9 @@ extension PdfFormFilling on PdfEditor {
         ..clip()
         ..beginText();
       if (da.colorOps.isNotEmpty) writer.raw(da.colorOps);
-      writer.font(da.fontName, size);
+      writer.font(fontName, size);
 
-      // first baseline: vertically centered for one line, top-anchored
-      // for multiline (Helvetica-class ascent is 0.718 em)
-      final ascent = size * 0.718;
+      final ascent = ef != null ? size * ef.ascent / 1000 : size * 0.718;
       var prevX = 0.0;
       var prevY = 0.0;
       final firstY = multiline
@@ -354,9 +361,13 @@ extension PdfFormFilling on PdfEditor {
           _ => pad,
         };
         final y = firstY - i * size * 1.15;
-        writer
-          ..textAt(x - prevX, y - prevY)
-          ..showText(pdfVisualText(lines[i], resolvedDirection));
+        writer.textAt(x - prevX, y - prevY);
+        final visual = pdfVisualText(lines[i], resolvedDirection);
+        if (ef != null) {
+          writer.showGlyphHex(ef.encodeShapedHex(visual));
+        } else {
+          writer.showText(visual);
+        }
         prevX = x;
         prevY = y;
       }
@@ -365,9 +376,16 @@ extension PdfFormFilling on PdfEditor {
         ..restore()
         ..raw('EMC');
 
-      final resources = CosDictionary({
-        'Font': _appearanceFontResource(field.form, da.fontName, fontDict),
-      });
+      final CosDictionary resources;
+      if (ef != null) {
+        resources = CosDictionary({
+          'Font': ef.buildResource(_updater.addObject),
+        });
+      } else {
+        resources = CosDictionary({
+          'Font': _appearanceFontResource(field.form, da.fontName, fontDict),
+        });
+      }
       final form = _widgetForm(w, h, writer, resources: resources);
       _setNormalAppearance(widget, form);
       if (!identical(widget, field.dict)) _stageFormDict(field, widget);

@@ -1390,13 +1390,21 @@ extension PdfAnnotationEditing on PdfEditor {
       ..fillColor(color);
     // first baseline sits one ascent below the top padding
     final firstY = rect.top - pad - fontSize * font.ascent / 1000;
-    final lines = _wrap(text, fontSize, rect.width - 2 * pad, font: font);
+    final PdfEmbeddedFont? ef = font is PdfEmbeddedFont ? font : null;
+    final useShaping = ef != null && pdfTextNeedsShaping(text);
+    final lines = _wrap(text, fontSize, rect.width - 2 * pad, font: font,
+        shaped: useShaping);
     final resolvedDirection = textDirection.resolve(text);
     var prevX = 0.0;
     var prevY = 0.0;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
-      final width = font.measure(line, fontSize);
+      double width;
+      if (useShaping) {
+        width = ef.measureShaped(line, fontSize);
+      } else {
+        width = font.measure(line, fontSize);
+      }
       final x = resolvedDirection == PdfTextDirection.rtl
           ? rect.right - pad - width
           : rect.left + pad;
@@ -1404,7 +1412,7 @@ extension PdfAnnotationEditing on PdfEditor {
       w.textAt(x - prevX, y - prevY);
       final visual = pdfVisualText(line, resolvedDirection);
       if (font is PdfEmbeddedFont) {
-        w.showGlyphHex(font.encodeHex(visual));
+        w.showGlyphHex(font.encodeShapedHex(visual));
       } else {
         w.showText(visual);
       }
@@ -1473,13 +1481,18 @@ extension PdfAnnotationEditing on PdfEditor {
       for (final run in drawRuns) {
         final style = run.style;
         final visual = pdfVisualText(run.text, resolvedDirection);
-        final width = style.font.measure(visual, style.fontSize);
+        final ef = style.font is PdfEmbeddedFont
+            ? style.font as PdfEmbeddedFont
+            : null;
+        final width = ef != null
+            ? ef.measureShaped(visual, style.fontSize)
+            : style.font.measure(visual, style.fontSize);
         w
           ..font(style.font.resourceName, style.fontSize)
           ..fillColor(style.color)
           ..textAt(x - prevX, y - prevY);
-        if (style.font is PdfEmbeddedFont) {
-          w.showGlyphHex((style.font as PdfEmbeddedFont).encodeHex(visual));
+        if (ef != null) {
+          w.showGlyphHex(ef.encodeShapedHex(visual));
         } else {
           w.showText(visual);
         }
@@ -3404,14 +3417,24 @@ extension PdfAnnotationEditing on PdfEditor {
 
   /// Greedy word wrap with [font]'s metrics; a single word longer than
   /// [maxWidth] overflows (and is clipped by the appearance).
+  ///
+  /// When [shaped] is true and [font] is an embedded font, measurement
+  /// uses shaped Arabic text widths so the wrapping accounts for
+  /// contextual form changes (ligatures, presentation forms).
   List<String> _wrap(String text, double fontSize, double maxWidth,
-      {PdfTextFont font = PdfStandardFont.helvetica}) {
+      {PdfTextFont font = PdfStandardFont.helvetica, bool shaped = false}) {
+    double measureLine(String s) {
+      if (shaped && font is PdfEmbeddedFont) {
+        return font.measureShaped(s, fontSize);
+      }
+      return font.measure(s, fontSize);
+    }
     final lines = <String>[];
     for (final paragraph in text.split('\n')) {
       var line = '';
       for (final word in paragraph.split(' ')) {
         final candidate = line.isEmpty ? word : '$line $word';
-        if (line.isNotEmpty && font.measure(candidate, fontSize) > maxWidth) {
+        if (line.isNotEmpty && measureLine(candidate) > maxWidth) {
           lines.add(line);
           line = word;
         } else {
