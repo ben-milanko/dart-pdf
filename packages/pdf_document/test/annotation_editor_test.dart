@@ -411,6 +411,46 @@ void main() {
     expect(content, contains('-1 0 0 -1'));
   });
 
+  test('free text on a 270-rotated page counter-rotates the appearance', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 270);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeText(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      'Hello 270',
+      fontSize: 12,
+      pageRotation: 270,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('cm'));
+    // For 270° the matrix is [0, -1, 1, 0, cx-cy, cx+cy]
+    expect(content, contains('0 -1 1 0'));
+  });
+
+  test('rich free text on a rotated page counter-rotates the appearance', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 90);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeTextRich(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      [
+        const PdfFreeTextRun('Bold ', font: PdfStandardFont.helveticaBold),
+        const PdfFreeTextRun('normal'),
+      ],
+      pageRotation: 90,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('cm'));
+    expect(content, contains('0 1 -1 0'));
+    expect(content, contains('BT'));
+  });
+
   test('free text on an unrotated page has no counter-rotation cm', () {
     final doc = roundTrip((e) => e.addFreeText(
           0,
