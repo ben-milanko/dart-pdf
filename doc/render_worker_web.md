@@ -116,12 +116,19 @@ priority queue and protocol, and the app is wired up:
   of letting the worker grind through stale work, so the visible page's job is
   reached sooner.
 
-Still open; see issue #73:
+- **In-flight preemption** (issue #73 item 3): when a higher-priority request
+  (e.g. the on-screen page at priority 0) arrives while a lower-priority job
+  (e.g. a prefetch at priority 1) is executing, the worker cancels the
+  in-flight job cooperatively via `PdfCancellationToken` and serves the urgent
+  request next. The interpreter checks the token every 64 operators and yields
+  to the event loop every 512 operators (via `drawPageOperationsAsync`), so a
+  cancel message (sent over the isolate's cancel port or the Web Worker's
+  `{kind:'cancel'}` message) fires within a few hundred operators. The
+  cancelled job resolves to null (local render); the preempting request gets
+  the worker's next slot immediately.
 
-- The in-flight worker/isolate job still can't be *preempted* (item 3): a
-  request already executing in the worker runs to completion even if you land
-  on another page mid-prefetch. Only *queued* requests are cancelled (above);
-  the fast-scroll page preview covers the remaining gap visually.
+Still open:
+
 - v1 ships decoded pixels on every record; a re-record of a page already
   cached on the main side re-decodes in the worker (off-thread, so it never
   janks, but it is redundant work). A `knownKeys` skip is the next refinement.

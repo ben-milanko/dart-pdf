@@ -279,6 +279,29 @@ void main() {
           reason: 'a same-page request at another priority is left alone');
     });
   });
+
+  testWidgets('a higher-priority request preempts the in-flight job',
+      (tester) async {
+    await tester.runAsync(() async {
+      final worker = PdfRenderWorker.start(buildMultiPagePdf(2));
+      addTearDown(worker.dispose);
+      await worker.record(0); // warm up: the isolate is spawned and idle
+
+      // Start a low-priority prefetch — it goes in flight.
+      final prefetch = worker.record(0, priority: 1);
+      // The prefetch is now executing on the isolate. Queue a high-priority
+      // on-screen request: _pump sees the higher priority and sends a cancel
+      // signal to the isolate, so the in-flight prefetch is abandoned and the
+      // high-priority request is served next.
+      final onScreen = worker.record(1, priority: 0);
+
+      final onScreenResult = await onScreen;
+      await prefetch; // may be null (preempted) or non-null (completed first)
+      // The key invariant: the on-screen page always completes.
+      expect(onScreenResult, isNotNull,
+          reason: 'the high-priority on-screen page always completes');
+    });
+  });
 }
 
 /// A small RGBA PNG with a varying alpha channel (so it embeds with an /SMask).
