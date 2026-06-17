@@ -363,6 +363,69 @@ void main() {
     expect((widths.items[77 - 32] as CosInteger).value, 889);
   });
 
+  test('free text on a rotated page counter-rotates the appearance', () {
+    // Rotate the page 90° first, then add a FreeText with pageRotation: 90.
+    // The appearance content must include a cm operator for the counter-
+    // rotation so the text reads upright after the page transform.
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 90);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeText(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      'Hello rotated',
+      fontSize: 12,
+      pageRotation: 90,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final ft = doc.page(0).annotations.single;
+    expect(ft.subtype, 'FreeText');
+    expect(doc.page(0).rotation, 90);
+    final content = appearanceText(doc, ft);
+    // The counter-rotation writes a cm operator with sin/cos coefficients
+    expect(content, contains('cm'));
+    // For 90° the matrix is [0, 1, -1, 0, cx+cy, cy-cx]
+    expect(content, contains('0 1 -1 0'));
+    // The text is still there
+    expect(content, contains('BT'));
+    expect(content, contains('Tj'));
+  });
+
+  test('free text on a 180-rotated page counter-rotates the appearance', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 180);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeText(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      'Hello 180',
+      fontSize: 12,
+      pageRotation: 180,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('cm'));
+    // For 180° the matrix is [-1, 0, 0, -1, 2*cx, 2*cy]
+    expect(content, contains('-1 0 0 -1'));
+  });
+
+  test('free text on an unrotated page has no counter-rotation cm', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 240, 680),
+          'No rotation',
+          fontSize: 12,
+          pageRotation: 0,
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    // No cm operator before the fill/text ops (only q/Q/re/W/BT etc.)
+    expect(content, isNot(contains('0 1 -1 0')));
+    expect(content, isNot(contains('-1 0 0 -1')));
+    expect(content, isNot(contains('0 -1 1 0')));
+  });
+
   test('note builds a 20pt icon at the given top-left corner', () {
     final doc = roundTrip(
         (e) => e.addNote(0, 500, 700, 'remember this', author: 'Ben'));
