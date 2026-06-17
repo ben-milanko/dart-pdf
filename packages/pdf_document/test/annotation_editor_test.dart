@@ -291,6 +291,22 @@ void main() {
     expect(content, contains('EMC'));
   });
 
+  test('ActualText encodes supplementary-plane characters as surrogate pairs',
+      () {
+    // U+1F600 (😀) is above U+FFFF, so ActualText needs UTF-16 surrogates
+    const text = '😀مرحبا';
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 200, 640),
+          text,
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('ActualText'));
+    // surrogate pair for U+1F600: d83d de00 (lowercase hex)
+    expect(content, contains('d83d'));
+    expect(content, contains('de00'));
+  });
+
   test('rich free text encodes non-Latin runs via Type0 Unicode font', () {
     final doc = roundTrip((e) => e.addFreeTextRich(
           0,
@@ -313,6 +329,21 @@ void main() {
     final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
     final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
     expect((f1['Subtype'] as CosName).value, 'Type0');
+  });
+
+  test('rich free text with RTL runs carries ActualText', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(72, 600, 400, 660),
+          [
+            const PdfFreeTextRun('مرحبا', color: 0xFF0000),
+            const PdfFreeTextRun(' عالم'),
+          ],
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('ActualText'));
+    expect(content, contains('BDC'));
+    expect(content, contains('EMC'));
   });
 
   test('resizing a non-Latin free text regenerates with Unicode font', () {
