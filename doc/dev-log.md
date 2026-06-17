@@ -2349,3 +2349,44 @@ pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
 full-turn/empty no-op, non-quarter + out-of-range reject) and
 dart_pdf_editor editing_page_ops_test (controller round-trips + selection
 survives; strip widget tests for the bar + per-tile button).
+
+Actual-size page scaling (Ben: "make documents scale in the viewer …
+scaled per the actual document size", not all width-constrained). The
+viewer used to lay every page out at `viewportWidth × layoutZoom`, so all
+pages — and every document — rendered at the same on-screen width
+regardless of their real point dimensions; only the aspect ratio survived
+(`pdf_viewer.dart` old `_pageHeight = aspect × _viewWidth × _layoutZoom`).
+Now each page is sized by its true displayed point width (`_pointWidths`,
+after /Rotate + view rotation) against ONE document-wide reference, the
+widest page (`_maxPointWidth`): `_pageWidth(i) = _pointWidths[i] ×
+_fitWidthScale × _layoutZoom` where `_fitWidthScale = _viewWidth /
+_maxPointWidth` (px/pt at the fit-width baseline). The widest page fills
+the viewport at layout-zoom 1; narrower pages lay out proportionally
+narrower and centered (`_pageLeft`), so the relayout tier stays
+width-bounded and ALL the existing pan/zoom/clamp/scrollbar machinery —
+which operates on the viewport-wide LIST with pages centered inside, never
+on the page width — is untouched. The FractionallySizedBox factor went
+from the uniform `_layoutZoom` to per-page `_widthFactor(i) =
+(_pointWidths[i]/_maxPointWidth) × _layoutZoom`; every coordinate site that
+read `_viewWidth × _layoutZoom` / `(_viewWidth − pageWidth)/2` now uses
+`_pageWidth(i)` / `_pageLeft(i)` (capture/restore, showRect,
+visibleFraction, pagePointAt, pageGeometry, toPageView, crossPageGhost).
+Public `PdfViewerController.zoom` is now logical px per point — 1.0 is
+actual size (100%), independent of the viewport, the conventional
+Acrobat/Preview "100%" — via `_displayScale = _currentZoom ×
+_fitWidthScale`; `setZoom`/`resetZoom` take px/pt (`resetZoom` → actual
+size) and convert to the internal fit-width multiple before
+`_zoomTo`. The internal tiers are unchanged: `_layoutZoom ∈ [minZoom, 1]`
+and the transform (> 1) still work in fit-width multiples, so min/maxZoom,
+double-tap, pinch/wheel math, and `PdfViewport.zoom` (the persisted
+snapshot) stay fit-width multiples — capture/restore round-trips
+untouched. Consequence: there are two "home" states — double-tap toggles
+fit-width ↔ 2.5× (conventional mobile zoom-to-fit), the toolbar reset/100%
+goes to actual size; a page wider than the viewport at 100% pans
+horizontally through the existing transform tier (per Ben's choice: open
+fit-to-page, scroll H at 100%). Tests: zoom assertions across
+pdf_viewer/editing_ipad/editing_sidebar/editing_chrome/editing_text_edit/
+pdf_scrollbar/viewport_test rebased from the old "1 = fit-width" to px/pt
+(fit-width = viewportWidth/pageWidthPt; e.g. 800/612 for the standard
+612pt fixture), and chrome/handle/h-scrollbar checks divide the px/pt zoom
+back to the transform scale they actually track.
