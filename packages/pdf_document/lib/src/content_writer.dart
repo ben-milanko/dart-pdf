@@ -98,7 +98,7 @@ bool _isRtlRune(int rune) =>
 /// Builds content-stream bytes operator by operator.
 ///
 /// Coordinates are PDF user space. Output is plain Latin-1 text; characters
-/// outside Latin-1 in shown text degrade to '?' (appearance streams are
+/// outside Latin-1 in shown text degrade to a space (appearance streams are
 /// authored with WinAnsi-encoded base-14 fonts for now).
 class ContentWriter {
   final StringBuffer _buffer = StringBuffer();
@@ -221,7 +221,7 @@ class ContentWriter {
         case 0x0D:
           _buffer.write('\\r');
         default:
-          _buffer.writeCharCode(code <= 0xFF ? code : 0x3F /* ? */);
+          _buffer.writeCharCode(code <= 0xFF ? code : 0x20 /* space */);
       }
     }
     _buffer.write(') Tj\n');

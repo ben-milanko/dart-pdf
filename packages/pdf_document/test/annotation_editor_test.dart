@@ -248,6 +248,23 @@ void main() {
     expect(content, isNot(contains('(abc 123 def) Tj')));
   });
 
+  test('free text degrades non-Latin-1 characters to spaces, not question marks',
+      () {
+    const text = 'hello مرحبا world';
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 300, 640),
+          text,
+        ));
+    final ft = doc.page(0).annotations.single;
+    // /Contents preserves the original text via UTF-16BE
+    expect(ft.contents, text);
+    // the appearance stream replaces non-Latin-1 chars with spaces
+    final content = appearanceText(doc, ft);
+    expect(content, contains('(hello       world) Tj'));
+    expect(content, isNot(contains('?')));
+  });
+
   test('free text takes a standard serif or monospace font', () {
     final doc = roundTrip((e) {
       e.addFreeText(0, const PdfRect(72, 600, 240, 680), 'Serif text',
