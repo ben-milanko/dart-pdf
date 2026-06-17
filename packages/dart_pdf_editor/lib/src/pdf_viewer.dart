@@ -4140,6 +4140,19 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
   }
 
   @override
+  void resolve(GestureDisposition disposition) {
+    // Block the superclass (ScaleGestureRecognizer) from accepting for a
+    // single touch — its _advanceStateMachine calls resolve(accepted) once
+    // past pan slop, which would steal the gesture from InteractiveViewer's
+    // pan handler and then swallow it (onUpdate returns early for
+    // pointerCount < 2). Only accept when two fingers are down (pinch).
+    if (disposition == GestureDisposition.accepted && _pointers.length < 2) {
+      return;
+    }
+    super.resolve(disposition);
+  }
+
+  @override
   void handleEvent(PointerEvent event) {
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       _pointers.remove(event.pointer);

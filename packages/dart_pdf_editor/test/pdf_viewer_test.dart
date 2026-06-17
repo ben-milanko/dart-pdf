@@ -984,6 +984,100 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   });
 
+  testWidgets('touch horizontal pan moves the viewport within bounds',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final controller = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    editing.tool = PdfEditTool.select;
+    await tester.pump();
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    final regionBefore = controller.visiblePageRegion(0)!;
+
+    // touch drag to the LEFT → the content slides left, visible region
+    // moves right (still within bounds, no edge hit)
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.touch);
+    var stamp = Duration.zero;
+    for (var i = 0; i < 6; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(const Offset(-30, 0), timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    final regionDragged = controller.visiblePageRegion(0)!;
+    expect(regionDragged.left, greaterThan(regionBefore.left),
+        reason: 'horizontal touch pan should move the viewport');
+
+    await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('touch horizontal pan works without editing controller',
+      (tester) async {
+    final controller = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: PdfDocument.open(buildMultiPagePdf(3)),
+          controller: controller,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    final regionBefore = controller.visiblePageRegion(0)!;
+
+    // touch drag to the LEFT → viewport moves right
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.touch);
+    var stamp = Duration.zero;
+    for (var i = 0; i < 6; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(const Offset(-30, 0), timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    final regionDragged = controller.visiblePageRegion(0)!;
+    expect(regionDragged.left, greaterThan(regionBefore.left),
+        reason: 'horizontal touch pan should work in reader mode');
+
+    await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
   testWidgets('controller survives the host recreating the viewer element',
       (tester) async {
     final controller = PdfViewerController();
