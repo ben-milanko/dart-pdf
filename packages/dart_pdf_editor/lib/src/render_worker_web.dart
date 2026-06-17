@@ -14,6 +14,21 @@ import 'render_worker.dart';
 // disabled) — and show up in a user-captured trace when something declines.
 void _wlog(String m) => PdfPerfLog.log('webworker $m');
 
+/// How long to wait for the worker to post `'ready'` (it opens the document
+/// first) before giving up and rendering every page locally. The document
+/// bytes are transferred to the worker at start; on some hosts — notably a
+/// dart2wasm main app driving a dart2js worker — a large transfer or open can
+/// silently never complete, and with no bound the viewer would spin forever on
+/// such a document while small ones (a fast transfer/open) work. Generous: a
+/// healthy worker opens even a large CAD document in well under a second, so
+/// this only fires when the worker is genuinely wedged.
+Duration pdfRenderWorkerReadyTimeout = const Duration(seconds: 12);
+
+/// How long to wait for a single [PdfRenderWorker.record] reply before treating
+/// the worker as unresponsive and falling back to local rendering. The worst
+/// real page records in well under a second, so this only fires on a hang.
+Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 20);
+
 /// Web backend: a dedicated [web.Worker] that opens its own [PdfDocument] from
 /// the bytes once and records pages on request, posting the serialized command
 /// buffer back over `postMessage` (the document and result buffers travel as
@@ -60,6 +75,16 @@ class _WebRenderWorker implements PdfRenderWorker {
       ..setProperty('kind'.toJS, 'init'.toJS)
       ..setProperty('bytes'.toJS, jsBuffer);
     worker.postMessage(init, <JSAny>[jsBuffer].toJS);
+
+    // Watchdog: if the worker never reports 'ready' (e.g. the transferred
+    // document never arrived/opened on this host), give up and render locally
+    // rather than spin forever. Cancelled the moment 'ready' lands.
+    _readyWatchdog = Timer(pdfRenderWorkerReadyTimeout, () {
+      if (_ready || _disposed || _failed) return;
+      _wlog('ready watchdog fired after ${pdfRenderWorkerReadyTimeout.inSeconds}'
+          's — worker never opened the document; falling back to local');
+      _fail();
+    });
   }
 
   _WebRenderWorker.disabled() : _failed = true;
@@ -74,6 +99,11 @@ class _WebRenderWorker implements PdfRenderWorker {
   // The worker posts 'ready' once it has opened the document; records sent
   // before then would race the open, so they queue until it lands.
   bool _ready = false;
+  // Watchdogs that bound how long we wait on a silent worker before degrading
+  // to local rendering: one for the initial 'ready', one for each in-flight
+  // record's reply. See pdfRenderWorkerReadyTimeout / pdfRenderWorkerRecordTimeout.
+  Timer? _readyWatchdog;
+  Timer? _recordWatchdog;
 
   @override
   bool get isActive => !_disposed && !_failed;
@@ -84,6 +114,8 @@ class _WebRenderWorker implements PdfRenderWorker {
     final kind = (data.getProperty('kind'.toJS) as JSString?)?.toDart;
     if (kind == 'ready') {
       _wlog('ready (worker opened the document)');
+      _readyWatchdog?.cancel();
+      _readyWatchdog = null;
       _ready = true;
       _pump();
       return;
@@ -93,6 +125,8 @@ class _WebRenderWorker implements PdfRenderWorker {
     final request = _inFlight;
     if (request == null || request.id != id) return; // stale (disposed)
     _inFlight = null;
+    _recordWatchdog?.cancel();
+    _recordWatchdog = null;
     final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
     final bytes = buffer?.toDart.asUint8List();
     final err = (data.getProperty('error'.toJS) as JSString?)?.toDart;
@@ -169,6 +203,21 @@ class _WebRenderWorker implements PdfRenderWorker {
       ..setProperty('page'.toJS, request.pageIndex.toJS)
       ..setProperty('annotations'.toJS, request.annotations.toJS);
     worker.postMessage(message);
+
+    // Watchdog: a record that never comes back wedges the single in-flight slot
+    // (and so every queued page) forever. Bound it — on a miss, treat the
+    // worker as unresponsive and degrade to local rendering for this and all
+    // subsequent pages.
+    _recordWatchdog?.cancel();
+    final inFlightId = request.id;
+    _recordWatchdog = Timer(pdfRenderWorkerRecordTimeout, () {
+      if (_disposed || _failed) return;
+      if (_inFlight?.id != inFlightId) return; // already answered
+      _wlog('record watchdog fired for page=${request.pageIndex} after '
+          '${pdfRenderWorkerRecordTimeout.inSeconds}s — worker unresponsive; '
+          'falling back to local');
+      _fail();
+    });
   }
 
   @override
@@ -195,6 +244,7 @@ class _WebRenderWorker implements PdfRenderWorker {
   void _fail() {
     if (_failed) return;
     _failed = true;
+    _cancelWatchdogs();
     _failPending();
   }
 
@@ -202,9 +252,17 @@ class _WebRenderWorker implements PdfRenderWorker {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _cancelWatchdogs();
     _worker?.terminate();
     _worker = null;
     _failPending();
+  }
+
+  void _cancelWatchdogs() {
+    _readyWatchdog?.cancel();
+    _readyWatchdog = null;
+    _recordWatchdog?.cancel();
+    _recordWatchdog = null;
   }
 
   /// Resolves every in-flight and queued request to null (local render) — on

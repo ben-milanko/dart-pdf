@@ -33,18 +33,28 @@ void runPdfRenderWorker() {
   PdfDocument? document;
   PdfCancellationToken? activeToken;
 
-  scope.onmessage = ((web.MessageEvent event) async {
+  // The handler MUST stay synchronous (return void): `.toJS` cannot convert a
+  // Future-returning function, so an `async` handler fails `dart compile js`
+  // ("invalid types in its function signature: Future<Null> Function(...)").
+  // The cancellable record below therefore runs in a fire-and-forget inner
+  // async closure instead of making the handler itself async.
+  scope.onmessage = ((web.MessageEvent event) {
     final data = event.data as JSObject?;
     if (data == null) return;
     final kind = (data.getProperty('kind'.toJS) as JSString?)?.toDart;
 
     if (kind == 'init') {
-      final buffer = data.getProperty('bytes'.toJS) as JSArrayBuffer;
+      // Extract AND open inside the try: a malformed transfer (the cast or the
+      // ArrayBuffer view can throw on some hosts) must NOT skip the 'ready'
+      // reply below, or the main thread waits on it forever. A null document
+      // simply declines every page to a local render.
       try {
+        final buffer = data.getProperty('bytes'.toJS) as JSArrayBuffer;
         document = PdfDocument.open(buffer.toDart.asUint8List());
       } catch (_) {
-        document = null; // a broken document fails every page → local renders
+        document = null; // bad transfer / broken document → local renders
       }
+      // ALWAYS reply ready, even on failure, so the client never hangs.
       scope.postMessage(JSObject()..setProperty('kind'.toJS, 'ready'.toJS));
       return;
     }
@@ -62,34 +72,41 @@ void runPdfRenderWorker() {
 
     final token = PdfCancellationToken();
     activeToken = token;
-    Uint8List? out;
-    String? error;
-    final doc = document;
-    try {
-      if (doc != null) {
-        out = await _recordPageAsync(doc, page, annotations, token);
+    // Fire-and-forget: launch the cancellable walk without awaiting it here, so
+    // the message handler returns void (see the note above) while a subsequent
+    // 'cancel' message can still flip token.cancelled mid-walk.
+    () async {
+      Uint8List? out;
+      String? error;
+      final doc = document;
+      try {
+        if (doc != null) {
+          out = await _recordPageAsync(doc, page, annotations, token);
+        }
+      } on PdfCancelledException {
+        out = null;
+      } catch (e, st) {
+        out = null; // any failure → the main thread renders this page locally
+        error = '$e\n$st';
       }
-    } on PdfCancelledException {
-      out = null;
-    } catch (e, st) {
-      out = null; // any failure → the main thread renders this page locally
-      error = '$e\n$st';
-    }
-    activeToken = null;
+      // Only clear the active token if it is still ours — a newer record may
+      // have replaced it while this one was running.
+      if (identical(activeToken, token)) activeToken = null;
 
-    final result = JSObject()
-      ..setProperty('kind'.toJS, 'result'.toJS)
-      ..setProperty('id'.toJS, id.toJS);
-    if (out == null) {
-      result.setProperty('buffer'.toJS, null);
-      if (error != null) result.setProperty('error'.toJS, error.toJS);
-      scope.postMessage(result);
-    } else {
-      // Copy to an exact-length buffer, then transfer it (zero-copy).
-      final jsBuffer = Uint8List.fromList(out).buffer.toJS;
-      result.setProperty('buffer'.toJS, jsBuffer);
-      scope.postMessage(result, <JSAny>[jsBuffer].toJS);
-    }
+      final result = JSObject()
+        ..setProperty('kind'.toJS, 'result'.toJS)
+        ..setProperty('id'.toJS, id.toJS);
+      if (out == null) {
+        result.setProperty('buffer'.toJS, null);
+        if (error != null) result.setProperty('error'.toJS, error.toJS);
+        scope.postMessage(result);
+      } else {
+        // Copy to an exact-length buffer, then transfer it (zero-copy).
+        final jsBuffer = Uint8List.fromList(out).buffer.toJS;
+        result.setProperty('buffer'.toJS, jsBuffer);
+        scope.postMessage(result, <JSAny>[jsBuffer].toJS);
+      }
+    }();
   }).toJS;
 }
 
