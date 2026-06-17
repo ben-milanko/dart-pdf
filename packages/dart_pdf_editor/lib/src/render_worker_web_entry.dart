@@ -26,11 +26,14 @@ import 'package:web/web.dart' as web;
 /// - `{kind:'record', id, page, annotations}` → replies `{kind:'result', id,
 ///   buffer:ArrayBuffer|null}` (null = the page can't be offloaded; the main
 ///   thread renders it locally).
+/// - `{kind:'cancel'}` → sets the active cancellation token so the in-flight
+///   interpreter walk abandons early, replying with `buffer:null`.
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
+  PdfCancellationToken? activeToken;
 
-  scope.onmessage = ((web.MessageEvent event) {
+  scope.onmessage = ((web.MessageEvent event) async {
     final data = event.data as JSObject?;
     if (data == null) return;
     final kind = (data.getProperty('kind'.toJS) as JSString?)?.toDart;
@@ -46,24 +49,33 @@ void runPdfRenderWorker() {
       return;
     }
 
+    if (kind == 'cancel') {
+      activeToken?.cancelled = true;
+      return;
+    }
+
     if (kind != 'record') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
     final annotations =
         (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
 
+    final token = PdfCancellationToken();
+    activeToken = token;
     Uint8List? out;
-    // A page can decline (image it can't serialize) or throw; surface the reason
-    // to the main thread so it lands in a PdfPerfLog trace instead of being lost
-    // in the worker's own console.
     String? error;
     final doc = document;
     try {
-      if (doc != null) out = _recordPage(doc, page, annotations);
+      if (doc != null) {
+        out = await _recordPageAsync(doc, page, annotations, token);
+      }
+    } on PdfCancelledException {
+      out = null;
     } catch (e, st) {
       out = null; // any failure → the main thread renders this page locally
       error = '$e\n$st';
     }
+    activeToken = null;
 
     final result = JSObject()
       ..setProperty('kind'.toJS, 'result'.toJS)
@@ -81,19 +93,20 @@ void runPdfRenderWorker() {
   }).toJS;
 }
 
-/// Records one page into a serialized command buffer, or null when it is out of
-/// range or draws an image that cannot be serialized (an inline image — see
-/// [serializeCommands]). Image XObjects serialize via [document]'s `cos`.
+/// Records one page into a serialized command buffer, yielding periodically
+/// so the cancel message handler can fire and set [token.cancelled].
 ///
 /// Duplicated from the isolate backend deliberately: that file imports
 /// `dart:isolate`, which does not exist on web, so this entry can't share it.
-Uint8List? _recordPage(PdfDocument document, int pageIndex, bool annotations) {
+Future<Uint8List?> _recordPageAsync(PdfDocument document, int pageIndex,
+    bool annotations, PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
   final ops = ContentStreamParser.parse(page.contentBytes());
   final recorder = RecordingPdfDevice();
-  final interpreter = PdfInterpreter(cos: document.cos, device: recorder)
-    ..drawPageOperations(page, ops);
+  final interpreter =
+      PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
+  await interpreter.drawPageOperationsAsync(page, ops);
   if (annotations) interpreter.drawAnnotations(page);
   // Decode the page's images in the worker too: the buffer carries
   // premultiplied RGBA so the main thread only runs the engine codec. On web

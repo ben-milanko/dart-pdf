@@ -1098,4 +1098,93 @@ void main() {
       expect(device.clips, hasLength(1));
     });
   });
+
+  group('cancellation', () {
+    Uint8List heavyPdf() {
+      final ops = StringBuffer();
+      for (var i = 0; i < 200; i++) {
+        ops.write('q 1 0 0 1 ${i % 10} ${i % 10} cm '
+            '0 0 m 10 0 l 10 10 l 0 10 l h f Q\n');
+      }
+      final content = ops.toString();
+      final objects = <String>[
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+            '/Contents 4 0 R >>',
+        '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+      ];
+      final buffer = StringBuffer('%PDF-1.4\n');
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      final xref = buffer.length;
+      buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+      for (final o in offsets) {
+        buffer.write('${o.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      buffer.write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
+          'startxref\n$xref\n%%EOF\n');
+      return Uint8List.fromList(buffer.toString().codeUnits);
+    }
+
+    test('a cancelled token stops the walk early', () {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final ops = ContentStreamParser.parse(page.contentBytes());
+
+      final token = PdfCancellationToken()..cancelled = true;
+      final device = RecordingDevice();
+      final interp = PdfInterpreter(
+          cos: doc.cos, device: device, cancellation: token);
+      expect(
+        () => interp.drawPageOperations(page, ops),
+        throwsA(isA<PdfCancelledException>()),
+      );
+      final cancelledCalls = device.calls.length;
+
+      final fullDevice = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: fullDevice)
+          .drawPageOperations(page, ops);
+      expect(cancelledCalls, lessThan(fullDevice.calls.length),
+          reason: 'a cancelled walk stops before the full walk');
+    });
+
+    test('drawPageOperationsAsync yields and checks the token', () async {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final ops = ContentStreamParser.parse(page.contentBytes());
+
+      final token = PdfCancellationToken();
+      final device = RecordingDevice();
+      final interp = PdfInterpreter(
+          cos: doc.cos, device: device, cancellation: token);
+
+      // Cancel after a micro-task so the async walk picks it up at a yield.
+      Future<void>.delayed(Duration.zero).then((_) {
+        token.cancelled = true;
+      });
+
+      await expectLater(
+        interp.drawPageOperationsAsync(page, ops),
+        throwsA(isA<PdfCancelledException>()),
+      );
+    });
+
+    test('no token means no cancellation overhead', () {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final ops = ContentStreamParser.parse(page.contentBytes());
+
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawPageOperations(page, ops);
+      expect(device.calls, isNotEmpty);
+    });
+  });
 }

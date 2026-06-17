@@ -110,11 +110,12 @@ class PdfPagePreviewCache extends ChangeNotifier {
   Future<void> renderPreview(int index, PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      PdfRenderWorker? worker}) async {
+      PdfRenderWorker? worker,
+      int? rotation}) async {
     if (_disposed || isFresh(index, page)) return;
     try {
       final sw = Stopwatch()..start();
-      final size = PdfPageRenderer.pageSize(page);
+      final size = PdfPageRenderer.pageSize(page, rotation: rotation);
       final ratio = _ratioFor(size);
       // priority 1: prefetch yields to any on-screen page the worker owes
       final commands = worker != null && worker.isActive
@@ -124,7 +125,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final ui.Image image;
       if (commands != null) {
         final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
-            pageColor: pageColor);
+            pageColor: pageColor, rotation: rotation);
         try {
           image = await PdfPageRenderer.rasterize(picture, size, ratio);
         } finally {
@@ -135,7 +136,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
             pixelRatio: ratio,
             pageColor: pageColor,
             annotations: annotations,
-            recorded: true);
+            recorded: true,
+            rotation: rotation);
       }
       sw.stop();
       PdfPerfLog.log('prerender page=$index '
@@ -151,10 +153,10 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// population as pages render on screen (raster-thread work only, no
   /// second interpreter walk). The picture stays owned by the caller.
   Future<void> putFromPicture(int index, PdfPage page,
-      ui.Picture picture) async {
+      ui.Picture picture, {int? rotation}) async {
     if (_disposed || isFresh(index, page)) return;
     try {
-      final size = PdfPageRenderer.pageSize(page);
+      final size = PdfPageRenderer.pageSize(page, rotation: rotation);
       final image =
           await PdfPageRenderer.rasterize(picture, size, _ratioFor(size));
       _store(index, page, image);

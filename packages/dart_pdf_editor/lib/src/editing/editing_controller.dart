@@ -1284,6 +1284,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
+          pageRotation: _page(pageIndex).rotation,
           author: author),
       pages: [pageIndex]);
 
@@ -1294,6 +1295,7 @@ class PdfEditingController extends ChangeNotifier {
               fillColor: _rgbOf(preferences.textFillColor),
               borderColor: _rgbOf(preferences.textBorderColor),
               borderWidth: preferences.strokeWidth,
+              pageRotation: _page(pageIndex).rotation,
               author: author),
           pages: [pageIndex]);
 
@@ -1324,6 +1326,7 @@ class PdfEditingController extends ChangeNotifier {
             fillColor: _rgbOf(preferences.textFillColor),
             borderColor: _rgbOf(preferences.textBorderColor),
             borderWidth: preferences.strokeWidth,
+            pageRotation: _page(pageIndex).rotation,
             author: author),
         pages: [pageIndex]);
     if (!pasted) return false;
@@ -2660,7 +2663,8 @@ class PdfEditingController extends ChangeNotifier {
             strokeWidth: strokeWidth,
             opacity: opacity,
             dashPattern:
-                lineStyle == null ? null : (lineStyle.dashArray(width),));
+                lineStyle == null ? null : (lineStyle.dashArray(width),),
+            pageRotation: _page(page).rotation);
       }
     }, pages: [for (final (page, _) in targets) page]);
   }
@@ -2779,7 +2783,9 @@ class PdfEditingController extends ChangeNotifier {
     }
     apply(
         (e) => e.resizeAnnotation(_selected.last.$1, annotation, to,
-            flipX: flipX, flipY: flipY),
+            flipX: flipX,
+            flipY: flipY,
+            pageRotation: _page(_selected.last.$1).rotation),
         pages: [_selected.last.$1]);
   }
 
@@ -2827,7 +2833,9 @@ class PdfEditingController extends ChangeNotifier {
     }
     apply(
         (e) => e.resizeAnnotationLocal(_selected.last.$1, annotation, localTo,
-            flipX: flipX, flipY: flipY),
+            flipX: flipX,
+            flipY: flipY,
+            pageRotation: _page(_selected.last.$1).rotation),
         pages: [_selected.last.$1]);
   }
 
@@ -3155,6 +3163,7 @@ class PdfEditingController extends ChangeNotifier {
               borderColor: border != null ? border.$1 : parsed?.borderColor,
               borderWidth: borderWidth ??
                   ((parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1),
+              pageRotation: _page(page).rotation,
               author: by,
               name: nm);
         case 'Stamp':
@@ -3200,6 +3209,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: (parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1,
+          pageRotation: _page(page).rotation,
           author: by,
           name: nm);
       if (rotation != 0) {

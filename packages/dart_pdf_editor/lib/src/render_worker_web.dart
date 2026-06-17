@@ -127,10 +127,32 @@ class _WebRenderWorker implements PdfRenderWorker {
   /// and ready. Lower [priority] wins; ties break by submission order, so a
   /// freshly-requested visible page (priority 0) preempts pending prefetch —
   /// the same one-in-flight reordering the isolate backend uses.
+  ///
+  /// When a higher-priority request is queued while a lower-priority one is
+  /// in flight, the in-flight job is cancelled via a `{kind:'cancel'}`
+  /// message so the worker abandons it mid-walk and serves the urgent request
+  /// next.
   void _pump() {
-    if (_disposed || !_ready || _inFlight != null || _queue.isEmpty) return;
+    if (_disposed || !_ready || _queue.isEmpty) return;
     final worker = _worker;
     if (worker == null) return;
+
+    if (_inFlight != null) {
+      var bestQueued = 0;
+      for (var i = 1; i < _queue.length; i++) {
+        final a = _queue[i], b = _queue[bestQueued];
+        if (a.priority < b.priority ||
+            (a.priority == b.priority && a.seq < b.seq)) {
+          bestQueued = i;
+        }
+      }
+      if (_queue[bestQueued].priority < _inFlight!.priority) {
+        worker.postMessage(
+            JSObject()..setProperty('kind'.toJS, 'cancel'.toJS));
+      }
+      return;
+    }
+
     var best = 0;
     for (var i = 1; i < _queue.length; i++) {
       final a = _queue[i], b = _queue[best];
@@ -152,10 +174,10 @@ class _WebRenderWorker implements PdfRenderWorker {
   @override
   void cancel(int pageIndex, {int priority = 0}) {
     if (_disposed || _failed) return;
-    // Drop matching QUEUED requests (the in-flight one can't be preempted) so
-    // the worker's next slot serves a page the user is still looking at. The
-    // cancelled record() futures resolve null; the abandoning caller ignores
-    // them. Mirrors the isolate backend.
+    // Drop matching QUEUED requests so the worker's next slot serves a page
+    // the user is still looking at. The cancelled record() futures resolve
+    // null; the abandoning caller ignores them. In-flight preemption is
+    // handled by _pump when a higher-priority request arrives.
     var dropped = 0;
     _queue.removeWhere((request) {
       if (request.pageIndex != pageIndex || request.priority != priority) {
