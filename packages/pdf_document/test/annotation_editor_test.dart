@@ -276,6 +276,52 @@ void main() {
     expect(f1['ToUnicode'], isNotNull);
   });
 
+  test('rich free text encodes non-Latin runs via Type0 Unicode font', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(72, 600, 400, 660),
+          [
+            const PdfFreeTextRun('Hello '),
+            const PdfFreeTextRun('مرحبا', color: 0xFF0000),
+          ],
+        ));
+    final ft = doc.page(0).annotations.single;
+    expect(ft.contents, 'Hello مرحبا');
+    final content = appearanceText(doc, ft);
+    // the Arabic run uses hex-encoded glyph IDs
+    expect(content, isNot(contains('?')));
+    expect(content, contains('Tj'));
+    // the font resource dict should contain F1 (Type0 for Arabic run)
+    final form = ft.normalAppearance!;
+    final res =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
+    expect((f1['Subtype'] as CosName).value, 'Type0');
+  });
+
+  test('resizing a non-Latin free text regenerates with Unicode font', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addFreeText(0, const PdfRect(72, 600, 300, 640), 'مرحبا');
+    // round-trip so the annotation is parseable from the saved bytes
+    final saved = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(saved);
+    final annot = saved.page(0).annotations.single;
+    editor2.resizeAnnotation(0, annot, const PdfRect(72, 580, 350, 640));
+    final doc = PdfDocument.open(editor2.save());
+    final ft = doc.page(0).annotations.single;
+    expect(ft.rect, const PdfRect(72, 580, 350, 640));
+    final content = appearanceText(doc, ft);
+    expect(content, isNot(contains('?')));
+    expect(content, contains('Tj'));
+    final form = ft.normalAppearance!;
+    final res =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
+    expect((f1['Subtype'] as CosName).value, 'Type0');
+  });
+
   test('free text takes a standard serif or monospace font', () {
     final doc = roundTrip((e) {
       e.addFreeText(0, const PdfRect(72, 600, 240, 680), 'Serif text',

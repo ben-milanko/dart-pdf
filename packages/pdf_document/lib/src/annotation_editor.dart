@@ -1340,17 +1340,30 @@ extension PdfAnnotationEditing on PdfEditor {
     ];
     if (nonEmpty.isEmpty) return;
     final text = nonEmpty.map((run) => run.text).join();
-    for (final font in _richFonts(nonEmpty)) {
+    // Wrap standard fonts in PdfUnicodeFont for runs with non-Latin text.
+    final effective = [
+      for (final run in nonEmpty)
+        if (run.font is PdfStandardFont &&
+            run.text.codeUnits.any((c) => c > 0xFF))
+          PdfFreeTextRun(run.text,
+              font: PdfUnicodeFont(run.font as PdfStandardFont)
+                ..resetUsage(),
+              fontSize: run.fontSize,
+              color: run.color)
+        else
+          run,
+    ];
+    for (final font in _richFonts(effective)) {
       if (font is PdfEmbeddedFont) font.resetUsage();
     }
-    final w = _freeTextRichContent(rect, nonEmpty,
+    final w = _freeTextRichContent(rect, effective,
         textDirection: textDirection,
         fillColor: fillColor,
         borderColor: borderColor,
         borderWidth: borderWidth,
         pageRotation: pageRotation);
 
-    final first = nonEmpty.first;
+    final first = effective.first;
     String rgb(int c) =>
         ContentWriter.rgbComponents(c).map(ContentWriter.fmt).join(' ');
     final da = '${rgb(first.color)} rg '
@@ -1367,7 +1380,8 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w, resources: _resources(font: _richFontResources(nonEmpty))),
+      _form(rect, w,
+          resources: _resources(font: _richFontResources(effective))),
       name: name,
     );
   }
