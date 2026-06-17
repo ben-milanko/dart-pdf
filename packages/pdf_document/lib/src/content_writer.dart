@@ -126,6 +126,28 @@ class ContentWriter {
       ..write('\n');
   }
 
+  /// Begins a /Span marked-content sequence with /ActualText so that text
+  /// extraction returns [logicalText] instead of whatever the Tj/TJ operands
+  /// encode. Used to preserve logical character order for RTL text that is
+  /// visually reordered in the content stream.
+  void beginActualText(String logicalText) {
+    final hex = StringBuffer();
+    hex.write('FEFF'); // UTF-16BE BOM
+    for (final rune in logicalText.runes) {
+      if (rune <= 0xFFFF) {
+        hex.write(rune.toRadixString(16).padLeft(4, '0'));
+      } else {
+        final hi = 0xD800 + ((rune - 0x10000) >> 10);
+        final lo = 0xDC00 + ((rune - 0x10000) & 0x3FF);
+        hex.write(hi.toRadixString(16).padLeft(4, '0'));
+        hex.write(lo.toRadixString(16).padLeft(4, '0'));
+      }
+    }
+    _buffer.write('/Span << /ActualText <${hex.toString()}> >> BDC\n');
+  }
+
+  void endMarkedContent() => _buffer.write('EMC\n');
+
   /// References /[name] in the resources' /ExtGState dictionary.
   void extGState(String name) => _buffer.write('/$name gs\n');
 

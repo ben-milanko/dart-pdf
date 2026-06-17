@@ -276,6 +276,21 @@ void main() {
     expect(f1['ToUnicode'], isNotNull);
   });
 
+  test('RTL free text carries ActualText for correct copy after flatten', () {
+    const text = 'ـب';
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 200, 640),
+          text,
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    // visual reordering reverses pure-RTL text in the content stream;
+    // /ActualText preserves the logical order for text extraction
+    expect(content, contains('ActualText'));
+    expect(content, contains('BDC'));
+    expect(content, contains('EMC'));
+  });
+
   test('rich free text encodes non-Latin runs via Type0 Unicode font', () {
     final doc = roundTrip((e) => e.addFreeTextRich(
           0,

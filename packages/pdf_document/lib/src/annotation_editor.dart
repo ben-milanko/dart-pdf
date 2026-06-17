@@ -1447,7 +1447,10 @@ extension PdfAnnotationEditing on PdfEditor {
       if (font is PdfEmbeddedFont) {
         w.showGlyphHex(font.encodeHex(visual));
       } else if (font is PdfUnicodeFont) {
+        final needsActual = visual != line;
+        if (needsActual) w.beginActualText(line);
         w.showGlyphHex(font.encodeHex(visual));
+        if (needsActual) w.endMarkedContent();
       } else {
         w.showText(visual);
       }
@@ -1531,7 +1534,10 @@ extension PdfAnnotationEditing on PdfEditor {
         if (style.font is PdfEmbeddedFont) {
           w.showGlyphHex((style.font as PdfEmbeddedFont).encodeHex(visual));
         } else if (style.font is PdfUnicodeFont) {
+          final needsActual = visual != run.text;
+          if (needsActual) w.beginActualText(run.text);
           w.showGlyphHex((style.font as PdfUnicodeFont).encodeHex(visual));
+          if (needsActual) w.endMarkedContent();
         } else {
           w.showText(visual);
         }
