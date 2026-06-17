@@ -86,6 +86,15 @@ void main() {
   if (kIsWeb) {
     pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
   }
+  // Diagnostics: turn on the in-app performance trace (interpret times,
+  // render-hold/scheduler transitions, prerender warms, and frame JANK,
+  // streamed to the browser console) without a rebuild by opening the demo
+  // with `?perf=1`. Off otherwise — it's verbose and adds per-line print
+  // overhead. `Uri.base` carries the page URL on web (and is harmless on
+  // native, where there's no query string), so no `package:web` import.
+  if (Uri.base.queryParameters['perf'] == '1') {
+    PdfPerfLog.enabled = true;
+  }
   runApp(const ViewerApp());
 }
 
