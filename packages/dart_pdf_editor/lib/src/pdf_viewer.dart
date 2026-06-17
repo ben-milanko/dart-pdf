@@ -765,10 +765,22 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// clamping and zoom-window spillover.
   late final AnimationController _touchFlinger =
       AnimationController.unbounded(vsync: this)
-        ..addListener(_onTouchFlingTick);
+        ..addListener(_onTouchFlingTick)
+        ..addStatusListener(_onTouchFlingStatus);
   FrictionSimulation? _flingSimX;
   FrictionSimulation? _flingSimY;
   Offset _flingLast = Offset.zero;
+
+  /// Springs the horizontal translation back to bounds after a touch
+  /// gesture overshoots the content edge (rubber-band release).
+  late final AnimationController _hBounceController =
+      AnimationController.unbounded(vsync: this)
+        ..addListener(_onHorizontalBounceTick);
+
+  /// True while a touch-originated gesture is driving horizontal pan
+  /// (overlay viewport pan, touch fling, pinch). Enables rubber-band
+  /// over-scroll instead of hard clamping.
+  bool _touchPanning = false;
 
   final _focusNode = FocusNode(debugLabel: 'PdfViewer');
 
@@ -927,6 +939,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final scroll = event as PointerScrollEvent;
       _panFlinger.stop();
       _touchFlinger.stop();
+      _hBounceController.stop();
+      _touchPanning = false;
       if (_zoomModifierDown) {
         // not while a draw tool is armed — on the web a trackpad pinch
         // surfaces as a modifier-flagged wheel event, and zooming would
@@ -981,7 +995,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         ..translateByDouble(focal.dx, focal.dy, 0, 1)
         ..scaleByDouble(factor, factor, factor, 1)
         ..translateByDouble(-focal.dx, -focal.dy, 0, 1);
-      _transform.value = _clampedTransform(matrix);
+      _transform.value = _touchPanning
+          ? _clampedTransformVerticalOnly(matrix)
+          : _clampedTransform(matrix);
     }
   }
 
@@ -1335,6 +1351,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _zoomAnimator.dispose();
     _panFlinger.dispose();
     _touchFlinger.dispose();
+    _hBounceController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -2272,6 +2289,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _lastPointerLocal = event.localPosition;
     _panFlinger.stop();
     _touchFlinger.stop();
+    _hBounceController.stop();
+    _touchPanning = false;
     if (event.kind == PointerDeviceKind.touch) {
       widget.editing?.noteTouchInput();
     }
@@ -2662,6 +2681,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _scrollbarPanBy(-delta.dx);
   }
 
+  /// Grab panning from a touch gesture — allows rubber-band over-scroll
+  /// on the horizontal axis so the edge doesn't snap.
+  void _touchGrabPanBy(Offset delta) {
+    _touchPanning = true;
+    _hBounceController.stop();
+    _scrollbarScrollBy(-delta.dy);
+    _scrollbarPanBy(-delta.dx);
+  }
+
   /// Scroll-fling deceleration: velocity decays by e^-2 per second
   /// (≈ UIScrollView's "normal" rate), so a fling travels about half a
   /// second's worth of its release velocity. The tolerance stops the
@@ -2673,8 +2701,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// (list-space px/s — drag velocity trackers run on local positions,
   /// so the zoom transform is already divided out).
   void _flingViewport(Velocity velocity) {
+    _touchPanning = true;
+    _hBounceController.stop();
     final v = velocity.pixelsPerSecond;
-    if (v.distance < kMinFlingVelocity) return;
+    if (v.distance < kMinFlingVelocity) {
+      _springBackHorizontal();
+      return;
+    }
     _flingSimX =
         FrictionSimulation(_flingFriction, 0, v.dx, tolerance: _flingTolerance);
     _flingSimY =
@@ -2684,8 +2717,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// One frame of the touch fling: both axes' friction deltas go through
-  /// [_grabPanBy] — the scroll extents absorb what they can, the rest
-  /// pans the zoom window, both clamped at the document's edges.
+  /// the touch pan path — the scroll extents absorb what they can, the
+  /// rest pans the zoom window with rubber-band over-scroll.
   void _onTouchFlingTick() {
     final simX = _flingSimX, simY = _flingSimY;
     if (simX == null || simY == null) return;
@@ -2696,7 +2729,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final scrollBefore = _scroll.hasClients ? _scroll.position.pixels : 0.0;
     final txBefore = _transform.value.storage[12];
     final tyBefore = _transform.value.storage[13];
-    _grabPanBy(delta);
+    _touchGrabPanBy(delta);
     // every absorber pinned at its edge: the rest of the simulation
     // would tick for nothing
     if (delta != Offset.zero &&
@@ -2704,6 +2737,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         _transform.value.storage[12] == txBefore &&
         _transform.value.storage[13] == tyBefore) {
       _touchFlinger.stop();
+    }
+  }
+
+  void _onTouchFlingStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed ||
+        status == AnimationStatus.dismissed) {
+      _springBackHorizontal();
     }
   }
 
@@ -2866,6 +2906,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _onPinchStart(ScaleStartDetails details) {
     _panFlinger.stop();
     _touchFlinger.stop();
+    _hBounceController.stop();
+    _touchPanning = true;
     _pinchScale = 1;
   }
 
@@ -2881,15 +2923,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // focalPointDelta is local to the receiver, which sits inside the
     // zoom transform — list-space pixels, exactly what _grabPanBy takes
     final delta = details.focalPointDelta;
-    if (delta != Offset.zero) _grabPanBy(delta);
+    if (delta != Offset.zero) _touchGrabPanBy(delta);
   }
 
-  void _onPinchEnd(ScaleEndDetails details) => _settleZoomGesture();
+  void _onPinchEnd(ScaleEndDetails details) {
+    _settleZoomGesture();
+    _springBackHorizontal();
+  }
 
   /// Settles a finished zoom gesture into the layout/transform regime
   /// split: total zoom at or below 1 lives in the page layout, above 1
   /// in the InteractiveViewer transform. Shared by touch pinches and
-  /// InteractiveViewer's own gesture end.
+  /// InteractiveViewer's own gesture end. Vertical translation is always
+  /// hard-clamped; horizontal is left untouched so [_springBackHorizontal]
+  /// can animate it back smoothly.
   void _settleZoomGesture() {
     final total = _transform.value.getMaxScaleOnAxis() * _layoutZoom;
     if (total <= 1) {
@@ -2903,9 +2950,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         ..translateByDouble(_viewWidth / 2, _viewHeight / 2, 0, 1)
         ..scaleByDouble(fold, fold, fold, 1)
         ..translateByDouble(-_viewWidth / 2, -_viewHeight / 2, 0, 1);
-      _transform.value = _clampedTransform(matrix);
+      _transform.value = _clampedTransformVerticalOnly(matrix);
     } else {
-      _transform.value = _clampedTransform(_transform.value.clone());
+      _transform.value =
+          _clampedTransformVerticalOnly(_transform.value.clone());
     }
     final zoomed = _transform.value.getMaxScaleOnAxis() > 1.01;
     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
@@ -2925,6 +2973,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _onTrackpadPanZoomStart(PointerPanZoomStartEvent event) {
     _panFlinger.stop();
     _touchFlinger.stop();
+    _hBounceController.stop();
+    _touchPanning = false;
     _trackpadScale = 1;
     _trackpadIntent = _TrackpadIntent.undecided;
     _trackpadPendingPan = Offset.zero;
@@ -3038,6 +3088,79 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     return matrix;
   }
 
+  /// Like [_clampedTransform] but only clamps the vertical axis, leaving
+  /// the horizontal translation untouched (for rubber-band over-scroll).
+  Matrix4 _clampedTransformVerticalOnly(Matrix4 matrix) {
+    final scale = matrix.getMaxScaleOnAxis();
+    if (scale <= 1.01) return Matrix4.identity();
+    final s = matrix.storage;
+    s[13] = s[13].clamp(_viewHeight * (1 - scale), 0.0);
+    return matrix;
+  }
+
+  /// Rubber-band damping for the horizontal translation: within bounds
+  /// returns [tx] unchanged; past the edge, excess motion is dampened
+  /// logarithmically (the further past the edge, the harder it resists).
+  /// Matches the iOS UIScrollView rubber-band feel.
+  double _rubberBandClamp(double tx, double scale) {
+    final min = _viewWidth * (1 - scale);
+    if (tx >= min && tx <= 0) return tx;
+    final limit = _viewWidth * 0.5;
+    if (tx > 0) {
+      return limit * (1 - math.exp(-tx / limit));
+    } else {
+      final overshoot = min - tx;
+      return min - limit * (1 - math.exp(-overshoot / limit));
+    }
+  }
+
+  /// How far the horizontal translation is past the content bounds (> 0
+  /// means overshot), or 0 when within bounds.
+  double _horizontalOverscroll() {
+    final matrix = _transform.value;
+    final scale = matrix.getMaxScaleOnAxis();
+    if (scale <= 1.01) return 0;
+    final tx = matrix.storage[12];
+    final min = _viewWidth * (1 - scale);
+    if (tx > 0) return tx;
+    if (tx < min) return tx - min;
+    return 0;
+  }
+
+  /// If the horizontal translation is past the content edge, animates it
+  /// back with a spring. Called when a touch gesture ends.
+  void _springBackHorizontal() {
+    _touchPanning = false;
+    final overscroll = _horizontalOverscroll();
+    if (overscroll.abs() < 0.5) {
+      // close enough — just clamp
+      if (overscroll != 0) {
+        _transform.value = _clampedTransform(_transform.value.clone());
+      }
+      return;
+    }
+    final tx = _transform.value.storage[12];
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final min = _viewWidth * (1 - scale);
+    final target = tx > 0 ? 0.0 : min;
+    _hBounceController.animateWith(
+        SpringSimulation(_hBounceSpring, tx, target, 0));
+  }
+
+  static const SpringDescription _hBounceSpring =
+      SpringDescription(mass: 1, stiffness: 400, damping: 30);
+
+  void _onHorizontalBounceTick() {
+    final matrix = _transform.value.clone();
+    final scale = matrix.getMaxScaleOnAxis();
+    if (scale <= 1.01) {
+      _hBounceController.stop();
+      return;
+    }
+    matrix.storage[12] = _hBounceController.value;
+    _transform.value = _clampedTransformVerticalOnly(matrix);
+  }
+
   /// Scrollbar motion, in list-space pixels: the scroll extents absorb
   /// what they can and the leftover pans the zoom window — the same
   /// spillover as trackpad scrolling, so the document's very ends stay
@@ -3053,18 +3176,28 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final scale = matrix.getMaxScaleOnAxis();
     if (scale > 1.01) {
       matrix.storage[13] += (clamped - target) * scale;
-      _transform.value = _clampedTransform(matrix);
+      _transform.value = _touchPanning
+          ? _clampedTransformVerticalOnly(matrix)
+          : _clampedTransform(matrix);
     }
   }
 
   /// Horizontal scrollbar motion, in list-space pixels. Sideways overflow
   /// exists only inside the zoom window, so this pans the transform.
+  /// During a touch gesture ([_touchPanning]) the clamp is replaced by
+  /// rubber-band resistance so the edge doesn't snap.
   void _scrollbarPanBy(double delta) {
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return;
-    matrix.storage[12] -= delta * scale;
-    _transform.value = _clampedTransform(matrix);
+    final tx = matrix.storage[12] - delta * scale;
+    if (_touchPanning) {
+      matrix.storage[12] = _rubberBandClamp(tx, scale);
+      _transform.value = _clampedTransformVerticalOnly(matrix);
+    } else {
+      matrix.storage[12] = tx;
+      _transform.value = _clampedTransform(matrix);
+    }
   }
 
   @override
@@ -3183,7 +3316,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 formImagePicker: widget.formImagePicker,
                 imagePicker: widget.imagePicker,
                 onSnapshot: widget.onSnapshot,
-                onPanViewport: _grabPanBy,
+                onPanViewport: _touchGrabPanBy,
                 onPanViewportEnd: _flingViewport,
                 onShowAnnotationMenu: _showSelectionMenu,
                 onShowFormFieldMenu: _showFormFieldMenu,
@@ -3302,7 +3435,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                   // touch pinches that InteractiveViewer still wins run on
                   // the transform mid-gesture; settle them the same way as
                   // the eager pinch recognizer's
-                  onInteractionEnd: (_) => _settleZoomGesture(),
+                  onInteractionEnd: (_) {
+                    _settleZoomGesture();
+                    _springBackHorizontal();
+                  },
                   // all trackpad pan-zoom gestures are handled here, never by
                   // the list's drag recognizer (whose iOS-style velocity
                   // tracker asserts on macOS trackpad timestamps) nor by

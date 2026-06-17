@@ -8,6 +8,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextExtractor;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
@@ -919,6 +920,68 @@ void main() {
 
     // only page 0 got an overlay
     expect(find.byType(TextButton), findsOneWidget);
+  });
+
+  testWidgets('touch horizontal pan rubber-bands and springs back',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final controller = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    editing.tool = PdfEditTool.select;
+    await tester.pump();
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    // at 2.5×, the visible region is ~40% of the page width centered:
+    // left ≈ 0.3, right ≈ 0.7
+    final regionBefore = controller.visiblePageRegion(0)!;
+
+    // touch drag to the right → the content slides right, visible region
+    // slides left, pushing past the left edge (left < 0 in rubber-band)
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.touch);
+    var stamp = Duration.zero;
+    for (var i = 0; i < 12; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(const Offset(60, 0), timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // mid-drag: the visible region moved past the left edge
+    final regionMidDrag = controller.visiblePageRegion(0)!;
+    expect(regionMidDrag.left, lessThan(regionBefore.left),
+        reason: 'the content should have shifted');
+
+    await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
+    await tester.pump();
+
+    // the spring-back animation brings the page back to the edge
+    await tester.pumpAndSettle(const Duration(milliseconds: 500));
+    final regionAfter = controller.visiblePageRegion(0)!;
+    expect(regionAfter.left, moreOrLessEquals(0, epsilon: 0.02));
+
+    // clean up double-tap timer
+    await tester.pump(const Duration(milliseconds: 400));
   });
 
   testWidgets('controller survives the host recreating the viewer element',
