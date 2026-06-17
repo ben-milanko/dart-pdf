@@ -1260,11 +1260,13 @@ extension PdfAnnotationEditing on PdfEditor {
     double borderWidth = 1,
     String? author,
     String? name,
+    int pageRotation = 0,
   }) {
     // The font accumulates which glyphs the appearance shows (so an
     // embedded font's /W and /ToUnicode cover exactly them); start fresh.
     if (font is PdfEmbeddedFont) font.resetUsage();
-    final w = _freeTextContent(rect, text,
+    final (bbox, matrix) = _rotatedFormSetup(rect, pageRotation);
+    final w = _freeTextContent(bbox, text,
         fontSize: fontSize,
         font: font,
         textDirection: textDirection,
@@ -1291,7 +1293,7 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w, resources: _resources(font: fontResource)),
+      _form(bbox, w, resources: _resources(font: fontResource), matrix: matrix),
       name: name,
     );
   }
@@ -1313,6 +1315,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double borderWidth = 1,
     String? author,
     String? name,
+    int pageRotation = 0,
   }) {
     final nonEmpty = [
       for (final run in runs)
@@ -1323,7 +1326,8 @@ extension PdfAnnotationEditing on PdfEditor {
     for (final font in _richFonts(nonEmpty)) {
       if (font is PdfEmbeddedFont) font.resetUsage();
     }
-    final w = _freeTextRichContent(rect, nonEmpty,
+    final (bbox, matrix) = _rotatedFormSetup(rect, pageRotation);
+    final w = _freeTextRichContent(bbox, nonEmpty,
         textDirection: textDirection,
         fillColor: fillColor,
         borderColor: borderColor,
@@ -1346,7 +1350,9 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w, resources: _resources(font: _richFontResources(nonEmpty))),
+      _form(bbox, w,
+          resources: _resources(font: _richFontResources(nonEmpty)),
+          matrix: matrix),
       name: name,
     );
   }
@@ -1608,14 +1614,17 @@ extension PdfAnnotationEditing on PdfEditor {
     double opacity = 1,
     String? author,
     String? name,
+    int pageRotation = 0,
   }) {
-    final (w, gs) = _stampContent(rect, text, color, opacity);
+    final (bbox, matrix) = _rotatedFormSetup(rect, pageRotation);
+    final (w, gs) = _stampContent(bbox, text, color, opacity);
     _addAnnotation(
       pageIndex,
       _markupDict('Stamp', rect, color, text, author),
-      _form(rect, w,
+      _form(bbox, w,
           resources: _resources(
-              extGState: gs, font: _helvetica(bold: true, name: 'HelvB'))),
+              extGState: gs, font: _helvetica(bold: true, name: 'HelvB')),
+          matrix: matrix),
       name: name,
     );
   }
@@ -1666,13 +1675,17 @@ extension PdfAnnotationEditing on PdfEditor {
     double opacity = 1,
     String? author,
     String? name,
+    int pageRotation = 0,
   }) {
-    final (w, gs) = _checkMarkContent(rect, color, opacity);
+    final (bbox, matrix) = _rotatedFormSetup(rect, pageRotation);
+    final (w, gs) = _checkMarkContent(bbox, color, opacity);
     _addAnnotation(
       pageIndex,
       _markupDict('Stamp', rect, color, null, author)
         ..['Name'] = const CosName('Check'),
-      _form(rect, w, resources: gs == null ? null : _resources(extGState: gs)),
+      _form(bbox, w,
+          resources: gs == null ? null : _resources(extGState: gs),
+          matrix: matrix),
       name: name,
     );
   }
@@ -1715,25 +1728,26 @@ extension PdfAnnotationEditing on PdfEditor {
     double opacity = 1,
     String? author,
     String? name,
+    int pageRotation = 0,
   }) {
     final imageRef = _updater
         .addObject(image.toXObject((smask) => _updater.addObject(smask)));
+    final (bbox, matrix) = _rotatedFormSetup(rect, pageRotation);
     final w = ContentWriter();
     final gs = _alphaState(opacity);
     if (gs != null) w.extGState('GS0');
-    // a unit image (1×1 at the origin) mapped onto the rect in page space —
-    // the form's BBox is the rect, so the §12.5.5 fit is the identity
     w
       ..save()
-      ..concatMatrix(rect.width, 0, 0, rect.height, rect.left, rect.bottom)
+      ..concatMatrix(bbox.width, 0, 0, bbox.height, bbox.left, bbox.bottom)
       ..drawXObject('Img0')
       ..restore();
     _addAnnotation(
       pageIndex,
       _markupDict('Stamp', rect, 0xC03030, null, author),
-      _form(rect, w,
+      _form(bbox, w,
           resources: _resources(
-              extGState: gs, xObject: CosDictionary({'Img0': imageRef}))),
+              extGState: gs, xObject: CosDictionary({'Img0': imageRef})),
+          matrix: matrix),
       name: name,
     );
   }
@@ -2068,7 +2082,9 @@ extension PdfAnnotationEditing on PdfEditor {
         to.height <= 0) {
       throw ArgumentError('resizeAnnotation needs non-degenerate rects');
     }
-    final regenerated = _regenerateResizedAppearance(annotation, to);
+    final pageRotation = document.page(pageIndex).rotation;
+    final regenerated = _regenerateResizedAppearance(annotation, to,
+        pageRotation: pageRotation);
     if (!regenerated && (flipX || flipY)) {
       final form = annotation.normalAppearance;
       if (form != null) _flipFormArtwork(form, flipX: flipX, flipY: flipY);
@@ -2241,7 +2257,9 @@ extension PdfAnnotationEditing on PdfEditor {
       return;
     }
 
-    if (_regenerateResizedAppearance(annotation, localTo)) {
+    final pageRotation = document.page(pageIndex).rotation;
+    if (_regenerateResizedAppearance(annotation, localTo,
+        pageRotation: pageRotation)) {
       // a fresh, unrotated appearance at the local box — re-applying the
       // resting angle is then plain rotation (which also sets /Rect).
       // PdfAnnotation parses /Rect once, so rotate a re-wrapped view of
@@ -2326,7 +2344,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// [opacity], when given, replaces the alpha the old appearance
   /// carried — [restyleAnnotation]'s opacity path.
   bool _regenerateResizedAppearance(PdfAnnotation annotation, PdfRect to,
-      {double? opacity}) {
+      {double? opacity, int pageRotation = 0}) {
     final form = annotation.normalAppearance;
     if (form == null) return false;
     final dict = annotation.dict;
@@ -2348,7 +2366,8 @@ extension PdfAnnotationEditing on PdfEditor {
         if (style == null) return false;
         final font = PdfStandardFont.tryFromName(style.fontName);
         if (font == null) return false;
-        final w = _freeTextContent(to, annotation.contents ?? '',
+        final (bbox, matrix) = _rotatedFormSetup(to, pageRotation);
+        final w = _freeTextContent(bbox, annotation.contents ?? '',
             fontSize: style.fontSize,
             font: font,
             textDirection: _annotationTextDirection(annotation),
@@ -2356,8 +2375,9 @@ extension PdfAnnotationEditing on PdfEditor {
             fillColor: style.fillColor,
             borderColor: style.borderColor,
             borderWidth: style.borderWidth);
-        _replaceAppearance(dict, form, to, w,
-            resources: _resources(font: _standardFont(font)));
+        _replaceAppearance(dict, form, bbox, w,
+            resources: _resources(font: _standardFont(font)),
+            matrix: matrix);
         return true;
       case 'Line':
         final line = annotation.line;
@@ -2581,11 +2601,12 @@ extension PdfAnnotationEditing on PdfEditor {
     // re-wrap: /Rect and style entries are parsed at construction or
     // lazily, and the dict just changed under the caller's instance
     final annotation = PdfAnnotation.fromDict(document, dict);
+    final pageRotation = document.page(pageIndex).rotation;
     final quad = annotation.appearanceQuad;
     final theta = quad == null ? 0.0 : _quadRotation(quad);
     if (theta == 0) {
       if (!_regenerateStyledAppearance(annotation, annotation.rect,
-          opacity: opacity)) {
+          opacity: opacity, pageRotation: pageRotation)) {
         return false;
       }
       _markAnnotationChanged(pageIndex, dict);
@@ -2600,7 +2621,8 @@ extension PdfAnnotationEditing on PdfEditor {
     final h = math.sqrt((ulx - llx) * (ulx - llx) + (uly - lly) * (uly - lly));
     if (w < 1e-9 || h < 1e-9) return false;
     final local = PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
-    if (!_regenerateStyledAppearance(annotation, local, opacity: opacity)) {
+    if (!_regenerateStyledAppearance(annotation, local,
+        opacity: opacity, pageRotation: pageRotation)) {
       return false;
     }
     dict['Rect'] = _rectArray(local);
@@ -2613,7 +2635,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// subtypes (stamps, notes), which regenerate at their current size
   /// but never resize this way.
   bool _regenerateStyledAppearance(PdfAnnotation annotation, PdfRect to,
-      {double? opacity}) {
+      {double? opacity, int pageRotation = 0}) {
     switch (annotation.subtype) {
       case 'Square' ||
             'Circle' ||
@@ -2621,16 +2643,19 @@ extension PdfAnnotationEditing on PdfEditor {
             'Line' ||
             'PolyLine' ||
             'Polygon':
-        return _regenerateResizedAppearance(annotation, to, opacity: opacity);
+        return _regenerateResizedAppearance(annotation, to,
+            opacity: opacity, pageRotation: pageRotation);
       case 'Stamp':
         final form = annotation.normalAppearance;
         if (form == null) return false;
         final color = annotation.color ?? 0xC03030;
-        final (w, gs) = _stampContent(to, annotation.contents ?? '', color,
+        final (bbox, matrix) = _rotatedFormSetup(to, pageRotation);
+        final (w, gs) = _stampContent(bbox, annotation.contents ?? '', color,
             opacity ?? _appearanceOpacity(form));
-        _replaceAppearance(annotation.dict, form, to, w,
+        _replaceAppearance(annotation.dict, form, bbox, w,
             resources: _resources(
-                extGState: gs, font: _helvetica(bold: true, name: 'HelvB')));
+                extGState: gs, font: _helvetica(bold: true, name: 'HelvB')),
+            matrix: matrix);
         return true;
       case 'Text':
         final form = annotation.normalAppearance;
@@ -2674,8 +2699,8 @@ extension PdfAnnotationEditing on PdfEditor {
   /// the same apply resolve it.
   void _replaceAppearance(
       CosDictionary annot, CosStream oldForm, PdfRect bbox, ContentWriter w,
-      {CosDictionary? resources}) {
-    final form = _form(bbox, w, resources: resources);
+      {CosDictionary? resources, List<double>? matrix}) {
+    final form = _form(bbox, w, resources: resources, matrix: matrix);
     final cos = document.cos;
     final ref = cos.referenceTo(oldForm);
     if (ref != null) {
@@ -3263,7 +3288,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// annotation rect in page coordinates — the §12.5.5 algorithm then maps
   /// it onto /Rect as the identity.
   CosStream _form(PdfRect bbox, ContentWriter content,
-      {CosDictionary? resources}) {
+      {CosDictionary? resources, List<double>? matrix}) {
     final bytes = content.takeBytes();
     final dict = CosDictionary({
       'Type': const CosName('XObject'),
@@ -3272,7 +3297,50 @@ extension PdfAnnotationEditing on PdfEditor {
       'Length': CosInteger(bytes.length),
     });
     if (resources != null) dict['Resources'] = resources;
+    if (matrix != null) {
+      dict['Matrix'] = CosArray([for (final v in matrix) CosReal(v)]);
+    }
     return CosStream(dict, bytes);
+  }
+
+  /// For orientation-sensitive annotations on rotated pages, returns the
+  /// visual BBox (dimensions as the user sees them, origin at 0) and the
+  /// /Matrix that maps from visual space back to the page-space /Rect.
+  ///
+  /// On a /Rotate 0 page the BBox equals [rect] and no /Matrix is needed.
+  /// On a rotated page, width/height swap (90°/270°) and the content is
+  /// counter-rotated so text appears horizontal on screen.
+  (PdfRect bbox, List<double>? matrix) _rotatedFormSetup(
+      PdfRect rect, int pageRotation) {
+    if (pageRotation == 0) return (rect, null);
+    final swap = pageRotation == 90 || pageRotation == 270;
+    final vw = swap ? rect.height : rect.width;
+    final vh = swap ? rect.width : rect.height;
+    final bbox = PdfRect(0, 0, vw, vh);
+    final lcx = vw / 2, lcy = vh / 2;
+    final pcx = (rect.left + rect.right) / 2;
+    final pcy = (rect.bottom + rect.top) / 2;
+    // Counter-rotate by -pageRotation: cos/sin of the negated angle.
+    final double ca, sa;
+    switch (pageRotation) {
+      case 90:
+        ca = 0;
+        sa = -1;
+      case 180:
+        ca = -1;
+        sa = 0;
+      case 270:
+        ca = 0;
+        sa = 1;
+      default:
+        return (rect, null);
+    }
+    // PDF matrix [a b c d e f]: x'=ax+cy+e, y'=bx+dy+f
+    // Rotation -R about local center, then translate to page-space center.
+    final a = ca, b = sa, c = -sa, d = ca;
+    final e = pcx - a * lcx - c * lcy;
+    final f = pcy - b * lcx - d * lcy;
+    return (bbox, [a, b, c, d, e, f]);
   }
 
   /// Stages [annot] (with its appearance [form]) and links it into the

@@ -1284,7 +1284,8 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
-          author: author),
+          author: author,
+          pageRotation: _document.page(pageIndex).rotation),
       pages: [pageIndex]);
 
   void addFreeTextRich(
@@ -1294,7 +1295,8 @@ class PdfEditingController extends ChangeNotifier {
               fillColor: _rgbOf(preferences.textFillColor),
               borderColor: _rgbOf(preferences.textBorderColor),
               borderWidth: preferences.strokeWidth,
-              author: author),
+              author: author,
+              pageRotation: _document.page(pageIndex).rotation),
           pages: [pageIndex]);
 
   /// Places [text] as a default-sized FreeText annotation centered on
@@ -1324,7 +1326,8 @@ class PdfEditingController extends ChangeNotifier {
             fillColor: _rgbOf(preferences.textFillColor),
             borderColor: _rgbOf(preferences.textBorderColor),
             borderWidth: preferences.strokeWidth,
-            author: author),
+            author: author,
+            pageRotation: _document.page(pageIndex).rotation),
         pages: [pageIndex]);
     if (!pasted) return false;
     tool = PdfEditTool.select;
@@ -1341,7 +1344,8 @@ class PdfEditingController extends ChangeNotifier {
           (e) => e.addStamp(pageIndex, rect, text,
               color: color ?? _colorValue,
               opacity: preferences.opacity,
-              author: author),
+              author: author,
+              pageRotation: _document.page(pageIndex).rotation),
           pages: [pageIndex]);
 
   /// Places [imageBytes] (PNG or JPEG) centered on ([x], [y]) in page
@@ -1368,7 +1372,9 @@ class PdfEditingController extends ChangeNotifier {
     return apply(
         (e) => e.addImageStamp(pageIndex,
             PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
-            opacity: preferences.opacity, author: author),
+            opacity: preferences.opacity,
+            author: author,
+            pageRotation: _document.page(pageIndex).rotation),
         pages: [pageIndex]);
   }
 
@@ -1395,7 +1401,9 @@ class PdfEditingController extends ChangeNotifier {
     return apply(
         (e) => e.addImageStamp(pageIndex,
             PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
-            opacity: preferences.opacity, author: author),
+            opacity: preferences.opacity,
+            author: author,
+            pageRotation: _document.page(pageIndex).rotation),
         pages: [pageIndex]);
   }
 
@@ -1543,7 +1551,8 @@ class PdfEditingController extends ChangeNotifier {
             PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), text,
             color: color ?? _colorValue,
             opacity: preferences.opacity,
-            author: author),
+            author: author,
+            pageRotation: _document.page(pageIndex).rotation),
         pages: [pageIndex]);
   }
 
@@ -1569,7 +1578,10 @@ class PdfEditingController extends ChangeNotifier {
     return apply(
         (e) => e.addCheckMark(pageIndex,
             PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
-            color: _colorValue, opacity: preferences.opacity, author: author),
+            color: _colorValue,
+            opacity: preferences.opacity,
+            author: author,
+            pageRotation: _document.page(pageIndex).rotation),
         pages: [pageIndex]);
   }
 
@@ -3156,10 +3168,14 @@ class PdfEditingController extends ChangeNotifier {
               borderWidth: borderWidth ??
                   ((parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1),
               author: by,
-              name: nm);
+              name: nm,
+              pageRotation: _document.page(page).rotation);
         case 'Stamp':
           e.addStamp(page, rect, text,
-              color: color ?? 0xC03030, author: by, name: nm);
+              color: color ?? 0xC03030,
+              author: by,
+              name: nm,
+              pageRotation: _document.page(page).rotation);
         default: // 'Text'
           e.addNote(page, rect.left, rect.top, text,
               color: color ?? 0xFFD100, author: by, name: nm);
@@ -3201,7 +3217,8 @@ class PdfEditingController extends ChangeNotifier {
           borderColor: parsed?.borderColor,
           borderWidth: (parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1,
           author: by,
-          name: nm);
+          name: nm,
+          pageRotation: _document.page(page).rotation);
       if (rotation != 0) {
         final added = _document.page(page).annotations;
         if (added.isNotEmpty) {

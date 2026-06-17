@@ -1124,4 +1124,64 @@ void main() {
         roundTrip((e) => e.addHighlight(0, const [PdfRect(72, 700, 200, 712)]));
     expect(doc.page(0).annotations.single.flags & 4, 4);
   });
+
+  test('FreeText on a rotated page carries a counter-rotation /Matrix', () {
+    final base = PdfDocument.open(buildClassicPdf());
+    final editor = PdfEditor(base)
+      ..rotatePages([0], 90)
+      ..addFreeText(0, const PdfRect(100, 100, 250, 140), 'rotated text',
+          pageRotation: 90);
+    final doc = PdfDocument.open(editor.save());
+    final annot = doc.page(0).annotations.single;
+    expect(annot.subtype, 'FreeText');
+    expect(annot.rect, const PdfRect(100, 100, 250, 140));
+
+    final form = annot.normalAppearance!;
+    final matrixArray =
+        doc.cos.resolve(form.dictionary['Matrix']) as CosArray;
+    expect(matrixArray, isNotNull, reason: '/Matrix must be present');
+    expect(matrixArray.length, 6);
+
+    final bboxArray =
+        doc.cos.resolve(form.dictionary['BBox']) as CosArray;
+    double bboxNum(int i) {
+      final v = doc.cos.resolve(bboxArray[i]);
+      return v is CosInteger ? v.value.toDouble() : (v as CosReal).value;
+    }
+    final bboxW = (bboxNum(2) - bboxNum(0)).abs();
+    final bboxH = (bboxNum(3) - bboxNum(1)).abs();
+    // For 90° rotation, visual dimensions are swapped: the BBox width
+    // should be the rect height and vice versa.
+    expect(bboxW, closeTo(40, 0.1)); // rect height
+    expect(bboxH, closeTo(150, 0.1)); // rect width
+
+    // The appearance text should use the visual bbox dimensions for layout.
+    final content = appearanceText(doc, annot);
+    expect(content, contains('Tj'), reason: 'text draws in the appearance');
+  });
+
+  test('Stamp on a rotated page carries a counter-rotation /Matrix', () {
+    final base = PdfDocument.open(buildClassicPdf());
+    final editor = PdfEditor(base)
+      ..rotatePages([0], 270)
+      ..addStamp(0, const PdfRect(100, 100, 250, 140), 'APPROVED',
+          pageRotation: 270);
+    final doc = PdfDocument.open(editor.save());
+    final annot = doc.page(0).annotations.single;
+    expect(annot.subtype, 'Stamp');
+
+    final form = annot.normalAppearance!;
+    final matrixArray =
+        doc.cos.resolve(form.dictionary['Matrix']) as CosArray;
+    expect(matrixArray, isNotNull, reason: '/Matrix must be present');
+  });
+
+  test('annotations on an unrotated page have no /Matrix', () {
+    final doc = roundTrip((e) => e.addFreeText(
+        0, const PdfRect(100, 100, 250, 140), 'no rotation'));
+    final form = doc.page(0).annotations.single.normalAppearance!;
+    final matrix = form.dictionary['Matrix'];
+    expect(matrix == null || matrix is CosNull, isTrue,
+        reason: 'no /Matrix on an unrotated page');
+  });
 }
