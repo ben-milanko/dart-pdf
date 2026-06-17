@@ -1443,16 +1443,18 @@ extension PdfAnnotationEditing on PdfEditor {
           : vr.left + pad;
       final y = firstY - i * fontSize * 1.2;
       w.textAt(x - prevX, y - prevY);
-      final visual = pdfVisualText(line, resolvedDirection);
-      if (font is PdfEmbeddedFont) {
-        w.showGlyphHex(font.encodeHex(visual));
-      } else if (font is PdfUnicodeFont) {
-        final needsActual = visual != line;
-        if (needsActual) w.beginActualText(line);
-        w.showGlyphHex(font.encodeHex(visual));
-        if (needsActual) w.endMarkedContent();
+      if (font is PdfUnicodeFont) {
+        // Logical order: our renderer's TextPainter applies BiDi and shaping
+        // correctly; visual-order text would double-reverse and break Arabic
+        // contextual forms.
+        w.showGlyphHex(font.encodeHex(line));
       } else {
-        w.showText(visual);
+        final visual = pdfVisualText(line, resolvedDirection);
+        if (font is PdfEmbeddedFont) {
+          w.showGlyphHex(font.encodeHex(visual));
+        } else {
+          w.showText(visual);
+        }
       }
       prevX = x;
       prevY = y;
@@ -1525,19 +1527,18 @@ extension PdfAnnotationEditing on PdfEditor {
           : line.runs;
       for (final run in drawRuns) {
         final style = run.style;
-        final visual = pdfVisualText(run.text, resolvedDirection);
+        final isUnicode = style.font is PdfUnicodeFont;
+        final visual =
+            isUnicode ? run.text : pdfVisualText(run.text, resolvedDirection);
         final width = style.font.measure(visual, style.fontSize);
         w
           ..font(style.font.resourceName, style.fontSize)
           ..fillColor(style.color)
           ..textAt(x - prevX, y - prevY);
-        if (style.font is PdfEmbeddedFont) {
+        if (isUnicode) {
+          w.showGlyphHex((style.font as PdfUnicodeFont).encodeHex(run.text));
+        } else if (style.font is PdfEmbeddedFont) {
           w.showGlyphHex((style.font as PdfEmbeddedFont).encodeHex(visual));
-        } else if (style.font is PdfUnicodeFont) {
-          final needsActual = visual != run.text;
-          if (needsActual) w.beginActualText(run.text);
-          w.showGlyphHex((style.font as PdfUnicodeFont).encodeHex(visual));
-          if (needsActual) w.endMarkedContent();
         } else {
           w.showText(visual);
         }

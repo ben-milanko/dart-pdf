@@ -276,7 +276,7 @@ void main() {
     expect(f1['ToUnicode'], isNotNull);
   });
 
-  test('RTL free text carries ActualText for correct copy after flatten', () {
+  test('RTL free text uses logical order (no visual reversal)', () {
     const text = 'ـب';
     final doc = roundTrip((e) => e.addFreeText(
           0,
@@ -284,16 +284,19 @@ void main() {
           text,
         ));
     final content = appearanceText(doc, doc.page(0).annotations.single);
-    // visual reordering reverses pure-RTL text in the content stream;
-    // /ActualText preserves the logical order for text extraction
-    expect(content, contains('ActualText'));
-    expect(content, contains('BDC'));
-    expect(content, contains('EMC'));
+    // PdfUnicodeFont keeps text in logical order so the renderer's BiDi
+    // and shaping produce correct Arabic contextual forms; no ActualText
+    // is needed because the ToUnicode CMap already maps to logical Unicode.
+    expect(content, isNot(contains('ActualText')));
+    // hex-encoded logical-order text
+    final hex = text.runes
+        .map((r) => r.toRadixString(16).padLeft(4, '0'))
+        .join();
+    expect(content, contains(hex));
   });
 
-  test('ActualText encodes supplementary-plane characters as surrogate pairs',
-      () {
-    // U+1F600 (😀) is above U+FFFF, so ActualText needs UTF-16 surrogates
+  test('supplementary-plane characters encode correctly', () {
+    // U+1F600 (😀) is above U+FFFF
     const text = '😀مرحبا';
     final doc = roundTrip((e) => e.addFreeText(
           0,
@@ -301,10 +304,9 @@ void main() {
           text,
         ));
     final content = appearanceText(doc, doc.page(0).annotations.single);
-    expect(content, contains('ActualText'));
-    // surrogate pair for U+1F600: d83d de00 (lowercase hex)
-    expect(content, contains('d83d'));
-    expect(content, contains('de00'));
+    // no ActualText needed — logical order in content stream
+    expect(content, isNot(contains('ActualText')));
+    expect(content, contains('Tj'));
   });
 
   test('rich free text encodes non-Latin runs via Type0 Unicode font', () {
@@ -331,7 +333,7 @@ void main() {
     expect((f1['Subtype'] as CosName).value, 'Type0');
   });
 
-  test('rich free text with RTL runs carries ActualText', () {
+  test('rich free text with RTL runs uses logical order', () {
     final doc = roundTrip((e) => e.addFreeTextRich(
           0,
           const PdfRect(72, 600, 400, 660),
@@ -341,9 +343,8 @@ void main() {
           ],
         ));
     final content = appearanceText(doc, doc.page(0).annotations.single);
-    expect(content, contains('ActualText'));
-    expect(content, contains('BDC'));
-    expect(content, contains('EMC'));
+    // PdfUnicodeFont: logical order, no ActualText
+    expect(content, isNot(contains('ActualText')));
   });
 
   test('resizing a non-Latin free text regenerates with Unicode font', () {
