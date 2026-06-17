@@ -128,6 +128,7 @@ class PdfViewerController extends ChangeNotifier {
 
   int _pageCount = 0;
   int _currentPage = 0;
+  int _viewRotation = 0;
   bool _searching = false;
   String _query = '';
   PdfSearchOptions _searchOptions = const PdfSearchOptions();
@@ -139,6 +140,22 @@ class PdfViewerController extends ChangeNotifier {
 
   /// Zero-based index of the page nearest the viewport center.
   int get currentPage => _currentPage;
+
+  /// Extra rotation applied to every page's display, in degrees (0, 90,
+  /// 180, or 270). This is a view-only setting — the document's /Rotate
+  /// entries are untouched.
+  int get viewRotation => _viewRotation;
+
+  /// Rotates the view by [degrees] (typically ±90). The effective display
+  /// rotation of each page becomes `(page.rotation + viewRotation) % 360`.
+  /// This is a view-only transform — the PDF is not modified.
+  void rotateView(int degrees) {
+    final next = ((_viewRotation + degrees) % 360 + 360) % 360;
+    if (next == _viewRotation) return;
+    _viewRotation = next;
+    _state?._onViewRotationChanged();
+    notifyListeners();
+  }
 
   /// Current zoom factor (1 = fit width; below 1 the pages lay out
   /// smaller so more of the document is on screen).
@@ -1090,7 +1107,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
             annotations: widget.showAnnotations,
-            worker: widget.renderWorker);
+            worker: widget.renderWorker,
+            rotation: _effectiveRotation(index));
         if (!mounted) return;
         // breathe between interpreter walks — each is a synchronous
         // UI-thread chunk, so give the engine a frame for input and
@@ -1260,9 +1278,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// page count, same aspect ratio per page.
   bool _sameGeometryAs(PdfDocument document) {
     if (document.pageCount != _pages.length) return false;
+    final vr = _controller._viewRotation;
     for (var i = 0; i < _pages.length; i++) {
       final page = document.page(i);
-      final aspect = _isRotatedSideways(page)
+      final r = ((page.rotation + vr) % 360 + 360) % 360;
+      final sideways = r == 90 || r == 270;
+      final aspect = sideways
           ? page.cropBox.width / math.max(1e-6, page.cropBox.height)
           : page.cropBox.height / math.max(1e-6, page.cropBox.width);
       if ((aspect - _aspects[i]).abs() > 1e-6) return false;
@@ -1270,25 +1291,46 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     return true;
   }
 
+  /// The effective display rotation of page [index], combining the page's
+  /// own /Rotate and the controller's view rotation.
+  int _effectiveRotation(int index) =>
+      ((_pages[index].rotation + _controller._viewRotation) % 360 + 360) % 360;
+
   void _loadPages() {
     final count = widget.document.pageCount;
     _pages = [for (var i = 0; i < count; i++) widget.document.page(i)];
-    _aspects = [
-      for (final page in _pages)
-        _isRotatedSideways(page)
-            ? page.cropBox.width / math.max(1e-6, page.cropBox.height)
-            : page.cropBox.height / math.max(1e-6, page.cropBox.width),
-    ];
+    _recomputeAspects();
     _controller._setPageCount(count);
   }
 
+  void _recomputeAspects() {
+    _aspects = [
+      for (var i = 0; i < _pages.length; i++)
+        _isEffectivelySideways(i)
+            ? _pages[i].cropBox.width / math.max(1e-6, _pages[i].cropBox.height)
+            : _pages[i].cropBox.height / math.max(1e-6, _pages[i].cropBox.width),
+    ];
+  }
+
+  void _onViewRotationChanged() {
+    _recomputeAspects();
+    _previews.clear();
+    _bindRasterCache();
+    _previewAttempts.clear();
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _prerenderPreviews();
+    });
+  }
+
   /// The disk-raster key for the current document under the current paper
-  /// color and annotation visibility — those are baked into a preview, so
-  /// changing either must not load a mismatched cached raster.
+  /// color, annotation visibility, and view rotation — those are baked into
+  /// a preview, so changing any must not load a mismatched cached raster.
   String? _rasterKey() {
     final id = widget.documentId;
     if (id == null) return null;
-    return '$id|${widget.pageColor.toARGB32()}|${widget.showAnnotations}';
+    final vr = _controller._viewRotation;
+    return '$id|${widget.pageColor.toARGB32()}|${widget.showAnnotations}|$vr';
   }
 
   /// Binds (or unbinds) the preview cache's persistent backing to the open
@@ -1309,8 +1351,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     });
   }
 
-  static bool _isRotatedSideways(PdfPage page) =>
-      page.rotation == 90 || page.rotation == 270;
+  bool _isEffectivelySideways(int index) {
+    final r = _effectiveRotation(index);
+    return r == 90 || r == 270;
+  }
+
 
   @override
   void dispose() {
@@ -1571,7 +1616,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final pageWidth = _viewWidth * _layoutZoom;
     final geometry = PdfPageGeometry(
       cropBox: box,
-      rotation: page.rotation,
+      rotation: _effectiveRotation(index),
       viewSize: Size(pageWidth, _pageHeight(index)),
     );
     final target = geometry.toViewRect(rect);
@@ -1812,7 +1857,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     if (box.width <= 0 || box.height <= 0) return null;
     return PdfPageGeometry(
       cropBox: box,
-      rotation: _pages[index].rotation,
+      rotation: _effectiveRotation(index),
       viewSize: Size(_viewWidth * _layoutZoom, _pageHeight(index)),
     );
   }
@@ -3159,6 +3204,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
               widthFactor: _layoutZoom,
               child: _PdfViewerPage(
                 page: _pages[index],
+                effectiveRotation: _effectiveRotation(index),
                 index: index,
                 pageColor: widget.pageColor,
                 showAnnotations: widget.showAnnotations,
@@ -3523,6 +3569,7 @@ class _MoveDragPreviewPainter extends CustomPainter {
 class _PdfViewerPage extends StatefulWidget {
   const _PdfViewerPage({
     required this.page,
+    required this.effectiveRotation,
     required this.index,
     required this.pageColor,
     required this.showAnnotations,
@@ -3556,6 +3603,10 @@ class _PdfViewerPage extends StatefulWidget {
   });
 
   final PdfPage page;
+
+  /// The combined document + view rotation for this page.
+  final int effectiveRotation;
+
   final int index;
   final Color pageColor;
   final bool showAnnotations;
@@ -3668,6 +3719,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
     return Stack(children: [
       PdfPageView(
         page: widget.page,
+        rotation: widget.effectiveRotation,
         scale: widget.scale,
         settleGeneration: widget.settleGeneration,
         pageColor: widget.pageColor,
@@ -3685,7 +3737,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
           child: CustomPaint(
             painter: _FormFieldPainter(
               box: widget.page.cropBox,
-              rotation: widget.page.rotation,
+              rotation: widget.effectiveRotation,
               fields: widget.formFields,
               theme: PdfViewerTheme.of(context),
             ),
@@ -3695,7 +3747,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         child: CustomPaint(
           painter: _HighlightPainter(
             box: widget.page.cropBox,
-            rotation: widget.page.rotation,
+            rotation: widget.effectiveRotation,
             matches: widget.matches,
             currentMatch: widget.currentMatch,
             selection: widget.selection,
@@ -3720,7 +3772,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
           child: LayoutBuilder(builder: (context, constraints) {
             final geometry = PdfPageGeometry(
               cropBox: widget.page.cropBox,
-              rotation: widget.page.rotation,
+              rotation: widget.effectiveRotation,
               viewSize: constraints.biggest,
             );
             return Stack(children: [

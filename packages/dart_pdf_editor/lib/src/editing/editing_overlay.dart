@@ -1444,7 +1444,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return;
     unawaited(PdfPageRenderer.renderAnnotationPicture(
-            document.page(widget.pageIndex), annotation)
+            document.page(widget.pageIndex), annotation,
+            rotation: widget.geometry.rotation)
         .then((picture) {
       if (!mounted || _ghostKey != key) {
         picture?.dispose();
@@ -2883,7 +2884,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerAnnotations = annotations;
       _sampler = null;
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
-              pageColor: pageColor, annotations: annotations)
+              pageColor: pageColor, annotations: annotations,
+              rotation: widget.geometry.rotation)
           .then((s) {
         // resolve the preview that was waiting on the raster
         if (mounted &&
