@@ -248,8 +248,7 @@ void main() {
     expect(content, isNot(contains('(abc 123 def) Tj')));
   });
 
-  test('free text degrades non-Latin-1 characters to spaces, not question marks',
-      () {
+  test('free text encodes non-Latin-1 characters via Type0 Unicode font', () {
     const text = 'hello مرحبا world';
     final doc = roundTrip((e) => e.addFreeText(
           0,
@@ -259,10 +258,22 @@ void main() {
     final ft = doc.page(0).annotations.single;
     // /Contents preserves the original text via UTF-16BE
     expect(ft.contents, text);
-    // the appearance stream replaces non-Latin-1 chars with spaces
+    // the appearance stream uses hex-encoded glyph IDs, not literal text
     final content = appearanceText(doc, ft);
-    expect(content, contains('(hello       world) Tj'));
     expect(content, isNot(contains('?')));
+    expect(content, isNot(contains('(hello')));
+    // hex-encoded content uses <...> Tj
+    expect(content, contains('Tj'));
+    // the font resource should be a Type0 font with Identity-H encoding
+    final form = ft.normalAppearance!;
+    final res =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
+    expect((f1['Subtype'] as CosName).value, 'Type0');
+    expect((f1['Encoding'] as CosName).value, 'Identity-H');
+    // /ToUnicode CMap must exist for text extraction
+    expect(f1['ToUnicode'], isNotNull);
   });
 
   test('free text takes a standard serif or monospace font', () {

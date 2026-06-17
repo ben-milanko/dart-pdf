@@ -585,3 +585,151 @@ class _Cmap {
     return 0;
   }
 }
+
+/// A lightweight Type0 font that maps Unicode code points directly as glyph
+/// IDs with Identity-H encoding, without embedding any font program.
+///
+/// This lets non-Latin text (Arabic, CJK, etc.) appear in appearance streams
+/// authored with standard fonts. The renderer substitutes a system font for
+/// the actual glyph shapes — identical to how it handles any Type0 font
+/// without an embedded font program.
+///
+/// Wraps a [PdfStandardFont] for Latin-range metrics and uses a default width
+/// for characters outside the base-14 range.
+class PdfUnicodeFont implements PdfTextFont {
+  PdfUnicodeFont(this._base);
+
+  final PdfStandardFont _base;
+
+  @override
+  String get resourceName => 'F1';
+
+  @override
+  int get ascent => _base.ascent;
+
+  final Map<int, int> _runeToWidth = {};
+
+  void resetUsage() => _runeToWidth.clear();
+
+  @override
+  double measure(String text, double fontSize) {
+    var total = 0;
+    for (final code in text.codeUnits) {
+      total += _widthOf(code);
+    }
+    return total * fontSize / 1000;
+  }
+
+  int _widthOf(int code) {
+    if (code >= 32 && code <= 126) return _base.widthOf(code);
+    return 500;
+  }
+
+  /// Encodes [text] as hex-encoded 2-byte Unicode code points for an
+  /// Identity-H content stream, recording each character for [buildResource].
+  String encodeHex(String text) {
+    final out = StringBuffer();
+    for (final rune in text.runes) {
+      _runeToWidth[rune] = _widthOf(rune);
+      out.write((rune >> 8).toRadixString(16).padLeft(2, '0'));
+      out.write((rune & 0xFF).toRadixString(16).padLeft(2, '0'));
+    }
+    return out.toString();
+  }
+
+  /// Builds the Type0 font resource, referencing the base font's name so the
+  /// renderer picks the same system font family for substitution.
+  CosDictionary buildResource(CosReference Function(CosObject) addObject) {
+    final descriptor = CosDictionary({
+      'Type': const CosName('FontDescriptor'),
+      'FontName': CosName(_base.baseFont),
+      'Flags': const CosInteger(32),
+      'FontBBox': CosArray(const [
+        CosInteger(-166),
+        CosInteger(-225),
+        CosInteger(1000),
+        CosInteger(931),
+      ]),
+      'ItalicAngle': const CosInteger(0),
+      'Ascent': CosInteger(_base.ascent),
+      'Descent': const CosInteger(-225),
+      'CapHeight': const CosInteger(718),
+      'StemV': const CosInteger(80),
+    });
+    final descriptorRef = addObject(descriptor);
+
+    final cidFont = CosDictionary({
+      'Type': const CosName('Font'),
+      'Subtype': const CosName('CIDFontType2'),
+      'BaseFont': CosName(_base.baseFont),
+      'CIDSystemInfo': CosDictionary({
+        'Registry': CosString.fromText('Adobe'),
+        'Ordering': CosString.fromText('Identity'),
+        'Supplement': const CosInteger(0),
+      }),
+      'FontDescriptor': descriptorRef,
+      'DW': const CosInteger(500),
+      'W': _widthsArray(),
+    });
+    final cidFontRef = addObject(cidFont);
+
+    final toUnicodeRef = addObject(_toUnicodeStream());
+
+    final type0 = CosDictionary({
+      'Type': const CosName('Font'),
+      'Subtype': const CosName('Type0'),
+      'BaseFont': CosName(_base.baseFont),
+      'Encoding': const CosName('Identity-H'),
+      'DescendantFonts': CosArray([cidFontRef]),
+      'ToUnicode': toUnicodeRef,
+    });
+
+    return CosDictionary({resourceName: type0});
+  }
+
+  CosArray _widthsArray() {
+    final items = <CosObject>[];
+    for (final entry in _runeToWidth.entries) {
+      final w = entry.value;
+      if (w == 500) continue; // covered by /DW
+      items
+        ..add(CosInteger(entry.key))
+        ..add(CosArray([CosInteger(w)]));
+    }
+    return CosArray(items);
+  }
+
+  CosStream _toUnicodeStream() {
+    final entries = _runeToWidth.keys.toList()..sort();
+    final buf = StringBuffer()
+      ..writeln('/CIDInit /ProcSet findresource begin')
+      ..writeln('12 dict begin')
+      ..writeln('begincmap')
+      ..writeln('/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) '
+          '/Supplement 0 >> def')
+      ..writeln('/CMapName /Adobe-Identity-UCS def')
+      ..writeln('/CMapType 2 def')
+      ..writeln('1 begincodespacerange')
+      ..writeln('<0000> <FFFF>')
+      ..writeln('endcodespacerange');
+    for (var i = 0; i < entries.length; i += 100) {
+      final group = entries.sublist(i, (i + 100).clamp(0, entries.length));
+      buf.writeln('${group.length} beginbfchar');
+      for (final rune in group) {
+        final hex = rune.toRadixString(16).padLeft(4, '0');
+        buf.writeln('<$hex> <${PdfEmbeddedFont._utf16BeHex(rune)}>');
+      }
+      buf.writeln('endbfchar');
+    }
+    buf
+      ..writeln('endcmap')
+      ..writeln('CMapName currentdict /CMap defineresource pop')
+      ..writeln('end')
+      ..writeln('end');
+    final bytes = Uint8List.fromList(latin1.encode(buf.toString()));
+    return CosStream(
+      CosDictionary({'Length': CosInteger(bytes.length)}),
+      bytes,
+    );
+  }
+}
