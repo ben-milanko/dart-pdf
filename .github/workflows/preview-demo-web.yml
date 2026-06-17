@@ -110,7 +110,7 @@ jobs:
           entryPoint: packages/dart_pdf_editor/example
 
       - name: Comment preview URL
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           PREVIEW_LABEL: Example demo preview
           PREVIEW_MARKER: dart-pdf-demo-preview
