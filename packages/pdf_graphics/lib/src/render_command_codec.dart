@@ -729,12 +729,6 @@ class _Writer {
     _len += 4;
   }
 
-  void i32(int v) {
-    _ensure(4);
-    _view.setInt32(_len, v);
-    _len += 4;
-  }
-
   // ByteData's 64-bit int accessors throw on the web (JS has no 64-bit int),
   // and this codec crosses the isolate/Web-Worker boundary, so encode the value
   // as a float64 instead — exact for |v| <= 2^53, which covers every PDF
