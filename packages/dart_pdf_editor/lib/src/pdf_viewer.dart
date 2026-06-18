@@ -956,6 +956,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// and finds no dx to consume, so it steps aside and the event lands
   /// here with the vertical delta intact — redirect it into a horizontal
   /// pan of the zoom window.
+  /// Front-of-the-list interceptor for a shift+mouse wheel: it claims the
+  /// event (so the vertical Scrollable's axis-flip can't eat it as a
+  /// vertical scroll) and hands it to [_onPointerSignal], which pans
+  /// horizontally. Anything else — a plain wheel, ctrl/cmd wheel zoom, a
+  /// trackpad pan — is left for the list and the outer handler to resolve
+  /// normally.
+  void _onShiftWheelSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    if (event.kind != PointerDeviceKind.mouse ||
+        !HardwareKeyboard.instance.isShiftPressed) {
+      return;
+    }
+    _onPointerSignal(event);
+  }
+
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
     GestureBinding.instance.pointerSignalResolver.register(event, (event) {
@@ -3629,6 +3644,30 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                                           ),
                                         ),
                                       ),
+                                    // Shift+wheel must pan horizontally, not
+                                    // scroll the list. The platform (browser/
+                                    // macOS) flips a shift-scroll's delta into
+                                    // dx, and a vertical Scrollable flips its
+                                    // own axis to match and consumes it as a
+                                    // vertical scroll before _onPointerSignal
+                                    // runs. This translucent, signal-only
+                                    // Listener sits in front of the list and so
+                                    // sees the wheel first; for a shift+mouse
+                                    // wheel it claims the pointer-signal
+                                    // resolver (front of the hit path registers
+                                    // first) and routes it to _onPointerSignal,
+                                    // which pans the zoom window. Every other
+                                    // signal it leaves unclaimed so the list
+                                    // scrolls as usual, and it handles no other
+                                    // pointer events, so shift+click
+                                    // multi-select and shift-resize in the
+                                    // editing overlay still reach it.
+                                    Positioned.fill(
+                                      child: Listener(
+                                        behavior: HitTestBehavior.translucent,
+                                        onPointerSignal: _onShiftWheelSignal,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
