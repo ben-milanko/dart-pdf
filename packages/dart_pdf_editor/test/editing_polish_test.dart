@@ -185,6 +185,7 @@ void main() {
     testWidgets('disabled until there are unsaved changes', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       final viewer = PdfViewerController();
+      Uint8List? saved;
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
       await tester.pumpWidget(MaterialApp(
@@ -192,7 +193,7 @@ void main() {
           body: PdfEditingToolbar(
             controller: editing,
             viewerController: viewer,
-            onSave: (_) {},
+            onSave: (bytes) => saved = bytes,
           ),
         ),
       ));
@@ -206,6 +207,11 @@ void main() {
       editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       await tester.pump();
       expect(saveButton().onPressed, isNotNull);
+
+      // pressing it hands the host the current revision's bytes
+      saveButton().onPressed!();
+      expect(saved, isNotNull);
+      expect(saved!.length, editing.bytes.length);
 
       // undoing back to the original disables it again
       editing.undo();
