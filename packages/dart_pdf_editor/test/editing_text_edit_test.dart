@@ -82,6 +82,45 @@ void main() {
       expect(editing.selectedAnnotation, isNotNull);
     });
 
+    test('textAlign preference flows into new free text', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.center
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
+
+      final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.alignment, PdfTextAlign.center);
+    });
+
+    test('setSelectedTextAlign changes the box and the creation default', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Aligned');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.selectedTextAlign, PdfTextAlign.left);
+
+      editing.setSelectedTextAlign(PdfTextAlign.right);
+
+      expect(editing.document.page(0).annotations.single.freeTextStyle!.alignment,
+          PdfTextAlign.right);
+      // the selection survives the rewrite
+      expect(editing.selectedTextAlign, PdfTextAlign.right);
+      // and right becomes the default for new boxes
+      expect(editing.textAlign, PdfTextAlign.right);
+    });
+
+    test('restyleSelectedText preserves alignment across a size change', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.center
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+
+      editing.restyleSelectedText(size: 22);
+
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+      expect(editing.document.page(0).annotations.single.defaultAppearance,
+          contains('22 Tf'));
+    });
+
     test('text fill and border preferences flow into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..strokeWidth = 3

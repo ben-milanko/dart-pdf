@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont;
+    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -2115,6 +2115,9 @@ class _StyleMenuState extends State<_StyleMenu> {
     }
   }
 
+  void _setTextAlign(PdfTextAlign align) =>
+      controller.setSelectedTextAlign(align);
+
   static int? _rgb(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
 
@@ -2514,6 +2517,18 @@ class _StyleMenuState extends State<_StyleMenu> {
                         FontStyleToggles(
                           font: selectedStyle?.font ?? controller.fontFamily,
                           onChanged: _setFont,
+                        ),
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(children: [
+                        const SizedBox(width: 86, child: Text('Align')),
+                        TextAlignToggles(
+                          align: controller.selectedTextAlign ??
+                              controller.textAlign ??
+                              PdfTextAlign.left,
+                          onChanged: _setTextAlign,
                         ),
                       ]),
                     ),

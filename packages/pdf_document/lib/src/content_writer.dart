@@ -15,6 +15,31 @@ extension PdfTextDirectionResolution on PdfTextDirection {
   }
 }
 
+/// Horizontal alignment of the lines inside a free-text box, mapped to the
+/// /Q quadding value (§12.7.4.3): 0 left, 1 centered, 2 right.
+///
+/// When no alignment is given the appearance generator falls back to the
+/// text direction — left for LTR, right for RTL — so the default keeps the
+/// long-standing behaviour.
+enum PdfTextAlign {
+  left(0),
+  center(1),
+  right(2);
+
+  const PdfTextAlign(this.quadding);
+
+  /// The /Q quadding value this alignment is written as.
+  final int quadding;
+
+  /// The alignment for a /Q quadding value, defaulting to [left] for an
+  /// absent or unrecognized one.
+  static PdfTextAlign fromQuadding(int? quadding) => switch (quadding) {
+        1 => PdfTextAlign.center,
+        2 => PdfTextAlign.right,
+        _ => PdfTextAlign.left,
+      };
+}
+
 /// True when [text]'s first strong directional character is RTL.
 bool pdfTextLooksRtl(String text) {
   for (final rune in text.runes) {

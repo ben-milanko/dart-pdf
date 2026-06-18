@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont;
+    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
@@ -53,6 +53,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _eraserRadius = 8;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
+  PdfTextAlign? _textAlign;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
   PdfLineEnding _lineStartEnding = PdfLineEnding.none;
@@ -133,6 +134,10 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (fontFamily != null) {
         _fontFamily =
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
+      }
+      final textAlign = store.getString('${_prefix}textAlign');
+      if (textAlign != null) {
+        _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
       final lineStyle = store.getString('${_prefix}lineStyle');
@@ -362,6 +367,10 @@ class PdfEditingPreferences extends ChangeNotifier {
         final font = PdfStandardFont.values.asNameMap()[v];
         if (font != null) fontFamily = font;
       }
+      if (slot.containsKey('textAlign')) {
+        final v = slot['textAlign'];
+        textAlign = v is String ? PdfTextAlign.values.asNameMap()[v] : null;
+      }
       if (slot['lineStyle'] case final String v) {
         final style = PdfLineStyle.values.asNameMap()[v];
         if (style != null) lineStyle = style;
@@ -454,6 +463,21 @@ class PdfEditingPreferences extends ChangeNotifier {
     _fontFamily = value;
     _write((s) => s.setString('${_prefix}fontFamily', value.name));
     _recordScoped('fontFamily', value.name);
+    notifyListeners();
+  }
+
+  /// Horizontal alignment (left/center/right) new free-text boxes are
+  /// created with — the box's /Q quadding. Null (the default) follows the
+  /// text direction: left for LTR, right for RTL. Persisted.
+  PdfTextAlign? get textAlign => _textAlign;
+
+  set textAlign(PdfTextAlign? value) {
+    if (value == _textAlign) return;
+    _textAlign = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}textAlign')
+        : s.setString('${_prefix}textAlign', value.name));
+    _recordScoped('textAlign', value?.name);
     notifyListeners();
   }
 

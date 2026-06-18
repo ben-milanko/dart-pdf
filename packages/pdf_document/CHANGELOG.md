@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Free-text annotations carry a horizontal alignment (left/center/right)
+  through the `/Q` quadding: `addFreeText` and `addFreeTextRich` take an
+  `align` argument, `PdfFreeTextStyle.alignment` reads it back, and resizing
+  or re-editing a box preserves it. Omitting `align` keeps the previous
+  behaviour — left for LTR text, right for RTL.
+
 ## 1.2.2
 
 - Embeddable fonts: `PdfEmbeddedFont.parse` reads a TrueType (`.ttf`) or

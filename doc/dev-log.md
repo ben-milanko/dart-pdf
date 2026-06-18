@@ -2554,3 +2554,38 @@ affected. Removed the whole staging apparatus + its
 `onnx_ocr_model_runner_test.dart` (it only exercised the dead path logic;
 the surviving `load()` is native-only, unverifiable in the sandbox per the
 #76 honesty posture). 30 package tests still green; analyzer clean.
+
+Free-text box alignment — left/center/right controls for FreeText
+annotations. The PDF `/Q` quadding (0/1/2) is the model: new `PdfTextAlign`
+enum in `pdf_document`'s `content_writer.dart` (alongside
+`PdfTextDirection`), `quadding`/`fromQuadding` both ways. Threaded through
+`addFreeText`/`addFreeTextRich` and the `_freeTextContent`/
+`_freeTextRichContent` generators as an optional `align`; line-x is now
+`_lineX(align, vr, width, pad)` (left = `vr.left+pad`, right =
+`vr.right-pad-width`, center = `vr.left+(vr.width-width)/2` — the pad
+cancels, so center is centered within the padded box). Key subtlety: the
+old code *conflated* `/Q==2` with RTL — `addFreeText` wrote `Q=2` only when
+the text resolved RTL, and the resize path recovered direction from `/Q`
+via `_annotationTextDirection`. Decoupled: when `align` is null the
+generator still falls back to direction (`_alignForDirection`: RTL→right,
+else left) so default output is byte-identical, but `/Q` now means absolute
+alignment. The resize/regenerate path (`restyleAnnotation` FreeText case)
+passes `textDirection: auto` + `align: style.alignment` (read from `/Q` via
+the new `PdfFreeTextStyle.alignment`), so direction comes from the text and
+alignment from `/Q` — no more double-reversing an LTR right-aligned box.
+`_annotationTextDirection` deleted (only that one caller). Editor side:
+`PdfEditingPreferences.textAlign` is **nullable** — null = "follow
+direction" (so typing Arabic still auto-right-aligns and the RTL inline
+test still sees `/Q==2`); a non-null value is an explicit user choice.
+Controller `addFreeText`/`addFreeTextRich`/`placeFreeText` pass
+`align: preferences.textAlign`; `_rewriteSelected`/`_rewriteSelectedRich`
+preserve the box's own `parsed.alignment` across text/font/size edits;
+`restyleSelectedText(align:)`, `selectedTextAlign`, and
+`setSelectedTextAlign` (sets the default *and* restyles the selection).
+`textAlign` is in the freeText style scope so it persists per-tool. UI:
+shared `TextAlignToggles` (3 icon circles, mirrors `FontStyleToggles`) in
+`editing_font_controls.dart`, wired into the toolbar tune popup (`Align`
+row under `Style`) and the properties panel `_textStyleControls`. Default
+path renders identically to before; the only behaviour change is the rare
+"force RTL direction onto LTR text" edge case, which now no longer reverses
+on resize (arguably the prior bug).

@@ -1051,6 +1051,80 @@ void main() {
     expect(style.borderColor, isNull);
   });
 
+  test('PdfTextAlign maps to and from /Q quadding', () {
+    expect(PdfTextAlign.left.quadding, 0);
+    expect(PdfTextAlign.center.quadding, 1);
+    expect(PdfTextAlign.right.quadding, 2);
+    expect(PdfTextAlign.fromQuadding(0), PdfTextAlign.left);
+    expect(PdfTextAlign.fromQuadding(1), PdfTextAlign.center);
+    expect(PdfTextAlign.fromQuadding(2), PdfTextAlign.right);
+    expect(PdfTextAlign.fromQuadding(null), PdfTextAlign.left);
+    expect(PdfTextAlign.fromQuadding(7), PdfTextAlign.left);
+  });
+
+  test('free text alignment writes /Q and shifts the line', () {
+    PdfDocument make(PdfTextAlign align) => roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          'Hi',
+          align: align,
+        ));
+
+    final left = make(PdfTextAlign.left);
+    final center = make(PdfTextAlign.center);
+    final right = make(PdfTextAlign.right);
+
+    int quad(PdfDocument d) =>
+        (d.cos.resolve(d.page(0).annotations.single.dict['Q']) as CosInteger)
+            .value;
+    expect(quad(left), 0);
+    expect(quad(center), 1);
+    expect(quad(right), 2);
+
+    // alignment round-trips through the parsed style
+    expect(left.page(0).annotations.single.freeTextStyle!.alignment,
+        PdfTextAlign.left);
+    expect(center.page(0).annotations.single.freeTextStyle!.alignment,
+        PdfTextAlign.center);
+    expect(right.page(0).annotations.single.freeTextStyle!.alignment,
+        PdfTextAlign.right);
+
+    double lineX(PdfDocument d) {
+      final content = appearanceText(d, d.page(0).annotations.single);
+      final m = RegExp(r'(-?[\d.]+) -?[\d.]+ Td').firstMatch(content);
+      return double.parse(m!.group(1)!);
+    }
+
+    // left hugs the padded left edge (100 + 3pt pad); center and right
+    // move the line progressively rightward in the 300pt-wide box
+    expect(lineX(left), closeTo(103, 0.5));
+    expect(lineX(center), greaterThan(lineX(left) + 20));
+    expect(lineX(right), greaterThan(lineX(center)));
+  });
+
+  test('resizing a centered free text box keeps it centered', () {
+    final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addFreeText(0, const PdfRect(100, 600, 300, 640), 'Centered',
+          align: PdfTextAlign.center);
+    final doc = PdfDocument.open(first.save());
+    expect(doc.page(0).annotations.single.freeTextStyle!.alignment,
+        PdfTextAlign.center);
+
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(
+          0, doc.page(0).annotations.single, const PdfRect(100, 600, 500, 640));
+    final reopened = PdfDocument.open(editor.save());
+    final box = reopened.page(0).annotations.single;
+    // /Q (and so the alignment) survives the regenerated appearance
+    expect((reopened.cos.resolve(box.dict['Q']) as CosInteger).value, 1);
+    expect(box.freeTextStyle!.alignment, PdfTextAlign.center);
+
+    // the line is centered in the now-wider box: x is well past the left pad
+    final content = appearanceText(reopened, box);
+    final m = RegExp(r'(-?[\d.]+) -?[\d.]+ Td').firstMatch(content);
+    expect(double.parse(m!.group(1)!), greaterThan(150));
+  });
+
   test('resizeAnnotation rejects degenerate rects', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addSquare(0, const PdfRect(100, 100, 200, 150));

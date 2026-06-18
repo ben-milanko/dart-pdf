@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Free text: align a text box left, center, or right. The alignment buttons
+  sit in the text style popup and the annotation properties panel — they
+  apply to the selected box and set the default for new boxes (remembered
+  per the text tool). New boxes still follow the text direction until you
+  pick an alignment.
+
 ## 1.2.2
 
 - View rotation: rotate the displayed page in 90° steps without changing the

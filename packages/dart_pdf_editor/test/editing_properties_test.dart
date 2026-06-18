@@ -277,6 +277,29 @@ void main() {
       expect(editing.selectedTextStyle?.font, PdfStandardFont.timesBoldItalic);
     });
 
+    testWidgets('free text gets alignment controls', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 500, 320, 620), 'Hello');
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // a fresh box starts left-aligned
+      expect(editing.selectedTextAlign, PdfTextAlign.left);
+      expect(find.byKey(const ValueKey('pdf-prop-text-align-center')),
+          findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-text-align-center')));
+      await tester.pump();
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+      expect(editing.selectedAnnotation?.contents, 'Hello'); // text kept
+
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-text-align-right')));
+      await tester.pump();
+      expect(editing.selectedTextAlign, PdfTextAlign.right);
+    });
+
     testWidgets('free text gets an outline (border) control', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addFreeText(0, const PdfRect(100, 500, 300, 620), 'Hello');
