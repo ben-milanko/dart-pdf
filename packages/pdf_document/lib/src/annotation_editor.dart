@@ -38,6 +38,16 @@ List<((double, double), (double, double))> pdfInkCurveControls(
 /// /Polygon area (shoelace).
 enum PdfMeasurementKind { distance, perimeter, area }
 
+/// Slack (in points) the word-wrappers allow before breaking a line.
+///
+/// A box auto-sized to its content sets its width to `lineWidth + 2*pad`,
+/// and the wrapper breaks at `width - 2*pad`. In exact arithmetic those
+/// cancel and the line fits, but `(w + 6) - 6` rounds to a hair *under* `w`
+/// in IEEE-754 doubles, so a strict `> maxWidth` test would wrap the last
+/// word onto a new line. This tolerance is far below a visible point yet
+/// orders of magnitude above the rounding noise.
+const double _wrapTolerance = 1e-6;
+
 /// One styled run inside a rich free-text annotation.
 ///
 /// A normal FreeText annotation has one `/DA` default appearance. Runs let
@@ -1640,7 +1650,7 @@ extension PdfAnnotationEditing on PdfEditor {
         }
         final text = String.fromCharCode(rune);
         final w = run.font.measure(text, run.fontSize);
-        if (width > 0 && width + w > maxWidth) flushLine();
+        if (width > 0 && width + w > maxWidth + _wrapTolerance) flushLine();
         addText(run, text);
       }
     }
@@ -3525,7 +3535,8 @@ extension PdfAnnotationEditing on PdfEditor {
       var line = '';
       for (final word in paragraph.split(' ')) {
         final candidate = line.isEmpty ? word : '$line $word';
-        if (line.isNotEmpty && font.measure(candidate, fontSize) > maxWidth) {
+        if (line.isNotEmpty &&
+            font.measure(candidate, fontSize) > maxWidth + _wrapTolerance) {
           lines.add(line);
           line = word;
         } else {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix a free-text box auto-sized to its contents wrapping the last word onto
+  a new line: the wrapper's strict width test now tolerates the sub-point
+  floating-point round-off in `(lineWidth + 2*pad) - 2*pad`.
+
 ## 1.2.2
 
 - Embeddable fonts: `PdfEmbeddedFont.parse` reads a TrueType (`.ttf`) or
