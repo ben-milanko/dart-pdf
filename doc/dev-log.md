@@ -2349,3 +2349,26 @@ pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
 full-turn/empty no-op, non-quarter + out-of-range reject) and
 dart_pdf_editor editing_page_ops_test (controller round-trips + selection
 survives; strip widget tests for the bar + per-tile button).
+
+Open recents in the example app (Ben: "Include open recents on the app
+popup menu"): a new `RecentFilesStore` (example/lib/recent_files.dart)
+remembers opened PDFs on the same `PdfCacheStore` the page caches already
+use (filesystem on native, IndexedDB on web), so a recent reopens on every
+platform — including web, where a picked file has no reusable path. It
+stores each document's bytes under its `pdfContentKey` (so re-opening the
+same content folds into one entry, moved to front) plus a JSON manifest of
+the order + metadata (title/size/openedAt); trimmed to `maxEntries` (10)
+and a `maxBytes` budget (128 MB), evicting oldest-first and deleting their
+bytes, always keeping the newest even if it alone busts the budget. All ops
+serialize through a queue and degrade store failures to empty/miss (mirrors
+PdfDiskCache). main.dart: `_recents` built from the shared `_cacheStore`
+(now `late final`, overridable via the new `ViewerApp.cacheStore` /
+`ViewerScreen.cacheStore` seam for tests); recorded on every successful
+`_pickFile`/`_openPath`; the app popup menu gained an "Open a PDF…" entry
+and a "Recent files" section (header + up to `_maxRecentMenuItems` (8)
+entries + "Clear recent files"), rebuilt via a listener. `_openRecent`
+reads bytes back and `touch`es the entry; a recent whose bytes aged out is
+dropped with an explanatory tab. Tests: recent_files_test (store: ordering,
+dedupe, count/byte eviction, keep-newest, touch/remove/clear, reload across
+a fresh store, notifications) and recent_files_menu_test (seeded recents
+surface in the menu, clear removes the section, empty shows none).
