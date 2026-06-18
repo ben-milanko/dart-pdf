@@ -181,6 +181,45 @@ void main() {
     });
   });
 
+  group('toolbar save button', () {
+    testWidgets('disabled until there are unsaved changes', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      Uint8List? saved;
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+            onSave: (bytes) => saved = bytes,
+          ),
+        ),
+      ));
+      IconButton saveButton() => tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.save_alt));
+
+      // freshly opened: the document matches what was opened, nothing to save
+      expect(saveButton().onPressed, isNull);
+
+      // an edit enables it
+      editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
+      await tester.pump();
+      expect(saveButton().onPressed, isNotNull);
+
+      // pressing it hands the host the current revision's bytes
+      saveButton().onPressed!();
+      expect(saved, isNotNull);
+      expect(saved!.length, editing.bytes.length);
+
+      // undoing back to the original disables it again
+      editing.undo();
+      await tester.pump();
+      expect(saveButton().onPressed, isNull);
+    });
+  });
+
   group('in the viewer', () {
     // 800px viewport over a 612pt page
     const scale = 800 / 612;

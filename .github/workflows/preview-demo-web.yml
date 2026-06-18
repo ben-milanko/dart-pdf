@@ -35,13 +35,13 @@ jobs:
 
       - run: flutter pub get
 
-      # Compile the off-thread render worker, then build with the wasm renderer
-      # (matches the live demo deploy — see deploy-demo-web.yml).
+      # Compile the off-thread render worker, then build with the CanvasKit
+      # renderer (matches the live demo deploy — see deploy-demo-web.yml).
       - name: Build the render worker
         working-directory: packages/dart_pdf_editor/example
         run: dart run dart_pdf_editor:build_web_worker
 
-      - run: flutter build web --release --wasm
+      - run: flutter build web --release
         working-directory: packages/dart_pdf_editor/example
 
       # Firebase Hosting caps preview channels per site, and auto-generated
