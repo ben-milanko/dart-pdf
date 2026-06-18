@@ -697,17 +697,21 @@ class _PageTile extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _onTap,
-      // a Container (not Padding) so a selected tile reads as a tinted
-      // chip behind the thumbnail; a color-only decoration adds no
-      // padding, so the per-tile layout (and _estimateOffset) is unchanged
+      // a selected tile reads as a primary-framed, tinted chip behind the
+      // thumbnail. The 1.5px frame is always laid out (transparent when
+      // unselected) and paid back out of the padding, so selecting a tile
+      // never nudges its contents — per-tile layout, _tileWidth's -26, and
+      // _estimateOffset all still hold (each side still totals 12/4px).
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        decoration: selected
-            ? BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(6),
-              )
-            : null,
+        padding: const EdgeInsets.fromLTRB(10.5, 2.5, 10.5, 2.5),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary.withValues(alpha: 0.20) : null,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected ? scheme.primary : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -752,6 +756,15 @@ class _PageTile extends StatelessWidget {
                           painter: _ViewportPainter(viewport, indicator),
                         ),
                       ),
+                    // an explicit "in the selection" marker, painted last
+                    // so it rides above the page and the viewport mark —
+                    // the chip tint alone can be missed on a busy page
+                    if (selected)
+                      Positioned(
+                        top: 3,
+                        left: 3,
+                        child: _SelectionBadge(scheme: scheme),
+                      ),
                   ]),
                 );
               },
@@ -760,9 +773,14 @@ class _PageTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Flexible(
+                  // the label echoes the selection so the cue carries into
+                  // the footer row, below the framed thumbnail
                   child: Text('Page ${pageIndex + 1}',
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium),
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: selected ? scheme.primary : null,
+                            fontWeight: selected ? FontWeight.w600 : null,
+                          )),
                 ),
                 // No Tooltip on these buttons: a Tooltip is an OverlayPortal,
                 // and an OverlayPortal inside a ReorderableListView item
@@ -806,6 +824,28 @@ class _PageTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The check badge overlaid on a selected page's thumbnail — an
+/// unmistakable "this page is in the selection" marker that reads on any
+/// page color, where the chip tint alone can be missed. A ring in the
+/// surface color keeps it legible where the primary circle meets a
+/// same-hued page.
+class _SelectionBadge extends StatelessWidget {
+  const _SelectionBadge({required this.scheme});
+
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          color: scheme.primary,
+          shape: BoxShape.circle,
+          border: Border.all(color: scheme.surface, width: 1.5),
+        ),
+        padding: const EdgeInsets.all(1.5),
+        child: Icon(Icons.check, size: 12, color: scheme.onPrimary),
+      );
 }
 
 /// Renders a page to a tile-resolution bitmap, cached across revisions

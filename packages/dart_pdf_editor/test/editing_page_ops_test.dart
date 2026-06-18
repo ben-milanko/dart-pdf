@@ -502,5 +502,48 @@ void main() {
           find.byKey(const ValueKey('pdf-thumbnail-add-page')), findsNothing);
       await tester.pump(const Duration(seconds: 2));
     });
+
+    testWidgets('a check badge marks each selected tile', (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      // nothing selected yet, so no tile carries the badge
+      expect(find.byIcon(Icons.check), findsNothing);
+
+      // a plain tap selects exactly one page → exactly one badge
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(editing.selectedPages, [1]);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+
+      // the badge tracks the whole selection, one per selected tile
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(editing.selectedPages, [1, 2]);
+      expect(find.byIcon(Icons.check), findsNWidgets(2));
+
+      // clearing the selection clears the badges
+      editing.clearPageSelection();
+      await tester.pump();
+      expect(find.byIcon(Icons.check), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
   });
 }

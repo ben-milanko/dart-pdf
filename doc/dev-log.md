@@ -2386,6 +2386,50 @@ app/pubspec.yaml. Tests: update_test.dart (version parse/order, fromJson,
 check outcomes, throttle/force, dismiss, per-platform downloadUrl) and
 update_settings_test.dart (Settings check→available+download / up-to-date,
 startup banner + Later, no banner when current).
+Clearer thumbnail selection (Ben: "the UI is not clear enough if pages are
+selected in the thumbs strip"): the old cue was a single 14%-alpha primary
+tint behind the tile, easy to miss — and indistinguishable on a
+shift/⌘-selected page that isn't the current page (which already wears the
+bold 2px primary thumbnail border). `_PageTile` (editing_thumbnails.dart)
+now stacks three cues when `selected`: (1) a primary frame on the chip — a
+1.5px Border.all that's transparent when unselected and primary when
+selected, with the chip padding dropped to (10.5, 2.5) so the border is
+paid back out of it and the tile never shifts on select (this revises the
+earlier "color-only decoration, don't add a border" note above — the
+per-tile footprint, `_tileWidth`'s -26, and `_estimateOffset` stay exact
+because each side still totals 12/4px); (2) `_SelectionBadge`, a small
+primary check circle ringed in `scheme.surface`, Positioned top-left in
+the thumbnail Stack after the viewport painter so it rides above the page
+on any color; (3) the "Page N" label turns primary + w600. The
+current-page border (still primary/2px on the thumbnail itself) stays
+visually separate from the selection frame, so "where the viewer is" and
+"what's selected" don't collapse together. NB: don't `dart format` this
+file with a 3.7+ formatter — the package is language-version 3.5 (short
+style) and the newer "tall" style rewrites the whole file. Test:
+editing_page_ops_test 'a check badge marks each selected tile' (badge
+count tracks the selection via find.byIcon(Icons.check) — the strip has no
+other check icon).
+Clearer thumbnail selection (Ben: "the UI is not clear enough if pages are
+selected in the thumbs strip"): the old cue was a single 14%-alpha primary
+tint behind the tile, easy to miss — and indistinguishable on a
+shift/⌘-selected page that isn't the current page (which already wears the
+bold 2px primary thumbnail border). `_PageTile` (editing_thumbnails.dart)
+now stacks three cues when `selected`: (1) a primary frame on the chip — a
+1.5px Border.all that's transparent when unselected and primary when
+selected, with the chip padding dropped to (10.5, 2.5) so the border is
+paid back out of it and the tile never shifts on select (this supersedes
+the old "color-only decoration, don't add a border" note above — the
+per-tile footprint, `_tileWidth`'s -26, and `_estimateOffset` are still
+exact because each side still totals 12/4px); (2) `_SelectionBadge`, a
+small primary check circle ringed in `scheme.surface`, Positioned top-left
+in the thumbnail Stack after the viewport painter so it rides above the
+page on any color; (3) the "Page N" label turns primary + w600. A
+`Semantics(selected:)` wraps the tile so screen readers announce it too.
+The current-page border (still primary/2px on the thumbnail itself) stays
+visually separate from the selection frame, so "where the viewer is" and
+"what's selected" don't collapse together. Test: editing_page_ops_test
+'a check badge marks each selected tile' (badge count tracks the selection
+via find.byIcon(Icons.check) — the strip has no other check icon).
 Render-command codec perf (heavy CAD pages): a real-world A1 CAD sheet
 (single page, ~525k content ops, ~352k line segments, ~64k recorded
 commands) took multiple seconds to first-render where other viewers were
