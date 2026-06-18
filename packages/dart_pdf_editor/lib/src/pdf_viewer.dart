@@ -157,9 +157,11 @@ class PdfViewerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Current zoom factor (1 = fit width; below 1 the pages lay out
-  /// smaller so more of the document is on screen).
-  double get zoom => _state?._currentZoom ?? 1;
+  /// Current zoom, in logical pixels per PDF point: 1 is actual size
+  /// (100%), independent of the viewport, so a large-format page shows
+  /// larger than a small one. Below the fit-width point the pages lay out
+  /// smaller; above it they ride a movable zoom window.
+  double get zoom => _state?._displayScale ?? 1;
 
   bool get isSearching => _searching;
   String get query => _query;
@@ -226,13 +228,15 @@ class PdfViewerController extends ChangeNotifier {
 
   /// Sets the viewer zoom around the center of the viewport.
   ///
-  /// A zoom of 1 is fit-width/100%; values below 1 zoom out by relaying
-  /// the pages, and values above 1 zoom into a movable window over the
-  /// fit-width layout. The value is clamped to the attached viewer's
-  /// [PdfViewer.minZoom] and [PdfViewer.maxZoom].
+  /// The value is logical pixels per PDF point: 1 is actual size (100%),
+  /// independent of the viewport. Above the fit-width point it rides a
+  /// movable zoom window; below it the pages relay out smaller. The value
+  /// is clamped to the attached viewer's [PdfViewer.minZoom] and
+  /// [PdfViewer.maxZoom] (themselves expressed as fit-width multiples).
   void setZoom(double zoom) => _state?._setZoomFromController(zoom);
 
-  /// Resets the zoom to fit-width/100% around the center of the viewport.
+  /// Resets the zoom to actual size (100%, 1 px/pt) around the center of
+  /// the viewport.
   void resetZoom() => setZoom(1);
 
   /// Scrolls — and zooms in when that helps — so [rect] (page space on
@@ -576,13 +580,15 @@ class PdfViewer extends StatefulWidget {
   /// null falls back to it.
   final PdfViewport? initialViewport;
 
-  /// Smallest zoom factor; below 1 the page shrinks past fit-width and
-  /// floats centered in the viewport.
+  /// Smallest zoom, as a multiple of fit-width; below 1 the page shrinks
+  /// past fit-width and floats centered in the viewport. (Public zoom is
+  /// reported in px/pt against actual size, so the smallest reachable
+  /// px/pt scale is this times the fit-width scale.)
   final double minZoom;
 
-  /// Largest zoom factor above fit-width. The default is intentionally high
-  /// for very wide engineering plots and long drawings: fit-width makes each
-  /// PDF point tiny on screen, and the deep-zoom detail patch keeps the
+  /// Largest zoom, as a multiple of fit-width. The default is intentionally
+  /// high for very wide engineering plots and long drawings: fit-width makes
+  /// each PDF point tiny on screen, and the deep-zoom detail patch keeps the
   /// visible slice sharp without forcing a full-page raster at this scale.
   final double maxZoom;
   final double doubleTapZoom;
@@ -727,6 +733,17 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   late List<PdfPage> _pages;
   late List<double> _aspects; // height / width, after /Rotate
+
+  /// Displayed width of each page in PDF points (after /Rotate + view
+  /// rotation). Pages lay out at this width times [_fitWidthScale] (and the
+  /// layout zoom), so they keep their true sizes relative to one another
+  /// instead of every page filling the viewport.
+  late List<double> _pointWidths;
+
+  /// The widest page's displayed point width — the fit-width reference. At
+  /// layout zoom 1 this page exactly fills the viewport; narrower pages lay
+  /// out proportionally narrower and centered.
+  double _maxPointWidth = 0;
   final Map<int, PdfPageText> _textCache = {};
   final Map<int, List<PdfAnnotation>> _annotCache = {};
   final Map<int, List<PdfRect>> _fieldRectCache = {};
@@ -989,11 +1006,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         event.localPosition);
   }
 
-  /// Applies an absolute zoom level. Above 1 it lives in the
-  /// InteractiveViewer transform (a window over fit-width pages); at or
-  /// below 1 the pages themselves lay out smaller, so zooming out shows
-  /// more of the document rather than a shrunken viewport.
-  void _setZoomFromController(double target) {
+  /// Applies an absolute zoom level in logical pixels per PDF point
+  /// (1 = actual size). Above the fit-width point it lives in the
+  /// InteractiveViewer transform (a window over fit-width pages); below it
+  /// the pages themselves lay out smaller, so zooming out shows more of the
+  /// document rather than a shrunken viewport.
+  void _setZoomFromController(double scale) {
+    // the public zoom is logical px per point (1 = actual size); the
+    // internal layout/transform machinery works in fit-width multiples
+    final target = _fitWidthScale <= 0 ? scale : scale / _fitWidthScale;
     _zoomTo(target, Offset(_viewWidth / 2, _viewHeight / 2));
   }
 
@@ -1326,6 +1347,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
             ? _pages[i].cropBox.width / math.max(1e-6, _pages[i].cropBox.height)
             : _pages[i].cropBox.height / math.max(1e-6, _pages[i].cropBox.width),
     ];
+    _pointWidths = [
+      for (var i = 0; i < _pages.length; i++)
+        _isEffectivelySideways(i)
+            ? math.max(1e-6, _pages[i].cropBox.height)
+            : math.max(1e-6, _pages[i].cropBox.width),
+    ];
+    _maxPointWidth = _pointWidths.isEmpty ? 0 : _pointWidths.reduce(math.max);
   }
 
   void _onViewRotationChanged() {
@@ -1401,7 +1429,35 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  double _pageHeight(int index) => _aspects[index] * _viewWidth * _layoutZoom;
+  /// Logical pixels per PDF point at the fit-width baseline ([_layoutZoom]
+  /// == 1, transform identity): the widest page exactly fills the viewport.
+  /// The public zoom is expressed against actual size (1 px/pt), so it is
+  /// this scale times the fit-width multiplier ([_currentZoom]).
+  double get _fitWidthScale =>
+      (_maxPointWidth <= 0 || _viewWidth <= 0) ? 1 : _viewWidth / _maxPointWidth;
+
+  /// The on-screen scale the user sees, in logical pixels per PDF point,
+  /// where 1.0 is actual size (100%) — independent of the viewport. This is
+  /// what [PdfViewerController.zoom] reports.
+  double get _displayScale => _currentZoom * _fitWidthScale;
+
+  /// The on-screen width of page [index] in the scroll list (logical
+  /// pixels), sized by its real point width so pages keep their true sizes
+  /// relative to one another rather than all stretching to the viewport.
+  double _pageWidth(int index) =>
+      _pointWidths[index] * _fitWidthScale * _layoutZoom;
+
+  /// Page rows fill the viewport width and center the page; this is the
+  /// page's left inset inside its row (0 for the widest page at fit-width).
+  double _pageLeft(int index) => (_viewWidth - _pageWidth(index)) / 2;
+
+  /// The fraction of the viewport width page [index] occupies at the
+  /// current layout zoom — its real width relative to the widest page.
+  double _widthFactor(int index) =>
+      (_maxPointWidth <= 0 ? 1.0 : _pointWidths[index] / _maxPointWidth) *
+      _layoutZoom;
+
+  double _pageHeight(int index) => _aspects[index] * _pageWidth(index);
 
   double _pageOffset(int index) {
     var offset = 0.0;
@@ -1532,19 +1588,18 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final scale = m.getMaxScaleOnAxis();
     final viewTop = -m.storage[13] / scale + _scroll.position.pixels;
     final viewLeft = -m.storage[12] / scale;
-    final pageWidth = _viewWidth * _layoutZoom;
-    final pageLeft = (_viewWidth - pageWidth) / 2;
     var top = 0.0;
     for (var i = 0; i < _pages.length; i++) {
       final height = _pageHeight(i);
       if (viewTop < top + height + widget.pageSpacing ||
           i == _pages.length - 1) {
+        final pageWidth = _pageWidth(i);
         // fractions are layout-zoom independent: numerator and page size
         // scale together
         return PdfViewport(
           page: i,
           top: height <= 0 ? 0 : (viewTop - top) / height,
-          left: pageWidth <= 0 ? 0 : (viewLeft - pageLeft) / pageWidth,
+          left: pageWidth <= 0 ? 0 : (viewLeft - _pageLeft(i)) / pageWidth,
           zoom: _currentZoom,
         );
       }
@@ -1599,9 +1654,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final scale = viewport.zoom.clamp(1.0, widget.maxZoom);
       final scroll = listTop.clamp(0.0, maxScroll);
       // solve (p - t) / s = target for the translation, matching the
-      // unprojection in _captureViewport / _visibleFractionOf
-      final tx = (-scale * viewport.left * _viewWidth)
-          .clamp(_viewWidth * (1 - scale), 0.0);
+      // unprojection in _captureViewport / _visibleFractionOf; the page is
+      // centered in the viewport-wide list, so its left edge sits at
+      // _pageLeft and the stored fraction is into the page's own width
+      final pageView = _pageLeft(page) + viewport.left * _pageWidth(page);
+      final tx = (-scale * pageView).clamp(_viewWidth * (1 - scale), 0.0);
       final ty = (scale * (scroll - listTop))
           .clamp(_viewHeight * (1 - scale), 0.0);
       _transform.value = Matrix4.identity()
@@ -1630,7 +1687,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final page = _pages[index];
     final box = page.cropBox;
     if (box.width <= 0 || box.height <= 0) return;
-    final pageWidth = _viewWidth * _layoutZoom;
+    final pageWidth = _pageWidth(index);
     final geometry = PdfPageGeometry(
       cropBox: box,
       rotation: _effectiveRotation(index),
@@ -1638,8 +1695,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     );
     final target = geometry.toViewRect(rect);
     // list space: pages are centered horizontally and stacked vertically
-    final center = target.center +
-        Offset((_viewWidth - pageWidth) / 2, _pageOffset(index));
+    final center =
+        target.center + Offset(_pageLeft(index), _pageOffset(index));
     final fit = 0.4 *
         math.min(_viewWidth / math.max(target.width, 8),
             _viewHeight / math.max(target.height, 8));
@@ -1764,9 +1821,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _viewWidth / scale,
       _viewHeight / scale,
     );
-    final pageWidth = _viewWidth * _layoutZoom;
-    final pageRect = Rect.fromLTWH((_viewWidth - pageWidth) / 2,
-        _pageOffset(index), pageWidth, _pageHeight(index));
+    final pageRect = Rect.fromLTWH(_pageLeft(index), _pageOffset(index),
+        _pageWidth(index), _pageHeight(index));
     if (pageRect.isEmpty) return null;
     final overlap = view.intersect(pageRect);
     if (overlap.width <= 0 || overlap.height <= 0) return null;
@@ -1790,14 +1846,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       if (contentY <= top + height || i == _pages.length - 1) {
         final box = _pages[i].cropBox;
         if (box.width <= 0 || box.height <= 0) return null;
-        final pageWidth = _viewWidth * _layoutZoom;
+        final pageWidth = _pageWidth(i);
         final geometry = PdfPageGeometry(
           cropBox: box,
           rotation: _pages[i].rotation,
           viewSize: Size(pageWidth, height),
         );
-        final (x, y) = geometry.toPagePoint(
-            Offset(local.dx - (_viewWidth - pageWidth) / 2, contentY - top));
+        final (x, y) = geometry
+            .toPagePoint(Offset(local.dx - _pageLeft(i), contentY - top));
         return (i, x, y);
       }
       top += height + widget.pageSpacing;
@@ -1840,13 +1896,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     if (_viewWidth <= 0) return null;
     // [from] is the picture's source anchor and must stay in source view
     // space (paintAnnotationDragPreview places the picture relative to it);
-    // only [to] moves into this page's view space. Page tops differ only
-    // vertically — both pages share the centred x origin (page width
-    // depends only on the viewport, not the page).
+    // only [to] moves into this page's view space. Pages of different sizes
+    // sit at different left insets in the centered row, so shift x as well
+    // as y when mapping between their view spaces.
     final dy = _pageTop(preview.pageIndex) - _pageTop(index);
-    final to = preview.to.shift(Offset(0, dy));
-    final pageBox =
-        Offset.zero & Size(_viewWidth * _layoutZoom, _pageHeight(index));
+    final dx = _pageLeft(preview.pageIndex) - _pageLeft(index);
+    final to = preview.to.shift(Offset(dx, dy));
+    final pageBox = Offset.zero & Size(_pageWidth(index), _pageHeight(index));
     if (!to.overlaps(pageBox)) return null;
     return PdfMoveDragPreview(
       pageIndex: index,
@@ -1875,7 +1931,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     return PdfPageGeometry(
       cropBox: box,
       rotation: _effectiveRotation(index),
-      viewSize: Size(_viewWidth * _layoutZoom, _pageHeight(index)),
+      viewSize: Size(_pageWidth(index), _pageHeight(index)),
     );
   }
 
@@ -1884,9 +1940,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// marquee dragged past the page edge still maps to sensible (possibly
   /// out-of-page) user-space coordinates.
   Offset _toPageView(int index, Offset local) {
-    final pageWidth = _viewWidth * _layoutZoom;
     return Offset(
-      local.dx - (_viewWidth - pageWidth) / 2,
+      local.dx - _pageLeft(index),
       _scroll.offset + local.dy - _pageTop(index),
     );
   }
@@ -3294,11 +3349,18 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           });
         } else if (!_appliedInitialFit) {
           _appliedInitialFit = true;
-          _layoutZoom =
-              widget.initialFit == PdfViewerFit.page && _aspects.isNotEmpty
-                  ? (_viewHeight / (_viewWidth * _aspects.first))
-                      .clamp(widget.minZoom, 1.0)
-                  : 1.0;
+          // PdfViewerFit.width fills the viewport with the widest page
+          // (layout zoom 1); PdfViewerFit.page shrinks until the whole
+          // first page fits in height as well. Either way pages keep their
+          // real relative sizes — a narrower page lays out narrower.
+          final firstHeightAtFullWidth = _aspects.isNotEmpty
+              ? _aspects.first * _pointWidths.first * _fitWidthScale
+              : 0.0;
+          _layoutZoom = widget.initialFit == PdfViewerFit.page &&
+                  firstHeightAtFullWidth > 0
+              ? (_viewHeight / firstHeightAtFullWidth)
+                  .clamp(widget.minZoom, 1.0)
+              : 1.0;
         }
       }
       // no implicit desktop scrollbar: it would attach here, inside the
@@ -3330,11 +3392,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         padding: EdgeInsets.only(bottom: widget.pageSpacing),
         itemBuilder: (context, index) => Padding(
           padding: EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
-          // zoomed out, each page lays out at a fraction of the viewport
-          // width, centered — more of the document on screen at once
+          // each page lays out at its real width relative to the widest
+          // page (times the layout zoom), centered — so pages keep their
+          // true sizes instead of all stretching to the viewport width
           child: Center(
             child: FractionallySizedBox(
-              widthFactor: _layoutZoom,
+              widthFactor: _widthFactor(index),
               child: _PdfViewerPage(
                 page: _pages[index],
                 effectiveRotation: _effectiveRotation(index),

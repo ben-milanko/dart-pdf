@@ -578,6 +578,31 @@ void main() {
       expect(find.byIcon(Icons.save_alt), findsNothing);
     });
 
+    testWidgets('save button is disabled until there are changes',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await pump(
+        tester,
+        PdfEditorView(controller: editing, onSave: (_) {}),
+      );
+      FilledButton saveButton() => tester.widget<FilledButton>(
+          find.byKey(const ValueKey('pdf-shell-save')));
+
+      // freshly opened: nothing to save, so the button is disabled
+      expect(saveButton().onPressed, isNull);
+
+      // an edit enables it
+      editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
+      await tester.pump();
+      expect(saveButton().onPressed, isNotNull);
+
+      // undoing back to the original disables it again
+      editing.undo();
+      await tester.pump();
+      expect(saveButton().onPressed, isNull);
+    });
+
     testWidgets('showSaveButton hides only the stock save control',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -593,6 +618,8 @@ void main() {
       );
       expect(find.byKey(const ValueKey('pdf-shell-save')), findsNothing);
 
+      // an edit so there's something to save (⌘S is a no-op otherwise)
+      editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
       await tester.pump();
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -613,6 +640,8 @@ void main() {
           onSave: (bytes) => saved = bytes,
         ),
       );
+      // an edit so there's something to save (⌘S is a no-op otherwise)
+      editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       // focus the viewer the way a user would: click it, so the
       // shell's CallbackShortcuts has a focused descendant
       await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);

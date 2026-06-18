@@ -712,7 +712,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           IconButton(
             icon: const Icon(Icons.save_alt),
             tooltip: 'Save… (⌘S / Ctrl+S)',
-            onPressed: () => widget.onSave!(controller.bytes),
+            // disabled while the document matches what was opened — there's
+            // nothing to write until an edit bumps the revision cursor
+            onPressed: controller.isModified
+                ? () => widget.onSave!(controller.bytes)
+                : null,
           ),
         ],
         if (widget.trailing.isNotEmpty) ...[

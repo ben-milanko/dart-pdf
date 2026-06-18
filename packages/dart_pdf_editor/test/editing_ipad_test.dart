@@ -48,7 +48,8 @@ void main() {
     testWidgets('two fingers moving apart zoom in around the gesture',
         (tester) async {
       final (_, viewer) = await pumpViewer(tester, pages: 3);
-      expect(viewer.zoom, closeTo(1, 0.01));
+      // resting at fit-width: zoom is reported in px/pt (scale = 800/612)
+      expect(viewer.zoom, closeTo(scale, 0.01));
 
       final g1 = await tester.startGesture(const Offset(300, 200));
       final g2 = await tester.startGesture(const Offset(500, 400));
@@ -63,7 +64,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
 
       // span grew 283 → 487 px; the settle clamp keeps it past fit-width
-      expect(viewer.zoom, greaterThan(1.3));
+      expect(viewer.zoom, greaterThan(scale));
     });
 
     testWidgets('pinching back together zooms out again', (tester) async {
@@ -135,7 +136,7 @@ void main() {
       final (editing, viewer) = await pumpViewer(tester, pages: 3);
       editing.tool = PdfEditTool.ink;
       await tester.pump();
-      expect(viewer.zoom, closeTo(1, 0.01));
+      expect(viewer.zoom, closeTo(scale, 0.01));
 
       final g1 = await tester.startGesture(const Offset(300, 200));
       final g2 = await tester.startGesture(const Offset(500, 400));
@@ -148,7 +149,7 @@ void main() {
       await g1.up();
       await g2.up();
       await tester.pump(const Duration(milliseconds: 400));
-      expect(viewer.zoom, greaterThan(1.3));
+      expect(viewer.zoom, greaterThan(scale));
     });
   });
 
@@ -215,7 +216,7 @@ void main() {
       final annotations = editing.document.page(0).annotations;
       expect(annotations, hasLength(1));
       expect(annotations.single.inkList, hasLength(2));
-      expect(viewer.zoom, closeTo(1, 0.01));
+      expect(viewer.zoom, closeTo(scale, 0.01));
     });
 
     testWidgets('a finger draws raw when finger drawing is on', (tester) async {
