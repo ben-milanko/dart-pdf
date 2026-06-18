@@ -24,12 +24,12 @@ dependencies:
   pdf_document: ^1.2.0
   http: ^1.2.0
   crypto: ^3.0.0
-  path_provider: ^2.1.0
+  path_provider: ^2.1.6
   onnxruntime: ^1.4.1
 
 dev_dependencies:
   pdf_graphics: ^1.2.0
   pdf_test_fixtures: ^1.2.0
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter

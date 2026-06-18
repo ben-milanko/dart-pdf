@@ -39,7 +39,7 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   # Only used by tool/screenshots_main.dart (not by lib/) to borrow the
   # example's feature-showcase document for marketing screenshots.
   pdf_viewer_example:

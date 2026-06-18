@@ -115,7 +115,7 @@ jobs:
           entryPoint: app
 
       - name: Comment preview URL
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           PREVIEW_LABEL: DartPDF app preview
           PREVIEW_MARKER: dartpdf-app-preview
