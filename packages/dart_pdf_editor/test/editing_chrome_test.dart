@@ -169,7 +169,13 @@ void main() {
 
       final zoom = viewer.zoom;
       expect(zoom, greaterThan(1.5));
-      expect(overlayPainter(tester).chromeScale, closeTo(1 / zoom, 1e-6));
+      // chrome counter-scales the transform zoom (the only thing that scales
+      // it on screen), not the px/pt zoom — public zoom is px/pt
+      // (= transform scale × fit-width = 800/612 here), so divide it back out
+      const fitWidth = 800 / 612;
+      final transformScale = zoom / fitWidth;
+      expect(overlayPainter(tester).chromeScale,
+          closeTo(1 / transformScale, 1e-6));
     });
   });
 

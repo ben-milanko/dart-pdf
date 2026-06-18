@@ -24,16 +24,32 @@ import 'package:test/test.dart';
 class _TranscriptDevice implements PdfDevice {
   final List<String> log = [];
 
+  // Path coordinates ride the wire as float32 (the codec stores geometry at
+  // f32 precision — see _writePath in render_command_codec.dart). The render
+  // engine truncates every coordinate to f32 regardless, and that truncation is
+  // idempotent, so a page renders pixel-identically whether the codec shipped
+  // the original f64 or its f32 image; the only observable effect is here, in
+  // the transcript. Quantizing both sides to f32 compares paths at the codec's
+  // actual precision rather than asserting an f64 round-trip the format never
+  // promised. Everything else (matrices, colours, widths, text positions) stays
+  // f64 and is compared verbatim.
+  static final Float32List _f32cell = Float32List(1);
+  static double _f32(double v) {
+    _f32cell[0] = v;
+    return _f32cell[0];
+  }
+
   static String _path(PdfPath p) {
     final b = StringBuffer('segs=${p.segments.length}[');
     for (final s in p.segments) {
       switch (s) {
         case PdfMoveTo(:final x, :final y):
-          b.write('M$x,$y;');
+          b.write('M${_f32(x)},${_f32(y)};');
         case PdfLineTo(:final x, :final y):
-          b.write('L$x,$y;');
+          b.write('L${_f32(x)},${_f32(y)};');
         case PdfCubicTo(:final x1, :final y1, :final x2, :final y2, :final x3, :final y3):
-          b.write('C$x1,$y1,$x2,$y2,$x3,$y3;');
+          b.write('C${_f32(x1)},${_f32(y1)},${_f32(x2)},${_f32(y2)},'
+              '${_f32(x3)},${_f32(y3)};');
         case PdfClosePath():
           b.write('Z;');
       }

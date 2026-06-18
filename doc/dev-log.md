@@ -2349,7 +2349,6 @@ pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
 full-turn/empty no-op, non-quarter + out-of-range reject) and
 dart_pdf_editor editing_page_ops_test (controller round-trips + selection
 survives; strip widget tests for the bar + per-tile button).
-
 Clearer thumbnail selection (Ben: "the UI is not clear enough if pages are
 selected in the thumbs strip"): the old cue was a single 14%-alpha primary
 tint behind the tile, easy to miss — and indistinguishable on a
@@ -2373,7 +2372,6 @@ style) and the newer "tall" style rewrites the whole file. Test:
 editing_page_ops_test 'a check badge marks each selected tile' (badge
 count tracks the selection via find.byIcon(Icons.check) — the strip has no
 other check icon).
-
 Clearer thumbnail selection (Ben: "the UI is not clear enough if pages are
 selected in the thumbs strip"): the old cue was a single 14%-alpha primary
 tint behind the tile, easy to miss — and indistinguishable on a
@@ -2395,3 +2393,96 @@ visually separate from the selection frame, so "where the viewer is" and
 "what's selected" don't collapse together. Test: editing_page_ops_test
 'a check badge marks each selected tile' (badge count tracks the selection
 via find.byIcon(Icons.check) — the strip has no other check icon).
+Render-command codec perf (heavy CAD pages): a real-world A1 CAD sheet
+(single page, ~525k content ops, ~352k line segments, ~64k recorded
+commands) took multiple seconds to first-render where other viewers were
+sub-second. Profiling the worker path (parse → record → `serializeCommands`
+→ transfer → `deserializeCommands` → replay) on that page showed the codec,
+not the interpret, as the addressable cost: serialize ~207ms producing a
+~19.8 MB buffer, deserialize ~97ms. Two fixes in
+`render_command_codec.dart`. (1) `_Writer` no longer allocates a fresh
+`ByteData(n)` + `Uint8List` view + `BytesBuilder.add` per scalar — on this
+page that was 1M+ tiny allocations. It now grows one backing `Uint8List`
+and writes through a `ByteData.view` at a running offset (doubling on
+overflow; `takeBytes` returns a tight copy). Byte-identical output, pure
+speed-up. (2) Path coordinates serialize as **float32**, not float64
+(`_writePath`/`_readPath`, new `_Writer.f32`/`_Reader.f32`). Geometry is the
+bulk of the buffer, and the render engine (Skia/Impeller) truncates every
+coordinate to f32 anyway — and that truncation is idempotent, so shipping
+the f32 image renders pixel-identically to shipping the original double.
+Matrices, colours, stroke widths and text placement stay f64. Combined warm
+result on the test page: serialize 207→~100ms (-52%), deserialize 97→~87ms,
+buffer 19.8→15.3 MB (-23%, so less to copy across the isolate/Web-Worker
+boundary too). Verified pixel-neutral: the Ghent render baselines deviate
+by the exact same per-page percentages with and without the change (the 14
+pre-existing Linux-vs-macOS baseline mismatches are unchanged; nothing new
+crosses the 0.05% threshold). The codec round-trip test
+(`render_command_codec_test.dart`) now quantizes path coords to f32 on both
+sides of the transcript compare (helper `_f32`) — it asserts the codec's
+actual f32-precision contract, not an f64 round-trip the wire format never
+promised. No format-version bump: these buffers are transient
+isolate/worker messages (the only `serializeCommands`/`deserializeCommands`
+callers are the render-worker entrypoints), never persisted across builds.
+Actual-size page scaling (Ben: "make documents scale in the viewer …
+scaled per the actual document size", not all width-constrained). The
+viewer used to lay every page out at `viewportWidth × layoutZoom`, so all
+pages — and every document — rendered at the same on-screen width
+regardless of their real point dimensions; only the aspect ratio survived
+(`pdf_viewer.dart` old `_pageHeight = aspect × _viewWidth × _layoutZoom`).
+Now each page is sized by its true displayed point width (`_pointWidths`,
+after /Rotate + view rotation) against ONE document-wide reference, the
+widest page (`_maxPointWidth`): `_pageWidth(i) = _pointWidths[i] ×
+_fitWidthScale × _layoutZoom` where `_fitWidthScale = _viewWidth /
+_maxPointWidth` (px/pt at the fit-width baseline). The widest page fills
+the viewport at layout-zoom 1; narrower pages lay out proportionally
+narrower and centered (`_pageLeft`), so the relayout tier stays
+width-bounded and ALL the existing pan/zoom/clamp/scrollbar machinery —
+which operates on the viewport-wide LIST with pages centered inside, never
+on the page width — is untouched. The FractionallySizedBox factor went
+from the uniform `_layoutZoom` to per-page `_widthFactor(i) =
+(_pointWidths[i]/_maxPointWidth) × _layoutZoom`; every coordinate site that
+read `_viewWidth × _layoutZoom` / `(_viewWidth − pageWidth)/2` now uses
+`_pageWidth(i)` / `_pageLeft(i)` (capture/restore, showRect,
+visibleFraction, pagePointAt, pageGeometry, toPageView, crossPageGhost).
+Public `PdfViewerController.zoom` is now logical px per point — 1.0 is
+actual size (100%), independent of the viewport, the conventional
+Acrobat/Preview "100%" — via `_displayScale = _currentZoom ×
+_fitWidthScale`; `setZoom`/`resetZoom` take px/pt (`resetZoom` → actual
+size) and convert to the internal fit-width multiple before
+`_zoomTo`. The internal tiers are unchanged: `_layoutZoom ∈ [minZoom, 1]`
+and the transform (> 1) still work in fit-width multiples, so min/maxZoom,
+double-tap, pinch/wheel math, and `PdfViewport.zoom` (the persisted
+snapshot) stay fit-width multiples — capture/restore round-trips
+untouched. Consequence: there are two "home" states — double-tap toggles
+fit-width ↔ 2.5× (conventional mobile zoom-to-fit), the toolbar reset/100%
+goes to actual size; a page wider than the viewport at 100% pans
+horizontally through the existing transform tier (per Ben's choice: open
+fit-to-page, scroll H at 100%). Tests: zoom assertions across
+pdf_viewer/editing_ipad/editing_sidebar/editing_chrome/editing_text_edit/
+pdf_scrollbar/viewport_test rebased from the old "1 = fit-width" to px/pt
+(fit-width = viewportWidth/pageWidthPt; e.g. 800/612 for the standard
+612pt fixture), and chrome/handle/h-scrollbar checks divide the px/pt zoom
+back to the transform scale they actually track.
+Windows on-device OCR mojibake — the real fix (Ben: "Despite a PR trying
+to fix the issue, this bug still comes up for OCR on windows"). Symptom: a
+screenshot of `OCR failed: code=3, message=Load model from <CJK garbage>
+… failed. File doesn't exist`. PR #98 (ae60b10) had diagnosed it as
+non-ASCII chars in the user-profile path and added an ASCII-only staging
+copy (`_runtimePaths`/`runtimeModelDirectory`/`runtimePathsForTesting` in
+`onnx_ocr_model_runner.dart`). Wrong diagnosis: the mojibake is the tell.
+`onnxruntime`'s `OrtSession.fromFile` (pub `onnxruntime ^1.4.1`,
+lib/src/ort_session.dart) calls `CreateSession` with
+`modelFile.path.toNativeUtf8().cast<ffi.Char>()` — a *narrow* UTF-8
+`char*`. But on Windows the ORT C API's `model_path` is `ORTCHAR_T*` =
+`wchar_t*` (UTF-16LE); ORT reads the UTF-8 bytes two-at-a-time as wide
+chars, so `C:` (0x43 0x3A) → U+3A43 '㩃' etc. This corrupts *every* path,
+ASCII or not — which is why staging to an ASCII dir never helped (the
+ASCII staging path was mangled just the same). Fix: load the model
+*bytes* in Dart and use `OrtSession.fromBuffer` (→ `CreateSessionFromArray`,
+a `void*`+len, no path crosses FFI). `File.readAsBytes()`/`readAsString()`
+use Dart's own wide Windows file APIs, so the path is handled correctly on
+the Dart side; the dictionary (already read via `readAsString`) was never
+affected. Removed the whole staging apparatus + its
+`onnx_ocr_model_runner_test.dart` (it only exercised the dead path logic;
+the surviving `load()` is native-only, unverifiable in the sandbox per the
+#76 honesty posture). 30 package tests still green; analyzer clean.
