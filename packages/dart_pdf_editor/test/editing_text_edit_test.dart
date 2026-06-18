@@ -833,7 +833,9 @@ void main() {
 
       await tap(tester, view(200, 630)); // select
       await tap(tester, view(200, 630)); // edit
-      viewer.setZoom(2);
+      // zoom is px/pt now; the handles counter-scale the transform zoom, so
+      // aim for a 2× transform scale (2 × fit-width in px/pt)
+      viewer.setZoom(2 * scale);
       await tester.pump();
 
       final field = tester.widget<TextField>(find.byKey(editorKey));

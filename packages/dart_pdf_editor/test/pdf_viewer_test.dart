@@ -31,6 +31,11 @@ void main() {
   // buildAnnotatedPdf link geometry, in view coordinates (800px viewport
   // over a 612pt page): centers of the annotation rects on page 1
   const annotScale = 800 / 612;
+  // The on-screen scale (px/pt) the viewer rests at with the 612pt-wide
+  // fixture filling the 800px-wide viewport — i.e. controller.zoom at
+  // fit-width. Public zoom is reported in px/pt (1.0 = actual size), so
+  // fit-width is 800/612, not 1.
+  const fitWidth = 800 / 612;
   Offset annotView(double x, double y) =>
       Offset(x * annotScale, (792 - y) * annotScale);
 
@@ -54,8 +59,9 @@ void main() {
     ));
     await tester.pump();
 
-    // 800×600 viewport, 612×792 pages: fit-page = 600 / (800 · 792/612)
-    expect(controller.zoom, closeTo(600 / (800 * 792 / 612), 0.001));
+    // 800×600 viewport, 612×792 pages: fit-page fits the height, so the
+    // scale is 600/792 px/pt (the whole page is 600px tall on screen)
+    expect(controller.zoom, closeTo(600 / 792, 0.001));
     final region = controller.visiblePageRegion(0)!;
     expect(region.left, closeTo(0, 0.001));
     expect(region.top, closeTo(0, 0.001));
@@ -340,8 +346,8 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 400));
 
     expect(controller.selectedText, 'Page');
-    // and the viewer did not zoom
-    expect(controller.zoom, 1);
+    // and the viewer did not zoom (still resting at fit-width)
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
   });
 
   testWidgets('double-click and drag selects whole words', (tester) async {
@@ -453,7 +459,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(const Offset(400, 300));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, greaterThan(1));
+    expect(controller.zoom, greaterThan(fitWidth));
 
     // zoomed: two-finger scroll must keep moving through the document
     // (regression: InteractiveViewer used to claim the gesture and pan
@@ -469,9 +475,10 @@ void main() {
     await gesture.panZoomEnd();
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     expect(controller.currentPage, greaterThan(0));
-    expect(controller.zoom, greaterThan(1)); // scrolling didn't unzoom
+    expect(controller.zoom, greaterThan(fitWidth)); // scrolling didn't unzoom
 
-    // trackpad pinch-out keeps working — and may pass 100% (2.5 × 0.2)
+    // trackpad pinch-out keeps working — and crosses below fit-width
+    // (2.5 × 0.2 = 0.5 of fit-width)
     final pinch = await tester.createGesture(
         kind: PointerDeviceKind.trackpad, pointer: 22);
     await pinch.panZoomStart(const Offset(400, 300));
@@ -479,7 +486,7 @@ void main() {
     await tester.pump();
     await pinch.panZoomEnd();
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, moreOrLessEquals(0.5, epsilon: 0.01));
+    expect(controller.zoom, moreOrLessEquals(0.5 * fitWidth, epsilon: 0.02));
   });
 
   testWidgets('zooming out past 100% floors at minZoom and recenters',
@@ -503,7 +510,8 @@ void main() {
     }
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, moreOrLessEquals(0.25, epsilon: 0.001));
+    // minZoom (0.25) is a fit-width multiple; in px/pt that is 0.25 × fit-width
+    expect(controller.zoom, moreOrLessEquals(0.25 * fitWidth, epsilon: 0.002));
 
     // pages lay out at a quarter width, centered — and MORE of the
     // document is on screen: several pages fit the viewport at once
@@ -515,12 +523,12 @@ void main() {
     final third = tester.getRect(find.byType(PdfPageView).at(2));
     expect(third.top, lessThan(600)); // and page 3
 
-    // double-tap from zoomed-out returns to exactly 100%
+    // double-tap from zoomed-out returns to fit-width
     await tester.tapAt(const Offset(400, 300));
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(const Offset(400, 300));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1);
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
   });
 
   testWidgets('trackpad fling keeps scrolling after lift-off', (tester) async {
@@ -677,7 +685,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(const Offset(400, 300));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, moreOrLessEquals(2.5, epsilon: 0.01));
+    // double-tap zooms 2.5× fit-width; in px/pt that is 2.5 × fit-width
+    expect(controller.zoom, moreOrLessEquals(2.5 * fitWidth, epsilon: 0.02));
 
     await tester.runAsync(() => controller.search('Page 4'));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
@@ -741,14 +750,16 @@ void main() {
       await tester.pump();
     }
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1); // wheeled past the end: no zoom
+    // wheeled past the end: no zoom (still resting at fit-width)
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
 
     for (var i = 0; i < 10; i++) {
       await tester.sendEventToBinding(pointer.scroll(const Offset(0, -400)));
       await tester.pump();
     }
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1); // and past the top: no zoom
+    // and past the top: no zoom
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
   });
 
   testWidgets('ctrl+wheel zooms, plain wheel scrolls', (tester) async {
@@ -759,7 +770,7 @@ void main() {
     // plain wheel: scrolls the list, no zoom
     await tester.sendEventToBinding(pointer.scroll(const Offset(0, 300)));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1);
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
     expect(controller.currentPage, 0);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -767,7 +778,7 @@ void main() {
     await tester.sendEventToBinding(pointer.scroll(const Offset(0, -300)));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    expect(controller.zoom, greaterThan(1));
+    expect(controller.zoom, greaterThan(fitWidth));
   });
 
   testWidgets('default max zoom supports deep inspection of long plots',
