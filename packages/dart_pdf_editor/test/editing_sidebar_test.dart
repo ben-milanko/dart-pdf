@@ -123,14 +123,16 @@ void main() {
     addTearDown(editing.dispose);
     addTearDown(viewer.dispose);
     await pumpSidebar(tester, editing, viewer);
-    expect(viewer.zoom, 1);
+    // zoom is reported in px/pt; the 520px viewport over the 612pt page
+    // rests at fit-width = 520/612
+    expect(viewer.zoom, closeTo(520 / 612, 0.01));
 
     await tester.tap(find.text('Square'));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
 
-    // the viewer is 520x600 over a 612pt page: the 150x100pt rect at 40%
-    // viewport fill wants scale 0.4 * 520 / (150 * 520/612) ≈ 1.63
-    expect(viewer.zoom, closeTo(1.63, 0.05));
+    // the viewer is 520x600 over a 612pt page: framing the 150pt-wide rect
+    // at 40% viewport fill wants a px/pt scale of 0.4 * 520 / 150 ≈ 1.39
+    expect(viewer.zoom, closeTo(0.4 * 520 / 150, 0.05));
     expect(editing.selectedAnnotation?.subtype, 'Square');
 
     // the rect (fractions of 612x792, y-down) is centered and contained
