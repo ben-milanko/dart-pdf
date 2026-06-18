@@ -737,6 +737,43 @@ void main() {
       expect(editing.fontFamily, PdfStandardFont.timesBoldItalic);
     });
 
+    testWidgets('the style menu sets text alignment for new text',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('pdf-group-insert')), 80);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-insert')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+
+      // no selection: the buttons set the creation default
+      expect(editing.textAlign, isNull);
+      await tester.tap(find.byKey(const ValueKey('pdf-text-align-center')));
+      await tester.pump();
+      expect(editing.textAlign, PdfTextAlign.center);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-text-align-right')));
+      await tester.pump();
+      expect(editing.textAlign, PdfTextAlign.right);
+    });
+
     testWidgets('the style menu sets text fill and border defaults',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
