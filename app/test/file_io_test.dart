@@ -12,6 +12,14 @@ void main() {
     expect(ensurePdfName('  '), 'document.pdf');
   });
 
+  test('ensurePdfExtension forces .pdf on a chosen save path', () {
+    // The desktop save dialog can hand back a path with no/other extension.
+    expect(ensurePdfExtension('/home/ben/pages'), '/home/ben/pages.pdf');
+    expect(ensurePdfExtension('/home/ben/pages.PDF'), '/home/ben/pages.PDF');
+    expect(ensurePdfExtension('/home/ben/pages.pdf'), '/home/ben/pages.pdf');
+    expect(ensurePdfExtension(r'C:\Docs\export'), r'C:\Docs\export.pdf');
+  });
+
   test('saveBytesToPath overwrites the file in place', () async {
     final dir = await Directory.systemTemp.createTemp('dartpdf_test');
     addTearDown(() => dir.delete(recursive: true));
