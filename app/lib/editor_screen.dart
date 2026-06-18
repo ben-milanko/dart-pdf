@@ -10,12 +10,14 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_info.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
 import 'recents.dart';
 import 'settings_screen.dart';
+import 'update.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
 
@@ -35,6 +37,8 @@ class EditorScreen extends StatefulWidget {
     required this.prefs,
     this.launchArgs = const [],
     this.initialDocument,
+    this.updateService,
+    this.autoCheckUpdates = false,
   });
 
   final PdfEditingPreferences prefs;
@@ -46,6 +50,16 @@ class EditorScreen extends StatefulWidget {
   /// platform. Used by screenshot/integration harnesses (and handy in
   /// tests) to land directly in the editor without a file picker.
   final ({Uint8List bytes, String title})? initialDocument;
+
+  /// An update checker to use instead of the one the screen builds itself —
+  /// the seam tests use to inject a fake without real network.
+  final UpdateService? updateService;
+
+  /// Whether to check for a newer release on startup (and show a banner if one
+  /// is found). The host (production) sets this true; it defaults to false so
+  /// plain widget tests stay hermetic — no startup network traffic. The
+  /// Settings panel can still check on demand regardless.
+  final bool autoCheckUpdates;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -59,6 +73,15 @@ class _EditorScreenState extends State<EditorScreen>
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
+
+  /// The update checker, owned here unless the host injected one.
+  late final UpdateService _updates =
+      widget.updateService ?? UpdateService(currentVersion: AppInfo.version);
+  bool get _ownsUpdates => widget.updateService == null;
+
+  /// True once the "update available" banner has been shown this session, so a
+  /// later check (or rebuild) doesn't stack a second copy.
+  bool _updateBannerShown = false;
 
   /// True while a file is being dragged over the window (desktop/web).
   bool _dragging = false;
@@ -88,6 +111,54 @@ class _EditorScreenState extends State<EditorScreen>
     startWebLaunchQueue(_openIncoming);
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    if (widget.autoCheckUpdates && UpdateService.supported) {
+      _updates.addListener(_onUpdateStatus);
+      unawaited(_startupUpdateCheck());
+    }
+  }
+
+  /// Runs the one-shot startup update check. When we built the service
+  /// ourselves it may have captured the compile-time version fallback, so
+  /// refresh it from the loaded package metadata before comparing.
+  Future<void> _startupUpdateCheck() async {
+    if (_ownsUpdates) {
+      await AppInfo.load();
+      _updates.currentVersion = AppInfo.version;
+    }
+    if (!mounted) return;
+    await _updates.checkForUpdates();
+  }
+
+  /// Surfaces a one-time, non-blocking banner when a newer release is found
+  /// and the user hasn't dismissed that exact version before.
+  void _onUpdateStatus() {
+    if (_updateBannerShown || !_updates.shouldNotify || !mounted) return;
+    _updateBannerShown = true;
+    final release = _updates.latest!;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showMaterialBanner(MaterialBanner(
+      key: const ValueKey('update-available-banner'),
+      content: Text('DartPDF ${release.version} is available.'),
+      leading: const Icon(Icons.system_update_alt),
+      actions: [
+        TextButton(
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            unawaited(_updates.dismiss());
+          },
+          child: const Text('Later'),
+        ),
+        FilledButton(
+          key: const ValueKey('update-banner-download'),
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            final url = _updates.downloadUrl;
+            if (url != null) unawaited(_openExternal(Uri.parse(url)));
+          },
+          child: const Text('Download'),
+        ),
+      ],
+    ));
   }
 
   /// Opens a `.pdf` passed on the command line — how Windows and Linux deliver
@@ -117,6 +188,8 @@ class _EditorScreenState extends State<EditorScreen>
       tab.dispose();
     }
     _recents.dispose();
+    _updates.removeListener(_onUpdateStatus);
+    if (_ownsUpdates) _updates.dispose();
     super.dispose();
   }
 
@@ -592,8 +665,12 @@ class _EditorScreenState extends State<EditorScreen>
           const PopupMenuDivider(),
         ],
         PopupMenuItem(
-          value: () =>
-              showAppSettings(context, prefs: _prefs, recents: _recents),
+          value: () => showAppSettings(
+            context,
+            prefs: _prefs,
+            recents: _recents,
+            updates: _updates,
+          ),
           child: const ListTile(
             leading: Icon(Icons.settings_outlined),
             title: Text('Settings'),

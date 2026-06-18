@@ -20,6 +20,21 @@ so platform build files don't hardcode versions.
 You can also run the workflow manually (Actions → Release app → Run workflow)
 with a version input; that builds artifacts but only creates a Release on a tag.
 
+## In-app update checker
+
+The app checks these Releases for a newer build (`app/lib/update.dart`,
+surfaced in Settings → Updates and a startup banner). It is a *checker*, not a
+silent updater: it points the user at the matching artifact for their platform
+(or the release page), since the desktop bundles are unsigned and the store
+builds update through their own channels. For it to work the published Release
+must keep the **`app-v<version>` tag** (other tags, e.g. the pub-package
+release tags in this repo, are ignored) and keep the artifact file names CI
+produces (`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /
+`dartpdf-windows-x64.zip`, `dartpdf-linux-x86_64.AppImage` /
+`dartpdf-linux-x64.tar.gz`, `app-release.apk`). Publish the draft Release so
+the GitHub `/releases` API exposes it (drafts aren't visible unauthenticated).
+The web build is always served fresh, so it skips the check.
+
 ## What CI produces
 
 | Platform | Artifact | Signed? |

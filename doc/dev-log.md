@@ -2349,3 +2349,41 @@ pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
 full-turn/empty no-op, non-quarter + out-of-range reject) and
 dart_pdf_editor editing_page_ops_test (controller round-trips + selection
 survives; strip widget tests for the bar + per-tile button).
+
+In-app update checker (Ben: "add a self update mechanism to the DartPDF
+app"). The standalone app ships from GitHub Releases tagged `app-v<version>`
+(release-app.yml attaches per-platform artifacts), so "self update" here is
+an honest *checker* — not a silent binary-replacer — that polls the Releases
+API and points the user at the right download. `app/lib/update.dart`:
+`AppVersion` (lenient `tryParse` of `app-v`/`v` tags, `+build` ignored,
+`-prerelease` ranks below the same final numbers) + `Comparable`;
+`ReleaseInfo.fromJson` (one `/releases` element → version, notes, html_url,
+asset-name→browser_download_url map; null for tags the parser rejects, so
+pub-package release tags like `pdf_cos-v…` are skipped); `UpdateService
+extends ChangeNotifier` — `checkForUpdates({force})` hits
+`api.github.com/repos/<owner>/<repo>/releases` (User-Agent header is
+mandatory or GitHub 403s), filters to `app-v`-prefixed tags (so the same
+repo's pub releases don't masquerade as app updates), picks the highest >
+current, and lands the outcome in `status` (idle/checking/upToDate/
+updateAvailable/failed) — never throws. Throttled to once/24h via
+`shared_preferences` (`lastChecked`), `dismiss()` persists a `dismissedTag`
+so the banner won't renag a release; both degrade to in-memory when storage
+is absent, mirroring RecentsStore. `downloadUrl` maps the running platform to
+its artifact (macOS .dmg, Windows portable .exe→.zip, Linux AppImage→.tar.gz,
+Android .apk) or falls back to the release page (iOS/fuchsia). `supported`
+is `!kIsWeb` (the web build is always served fresh). Injection seams:
+`fetcher`, `clientFactory`, `now`, `checkInterval`, `platform` (all tested in
+update_test.dart without real network). UI: settings_screen.dart gained an
+"Updates" section (`_UpdateSection`, hidden on web/when no service) — a
+"Check now" button (`settings-check-updates`) and a status line, with a
+Download FilledButton (`settings-download-update`) when newer.
+editor_screen.dart owns the service (`_updates`, disposed when `_ownsUpdates`)
+and, only when `autoCheckUpdates` is set (app.dart passes it; default false
+keeps widget tests hermetic — no startup network), runs `_startupUpdateCheck`
+(refreshes `currentVersion` from `AppInfo.load()` first so the compile-time
+fallback can't trigger a false positive) and shows a one-shot `MaterialBanner`
+(`update-available-banner`, Later→dismiss / Download). `http: ^1.2.0` added to
+app/pubspec.yaml. Tests: update_test.dart (version parse/order, fromJson,
+check outcomes, throttle/force, dismiss, per-platform downloadUrl) and
+update_settings_test.dart (Settings check→available+download / up-to-date,
+startup banner + Later, no banner when current).
