@@ -161,6 +161,18 @@ stress set:
 benchmark/run.sh corpus 2 0      # all pages of every real-world PDF
 ```
 
+## Web renderer benchmark (CanvasKit vs skwasm)
+
+The harnesses above ride `flutter test`'s headless **host** engine, so they
+can't compare Flutter's two **web** renderers. `benchmark/web/` builds the app
+for the browser both ways (CanvasKit and `--wasm`/skwasm), drives it in headless
+Chromium via Playwright, and emits this same JSON schema (with the renderer
+detected at runtime). See [benchmark/web/README.md](web/README.md):
+
+```bash
+benchmark/web/run.sh            # build both, drive both, print the table
+```
+
 ## JSON schema
 
 ```json
