@@ -2371,6 +2371,36 @@ dropped with an explanatory tab. Tests: recent_files_test (store: ordering,
 dedupe, count/byte eviction, keep-newest, touch/remove/clear, reload across
 a fresh store, notifications) and recent_files_menu_test (seeded recents
 surface in the menu, clear removes the section, empty shows none).
+Render-command codec perf (heavy CAD pages): a real-world A1 CAD sheet
+(single page, ~525k content ops, ~352k line segments, ~64k recorded
+commands) took multiple seconds to first-render where other viewers were
+sub-second. Profiling the worker path (parse → record → `serializeCommands`
+→ transfer → `deserializeCommands` → replay) on that page showed the codec,
+not the interpret, as the addressable cost: serialize ~207ms producing a
+~19.8 MB buffer, deserialize ~97ms. Two fixes in
+`render_command_codec.dart`. (1) `_Writer` no longer allocates a fresh
+`ByteData(n)` + `Uint8List` view + `BytesBuilder.add` per scalar — on this
+page that was 1M+ tiny allocations. It now grows one backing `Uint8List`
+and writes through a `ByteData.view` at a running offset (doubling on
+overflow; `takeBytes` returns a tight copy). Byte-identical output, pure
+speed-up. (2) Path coordinates serialize as **float32**, not float64
+(`_writePath`/`_readPath`, new `_Writer.f32`/`_Reader.f32`). Geometry is the
+bulk of the buffer, and the render engine (Skia/Impeller) truncates every
+coordinate to f32 anyway — and that truncation is idempotent, so shipping
+the f32 image renders pixel-identically to shipping the original double.
+Matrices, colours, stroke widths and text placement stay f64. Combined warm
+result on the test page: serialize 207→~100ms (-52%), deserialize 97→~87ms,
+buffer 19.8→15.3 MB (-23%, so less to copy across the isolate/Web-Worker
+boundary too). Verified pixel-neutral: the Ghent render baselines deviate
+by the exact same per-page percentages with and without the change (the 14
+pre-existing Linux-vs-macOS baseline mismatches are unchanged; nothing new
+crosses the 0.05% threshold). The codec round-trip test
+(`render_command_codec_test.dart`) now quantizes path coords to f32 on both
+sides of the transcript compare (helper `_f32`) — it asserts the codec's
+actual f32-precision contract, not an f64 round-trip the wire format never
+promised. No format-version bump: these buffers are transient
+isolate/worker messages (the only `serializeCommands`/`deserializeCommands`
+callers are the render-worker entrypoints), never persisted across builds.
 Actual-size page scaling (Ben: "make documents scale in the viewer …
 scaled per the actual document size", not all width-constrained). The
 viewer used to lay every page out at `viewportWidth × layoutZoom`, so all
