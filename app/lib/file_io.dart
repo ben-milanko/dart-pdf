@@ -74,9 +74,15 @@ Future<Uint8List?> pickImageBytes() async {
 String ensurePdfName(String name) {
   var trimmed = name.trim();
   if (trimmed.isEmpty) trimmed = 'document';
-  if (!trimmed.toLowerCase().endsWith('.pdf')) trimmed = '$trimmed.pdf';
-  return trimmed;
+  return ensurePdfExtension(trimmed);
 }
+
+/// Appends `.pdf` to [path] unless it already ends with it (case-insensitive).
+/// The desktop save dialog lets the user clear or change the extension, so the
+/// path it hands back can lack one — exported and saved files must still open
+/// as PDFs.
+String ensurePdfExtension(String path) =>
+    path.toLowerCase().endsWith('.pdf') ? path : '$path.pdf';
 
 /// The outcome of a save, with a message suitable for a toast (null = the
 /// user cancelled, so say nothing).
@@ -211,9 +217,12 @@ Future<SaveResult> saveBytesAs(
         acceptedTypeGroups: const [pdfTypeGroup],
       );
       if (location == null) return SaveResult.cancelled;
+      // The dialog returns the path verbatim — if the user cleared or changed
+      // the extension, force `.pdf` so the file still opens as a PDF.
+      final path = ensurePdfExtension(location.path);
       try {
-        await file.saveTo(location.path);
-        return SaveResult.saved(location.path);
+        await file.saveTo(path);
+        return SaveResult.saved(path);
       } catch (e) {
         return SaveResult.failed(e);
       }

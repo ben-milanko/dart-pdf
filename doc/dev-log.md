@@ -2349,7 +2349,6 @@ pdf_document page_ops_test (rotate group — accumulation, CCW normalize,
 full-turn/empty no-op, non-quarter + out-of-range reject) and
 dart_pdf_editor editing_page_ops_test (controller round-trips + selection
 survives; strip widget tests for the bar + per-tile button).
-
 Render-command codec perf (heavy CAD pages): a real-world A1 CAD sheet
 (single page, ~525k content ops, ~352k line segments, ~64k recorded
 commands) took multiple seconds to first-render where other viewers were
@@ -2380,3 +2379,26 @@ actual f32-precision contract, not an f64 round-trip the wire format never
 promised. No format-version bump: these buffers are transient
 isolate/worker messages (the only `serializeCommands`/`deserializeCommands`
 callers are the render-worker entrypoints), never persisted across builds.
+Windows on-device OCR mojibake — the real fix (Ben: "Despite a PR trying
+to fix the issue, this bug still comes up for OCR on windows"). Symptom: a
+screenshot of `OCR failed: code=3, message=Load model from <CJK garbage>
+… failed. File doesn't exist`. PR #98 (ae60b10) had diagnosed it as
+non-ASCII chars in the user-profile path and added an ASCII-only staging
+copy (`_runtimePaths`/`runtimeModelDirectory`/`runtimePathsForTesting` in
+`onnx_ocr_model_runner.dart`). Wrong diagnosis: the mojibake is the tell.
+`onnxruntime`'s `OrtSession.fromFile` (pub `onnxruntime ^1.4.1`,
+lib/src/ort_session.dart) calls `CreateSession` with
+`modelFile.path.toNativeUtf8().cast<ffi.Char>()` — a *narrow* UTF-8
+`char*`. But on Windows the ORT C API's `model_path` is `ORTCHAR_T*` =
+`wchar_t*` (UTF-16LE); ORT reads the UTF-8 bytes two-at-a-time as wide
+chars, so `C:` (0x43 0x3A) → U+3A43 '㩃' etc. This corrupts *every* path,
+ASCII or not — which is why staging to an ASCII dir never helped (the
+ASCII staging path was mangled just the same). Fix: load the model
+*bytes* in Dart and use `OrtSession.fromBuffer` (→ `CreateSessionFromArray`,
+a `void*`+len, no path crosses FFI). `File.readAsBytes()`/`readAsString()`
+use Dart's own wide Windows file APIs, so the path is handled correctly on
+the Dart side; the dictionary (already read via `readAsString`) was never
+affected. Removed the whole staging apparatus + its
+`onnx_ocr_model_runner_test.dart` (it only exercised the dead path logic;
+the surviving `load()` is native-only, unverifiable in the sandbox per the
+#76 honesty posture). 30 package tests still green; analyzer clean.
