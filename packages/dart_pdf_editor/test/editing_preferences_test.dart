@@ -76,6 +76,20 @@ void main() {
       expect(prefs.searchRegex, isFalse);
     });
 
+    test('textAlign resets to null (follow text direction)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      a.textAlign = PdfTextAlign.right;
+      await pumpEventQueue();
+      a.textAlign = null; // clear the override, back to follow-direction
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.textAlign, isNull);
+    });
+
     test('a value set while loading is not clobbered by stored data', () async {
       SharedPreferences.setMockInitialValues(
           {'dart_pdf_editor.editing.strokeWidth': 9.0});

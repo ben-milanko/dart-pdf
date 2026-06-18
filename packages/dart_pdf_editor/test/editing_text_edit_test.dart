@@ -121,6 +121,16 @@ void main() {
           contains('22 Tf'));
     });
 
+    test('addFreeTextRich applies the alignment default', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.right;
+      editing.addFreeTextRich(0, const PdfRect(100, 600, 360, 650),
+          [const PdfFreeTextRun('Rich')]);
+
+      final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.alignment, PdfTextAlign.right);
+    });
+
     test('text fill and border preferences flow into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..strokeWidth = 3
