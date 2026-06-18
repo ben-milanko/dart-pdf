@@ -40,9 +40,12 @@ jobs:
         working-directory: packages/dart_pdf_editor/example
         run: dart run dart_pdf_editor:build_web_worker
 
-      # --wasm builds the skwasm (WebAssembly) renderer; the COOP/COEP headers
-      # in firebase.json make it multithreaded (SharedArrayBuffer).
-      - run: flutter build web --release --wasm
+      # Default (no --wasm) builds the CanvasKit renderer, which benchmarks
+      # faster than skwasm for page rasterization (see benchmark/web). The
+      # render worker above keeps interpretation/decode off the UI thread
+      # regardless of renderer; firebase.json's COOP/COEP headers are kept
+      # (harmless for CanvasKit) but no longer required for the renderer.
+      - run: flutter build web --release
         working-directory: packages/dart_pdf_editor/example
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
