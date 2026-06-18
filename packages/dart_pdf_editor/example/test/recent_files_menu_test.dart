@@ -10,13 +10,18 @@ void main() {
   Uint8List doc(int seed) =>
       Uint8List.fromList(List.generate(64, (i) => (seed * 31 + i) & 0xff));
 
-  Future<void> openMenu(WidgetTester tester) async {
+  Future<void> openAppMenu(WidgetTester tester) async {
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
   }
 
-  testWidgets('app menu lists seeded recent files and a clear action',
-      (tester) async {
+  Future<void> openRecentsSubmenu(WidgetTester tester) async {
+    await openAppMenu(tester);
+    await tester.tap(find.text('Recent files'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('recents live behind a submenu, not inline', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final backend = PdfMemoryCacheStore();
     final seed = RecentFilesStore(backend);
@@ -24,20 +29,47 @@ void main() {
     await seed.record('beta.pdf', doc(2));
 
     await tester.pumpWidget(ViewerApp(cacheStore: backend));
-    // let the app's own recents store load the seeded manifest
     await tester.pump();
     await tester.pump();
 
-    await openMenu(tester);
+    await openAppMenu(tester);
+    // the parent menu only shows the "Recent files" row; the files
+    // themselves stay hidden until the submenu is opened
     expect(find.text('Recent files'), findsOneWidget);
+    expect(find.text('alpha.pdf'), findsNothing);
+    expect(find.text('beta.pdf'), findsNothing);
+
+    await tester.tap(find.text('Recent files'));
+    await tester.pumpAndSettle();
     expect(find.text('alpha.pdf'), findsOneWidget);
     expect(find.text('beta.pdf'), findsOneWidget);
     expect(find.text('Clear recent files'), findsOneWidget);
-    // the menu also offers a direct open entry
-    expect(find.text('Open a PDF…'), findsOneWidget);
   });
 
-  testWidgets('clearing recent files removes the section', (tester) async {
+  testWidgets('files already open in a tab are excluded from recents',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final backend = PdfMemoryCacheStore();
+    final seed = RecentFilesStore(backend);
+    // 'Feature showcase' is the demo tab the app opens on launch
+    await seed.record('Feature showcase', doc(1));
+    await seed.record('alpha.pdf', doc(2));
+
+    await tester.pumpWidget(ViewerApp(cacheStore: backend));
+    await tester.pump();
+    await tester.pump();
+
+    // the demo title shows once, in the tab strip
+    expect(find.text('Feature showcase'), findsOneWidget);
+
+    await openRecentsSubmenu(tester);
+    // the closed file is offered…
+    expect(find.text('alpha.pdf'), findsOneWidget);
+    // …but the open demo isn't added to the submenu (still just the tab)
+    expect(find.text('Feature showcase'), findsOneWidget);
+  });
+
+  testWidgets('clearing recents removes the submenu row', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final backend = PdfMemoryCacheStore();
     final seed = RecentFilesStore(backend);
@@ -47,22 +79,21 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await openMenu(tester);
+    await openRecentsSubmenu(tester);
     await tester.tap(find.text('Clear recent files'));
     await tester.pumpAndSettle();
 
-    await openMenu(tester);
+    await openAppMenu(tester);
     expect(find.text('Recent files'), findsNothing);
     expect(find.text('alpha.pdf'), findsNothing);
   });
 
-  testWidgets('with no recents the menu shows no Recent files section',
-      (tester) async {
+  testWidgets('with no recents there is no Recent files row', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(ViewerApp(cacheStore: PdfMemoryCacheStore()));
     await tester.pump();
 
-    await openMenu(tester);
+    await openAppMenu(tester);
     expect(find.text('Recent files'), findsNothing);
     expect(find.text('Clear recent files'), findsNothing);
   });

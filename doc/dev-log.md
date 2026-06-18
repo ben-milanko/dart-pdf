@@ -2364,13 +2364,22 @@ PdfDiskCache). main.dart: `_recents` built from the shared `_cacheStore`
 (now `late final`, overridable via the new `ViewerApp.cacheStore` /
 `ViewerScreen.cacheStore` seam for tests); recorded on every successful
 `_pickFile`/`_openPath`; the app popup menu gained an "Open a PDF…" entry
-and a "Recent files" section (header + up to `_maxRecentMenuItems` (8)
-entries + "Clear recent files"), rebuilt via a listener. `_openRecent`
-reads bytes back and `touch`es the entry; a recent whose bytes aged out is
-dropped with an explanatory tab. Tests: recent_files_test (store: ordering,
-dedupe, count/byte eviction, keep-newest, touch/remove/clear, reload across
-a fresh store, notifications) and recent_files_menu_test (seeded recents
-surface in the menu, clear removes the section, empty shows none).
+and a "Recent files" **submenu** (Ben follow-up: "This should be a submenu
+in the popup. Open files shouldn't appear in the recents") — a nested
+`PopupMenuButton` (key `recent-files-submenu`) listing up to
+`_maxRecentMenuItems` (8) files + "Clear recent files". The row carries a
+no-op value so the inner button owns the tap (the inner InkWell wins the
+gesture arena); selecting a submenu item runs the action then pops the
+parent menu via the captured itemBuilder context. Files whose title matches
+an open tab are filtered out (`openTitles`), so the just-opened document
+isn't offered as a recent and the whole row hides when nothing's left to
+show; rebuilt via a listener. `_openRecent` reads bytes back and `touch`es
+the entry; a recent whose bytes aged out is dropped with an explanatory
+tab. Tests: recent_files_test (store: ordering, dedupe, count/byte
+eviction, keep-newest, touch/remove/clear, reload across a fresh store,
+notifications) and recent_files_menu_test (recents stay behind the submenu,
+open-tab titles excluded — verified via the demo tab, clear removes the
+row, empty shows none).
 Clearer thumbnail selection (Ben: "the UI is not clear enough if pages are
 selected in the thumbs strip"): the old cue was a single 14%-alpha primary
 tint behind the tile, easy to miss — and indistinguishable on a

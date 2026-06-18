@@ -257,7 +257,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ThemeMode.dark => 'Theme: dark — switch to system',
       };
 
-  List<PopupMenuEntry<VoidCallback>> _appMenuItems(_DocumentTab? tab) => [
+  List<PopupMenuEntry<VoidCallback>> _appMenuItems(
+          BuildContext menuContext, _DocumentTab? tab) =>
+      [
         PopupMenuItem(
           value: () => unawaited(_pickFile()),
           child: const ListTile(
@@ -274,7 +276,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
-        ..._recentMenuItems(),
+        ..._recentMenuItems(menuContext),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: () => unawaited(_runOcr()),
@@ -332,40 +334,65 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       ];
 
-  /// The "Open recent" section of the app menu — a header, one entry per
-  /// remembered file (newest first), and a clear action. Empty until a
-  /// file has been opened.
-  List<PopupMenuEntry<VoidCallback>> _recentMenuItems() {
-    final recents = _recents.entries;
+  /// The "Open recent" entry of the app menu: a single "Recent files" row
+  /// that expands into a submenu listing remembered files (newest first)
+  /// plus a clear action. Files already open in a tab are left out — there's
+  /// no point offering a shortcut to reopen them — so the row is hidden
+  /// entirely until there's at least one closed file to show.
+  List<PopupMenuEntry<VoidCallback>> _recentMenuItems(BuildContext menuContext) {
+    final openTitles = {for (final tab in _tabs) tab.title};
+    final recents = [
+      for (final entry in _recents.entries)
+        if (!openTitles.contains(entry.title)) entry,
+    ].take(_maxRecentMenuItems).toList();
     if (recents.isEmpty) return const [];
     return [
       const PopupMenuDivider(),
-      PopupMenuItem(
-        enabled: false,
-        height: 36,
-        child: Text(
-          'Recent files',
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-      ),
-      for (final entry in recents.take(_maxRecentMenuItems))
-        PopupMenuItem(
-          value: () => unawaited(_openRecent(entry)),
-          child: ListTile(
-            leading: const Icon(Icons.picture_as_pdf_outlined),
-            title: Text(
-              entry.title.isEmpty ? 'Untitled' : entry.title,
-              overflow: TextOverflow.ellipsis,
+      PopupMenuItem<VoidCallback>(
+        // A no-op: the nested button below owns the row's taps (opening the
+        // submenu). This only guards a stray tap on the row from invoking a
+        // null action.
+        value: () {},
+        padding: EdgeInsets.zero,
+        child: PopupMenuButton<VoidCallback>(
+          key: const ValueKey('recent-files-submenu'),
+          tooltip: 'Recent files',
+          // Run the chosen submenu action, then dismiss the parent menu,
+          // which stays open behind the submenu otherwise.
+          onSelected: (action) {
+            action();
+            if (Navigator.of(menuContext).canPop()) {
+              Navigator.of(menuContext).pop();
+            }
+          },
+          itemBuilder: (_) => [
+            for (final entry in recents)
+              PopupMenuItem<VoidCallback>(
+                value: () => unawaited(_openRecent(entry)),
+                child: ListTile(
+                  leading: const Icon(Icons.picture_as_pdf_outlined),
+                  title: Text(
+                    entry.title.isEmpty ? 'Untitled' : entry.title,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            const PopupMenuDivider(),
+            PopupMenuItem<VoidCallback>(
+              value: () => unawaited(_recents.clear()),
+              child: const ListTile(
+                leading: Icon(Icons.clear_all),
+                title: Text('Clear recent files'),
+                contentPadding: EdgeInsets.zero,
+              ),
             ),
-            contentPadding: EdgeInsets.zero,
+          ],
+          child: const ListTile(
+            leading: Icon(Icons.history),
+            title: Text('Recent files'),
+            trailing: Icon(Icons.arrow_right),
           ),
-        ),
-      PopupMenuItem(
-        value: () => unawaited(_recents.clear()),
-        child: const ListTile(
-          leading: Icon(Icons.clear_all),
-          title: Text('Clear recent files'),
-          contentPadding: EdgeInsets.zero,
         ),
       ),
     ];
@@ -944,7 +971,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
         tooltip: 'DartPDF menu',
         onSelected: (action) => action(),
-        itemBuilder: (context) => _appMenuItems(tab),
+        itemBuilder: (context) => _appMenuItems(context, tab),
       );
 
   /// The horizontally scrolling row of open-document tabs plus the sticky
