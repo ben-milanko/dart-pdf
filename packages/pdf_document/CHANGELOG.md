@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.2
 
 - Embeddable fonts: `PdfEmbeddedFont.parse` reads a TrueType (`.ttf`) or
   OpenType (`.otf`) file and `addFreeText` can now author text in it,
@@ -9,6 +9,12 @@
   not just the base-14 faces, and stays selectable, searchable, and
   portable. `PdfEmbeddedFont.fromFreeText` recovers the font from a box's
   own appearance for lossless re-editing.
+- Fix non-Latin characters rendering as `??` in free-text annotation
+  appearances.
+- Fix free-text annotation appearances rendering sideways on rotated pages.
+- Right-to-left text direction support in free-text annotations and
+  AcroForm field appearances.
+- Faster batch annotation deletion.
 
 ## 1.2.1
 

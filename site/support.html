@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DartPDF support</title>
+<meta name="description" content="Get help with DartPDF — contact support, report a bug, and find answers to common questions." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #ffffff;
+    --bg: #fbfcfd;
+    --ink: #202124;
+    --ink-soft: #3c4043;
+    --grey: #6b7177;
+    --grey-muted: #9aa0a6;
+    --line: #e7ebee;
+    --line-soft: #eef2f5;
+    --tint: #c6e3f8;
+    --tint-soft: #eaf5fe;
+    --blue-2: #0169b4;
+    --amber: #ffc93c;
+    --maxw: 760px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg);
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; line-height: 1.62;
+  }
+  a { color: var(--blue-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ::selection { background: rgba(255,201,60,.5); }
+
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(251,252,253,.82); backdrop-filter: saturate(180%) blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav { width: 100%; max-width: 1140px; margin: 0 auto; padding: 0 28px; height: 70px; display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: inline-flex; align-items: center; gap: 11px; font-weight: 800; font-size: 19px; letter-spacing: -.02em; color: var(--ink); }
+  .brand:hover { text-decoration: none; }
+  .mark { width: 30px; height: 30px; flex: none; }
+  .back { font-size: 15px; font-weight: 600; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 7px; }
+  .back:hover { color: var(--blue-2); text-decoration: none; }
+
+  main { max-width: var(--maxw); margin: 0 auto; padding: 64px 28px 96px; }
+  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--blue-2); }
+  h1 { font-size: clamp(32px, 4.4vw, 44px); line-height: 1.1; letter-spacing: -.02em; margin: 14px 0 0; font-weight: 800; }
+  .lede { margin-top: 26px; font-size: 18px; color: var(--ink-soft); }
+  .lede strong { color: var(--ink); }
+  h2 { font-size: 21px; font-weight: 700; letter-spacing: -.01em; margin: 44px 0 0; }
+  p { margin: 14px 0 0; font-size: 16px; color: var(--ink-soft); text-wrap: pretty; }
+  ul { margin: 14px 0 0; padding-left: 22px; }
+  li { margin: 8px 0 0; font-size: 16px; color: var(--ink-soft); }
+  .card {
+    margin-top: 26px; padding: 24px 26px; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 14px;
+  }
+  .card h2 { margin-top: 0; }
+  .contact-row { margin-top: 16px; font-size: 16px; }
+  .contact-row strong { color: var(--ink); }
+  .rule { margin-top: 40px; height: 1px; background: var(--line); border: 0; }
+  footer { border-top: 1px solid var(--line); background: var(--paper); }
+  .foot { max-width: 1140px; margin: 0 auto; padding: 28px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13.5px; color: var(--grey-muted); }
+  .foot a { color: var(--ink-soft); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a class="brand" href="index.html" aria-label="DartPDF home">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="g-ink" x1="6" y1="20" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#16BAFD"/><stop offset="1" stop-color="#0169B4"/></linearGradient></defs>
+          <path d="M7 3.5h12.5L26 10v17.2A1.3 1.3 0 0 1 24.7 28.5H7A1.3 1.3 0 0 1 5.7 27.2V4.8A1.3 1.3 0 0 1 7 3.5Z" fill="#fff" stroke="#d8dde1" stroke-width="1.2"/>
+          <path d="M19.5 3.5 26 10h-5.2A1.3 1.3 0 0 1 19.5 8.7V3.5Z" fill="#eef2f5" stroke="#d8dde1" stroke-width="1.2"/>
+          <rect x="9.4" y="12.2" width="13.2" height="3.5" rx="1.2" fill="#FFC93C"/>
+          <path d="M9.6 21.4c2.2-1.5 4.1-1.5 6.2 0 2.1 1.5 4 1.5 6.2-.2" stroke="url(#g-ink)" stroke-width="2.1" stroke-linecap="round"/>
+        </svg>
+      </span>
+      DartPDF
+    </a>
+    <a class="back" href="index.html">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      Back to DartPDF
+    </a>
+  </div>
+</header>
+
+<main>
+  <p class="eyebrow">Support</p>
+  <h1>Support</h1>
+
+  <p class="lede">Need a hand with DartPDF? We're happy to help. <strong>The fastest way to reach us is by email</strong>, and we usually reply within a couple of business days.</p>
+
+  <div class="card">
+    <h2>Contact us</h2>
+    <p class="contact-row"><strong>Email:</strong> <a href="mailto:ben.milanko@protonmail.com?subject=DartPDF%20support">ben.milanko@protonmail.com</a></p>
+    <p class="contact-row"><strong>Report a bug or request a feature:</strong> <a href="https://github.com/ben-milanko/dart-pdf/issues" target="_blank" rel="noopener">github.com/ben-milanko/dart-pdf/issues</a></p>
+    <p>When you write in, it helps to include your device and OS version, the DartPDF version (Settings → About), and the steps that led to the problem. If a specific PDF is involved and you're able to share it, that speeds things up — but it's never required.</p>
+  </div>
+
+  <h2>Common questions</h2>
+
+  <p><strong>Where do my changes save?</strong> Edits — markup, form fills, signatures, redaction, page changes, and text/image edits — save back to the original PDF on your device. Nothing is uploaded; there's no account or sync.</p>
+
+  <p><strong>How do I open a PDF?</strong> Open DartPDF and pick a file, open a PDF from the Files app, send one to DartPDF from another app's share sheet, or drag and drop a file onto the window.</p>
+
+  <p><strong>Can I open password-protected PDFs?</strong> Yes. DartPDF prompts for the password and opens encrypted files for viewing and editing.</p>
+
+  <p><strong>How does OCR work?</strong> Optical character recognition runs entirely on your device. On first use the app downloads the recognition model, then all processing happens locally — your pages are never sent to a server.</p>
+
+  <p><strong>Is my data private?</strong> Yes. DartPDF has no analytics, no ads, no accounts, and no servers. See the <a href="privacy.html">privacy policy</a> for the details.</p>
+
+  <h2>Still stuck?</h2>
+  <p>Email <a href="mailto:ben.milanko@protonmail.com?subject=DartPDF%20support">ben.milanko@protonmail.com</a> and describe what you were trying to do. We read every message.</p>
+
+  <hr class="rule" />
+  <p><a href="index.html">← Back to DartPDF</a></p>
+</main>
+
+<footer>
+  <div class="foot">
+    <span>© Railway Engineering Solutions</span>
+    <span><a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a> · <a href="privacy.html">Privacy</a> · <a href="index.html">DartPDF</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2.2
+
+- View rotation: rotate the displayed page in 90° steps without changing the
+  document's page orientation; selection, overlays, and hit-testing follow
+  the rotated view.
+- Background render worker: in-flight jobs are now preempted when superseded
+  (fast scrolls drop stale work instead of queueing), the web worker compiles
+  reliably, and the viewer recovers from a slow or silent worker instead of
+  hanging.
+- Touch: horizontal scrolling rubber-bands at the edges and pans in reader
+  mode; deeper zoom is allowed for long plots and large CAD drawings.
+- Free text: author text in any embedded TrueType/OpenType font via the font
+  menu, paste clipboard text as a free-text annotation, an autosize shortcut,
+  right-to-left text direction, corrected inline editing baseline, and
+  double-click-to-edit. Non-Latin glyphs and text on rotated pages render
+  correctly.
+- Ink: the cursor stays at the stroke end, switching to the eraser defers the
+  pending commit, and Escape commits the in-progress stroke instead of
+  discarding it.
+- Save As (Ctrl/Cmd+Shift+S) writes the document to a new file.
+- Snapshot/stamp paste shows a preview before the raster refresh.
+- Android: support 16 KB memory page sizes.
+
 ## 1.2.1
 
 - Shorten the package description so pub.dev awards the full pubspec score.

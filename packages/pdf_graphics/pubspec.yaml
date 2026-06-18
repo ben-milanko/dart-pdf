@@ -2,7 +2,7 @@ name: pdf_graphics
 description: >-
   PDF content interpreter, device interface, font engine, shadings, ICC color,
   and text extraction — render pages to any device. Pure Dart, web-ready.
-version: 1.2.1
+version: 1.2.2
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_graphics
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
