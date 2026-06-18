@@ -485,7 +485,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
-  void _save() => widget.onSave?.call(_session.bytes);
+  /// Whether there's anything to save: false while the document still
+  /// matches what was opened, which disables the Save button (and makes
+  /// the ⌘S / Ctrl+S shortcut a no-op).
+  bool get _canSave => _session.isModified;
+
+  void _save() {
+    if (!_canSave) return;
+    widget.onSave?.call(_session.bytes);
+  }
 
   void _saveAs() => widget.onSaveAs?.call(_session.bytes);
 
@@ -762,7 +770,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       ),
                       icon: const Icon(Icons.save_alt, size: 18),
                       label: const Text('Save'),
-                      onPressed: _save,
+                      onPressed: _canSave ? _save : null,
                     ),
                 ],
                 compactSheetChildren: [
@@ -783,6 +791,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       key: const ValueKey('pdf-shell-save'),
                       icon: Icons.save_alt,
                       label: 'Save',
+                      enabled: _canSave,
                       onPressed: _save,
                     ),
                 ],
