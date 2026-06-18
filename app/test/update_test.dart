@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/update.dart';
@@ -84,6 +88,18 @@ void main() {
         AppVersion.tryParse('1.2.0')! > AppVersion.tryParse('1.2.0-rc.1')!,
         isTrue,
       );
+    });
+
+    test('exposes comparison operators, equality, and toString', () {
+      final a = AppVersion.tryParse('1.2.3')!;
+      final b = AppVersion.tryParse('1.2.4')!;
+      expect(a < b, isTrue);
+      expect(b >= a, isTrue);
+      expect(a <= a, isTrue);
+      expect(a == AppVersion.tryParse('1.2.3'), isTrue);
+      expect(a.hashCode, AppVersion.tryParse('1.2.3')!.hashCode);
+      expect(a.toString(), '1.2.3');
+      expect(AppVersion.tryParse('1.2.0-rc.1')!.toString(), '1.2.0-rc.1');
     });
   });
 
@@ -225,6 +241,75 @@ void main() {
       );
       await service.checkForUpdates();
       expect(service.downloadUrl, 'https://example.test/page');
+    });
+  });
+
+  group('UpdateService default GitHub fetcher', () {
+    test('parses the releases response and resolves a platform download',
+        () async {
+      late http.Request captured;
+      final service = UpdateService(
+        currentVersion: '1.2.2',
+        platform: TargetPlatform.macOS,
+        clientFactory: () => MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode([
+              {
+                'tag_name': 'app-v1.3.0',
+                'name': 'DartPDF 1.3.0',
+                'body': 'notes',
+                'html_url': 'https://example.test/app-v1.3.0',
+                'assets': [
+                  {
+                    'name': 'dartpdf-macos.dmg',
+                    'browser_download_url': 'https://example.test/dmg',
+                  },
+                ],
+              },
+              {'tag_name': 'pdf_cos-v9.9.9'}, // dropped by fromJson
+            ]),
+            200,
+          );
+        }),
+      );
+
+      await service.checkForUpdates();
+
+      expect(service.status, UpdateStatus.updateAvailable);
+      expect(service.latest!.version, const AppVersion(1, 3, 0));
+      expect(service.downloadUrl, 'https://example.test/dmg');
+      // Hit the releases endpoint and identified itself (GitHub 403s without).
+      expect(captured.url.host, 'api.github.com');
+      expect(captured.url.path, '/repos/ben-milanko/dart-pdf/releases');
+      expect(captured.headers['User-Agent'], isNotNull);
+    });
+
+    test('a non-200 response surfaces as a failed check', () async {
+      final service = UpdateService(
+        currentVersion: '1.2.2',
+        clientFactory: () =>
+            MockClient((_) async => http.Response('rate limited', 403)),
+      );
+
+      await service.checkForUpdates();
+
+      expect(service.status, UpdateStatus.failed);
+      expect(service.error, isNotNull);
+      expect(service.updateAvailable, isFalse);
+    });
+
+    test('a non-list body is treated as no releases', () async {
+      final service = UpdateService(
+        currentVersion: '1.2.2',
+        clientFactory: () =>
+            MockClient((_) async => http.Response('{"message":"nope"}', 200)),
+      );
+
+      await service.checkForUpdates();
+
+      expect(service.status, UpdateStatus.upToDate);
+      expect(service.latest, isNull);
     });
   });
 }
