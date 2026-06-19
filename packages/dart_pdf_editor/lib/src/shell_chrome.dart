@@ -678,7 +678,14 @@ void _maybeCloseShellControls(BuildContext context) {
   WidgetsBinding.instance.addPostFrameCallback((_) => scope.close());
 }
 
-enum _ViewOption { annotations, formHighlight, reflow, pageColor, author }
+enum _ViewOption {
+  annotations,
+  formHighlight,
+  reflow,
+  pageGrid,
+  pageColor,
+  author
+}
 
 Future<void> _selectViewOption(
   BuildContext context,
@@ -693,7 +700,13 @@ Future<void> _selectViewOption(
     case _ViewOption.formHighlight:
       preferences.highlightFormFields = !preferences.highlightFormFields;
     case _ViewOption.reflow:
+      // reflow and the page grid both replace the page viewer — only one
+      // can claim the area, so each clears the other
+      preferences.showThumbnailView = false;
       preferences.showReflowView = !preferences.showReflowView;
+    case _ViewOption.pageGrid:
+      preferences.showReflowView = false;
+      preferences.showThumbnailView = !preferences.showThumbnailView;
     case _ViewOption.pageColor:
       if (!pageColor) return;
       final color = await showPdfColorPicker(
@@ -712,6 +725,7 @@ Future<void> showPdfShellViewOptionsSheet(
   BuildContext context, {
   required PdfEditingPreferences preferences,
   bool reflow = false,
+  bool pageGrid = false,
   bool pageColor = true,
   bool author = false,
   String? authorName,
@@ -796,6 +810,23 @@ Future<void> showPdfShellViewOptionsSheet(
                     setSheetState(() {});
                   },
                 ),
+              if (pageGrid)
+                SwitchListTile(
+                  key: const ValueKey('pdf-shell-page-grid'),
+                  secondary: const Icon(Icons.view_module_outlined),
+                  title: const Text('Page grid'),
+                  value: preferences.showThumbnailView,
+                  onChanged: (_) async {
+                    await _selectViewOption(
+                      context,
+                      _ViewOption.pageGrid,
+                      preferences: preferences,
+                      pageColor: pageColor,
+                      onAuthorPressed: onAuthorPressed,
+                    );
+                    setSheetState(() {});
+                  },
+                ),
               if (pageColor)
                 ListTile(
                   key: const ValueKey('pdf-shell-page-color'),
@@ -850,6 +881,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
     super.key,
     required this.preferences,
     this.reflow = false,
+    this.pageGrid = false,
     this.pageColor = true,
     this.author = false,
     this.authorName,
@@ -858,6 +890,10 @@ class PdfShellViewOptionsButton extends StatelessWidget {
 
   final PdfEditingPreferences preferences;
   final bool reflow;
+
+  /// Whether the menu offers "Page grid" — the full-area page thumbnail
+  /// view (`PdfThumbnailView`) that replaces the page viewer.
+  final bool pageGrid;
 
   /// Whether the "Page color…" item is offered. With it false the paper
   /// color can't be changed here — for hosts that set [pageColor] from
@@ -918,6 +954,13 @@ class PdfShellViewOptionsButton extends StatelessWidget {
             value: _ViewOption.reflow,
             checked: preferences.showReflowView,
             child: const Text('Reflow text'),
+          ),
+        if (pageGrid)
+          CheckedPopupMenuItem(
+            key: const ValueKey('pdf-shell-page-grid'),
+            value: _ViewOption.pageGrid,
+            checked: preferences.showThumbnailView,
+            child: const Text('Page grid'),
           ),
         if (pageColor)
           PopupMenuItem(
