@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Print the open document through the OS print dialog on every platform
+  (browser print on the web), from ⌘P / Ctrl+P or the DartPDF menu.
+
 ## 1.2.2
 
 - View rotation, deeper zoom, and smoother touch scrolling in the viewer.

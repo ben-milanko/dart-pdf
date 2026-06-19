@@ -15,6 +15,7 @@ import 'document_tab.dart';
 import 'file_io.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
+import 'printing.dart';
 import 'recents.dart';
 import 'settings_screen.dart';
 import 'update.dart';
@@ -39,6 +40,7 @@ class EditorScreen extends StatefulWidget {
     this.initialDocument,
     this.updateService,
     this.autoCheckUpdates = false,
+    this.printDocument,
   });
 
   final PdfEditingPreferences prefs;
@@ -60,6 +62,12 @@ class EditorScreen extends StatefulWidget {
   /// plain widget tests stay hermetic — no startup network traffic. The
   /// Settings panel can still check on demand regardless.
   final bool autoCheckUpdates;
+
+  /// Override for the print action. Tests inject a fake to assert the menu and
+  /// shortcut wiring without the real `printing` plugin (its method channel is
+  /// unavailable under flutter_test). Production leaves this null and the screen
+  /// falls back to [printPdfBytes].
+  final PdfPrinter? printDocument;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -568,6 +576,31 @@ class _EditorScreenState extends State<EditorScreen>
     if (result.message != null) _toast(result.message!);
   }
 
+  // --- printing ------------------------------------------------------------
+
+  /// Hands the active document to the OS print dialog (the `printing` plugin —
+  /// native dialog on desktop/mobile, browser print on the web). The current
+  /// revision is printed, so unsaved edits are included. A failed or
+  /// unavailable backend surfaces as a toast rather than throwing.
+  Future<void> _print(DocumentTab tab) async {
+    final bytes = tab.session?.bytes;
+    if (bytes == null) return;
+    try {
+      await (widget.printDocument ?? printPdfBytes)(
+        bytes: bytes,
+        title: tab.title,
+      );
+    } catch (_) {
+      if (mounted) _toast('Could not print ${tab.title}');
+    }
+  }
+
+  /// Prints the active document, if one is open — bound to ⌘P / Ctrl+P.
+  void _printActive() {
+    final tab = _active;
+    if (tab?.session != null) unawaited(_print(tab!));
+  }
+
   // --- link actions --------------------------------------------------------
 
   /// GoTo and named page actions never reach here (the viewer follows them).
@@ -636,6 +669,15 @@ class _EditorScreenState extends State<EditorScreen>
             ),
           ),
           PopupMenuItem(
+            key: const ValueKey('menu-print'),
+            value: () => unawaited(_print(tab!)),
+            child: const ListTile(
+              leading: Icon(Icons.print_outlined),
+              title: Text('Print…'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
             value: _compareWith,
             child: const ListTile(
               leading: Icon(Icons.compare_arrows),
@@ -693,18 +735,29 @@ class _EditorScreenState extends State<EditorScreen>
         titleSpacing: _tabs.isEmpty ? null : 8,
         actions: _buildActions(tab),
       ),
-      body: DropTarget(
-        onDragEntered: (_) => setState(() => _dragging = true),
-        onDragExited: (_) => setState(() => _dragging = false),
-        onDragDone: (detail) {
-          setState(() => _dragging = false);
-          _onFilesDropped(detail.files);
+      body: CallbackShortcuts(
+        // ⌘P (macOS) / Ctrl+P (Windows, Linux, web) print the active document.
+        // Placed above the editor so the SDK's own shortcuts take precedence;
+        // an unhandled print key bubbles up to here.
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.keyP, meta: true):
+              _printActive,
+          const SingleActivator(LogicalKeyboardKey.keyP, control: true):
+              _printActive,
         },
-        child: Stack(
-          children: [
-            Positioned.fill(child: _buildBody(tab)),
-            if (_dragging) const Positioned.fill(child: _DropOverlay()),
-          ],
+        child: DropTarget(
+          onDragEntered: (_) => setState(() => _dragging = true),
+          onDragExited: (_) => setState(() => _dragging = false),
+          onDragDone: (detail) {
+            setState(() => _dragging = false);
+            _onFilesDropped(detail.files);
+          },
+          child: Stack(
+            children: [
+              Positioned.fill(child: _buildBody(tab)),
+              if (_dragging) const Positioned.fill(child: _DropOverlay()),
+            ],
+          ),
         ),
       ),
     );
