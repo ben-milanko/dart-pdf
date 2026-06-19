@@ -1009,6 +1009,32 @@ void main() {
         const PdfRect(100, 100, 450, 200));
   });
 
+  test('a box auto-sized to its line width keeps the text on one line', () {
+    // Auto-size sets the rect width to measure(line) + 2*pad (pad = 3), and
+    // the wrapper breaks at width - 2*pad. The two cancel in exact math, but
+    // `(w + 6) - 6` rounds to a hair under `w`, so a strict comparison used
+    // to push the last word onto a second line. These three lines reproduce
+    // that round-off at 12pt and 18pt Helvetica.
+    for (final (text, size) in const [
+      ('Date brown', 12.0),
+      ('Notes Total', 12.0),
+      ('Hello Customer', 18.0),
+    ]) {
+      const pad = 3.0;
+      final lineWidth = measureStandardText(text, size);
+      final width = lineWidth + 2 * pad;
+      final doc = roundTrip((e) => e.addFreeText(
+            0,
+            PdfRect(100, 600, 100 + width, 660),
+            text,
+            fontSize: size,
+          ));
+      final content = appearanceText(doc, doc.page(0).annotations.single);
+      expect(' Tj'.allMatches(content).length, 1,
+          reason: '"$text" at ${size}pt fits its own width on one line');
+    }
+  });
+
   test('free text persists and regenerates fill and border', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addFreeText(0, const PdfRect(100, 100, 250, 180), 'styled box',

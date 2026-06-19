@@ -22,6 +22,8 @@ This is the **product app**. The SDK's feature showcase lives separately in
 - Tabs, light/dark theme, read-only mode, document compare.
 - Dirty-state tracking with a save indicator; **Save** overwrites the original
   file in place (desktop), **Save as** / share / download elsewhere.
+- **Print** the open document (⌘P / Ctrl+P, or the DartPDF menu) through the OS
+  print dialog on every platform, including browser print on the web.
 - Discard prompts on tab-close and app-quit; reopening a document restores its
   scroll position and zoom.
 
@@ -74,6 +76,7 @@ native OS-integration paths still want on-device confirmation:
 | Drag-and-drop onto window | n/a | n/a | ☐ | ☐ | ☐ | ☐ |
 | Edit → Save overwrites the original | n/a* | n/a* | ☐ | ☐ | ☐ | n/a* |
 | OCR a scanned PDF | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Print via the OS dialog (⌘P / Ctrl+P) | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | Reopen restores viewport | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 
 \* In-place save is desktop-only today; mobile/web fall back to share/download
