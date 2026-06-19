@@ -2624,3 +2624,25 @@ and a read-only strip (no menu without a handler; export-only with one),
 plus a `duplicatePages` unit group. 47 page-ops tests green; the existing
 reorder test (`editing_test.dart`) still passes both its long-press-touch
 and immediate-mouse drag paths; analyzer clean.
+
+Web OCR "TypeError: Failed to fetch" (Ben, follow-on to the tiling fix). The
+deployed app is served cross-origin-isolated (`app/firebase.json`:
+COOP `same-origin` + COEP `require-corp`) so skwasm's multithreaded WASM
+renderer can use SharedArrayBuffer. But the browser-local OCR (`app/lib/ocr_web.dart`)
+pulls Transformers.js from jsDelivr and the Florence-2 model from HuggingFace's
+CDN on first run, and `require-corp` demands every cross-origin subresource send
+a CORP header — those CDNs don't, so the download was blocked and surfaced as
+`TypeError: Failed to fetch` (the engine's `onToast('OCR failed: $e')`). It was
+NOT a regression from the main merge (the COEP block predates it); the earlier
+garbled-but-working run was a local `flutter run`, which doesn't apply
+firebase.json headers. Fix (Ben's pick over self-hosting the model or
+investigating further): switch COEP to `credentialless`. Same page isolation
+(crossOriginIsolated stays true on Chromium/Firefox, so the multithreaded
+renderer is unaffected), but cross-origin resources load WITHOUT credentials
+instead of REQUIRING CORP, so the OCR model fetch goes through. Safari has no
+credentialless support → it just isn't isolated there (single-threaded
+skwasm_heavy + working OCR), an acceptable fallback. One-line header change +
+the rationale comment; strictly relaxes the policy, so nothing that worked under
+require-corp breaks. The deployed-app model inference still can't be exercised
+in-sandbox (no browser/WebGPU), and jsDelivr/HuggingFace are 403'd by the
+sandbox network policy, so the header behaviour is reasoned, not reproduced here.
