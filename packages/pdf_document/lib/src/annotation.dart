@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 
+import 'content_writer.dart';
 import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
@@ -308,6 +309,7 @@ class PdfAnnotation {
     final text = lastColor('rg') ?? gray() ?? 0x000000;
     final background = color;
     final width = borderWidth ?? 0;
+    final q = document.cos.resolve(dict['Q']);
     return PdfFreeTextStyle(
       fontName: tf.group(1)!,
       fontSize: size,
@@ -315,6 +317,7 @@ class PdfAnnotation {
       fillColor: background != null && background != text ? background : null,
       borderColor: lastColor('RG') ?? (width > 0 ? text : null),
       borderWidth: width,
+      alignment: PdfTextAlign.fromQuadding(q is CosInteger ? q.value : null),
     );
   }
 
@@ -463,6 +466,7 @@ class PdfFreeTextStyle {
     this.fillColor,
     this.borderColor,
     this.borderWidth = 0,
+    this.alignment = PdfTextAlign.left,
   });
 
   /// The /DA font resource name (e.g. `Helv`), unresolved.
@@ -478,6 +482,10 @@ class PdfFreeTextStyle {
   /// The box border color, or null for no border.
   final int? borderColor;
   final double borderWidth;
+
+  /// How the lines are aligned inside the box (the /Q quadding). Defaults
+  /// to [PdfTextAlign.left] when the annotation carries no /Q.
+  final PdfTextAlign alignment;
 }
 
 /// A /Link annotation: a clickable region with an action (§12.5.6.5).

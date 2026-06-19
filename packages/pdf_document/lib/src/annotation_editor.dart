@@ -1264,6 +1264,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double fontSize = 12,
     PdfTextFont font = PdfStandardFont.helvetica,
     PdfTextDirection textDirection = PdfTextDirection.auto,
+    PdfTextAlign? align,
     int color = 0x000000,
     int? fillColor,
     int? borderColor,
@@ -1291,6 +1292,7 @@ extension PdfAnnotationEditing on PdfEditor {
         fontSize: fontSize,
         font: effectiveFont,
         textDirection: textDirection,
+        align: align,
         color: color,
         fillColor: fillColor,
         borderColor: borderColor,
@@ -1304,8 +1306,8 @@ extension PdfAnnotationEditing on PdfEditor {
         '/${effectiveFont.resourceName} ${ContentWriter.fmt(fontSize)} Tf';
     final dict = _markupDict('FreeText', rect, fillColor ?? color, text, author)
       ..['DA'] = CosString.fromText(da)
-      ..['Q'] = CosInteger(
-          textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0);
+      ..['Q'] = CosInteger(align?.quadding ??
+          (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0));
     if (borderColor != null && borderWidth > 0) {
       dict['BS'] = _borderStyle(borderWidth);
     }
@@ -1337,6 +1339,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect rect,
     List<PdfFreeTextRun> runs, {
     PdfTextDirection textDirection = PdfTextDirection.auto,
+    PdfTextAlign? align,
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
@@ -1368,6 +1371,7 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final w = _freeTextRichContent(rect, effective,
         textDirection: textDirection,
+        align: align,
         fillColor: fillColor,
         borderColor: borderColor,
         borderWidth: borderWidth,
@@ -1382,8 +1386,8 @@ extension PdfAnnotationEditing on PdfEditor {
     final dict =
         _markupDict('FreeText', rect, fillColor ?? first.color, text, author)
           ..['DA'] = CosString.fromText(da)
-          ..['Q'] = CosInteger(
-              textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0);
+          ..['Q'] = CosInteger(align?.quadding ??
+              (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0));
     if (borderColor != null && borderWidth > 0) {
       dict['BS'] = _borderStyle(borderWidth);
     }
@@ -1404,6 +1408,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required double fontSize,
     required PdfTextFont font,
     required PdfTextDirection textDirection,
+    PdfTextAlign? align,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -1443,14 +1448,13 @@ extension PdfAnnotationEditing on PdfEditor {
     final firstY = vr.top - pad - fontSize * font.ascent / 1000;
     final lines = _wrap(text, fontSize, vr.width - 2 * pad, font: font);
     final resolvedDirection = textDirection.resolve(text);
+    final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
     var prevX = 0.0;
     var prevY = 0.0;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
       final width = font.measure(line, fontSize);
-      final x = resolvedDirection == PdfTextDirection.rtl
-          ? vr.right - pad - width
-          : vr.left + pad;
+      final x = _lineX(effectiveAlign, vr, width, pad);
       final y = firstY - i * fontSize * 1.2;
       w.textAt(x - prevX, y - prevY);
       if (font is PdfUnicodeFont) {
@@ -1480,6 +1484,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect rect,
     List<PdfFreeTextRun> runs, {
     required PdfTextDirection textDirection,
+    PdfTextAlign? align,
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
@@ -1508,6 +1513,7 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final plain = runs.map((run) => run.text).join();
     final resolvedDirection = textDirection.resolve(plain);
+    final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
     final lines = _wrapRich(runs, vr.width - 2 * pad);
     var top = vr.top - pad;
     var prevX = 0.0;
@@ -1528,9 +1534,7 @@ extension PdfAnnotationEditing on PdfEditor {
               math.max(max, run.style.fontSize * run.style.font.ascent / 1000));
       final lineHeight = line.runs.fold<double>(
           0, (max, run) => math.max(max, run.style.fontSize * 1.2));
-      var x = resolvedDirection == PdfTextDirection.rtl
-          ? vr.right - pad - line.width
-          : vr.left + pad;
+      var x = _lineX(effectiveAlign, vr, line.width, pad);
       final y = top - ascent;
       final drawRuns = resolvedDirection == PdfTextDirection.rtl
           ? line.runs.reversed
@@ -1564,6 +1568,24 @@ extension PdfAnnotationEditing on PdfEditor {
     if (pageRotation != 0) w.restore();
     return w;
   }
+
+  /// The default alignment when a free-text box gives none: right for an
+  /// RTL paragraph (so it hugs the right edge as before), left otherwise.
+  static PdfTextAlign _alignForDirection(PdfTextDirection direction) =>
+      direction == PdfTextDirection.rtl
+          ? PdfTextAlign.right
+          : PdfTextAlign.left;
+
+  /// The x where a line of width [width] starts so it sits at [align]
+  /// inside the padded visual rect [vr]. Centering cancels the padding, so
+  /// a centered line is centered within the full width.
+  static double _lineX(
+          PdfTextAlign align, PdfRect vr, double width, double pad) =>
+      switch (align) {
+        PdfTextAlign.left => vr.left + pad,
+        PdfTextAlign.center => vr.left + (vr.width - width) / 2,
+        PdfTextAlign.right => vr.right - pad - width,
+      };
 
   /// The rect in which text is laid out when [pageRotation] is active.
   /// For 90/270 rotations the visual dimensions (what the user sees on
@@ -2467,7 +2489,9 @@ extension PdfAnnotationEditing on PdfEditor {
         final w = _freeTextContent(to, text,
             fontSize: style.fontSize,
             font: effectiveFont,
-            textDirection: _annotationTextDirection(annotation),
+            // direction follows the text; /Q carries the explicit alignment
+            textDirection: PdfTextDirection.auto,
+            align: style.alignment,
             color: style.color,
             fillColor: style.fillColor,
             borderColor: style.borderColor,
@@ -3546,11 +3570,5 @@ extension PdfAnnotationEditing on PdfEditor {
       lines.add(line);
     }
     return lines;
-  }
-
-  PdfTextDirection _annotationTextDirection(PdfAnnotation annotation) {
-    final q = document.cos.resolve(annotation.dict['Q']);
-    if (q is CosInteger && q.value == 2) return PdfTextDirection.rtl;
-    return PdfTextDirection.auto;
   }
 }

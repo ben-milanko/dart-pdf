@@ -531,6 +531,18 @@ class _PdfAnnotationPropertiesPanelState
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
+          const Expanded(child: Text('Align')),
+          TextAlignToggles(
+            keyPrefix: 'pdf-prop-text-align',
+            align: _controller.selectedTextAlign ?? PdfTextAlign.left,
+            onChanged: (align) =>
+                _controller.restyleSelectedText(align: align),
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(children: [
           const Expanded(child: Text('More fonts')),
           PdfFontMenuButton(
             controller: _controller,

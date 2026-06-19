@@ -696,6 +696,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   Timer? _scrollSettleTimer;
   int _settleGeneration = 0;
 
+  /// Bumped whenever the document is swapped for a revision whose page
+  /// structure differs (insert/remove/reorder — the non-same-geometry path
+  /// that clears the preview cache). Threaded to every [_PdfViewerPage] so a
+  /// slot-reused page State drops the stale raster of the page that used to
+  /// occupy its slot instead of painting it during a fast scroll.
+  int _pageEpoch = 0;
+
   /// Paces every page's first (UI-thread) interpret so no frame runs
   /// more than one — [PdfPageRenderScheduler]. Its [holding] flag stands
   /// in for the old render hold: while the list scrolls faster than
@@ -1307,6 +1314,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         _previews.rebind(_pages);
       } else {
         _previews.clear();
+        // the page list shifted under the lazy list's slot-keyed States;
+        // bump the epoch so each reused page drops the raster of the page
+        // that used to sit in its slot (otherwise a fast scroll right after
+        // an insert/remove/reorder paints the wrong, stale low-res page)
+        _pageEpoch++;
       }
       // re-point (and, for a different file, re-prime) the persistent
       // preview backing; an edit revision keeps its rebound previews so the
@@ -1338,9 +1350,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _previewAttempts.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
     } else if (!identical(oldWidget.rasterCache, widget.rasterCache) ||
-        oldWidget.documentId != widget.documentId) {
+        oldWidget.documentId != widget.documentId ||
+        (oldWidget.editing == null) != (widget.editing == null)) {
       // the host swapped the cache or the document's identity without
-      // changing the document object (e.g. a path became known)
+      // changing the document object (e.g. a path became known), or toggled
+      // editing on/off in place — entering an edit session must drop the
+      // index-keyed disk backing, leaving it must restore (and re-prime) it
       _bindRasterCache();
     }
   }
@@ -1417,7 +1432,19 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _bindRasterCache({bool prime = true}) {
     final raster = widget.rasterCache;
     final key = _rasterKey();
-    if (!widget.pagePreviews || raster == null || key == null) {
+    // An edit session mutates page content and structure per revision, so its
+    // previews are never served from the (index-keyed) persistent backing.
+    // Inserting, removing, or reordering pages shifts the index a stored
+    // raster was keyed by, so priming from disk would bind a stale-by-index
+    // preview to the wrong page and surface it during fast scrolling — and,
+    // marked fresh, it would block the on-screen full render from replacing
+    // it. The in-memory preview cache (rebound on a same-geometry edit,
+    // cleared and re-prerendered otherwise) covers the session; disk priming
+    // is reserved for static documents, mirroring the text cache.
+    if (!widget.pagePreviews ||
+        raster == null ||
+        key == null ||
+        widget.editing != null) {
       _previews.disk = null;
       return;
     }
@@ -3445,6 +3472,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                     widget.interactiveForms && widget.showAnnotations,
                 scale: _renderScale,
                 settleGeneration: _settleGeneration,
+                pageEpoch: _pageEpoch,
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -3834,6 +3862,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.interactiveForms,
     required this.scale,
     required this.settleGeneration,
+    required this.pageEpoch,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -3878,6 +3907,11 @@ class _PdfViewerPage extends StatefulWidget {
 
   final double scale;
   final int settleGeneration;
+
+  /// Bumped on a structural document swap (insert/remove/reorder) so a
+  /// slot-reused [PdfPageView] State drops the previous page's stale raster
+  /// instead of painting it for the page now in its slot.
+  final int pageEpoch;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -3979,6 +4013,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         rotation: widget.effectiveRotation,
         scale: widget.scale,
         settleGeneration: widget.settleGeneration,
+        pageEpoch: widget.pageEpoch,
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
         onRasterReady: _onRasterReady,

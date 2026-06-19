@@ -566,6 +566,7 @@ class PdfEditingController extends ChangeNotifier {
             'color',
             'fontSize',
             'fontFamily',
+            'textAlign',
             'opacity',
             'textFillColor',
             'textBorderColor',
@@ -626,6 +627,13 @@ class PdfEditingController extends ChangeNotifier {
     }
     preferences.fontFamily = value;
   }
+
+  /// Horizontal alignment (left/center/right) new free-text boxes are
+  /// created with, or null (the default) to follow the text direction —
+  /// left for LTR, right for RTL. Persisted.
+  PdfTextAlign? get textAlign => preferences.textAlign;
+
+  set textAlign(PdfTextAlign? value) => preferences.textAlign = value;
 
   PdfEmbeddedFont? _activeFont;
 
@@ -1280,6 +1288,7 @@ class PdfEditingController extends ChangeNotifier {
       (e) => e.addFreeText(pageIndex, rect, text,
           fontSize: preferences.fontSize,
           font: _activeFont ?? preferences.fontFamily,
+          align: preferences.textAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
@@ -1292,6 +1301,7 @@ class PdfEditingController extends ChangeNotifier {
           int pageIndex, PdfRect rect, List<PdfFreeTextRun> runs) =>
       apply(
           (e) => e.addFreeTextRich(pageIndex, rect, runs,
+              align: preferences.textAlign,
               fillColor: _rgbOf(preferences.textFillColor),
               borderColor: _rgbOf(preferences.textBorderColor),
               borderWidth: preferences.strokeWidth,
@@ -1322,6 +1332,7 @@ class PdfEditingController extends ChangeNotifier {
         (e) => e.addFreeText(pageIndex, rect, value,
             fontSize: fontSize,
             font: _activeFont ?? preferences.fontFamily,
+            align: preferences.textAlign,
             color: _colorValue,
             fillColor: _rgbOf(preferences.textFillColor),
             borderColor: _rgbOf(preferences.textBorderColor),
@@ -2991,6 +3002,13 @@ class PdfEditingController extends ChangeNotifier {
     return _freeTextStyleOf(annotation!);
   }
 
+  /// The selected free-text annotation's horizontal alignment (its /Q
+  /// quadding), or null when the selection isn't a single free-text box.
+  PdfTextAlign? get selectedTextAlign {
+    if (!canRestyleSelectedText) return null;
+    return selectedAnnotation?.freeTextStyle?.alignment ?? PdfTextAlign.left;
+  }
+
   PdfRect _autosizeTextRect(PdfAnnotation annotation, String text,
       {required PdfStandardFont font, required double size}) {
     const pad = 3.0;
@@ -3037,6 +3055,7 @@ class PdfEditingController extends ChangeNotifier {
   void restyleSelectedText(
       {PdfStandardFont? font,
       double? size,
+      PdfTextAlign? align,
       (int?,)? fill,
       (int?,)? border,
       double? borderWidth}) {
@@ -3049,9 +3068,18 @@ class PdfEditingController extends ChangeNotifier {
     _rewriteSelected(annotation, annotation.contents ?? '',
         font: font ?? style.font,
         size: size ?? style.size,
+        align: align,
         fill: fill,
         border: border,
         borderWidth: borderWidth);
+  }
+
+  /// Sets the horizontal alignment of the selected free-text box (its /Q
+  /// quadding), regenerating its appearance, and makes it the default for
+  /// new boxes. A no-op when the selection isn't a single free-text box.
+  void setSelectedTextAlign(PdfTextAlign align) {
+    textAlign = align; // the new default either way
+    if (canRestyleSelectedText) restyleSelectedText(align: align);
   }
 
   /// Rewrites the selected free-text annotation in [font] — a base-14
@@ -3154,6 +3182,7 @@ class PdfEditingController extends ChangeNotifier {
   void _rewriteSelected(PdfAnnotation annotation, String text,
       {PdfTextFont? font,
       double? size,
+      PdfTextAlign? align,
       (int?,)? fill,
       (int?,)? border,
       double? borderWidth}) {
@@ -3181,6 +3210,8 @@ class PdfEditingController extends ChangeNotifier {
           e.addFreeText(page, rect, text,
               fontSize: size ?? style.size,
               font: font ?? style.font,
+              // keep the box's own alignment unless this edit changes it
+              align: align ?? parsed?.alignment ?? PdfTextAlign.left,
               color: parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -3229,6 +3260,7 @@ class PdfEditingController extends ChangeNotifier {
     final changed = apply((e) {
       e.removeAnnotation(page, annotation);
       e.addFreeTextRich(page, rect, runs,
+          align: parsed?.alignment ?? PdfTextAlign.left,
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: (parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1,

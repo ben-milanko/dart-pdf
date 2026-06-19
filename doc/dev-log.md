@@ -2220,7 +2220,6 @@ an image across two sessions, empty-key no-op, loadFromDisk leaves a fresh
 in-session preview alone). GOTCHA: tests must capture page objects ONCE
 (like the viewer's `_pages`) — repeated `document.page(i)` calls can return
 fresh wrappers, defeating the preview cache's identity-based `isFresh`.
-
 Apple Pencil double-tap → eraser (Ben: "double tap on apple pencil to
 switch to eraser and back"): the pencil's hardware double-tap (and Pencil
 Pro squeeze) is an iOS `UIPencilInteraction` — Flutter exposes NO framework
@@ -2589,6 +2588,40 @@ dense CAD the cloud VLM tier (`pdf_ocr_vlm` dots.ocr) or a detect+recognize
 model does better — but tiling removes the squish-to-illegibility that turned
 its output into hallucinated noise. Analyzer clean; existing
 ocr_menu/ocr_status tests still green.
+Free-text box alignment — left/center/right controls for FreeText
+annotations. The PDF `/Q` quadding (0/1/2) is the model: new `PdfTextAlign`
+enum in `pdf_document`'s `content_writer.dart` (alongside
+`PdfTextDirection`), `quadding`/`fromQuadding` both ways. Threaded through
+`addFreeText`/`addFreeTextRich` and the `_freeTextContent`/
+`_freeTextRichContent` generators as an optional `align`; line-x is now
+`_lineX(align, vr, width, pad)` (left = `vr.left+pad`, right =
+`vr.right-pad-width`, center = `vr.left+(vr.width-width)/2` — the pad
+cancels, so center is centered within the padded box). Key subtlety: the
+old code *conflated* `/Q==2` with RTL — `addFreeText` wrote `Q=2` only when
+the text resolved RTL, and the resize path recovered direction from `/Q`
+via `_annotationTextDirection`. Decoupled: when `align` is null the
+generator still falls back to direction (`_alignForDirection`: RTL→right,
+else left) so default output is byte-identical, but `/Q` now means absolute
+alignment. The resize/regenerate path (`restyleAnnotation` FreeText case)
+passes `textDirection: auto` + `align: style.alignment` (read from `/Q` via
+the new `PdfFreeTextStyle.alignment`), so direction comes from the text and
+alignment from `/Q` — no more double-reversing an LTR right-aligned box.
+`_annotationTextDirection` deleted (only that one caller). Editor side:
+`PdfEditingPreferences.textAlign` is **nullable** — null = "follow
+direction" (so typing Arabic still auto-right-aligns and the RTL inline
+test still sees `/Q==2`); a non-null value is an explicit user choice.
+Controller `addFreeText`/`addFreeTextRich`/`placeFreeText` pass
+`align: preferences.textAlign`; `_rewriteSelected`/`_rewriteSelectedRich`
+preserve the box's own `parsed.alignment` across text/font/size edits;
+`restyleSelectedText(align:)`, `selectedTextAlign`, and
+`setSelectedTextAlign` (sets the default *and* restyles the selection).
+`textAlign` is in the freeText style scope so it persists per-tool. UI:
+shared `TextAlignToggles` (3 icon circles, mirrors `FontStyleToggles`) in
+`editing_font_controls.dart`, wired into the toolbar tune popup (`Align`
+row under `Style`) and the properties panel `_textStyleControls`. Default
+path renders identically to before; the only behaviour change is the rare
+"force RTL direction onto LTR text" edge case, which now no longer reverses
+on resize (arguably the prior bug).
 Dedicated page-grid view (Ben: "add a new view that is a dedicated
 thumbnail view ... all the same page controls as the strip ... allow
 changing the size of the thumbnails"): `PdfThumbnailView`
@@ -2640,7 +2673,6 @@ the long-press reorder test is the touch path (default test pointer never
 hovers → LongPressDraggable); `startGesture` then pump kLongPressTimeout
 before `moveTo`. PdfReader keeps only its read-only strip (its strip has
 no page controls, so "same controls as the strip" maps to the editor).
-
 Thumbnail right-click menu: a page context menu on the thumbnail strip
 (`editing_thumbnails.dart`), opened by secondary tap on a tile
 (`_PageTile`'s `GestureDetector.onSecondaryTapUp`) — rotate left / right /
@@ -2674,7 +2706,6 @@ and a read-only strip (no menu without a handler; export-only with one),
 plus a `duplicatePages` unit group. 47 page-ops tests green; the existing
 reorder test (`editing_test.dart`) still passes both its long-press-touch
 and immediate-mouse drag paths; analyzer clean.
-
 Web OCR "TypeError: Failed to fetch" (Ben, follow-on to the tiling fix). The
 deployed app is served cross-origin-isolated (`app/firebase.json`:
 COOP `same-origin` + COEP `require-corp`) so skwasm's multithreaded WASM

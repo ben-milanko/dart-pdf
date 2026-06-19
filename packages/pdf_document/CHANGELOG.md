@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Free-text annotations carry a horizontal alignment (left/center/right)
+  through the `/Q` quadding: `addFreeText` and `addFreeTextRich` take an
+  `align` argument, `PdfFreeTextStyle.alignment` reads it back, and resizing
+  or re-editing a box preserves it. Omitting `align` keeps the previous
+  behaviour — left for LTR text, right for RTL.
 - Fix a free-text box auto-sized to its contents wrapping the last word onto
   a new line: the wrapper's strict width test now tolerates the sub-point
   floating-point round-off in `(lineWidth + 2*pad) - 2*pad`.

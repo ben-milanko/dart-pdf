@@ -6,8 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   /// Lets the real async renderer + the fire-and-forget disk store make
   /// progress, then pumps a frame.
   Future<void> settle(WidgetTester tester) async {
@@ -138,5 +141,54 @@ void main() {
     }
     expect(idleStore.debugBytes, 0,
         reason: 'without a documentId there is no safe key to store under');
+  });
+
+  testWidgets('an edit session never serves previews from the disk backing',
+      (tester) async {
+    // The disk backing keys previews by page index. An edit can insert,
+    // remove, or reorder pages, shifting that index, so a stale-by-index
+    // preview would surface during fast scrolling. The viewer must keep an
+    // editing document's previews in-memory only, exactly as the text cache
+    // does — so even with a rasterCache + documentId the store stays idle.
+    final store = PdfMemoryCacheStore();
+    final raster = PdfRasterCache(PdfDiskCache(store));
+    final editing = PdfEditingController(buildMultiPagePdf(4));
+    addTearDown(editing.dispose);
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+
+    Widget build() => MaterialApp(
+          home: Scaffold(
+            body: PdfViewer(
+              document: editing.document,
+              editing: editing,
+              controller: controller,
+              initialFit: PdfViewerFit.width,
+              rasterCache: raster,
+              documentId: 'doc-edit',
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(build());
+    await tester.pump();
+    for (var i = 0; i < 20; i++) {
+      await settle(tester);
+    }
+    expect(store.debugBytes, 0,
+        reason: 'an edit session must not write index-keyed previews to disk');
+
+    // insert pages, then rebuild the viewer with the new revision (as the
+    // host does on controller notify): the disk backing must stay idle so no
+    // stale-by-index preview is loaded for the shifted pages.
+    editing.insertPagesFromBytes(buildMultiPagePdf(2), at: 1);
+    expect(editing.document.pageCount, 6);
+    await tester.pumpWidget(build());
+    for (var i = 0; i < 20; i++) {
+      await settle(tester);
+    }
+    expect(store.debugBytes, 0,
+        reason: 'inserting pages must not surface disk previews keyed by the '
+            'pre-insert index');
   });
 }

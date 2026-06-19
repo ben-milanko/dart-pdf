@@ -82,6 +82,55 @@ void main() {
       expect(editing.selectedAnnotation, isNotNull);
     });
 
+    test('textAlign preference flows into new free text', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.center
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
+
+      final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.alignment, PdfTextAlign.center);
+    });
+
+    test('setSelectedTextAlign changes the box and the creation default', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Aligned');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.selectedTextAlign, PdfTextAlign.left);
+
+      editing.setSelectedTextAlign(PdfTextAlign.right);
+
+      expect(editing.document.page(0).annotations.single.freeTextStyle!.alignment,
+          PdfTextAlign.right);
+      // the selection survives the rewrite
+      expect(editing.selectedTextAlign, PdfTextAlign.right);
+      // and right becomes the default for new boxes
+      expect(editing.textAlign, PdfTextAlign.right);
+    });
+
+    test('restyleSelectedText preserves alignment across a size change', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.center
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+
+      editing.restyleSelectedText(size: 22);
+
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+      expect(editing.document.page(0).annotations.single.defaultAppearance,
+          contains('22 Tf'));
+    });
+
+    test('addFreeTextRich applies the alignment default', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.right;
+      editing.addFreeTextRich(0, const PdfRect(100, 600, 360, 650),
+          [const PdfFreeTextRun('Rich')]);
+
+      final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.alignment, PdfTextAlign.right);
+    });
+
     test('text fill and border preferences flow into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..strokeWidth = 3
@@ -696,6 +745,43 @@ void main() {
       // switching family keeps the bold+italic style
       await pickFont(const ValueKey('pdf-font-std-serif'));
       expect(editing.fontFamily, PdfStandardFont.timesBoldItalic);
+    });
+
+    testWidgets('the style menu sets text alignment for new text',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('pdf-group-insert')), 80);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-insert')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+
+      // no selection: the buttons set the creation default
+      expect(editing.textAlign, isNull);
+      await tester.tap(find.byKey(const ValueKey('pdf-text-align-center')));
+      await tester.pump();
+      expect(editing.textAlign, PdfTextAlign.center);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-text-align-right')));
+      await tester.pump();
+      expect(editing.textAlign, PdfTextAlign.right);
     });
 
     testWidgets('the style menu sets text fill and border defaults',
