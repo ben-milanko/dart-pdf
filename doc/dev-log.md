@@ -2554,7 +2554,6 @@ affected. Removed the whole staging apparatus + its
 `onnx_ocr_model_runner_test.dart` (it only exercised the dead path logic;
 the surviving `load()` is native-only, unverifiable in the sandbox per the
 #76 honesty posture). 30 package tests still green; analyzer clean.
-
 Free-text box alignment — left/center/right controls for FreeText
 annotations. The PDF `/Q` quadding (0/1/2) is the model: new `PdfTextAlign`
 enum in `pdf_document`'s `content_writer.dart` (alongside
@@ -2589,6 +2588,57 @@ row under `Style`) and the properties panel `_textStyleControls`. Default
 path renders identically to before; the only behaviour change is the rare
 "force RTL direction onto LTR text" edge case, which now no longer reverses
 on resize (arguably the prior bug).
+Dedicated page-grid view (Ben: "add a new view that is a dedicated
+thumbnail view ... all the same page controls as the strip ... allow
+changing the size of the thumbnails"): `PdfThumbnailView`
+(editing_thumbnails.dart, exported) — a full-area reflowing grid of page
+thumbnails with the strip's whole control set, plus a header size
+slider. Built in the SAME file as `PdfThumbnailSidebar` so it reuses the
+private `_PageTile`, `_PageThumbnail`, render-stamp-keyed `_ThumbnailCache`
+(serialized one-page-at-a-time rasters), `_PageActionsButton`, and the
+new shared `_PageSelectionBar` (the multi-select bulk bar — rotate/
+export/delete/clear, keys 'pdf-thumbnail-{rotate-selected-ccw,-cw,
+export-selected,delete-selected,clear-selection}' — extracted out of the
+sidebar's inline `_selectionAction` so both views expose identical keys).
+Layout: `Wrap` (not GridView — pages have mixed aspect ratios, so fixed
+grid cells don't fit) of `SizedBox(width: tileWidth)` tiles inside a
+`SingleChildScrollView` + the shared `PdfScrollbar`; footer 'pdf-
+thumbnail-view-add-page', per-tile rotate/delete reuse 'pdf-thumbnail-
+rotate-<i>'. Reorder is custom (`ReorderableListView` is list-only):
+`_GridPageCell` wraps each tile in a `DragTarget<int>` over an immediate
+`Draggable` (mouse) or `LongPressDraggable` (touch/stylus) — picked by a
+`MouseRegion` hover flag, so a finger drag still scrolls while a mouse
+picks up immediately; drop calls `controller.movePage(from, thisIndex)`
+(movePage lands the page AT the target index). `_PageTile` gained an
+optional `onActivatePage` so a plain tap is a "page picker" (jump the
+viewer + fire it) instead of the strip's plain jump; shift/⌘ taps still
+only extend the selection. Size lives in
+`PdfEditingPreferences.thumbnailViewTileWidth` (double?, clamped
+96–360, default 168, slider key 'pdf-thumbnail-view-size'); the raster
+bucket already snaps to 64px so slider drags don't re-render per pixel.
+Shell wiring (pdf_editor_view.dart): a new view mode alongside reflow —
+`gridActive = features.thumbnails && prefs.showThumbnailView`,
+`reflowActive` now gated `&& !gridActive`, `altView = reflow||grid` drives
+the panel/toolbar/header suppression (was `!reflowActive` everywhere). The
+grid is overlaid `Positioned.fill` OVER the still-mounted `PdfViewer`
+(opaque Material, so it eats taps) rather than swapped for it — so a
+tapped page scrolls the LIVE viewer before `onOpenPage` closes the grid to
+reveal it (swapping would unmount the viewer and lose the jump to the
+viewport-memory restore). Toggle is a View-options item 'pdf-shell-page-
+grid' (NOT a standalone header button — that pushed the Save button off
+an 800px header, breaking the existing save test; the menu costs zero
+header width and matches reflow). `_ViewOption.pageGrid` in shell_chrome.
+dart; pageGrid/reflow each clear the other since both replace the viewer.
+`showThumbnailView`/`thumbnailViewTileWidth` persist. Tests:
+editing_thumbnail_view_test.dart (10 — layout, add-page, page-picker tap,
+size slider→pref + pref→tile width, shift-select+delete, per-tile rotate,
+long-press drag reorder, export, read-only drops controls) and
+pdf_shell_test.dart +3 (view-options swaps in the grid + tap returns to
+page view, grid clears reflow, thumbnails:false hides the option). Gotcha:
+the long-press reorder test is the touch path (default test pointer never
+hovers → LongPressDraggable); `startGesture` then pump kLongPressTimeout
+before `moveTo`. PdfReader keeps only its read-only strip (its strip has
+no page controls, so "same controls as the strip" maps to the editor).
 
 Thumbnail right-click menu: a page context menu on the thumbnail strip
 (`editing_thumbnails.dart`), opened by secondary tap on a tile

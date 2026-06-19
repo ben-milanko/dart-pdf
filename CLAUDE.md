@@ -171,6 +171,14 @@ repainted via `viewportChanges` (a separate Listenable so scrolling
 doesn't spam controller listeners). `PdfViewer.initialFit` defaults to
 `PdfViewerFit.page` (whole first page visible, Chrome-style) — widget
 tests that do view-coordinate math pin `initialFit: PdfViewerFit.width`.
+`PdfThumbnailView` (same file, exported) is the full-area sibling: a
+reflowing `Wrap` grid with the strip's whole control set plus a header
+size slider (`thumbnailViewTileWidth` pref), custom drag reorder
+(`DragTarget`+`Draggable`/`LongPressDraggable`, mouse-immediate via a
+`MouseRegion` hover flag), and a "page picker" tap (`_PageTile.
+onActivatePage`). `PdfEditorView` overlays it over the live viewer as a
+view mode (`showThumbnailView`, toggled from View options alongside
+reflow; `altView` = reflow-or-grid suppresses the panels/toolbar).
 
 ## Development session log
 
