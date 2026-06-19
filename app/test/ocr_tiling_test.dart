@@ -63,6 +63,18 @@ void main() {
     });
   });
 
+  group('OcrRawSpan', () {
+    test('shifted translates the box by the tile origin, keeping text/conf',
+        () {
+      const span = OcrRawSpan(
+          text: '20m', box: Rect.fromLTRB(10, 20, 30, 40), confidence: 0.8);
+      final moved = span.shifted(100, 200);
+      expect(moved.text, '20m');
+      expect(moved.confidence, 0.8);
+      expect(moved.box, const Rect.fromLTRB(110, 220, 130, 240));
+    });
+  });
+
   group('parseFlorenceSpans', () {
     test('reads the <OCR_WITH_REGION> labels + quad_boxes shape', () {
       final payload = {
@@ -93,6 +105,27 @@ void main() {
       final spans = parseFlorenceSpans(payload,
           fallbackWidth: 100, fallbackHeight: 100);
       expect(spans.single.box, const Rect.fromLTRB(5, 6, 25, 16));
+    });
+
+    test('reads the texts/boxes keys on an unwrapped payload', () {
+      // No <OCR…> wrapper, and the alternate `texts`/`boxes` key names.
+      final payload = {
+        'texts': ['Z'],
+        'boxes': [
+          [1, 2, 3, 4]
+        ],
+      };
+      final spans = parseFlorenceSpans(payload,
+          fallbackWidth: 10, fallbackHeight: 10);
+      expect(spans.single.text, 'Z');
+      expect(spans.single.box, const Rect.fromLTRB(1, 2, 3, 4));
+    });
+
+    test('treats a bare string payload as plain text', () {
+      final spans = parseFlorenceSpans('hello world',
+          fallbackWidth: 50, fallbackHeight: 12);
+      expect(spans.single.text, 'hello world');
+      expect(spans.single.box, const Rect.fromLTWH(0, 0, 50, 12));
     });
 
     test('falls back to one tile-sized span for boxless plain text', () {
