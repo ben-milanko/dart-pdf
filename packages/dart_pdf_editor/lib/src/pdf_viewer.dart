@@ -1338,9 +1338,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _previewAttempts.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
     } else if (!identical(oldWidget.rasterCache, widget.rasterCache) ||
-        oldWidget.documentId != widget.documentId) {
+        oldWidget.documentId != widget.documentId ||
+        (oldWidget.editing == null) != (widget.editing == null)) {
       // the host swapped the cache or the document's identity without
-      // changing the document object (e.g. a path became known)
+      // changing the document object (e.g. a path became known), or toggled
+      // editing on/off in place — entering an edit session must drop the
+      // index-keyed disk backing, leaving it must restore (and re-prime) it
       _bindRasterCache();
     }
   }
@@ -1417,7 +1420,19 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _bindRasterCache({bool prime = true}) {
     final raster = widget.rasterCache;
     final key = _rasterKey();
-    if (!widget.pagePreviews || raster == null || key == null) {
+    // An edit session mutates page content and structure per revision, so its
+    // previews are never served from the (index-keyed) persistent backing.
+    // Inserting, removing, or reordering pages shifts the index a stored
+    // raster was keyed by, so priming from disk would bind a stale-by-index
+    // preview to the wrong page and surface it during fast scrolling — and,
+    // marked fresh, it would block the on-screen full render from replacing
+    // it. The in-memory preview cache (rebound on a same-geometry edit,
+    // cleared and re-prerendered otherwise) covers the session; disk priming
+    // is reserved for static documents, mirroring the text cache.
+    if (!widget.pagePreviews ||
+        raster == null ||
+        key == null ||
+        widget.editing != null) {
       _previews.disk = null;
       return;
     }
