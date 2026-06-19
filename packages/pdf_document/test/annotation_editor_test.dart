@@ -218,7 +218,7 @@ void main() {
     expect(content, contains('BT'));
     expect(content, contains('/Helv 12 Tf'));
     // 62 chars at 12pt Helvetica cannot fit one 168pt-wide line
-    expect('T*'.allMatches(content).length, greaterThanOrEqualTo(2));
+    expect(' Tj'.allMatches(content).length, greaterThanOrEqualTo(2));
     expect(content, contains('W')); // clipped to the rect
 
     final form = ft.normalAppearance!;
@@ -228,6 +228,145 @@ void main() {
     final helv = doc.cos.resolve(fonts['Helv']) as CosDictionary;
     expect((doc.cos.resolve(helv['BaseFont']) as CosName).value, 'Helvetica');
     expect((doc.cos.resolve(helv['Widths']) as CosArray).length, 95);
+  });
+
+  test('free text can lay out RTL visual order and right alignment', () {
+    expect(pdfTextLooksRtl('שלום 123'), isTrue);
+    expect(pdfVisualText('שלום 123', PdfTextDirection.rtl), '123 םולש');
+
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 300, 640),
+          'abc 123 def',
+          textDirection: PdfTextDirection.rtl,
+        ));
+    final ft = doc.page(0).annotations.single;
+    expect((doc.cos.resolve(ft.dict['Q']) as CosInteger).value, 2);
+
+    final content = appearanceText(doc, ft);
+    expect(content, contains('(def 123 abc) Tj'));
+    expect(content, isNot(contains('(abc 123 def) Tj')));
+  });
+
+  test('free text encodes non-Latin-1 characters via Type0 Unicode font', () {
+    const text = 'hello مرحبا world';
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 300, 640),
+          text,
+        ));
+    final ft = doc.page(0).annotations.single;
+    // /Contents preserves the original text via UTF-16BE
+    expect(ft.contents, text);
+    // the appearance stream uses hex-encoded glyph IDs, not literal text
+    final content = appearanceText(doc, ft);
+    expect(content, isNot(contains('?')));
+    expect(content, isNot(contains('(hello')));
+    // hex-encoded content uses <...> Tj
+    expect(content, contains('Tj'));
+    // the font resource should be a Type0 font with Identity-H encoding
+    final form = ft.normalAppearance!;
+    final res =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
+    expect((f1['Subtype'] as CosName).value, 'Type0');
+    expect((f1['Encoding'] as CosName).value, 'Identity-H');
+    // /ToUnicode CMap must exist for text extraction
+    expect(f1['ToUnicode'], isNotNull);
+  });
+
+  test('RTL free text uses logical order (no visual reversal)', () {
+    const text = 'ـب';
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 200, 640),
+          text,
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    // PdfUnicodeFont keeps text in logical order so the renderer's BiDi
+    // and shaping produce correct Arabic contextual forms; no ActualText
+    // is needed because the ToUnicode CMap already maps to logical Unicode.
+    expect(content, isNot(contains('ActualText')));
+    // hex-encoded logical-order text
+    final hex = text.runes
+        .map((r) => r.toRadixString(16).padLeft(4, '0'))
+        .join();
+    expect(content, contains(hex));
+  });
+
+  test('supplementary-plane characters encode correctly', () {
+    // U+1F600 (😀) is above U+FFFF
+    const text = '😀مرحبا';
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 200, 640),
+          text,
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    // no ActualText needed — logical order in content stream
+    expect(content, isNot(contains('ActualText')));
+    expect(content, contains('Tj'));
+  });
+
+  test('rich free text encodes non-Latin runs via Type0 Unicode font', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(72, 600, 400, 660),
+          [
+            const PdfFreeTextRun('Hello '),
+            const PdfFreeTextRun('مرحبا', color: 0xFF0000),
+          ],
+        ));
+    final ft = doc.page(0).annotations.single;
+    expect(ft.contents, 'Hello مرحبا');
+    final content = appearanceText(doc, ft);
+    // the Arabic run uses hex-encoded glyph IDs
+    expect(content, isNot(contains('?')));
+    expect(content, contains('Tj'));
+    // the font resource dict should contain F1 (Type0 for Arabic run)
+    final form = ft.normalAppearance!;
+    final res =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
+    expect((f1['Subtype'] as CosName).value, 'Type0');
+  });
+
+  test('rich free text with RTL runs uses logical order', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(72, 600, 400, 660),
+          [
+            const PdfFreeTextRun('مرحبا', color: 0xFF0000),
+            const PdfFreeTextRun(' عالم'),
+          ],
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    // PdfUnicodeFont: logical order, no ActualText
+    expect(content, isNot(contains('ActualText')));
+  });
+
+  test('resizing a non-Latin free text regenerates with Unicode font', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addFreeText(0, const PdfRect(72, 600, 300, 640), 'مرحبا');
+    // round-trip so the annotation is parseable from the saved bytes
+    final saved = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(saved);
+    final annot = saved.page(0).annotations.single;
+    editor2.resizeAnnotation(0, annot, const PdfRect(72, 580, 350, 640));
+    final doc = PdfDocument.open(editor2.save());
+    final ft = doc.page(0).annotations.single;
+    expect(ft.rect, const PdfRect(72, 580, 350, 640));
+    final content = appearanceText(doc, ft);
+    expect(content, isNot(contains('?')));
+    expect(content, contains('Tj'));
+    final form = ft.normalAppearance!;
+    final res =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
+    final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
+    expect((f1['Subtype'] as CosName).value, 'Type0');
   });
 
   test('free text takes a standard serif or monospace font', () {
@@ -302,8 +441,8 @@ void main() {
         PdfStandardFont.helveticaBold);
     expect(PdfStandardFont.fromName('Helvetica-BoldOblique'),
         PdfStandardFont.helveticaBoldOblique);
-    expect(PdfStandardFont.fromName('Times-Italic'),
-        PdfStandardFont.timesItalic);
+    expect(
+        PdfStandardFont.fromName('Times-Italic'), PdfStandardFont.timesItalic);
     expect(PdfStandardFont.fromName('Times-BoldItalic'),
         PdfStandardFont.timesBoldItalic);
     expect(PdfStandardFont.fromName('Courier-Oblique'),
@@ -321,7 +460,8 @@ void main() {
 
     // bold metrics differ from the regular face (AFM Times widths)
     expect(measureStandardText('M', 1000, font: PdfStandardFont.times), 889);
-    expect(measureStandardText('M', 1000, font: PdfStandardFont.timesBold), 944);
+    expect(
+        measureStandardText('M', 1000, font: PdfStandardFont.timesBold), 944);
     expect(
         measureStandardText('M', 1000, font: PdfStandardFont.timesItalic), 833);
   });
@@ -342,6 +482,109 @@ void main() {
     final widths = doc.cos.resolve(font['Widths']) as CosArray;
     // 'M' is code 77; Times-BoldItalic 'M' is 889/1000 em
     expect((widths.items[77 - 32] as CosInteger).value, 889);
+  });
+
+  test('free text on a rotated page counter-rotates the appearance', () {
+    // Rotate the page 90° first, then add a FreeText with pageRotation: 90.
+    // The appearance content must include a cm operator for the counter-
+    // rotation so the text reads upright after the page transform.
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 90);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeText(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      'Hello rotated',
+      fontSize: 12,
+      pageRotation: 90,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final ft = doc.page(0).annotations.single;
+    expect(ft.subtype, 'FreeText');
+    expect(doc.page(0).rotation, 90);
+    final content = appearanceText(doc, ft);
+    // The counter-rotation writes a cm operator with sin/cos coefficients
+    expect(content, contains('cm'));
+    // For 90° the matrix is [0, 1, -1, 0, cx+cy, cy-cx]
+    expect(content, contains('0 1 -1 0'));
+    // The text is still there
+    expect(content, contains('BT'));
+    expect(content, contains('Tj'));
+  });
+
+  test('free text on a 180-rotated page counter-rotates the appearance', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 180);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeText(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      'Hello 180',
+      fontSize: 12,
+      pageRotation: 180,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('cm'));
+    // For 180° the matrix is [-1, 0, 0, -1, 2*cx, 2*cy]
+    expect(content, contains('-1 0 0 -1'));
+  });
+
+  test('free text on a 270-rotated page counter-rotates the appearance', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 270);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeText(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      'Hello 270',
+      fontSize: 12,
+      pageRotation: 270,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('cm'));
+    // For 270° the matrix is [0, -1, 1, 0, cx-cy, cx+cy]
+    expect(content, contains('0 -1 1 0'));
+  });
+
+  test('rich free text on a rotated page counter-rotates the appearance', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 90);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated);
+    editor2.addFreeTextRich(
+      0,
+      const PdfRect(72, 600, 240, 680),
+      [
+        const PdfFreeTextRun('Bold ', font: PdfStandardFont.helveticaBold),
+        const PdfFreeTextRun('normal'),
+      ],
+      pageRotation: 90,
+    );
+    final doc = PdfDocument.open(editor2.save());
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    expect(content, contains('cm'));
+    expect(content, contains('0 1 -1 0'));
+    expect(content, contains('BT'));
+  });
+
+  test('free text on an unrotated page has no counter-rotation cm', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 240, 680),
+          'No rotation',
+          fontSize: 12,
+          pageRotation: 0,
+        ));
+    final content = appearanceText(doc, doc.page(0).annotations.single);
+    // No cm operator before the fill/text ops (only q/Q/re/W/BT etc.)
+    expect(content, isNot(contains('0 1 -1 0')));
+    expect(content, isNot(contains('-1 0 0 -1')));
+    expect(content, isNot(contains('0 -1 1 0')));
   });
 
   test('note builds a 20pt icon at the given top-left corner', () {
@@ -428,6 +671,25 @@ void main() {
       ..removeAnnotation(0, doc.page(0).annotations.first);
     final reopened = PdfDocument.open(editor.save());
     expect(reopened.page(0).annotations.length, before - 1);
+  });
+
+  test('removeAnnotations deletes multiple annotations in one edit', () {
+    final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addSquare(0, const PdfRect(100, 100, 200, 150))
+      ..addNote(0, 300, 700, 'remove me')
+      ..addCircle(0, const PdfRect(250, 100, 350, 150))
+      ..addFreeText(0, const PdfRect(120, 500, 260, 540), 'keep me');
+    final doc = PdfDocument.open(first.save());
+    final annotations = doc.page(0).annotations;
+
+    final editor = PdfEditor(doc)
+      ..removeAnnotations(0, [annotations[0], annotations[1], annotations[2]]);
+    final reopened = PdfDocument.open(editor.save());
+
+    final remaining = reopened.page(0).annotations;
+    expect(remaining, hasLength(1));
+    expect(remaining.single.subtype, 'FreeText');
+    expect(remaining.single.contents, 'keep me');
   });
 
   test('bringAnnotationsToFront moves entries to the end of /Annots', () {
@@ -605,8 +867,7 @@ void main() {
 
   test('a dashed shape regenerates on resize, keeping its dash', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
-      ..addSquare(0, const PdfRect(100, 100, 200, 150),
-          dashPattern: const [3]);
+      ..addSquare(0, const PdfRect(100, 100, 200, 150), dashPattern: const [3]);
     final doc = PdfDocument.open(first.save());
 
     final square = doc.page(0).annotations.single;
@@ -741,11 +1002,37 @@ void main() {
 
     final wide = appearanceText(reopened, reopened.page(0).annotations.single);
     expect(wide, contains('/Helv 12 Tf')); // font size unchanged
-    int lines(String s) => 'T*'.allMatches(s).length;
-    expect(lines(narrow), greaterThan(0));
+    int lines(String s) => ' Tj'.allMatches(s).length;
+    expect(lines(narrow), greaterThan(1));
     expect(lines(wide), lessThan(lines(narrow))); // fewer wrapped lines
     expect(reopened.page(0).annotations.single.rect,
         const PdfRect(100, 100, 450, 200));
+  });
+
+  test('a box auto-sized to its line width keeps the text on one line', () {
+    // Auto-size sets the rect width to measure(line) + 2*pad (pad = 3), and
+    // the wrapper breaks at width - 2*pad. The two cancel in exact math, but
+    // `(w + 6) - 6` rounds to a hair under `w`, so a strict comparison used
+    // to push the last word onto a second line. These three lines reproduce
+    // that round-off at 12pt and 18pt Helvetica.
+    for (final (text, size) in const [
+      ('Date brown', 12.0),
+      ('Notes Total', 12.0),
+      ('Hello Customer', 18.0),
+    ]) {
+      const pad = 3.0;
+      final lineWidth = measureStandardText(text, size);
+      final width = lineWidth + 2 * pad;
+      final doc = roundTrip((e) => e.addFreeText(
+            0,
+            PdfRect(100, 600, 100 + width, 660),
+            text,
+            fontSize: size,
+          ));
+      final content = appearanceText(doc, doc.page(0).annotations.single);
+      expect(' Tj'.allMatches(content).length, 1,
+          reason: '"$text" at ${size}pt fits its own width on one line');
+    }
   });
 
   test('free text persists and regenerates fill and border', () {
@@ -800,8 +1087,7 @@ void main() {
         throwsArgumentError);
   });
 
-  test('resizeAnnotation flipX mirrors stretched artwork and point arrays',
-      () {
+  test('resizeAnnotation flipX mirrors stretched artwork and point arrays', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addInk(0, [
         [(100, 100), (200, 150)],

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui' show AppExitResponse;
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -10,17 +10,23 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_info.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
+import 'printing.dart';
 import 'recents.dart';
 import 'settings_screen.dart';
+import 'update.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
+const double _mobileTabsBreakpoint = 700;
+const double _appMenuLeadingWidth = 60;
+const double _appMenuIconSize = 24;
 
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
@@ -32,6 +38,9 @@ class EditorScreen extends StatefulWidget {
     required this.prefs,
     this.launchArgs = const [],
     this.initialDocument,
+    this.updateService,
+    this.autoCheckUpdates = false,
+    this.printDocument,
   });
 
   final PdfEditingPreferences prefs;
@@ -43,6 +52,22 @@ class EditorScreen extends StatefulWidget {
   /// platform. Used by screenshot/integration harnesses (and handy in
   /// tests) to land directly in the editor without a file picker.
   final ({Uint8List bytes, String title})? initialDocument;
+
+  /// An update checker to use instead of the one the screen builds itself —
+  /// the seam tests use to inject a fake without real network.
+  final UpdateService? updateService;
+
+  /// Whether to check for a newer release on startup (and show a banner if one
+  /// is found). The host (production) sets this true; it defaults to false so
+  /// plain widget tests stay hermetic — no startup network traffic. The
+  /// Settings panel can still check on demand regardless.
+  final bool autoCheckUpdates;
+
+  /// Override for the print action. Tests inject a fake to assert the menu and
+  /// shortcut wiring without the real `printing` plugin (its method channel is
+  /// unavailable under flutter_test). Production leaves this null and the screen
+  /// falls back to [printPdfBytes].
+  final PdfPrinter? printDocument;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -56,6 +81,15 @@ class _EditorScreenState extends State<EditorScreen>
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
+
+  /// The update checker, owned here unless the host injected one.
+  late final UpdateService _updates =
+      widget.updateService ?? UpdateService(currentVersion: AppInfo.version);
+  bool get _ownsUpdates => widget.updateService == null;
+
+  /// True once the "update available" banner has been shown this session, so a
+  /// later check (or rebuild) doesn't stack a second copy.
+  bool _updateBannerShown = false;
 
   /// True while a file is being dragged over the window (desktop/web).
   bool _dragging = false;
@@ -85,6 +119,54 @@ class _EditorScreenState extends State<EditorScreen>
     startWebLaunchQueue(_openIncoming);
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    if (widget.autoCheckUpdates && UpdateService.supported) {
+      _updates.addListener(_onUpdateStatus);
+      unawaited(_startupUpdateCheck());
+    }
+  }
+
+  /// Runs the one-shot startup update check. When we built the service
+  /// ourselves it may have captured the compile-time version fallback, so
+  /// refresh it from the loaded package metadata before comparing.
+  Future<void> _startupUpdateCheck() async {
+    if (_ownsUpdates) {
+      await AppInfo.load();
+      _updates.currentVersion = AppInfo.version;
+    }
+    if (!mounted) return;
+    await _updates.checkForUpdates();
+  }
+
+  /// Surfaces a one-time, non-blocking banner when a newer release is found
+  /// and the user hasn't dismissed that exact version before.
+  void _onUpdateStatus() {
+    if (_updateBannerShown || !_updates.shouldNotify || !mounted) return;
+    _updateBannerShown = true;
+    final release = _updates.latest!;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showMaterialBanner(MaterialBanner(
+      key: const ValueKey('update-available-banner'),
+      content: Text('DartPDF ${release.version} is available.'),
+      leading: const Icon(Icons.system_update_alt),
+      actions: [
+        TextButton(
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            unawaited(_updates.dismiss());
+          },
+          child: const Text('Later'),
+        ),
+        FilledButton(
+          key: const ValueKey('update-banner-download'),
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            final url = _updates.downloadUrl;
+            if (url != null) unawaited(_openExternal(Uri.parse(url)));
+          },
+          child: const Text('Download'),
+        ),
+      ],
+    ));
   }
 
   /// Opens a `.pdf` passed on the command line — how Windows and Linux deliver
@@ -114,21 +196,23 @@ class _EditorScreenState extends State<EditorScreen>
       tab.dispose();
     }
     _recents.dispose();
+    _updates.removeListener(_onUpdateStatus);
+    if (_ownsUpdates) _updates.dispose();
     super.dispose();
   }
 
   /// Blocks app exit while any document has unsaved changes, offering to
   /// discard. On platforms that don't ask (mobile/web) this is a no-op.
   @override
-  Future<AppExitResponse> didRequestAppExit() async {
+  Future<ui.AppExitResponse> didRequestAppExit() async {
     final dirty = _tabs.where((t) => t.isDirty).length;
-    if (dirty == 0) return AppExitResponse.exit;
+    if (dirty == 0) return ui.AppExitResponse.exit;
     final proceed = await _confirmDiscard(
       dirty == 1
           ? 'A document has unsaved changes.'
           : '$dirty documents have unsaved changes.',
     );
-    return proceed ? AppExitResponse.exit : AppExitResponse.cancel;
+    return proceed ? ui.AppExitResponse.exit : ui.AppExitResponse.cancel;
   }
 
   // --- opening -------------------------------------------------------------
@@ -379,8 +463,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// Close all. Entries that would close nothing are disabled.
   Future<void> _showTabMenu(int index, Offset position) async {
     final tab = _tabs[index];
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final selected = await showMenu<_TabMenuAction>(
       context: context,
       position: RelativeRect.fromRect(
@@ -388,6 +471,14 @@ class _EditorScreenState extends State<EditorScreen>
         Offset.zero & overlay.size,
       ),
       items: [
+        if (supportsOpenContainingFolder && tab.originPath != null) ...[
+          PopupMenuItem(
+            key: const ValueKey('tab-menu-open-folder'),
+            value: _TabMenuAction.openFolder,
+            child: Text(openContainingFolderLabel),
+          ),
+          const PopupMenuDivider(),
+        ],
         const PopupMenuItem(
           key: ValueKey('tab-menu-close'),
           value: _TabMenuAction.close,
@@ -419,6 +510,9 @@ class _EditorScreenState extends State<EditorScreen>
     final i = _tabs.indexOf(tab);
     if (i < 0) return;
     switch (selected) {
+      case _TabMenuAction.openFolder:
+        final opened = await openContainingFolder(tab.originPath);
+        if (!opened && mounted) _toast('Could not open containing folder');
       case _TabMenuAction.close:
         await _closeTabs([tab]);
       case _TabMenuAction.closeOthers:
@@ -460,8 +554,7 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
-    final inPlace =
-        !saveAs && tab.originPath != null && supportsInPlaceSave;
+    final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
         ? await saveBytesToPath(bytes, tab.originPath!)
         : await saveBytesAs(context, bytes, tab.title);
@@ -481,6 +574,31 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     if (result.message != null) _toast(result.message!);
+  }
+
+  // --- printing ------------------------------------------------------------
+
+  /// Hands the active document to the OS print dialog (the `printing` plugin —
+  /// native dialog on desktop/mobile, browser print on the web). The current
+  /// revision is printed, so unsaved edits are included. A failed or
+  /// unavailable backend surfaces as a toast rather than throwing.
+  Future<void> _print(DocumentTab tab) async {
+    final bytes = tab.session?.bytes;
+    if (bytes == null) return;
+    try {
+      await (widget.printDocument ?? printPdfBytes)(
+        bytes: bytes,
+        title: tab.title,
+      );
+    } catch (_) {
+      if (mounted) _toast('Could not print ${tab.title}');
+    }
+  }
+
+  /// Prints the active document, if one is open — bound to ⌘P / Ctrl+P.
+  void _printActive() {
+    final tab = _active;
+    if (tab?.session != null) unawaited(_print(tab!));
   }
 
   // --- link actions --------------------------------------------------------
@@ -540,6 +658,69 @@ class _EditorScreenState extends State<EditorScreen>
       ));
   }
 
+  List<PopupMenuEntry<VoidCallback>> _appMenuItems(DocumentTab? tab) => [
+        if (tab?.session != null) ...[
+          PopupMenuItem(
+            value: () => _save(tab!, saveAs: true),
+            child: const ListTile(
+              leading: Icon(Icons.save_as_outlined),
+              title: Text('Save as…'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
+            key: const ValueKey('menu-print'),
+            value: () => unawaited(_print(tab!)),
+            child: const ListTile(
+              leading: Icon(Icons.print_outlined),
+              title: Text('Print…'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
+            value: _compareWith,
+            child: const ListTile(
+              leading: Icon(Icons.compare_arrows),
+              title: Text('Compare with…'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
+            value: () => setState(() => _readOnly = !_readOnly),
+            child: ListTile(
+              leading: Icon(_readOnly ? Icons.edit : Icons.edit_off),
+              title: Text(
+                  _readOnly ? 'Switch to edit mode' : 'Switch to read-only'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          if (OnDeviceOcr.isSupported)
+            PopupMenuItem(
+              key: const ValueKey('menu-ocr'),
+              value: () => unawaited(_runOcr()),
+              child: const ListTile(
+                leading: Icon(Icons.document_scanner_outlined),
+                title: Text('OCR…'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          const PopupMenuDivider(),
+        ],
+        PopupMenuItem(
+          value: () => showAppSettings(
+            context,
+            prefs: _prefs,
+            recents: _recents,
+            updates: _updates,
+          ),
+          child: const ListTile(
+            leading: Icon(Icons.settings_outlined),
+            title: Text('Settings'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ];
+
   // --- build ---------------------------------------------------------------
 
   @override
@@ -547,33 +728,43 @@ class _EditorScreenState extends State<EditorScreen>
     final tab = _active;
     return Scaffold(
       appBar: AppBar(
-        title: _buildTitle(tab),
-        bottom: _tabs.isEmpty
-            ? null
-            : PreferredSize(
-                preferredSize: const Size.fromHeight(_tabStripHeight),
-                child: _buildTabStrip(),
-              ),
+        leading: _buildAppMenu(tab),
+        leadingWidth: _appMenuLeadingWidth,
+        centerTitle: false,
+        title: _tabs.isEmpty ? const Text('DartPDF') : _buildTabsTitle(),
+        titleSpacing: _tabs.isEmpty ? null : 8,
         actions: _buildActions(tab),
       ),
-      body: DropTarget(
-        onDragEntered: (_) => setState(() => _dragging = true),
-        onDragExited: (_) => setState(() => _dragging = false),
-        onDragDone: (detail) {
-          setState(() => _dragging = false);
-          _onFilesDropped(detail.files);
+      body: CallbackShortcuts(
+        // ⌘P (macOS) / Ctrl+P (Windows, Linux, web) print the active document.
+        // Placed above the editor so the SDK's own shortcuts take precedence;
+        // an unhandled print key bubbles up to here.
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.keyP, meta: true):
+              _printActive,
+          const SingleActivator(LogicalKeyboardKey.keyP, control: true):
+              _printActive,
         },
-        child: Stack(
-          children: [
-            Positioned.fill(child: _buildBody(tab)),
-            if (_dragging) const Positioned.fill(child: _DropOverlay()),
-          ],
+        child: DropTarget(
+          onDragEntered: (_) => setState(() => _dragging = true),
+          onDragExited: (_) => setState(() => _dragging = false),
+          onDragDone: (detail) {
+            setState(() => _dragging = false);
+            _onFilesDropped(detail.files);
+          },
+          child: Stack(
+            children: [
+              Positioned.fill(child: _buildBody(tab)),
+              if (_dragging) const Positioned.fill(child: _DropOverlay()),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildBody(DocumentTab? tab) {
+    final compact = _isCompactWidth(context);
     if (tab == null) {
       return WelcomeScreen(
         recents: _recents,
@@ -610,6 +801,8 @@ class _EditorScreenState extends State<EditorScreen>
       controller: tab.session,
       viewerController: tab.viewer,
       onSave: (_) => unawaited(_save(tab)),
+      onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
+      showSaveButton: !compact,
       onPickPdfToInsert: pickPdfBytes,
       onExportPages: (bytes) =>
           unawaited(saveBytesAs(context, bytes, tab.title)),
@@ -620,22 +813,8 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
-  Widget _buildTitle(DocumentTab? tab) {
-    if (tab == null || tab.title.isEmpty) return const Text('DartPDF');
-    final session = tab.session;
-    if (session == null) {
-      return Text(tab.title, overflow: TextOverflow.ellipsis);
-    }
-    return ListenableBuilder(
-      listenable: session,
-      builder: (context, _) => Text(
-        '${tab.isDirty ? '• ' : ''}${tab.title}',
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
-  }
-
   List<Widget> _buildActions(DocumentTab? tab) {
+    final compact = _isCompactWidth(context);
     return [
       // Background OCR progress (when a job is running) — non-blocking, so the
       // user keeps using the PDF while hundreds of pages are recognized.
@@ -660,99 +839,158 @@ class _EditorScreenState extends State<EditorScreen>
                   },
                 ),
         ),
-      if (tab?.session != null && !_readOnly)
-        ListenableBuilder(
-          listenable: tab!.session!,
-          builder: (context, _) => IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.save_outlined),
-            tooltip: 'Save (⌘S)',
-            onPressed: tab.isDirty ? () => _save(tab) : null,
+      if (compact && _tabs.isNotEmpty) _buildMobileTabsButton(),
+      if (compact && !_readOnly && tab?.session != null)
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: FilledButton.icon(
+            key: const ValueKey('mobile-app-save'),
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            icon: const Icon(Icons.save_alt, size: 18),
+            label: const Text('Save'),
+            onPressed: () => unawaited(_save(tab!)),
           ),
         ),
-      IconButton(
-        visualDensity: VisualDensity.compact,
-        icon: Icon(_readOnly ? Icons.edit_off : Icons.edit),
-        tooltip: _readOnly ? 'Read-only — tap to edit' : 'Editing — tap for read-only',
-        onPressed: () => setState(() => _readOnly = !_readOnly),
+    ];
+  }
+
+  Widget _buildAppMenu(DocumentTab? tab) => PopupMenuButton<VoidCallback>(
+        key: const ValueKey('dartpdf-app-menu'),
+        iconSize: _appMenuIconSize,
+        icon: Image.asset(
+          'web/icons/Icon-512.png',
+          width: _appMenuIconSize,
+          height: _appMenuIconSize,
+          semanticLabel: 'DartPDF',
+        ),
+        tooltip: 'DartPDF menu',
+        onSelected: (action) => action(),
+        itemBuilder: (context) => _appMenuItems(tab),
+      );
+
+  Widget _buildTabsTitle() {
+    if (!_isCompactWidth(context)) return _buildTabStrip();
+    final tab = _active;
+    return Text(
+      tab?.title.isEmpty ?? true ? 'Untitled' : tab!.title,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  bool _isCompactWidth(BuildContext context) =>
+      MediaQuery.sizeOf(context).width < _mobileTabsBreakpoint;
+
+  Widget _buildMobileTabsButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: IconButton(
+        key: const ValueKey('mobile-tabs-button'),
+        tooltip: 'Open tabs',
+        icon: Badge(
+          label: Text(
+            '${_tabs.length}',
+            key: const ValueKey('mobile-tabs-count'),
+          ),
+          child: const Icon(Icons.tab_outlined),
+        ),
+        onPressed: _showTabsSheet,
       ),
-      IconButton(
-        visualDensity: VisualDensity.compact,
-        icon: Icon(switch (_prefs.themeMode) {
-          ThemeMode.system => Icons.brightness_auto,
-          ThemeMode.light => Icons.light_mode,
-          ThemeMode.dark => Icons.dark_mode,
-        }),
-        tooltip: 'Theme',
-        onPressed: () => _prefs.themeMode = switch (_prefs.themeMode) {
-          ThemeMode.system => ThemeMode.light,
-          ThemeMode.light => ThemeMode.dark,
-          ThemeMode.dark => ThemeMode.system,
+    );
+  }
+
+  Future<void> _showTabsSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final scheme = Theme.of(sheetContext).colorScheme;
+          return SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.sizeOf(sheetContext).height * 0.72,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Tabs',
+                            style: Theme.of(sheetContext).textTheme.titleMedium,
+                          ),
+                        ),
+                        IconButton(
+                          key: const ValueKey('mobile-tabs-open'),
+                          icon: const Icon(Icons.add),
+                          tooltip: 'Open PDF in a new tab',
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            unawaited(_pickAndOpen());
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: GridView.builder(
+                      key: const ValueKey('mobile-tabs-grid'),
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 220,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        childAspectRatio: 0.78,
+                      ),
+                      itemCount: _tabs.length,
+                      itemBuilder: (context, index) {
+                        final tab = _tabs[index];
+                        final selected = index == _activeIndex;
+                        return _MobileTabTile(
+                          key: ValueKey('mobile-tab-${tab.hashCode}'),
+                          tab: tab,
+                          selected: selected,
+                          onTap: () {
+                            setState(() => _activeIndex = index);
+                            Navigator.of(sheetContext).pop();
+                          },
+                          onClose: () async {
+                            await _closeTabs([tab]);
+                            if (!mounted || !sheetContext.mounted) return;
+                            if (_tabs.isEmpty) {
+                              Navigator.of(sheetContext).pop();
+                            } else {
+                              setSheetState(() {});
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Text(
+                      '${_tabs.length} open',
+                      style: Theme.of(sheetContext)
+                          .textTheme
+                          .labelMedium
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
         },
       ),
-      IconButton(
-        visualDensity: VisualDensity.compact,
-        icon: const Icon(Icons.folder_open),
-        tooltip: 'Open PDF in a new tab',
-        onPressed: _pickAndOpen,
-      ),
-      if (tab?.session != null && OnDeviceOcr.isSupported)
-        IconButton(
-          key: const ValueKey('ocr-action'),
-          visualDensity: VisualDensity.compact,
-          icon: const Icon(Icons.document_scanner_outlined),
-          tooltip:
-              kIsWeb ? 'Add AI OCR text layer' : 'Add on-device OCR text layer',
-          onPressed: () => unawaited(_runOcr()),
-        ),
-      PopupMenuButton<VoidCallback>(
-        icon: const Icon(Icons.more_vert),
-        tooltip: 'More',
-        onSelected: (action) => action(),
-        itemBuilder: (context) => [
-          if (tab?.session != null)
-            PopupMenuItem(
-              value: () => _save(tab!, saveAs: true),
-              child: const ListTile(
-                leading: Icon(Icons.save_as_outlined),
-                title: Text('Save as…'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          if (tab?.session != null)
-            PopupMenuItem(
-              value: _compareWith,
-              child: const ListTile(
-                leading: Icon(Icons.compare_arrows),
-                title: Text('Compare with…'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          if (tab?.session != null && OnDeviceOcr.isSupported)
-            PopupMenuItem(
-              key: const ValueKey('menu-ocr'),
-              value: () => unawaited(_runOcr()),
-              child: ListTile(
-                leading: const Icon(Icons.document_scanner_outlined),
-                title: const Text('Add OCR text layer…'),
-                subtitle: Text(kIsWeb
-                    ? 'AI in-browser · selectable text over scans'
-                    : 'On-device · selectable text over scans'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          PopupMenuItem(
-            value: () =>
-                showAppSettings(context, prefs: _prefs, recents: _recents),
-            child: const ListTile(
-              leading: Icon(Icons.settings_outlined),
-              title: Text('Settings'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-        ],
-      ),
-    ];
+    );
   }
 
   /// Moves the tab at [oldIndex] to [newIndex] (drag-reorder), keeping the
@@ -768,36 +1006,75 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Widget _buildTabStrip() {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      child: SizedBox(
-        height: _tabStripHeight,
-        child: Row(
-          children: [
-            Expanded(
-              child: ReorderableListView.builder(
-                key: const ValueKey('tab-strip'),
-                scrollDirection: Axis.horizontal,
-                // The whole tab is the drag handle (see _buildTab); the stock
-                // trailing handles don't fit a horizontal tab strip.
-                buildDefaultDragHandles: false,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                itemCount: _tabs.length,
-                onReorderItem: _reorderTabs,
-                itemBuilder: (context, i) => _buildTab(i),
+    return SizedBox(
+      height: _tabStripHeight,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const buttonWidth = 40.0;
+          final maxTabsWidth = (constraints.maxWidth - buttonWidth)
+              .clamp(0.0, double.infinity)
+              .toDouble();
+          final desiredTabsWidth = _estimatedTabStripWidth(context);
+          final tabsWidth =
+              desiredTabsWidth < maxTabsWidth ? desiredTabsWidth : maxTabsWidth;
+          return Row(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              if (tabsWidth > 0)
+                SizedBox(
+                  width: tabsWidth,
+                  child: ReorderableListView.builder(
+                    key: const ValueKey('tab-strip'),
+                    scrollDirection: Axis.horizontal,
+                    // The whole tab is the drag handle (see _buildTab); the stock
+                    // trailing handles don't fit a horizontal tab strip.
+                    buildDefaultDragHandles: false,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    itemCount: _tabs.length,
+                    onReorderItem: _reorderTabs,
+                    itemBuilder: (context, i) => _buildTab(i),
+                  ),
+                ),
+              SizedBox(
+                width: buttonWidth,
+                height: _tabStripHeight,
+                child: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: buttonWidth),
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Open PDF in a new tab',
+                  onPressed: _pickAndOpen,
+                ),
               ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.add),
-              tooltip: 'Open PDF in a new tab',
-              onPressed: _pickAndOpen,
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
+  }
+
+  double _estimatedTabStripWidth(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
+    final direction = Directionality.of(context);
+    var width = 8.0; // Horizontal list padding.
+    for (final tab in _tabs) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: tab.title.isEmpty ? 'Untitled' : tab.title,
+          style: style,
+        ),
+        maxLines: 1,
+        textDirection: direction,
+      )..layout(maxWidth: 160);
+      final dirtyWidth = tab.isDirty ? 14.0 : 0.0;
+      width += 4 +
+          12 +
+          (painter.width + dirtyWidth).clamp(40.0, 160.0).toDouble() +
+          30;
+    }
+    return width;
   }
 
   Widget _buildTab(int index) {
@@ -810,7 +1087,8 @@ class _EditorScreenState extends State<EditorScreen>
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-          color: selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
+          color:
+              selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
         ),
       );
       final session = tab.session;
@@ -839,7 +1117,9 @@ class _EditorScreenState extends State<EditorScreen>
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
         child: Material(
-          color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
+          color: selected
+              ? scheme.secondaryContainer
+              : scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8),
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
@@ -859,7 +1139,8 @@ class _EditorScreenState extends State<EditorScreen>
                     icon: const Icon(Icons.close, size: 16),
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                    constraints:
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     tooltip: 'Close tab',
                     onPressed: () => _closeTab(index),
                   ),
@@ -901,7 +1182,7 @@ class _OpeningDocument extends StatelessWidget {
 }
 
 /// The actions offered by a tab's right-click context menu.
-enum _TabMenuAction { close, closeOthers, closeRight, closeAll }
+enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 
 /// Starts a tab drag immediately for mouse pointers (the desktop expectation —
 /// a mouse drag never means scrolling the strip) but only after a long press
@@ -1021,6 +1302,268 @@ class _OcrStatusChip extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MobileTabTile extends StatelessWidget {
+  const _MobileTabTile({
+    super.key,
+    required this.tab,
+    required this.selected,
+    required this.onTap,
+    required this.onClose,
+  });
+
+  final DocumentTab tab;
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final session = tab.session;
+    if (session == null) return _build(context);
+    return ListenableBuilder(
+      listenable: session,
+      builder: (context, _) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      key: const ValueKey('mobile-tab-tile'),
+      color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: selected ? scheme.primary : scheme.outlineVariant,
+          width: selected ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+                child: _MobileTabPreview(tab: tab),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 4, 6),
+              child: Row(
+                children: [
+                  if (tab.isDirty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Icon(Icons.circle, size: 8, color: scheme.primary),
+                    ),
+                  Expanded(
+                    child: Text(
+                      tab.title.isEmpty ? 'Untitled' : tab.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight:
+                            selected ? FontWeight.w600 : FontWeight.normal,
+                        color: selected
+                            ? scheme.onSecondaryContainer
+                            : scheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Close tab',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints.tightFor(width: 32, height: 32),
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileTabPreview extends StatelessWidget {
+  const _MobileTabPreview({required this.tab});
+
+  final DocumentTab tab;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final session = tab.session;
+    if (session != null) {
+      return _MobileTabDocumentPreview(
+        controller: session,
+        stamp: session.pageRenderStamp(0),
+        pageColor: session.preferences.pageColor,
+        showAnnotations: session.preferences.showAnnotations,
+      );
+    }
+    final (icon, label) = tab.isLoading
+        ? (Icons.hourglass_empty, 'Opening')
+        : tab.error != null
+            ? (Icons.error_outline, 'Could not open')
+            : tab.isComparison
+                ? (Icons.compare_arrows, 'Comparison')
+                : (Icons.picture_as_pdf_outlined, 'PDF');
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (tab.isLoading)
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            else
+              Icon(icon, size: 36, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileTabDocumentPreview extends StatefulWidget {
+  const _MobileTabDocumentPreview({
+    required this.controller,
+    required this.stamp,
+    required this.pageColor,
+    required this.showAnnotations,
+  });
+
+  final PdfEditingController controller;
+  final int stamp;
+  final Color pageColor;
+  final bool showAnnotations;
+
+  @override
+  State<_MobileTabDocumentPreview> createState() =>
+      _MobileTabDocumentPreviewState();
+}
+
+class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
+  ui.Image? _image;
+  Object? _pendingKey;
+  Object? _imageKey;
+
+  Object get _key => (
+        widget.controller,
+        widget.stamp,
+        widget.pageColor.toARGB32(),
+        widget.showAnnotations,
+      );
+
+  @override
+  void didUpdateWidget(_MobileTabDocumentPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller) ||
+        oldWidget.stamp != widget.stamp ||
+        oldWidget.pageColor != widget.pageColor ||
+        oldWidget.showAnnotations != widget.showAnnotations) {
+      _image?.dispose();
+      _image = null;
+      _imageKey = null;
+      _pendingKey = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pendingKey = null;
+    _image?.dispose();
+    _image = null;
+    super.dispose();
+  }
+
+  Future<void> _render(Object key, double pixelRatio) async {
+    _pendingKey = key;
+    try {
+      final page = widget.controller.pageAt(0);
+      final size = PdfPageRenderer.pageSize(page);
+      if (size.width <= 0 || size.height <= 0) return;
+      final ratio = (150 * pixelRatio / size.width).clamp(0.08, 0.5);
+      final image = await PdfPageRenderer.renderImage(
+        page,
+        pixelRatio: ratio,
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+      );
+      if (!mounted || _pendingKey != key) {
+        image.dispose();
+        return;
+      }
+      setState(() {
+        _image?.dispose();
+        _image = image;
+        _imageKey = key;
+        _pendingKey = null;
+      });
+    } catch (_) {
+      if (mounted && _pendingKey == key) _pendingKey = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final key = _key;
+    if (_imageKey != key && _pendingKey != key) {
+      unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
+    }
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      key: const ValueKey('mobile-tab-preview'),
+      decoration: BoxDecoration(
+        color: widget.pageColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.shadow.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(7),
+        child: _image == null
+            ? const SizedBox.expand()
+            : RawImage(
+                key: const ValueKey('mobile-tab-preview-image'),
+                image: _image,
+                fit: BoxFit.contain,
+              ),
       ),
     );
   }

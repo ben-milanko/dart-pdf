@@ -20,28 +20,43 @@ so platform build files don't hardcode versions.
 You can also run the workflow manually (Actions → Release app → Run workflow)
 with a version input; that builds artifacts but only creates a Release on a tag.
 
+## In-app update checker
+
+The app checks these Releases for a newer build (`app/lib/update.dart`,
+surfaced in Settings → Updates and a startup banner). It is a *checker*, not a
+silent updater: it points the user at the matching artifact for their platform
+(or the release page), since the desktop bundles are unsigned and the store
+builds update through their own channels. For it to work the published Release
+must keep the **`app-v<version>` tag** (other tags, e.g. the pub-package
+release tags in this repo, are ignored) and keep the artifact file names CI
+produces (`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /
+`dartpdf-windows-x64.zip`, `dartpdf-linux-x86_64.AppImage` /
+`dartpdf-linux-x64.tar.gz`, `app-release.apk`). Publish the draft Release so
+the GitHub `/releases` API exposes it (drafts aren't visible unauthenticated).
+The web build is always served fresh, so it skips the check.
+
 ## What CI produces
 
 | Platform | Artifact | Signed? |
 |---|---|---|
 | Android | `app-release.apk`, `app-release.aab` | Debug keys unless a release keystore is configured (below) |
-| iOS | `…-ios-unsigned.zip` (`.app`) | **No** — not installable; needs your Apple signing |
-| macOS | `…-macos.dmg` | **No** — needs Developer ID signing + notarization |
-| Windows | `…-windows-x64.zip` | **No** — needs an Authenticode cert / MSIX |
+| iOS | `…-ios-unsigned.zip` (`.app`) | **No**, not installable; needs your Apple signing |
+| macOS | `…-macos.dmg` | **No**, needs Developer ID signing + notarization |
+| Windows | `…-windows-x64.zip` | **No**, needs an Authenticode cert / MSIX |
 | Linux | `…-linux-x64.tar.gz` | n/a |
 | Web | `…-web.zip` | n/a |
 
-## The credential boundary — what you must provide
+## The credential boundary
 
 DartPDF ships to the **RES (Railway Engineering Solutions) Google Play
-Console** — the same account Trax uses — so no separate Play developer
-registration is needed; DartPDF is just a new app under it.
+Console**, the same account Trax uses. No separate Play developer registration
+is needed; DartPDF is just a new app under it.
 
 **Upload key.** A dedicated DartPDF upload keystore has been generated at
 `app/android/app/upload-keystore.jks` (RSA-2048, alias `upload`), referenced by
 `app/android/key.properties`. Both are git-ignored; `build.gradle.kts` picks
 them up automatically, so `flutter build appbundle --release` is Play-ready.
-**Back up the keystore + password off-machine** — losing them means resetting
+**Back up the keystore + password off-machine.** Losing them means resetting
 the upload key via Play Console support. (Until the first Play upload registers
 this cert, it is freely swappable.) Generate a replacement with:
 `keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`.
@@ -66,7 +81,7 @@ to the internal track headlessly. The first release must still be created in the
 UI to clear the one-time declarations.
 
 In CI, provide the keystore + `key.properties` via repository secrets and write
-`key.properties` before the Android build (not wired by default — add it when
+`key.properties` before the Android build (not wired by default; add it when
 you're ready to ship signed AABs from CI rather than locally).
 
 ### iOS / macOS (App Store / notarized DMG)
@@ -76,8 +91,8 @@ membership needed). What that means concretely:
 
 - **App ID / Team.** In the RES account's Developer portal, register the bundle
   id `dev.milanko.dartpdf` as an explicit App ID under the RES team. Apple does
-  **not** require the bundle id to match RES's reverse-domain — an App ID is
-  just a unique string owned by a team — so the existing id can stay. In Xcode,
+  **not** require the bundle id to match RES's reverse-domain. An App ID is
+  just a unique string owned by a team, so the existing id can stay. In Xcode,
   set **Signing → Team** to RES's team (Team ID `N5K9GK8B27`) for the Runner
   target (iOS and macOS). Automatic signing then provisions against RES.
 - **Seller name.** If RES is an *Organization* account, the App Store listing's
@@ -116,5 +131,5 @@ The receive side ships in the app (see Phase 2). OS registration is per
 platform: macOS/iOS via the bundled Info.plist `CFBundleDocumentTypes`,
 Android via the manifest intent-filters, web via `manifest.json`
 `file_handlers`. Windows and Linux register the association at **install**
-time — declare it in the MSIX manifest / `.desktop` file when you build those
+time. Declare it in the MSIX manifest / `.desktop` file when you build those
 installers.

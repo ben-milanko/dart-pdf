@@ -15,6 +15,11 @@ typedef PdfFormImagePicker = Future<Uint8List?> Function(
 /// are accepted ([PdfEditingController.placeImage]).
 typedef PdfImagePicker = Future<Uint8List?> Function(BuildContext context);
 
+/// Supplies a TrueType (`.ttf`) or OpenType (`.otf`) font file the font
+/// menu's "Load font…" entry embeds for new text — typically a file
+/// picker. Return null to cancel ([PdfEditingController.setCustomFont]).
+typedef PdfFontPicker = Future<Uint8List?> Function(BuildContext context);
+
 /// A region of a page captured by the Snapshot tool ([PdfEditTool.snapshot])
 /// — Bluebeam-style: drag out a box and the page region under it is rendered
 /// to an image, handed to [PdfViewer.onSnapshot] for the host to copy, save,

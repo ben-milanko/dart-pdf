@@ -63,9 +63,12 @@ abstract class PdfRenderWorker {
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
   /// [priority], completing its future with null — as if the page had declined
-  /// to a local render. The single in-flight request can't be preempted (that
-  /// needs the worker to yield mid-walk); this only clears the backlog behind
-  /// it. A cheap no-op when nothing matches.
+  /// to a local render. A cheap no-op when nothing matches.
+  ///
+  /// In-flight preemption is handled separately: when a higher-priority
+  /// [record] arrives while a lower-priority one is executing, the worker
+  /// cancels the in-flight job cooperatively (via [PdfCancellationToken]) and
+  /// serves the urgent request next. This method only clears the queue.
   ///
   /// The point is to cancel prefetch the user has scrolled past: a page that
   /// left the viewport before its turn came no longer needs decoding, and

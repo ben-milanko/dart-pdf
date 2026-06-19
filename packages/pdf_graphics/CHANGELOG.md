@@ -1,16 +1,32 @@
 # Changelog
 
+## 1.2.2
+
+- The interpreter now checks for cancellation while walking a page's content
+  so a render can be preempted mid-interpretation — used by the viewer's
+  background render worker to drop superseded jobs on fast scrolls.
+
+## 1.2.1
+
+- Add a package example for pub.dev scoring.
+
+## 1.2.0
+
+- Search and text-extraction plumbing used by the standalone app's OCR and
+  responsive viewer updates.
+- Version bump to keep the dart-pdf package suite aligned at 1.2.0.
+
 ## 1.1.0
 
-- Performance: a substantially faster interpreter — font-info caching,
+- Performance: a substantially faster interpreter: font-info caching,
   inlined path building, text-show memoization, a shared content-stream
   parse, and scan-only image collection. dart-pdf now renders faster than
   PDFium across the benchmark corpus.
 - Background rendering: a record/replay split (`PdfRenderCommand` +
   `RecordingDevice`) captures a page's draw operations so interpretation
-  can run off the UI thread — the pure-Dart foundation for the editor's
+  can run off the UI thread. This is the pure-Dart foundation for the editor's
   background-isolate and Web Worker render backends.
-- Reflow: `PdfReflowPage` now exposes `items` — text blocks and images
+- Reflow: `PdfReflowPage` now exposes `items`: text blocks and images
   interleaved in reading order (`PdfReflowItem`/`PdfReflowImage`, with the
   `blocks`/`images`/`text` getters unchanged). The extractor records placed
   images with their page-space bounds and folds each into the read where it
@@ -51,7 +67,7 @@ First stable release. Changes since 0.1.0:
   text, form fields, and annotations into a clean, serializable shape for a
   host-supplied language model, and `PdfDocumentActionSink` describes the
   editing actions an agent can drive. A thin adapter over the existing
-  extraction/editing surface — the model and transport are host-provided.
+  extraction/editing surface. The model and transport are host-provided.
 
 ## 0.1.0
 
@@ -59,11 +75,11 @@ Initial release.
 
 - Content-stream interpreter covering the full operator set: paths,
   clipping, transparency groups, soft masks, blend modes, optional
-  content, type 0–4 functions.
+  content, type 0-4 functions.
 - Device interface: implement one class to render PDF pages anywhere.
 - Font engine: Type 1, TrueType, CFF, Type 0/CID, Type 3; embedded and
   standard-14 metrics.
-- Shadings 1–7 including mesh parsing; tiling and shading patterns.
+- Shadings 1-7 including mesh parsing; tiling and shading patterns.
 - Color: ICC profiles (gray TRC, matrix/TRC, mft1/mft2/mAB LUTs),
   Separation/DeviceN, Indexed, Lab.
 - Text extraction with selection geometry, search, and rotation-aware

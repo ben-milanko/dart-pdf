@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -50,6 +50,12 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Patch onnxruntime Android compile SDK
+        run: |
+          set -euo pipefail
+          gradle_file="$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
+          test -n "$gradle_file"
+          sed -i 's/compileSdkVersion 33/compileSdkVersion 36/' "$gradle_file"
       - name: Build APK + AAB
         working-directory: app
         run: |
@@ -57,7 +63,7 @@ jobs:
             --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
           flutter build appbundle --release \
             --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: |
@@ -81,7 +87,7 @@ jobs:
       - name: Zip
         working-directory: app
         run: (cd build/web && zip -r ../../dartpdf-web.zip .)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web
           path: app/dartpdf-web.zip
@@ -132,7 +138,7 @@ jobs:
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: |
@@ -190,7 +196,7 @@ jobs:
           & $makensis portable.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
           if (-not (Test-Path dartpdf-windows-portable.exe)) { throw "portable exe not produced" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
@@ -214,10 +220,14 @@ jobs:
       - name: Package DMG (unsigned)
         working-directory: app
         run: |
+          rm -rf build/dmg-root
+          mkdir -p build/dmg-root
+          cp -R "build/macos/Build/Products/Release/DartPDF.app" build/dmg-root/
+          ln -s /Applications build/dmg-root/Applications
           hdiutil create -volname "DartPDF" \
-            -srcfolder "build/macos/Build/Products/Release/DartPDF.app" \
+            -srcfolder build/dmg-root \
             -ov -format UDZO dartpdf-macos.dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: app/dartpdf-macos.dmg
@@ -239,7 +249,7 @@ jobs:
       - name: Zip unsigned .app
         working-directory: app
         run: ditto -c -k --keepParent "build/ios/iphoneos/Runner.app" dartpdf-ios-unsigned.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios
           path: app/dartpdf-ios-unsigned.zip
@@ -249,10 +259,10 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/app-v')
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: DartPDF ${{ needs.setup.outputs.version }}
           draft: true

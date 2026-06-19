@@ -1,18 +1,18 @@
-![dart-pdf — pure-Dart PDF renderer & editor for Flutter](doc/banner.png)
+![dart-pdf, pure-Dart PDF renderer & editor for Flutter](doc/banner.png)
 
 [![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
 [![dart_pdf_editor on pub.dev](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor)
 [![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg)](https://codecov.io/gh/ben-milanko/dart-pdf)
-[![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 > [!TIP]
 > **Want the app, not the SDK?** [**DartPDF**](https://dart-pdf.com) is the
-> official PDF editor built on this library — edit, annotate, sign, and fill
+> official PDF editor built on this library. Edit, annotate, sign, and fill
 > PDFs entirely on your device, with no account and no uploads. Get it at
 > [dart-pdf.com](https://dart-pdf.com) or
 > [open it in your browser](https://app.dart-pdf.com).
 
-[![DartPDF — the official PDF editor app, built on this SDK. Get the app at dart-pdf.com](doc/app-banner.svg)](https://dart-pdf.com)
+[![DartPDF, the official PDF editor app, built on this SDK. Get the app at dart-pdf.com](doc/app-banner.svg)](https://dart-pdf.com)
 
 A PDF renderer and editor written entirely in Dart, for use in Flutter
 apps. No PDFium, no platform channels.
@@ -47,19 +47,19 @@ shows PDF.js baselines, Dart renders, and diffs directly in GitHub.
 
 Pure Dart is not a compromise on speed. On a real-world corpus (49 files /
 245 pages of CAD drawings, scans, reports, and forms), the parse +
-content-stream **interpreter is ~1.5× faster than PDFium** — the C++ engine
-Chrome uses — at **13.6 ms/page vs 20.6 ms/page** (scale 2). Full Flutter
+content-stream **interpreter is ~1.5x faster than PDFium**: **13.6 ms/page
+vs 20.6 ms/page** at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
 rasterization runs at 53.7 ms/page (2.6× PDFium); that remaining gap is image
 decoding and GPU raster + readback, not the interpreter.
 
 | engine | ms/page | vs PDFium |
 |---|---|---|
-| dart-pdf interpret (pure Dart, no raster) | **13.6** | **1.52× faster** |
+| dart-pdf interpret (pure Dart, no raster) | **13.6** | **1.52x faster** |
 | PDFium (open + rasterize) | 20.6 | 1.00× |
-| dart-pdf render (full Flutter raster) | 53.7 | 2.60× slower |
+| dart-pdf render (full Flutter raster) | 53.7 | 2.60x slower |
 
 The benchmark suite ships reproducible harnesses that diff dart-pdf against
-PDFium (via `pypdfium2`) file-by-file — see [`benchmark/`](benchmark).
+PDFium via `pypdfium2`, file by file. See [`benchmark/`](benchmark).
 
 ## Architecture
 
@@ -73,7 +73,45 @@ published on pub.dev under its directory name.
 | [`pdf_document`](packages/pdf_document) | [![pub package](https://img.shields.io/pub/v/pdf_document.svg)](https://pub.dev/packages/pdf_document) | Document semantics: page tree, annotations, AcroForm, digital signatures, and the incremental-save `PdfEditor`. |
 | [`pdf_graphics`](packages/pdf_graphics) | [![pub package](https://img.shields.io/pub/v/pdf_graphics.svg)](https://pub.dev/packages/pdf_graphics) | Content-stream interpreter, device interface, font engine, ICC color, text extraction. |
 | [`dart_pdf_editor`](packages/dart_pdf_editor) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer and editing UI: canvas device, `PdfViewer`, tools, panels, forms. |
+| [`pdf_ocr_ondevice`](packages/pdf_ocr_ondevice) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_ondevice.svg)](https://pub.dev/packages/pdf_ocr_ondevice) | Optional on-device OCR engine for native Flutter apps; downloads a small PP-OCR model once and adds searchable text layers offline. |
+| [`pdf_ocr_vlm`](packages/pdf_ocr_vlm) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_vlm.svg)](https://pub.dev/packages/pdf_ocr_vlm) | Optional HTTP OCR engine for web, mobile, and desktop; talks to dots.ocr/vLLM or any service returning text boxes. |
 | [`pdf_test_fixtures`](packages/pdf_test_fixtures) | [![pub package](https://img.shields.io/pub/v/pdf_test_fixtures.svg)](https://pub.dev/packages/pdf_test_fixtures) | Programmatic, structurally-correct PDF builders for tests. |
+
+## Quick start
+
+For a Flutter app, add the editor package:
+
+```sh
+flutter pub add dart_pdf_editor
+```
+
+Then give the drop-in shell PDF bytes and bounded space:
+
+```dart
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+
+PdfEditorView(
+  bytes: pdfBytes,
+  onSave: (bytes) => saveBytesSomewhere(bytes),
+)
+
+PdfReader(bytes: pdfBytes)
+```
+
+For OCR, add one engine package and call `PdfEditor.applyOcr` before opening
+or replacing the document in your viewer:
+
+```sh
+flutter pub add pdf_ocr_ondevice   # native offline OCR
+# or
+flutter pub add pdf_ocr_vlm        # HTTP OCR, including Flutter web
+```
+
+`pdf_ocr_ondevice` is the simplest native path: it downloads the default model
+once, caches it in app support storage, then runs offline. `pdf_ocr_vlm` is the
+simplest web/server path: point it at a CORS-enabled OCR service. Both write the
+same invisible text layer, so scanned pages become selectable, searchable, and
+copyable without changing how the PDF looks.
 
 ## Roadmap
 
@@ -105,10 +143,10 @@ published on pub.dev under its directory name.
     P-256/384/521, byte-range and revision-coverage checks) and signing
     (`saveSigned`, adbe.pkcs7.detached, RSA-SHA256, verified
     interoperable with OpenSSL and poppler)
-12. ✅ Content editing: stamping (`stampPage` — text, shapes, JPEG and
+12. ✅ Content editing: stamping (`stampPage`, text, shapes, JPEG and
     PNG images over existing content), element deletion
     (`PdfPageElements` + `deleteElements`), and text editing
-    (`replaceText` — simple fonts, within one shown string; no reflow)
+    (`replaceText`, simple fonts, within one shown string; no reflow)
 
 Deliberately deferred: richer text editing beyond single shown-string
 rewrites, RSASSA-PSS signatures, JBIG2 Huffman/refinement variants, and
@@ -131,7 +169,7 @@ JPX subsampling/PCRL-CPRL progressions.
   long documents with mixed page sizes.
 - Trackpad pinch and scroll don't fight each other (each gesture commits
   to one or the other), touch pinch zoom works with a tool armed, and
-  flings keep their momentum — including finger scrolls while an editing
+  flings keep their momentum, including finger scrolls while an editing
   tool owns the gestures.
 - Navigation (search results, links, thumbnails) accounts for the zoom
   window, so jumps land where the user is looking.
@@ -161,8 +199,8 @@ JPX subsampling/PCRL-CPRL progressions.
   snapshots that survive undo and paste into other documents. Z-order
   edits reorder the page's /Annots array so they stick in any viewer.
   Touch reaches the same context menu with a long-press (on an
-  annotation, a form field, or — with something on the clipboard —
-  empty page area).
+  annotation, a form field, or empty page area when the clipboard has
+  something to paste).
 - In-place restyling: color, stroke width, opacity, font, and size of
   the selected annotations, preserving identity, z-order, and authors.
 - Commits never flash: the overlay keeps the committed preview painted
@@ -184,6 +222,19 @@ JPX subsampling/PCRL-CPRL progressions.
 - Field administration (add, rename, retype, delete, flatten) is
   available both as an API and in the UI via drag-out creation and a
   right-click menu.
+
+### OCR
+
+- `PdfEditor.injectTextLayer` writes already-recognized `PdfOcrSpan`s as an
+  invisible PDF text layer. The original scan remains visually unchanged, but
+  selection, search, copy, and text extraction start working.
+- `PdfEditor.applyOcr(pageIndex, engine)` renders the page, calls a pluggable
+  `PdfOcrEngine`, maps raster boxes back through crop boxes and `/Rotate`, and
+  injects the layer for you.
+- `pdf_ocr_ondevice` supplies a native offline engine backed by ONNX Runtime
+  and a downloadable PP-OCR model. `pdf_ocr_vlm` supplies an HTTP engine for
+  dots.ocr/vLLM, cloud VLMs, or a small adapter around Tesseract/PaddleOCR.
+  Hosts can also implement `PdfOcrEngine` directly.
 
 ### Panels and navigation chrome
 
@@ -247,7 +298,7 @@ doubles as a smoke test of the authoring pipeline.
 ### Rendering test suite
 
 `test_corpora/ghent/` carries the [Ghent PDF Output Suite
-V5.0](https://gwg.org/) — 54 print-conformance PDFs covering overprint,
+V5.0](https://gwg.org/), 54 print-conformance PDFs covering overprint,
 DeviceN/spot color, ICC v2/v4, 16-bit images, transparency blend modes,
 softmasks, optional content, font formats, and JBIG2/JPEG 2000
 compression. Two layers run over it:

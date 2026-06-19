@@ -57,3 +57,6 @@ tool/perf/node_modules/
 tool/perf/package-lock.json
 tool/perf/results.ndjson
 tool/perf/loop.log
+
+# Local release credentials and generated store API keys.
+.secrets/

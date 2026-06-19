@@ -14,6 +14,7 @@ import 'editing/editing_thumbnails.dart';
 import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
 import 'page_number_field.dart';
+import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'raster_cache.dart';
 import 'render_worker.dart';
@@ -32,6 +33,7 @@ class PdfEditorFeatures {
     this.author = true,
     this.authorEditable = true,
     this.viewOptions = true,
+    this.reflowView = true,
     this.pageColorEditable = true,
     this.thumbnails = true,
     this.pageEditing = true,
@@ -73,8 +75,14 @@ class PdfEditorFeatures {
   final bool authorEditable;
 
   /// The view-options menu: annotation visibility, form-field
-  /// highlight, and page (paper) color — display settings only.
+  /// highlight, text reflow, and page (paper) color — display settings only.
   final bool viewOptions;
+
+  /// Whether the view-options menu offers "Reflow text". Reflow is a
+  /// display-only reading view over the current document revision; while it
+  /// is active, canvas-bound editing panels and the editing toolbar are
+  /// hidden because there is no page canvas to manipulate.
+  final bool reflowView;
 
   /// Whether the view-options menu offers "Page color…". With it false
   /// the paper color can't be changed from the UI — for hosts that set
@@ -158,7 +166,8 @@ class PdfEditorFeatures {
 /// need programmatic access pass their own [controller] instead of
 /// [bytes] — exactly one of the two must be given. [onSave] receives
 /// the current revision's bytes from the toolbar's save button or the
-/// ⌘S / Ctrl+S shortcut; [onDocumentChanged] fires after every revision
+/// ⌘S / Ctrl+S shortcut. [onSaveAs] receives the same bytes from
+/// ⌘⇧S / Ctrl+Shift+S; [onDocumentChanged] fires after every revision
 /// (edit, undo, redo) for hosts that autosave.
 ///
 /// The widget is a plain body: give it bounded space (a [Scaffold]
@@ -174,6 +183,8 @@ class PdfEditorView extends StatefulWidget {
     this.preferences,
     this.features = const PdfEditorFeatures(),
     this.onSave,
+    this.onSaveAs,
+    this.showSaveButton = true,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
@@ -182,6 +193,7 @@ class PdfEditorView extends StatefulWidget {
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.fontPicker,
     this.onSnapshot,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
@@ -242,6 +254,16 @@ class PdfEditorView extends StatefulWidget {
   /// app's job.
   final void Function(Uint8List bytes)? onSave;
 
+  /// Receives the current revision's bytes when ⌘⇧S / Ctrl+Shift+S is hit;
+  /// the save-as dialog or share/download flow is the app's job.
+  final void Function(Uint8List bytes)? onSaveAs;
+
+  /// Whether the stock shell chrome shows its Save button when [onSave]
+  /// is present. Hosts can set this false when they provide their own
+  /// save affordance while still keeping [onSave] and the keyboard
+  /// shortcut active.
+  final bool showSaveButton;
+
   /// Called after every revision — edits, undo, redo — with the new
   /// current bytes. For autosaving hosts.
   final void Function(Uint8List bytes)? onDocumentChanged;
@@ -271,6 +293,11 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
+
+  /// How the font menu's "Load font…" entry loads a custom `.ttf`/`.otf`
+  /// font to embed for new text. When null, only the standard families
+  /// and bundled fonts are offered.
+  final PdfFontPicker? fontPicker;
 
   /// See [PdfViewer.onSnapshot]. The snapshot tool always keeps a vector
   /// copy on the clipboard for in-app paste; this callback additionally
@@ -458,7 +485,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
-  void _save() => widget.onSave?.call(_session.bytes);
+  /// Whether there's anything to save: false while the document still
+  /// matches what was opened, which disables the Save button (and makes
+  /// the ⌘S / Ctrl+S shortcut a no-op).
+  bool get _canSave => _session.isModified;
+
+  void _save() {
+    if (!_canSave) return;
+    widget.onSave?.call(_session.bytes);
+  }
+
+  void _saveAs() => widget.onSaveAs?.call(_session.bytes);
 
   Future<void> _promptAuthor() async {
     final session = _session;
@@ -526,23 +563,30 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 viewerController: _viewer,
                 bottomSheet: bottomSheet,
               );
-          PdfAnnotationPropertiesPanel properties({required bool bottomSheet}) =>
+          PdfAnnotationPropertiesPanel properties(
+                  {required bool bottomSheet}) =>
               PdfAnnotationPropertiesPanel(
                 key: ValueKey(
                     'pdf-shell-properties-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: session,
                 showAuthor: features.authorEditable,
                 bottomSheet: bottomSheet,
+                fontPicker: widget.fontPicker,
               );
 
-          final showThumbnailsPanel = features.thumbnails && showThumbnails;
+          final reflowActive = features.reflowView && prefs.showReflowView;
+          final showThumbnailsPanel =
+              features.thumbnails && showThumbnails && !reflowActive;
           final showSearchPanel = features.search &&
               features.searchResultsPanel &&
-              prefs.showSearchResultsPanel;
-          final showAnnotationsPanel =
-              features.annotationSidebar && prefs.showAnnotationSidebar;
-          final showPropertiesPanel =
-              features.propertiesPanel && prefs.showPropertiesPanel;
+              prefs.showSearchResultsPanel &&
+              !reflowActive;
+          final showAnnotationsPanel = features.annotationSidebar &&
+              prefs.showAnnotationSidebar &&
+              !reflowActive;
+          final showPropertiesPanel = features.propertiesPanel &&
+              prefs.showPropertiesPanel &&
+              !reflowActive;
 
           final sheets = !useSheets
               ? const <Widget>[]
@@ -589,7 +633,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // below the viewer instead, where it takes its own layout space.
           // Above the breakpoint it stays a set of transparent floating
           // cards with the page showing through the gaps.
-          final showToolbar = features.toolbar && sheets.isEmpty;
+          final showToolbar =
+              features.toolbar && sheets.isEmpty && !reflowActive;
           final dockToolbar = showToolbar &&
               constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
           final toolbar = !showToolbar
@@ -599,6 +644,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   viewerController: _viewer,
                   // save lives in the header now, not the dock
                   textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                  fontPicker: widget.fontPicker,
                   palette: widget.palette,
                   tools: features.tools,
                   groups: features.toolGroups,
@@ -610,11 +656,70 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   leading: widget.toolbarLeading,
                   trailing: widget.toolbarTrailing,
                 );
+          final viewOptionsControl = PdfShellControlItem(
+            key: const ValueKey('pdf-shell-view-options'),
+            icon: Icons.display_settings_outlined,
+            label: 'View',
+            onPressed: () {
+              showPdfShellViewOptionsSheet(
+                context,
+                preferences: prefs,
+                reflow: features.reflowView,
+                pageColor: features.pageColorEditable,
+                author: features.author,
+                authorName: session.author,
+                onAuthorPressed: _promptAuthor,
+              );
+            },
+          );
+          final panelItems = [
+            if (features.searchResultsPanel)
+              PdfShellPanelItem(
+                key: const ValueKey('pdf-shell-search-results-toggle'),
+                icon: Icons.manage_search,
+                tooltip: 'Search results',
+                selected: prefs.showSearchResultsPanel,
+                onPressed: () => prefs.showSearchResultsPanel =
+                    !prefs.showSearchResultsPanel,
+              ),
+            if (features.thumbnails)
+              PdfShellPanelItem(
+                key: const ValueKey('pdf-shell-thumbnails-toggle'),
+                icon: Icons.grid_view,
+                tooltip: 'Pages',
+                selected: showThumbnails,
+                onPressed: () => prefs.showThumbnailSidebar = !showThumbnails,
+              ),
+            if (features.annotationSidebar)
+              PdfShellPanelItem(
+                key: const ValueKey('pdf-shell-annotations-toggle'),
+                icon: Icons.list_alt,
+                tooltip: 'Annotations',
+                selected: prefs.showAnnotationSidebar,
+                onPressed: () =>
+                    prefs.showAnnotationSidebar = !prefs.showAnnotationSidebar,
+              ),
+            if (features.propertiesPanel)
+              PdfShellPanelItem(
+                key: const ValueKey('pdf-shell-properties-toggle'),
+                icon: Icons.tune,
+                tooltip: 'Properties',
+                selected: prefs.showPropertiesPanel,
+                onPressed: () =>
+                    prefs.showPropertiesPanel = !prefs.showPropertiesPanel,
+              ),
+          ];
           return Column(children: [
             if (features.headerBar)
               PdfShellBar(
                 leading: [
-                  if (features.search) ...[
+                  if (features.pageNumber && !reflowActive)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: PdfPageNumberField(controller: _viewer),
+                    ),
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
+                  if (features.search && !reflowActive) ...[
                     PdfSearchField(
                       controller: _viewer,
                       searchController: _searchField,
@@ -624,73 +729,70 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       // the results panel here, keeping the header compact
                       showOptions: !features.searchResultsPanel,
                     ),
-                    if (features.searchResultsPanel)
-                      PdfShellToggleButton(
-                        key: const ValueKey('pdf-shell-search-results-toggle'),
-                        icon: Icons.manage_search,
-                        tooltip: 'Search results',
-                        selected: prefs.showSearchResultsPanel,
-                        onPressed: () => prefs.showSearchResultsPanel =
-                            !prefs.showSearchResultsPanel,
-                      ),
                   ],
-                  if (features.pageNumber)
+                ],
+                compactLeading: [
+                  if (features.pageNumber && !reflowActive)
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
+                    ),
+                  if (features.search && !reflowActive)
+                    PdfSearchField(
+                      controller: _viewer,
+                      searchController: _searchField,
+                      focusNode: _searchFocus,
+                      preferences: prefs,
+                      showOptions: !features.searchResultsPanel,
                     ),
                 ],
                 trailing: [
-                  // Save sits in the header (near the host's Open), not in
-                  // the floating toolbar — ⌘S/Ctrl+S takes the same path.
-                  if (widget.onSave != null)
-                    IconButton(
-                      key: const ValueKey('pdf-shell-save'),
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.save_alt),
-                      tooltip: 'Save… (⌘S / Ctrl+S)',
-                      onPressed: _save,
-                    ),
-                  // insert/export of pages now live in the thumbnail
-                  // strip's footer (see thumbnails() above)
-                  if (features.author)
-                    IconButton(
-                      key: const ValueKey('pdf-shell-author'),
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.person_outline),
-                      tooltip: 'Author name',
-                      onPressed: _promptAuthor,
-                    ),
                   if (features.viewOptions)
                     PdfShellViewOptionsButton(
                         preferences: prefs,
-                        pageColor: features.pageColorEditable),
-                  if (features.thumbnails)
-                    PdfShellToggleButton(
-                      key: const ValueKey('pdf-shell-thumbnails-toggle'),
-                      icon: Icons.grid_view,
-                      tooltip: 'Pages',
-                      selected: showThumbnails,
-                      onPressed: () =>
-                          prefs.showThumbnailSidebar = !showThumbnails,
+                        reflow: features.reflowView,
+                        pageColor: features.pageColorEditable,
+                        author: features.author,
+                        authorName: session.author,
+                        onAuthorPressed: _promptAuthor),
+                  PdfShellPanelSwitch(
+                    key: const ValueKey('pdf-shell-panels'),
+                    items: panelItems,
+                  ),
+                  // Save sits in the header, not in the floating toolbar —
+                  // ⌘S/Ctrl+S takes the same path.
+                  if (widget.onSave != null && widget.showSaveButton)
+                    FilledButton.icon(
+                      key: const ValueKey('pdf-shell-save'),
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      icon: const Icon(Icons.save_alt, size: 18),
+                      label: const Text('Save'),
+                      onPressed: _canSave ? _save : null,
                     ),
-                  if (features.annotationSidebar)
-                    PdfShellToggleButton(
-                      key: const ValueKey('pdf-shell-annotations-toggle'),
-                      icon: Icons.list_alt,
-                      tooltip: 'Annotations',
-                      selected: prefs.showAnnotationSidebar,
-                      onPressed: () => prefs.showAnnotationSidebar =
-                          !prefs.showAnnotationSidebar,
+                ],
+                compactSheetChildren: [
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
+                ],
+                compactControls: [
+                  if (features.viewOptions) viewOptionsControl,
+                  for (final item in panelItems)
+                    PdfShellControlItem(
+                      key: item.key,
+                      icon: item.icon,
+                      label: item.tooltip,
+                      selected: item.selected,
+                      onPressed: item.onPressed,
                     ),
-                  if (features.propertiesPanel)
-                    PdfShellToggleButton(
-                      key: const ValueKey('pdf-shell-properties-toggle'),
-                      icon: Icons.tune,
-                      tooltip: 'Properties',
-                      selected: prefs.showPropertiesPanel,
-                      onPressed: () => prefs.showPropertiesPanel =
-                          !prefs.showPropertiesPanel,
+                  if (widget.onSave != null && widget.showSaveButton)
+                    PdfShellControlItem(
+                      key: const ValueKey('pdf-shell-save'),
+                      icon: Icons.save_alt,
+                      label: 'Save',
+                      enabled: _canSave,
+                      onPressed: _save,
                     ),
                 ],
               ),
@@ -709,27 +811,33 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       searchResults(bottomSheet: false),
                     Expanded(
                       key: const ValueKey('pdf-shell-viewer'),
-                      child: PdfViewer(
-                        document: session.document,
-                        controller: _viewer,
-                        editing: session,
-                        onAction: widget.onAction,
-                        pageOverlayBuilder: widget.pageOverlayBuilder,
-                        annotationMenuBuilder: widget.annotationMenuBuilder,
-                        formImagePicker: widget.formImagePicker,
-                        imagePicker: widget.imagePicker,
-                        onSnapshot: widget.onSnapshot,
-                        editingTextPrompt: widget.textPrompt,
-                        initialFit: widget.initialFit,
-                        backgroundColor: widget.backgroundColor,
-                        pageColor: pageColor,
-                        showAnnotations: prefs.showAnnotations,
-                        highlightFormFields: prefs.highlightFormFields,
-                        renderWorker: _worker,
-                        rasterCache: widget.rasterCache,
-                        textCache: widget.textCache,
-                        documentId: _documentKey,
-                      ),
+                      child: reflowActive
+                          ? PdfReflowView(
+                              document: session.document,
+                              backgroundColor: widget.backgroundColor,
+                            )
+                          : PdfViewer(
+                              document: session.document,
+                              controller: _viewer,
+                              editing: session,
+                              onAction: widget.onAction,
+                              pageOverlayBuilder: widget.pageOverlayBuilder,
+                              annotationMenuBuilder:
+                                  widget.annotationMenuBuilder,
+                              formImagePicker: widget.formImagePicker,
+                              imagePicker: widget.imagePicker,
+                              onSnapshot: widget.onSnapshot,
+                              editingTextPrompt: widget.textPrompt,
+                              initialFit: widget.initialFit,
+                              backgroundColor: widget.backgroundColor,
+                              pageColor: pageColor,
+                              showAnnotations: prefs.showAnnotations,
+                              highlightFormFields: prefs.highlightFormFields,
+                              renderWorker: _worker,
+                              rasterCache: widget.rasterCache,
+                              textCache: widget.textCache,
+                              documentId: _documentKey,
+                            ),
                     ),
                     if (showAnnotationsPanel && !useSheets)
                       annotations(bottomSheet: false),
@@ -765,10 +873,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             _focusSearch,
       },
       // ⌘S / Ctrl+S saves through the host's [onSave], the same path the
-      // toolbar's save button takes.
+      // toolbar's save button takes. ⌘⇧S / Ctrl+Shift+S invokes the
+      // host's Save As path when one is provided.
       if (widget.onSave != null) ...{
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _save,
+      },
+      if (widget.onSaveAs != null) ...{
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true):
+            _saveAs,
+        const SingleActivator(LogicalKeyboardKey.keyS,
+            control: true, shift: true): _saveAs,
       },
     };
     if (bindings.isNotEmpty) {

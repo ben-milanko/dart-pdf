@@ -19,7 +19,10 @@ import 'shading.dart';
 /// move the recording onto another thread (a native isolate, or a Web Worker
 /// reached over `postMessage`) the list has to cross a boundary that copies
 /// only plain data — not live Dart objects. This codec flattens the buffer to
-/// a [Uint8List] and back, byte-identical on round-trip.
+/// a [Uint8List] and back: re-serializing a decoded buffer yields the same
+/// bytes. Path coordinates are carried at float32 precision (see [_writePath]),
+/// which the render engine's own float32 truncation makes pixel-lossless;
+/// everything else round-trips exactly.
 ///
 /// Every command and value type the interpreter emits is a pure value
 /// ([PdfPath], [PdfColor], [PdfMatrix], [PdfTextRun] with glyph outlines, …)
@@ -314,26 +317,35 @@ PdfRenderCommand _readCommand(_Reader r) {
 
 // --- value types ---
 
+// Path coordinates are written as float32, not float64. A graphics-rich (CAD)
+// page is overwhelmingly path geometry — hundreds of thousands of segments —
+// so halving each coordinate halves the serialized buffer and the time to
+// write and read it. The precision is not lost in practice: the render engine
+// truncates every coordinate to float32 anyway (Skia/Impeller are 32-bit), and
+// that truncation is idempotent, so shipping the float32 image renders
+// pixel-identically to shipping the original double (verified against the Ghent
+// baselines). Everything that needs full precision — transforms, colours,
+// stroke widths, text placement — stays float64.
 void _writePath(_Writer w, PdfPath path) {
   w.u32(path.segments.length);
   for (final s in path.segments) {
     switch (s) {
       case PdfMoveTo(:final x, :final y):
         w.u8(0);
-        w.f64(x);
-        w.f64(y);
+        w.f32(x);
+        w.f32(y);
       case PdfLineTo(:final x, :final y):
         w.u8(1);
-        w.f64(x);
-        w.f64(y);
+        w.f32(x);
+        w.f32(y);
       case PdfCubicTo(:final x1, :final y1, :final x2, :final y2, :final x3, :final y3):
         w.u8(2);
-        w.f64(x1);
-        w.f64(y1);
-        w.f64(x2);
-        w.f64(y2);
-        w.f64(x3);
-        w.f64(y3);
+        w.f32(x1);
+        w.f32(y1);
+        w.f32(x2);
+        w.f32(y2);
+        w.f32(x3);
+        w.f32(y3);
       case PdfClosePath():
         w.u8(3);
     }
@@ -346,12 +358,12 @@ PdfPath _readPath(_Reader r) {
   for (var i = 0; i < n; i++) {
     switch (r.u8()) {
       case 0:
-        segments.add(PdfMoveTo(r.f64(), r.f64()));
+        segments.add(PdfMoveTo(r.f32(), r.f32()));
       case 1:
-        segments.add(PdfLineTo(r.f64(), r.f64()));
+        segments.add(PdfLineTo(r.f32(), r.f32()));
       case 2:
         segments.add(
-            PdfCubicTo(r.f64(), r.f64(), r.f64(), r.f64(), r.f64(), r.f64()));
+            PdfCubicTo(r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()));
       case 3:
         segments.add(const PdfClosePath());
     }
@@ -682,18 +694,39 @@ CosObject _readCos(_Reader r) {
 // --- low-level reader/writer ---
 
 class _Writer {
-  final BytesBuilder _b = BytesBuilder();
+  // A graphics-rich (CAD) page serializes to many MB of mostly path geometry —
+  // millions of scalar writes. The old BytesBuilder approach allocated a fresh
+  // ByteData and a Uint8List view per scalar (and a `_b.add` per call), which
+  // dominated the serialize cost. Instead grow one backing buffer and write
+  // scalars straight into a [ByteData] view of it at a running offset — no
+  // per-value allocation. The output bytes are unchanged (ByteData defaults to
+  // big-endian, matching the old per-scalar ByteData), so this rewrite is a
+  // pure speed-up: it emits exactly the bytes the BytesBuilder version did.
+  Uint8List _buf = Uint8List(1 << 16);
+  late ByteData _view = ByteData.view(_buf.buffer);
+  int _len = 0;
 
-  void u8(int v) => _b.addByte(v & 0xff);
-
-  void u32(int v) {
-    final d = ByteData(4)..setUint32(0, v);
-    _b.add(d.buffer.asUint8List());
+  void _ensure(int extra) {
+    final need = _len + extra;
+    if (need <= _buf.length) return;
+    var cap = _buf.length * 2;
+    while (cap < need) {
+      cap *= 2;
+    }
+    final grown = Uint8List(cap)..setRange(0, _len, _buf);
+    _buf = grown;
+    _view = ByteData.view(grown.buffer);
   }
 
-  void i32(int v) {
-    final d = ByteData(4)..setInt32(0, v);
-    _b.add(d.buffer.asUint8List());
+  void u8(int v) {
+    _ensure(1);
+    _buf[_len++] = v & 0xff;
+  }
+
+  void u32(int v) {
+    _ensure(4);
+    _view.setUint32(_len, v);
+    _len += 4;
   }
 
   // ByteData's 64-bit int accessors throw on the web (JS has no 64-bit int),
@@ -701,27 +734,39 @@ class _Writer {
   // as a float64 instead — exact for |v| <= 2^53, which covers every PDF
   // integer we serialize (on the web a Dart int is already capped at 2^53).
   void i64(int v) {
-    final d = ByteData(8)..setFloat64(0, v.toDouble());
-    _b.add(d.buffer.asUint8List());
+    _ensure(8);
+    _view.setFloat64(_len, v.toDouble());
+    _len += 8;
   }
 
   /// A length-prefixed raw byte run (image stream bytes, COS string bytes).
   void bytes(Uint8List xs) {
     u32(xs.length);
-    _b.add(xs);
+    _ensure(xs.length);
+    _buf.setRange(_len, _len + xs.length, xs);
+    _len += xs.length;
   }
 
   void f64(double v) {
-    final d = ByteData(8)..setFloat64(0, v);
-    _b.add(d.buffer.asUint8List());
+    _ensure(8);
+    _view.setFloat64(_len, v);
+    _len += 8;
+  }
+
+  void f32(double v) {
+    _ensure(4);
+    _view.setFloat32(_len, v);
+    _len += 4;
   }
 
   void boolean(bool v) => u8(v ? 1 : 0);
 
   void str(String s) {
-    final bytes = utf8.encode(s);
-    u32(bytes.length);
-    _b.add(bytes);
+    final encoded = utf8.encode(s);
+    u32(encoded.length);
+    _ensure(encoded.length);
+    _buf.setRange(_len, _len + encoded.length, encoded);
+    _len += encoded.length;
   }
 
   void strOpt(String? s) {
@@ -735,19 +780,25 @@ class _Writer {
 
   void f64List(List<double> xs) {
     u32(xs.length);
+    _ensure(xs.length * 8);
     for (final x in xs) {
-      f64(x);
+      _view.setFloat64(_len, x);
+      _len += 8;
     }
   }
 
   void i32List(List<int> xs) {
     u32(xs.length);
+    _ensure(xs.length * 4);
     for (final x in xs) {
-      i32(x);
+      _view.setInt32(_len, x);
+      _len += 4;
     }
   }
 
-  Uint8List takeBytes() => _b.toBytes();
+  /// The written bytes as a tight copy (the backing buffer is over-allocated by
+  /// up to 2x and would otherwise pin that slack across the isolate transfer).
+  Uint8List takeBytes() => Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
 }
 
 class _Reader {
@@ -789,6 +840,12 @@ class _Reader {
   double f64() {
     final v = _data.getFloat64(_o);
     _o += 8;
+    return v;
+  }
+
+  double f32() {
+    final v = _data.getFloat32(_o);
+    _o += 4;
     return v;
   }
 

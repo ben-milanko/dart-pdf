@@ -1,8 +1,8 @@
-# Security Policy
+# Security policy
 
-`dart-pdf` parses untrusted input (arbitrary PDF files) and implements
-cryptography — RC4, AES-128/256, RSA, ECDSA, CMS — for encrypted documents
-and digital signatures. We take security reports seriously.
+`dart-pdf` parses untrusted input (arbitrary PDF files) and implements the
+cryptography used for encrypted documents and digital signatures: RC4,
+AES-128/256, RSA, ECDSA, and CMS. We take security reports seriously.
 
 ## Reporting a vulnerability
 
@@ -20,8 +20,8 @@ Please include:
 
 - the affected package(s) and version(s),
 - a description of the issue and its impact,
-- a minimal PDF or code sample that reproduces it (a crafted file is
-  ideal — see below), and
+- a minimal PDF or code sample that reproduces it (a crafted file is ideal),
+  and
 - any suggested remediation.
 
 We aim to acknowledge a report within **7 days** and to provide an initial
@@ -50,8 +50,8 @@ Out of scope:
 
 Because the parser is *intentionally lenient* on malformed input
 (real-world PDFs are broken), "this broken file does not parse the way
-another viewer parses it" is a correctness bug, not a vulnerability —
-please file those as normal issues.
+another viewer parses it" is a correctness bug, not a vulnerability. Please
+file those as normal issues.
 
 ## Supported versions
 

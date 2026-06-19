@@ -1,8 +1,7 @@
-// The on-device OCR action is wired into the app bar and More menu when a
-// document is open and the platform supports it (flutter_test's default
-// platform is android, so OnDeviceOcr.isSupported is true). Running the full
-// flow needs a downloaded model + platform channels, so this only asserts the
-// entry point.
+// The on-device OCR action is wired into the DartPDF app menu when a document
+// is open and the platform supports it (flutter_test's default platform is
+// android, so OnDeviceOcr.isSupported is true). Running the full flow needs a
+// downloaded model + platform channels, so this only asserts the entry point.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,18 +30,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
   }
 
-  testWidgets('the More menu offers "Add OCR text layer…" with a document open',
+  testWidgets('the DartPDF menu offers OCR with a document open',
       (tester) async {
     await pumpWithDoc(tester);
 
-    expect(find.byKey(const ValueKey('ocr-action')), findsOneWidget);
-    expect(find.byTooltip('Add on-device OCR text layer'), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('menu-ocr')), findsOneWidget);
-    expect(find.text('Add OCR text layer…'), findsOneWidget);
+    expect(find.text('OCR…'), findsOneWidget);
   });
 
   testWidgets('no OCR entry without a document open', (tester) async {
@@ -51,10 +47,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('menu-ocr')), findsNothing);
-    expect(find.byKey(const ValueKey('ocr-action')), findsNothing);
   });
 }

@@ -65,6 +65,24 @@ install_flutter() {
     https://github.com/flutter/flutter.git "$flutter_home"
 }
 
+install_legacy_fvm_layout() {
+  local legacy_version_home="$HOME/fvm/versions/$flutter_version"
+
+  if [ "$legacy_version_home" = "$flutter_home" ]; then
+    return
+  fi
+
+  if [ -e "$legacy_version_home" ] && [ ! -x "$legacy_version_home/bin/flutter" ]; then
+    echo "Legacy FVM path exists but does not contain bin/flutter: $legacy_version_home" >&2
+    exit 1
+  fi
+
+  if [ ! -e "$legacy_version_home" ]; then
+    mkdir -p "$(dirname "$legacy_version_home")"
+    ln -s "$flutter_home" "$legacy_version_home"
+  fi
+}
+
 persist_agent_environment() {
   mkdir -p "$bin_dir"
 
@@ -96,17 +114,20 @@ EOF
   export PATH="$FLUTTER_HOME/bin:$HOME/.pub-cache/bin:$HOME/bin:$PATH"
 }
 
-install_fvm_shim() {
-  mkdir -p "$bin_dir"
-
+write_fvm_shim() {
+  local target="$1"
   local existing_fvm=""
-  existing_fvm="$(command -v fvm 2>/dev/null || true)"
-  if [ -n "$existing_fvm" ] && ! grep -q "dart-pdf Codex FVM shim" "$existing_fvm" 2>/dev/null; then
+  if [ -e "$target" ] && ! grep -q "dart-pdf Codex FVM shim" "$target" 2>/dev/null; then
+    existing_fvm="$target"
+  fi
+
+  if [ -n "$existing_fvm" ]; then
     echo "Using existing fvm at $existing_fvm"
     return
   fi
 
-  cat >"$bin_dir/fvm" <<EOF
+  mkdir -p "$(dirname "$target")"
+  cat >"$target" <<EOF
 #!/usr/bin/env bash
 # dart-pdf Codex FVM shim
 set -Eeuo pipefail
@@ -131,7 +152,36 @@ case "\$cmd" in
     ;;
 esac
 EOF
-  chmod +x "$bin_dir/fvm"
+  chmod +x "$target"
+}
+
+install_fvm_shim() {
+  mkdir -p "$bin_dir"
+
+  local existing_fvm=""
+  existing_fvm="$(command -v fvm 2>/dev/null || true)"
+  if [ -n "$existing_fvm" ] && ! grep -q "dart-pdf Codex FVM shim" "$existing_fvm" 2>/dev/null; then
+    echo "Using existing fvm at $existing_fvm"
+    return
+  fi
+
+  write_fvm_shim "$bin_dir/fvm"
+
+  # Codex cloud command shells do not always reload ~/.bashrc before the agent
+  # phase. Put the compatibility shim on the default system PATH when possible.
+  if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+    write_fvm_shim /usr/local/bin/fvm
+  elif command -v sudo >/dev/null 2>&1; then
+    run_with_sudo mkdir -p /usr/local/bin
+    if run_with_sudo test -w /usr/local/bin; then
+      local tmp_shim
+      tmp_shim="$(mktemp)"
+      rm -f "$tmp_shim"
+      write_fvm_shim "$tmp_shim"
+      run_with_sudo mv "$tmp_shim" /usr/local/bin/fvm
+      run_with_sudo chmod +x /usr/local/bin/fvm
+    fi
+  fi
 }
 
 prepare_flutter() {
@@ -149,6 +199,7 @@ install_workspace_dependencies() {
 
 install_linux_packages
 install_flutter
+install_legacy_fvm_layout
 persist_agent_environment
 install_fvm_shim
 prepare_flutter

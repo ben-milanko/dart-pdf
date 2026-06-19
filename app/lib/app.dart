@@ -53,7 +53,11 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           useMaterial3: true,
         ),
         themeMode: _prefs.themeMode,
-        home: EditorScreen(prefs: _prefs, launchArgs: widget.launchArgs),
+        home: EditorScreen(
+          prefs: _prefs,
+          launchArgs: widget.launchArgs,
+          autoCheckUpdates: true,
+        ),
       ),
     );
   }

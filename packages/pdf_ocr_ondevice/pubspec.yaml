@@ -1,9 +1,8 @@
 name: pdf_ocr_ondevice
 description: >-
-  On-device, downloadable OCR engine for dart_pdf_editor — add a selectable,
-  searchable text layer over scanned PDF pages with a small PP-OCR model that
-  downloads once and runs locally on ONNX Runtime (no per-page network call).
-version: 0.1.0
+  On-device OCR engine for dart_pdf_editor that adds a selectable, searchable
+  text layer to scanned PDFs with a downloadable PP-OCR ONNX model.
+version: 1.2.2
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_ocr_ondevice
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -21,16 +20,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  dart_pdf_editor: ^1.0.0
-  pdf_document: ^1.0.0
+  dart_pdf_editor: ^1.2.0
+  pdf_document: ^1.2.0
   http: ^1.2.0
   crypto: ^3.0.0
-  path_provider: ^2.1.0
+  path_provider: ^2.1.6
   onnxruntime: ^1.4.1
 
 dev_dependencies:
-  pdf_graphics: ^1.0.0
-  pdf_test_fixtures: ^1.0.0
-  flutter_lints: ^5.0.0
+  pdf_graphics: ^1.2.0
+  pdf_test_fixtures: ^1.2.0
+  flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter

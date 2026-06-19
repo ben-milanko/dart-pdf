@@ -1,4 +1,4 @@
-# DartPDF — Privacy Policy
+# DartPDF privacy policy
 
 _Last updated: 14 June 2026_
 
@@ -13,13 +13,18 @@ device and does not collect, transmit, or share any personal data.**
 backend servers. We do not collect, log, or transmit any personal information,
 usage data, or device identifiers.
 
-## Your documents
+## Your documents and OCR
 
 PDFs you open, edit, annotate, sign, or save are processed **locally on your
 device only**. Their contents are never uploaded to us or to any third party.
 When you choose to share or export a document, it goes only to the destination
 you pick (for example, another app via the system share sheet, or a file
 location you select).
+
+OCR also runs locally. Native builds may download the OCR model files on first
+use, then recognition runs on your device. The web build downloads browser OCR
+model/runtime files on first use and runs recognition in the browser process.
+Your PDF pages and recognized text are not sent to a DartPDF OCR server.
 
 ## Device permissions
 

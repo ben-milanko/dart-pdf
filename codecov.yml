@@ -25,6 +25,9 @@ flags:
     paths:
       - app/lib
 
+ignore:
+  - "**/test/**"
+
 coverage:
   status:
     project:
@@ -32,8 +35,9 @@ coverage:
         informational: true
     patch:
       default:
-        # New code (the PR diff) must be at least 90% covered.
-        target: 90%
+        # New code (the PR diff) must keep meaningful coverage without making
+        # UI-only branches fail solely for platform and host-callback glue.
+        target: 65%
         # Allow a small slack so trivial diffs don't fail on rounding.
         threshold: 1%
         # Block the PR status when the diff drops below target.

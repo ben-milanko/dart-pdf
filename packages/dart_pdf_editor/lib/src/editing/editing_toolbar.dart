@@ -3,13 +3,14 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfStandardFontFamily;
+    show PdfLineEnding, PdfStandardFont;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
+import 'editing_fonts.dart';
 import 'editing_measure.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -80,6 +81,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.fontPicker,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
@@ -104,6 +106,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How the font menu's "Load font…" entry obtains a custom `.ttf`/`.otf`
+  /// file. When null, only the standard families and bundled fonts are
+  /// offered (no custom loading).
+  final PdfFontPicker? fontPicker;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -357,6 +364,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// place when the whole selection restyles.
   void _applyColor(Color color) {
     controller.color = color;
+    if (controller.restyleEditingTextSelection(
+        color: color.toARGB32() & 0xFFFFFF)) {
+      return;
+    }
     if (controller.canRestyleSelected) controller.restyleSelected(color: color);
   }
 
@@ -535,6 +546,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Future<void> _editSelectedText(BuildContext context) async {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return;
+    if (annotation.subtype == 'FreeText' &&
+        controller.requestEditSelectedTextInline()) {
+      return;
+    }
     final text = await widget.textPrompt(
       context,
       title: switch (annotation.subtype) {
@@ -611,18 +626,28 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return _groupStrip(context, group);
   }
 
-  /// A horizontally-centred card that scrolls when its content overflows
-  /// the available width. Hit testing defers to the child so the empty
-  /// gaps either side of the floating card pass pointer events through to
-  /// the page (and the side panels) behind it.
-  Widget _centeredCard(BuildContext context, Widget card) {
+  /// A horizontally-centred floating card. When the controls overflow, the
+  /// controls scroll inside the card so the rounded card edge never gets
+  /// clipped by the viewer or scrollbar gutter.
+  Widget _centeredCard(
+    BuildContext context, {
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(8),
+  }) {
     return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        hitTestBehavior: HitTestBehavior.deferToChild,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minWidth: constraints.maxWidth),
-          child: Align(child: card),
+      builder: (context, constraints) => Align(
+        child: Container(
+          key: const ValueKey('pdf-editing-toolbar-card'),
+          constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+          decoration: _cardDecoration(context),
+          clipBehavior: Clip.antiAlias,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Padding(
+              padding: padding,
+              child: child,
+            ),
+          ),
         ),
       ),
     );
@@ -653,55 +678,55 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   Widget _dock(BuildContext context) {
     final groups = _visibleGroups;
-    final card = Container(
-      decoration: _cardDecoration(context),
-      padding: const EdgeInsets.all(8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final builder in widget.leading)
-            builder(context, controller, viewerController),
-          if (widget.leading.isNotEmpty) const _DockDivider(),
-          if (widget.showUndoRedo) ...[
-            IconButton(
-              icon: const Icon(Icons.undo),
-              tooltip: 'Undo (⌘Z)',
-              onPressed: controller.canUndo ? controller.undo : null,
-            ),
-            IconButton(
-              icon: const Icon(Icons.redo),
-              tooltip: 'Redo (⇧⌘Z)',
-              onPressed: controller.canRedo ? controller.redo : null,
-            ),
-            const _DockDivider(),
-          ],
-          for (final group in groups)
-            _GroupChip(
-              key: ValueKey('pdf-group-${group.id}'),
-              group: group,
-              active: _openGroup?.id == group.id,
-              onTap: () => _openGroupTap(group),
-            ),
-          // Flatten now lives in the Edit group's strip, not the dock.
-          // Save stays available for standalone hosts, but the drop-in
-          // shells hide it here and surface it in their header (near Open).
-          if (widget.onSave != null) ...[
-            const _DockDivider(),
-            IconButton(
-              icon: const Icon(Icons.save_alt),
-              tooltip: 'Save… (⌘S / Ctrl+S)',
-              onPressed: () => widget.onSave!(controller.bytes),
-            ),
-          ],
-          if (widget.trailing.isNotEmpty) ...[
-            const _DockDivider(),
-            for (final builder in widget.trailing)
-              builder(context, controller, viewerController),
-          ],
+    final row = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final builder in widget.leading)
+          builder(context, controller, viewerController),
+        if (widget.leading.isNotEmpty) const _DockDivider(),
+        if (widget.showUndoRedo) ...[
+          IconButton(
+            icon: const Icon(Icons.undo),
+            tooltip: 'Undo (⌘Z)',
+            onPressed: controller.canUndo ? controller.undo : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.redo),
+            tooltip: 'Redo (⇧⌘Z)',
+            onPressed: controller.canRedo ? controller.redo : null,
+          ),
+          const _DockDivider(),
         ],
-      ),
+        for (final group in groups)
+          _GroupChip(
+            key: ValueKey('pdf-group-${group.id}'),
+            group: group,
+            active: _openGroup?.id == group.id,
+            onTap: () => _openGroupTap(group),
+          ),
+        // Flatten now lives in the Edit group's strip, not the dock.
+        // Save stays available for standalone hosts, but the drop-in
+        // shells hide it here and surface it in their header (near Open).
+        if (widget.onSave != null) ...[
+          const _DockDivider(),
+          IconButton(
+            icon: const Icon(Icons.save_alt),
+            tooltip: 'Save… (⌘S / Ctrl+S)',
+            // disabled while the document matches what was opened — there's
+            // nothing to write until an edit bumps the revision cursor
+            onPressed: controller.isModified
+                ? () => widget.onSave!(controller.bytes)
+                : null,
+          ),
+        ],
+        if (widget.trailing.isNotEmpty) ...[
+          const _DockDivider(),
+          for (final builder in widget.trailing)
+            builder(context, controller, viewerController),
+        ],
+      ],
     );
-    return _centeredCard(context, card);
+    return _centeredCard(context, child: row);
   }
 
   /// The tools-left / settings-right card for an open [group].
@@ -746,31 +771,33 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     }
 
     final settings = _groupSettings(context, group);
-    final card = Container(
-      decoration: _cardDecoration(context),
-      child: IntrinsicHeight(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                _StripLabel(group.label),
-                ...toolButtons,
-              ]),
-            ),
-            if (settings.isNotEmpty) ...[
-              const _StripDivider(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
-                child: Row(mainAxisSize: MainAxisSize.min, children: settings),
+    final row = IntrinsicHeight(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              _StripLabel(
+                group.label,
+                hint: group.id == 'markup' && !hasTextSelection
+                    ? 'Select text to use markup'
+                    : null,
               ),
-            ],
+              ...toolButtons,
+            ]),
+          ),
+          if (settings.isNotEmpty) ...[
+            const _StripDivider(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
+              child: Row(mainAxisSize: MainAxisSize.min, children: settings),
+            ),
           ],
-        ),
+        ],
       ),
     );
-    return _centeredCard(context, card);
+    return _centeredCard(context, padding: EdgeInsets.zero, child: row);
   }
 
   /// The settings cluster for the active tool of [group].
@@ -977,70 +1004,74 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       if (canRestyle) _opacitySlider(context),
       ..._tuneTrailing(context, _selectionStyleFields()),
     ];
-    final card = Container(
-      decoration: _cardDecoration(context),
-      child: IntrinsicHeight(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                _StripLabel(switch (controller.selectedAnnotationSlots.length) {
-                  1 => 'Selection',
-                  final n => '$n selected',
-                }),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  tooltip: switch (controller.selectedAnnotationSlots.length) {
-                    1 => 'Delete annotation',
-                    final n => 'Delete $n annotations',
-                  },
-                  onPressed: controller.deleteSelected,
-                ),
-                if (controller.canEditSelectedText)
-                  IconButton(
-                    icon: const Icon(Icons.edit),
-                    tooltip: 'Edit annotation text',
-                    onPressed: () => _editSelectedText(context),
-                  ),
-              ]),
-            ),
-            if (settings.isNotEmpty) ...[
-              const _StripDivider(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
-                child: Row(mainAxisSize: MainAxisSize.min, children: settings),
+    final row = IntrinsicHeight(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              _StripLabel(switch (controller.selectedAnnotationSlots.length) {
+                1 => 'Selection',
+                final n => '$n selected',
+              }),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: switch (controller.selectedAnnotationSlots.length) {
+                  1 => 'Delete annotation',
+                  final n => 'Delete $n annotations',
+                },
+                onPressed: controller.deleteSelected,
               ),
-            ],
+              if (controller.canEditSelectedText)
+                IconButton(
+                  key: const ValueKey('pdf-edit-selected-text'),
+                  icon: const Icon(Icons.edit),
+                  tooltip: 'Edit annotation text',
+                  onPressed: () => _editSelectedText(context),
+                ),
+              if (controller.canRestyleSelectedText)
+                IconButton(
+                  icon: const Icon(Icons.fit_screen),
+                  tooltip: 'Autosize text box (Alt+Z)',
+                  onPressed: controller.autosizeSelectedTextBox,
+                ),
+            ]),
+          ),
+          if (settings.isNotEmpty) ...[
+            const _StripDivider(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
+              child: Row(mainAxisSize: MainAxisSize.min, children: settings),
+            ),
           ],
-        ),
+        ],
       ),
     );
-    return _centeredCard(context, card);
+    return _centeredCard(context, padding: EdgeInsets.zero, child: row);
   }
 
   /// The strip shown while a page-content element is selected.
   Widget _elementStrip(BuildContext context) {
-    final card = Container(
-      decoration: _cardDecoration(context),
-      padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const _StripLabel('Element'),
+    final row = Row(mainAxisSize: MainAxisSize.min, children: [
+      const _StripLabel('Element'),
+      IconButton(
+        icon: const Icon(Icons.delete_outline),
+        tooltip: 'Delete element',
+        onPressed: controller.deleteSelectedElement,
+      ),
+      if (controller.canEditSelectedElementText)
         IconButton(
-          icon: const Icon(Icons.delete_outline),
-          tooltip: 'Delete element',
-          onPressed: controller.deleteSelectedElement,
+          icon: const Icon(Icons.edit),
+          tooltip: 'Replace text',
+          onPressed: () => _editElementText(context),
         ),
-        if (controller.canEditSelectedElementText)
-          IconButton(
-            icon: const Icon(Icons.edit),
-            tooltip: 'Replace text',
-            onPressed: () => _editElementText(context),
-          ),
-      ]),
+    ]);
+    return _centeredCard(
+      context,
+      padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
+      child: row,
     );
-    return _centeredCard(context, card);
   }
 
   // ---- inline settings clusters -------------------------------------------
@@ -1073,17 +1104,35 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             ),
           ),
         ),
-      IconButton(
-        icon: Icon(Icons.palette, color: controller.color),
-        tooltip: 'More colors…',
-        onPressed: () async {
-          final picked = await showPdfColorPicker(context,
-              initial: controller.color,
-              initialFormat: controller.preferences.colorPickerFormat,
-              onFormatChanged: (format) =>
-                  controller.preferences.colorPickerFormat = format);
-          if (picked != null) _applyColor(picked);
-        },
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Tooltip(
+          message: 'More colors…',
+          child: Material(
+            key: const ValueKey('pdf-more-colors'),
+            color: Colors.transparent,
+            shape: CircleBorder(side: BorderSide(color: scheme.outline)),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () async {
+                final picked = await showPdfColorPicker(context,
+                    initial: controller.color,
+                    initialFormat: controller.preferences.colorPickerFormat,
+                    onFormatChanged: (format) =>
+                        controller.preferences.colorPickerFormat = format);
+                if (picked != null) _applyColor(picked);
+              },
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(
+                  child: Icon(Icons.palette_outlined,
+                      color: controller.color, size: 20),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
       IconButton(
         icon: const Icon(Icons.colorize),
@@ -1220,6 +1269,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         showColor: widget.showColor,
         fields: fields,
         fontChipTrigger: fields.font,
+        fontPicker: widget.fontPicker,
       ),
     ];
   }
@@ -1292,7 +1342,6 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _buildMobile(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tool = controller.tool;
-    final group = _groupForTool(tool);
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
@@ -1323,21 +1372,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
               const SizedBox(width: 8),
               Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _activeToolLabel(tool),
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    if (group != null)
-                      Text('${group.label} tool',
-                          style: TextStyle(
-                              fontSize: 11, color: scheme.onSurfaceFaintOr)),
-                  ],
+                child: Text(
+                  _activeToolLabel(tool),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             ]),
@@ -1374,6 +1415,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ),
         if (controller.canEditSelectedText)
           IconButton(
+            key: const ValueKey('pdf-edit-selected-text'),
             icon: const Icon(Icons.edit),
             tooltip: 'Edit annotation text',
             visualDensity: VisualDensity.compact,
@@ -1490,7 +1532,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                       ]),
                     ),
                     const SizedBox(height: 14),
-                    _SheetSectionLabel(group.label),
+                    _SheetSectionLabel(
+                      group.label,
+                      hint:
+                          group.id == 'markup' && !viewerController.hasSelection
+                              ? 'Select text to use markup'
+                              : null,
+                    ),
                     const SizedBox(height: 10),
                     _sheetToolGrid(sheetContext, group),
                     ..._sheetSettings(sheetContext, group),
@@ -1612,41 +1660,85 @@ class _MiniDivider extends StatelessWidget {
 
 /// The uppercase group/context label at the left of a contextual strip.
 class _StripLabel extends StatelessWidget {
-  const _StripLabel(this.text);
+  const _StripLabel(this.text, {this.hint});
 
   final String text;
+  final String? hint;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(right: 8, left: 2),
-        child: Text(
-          text.toUpperCase(),
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.4,
-            color: Theme.of(context).colorScheme.onSurfaceFaintOr,
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, left: 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            text.toUpperCase(),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
+              color: scheme.onSurfaceFaintOr,
+            ),
           ),
-        ),
-      );
+          if (hint != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                hint!,
+                style: TextStyle(
+                  fontSize: 9,
+                  letterSpacing: 0,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The section label above the mobile sheet's tool grid.
 class _SheetSectionLabel extends StatelessWidget {
-  const _SheetSectionLabel(this.text);
+  const _SheetSectionLabel(this.text, {this.hint});
 
   final String text;
+  final String? hint;
 
   @override
-  Widget build(BuildContext context) => Text(
-        text.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.5,
-          color: Theme.of(context).colorScheme.onSurfaceFaintOr,
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          text.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+            color: scheme.onSurfaceFaintOr,
+          ),
         ),
-      );
+        if (hint != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              hint!,
+              style: TextStyle(
+                fontSize: 10,
+                letterSpacing: 0,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 /// A pill-shaped dock group chip (icon + label), or the mobile "Tools"
@@ -1956,10 +2048,14 @@ class _StyleMenu extends StatefulWidget {
     required this.fields,
     this.showColor = true,
     this.fontChipTrigger = false,
+    this.fontPicker,
   });
 
   /// Which controls to show — see [_StyleFields].
   final _StyleFields fields;
+
+  /// How the font menu's "Load font…" entry loads a custom font.
+  final PdfFontPicker? fontPicker;
 
   final PdfEditingController controller;
 
@@ -1991,17 +2087,33 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// selected annotation.
   double? _draggingStroke;
   double? _draggingOpacity;
+  bool _holdingTextEditFocus = false;
+
+  @override
+  void dispose() {
+    _endTextEditFocusHold();
+    super.dispose();
+  }
+
+  void _beginTextEditFocusHold() {
+    if (_holdingTextEditFocus || !controller.isEditingText) return;
+    _holdingTextEditFocus = true;
+    controller.beginEditingTextFocusHold();
+  }
+
+  void _endTextEditFocusHold() {
+    if (!_holdingTextEditFocus) return;
+    _holdingTextEditFocus = false;
+    controller.endEditingTextFocusHold();
+  }
 
   void _setFont(PdfStandardFont font) {
     controller.fontFamily = font; // the new default either way
+    if (controller.restyleEditingTextSelection(font: font)) return;
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(font: font);
     }
   }
-
-  void _setFontFamily(PdfStandardFontFamily family, PdfStandardFont current) =>
-      _setFont(PdfStandardFont.styled(family,
-          bold: current.isBold, italic: current.isItalic));
 
   static int? _rgb(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
@@ -2172,6 +2284,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   @override
   Widget build(BuildContext context) {
     return MenuAnchor(
+      onClose: _endTextEditFocusHold,
       menuChildren: [
         // the menu lives in its own overlay, outside the toolbar's
         // ListenableBuilder — it needs its own listener to track sliders
@@ -2367,6 +2480,11 @@ class _StyleMenuState extends State<_StyleMenu> {
                       onChangeEnd: (v) {
                         final size = v.roundToDouble();
                         controller.fontSize = size;
+                        if (controller.restyleEditingTextSelection(
+                            size: size)) {
+                          setState(() => _draggingFontSize = null);
+                          return;
+                        }
                         if (controller.canRestyleSelectedText) {
                           controller.restyleSelectedText(size: size);
                         }
@@ -2379,37 +2497,18 @@ class _StyleMenuState extends State<_StyleMenu> {
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Font')),
                         Expanded(
-                          child: SegmentedButton<PdfStandardFontFamily>(
-                            segments: const [
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.sans,
-                                  label: Text('Sans')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.serif,
-                                  label: Text('Serif')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.mono,
-                                  label: Text('Mono')),
-                            ],
-                            selected: {
-                              (selectedStyle?.font ?? controller.fontFamily)
-                                  .family
-                            },
-                            showSelectedIcon: false,
-                            style: const ButtonStyle(
-                              visualDensity: VisualDensity.compact,
-                              padding: WidgetStatePropertyAll(
-                                  EdgeInsets.symmetric(horizontal: 8)),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: PdfFontMenuButton(
+                              controller: controller,
+                              fontPicker: widget.fontPicker,
                             ),
-                            onSelectionChanged: (selection) => _setFontFamily(
-                                selection.single,
-                                selectedStyle?.font ?? controller.fontFamily),
                           ),
                         ),
                       ]),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.only(top: 6),
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Style')),
                         FontStyleToggles(
@@ -2444,20 +2543,40 @@ class _StyleMenuState extends State<_StyleMenu> {
       builder: (context, menu, _) => ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
-          void toggle() => menu.isOpen ? menu.close() : menu.open();
+          void toggle() {
+            if (menu.isOpen) {
+              menu.close();
+              return;
+            }
+            _beginTextEditFocusHold();
+            menu.open();
+          }
+
           final tip =
               widget.fields.eraser ? 'Eraser size' : 'Stroke, opacity, font';
+          Widget holdOnPointerDown(Widget child) => Listener(
+                onPointerDown: (_) => _beginTextEditFocusHold(),
+                child: Focus(
+                  canRequestFocus: false,
+                  descendantsAreFocusable: false,
+                  child: child,
+                ),
+              );
           if (widget.fontChipTrigger) {
-            return _FontChip(
-              controller: controller,
-              tooltip: tip,
-              onTap: toggle,
+            return holdOnPointerDown(
+              _FontChip(
+                controller: controller,
+                tooltip: tip,
+                onTap: toggle,
+              ),
             );
           }
-          return IconButton(
-            icon: const Icon(Icons.tune),
-            tooltip: tip,
-            onPressed: toggle,
+          return holdOnPointerDown(
+            IconButton(
+              icon: const Icon(Icons.tune),
+              tooltip: tip,
+              onPressed: toggle,
+            ),
           );
         },
       ),

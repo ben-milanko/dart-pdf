@@ -14,16 +14,16 @@ and is split into layered packages:
 pdf_cos  ←  pdf_document  ←  pdf_graphics  ←  dart_pdf_editor
 ```
 
-- **`pdf_cos`** — the COS object model: tokenizer, parser, filters, xref,
+- `pdf_cos` is the COS object model: tokenizer, parser, filters, xref,
   encryption, serializer. Knows nothing about pages or rendering.
-- **`pdf_document`** — document semantics: page tree, annotations, forms,
+- `pdf_document` covers document semantics: page tree, annotations, forms,
   signatures, and the incremental-save editor.
-- **`pdf_graphics`** — the content-stream interpreter, font engine,
+- `pdf_graphics` is the content-stream interpreter, font engine,
   shadings, ICC colour, and text extraction, rendering to an abstract
   `PdfDevice`.
-- **`dart_pdf_editor`** — the Flutter viewer/editor widgets and the
+- `dart_pdf_editor` contains the Flutter viewer/editor widgets and the
   Flutter canvas device.
-- **`pdf_test_fixtures`** — programmatic builders for test PDFs.
+- `pdf_test_fixtures` provides programmatic builders for test PDFs.
 
 ### Layering rules (strict)
 
@@ -37,13 +37,13 @@ pdf_cos  ←  pdf_document  ←  pdf_graphics  ←  dart_pdf_editor
 
 ## Setup
 
-Flutter is pinned with [fvm](https://fvm.app) (see `.fvmrc` — currently
+Flutter is pinned with [fvm](https://fvm.app) (see `.fvmrc`, currently
 **3.44.2**). Use `fvm flutter` / `fvm dart`, or the binaries under
 `~/fvm/versions/3.44.2/bin/`.
 
 ```bash
 fvm install            # once, installs the pinned Flutter
-fvm flutter pub get    # at the repo root — resolves every workspace package
+fvm flutter pub get    # at the repo root, resolves every workspace package
 ```
 
 ## Running checks
@@ -70,7 +70,7 @@ warning, or error.
 
 There are two kinds of corpus. Both are described in detail in `CLAUDE.md`.
 
-- **`corpus/`** is git-ignored — real-world PDFs kept locally. Not needed
+- `corpus/` is git-ignored and holds real-world PDFs kept locally. Not needed
   to contribute; it's a personal validation set.
 - **`test_corpora/ghent/`** and **`test_corpora/pdfjs/`** are checked in
   (Ghent Output Suite V5.0 and a curated slice of mozilla/pdf.js). Their
@@ -96,8 +96,8 @@ committing new baselines.
 - Parsers are **lenient on input** (real-world PDFs are broken) and
   **strict on output**.
 - Test fixtures are built programmatically (`test/fixtures.dart` /
-  `pdf_test_fixtures`) so byte offsets are always correct — don't
-  hand-edit offsets.
+  `pdf_test_fixtures`) so byte offsets are always correct. Don't hand-edit
+  offsets.
 - Match the style, naming, and comment density of the surrounding code.
 - Add or update tests for any behaviour change. New parser edge cases
   should come with an inline fixture and a regression test.
@@ -114,7 +114,7 @@ committing new baselines.
 
 - Functional bugs and rendering glitches: open an issue using the
   appropriate template (there's a dedicated **rendering bug** template).
-- Security vulnerabilities: **do not** open a public issue — see
+- Security vulnerabilities: **do not** open a public issue. See
   [`SECURITY.md`](SECURITY.md).
 
 ## License

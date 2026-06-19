@@ -122,8 +122,8 @@ void main() {
     ));
     await tester.pump(const Duration(milliseconds: 200));
 
-    // Start OCR from the More menu.
-    await tester.tap(find.byIcon(Icons.more_vert));
+    // Start OCR from the DartPDF menu.
+    await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-ocr')));
     await tester.pump(); // dispatch the action

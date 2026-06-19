@@ -45,6 +45,7 @@ class OnnxOcrModelRunner implements OcrModelRunner {
   final String detectionModelPath;
   final String recognitionModelPath;
   final String dictionaryPath;
+
   final int detectionSideLimit;
   final List<double> detectionMean;
   final List<double> detectionStd;
@@ -69,11 +70,23 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     if (_det != null) return;
     OrtEnv.instance.init();
     final options = OrtSessionOptions();
-    _det = OrtSession.fromFile(File(detectionModelPath), options);
-    _rec = OrtSession.fromFile(File(recognitionModelPath), options);
+    // Hand ONNX Runtime the model *bytes*, not a path. `OrtSession.fromFile`
+    // passes the path as a narrow UTF-8 `char*`, but on Windows ONNX Runtime's
+    // `CreateSession` expects a wide `ORTCHAR_T*` (`wchar_t`/UTF-16). The UTF-8
+    // bytes are reinterpreted as UTF-16, which mangles *every* path — even a
+    // pure-ASCII one (e.g. `C:` → `㩃`) — into CJK mojibake and surfaces as the
+    // "Load model from … failed. File doesn't exist" error. Reading the bytes
+    // with Dart's own file API (which uses the wide Windows APIs internally)
+    // and using `fromBuffer`/`CreateSessionFromArray` keeps the path off the
+    // native boundary entirely, so this works on every platform regardless of
+    // where the models are stored.
+    _det = OrtSession.fromBuffer(
+        await File(detectionModelPath).readAsBytes(), options);
+    _rec = OrtSession.fromBuffer(
+        await File(recognitionModelPath).readAsBytes(), options);
     final dict = await File(dictionaryPath).readAsString();
-    _decoder = CtcDecoder(parseDictionary(dict),
-        applySoftmax: recognitionEmitsLogits);
+    _decoder =
+        CtcDecoder(parseDictionary(dict), applySoftmax: recognitionEmitsLogits);
   }
 
   @override
@@ -125,8 +138,8 @@ class OnnxOcrModelRunner implements OcrModelRunner {
 
   Future<Float32List> _runDetection(
       OrtSession session, Float32List input, int width, int height) async {
-    final tensor = OrtValueTensor.createTensorWithDataList(
-        input, [1, 3, height, width]);
+    final tensor =
+        OrtValueTensor.createTensorWithDataList(input, [1, 3, height, width]);
     final runOptions = OrtRunOptions();
     try {
       final outputs = await session

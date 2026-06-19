@@ -28,8 +28,8 @@ void main() {
   }
 
   test('setTextValue updates /V and regenerates the appearance', () {
-    final doc = fill((e, f) =>
-        e.setTextValue(f.fieldNamed('name')!, 'John Doe'));
+    final doc =
+        fill((e, f) => e.setTextValue(f.fieldNamed('name')!, 'John Doe'));
     final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
     expect(field.value, 'John Doe');
 
@@ -70,9 +70,9 @@ void main() {
     final field = PdfAcroForm.of(doc)!.fieldNamed('agree')!;
     expect(field.widgetRect(0), const PdfRect(80, 540, 120, 580));
     final cos = doc.cos;
-    final n = cos.resolve(
-        (cos.resolve(field.widgets[0]['AP']) as CosDictionary)['N'])
-        as CosDictionary;
+    final n =
+        cos.resolve((cos.resolve(field.widgets[0]['AP']) as CosDictionary)['N'])
+            as CosDictionary;
     final on = cos.resolve(n[field.onStates.first]) as CosStream;
     final bbox = pdfRectFrom(cos, on.dictionary['BBox']);
     expect(bbox, const PdfRect(0, 0, 40, 40));
@@ -81,38 +81,34 @@ void main() {
   });
 
   test('resizeFormWidget on a missing field is a no-op', () {
-    final doc = fill((e, f) =>
-        e.resizeFormWidget('nope', 0, const PdfRect(0, 0, 10, 10)));
+    final doc = fill(
+        (e, f) => e.resizeFormWidget('nope', 0, const PdfRect(0, 0, 10, 10)));
     expect(PdfAcroForm.of(doc)!.fieldNamed('name')!.widgetRect(0),
         const PdfRect(72, 700, 300, 724));
   });
 
   test('filling clears /NeedAppearances', () {
-    final doc = fill((e, f) =>
-        e.setTextValue(f.fieldNamed('name')!, 'x'));
+    final doc = fill((e, f) => e.setTextValue(f.fieldNamed('name')!, 'x'));
     expect(PdfAcroForm.of(doc)!.needsAppearances, isFalse);
   });
 
   test('the appearance font references the /DR font', () {
-    final doc = fill((e, f) =>
-        e.setTextValue(f.fieldNamed('name')!, 'x'));
+    final doc = fill((e, f) => e.setTextValue(f.fieldNamed('name')!, 'x'));
     final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
     final n = doc.cos.resolve(
         (doc.cos.resolve(field.widgets[0]['AP']) as CosDictionary)['N']);
-    final resources =
-        doc.cos.resolve((n as CosStream).dictionary['Resources']);
-    final fonts =
-        doc.cos.resolve((resources as CosDictionary)['Font']);
+    final resources = doc.cos.resolve((n as CosStream).dictionary['Resources']);
+    final fonts = doc.cos.resolve((resources as CosDictionary)['Font']);
     final helv = doc.cos.resolve((fonts as CosDictionary)['Helv']);
-    expect((doc.cos.resolve((helv as CosDictionary)['BaseFont']) as CosName)
-        .value, 'Helvetica');
+    expect(
+        (doc.cos.resolve((helv as CosDictionary)['BaseFont']) as CosName).value,
+        'Helvetica');
   });
 
   test('multiline text wraps and auto-sizes from a 0 Tf /DA', () {
     const text = 'The quick brown fox jumps over the lazy dog while the '
         'slow grey goose waddles past the riverbank fence';
-    final doc = fill((e, f) =>
-        e.setTextValue(f.fieldNamed('address')!, text));
+    final doc = fill((e, f) => e.setTextValue(f.fieldNamed('address')!, text));
     final field = PdfAcroForm.of(doc)!.fieldNamed('address')!;
     final content = widgetAppearance(doc, field);
     expect('Tj'.allMatches(content).length, greaterThanOrEqualTo(2));
@@ -122,22 +118,34 @@ void main() {
   });
 
   test('single-line input flattens newlines', () {
-    final doc = fill((e, f) =>
-        e.setTextValue(f.fieldNamed('name')!, 'two\nlines'));
+    final doc =
+        fill((e, f) => e.setTextValue(f.fieldNamed('name')!, 'two\nlines'));
     final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
     expect(widgetAppearance(doc, field), contains('(two lines) Tj'));
   });
 
+  test('text fields can lay out RTL visual order', () {
+    final doc = fill((e, f) => e.setTextValue(
+          f.fieldNamed('name')!,
+          'abc 123 def',
+          textDirection: PdfTextDirection.rtl,
+        ));
+    final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
+    final content = widgetAppearance(doc, field);
+    expect(content, contains('(def 123 abc) Tj'));
+    expect(content, isNot(contains('(abc 123 def) Tj')));
+  });
+
   test('checking a box sets /V and /AS to the on-state', () {
-    final doc = fill((e, f) =>
-        e.setCheckBoxValue(f.fieldNamed('agree')!, true));
+    final doc =
+        fill((e, f) => e.setCheckBoxValue(f.fieldNamed('agree')!, true));
     final field = PdfAcroForm.of(doc)!.fieldNamed('agree')!;
     expect(field.isChecked, isTrue);
     expect(field.value, 'Yes');
     expect((doc.cos.resolve(field.widgets[0]['AS']) as CosName).value, 'Yes');
 
-    final cleared = fill((e, f) =>
-        e.setCheckBoxValue(f.fieldNamed('agree')!, false));
+    final cleared =
+        fill((e, f) => e.setCheckBoxValue(f.fieldNamed('agree')!, false));
     expect(PdfAcroForm.of(cleared)!.fieldNamed('agree')!.isChecked, isFalse);
   });
 
@@ -156,8 +164,7 @@ void main() {
   });
 
   test('selecting a radio button flips every kid widget /AS', () {
-    final doc = fill((e, f) =>
-        e.setRadioValue(f.fieldNamed('color')!, 'Blue'));
+    final doc = fill((e, f) => e.setRadioValue(f.fieldNamed('color')!, 'Blue'));
     final field = PdfAcroForm.of(doc)!.fieldNamed('color')!;
     expect(field.value, 'Blue');
     expect((doc.cos.resolve(field.widgets[0]['AS']) as CosName).value, 'Off');
@@ -174,8 +181,8 @@ void main() {
   });
 
   test('a combo box accepts display values and stores the export', () {
-    final doc = fill((e, f) =>
-        e.setChoiceValue(f.fieldNamed('size')!, 'Large'));
+    final doc =
+        fill((e, f) => e.setChoiceValue(f.fieldNamed('size')!, 'Large'));
     final field = PdfAcroForm.of(doc)!.fieldNamed('size')!;
     expect(field.value, 'L'); // the export value
     expect(widgetAppearance(doc, field), contains('(Large) Tj'));
@@ -206,8 +213,8 @@ void main() {
         () => editor.setTextValue(editor.acroForm!.fieldNamed('agree')!, 'x'),
         throwsArgumentError);
     expect(
-        () => editor.setCheckBoxValue(
-            editor.acroForm!.fieldNamed('name')!, true),
+        () =>
+            editor.setCheckBoxValue(editor.acroForm!.fieldNamed('name')!, true),
         throwsArgumentError);
     expect(editor.hasChanges, isFalse);
   });
@@ -224,8 +231,8 @@ void main() {
   test('multiline: true makes a single-line field wrap', () {
     const text = 'a value comfortably longer than the name field is wide, '
         'so wrapping must produce several lines';
-    final doc = fill((e, f) =>
-        e.setTextValue(f.fieldNamed('name')!, text, multiline: true));
+    final doc = fill(
+        (e, f) => e.setTextValue(f.fieldNamed('name')!, text, multiline: true));
     final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
     expect(field.isMultiline, isTrue);
     expect('Tj'.allMatches(widgetAppearance(doc, field)).length,
@@ -234,8 +241,7 @@ void main() {
 
   test('non-Latin-1 values keep /V intact and sanitize the appearance', () {
     const text = 'checked ✓ 漢字';
-    final doc =
-        fill((e, f) => e.setTextValue(f.fieldNamed('name')!, text));
+    final doc = fill((e, f) => e.setTextValue(f.fieldNamed('name')!, text));
     final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
     // /V went out as UTF-16BE and reads back verbatim
     expect(field.value, text);
