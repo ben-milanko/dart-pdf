@@ -2606,3 +2606,37 @@ the long-press reorder test is the touch path (default test pointer never
 hovers → LongPressDraggable); `startGesture` then pump kLongPressTimeout
 before `moveTo`. PdfReader keeps only its read-only strip (its strip has
 no page controls, so "same controls as the strip" maps to the editor).
+
+Thumbnail right-click menu: a page context menu on the thumbnail strip
+(`editing_thumbnails.dart`), opened by secondary tap on a tile
+(`_PageTile`'s `GestureDetector.onSecondaryTapUp`) — rotate left / right /
+180°, duplicate, insert blank page before / after, export (only when the
+sidebar's `onExportPages` is wired), delete. `_showPageTileMenu` mirrors
+the annotation menu's selection semantics: a right-click on a tile already
+in a multi-page strip selection keeps the whole selection (labels read
+"Delete 3 pages"); a right-click on an unselected tile first
+`selectPage`s it so the target is just that page ("Delete page"). The
+actions route to the existing selection-aware controller methods
+(`rotatePages`, `removeSelectedPages`, `addBlankPage(at:)`,
+`exportPages`) plus a new `PdfEditingController.duplicatePages(indices)`
+— deep-copies the picked pages and inserts them as one contiguous block
+after the last of them. Duplicate had to reopen the current `bytes` as a
+*separate* `PdfDocument` before `appendPagesFrom`, because that editor
+method refuses `identical(source.cos, document.cos)` (no copying a page
+into its own live document). Delete is disabled, not hidden, when it would
+empty the document (single page, or a selection covering every page),
+matching the controller's own no-op guards. Gotcha: the reorder drag
+listener (`_ReorderDragStartListener.onPointerDown`) used to start a drag
+for *every* mouse pointer-down, which swallowed the secondary tap — now it
+bails when `event.kind == mouse && event.buttons != kPrimaryButton`, so
+right/middle clicks fall through to the tile's tap recognizer while
+primary-button (and all touch/stylus) drags still reorder. Touch keeps the
+per-tile rotate/delete buttons and the multi-select bar; the menu is the
+desktop affordance. Tests in `editing_page_ops_test.dart`: a "thumbnail
+context menu" widget group (right-click via
+`tap(..., buttons: kSecondaryMouseButton, kind: mouse)`) covering each
+action, the multi-vs-single selection split, the disabled-delete guard,
+and a read-only strip (no menu without a handler; export-only with one),
+plus a `duplicatePages` unit group. 47 page-ops tests green; the existing
+reorder test (`editing_test.dart`) still passes both its long-press-touch
+and immediate-mouse drag paths; analyzer clean.
