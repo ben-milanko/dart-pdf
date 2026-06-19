@@ -70,6 +70,8 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _showAnnotations = true;
   bool _highlightFormFields = true;
   bool _showReflowView = false;
+  bool _showThumbnailView = false;
+  double? _thumbnailViewTileWidth;
   bool _showPropertiesPanel = false;
   bool _showSearchResultsPanel = false;
   bool _searchMatchCase = false;
@@ -185,6 +187,11 @@ class PdfEditingPreferences extends ChangeNotifier {
           _highlightFormFields;
       _showReflowView =
           store.getBool('${_prefix}showReflowView') ?? _showReflowView;
+      _showThumbnailView =
+          store.getBool('${_prefix}showThumbnailView') ?? _showThumbnailView;
+      _thumbnailViewTileWidth =
+          store.getDouble('${_prefix}thumbnailViewTileWidth') ??
+              _thumbnailViewTileWidth;
       _thumbnailSidebarWidth =
           store.getDouble('${_prefix}thumbnailSidebarWidth') ??
               _thumbnailSidebarWidth;
@@ -245,8 +252,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         final key = entry['k'];
         final value = entry['v'];
         if (key is! String || value is! Map) continue;
-        final viewport =
-            PdfViewport.fromJson(Map<String, Object?>.from(value));
+        final viewport = PdfViewport.fromJson(Map<String, Object?>.from(value));
         if (viewport != null) result.add((key, viewport));
       }
     } catch (_) {
@@ -638,6 +644,32 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _showReflowView) return;
     _showReflowView = value;
     _write((s) => s.setBool('${_prefix}showReflowView', value));
+    notifyListeners();
+  }
+
+  /// Whether the host shows the dedicated full-area page thumbnail grid
+  /// (`PdfThumbnailView`) in place of the page viewer. A view mode, not a
+  /// docked panel — distinct from [showThumbnailSidebar].
+  bool get showThumbnailView => _showThumbnailView;
+
+  set showThumbnailView(bool value) {
+    if (value == _showThumbnailView) return;
+    _showThumbnailView = value;
+    _write((s) => s.setBool('${_prefix}showThumbnailView', value));
+    notifyListeners();
+  }
+
+  /// The page thumbnail grid's tile width, in logical pixels — the size
+  /// control in `PdfThumbnailView` drives it. Null until first changed,
+  /// where the widget's own default applies.
+  double? get thumbnailViewTileWidth => _thumbnailViewTileWidth;
+
+  set thumbnailViewTileWidth(double? value) {
+    if (value == _thumbnailViewTileWidth) return;
+    _thumbnailViewTileWidth = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}thumbnailViewTileWidth')
+        : s.setDouble('${_prefix}thumbnailViewTileWidth', value));
     notifyListeners();
   }
 

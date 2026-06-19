@@ -11,12 +11,45 @@ import 'ocr_model.dart';
 /// Thrown when a model file cannot be downloaded, fails its integrity check,
 /// or is requested on an unsupported platform.
 class PdfOcrModelException implements Exception {
-  PdfOcrModelException(this.message);
+  const PdfOcrModelException(this.message);
 
   final String message;
 
   @override
   String toString() => 'PdfOcrModelException: $message';
+}
+
+/// Cooperative cancellation handle for [PdfOcrModelManager.download].
+///
+/// Keep one token per user-initiated download and call [cancel] from your
+/// Cancel button. The manager checks it before each file and as chunks arrive;
+/// cancellation deletes the in-flight `.part` file and throws
+/// [PdfOcrModelDownloadCanceled].
+class PdfOcrDownloadCancelToken {
+  final _completer = Completer<void>();
+  bool _isCanceled = false;
+
+  /// Whether [cancel] has been called.
+  bool get isCanceled => _isCanceled;
+
+  /// Requests cancellation. Calling this more than once is harmless.
+  void cancel() {
+    if (_isCanceled) return;
+    _isCanceled = true;
+    _completer.complete();
+  }
+
+  Future<void> get _whenCanceled => _completer.future;
+
+  void _throwIfCanceled() {
+    if (_isCanceled) throw const PdfOcrModelDownloadCanceled();
+  }
+}
+
+/// Thrown when a model download is canceled by
+/// [PdfOcrDownloadCancelToken.cancel].
+class PdfOcrModelDownloadCanceled extends PdfOcrModelException {
+  const PdfOcrModelDownloadCanceled() : super('model download canceled');
 }
 
 /// Progress of a [PdfOcrModelManager.download], emitted on the download's
@@ -140,9 +173,11 @@ class PdfOcrModelManager {
   Future<void> download(
     PdfOcrModel model, {
     void Function(PdfOcrDownloadProgress progress)? onProgress,
+    PdfOcrDownloadCancelToken? cancelToken,
     bool force = false,
   }) async {
     _ensureSupported();
+    cancelToken?._throwIfCanceled();
     final dir = await directory(model);
     await dir.create(recursive: true);
 
@@ -156,6 +191,7 @@ class PdfOcrModelManager {
     var receivedSoFar = 0;
 
     for (var i = 0; i < files.length; i++) {
+      cancelToken?._throwIfCanceled();
       final spec = files[i];
       final dest = File('${dir.path}/${spec.name}');
       if (!force && dest.existsSync() && dest.lengthSync() > 0) {
@@ -174,6 +210,7 @@ class PdfOcrModelManager {
       final received = await _downloadOne(
         spec,
         tmp,
+        cancelToken: cancelToken,
         onChunk: (chunk, fileTotal) {
           receivedSoFar += chunk;
           onProgress?.call(PdfOcrDownloadProgress(
@@ -207,15 +244,20 @@ class PdfOcrModelManager {
   Future<int> _downloadOne(
     PdfOcrModelFile spec,
     File dest, {
+    PdfOcrDownloadCancelToken? cancelToken,
     required void Function(int chunkBytes, int fileTotal) onChunk,
   }) async {
+    cancelToken?._throwIfCanceled();
     final request = http.Request('GET', spec.url);
     http.StreamedResponse response;
     try {
       response = await _client.send(request);
+    } on PdfOcrModelDownloadCanceled {
+      rethrow;
     } catch (e) {
       throw PdfOcrModelException('could not reach ${spec.url}: $e');
     }
+    cancelToken?._throwIfCanceled();
     if (response.statusCode != 200) {
       throw PdfOcrModelException(
           'download of ${spec.name} failed: HTTP ${response.statusCode} '
@@ -224,19 +266,49 @@ class PdfOcrModelManager {
     final fileTotal = response.contentLength ?? spec.sizeBytes ?? 0;
     final sink = dest.openWrite();
     var received = 0;
-    try {
-      await for (final chunk in response.stream) {
+    final completer = Completer<int>();
+    late StreamSubscription<List<int>> subscription;
+
+    Future<void> failCanceled() async {
+      if (completer.isCompleted) return;
+      await subscription.cancel();
+      await sink.close();
+      await _quietDelete(dest);
+      completer.completeError(const PdfOcrModelDownloadCanceled());
+    }
+
+    subscription = response.stream.listen(
+      (chunk) {
+        if (cancelToken?.isCanceled ?? false) {
+          unawaited(failCanceled());
+          return;
+        }
         sink.add(chunk);
         received += chunk.length;
         onChunk(chunk.length, fileTotal);
-      }
-    } catch (e) {
-      await sink.close();
-      await _quietDelete(dest);
-      throw PdfOcrModelException('download of ${spec.name} interrupted: $e');
+      },
+      onError: (Object e, StackTrace st) async {
+        if (completer.isCompleted) return;
+        await sink.close();
+        await _quietDelete(dest);
+        completer.completeError(
+          PdfOcrModelException('download of ${spec.name} interrupted: $e'),
+          st,
+        );
+      },
+      onDone: () async {
+        if (completer.isCompleted) return;
+        await sink.close();
+        completer.complete(received);
+      },
+      cancelOnError: true,
+    );
+
+    if (cancelToken != null) {
+      unawaited(cancelToken._whenCanceled.then((_) => failCanceled()));
     }
-    await sink.close();
-    return received;
+
+    return completer.future;
   }
 
   /// Deletes [model]'s cached directory.

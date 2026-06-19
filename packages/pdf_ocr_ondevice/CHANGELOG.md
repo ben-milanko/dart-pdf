@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added `PdfOcrDownloadCancelToken` so hosts can wire a Cancel button to
+  in-flight model downloads; cancellation removes partial files and throws
+  `PdfOcrModelDownloadCanceled`.
+- Expanded the README download example to display file/overall progress and
+  show where to call `cancel()`.
 - Fix on-device OCR failing on Windows with a garbled "Load model from … File
   doesn't exist" error. The ONNX Runtime session is now created from the model
   *bytes* (`OrtSession.fromBuffer`) instead of a file path: on Windows the

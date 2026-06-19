@@ -59,14 +59,27 @@ Future<Uint8List> addSearchableTextLayer(Uint8List bytes) async {
   final manager = PdfOcrModelManager();
   final model = PdfOcrModels.ppOcrV5Mobile;
   OnDeviceOcrEngine? engine;
+  // Keep the token somewhere your UI's Cancel button can reach it.
+  final cancelToken = PdfOcrDownloadCancelToken();
   try {
     // 1. Download the model once (cached afterwards).
     if (!await manager.isDownloaded(model)) {
-      await manager.download(model, onProgress: (p) {
-        final pct = ((p.fraction ?? 0) * 100).round();
-        print('Downloading ${p.fileName}: $pct%');
-      });
+      await manager.download(
+        model,
+        cancelToken: cancelToken,
+        onProgress: (p) {
+          final percent = p.fraction == null
+              ? 'unknown'
+              : '${(p.fraction! * 100).toStringAsFixed(1)}%';
+          print(
+            'Downloading ${p.fileName} '
+            '(${p.fileIndex + 1}/${p.fileCount}): $percent',
+          );
+        },
+      );
     }
+
+    // From a Cancel button: cancelToken.cancel();
 
     // 2. Build an engine from the downloaded files and run it over each page.
     engine = await OnDeviceOcrEngine.fromDownloadedModel(manager, model);
