@@ -2554,3 +2554,39 @@ affected. Removed the whole staging apparatus + its
 `onnx_ocr_model_runner_test.dart` (it only exercised the dead path logic;
 the surviving `load()` is native-only, unverifiable in the sandbox per the
 #76 honesty posture). 30 package tests still green; analyzer clean.
+
+Web OCR tiling (Ben: "the OCR on web isn't working well" — a scanned A3 CAD
+drawing came back as a stream of hallucinated dimension tokens, "20m 30m
+15m 16.2M…"). Root cause is resolution, not the parser. The web path
+(`app/lib/ocr_web.dart`) renders each page at pixelRatio 2 and hands the
+*whole* image to browser-local Florence-2 (`onnx-community/Florence-2-base-ft`
+via Transformers.js, bridged through `window.__dartPdfOcrRecognize` in
+`app/web/index.html`). Florence-2's image processor hard-resizes any input to
+**768x768** (note the warmup `full([1,3,768,768])`), so a 1192x842pt page —
+here a 3310x2340 DCTDecode scan, no text layer, the entire page is one image
+XObject — rendered to 2384x1684 then crushed ~4x AND squished to square. Small
+dimension text becomes a few unreadable pixels, and a generative VLM fills the
+void with plausible tokens → the garbage output. Fix: **tile** the page into
+overlapping sub-regions small enough to survive the 768 resize, recognize each,
+lift the per-tile boxes back into page-pixel space, then drop the duplicates the
+overlaps produce. Split the testable geometry/parsing/merge into a new web-free
+module `app/lib/ocr_tiling.dart` (`ocrTiles` grid with edge-flush last tiles +
+coverage guarantee; `parseFlorenceSpans` — the old `_spansFromFlorence` JSON
+shape handling minus the user-space step, returns raster-pixel `OcrRawSpan`s;
+`mergeOcrSpans` — IoU+text de-dup) because `ocr_web.dart` imports
+`dart:js_interop` and so can't be loaded by the VM test runner. `ocr_web.dart`
+now crops each tile on the raster thread (`PictureRecorder`+`drawImageRect` →
+`toImage` → PNG) so only the tile's pixels cross to JS, offsets the returned
+boxes by the tile origin, merges, then maps to user space as before. No
+index.html change needed: the bridge already post-processes boxes against each
+input image's own size, so per-tile it returns tile-local pixels. Default tile
+1024px / overlap 128 → ~6 model calls for an A3 page at 2x (legible vs. one
+illegible call). The model inference itself stays sandbox-unverifiable (no
+WebGPU/Transformers.js here, same honesty posture as the native ONNX path);
+the tiling, parsing, and merge are unit-tested (`app/test/ocr_tiling_test.dart`,
+11 — coverage/overlap/edge tiles, the `<OCR_WITH_REGION>` + bbox + plain-text
+shapes, overlap de-dup). Florence-2-base-ft is still a weak doc-OCR model — for
+dense CAD the cloud VLM tier (`pdf_ocr_vlm` dots.ocr) or a detect+recognize
+model does better — but tiling removes the squish-to-illegibility that turned
+its output into hallucinated noise. Analyzer clean; existing
+ocr_menu/ocr_status tests still green.
