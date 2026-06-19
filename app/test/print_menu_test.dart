@@ -80,6 +80,23 @@ void main() {
     expect(String.fromCharCodes(printed!.take(5)), '%PDF-');
   });
 
+  testWidgets('a failing printer surfaces a toast', (tester) async {
+    await pumpWithDoc(
+      tester,
+      printDocument: ({required bytes, required title}) async {
+        throw StateError('no printer available');
+      },
+    );
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-print')));
+    await tester.pump(); // reject the future
+    await tester.pump(); // show the snack bar
+
+    expect(find.text('Could not print Report.pdf'), findsOneWidget);
+  });
+
   testWidgets('Ctrl+P prints the active document', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     try {
