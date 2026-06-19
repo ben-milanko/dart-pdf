@@ -11,15 +11,11 @@ updates:
         patterns:
           - "*"
 
-  # Pub dependencies, per workspace package. Grouped to keep PR noise down.
+  # Pub dependencies for the whole workspace. Pub workspaces must resolve
+  # from the root; running Dependabot inside member directories fails with
+  # "Only apply dependency_services to the root of the workspace."
   - package-ecosystem: pub
-    directories:
-      - /packages/pdf_cos
-      - /packages/pdf_document
-      - /packages/pdf_graphics
-      - /packages/dart_pdf_editor
-      - /packages/dart_pdf_editor/example
-      - /packages/pdf_test_fixtures
+    directory: /
     schedule:
       interval: weekly
     groups:

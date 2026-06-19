@@ -20,7 +20,11 @@ import 'editing_preferences.dart';
 /// down to reorder pages (with a mouse just drag; on touch, long-press
 /// first so the list still scrolls), the per-tile button deletes a page
 /// (the last remaining page cannot be deleted), and the strip's footer
-/// appends a blank page. All of this needs [allowPageEditing].
+/// appends a blank page. Right-clicking a tile (secondary tap) opens a
+/// page context menu — rotate, duplicate, insert a blank page before or
+/// after, export (when [onExportPages] is given), delete — that acts on
+/// the strip's selection when the tile belongs to it. All of this (export
+/// aside) needs [allowPageEditing].
 ///
 /// Built to stay light on large documents: thumbnails are rasterized at
 /// tile resolution and cached, keyed by
@@ -425,6 +429,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                       pageColor: widget.pageColor,
                       showAnnotations: widget.showAnnotations,
                       allowPageEditing: widget.allowPageEditing,
+                      onExportPages: widget.onExportPages,
                       cache: _cache,
                       tileWidth: _tileWidth,
                       renderWorker: widget.renderWorker,
@@ -618,6 +623,12 @@ class _ReorderDragStartListener extends ReorderableDragStartListener {
   Widget build(BuildContext context) {
     return Listener(
       onPointerDown: (event) {
+        // a right- or middle-click is for the context menu, not a reorder
+        // drag — let the tile's secondary-tap recognizer have the pointer
+        if (event.kind == PointerDeviceKind.mouse &&
+            event.buttons != kPrimaryButton) {
+          return;
+        }
         SliverReorderableList.maybeOf(context)?.startItemDragReorder(
           index: index,
           event: event,
@@ -642,6 +653,7 @@ class _PageTile extends StatelessWidget {
     required this.pageColor,
     required this.showAnnotations,
     required this.allowPageEditing,
+    required this.onExportPages,
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
@@ -653,6 +665,7 @@ class _PageTile extends StatelessWidget {
   final Color pageColor;
   final bool showAnnotations;
   final bool allowPageEditing;
+  final void Function(Uint8List bytes)? onExportPages;
   final _ThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
@@ -697,17 +710,32 @@ class _PageTile extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _onTap,
-      // a Container (not Padding) so a selected tile reads as a tinted
-      // chip behind the thumbnail; a color-only decoration adds no
-      // padding, so the per-tile layout (and _estimateOffset) is unchanged
+      // a right-click (or control-click on macOS) opens the page context
+      // menu — rotate / duplicate / insert / export / delete — operating
+      // on the strip's selection when this tile belongs to it
+      onSecondaryTapUp: (details) => _showPageTileMenu(
+        context: context,
+        position: details.globalPosition,
+        controller: controller,
+        pageIndex: pageIndex,
+        allowPageEditing: allowPageEditing,
+        onExportPages: onExportPages,
+      ),
+      // a selected tile reads as a primary-framed, tinted chip behind the
+      // thumbnail. The 1.5px frame is always laid out (transparent when
+      // unselected) and paid back out of the padding, so selecting a tile
+      // never nudges its contents — per-tile layout, _tileWidth's -26, and
+      // _estimateOffset all still hold (each side still totals 12/4px).
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        decoration: selected
-            ? BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(6),
-              )
-            : null,
+        padding: const EdgeInsets.fromLTRB(10.5, 2.5, 10.5, 2.5),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary.withValues(alpha: 0.20) : null,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected ? scheme.primary : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -752,6 +780,15 @@ class _PageTile extends StatelessWidget {
                           painter: _ViewportPainter(viewport, indicator),
                         ),
                       ),
+                    // an explicit "in the selection" marker, painted last
+                    // so it rides above the page and the viewport mark —
+                    // the chip tint alone can be missed on a busy page
+                    if (selected)
+                      Positioned(
+                        top: 3,
+                        left: 3,
+                        child: _SelectionBadge(scheme: scheme),
+                      ),
                   ]),
                 );
               },
@@ -760,9 +797,14 @@ class _PageTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Flexible(
+                  // the label echoes the selection so the cue carries into
+                  // the footer row, below the framed thumbnail
                   child: Text('Page ${pageIndex + 1}',
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium),
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: selected ? scheme.primary : null,
+                            fontWeight: selected ? FontWeight.w600 : null,
+                          )),
                 ),
                 // No Tooltip on these buttons: a Tooltip is an OverlayPortal,
                 // and an OverlayPortal inside a ReorderableListView item
@@ -806,6 +848,170 @@ class _PageTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The page actions a thumbnail's right-click (secondary tap) menu offers.
+enum _PageTileAction {
+  rotateLeft,
+  rotateRight,
+  rotate180,
+  duplicate,
+  insertBefore,
+  insertAfter,
+  export,
+  delete,
+}
+
+/// Shows the thumbnail context menu at [position] (global coordinates) for
+/// the page right-clicked. When that page is already part of a multi-page
+/// strip selection the actions span the whole selection; otherwise the
+/// menu first selects just that page (so its target is unambiguous), then
+/// acts on it alone. Resolves when the menu closes, after the picked
+/// action ran.
+///
+/// [allowPageEditing] gates the structural entries (rotate, duplicate,
+/// insert, delete); [onExportPages] gates Export — each is omitted when
+/// unavailable, so a read-only strip with no export handler never opens a
+/// menu at all.
+Future<void> _showPageTileMenu({
+  required BuildContext context,
+  required Offset position,
+  required PdfEditingController controller,
+  required int pageIndex,
+  required bool allowPageEditing,
+  required void Function(Uint8List bytes)? onExportPages,
+}) async {
+  final canExport = onExportPages != null;
+  if (!allowPageEditing && !canExport) return;
+  // right-clicking a tile that isn't already selected selects just it (a
+  // right-click on a tile that is part of a multi-selection keeps the
+  // selection), so the pages the menu acts on always include this one
+  if (!controller.isPageSelected(pageIndex)) controller.selectPage(pageIndex);
+  final targets = controller.selectedPages;
+  final multi = targets.length > 1;
+  final pageCount = controller.document.pageCount;
+
+  // "Duplicate page" / "Export 3 pages" — the verb's object reflects how
+  // many pages the action spans
+  String forPages(String verb) =>
+      multi ? '$verb ${targets.length} pages' : '$verb page';
+
+  final items = <PopupMenuEntry<_PageTileAction>>[
+    if (allowPageEditing) ...[
+      _pageMenuRow(_PageTileAction.rotateLeft,
+          tileKey: 'pdf-thumbnail-menu-rotate-left',
+          icon: Icons.rotate_left,
+          label: 'Rotate left'),
+      _pageMenuRow(_PageTileAction.rotateRight,
+          tileKey: 'pdf-thumbnail-menu-rotate-right',
+          icon: Icons.rotate_right,
+          label: 'Rotate right'),
+      _pageMenuRow(_PageTileAction.rotate180,
+          tileKey: 'pdf-thumbnail-menu-rotate-180',
+          icon: Icons.cached,
+          label: 'Rotate 180°'),
+      _pageMenuRow(_PageTileAction.duplicate,
+          tileKey: 'pdf-thumbnail-menu-duplicate',
+          icon: Icons.copy_all_outlined,
+          label: forPages('Duplicate')),
+      // insert is relative to the right-clicked page — a single insertion
+      // point — so it stays singular even under a multi-selection
+      _pageMenuRow(_PageTileAction.insertBefore,
+          tileKey: 'pdf-thumbnail-menu-insert-before',
+          icon: Icons.vertical_align_top,
+          label: 'Insert blank page before'),
+      _pageMenuRow(_PageTileAction.insertAfter,
+          tileKey: 'pdf-thumbnail-menu-insert-after',
+          icon: Icons.vertical_align_bottom,
+          label: 'Insert blank page after'),
+    ],
+    if (canExport)
+      _pageMenuRow(_PageTileAction.export,
+          tileKey: 'pdf-thumbnail-menu-export',
+          icon: Icons.file_download_outlined,
+          label: '${forPages('Export')}…'),
+    if (allowPageEditing)
+      _pageMenuRow(_PageTileAction.delete,
+          tileKey: 'pdf-thumbnail-menu-delete',
+          icon: Icons.delete_outline,
+          label: forPages('Delete'),
+          // a document must keep at least one page
+          enabled: multi ? targets.length < pageCount : pageCount > 1),
+  ];
+  if (items.isEmpty) return;
+
+  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+  final picked = await showMenu<_PageTileAction>(
+    context: context,
+    position:
+        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    items: items,
+  );
+  switch (picked) {
+    case null:
+      return;
+    case _PageTileAction.rotateLeft:
+      controller.rotatePages(targets, -90);
+    case _PageTileAction.rotateRight:
+      controller.rotatePages(targets, 90);
+    case _PageTileAction.rotate180:
+      controller.rotatePages(targets, 180);
+    case _PageTileAction.duplicate:
+      controller.duplicatePages(targets);
+    case _PageTileAction.insertBefore:
+      controller.addBlankPage(at: pageIndex);
+    case _PageTileAction.insertAfter:
+      controller.addBlankPage(at: pageIndex + 1);
+    case _PageTileAction.export:
+      onExportPages?.call(controller.exportPages(targets));
+    case _PageTileAction.delete:
+      controller.removeSelectedPages();
+  }
+}
+
+PopupMenuItem<_PageTileAction> _pageMenuRow(
+  _PageTileAction action, {
+  required String tileKey,
+  required IconData icon,
+  required String label,
+  bool enabled = true,
+}) =>
+    PopupMenuItem<_PageTileAction>(
+      key: ValueKey(tileKey),
+      value: action,
+      enabled: enabled,
+      child: Row(children: [
+        // PopupMenuItem dims only its text when disabled; match it on the icon
+        Builder(
+          builder: (context) => Icon(icon,
+              size: 18,
+              color: enabled ? null : Theme.of(context).disabledColor),
+        ),
+        const SizedBox(width: 10),
+        Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+      ]),
+    );
+
+/// The check badge overlaid on a selected page's thumbnail — an
+/// unmistakable "this page is in the selection" marker that reads on any
+/// page color, where the chip tint alone can be missed. A ring in the
+/// surface color keeps it legible where the primary circle meets a
+/// same-hued page.
+class _SelectionBadge extends StatelessWidget {
+  const _SelectionBadge({required this.scheme});
+
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          color: scheme.primary,
+          shape: BoxShape.circle,
+          border: Border.all(color: scheme.surface, width: 1.5),
+        ),
+        padding: const EdgeInsets.all(1.5),
+        child: Icon(Icons.check, size: 12, color: scheme.onPrimary),
+      );
 }
 
 /// Renders a page to a tile-resolution bitmap, cached across revisions

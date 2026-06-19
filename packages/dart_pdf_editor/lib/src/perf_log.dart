@@ -16,10 +16,15 @@ import 'package:flutter/scheduler.dart';
 ///   * scroll velocity, and
 ///   * frame JANK (build or raster over the 16ms budget).
 ///
-/// Buffered and flushed once per frame from [SchedulerBinding]'s timings
-/// callback — never a [Timer], so it cannot trip widget tests'
-/// `!timersPending` invariant (and it stays off there anyway: the dart-define
-/// defaults false and tests never set it).
+/// Each line prints immediately (synchronously, so a hang — which produces
+/// no frames — can't swallow the lines that diagnose it); frame JANK is
+/// appended from [SchedulerBinding]'s timings callback. Printing is
+/// [debugPrintSynchronously], never a [Timer], so it cannot trip widget
+/// tests' `!timersPending` invariant (and it stays off there anyway: the
+/// dart-define defaults false and tests never set it).
+///
+/// Enable on the live web demo without a rebuild by appending `?perf=1` to
+/// the URL, then read the `[perf …]` lines in the browser console.
 class PdfPerfLog {
   PdfPerfLog._();
 
@@ -44,9 +49,11 @@ class PdfPerfLog {
     if (!enabled) return;
     _ensureHook();
     _buf.add('[perf ${_nowMs.toStringAsFixed(0)}] $message');
-    // Safety flush so a long hang (no frames) can't grow the buffer
-    // unbounded before the timings callback fires.
-    if (_buf.length >= 256) _flush();
+    // Flush every line immediately: the whole point of this trace is
+    // diagnosing hangs, and a hang produces no frames — so the per-frame
+    // timings flush never fires and the lines right before the freeze
+    // (the ones that pinpoint it) would sit in the buffer and be lost.
+    _flush();
   }
 
   /// Logs a UI-thread interpret. [first] marks a page's first-ever interpret
@@ -86,7 +93,13 @@ class PdfPerfLog {
   static void _flush() {
     if (_buf.isEmpty) return;
     for (final line in _buf) {
-      debugPrint(line);
+      // Synchronous print, NOT debugPrint: debugPrint throttles output
+      // through a Timer that never fires during a synchronous hang, so
+      // the most diagnostic lines would never reach the console. This
+      // path only runs when [enabled] (a diagnostic build/run), so the
+      // extra cost is irrelevant, and it's still Timer-free, so it can't
+      // trip widget tests' `!timersPending` (which stay off anyway).
+      debugPrintSynchronously(line);
     }
     _buf.clear();
   }

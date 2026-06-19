@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
@@ -118,6 +120,48 @@ void main() {
       expect(style().fillColor, isNull);
       expect(style().borderColor, isNull);
       expect(style().borderWidth, 0);
+    });
+
+    test('restyleSelectedTextRange changes only the selected substring', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      expect(
+          editing.restyleSelectedTextRange(6, 11,
+              font: PdfStandardFont.timesBold, size: 24, color: 0xFF0000),
+          isTrue);
+
+      final annotation = editing.document.page(0).annotations.single;
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(annotation.contents, 'Hello world');
+      expect(content, contains('/Helv 14 Tf'));
+      expect(content, contains('(Hello ) Tj'));
+      expect(content, contains('/TimesBold 24 Tf'));
+      expect(content, contains('1 0 0 rg'));
+      expect(content, contains('(world) Tj'));
+    });
+
+    test('editing text selection drags do not notify on every range change',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      var notifications = 0;
+      editing.addListener(() => notifications++);
+
+      editing.setEditingText(true);
+      expect(notifications, 1);
+
+      editing.setEditingTextSelection(
+          const TextSelection(baseOffset: 0, extentOffset: 3));
+      expect(notifications, 2);
+
+      editing.setEditingTextSelection(
+          const TextSelection(baseOffset: 0, extentOffset: 5));
+      expect(notifications, 2);
+
+      editing.setEditingTextSelection(const TextSelection.collapsed(offset: 5));
+      expect(notifications, 3);
     });
 
     test('text fill and border persist as preferences', () async {
@@ -303,6 +347,35 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the inline editor follows RTL text while typing',
+        (tester) async {
+      const rtl = 'ڕێباز';
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(300, 640));
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      await tester.enterText(find.byKey(editorKey), rtl);
+      await tester.pump();
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.textDirection, TextDirection.rtl);
+      expect(field.textAlign, TextAlign.start);
+      expect(Directionality.of(tester.element(find.byKey(editorKey))),
+          TextDirection.rtl);
+
+      await tap(tester, view(450, 400)); // outside the box: commit
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, rtl);
+      expect(
+          (editing.document.cos.resolve(annotation.dict['Q']) as CosInteger)
+              .value,
+          2);
+      await settle(tester);
+    });
+
     testWidgets('Escape cancels the editor without committing', (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing.tool = PdfEditTool.freeText;
@@ -398,6 +471,180 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('toolbar edit opens free text inline for character styling',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      editing
+        ..addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world')
+        ..tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-edit-selected-text')));
+      await tester.pump();
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+      expect(editing.hasEditingTextSelection, isTrue);
+
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+      expect(editing.hasEditingTextSelection, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!.whereType<TextSpan>().singleWhere(
+            (child) => child.text == 'world',
+          );
+      expect(styled.style?.fontFamily, 'Times New Roman');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets('inline text selection can change font size and color',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630)); // first tap selects
+      await tap(tester, view(200, 630)); // second tap edits
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+      expect(editing.hasEditingTextSelection, isTrue);
+
+      expect(
+          editing.restyleEditingTextSelection(
+              font: PdfStandardFont.timesBold, size: 24, color: 0xFF0000),
+          isTrue);
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!.whereType<TextSpan>().singleWhere(
+            (child) => child.text == 'world',
+          );
+      expect(styled.style?.color, const Color(0xFFFF0000));
+      expect(styled.style?.fontFamily, 'Times New Roman');
+
+      await tap(tester, view(450, 400)); // outside: commit
+      final annotation = editing.document.page(0).annotations.single;
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(annotation.contents, 'Hello world');
+      expect(content, contains('/Helv 14 Tf'));
+      expect(content, contains('(Hello ) Tj'));
+      expect(content, contains('/TimesBold 24 Tf'));
+      expect(content, contains('1 0 0 rg'));
+      expect(content, contains('(world) Tj'));
+      await settle(tester);
+    });
+
+    testWidgets('touch inline style chip changes selected text font',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630)); // first tap selects
+      await tap(tester, view(200, 630)); // second tap edits
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('pdf-inline-text-style-chip')),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-inline-text-font')));
+      await tester.pumpAndSettle();
+
+      final serifRow = find.descendant(
+          of: find.byKey(const ValueKey('pdf-inline-font-std-serif')),
+          matching: find.text('Serif (Times)'));
+      expect(
+          tester.widget<Text>(serifRow).style?.fontFamily, 'Times New Roman');
+      await tester.tap(find.byKey(const ValueKey('pdf-inline-font-std-serif')));
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!.whereType<TextSpan>().singleWhere(
+            (child) => child.text == 'world',
+          );
+      expect(styled.style?.fontFamily, 'Times New Roman');
+
+      await tap(tester, view(450, 400)); // outside: commit
+      final annotation = editing.document.page(0).annotations.single;
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(content, contains('/TiRo 14 Tf'));
+      expect(content, contains('(world) Tj'));
+      await settle(tester);
+    });
+
     testWidgets('the style menu sets the font family for new text',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -426,12 +673,17 @@ void main() {
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Serif'));
-      await tester.pump();
+      Future<void> pickFont(Key key) async {
+        await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(key));
+        await tester.pump();
+      }
+
+      await pickFont(const ValueKey('pdf-font-std-serif'));
       expect(editing.fontFamily, PdfStandardFont.times);
 
-      await tester.tap(find.text('Mono'));
-      await tester.pump();
+      await pickFont(const ValueKey('pdf-font-std-mono'));
       expect(editing.fontFamily, PdfStandardFont.courier);
 
       // the Bold / Italic toggles pick the matching base-14 variant
@@ -442,8 +694,7 @@ void main() {
       await tester.pump();
       expect(editing.fontFamily, PdfStandardFont.courierBoldOblique);
       // switching family keeps the bold+italic style
-      await tester.tap(find.text('Serif'));
-      await tester.pump();
+      await pickFont(const ValueKey('pdf-font-std-serif'));
       expect(editing.fontFamily, PdfStandardFont.timesBoldItalic);
     });
 
@@ -566,6 +817,31 @@ void main() {
       // (It used to start 2px up-left, so the text jumped on open.)
       expect(tester.getTopLeft(find.byKey(editorKey)),
           offsetMoreOrLessEquals(view(100, 660), epsilon: 0.1));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets('native text handles and menu counter-scale while zoomed',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 300, 660), 'Zoom handles');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630)); // select
+      await tap(tester, view(200, 630)); // edit
+      // zoom is px/pt now; the handles counter-scale the transform zoom, so
+      // aim for a 2× transform scale (2 × fit-width in px/pt)
+      viewer.setZoom(2 * scale);
+      await tester.pump();
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      final scaled = field.selectionControls!;
+      expect(scaled.getHandleSize(20).width, closeTo(18, 0.01));
+      expect(field.contextMenuBuilder, isNotNull);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();

@@ -203,12 +203,14 @@ void main() {
       await longPressSelect(tester, view(100, 720));
       expect(controller.selectedText, 'Page');
 
-      final handle =
-          tester.getCenter(find.byKey(const ValueKey('pdf-text-handle-end')));
+      final endHandle = find.byKey(const ValueKey('pdf-text-handle-end'));
+      final box = tester.getTopLeft(endHandle);
+      final size = tester.getSize(endHandle);
+      final handle = box + Offset(size.width / 2, size.height - 9);
       final gesture = await tester.startGesture(handle);
       await tester.pump();
       // the eager recognizer claims on contact: no slop to pay
-      await gesture.moveTo(view(150, 720));
+      await gesture.moveBy(Offset((150 - 120) * scale, 0));
       await tester.pump();
       expect(controller.selectedText, 'Page 1');
       await gesture.up();

@@ -167,7 +167,8 @@ class PdfEditorFeatures {
 /// need programmatic access pass their own [controller] instead of
 /// [bytes] — exactly one of the two must be given. [onSave] receives
 /// the current revision's bytes from the toolbar's save button or the
-/// ⌘S / Ctrl+S shortcut; [onDocumentChanged] fires after every revision
+/// ⌘S / Ctrl+S shortcut. [onSaveAs] receives the same bytes from
+/// ⌘⇧S / Ctrl+Shift+S; [onDocumentChanged] fires after every revision
 /// (edit, undo, redo) for hosts that autosave.
 ///
 /// The widget is a plain body: give it bounded space (a [Scaffold]
@@ -183,6 +184,7 @@ class PdfEditorView extends StatefulWidget {
     this.preferences,
     this.features = const PdfEditorFeatures(),
     this.onSave,
+    this.onSaveAs,
     this.showSaveButton = true,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
@@ -192,6 +194,7 @@ class PdfEditorView extends StatefulWidget {
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.fontPicker,
     this.onSnapshot,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
@@ -253,6 +256,10 @@ class PdfEditorView extends StatefulWidget {
   /// app's job.
   final void Function(Uint8List bytes)? onSave;
 
+  /// Receives the current revision's bytes when ⌘⇧S / Ctrl+Shift+S is hit;
+  /// the save-as dialog or share/download flow is the app's job.
+  final void Function(Uint8List bytes)? onSaveAs;
+
   /// Whether the stock shell chrome shows its Save button when [onSave]
   /// is present. Hosts can set this false when they provide their own
   /// save affordance while still keeping [onSave] and the keyboard
@@ -288,6 +295,11 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
+
+  /// How the font menu's "Load font…" entry loads a custom `.ttf`/`.otf`
+  /// font to embed for new text. When null, only the standard families
+  /// and bundled fonts are offered.
+  final PdfFontPicker? fontPicker;
 
   /// See [PdfViewer.onSnapshot]. The snapshot tool always keeps a vector
   /// copy on the clipboard for in-app paste; this callback additionally
@@ -487,7 +499,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
-  void _save() => widget.onSave?.call(_session.bytes);
+  /// Whether there's anything to save: false while the document still
+  /// matches what was opened, which disables the Save button (and makes
+  /// the ⌘S / Ctrl+S shortcut a no-op).
+  bool get _canSave => _session.isModified;
+
+  void _save() {
+    if (!_canSave) return;
+    widget.onSave?.call(_session.bytes);
+  }
+
+  void _saveAs() => widget.onSaveAs?.call(_session.bytes);
 
   Future<void> _promptAuthor() async {
     final session = _session;
@@ -563,6 +585,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 showAuthor: features.authorEditable,
                 bottomSheet: bottomSheet,
+                fontPicker: widget.fontPicker,
               );
 
           final reflowActive = features.reflowView && prefs.showReflowView;
@@ -635,6 +658,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   viewerController: _viewer,
                   // save lives in the header now, not the dock
                   textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                  fontPicker: widget.fontPicker,
                   palette: widget.palette,
                   tools: features.tools,
                   groups: features.toolGroups,
@@ -713,6 +737,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                   if (features.search && !reflowActive) ...[
                     PdfSearchField(
                       controller: _viewer,
@@ -724,6 +749,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       showOptions: !features.searchResultsPanel,
                     ),
                   ],
+                ],
+                compactLeading: [
+                  if (features.pageNumber && !reflowActive)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: PdfPageNumberField(controller: _viewer),
+                    ),
+                  if (features.search && !reflowActive)
+                    PdfSearchField(
+                      controller: _viewer,
+                      searchController: _searchField,
+                      focusNode: _searchFocus,
+                      preferences: prefs,
+                      showOptions: !features.searchResultsPanel,
+                    ),
                 ],
                 trailing: [
                   if (features.viewOptions)
@@ -753,8 +793,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       ),
                       icon: const Icon(Icons.save_alt, size: 18),
                       label: const Text('Save'),
-                      onPressed: _save,
+                      onPressed: _canSave ? _save : null,
                     ),
+                ],
+                compactSheetChildren: [
+                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
                   if (features.viewOptions) viewOptionsControl,
@@ -771,6 +814,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       key: const ValueKey('pdf-shell-save'),
                       icon: Icons.save_alt,
                       label: 'Save',
+                      enabled: _canSave,
                       onPressed: _save,
                     ),
                 ],
@@ -853,10 +897,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             _focusSearch,
       },
       // ⌘S / Ctrl+S saves through the host's [onSave], the same path the
-      // toolbar's save button takes.
+      // toolbar's save button takes. ⌘⇧S / Ctrl+Shift+S invokes the
+      // host's Save As path when one is provided.
       if (widget.onSave != null) ...{
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _save,
+      },
+      if (widget.onSaveAs != null) ...{
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true):
+            _saveAs,
+        const SingleActivator(LogicalKeyboardKey.keyS,
+            control: true, shift: true): _saveAs,
       },
     };
     if (bindings.isNotEmpty) {

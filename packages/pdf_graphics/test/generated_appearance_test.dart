@@ -145,6 +145,38 @@ void main() {
     expect(shown, contains('Generated note'));
   });
 
+  test('Arabic free text renders through interpreter with correct Unicode', () {
+    PdfInterpreter.clearFontCache();
+    final device = render(annotated((e) => e.addFreeText(
+        0, const PdfRect(72, 600, 300, 660), 'مرحبا',
+        fontSize: 14)));
+    final shown = device.texts.map((t) => t.text).join();
+    // pdfVisualText reverses RTL runs for content-stream painting order;
+    // the renderer's BiDi re-reverses for correct on-screen display
+    for (final c in 'مرحبا'.runes) {
+      expect(shown, contains(String.fromCharCode(c)));
+    }
+    expect(shown, isNot(contains('?')));
+    // the Type0 font has no outlines → substitution path (glyphs null)
+    final annTexts = device.texts.where((t) => t.text.runes
+        .any((r) => r >= 0x0600 && r <= 0x06FF));
+    expect(annTexts, isNotEmpty);
+    expect(annTexts.first.glyphs, isNull);
+  });
+
+  test('mixed Latin+Arabic free text preserves both scripts', () {
+    PdfInterpreter.clearFontCache();
+    final device = render(annotated((e) => e.addFreeText(
+        0, const PdfRect(72, 600, 400, 660), 'hello مرحبا world',
+        fontSize: 14)));
+    final shown = device.texts.map((t) => t.text).join();
+    expect(shown, contains('hello'));
+    expect(shown, contains('world'));
+    for (final c in 'مرحبا'.runes) {
+      expect(shown, contains(String.fromCharCode(c)));
+    }
+  });
+
   test('flattened pages paint exactly like live annotation rendering', () {
     // the fixture exercises the hard appearance cases: a BBox that scales
     // ×10/×5 onto its rect, a 90°-rotation /Matrix, and an /AS state

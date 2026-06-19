@@ -111,9 +111,14 @@ void main() {
     expect(controller.zoom, greaterThan(1.5));
     expect(find.byKey(hThumb), findsOneWidget);
 
-    // thumb width is the visible fraction of the inset (800 − 14) track
+    // thumb width is the visible fraction of the inset (800 − 14) track.
+    // The horizontal bar reflects the transform scale, not the px/pt zoom:
+    // public zoom is px/pt (= transform scale × fit-width), so divide it
+    // back out (fit-width = 800/612 for this 612pt page in the 800px view).
+    const fitWidth = 800 / 612;
+    final transformScale = controller.zoom / fitWidth;
     expect(tester.getSize(find.byKey(hThumb)).width,
-        closeTo((800 - 14) / controller.zoom, 1));
+        closeTo((800 - 14) / transformScale, 1));
 
     final before = controller.visiblePageRegion(0)!.left;
     final gesture =

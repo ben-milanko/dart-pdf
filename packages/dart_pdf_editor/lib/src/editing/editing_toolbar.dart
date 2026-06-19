@@ -4,13 +4,14 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfStandardFontFamily;
+    show PdfLineEnding, PdfStandardFont;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
+import 'editing_fonts.dart';
 import 'editing_measure.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -81,6 +82,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.fontPicker,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
@@ -106,6 +108,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How the font menu's "Load font…" entry obtains a custom `.ttf`/`.otf`
+  /// file. When null, only the standard families and bundled fonts are
+  /// offered (no custom loading).
+  final PdfFontPicker? fontPicker;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -364,6 +371,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// place when the whole selection restyles.
   void _applyColor(Color color) {
     controller.color = color;
+    if (controller.restyleEditingTextSelection(
+        color: color.toARGB32() & 0xFFFFFF)) {
+      return;
+    }
     if (controller.canRestyleSelected) controller.restyleSelected(color: color);
   }
 
@@ -542,6 +553,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Future<void> _editSelectedText(BuildContext context) async {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return;
+    if (annotation.subtype == 'FreeText' &&
+        controller.requestEditSelectedTextInline()) {
+      return;
+    }
     final text = await widget.textPrompt(
       context,
       title: switch (annotation.subtype) {
@@ -704,7 +719,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           IconButton(
             icon: const Icon(Icons.save_alt),
             tooltip: 'Save… (⌘S / Ctrl+S)',
-            onPressed: () => widget.onSave!(controller.bytes),
+            // disabled while the document matches what was opened — there's
+            // nothing to write until an edit bumps the revision cursor
+            onPressed: controller.isModified
+                ? () => widget.onSave!(controller.bytes)
+                : null,
           ),
         ],
         if (widget.trailing.isNotEmpty) ...[
@@ -1013,6 +1032,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               ),
               if (controller.canEditSelectedText)
                 IconButton(
+                  key: const ValueKey('pdf-edit-selected-text'),
                   icon: const Icon(Icons.edit),
                   tooltip: 'Edit annotation text',
                   onPressed: () => _editSelectedText(context),
@@ -1256,6 +1276,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         showColor: widget.showColor,
         fields: fields,
         fontChipTrigger: fields.font,
+        fontPicker: widget.fontPicker,
       ),
     ];
   }
@@ -1401,6 +1422,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ),
         if (controller.canEditSelectedText)
           IconButton(
+            key: const ValueKey('pdf-edit-selected-text'),
             icon: const Icon(Icons.edit),
             tooltip: 'Edit annotation text',
             visualDensity: VisualDensity.compact,
@@ -2035,10 +2057,14 @@ class _StyleMenu extends StatefulWidget {
     required this.fields,
     this.showColor = true,
     this.fontChipTrigger = false,
+    this.fontPicker,
   });
 
   /// Which controls to show — see [_StyleFields].
   final _StyleFields fields;
+
+  /// How the font menu's "Load font…" entry loads a custom font.
+  final PdfFontPicker? fontPicker;
 
   final PdfEditingController controller;
 
@@ -2070,17 +2096,33 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// selected annotation.
   double? _draggingStroke;
   double? _draggingOpacity;
+  bool _holdingTextEditFocus = false;
+
+  @override
+  void dispose() {
+    _endTextEditFocusHold();
+    super.dispose();
+  }
+
+  void _beginTextEditFocusHold() {
+    if (_holdingTextEditFocus || !controller.isEditingText) return;
+    _holdingTextEditFocus = true;
+    controller.beginEditingTextFocusHold();
+  }
+
+  void _endTextEditFocusHold() {
+    if (!_holdingTextEditFocus) return;
+    _holdingTextEditFocus = false;
+    controller.endEditingTextFocusHold();
+  }
 
   void _setFont(PdfStandardFont font) {
     controller.fontFamily = font; // the new default either way
+    if (controller.restyleEditingTextSelection(font: font)) return;
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(font: font);
     }
   }
-
-  void _setFontFamily(PdfStandardFontFamily family, PdfStandardFont current) =>
-      _setFont(PdfStandardFont.styled(family,
-          bold: current.isBold, italic: current.isItalic));
 
   static int? _rgb(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
@@ -2251,6 +2293,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   @override
   Widget build(BuildContext context) {
     return MenuAnchor(
+      onClose: _endTextEditFocusHold,
       menuChildren: [
         // the menu lives in its own overlay, outside the toolbar's
         // ListenableBuilder — it needs its own listener to track sliders
@@ -2446,6 +2489,11 @@ class _StyleMenuState extends State<_StyleMenu> {
                       onChangeEnd: (v) {
                         final size = v.roundToDouble();
                         controller.fontSize = size;
+                        if (controller.restyleEditingTextSelection(
+                            size: size)) {
+                          setState(() => _draggingFontSize = null);
+                          return;
+                        }
                         if (controller.canRestyleSelectedText) {
                           controller.restyleSelectedText(size: size);
                         }
@@ -2458,37 +2506,18 @@ class _StyleMenuState extends State<_StyleMenu> {
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Font')),
                         Expanded(
-                          child: SegmentedButton<PdfStandardFontFamily>(
-                            segments: const [
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.sans,
-                                  label: Text('Sans')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.serif,
-                                  label: Text('Serif')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.mono,
-                                  label: Text('Mono')),
-                            ],
-                            selected: {
-                              (selectedStyle?.font ?? controller.fontFamily)
-                                  .family
-                            },
-                            showSelectedIcon: false,
-                            style: const ButtonStyle(
-                              visualDensity: VisualDensity.compact,
-                              padding: WidgetStatePropertyAll(
-                                  EdgeInsets.symmetric(horizontal: 8)),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: PdfFontMenuButton(
+                              controller: controller,
+                              fontPicker: widget.fontPicker,
                             ),
-                            onSelectionChanged: (selection) => _setFontFamily(
-                                selection.single,
-                                selectedStyle?.font ?? controller.fontFamily),
                           ),
                         ),
                       ]),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.only(top: 6),
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Style')),
                         FontStyleToggles(
@@ -2523,20 +2552,40 @@ class _StyleMenuState extends State<_StyleMenu> {
       builder: (context, menu, _) => ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
-          void toggle() => menu.isOpen ? menu.close() : menu.open();
+          void toggle() {
+            if (menu.isOpen) {
+              menu.close();
+              return;
+            }
+            _beginTextEditFocusHold();
+            menu.open();
+          }
+
           final tip =
               widget.fields.eraser ? 'Eraser size' : 'Stroke, opacity, font';
+          Widget holdOnPointerDown(Widget child) => Listener(
+                onPointerDown: (_) => _beginTextEditFocusHold(),
+                child: Focus(
+                  canRequestFocus: false,
+                  descendantsAreFocusable: false,
+                  child: child,
+                ),
+              );
           if (widget.fontChipTrigger) {
-            return _FontChip(
-              controller: controller,
-              tooltip: tip,
-              onTap: toggle,
+            return holdOnPointerDown(
+              _FontChip(
+                controller: controller,
+                tooltip: tip,
+                onTap: toggle,
+              ),
             );
           }
-          return IconButton(
-            icon: const Icon(Icons.tune),
-            tooltip: tip,
-            onPressed: toggle,
+          return holdOnPointerDown(
+            IconButton(
+              icon: const Icon(Icons.tune),
+              tooltip: tip,
+              onPressed: toggle,
+            ),
           );
         },
       ),

@@ -26,23 +26,41 @@ import 'package:web/web.dart' as web;
 /// - `{kind:'record', id, page, annotations}` → replies `{kind:'result', id,
 ///   buffer:ArrayBuffer|null}` (null = the page can't be offloaded; the main
 ///   thread renders it locally).
+/// - `{kind:'cancel'}` → sets the active cancellation token so the in-flight
+///   interpreter walk abandons early, replying with `buffer:null`.
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
+  PdfCancellationToken? activeToken;
 
+  // The handler MUST stay synchronous (return void): `.toJS` cannot convert a
+  // Future-returning function, so an `async` handler fails `dart compile js`
+  // ("invalid types in its function signature: Future<Null> Function(...)").
+  // The cancellable record below therefore runs in a fire-and-forget inner
+  // async closure instead of making the handler itself async.
   scope.onmessage = ((web.MessageEvent event) {
     final data = event.data as JSObject?;
     if (data == null) return;
     final kind = (data.getProperty('kind'.toJS) as JSString?)?.toDart;
 
     if (kind == 'init') {
-      final buffer = data.getProperty('bytes'.toJS) as JSArrayBuffer;
+      // Extract AND open inside the try: a malformed transfer (the cast or the
+      // ArrayBuffer view can throw on some hosts) must NOT skip the 'ready'
+      // reply below, or the main thread waits on it forever. A null document
+      // simply declines every page to a local render.
       try {
+        final buffer = data.getProperty('bytes'.toJS) as JSArrayBuffer;
         document = PdfDocument.open(buffer.toDart.asUint8List());
       } catch (_) {
-        document = null; // a broken document fails every page → local renders
+        document = null; // bad transfer / broken document → local renders
       }
+      // ALWAYS reply ready, even on failure, so the client never hangs.
       scope.postMessage(JSObject()..setProperty('kind'.toJS, 'ready'.toJS));
+      return;
+    }
+
+    if (kind == 'cancel') {
+      activeToken?.cancelled = true;
       return;
     }
 
@@ -52,48 +70,60 @@ void runPdfRenderWorker() {
     final annotations =
         (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
 
-    Uint8List? out;
-    // A page can decline (image it can't serialize) or throw; surface the reason
-    // to the main thread so it lands in a PdfPerfLog trace instead of being lost
-    // in the worker's own console.
-    String? error;
-    final doc = document;
-    try {
-      if (doc != null) out = _recordPage(doc, page, annotations);
-    } catch (e, st) {
-      out = null; // any failure → the main thread renders this page locally
-      error = '$e\n$st';
-    }
+    final token = PdfCancellationToken();
+    activeToken = token;
+    // Fire-and-forget: launch the cancellable walk without awaiting it here, so
+    // the message handler returns void (see the note above) while a subsequent
+    // 'cancel' message can still flip token.cancelled mid-walk.
+    () async {
+      Uint8List? out;
+      String? error;
+      final doc = document;
+      try {
+        if (doc != null) {
+          out = await _recordPageAsync(doc, page, annotations, token);
+        }
+      } on PdfCancelledException {
+        out = null;
+      } catch (e, st) {
+        out = null; // any failure → the main thread renders this page locally
+        error = '$e\n$st';
+      }
+      // Only clear the active token if it is still ours — a newer record may
+      // have replaced it while this one was running.
+      if (identical(activeToken, token)) activeToken = null;
 
-    final result = JSObject()
-      ..setProperty('kind'.toJS, 'result'.toJS)
-      ..setProperty('id'.toJS, id.toJS);
-    if (out == null) {
-      result.setProperty('buffer'.toJS, null);
-      if (error != null) result.setProperty('error'.toJS, error.toJS);
-      scope.postMessage(result);
-    } else {
-      // Copy to an exact-length buffer, then transfer it (zero-copy).
-      final jsBuffer = Uint8List.fromList(out).buffer.toJS;
-      result.setProperty('buffer'.toJS, jsBuffer);
-      scope.postMessage(result, <JSAny>[jsBuffer].toJS);
-    }
+      final result = JSObject()
+        ..setProperty('kind'.toJS, 'result'.toJS)
+        ..setProperty('id'.toJS, id.toJS);
+      if (out == null) {
+        result.setProperty('buffer'.toJS, null);
+        if (error != null) result.setProperty('error'.toJS, error.toJS);
+        scope.postMessage(result);
+      } else {
+        // Copy to an exact-length buffer, then transfer it (zero-copy).
+        final jsBuffer = Uint8List.fromList(out).buffer.toJS;
+        result.setProperty('buffer'.toJS, jsBuffer);
+        scope.postMessage(result, <JSAny>[jsBuffer].toJS);
+      }
+    }();
   }).toJS;
 }
 
-/// Records one page into a serialized command buffer, or null when it is out of
-/// range or draws an image that cannot be serialized (an inline image — see
-/// [serializeCommands]). Image XObjects serialize via [document]'s `cos`.
+/// Records one page into a serialized command buffer, yielding periodically
+/// so the cancel message handler can fire and set [token.cancelled].
 ///
 /// Duplicated from the isolate backend deliberately: that file imports
 /// `dart:isolate`, which does not exist on web, so this entry can't share it.
-Uint8List? _recordPage(PdfDocument document, int pageIndex, bool annotations) {
+Future<Uint8List?> _recordPageAsync(PdfDocument document, int pageIndex,
+    bool annotations, PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
   final ops = ContentStreamParser.parse(page.contentBytes());
   final recorder = RecordingPdfDevice();
-  final interpreter = PdfInterpreter(cos: document.cos, device: recorder)
-    ..drawPageOperations(page, ops);
+  final interpreter =
+      PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
+  await interpreter.drawPageOperationsAsync(page, ops);
   if (annotations) interpreter.drawAnnotations(page);
   // Decode the page's images in the worker too: the buffer carries
   // premultiplied RGBA so the main thread only runs the engine codec. On web

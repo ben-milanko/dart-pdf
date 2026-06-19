@@ -5,8 +5,10 @@ import '../scrollbar.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
+import 'editing_fonts.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
+import 'text_prompt.dart';
 import 'line_style.dart';
 
 /// A panel showing — and editing — the selected annotation's properties.
@@ -41,9 +43,14 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
     this.maxWidth = 420,
     this.showAuthor = true,
     this.bottomSheet = false,
+    this.fontPicker,
   });
 
   final PdfEditingController controller;
+
+  /// How the font row's menu loads a custom `.ttf`/`.otf` font; null hides
+  /// the "Load font…" entry (bundled and standard fonts still show).
+  final PdfFontPicker? fontPicker;
 
   /// The default width — a user-dragged width, persisted in
   /// [PdfEditingPreferences.propertiesPanelWidth], wins over it.
@@ -518,6 +525,16 @@ class _PdfAnnotationPropertiesPanelState
             keyPrefix: 'pdf-prop-font',
             font: style.font,
             onChanged: (font) => _controller.restyleSelectedText(font: font),
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(children: [
+          const Expanded(child: Text('More fonts')),
+          PdfFontMenuButton(
+            controller: _controller,
+            fontPicker: widget.fontPicker,
           ),
         ]),
       ),

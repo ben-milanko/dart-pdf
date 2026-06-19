@@ -183,6 +183,9 @@ void main() {
       await tester.tapAt(const Offset(400, 300));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       expect(c1.zoom, greaterThan(1));
+      // public zoom is px/pt; the snapshot stores the fit-width multiple, so
+      // they differ — compare the restored viewer's px/pt zoom to c1's
+      final zoomedIn = c1.zoom;
 
       final snapshot = c1.captureViewport();
       expect(snapshot!.zoom, greaterThan(1));
@@ -192,7 +195,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump();
-      expect(c2.zoom, moreOrLessEquals(snapshot.zoom, epsilon: 0.05));
+      expect(c2.zoom, moreOrLessEquals(zoomedIn, epsilon: 0.05));
     });
   });
 
