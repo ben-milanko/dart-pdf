@@ -1669,6 +1669,29 @@ class PdfEditingController extends ChangeNotifier {
         indices: indices, at: at);
   }
 
+  /// Duplicates [indices] (deep-copying each page and everything it
+  /// references), inserting the copies as one contiguous block right
+  /// after the last of them and preserving their order. Returns false (a
+  /// no-op) when nothing valid is given. Structural page edits shift
+  /// indices, so the page selection is cleared first.
+  bool duplicatePages(Iterable<int> indices) {
+    final targets = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty) return false;
+    _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    // appendPagesFrom refuses a page's own document object; reopening the
+    // current bytes gives a separate source, so a page can be copied back
+    // into the file it came from.
+    final source = PdfDocument.open(bytes, password: _password);
+    return apply((e) =>
+        e.appendPagesFrom(source, indices: targets, at: targets.last + 1));
+  }
+
   /// Exports [indices] (in that order) as a fresh standalone PDF, leaving
   /// this document untouched. See [PdfPageExtraction.extractPages].
   Uint8List exportPages(List<int> indices) => _document.extractPages(indices);
