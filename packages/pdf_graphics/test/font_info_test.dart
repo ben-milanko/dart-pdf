@@ -82,6 +82,26 @@ void main() {
     expect(info.charFor(0x98), String.fromCharCode(0x02DC));
   });
 
+  test('charFor memoises simple-font codes to the same string instance', () {
+    final font = CosDictionary({
+      'Subtype': const CosName('Type1'),
+      'BaseFont': const CosName('Helvetica'),
+    });
+    final info = PdfFontInfo.load(cos, font);
+    // A body page shows the same code thousands of times; the second lookup
+    // must return the cached instance, not recompute (and re-allocate) it.
+    final a = info.charFor(0x41); // 'A'
+    final b = info.charFor(0x41);
+    expect(a, 'A');
+    expect(identical(a, b), isTrue,
+        reason: 'repeat lookups return the memoised string');
+    // The empty string (unmapped control code) is a valid cached value, so it
+    // must stay stable too — not recompute on every call.
+    expect(info.charFor(0x00), info.charFor(0x00));
+    // Memoising must not change the decoded value of any other code.
+    expect(info.charFor(0xD0), String.fromCharCode(0x2014));
+  });
+
   test('Identity-V Type0 font is vertical with default DW2 metrics', () {
     final font = CosDictionary({
       'Subtype': const CosName('Type0'),

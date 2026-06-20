@@ -456,7 +456,7 @@ void main() {
 
       // the form tool now lives in the group's strip
       final formButton = find.byTooltip(
-          'Form fields — tap to select, double-tap to fill, drag to add');
+          'Form fields — tap to select, double-tap to fill, drag to add (F)');
       await tester.scrollUntilVisible(formButton, 80,
           scrollable: stripScrollable);
       await tester.tap(formButton);

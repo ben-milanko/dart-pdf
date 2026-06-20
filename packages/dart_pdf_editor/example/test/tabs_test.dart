@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/material.dart';
 import 'package:pdf_viewer_example/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,9 +21,25 @@ void main() {
     expect(find.byType(PdfViewer), findsOneWidget);
   });
 
+  testWidgets('tab strip is left aligned and app logo is compact',
+      (tester) async {
+    await openDemo(tester);
+
+    expect(tester.getTopLeft(find.byKey(const ValueKey('tab-strip'))).dx,
+        lessThan(120));
+
+    final logo = find.descendant(
+      of: find.byKey(const ValueKey('dartpdf-app-menu')),
+      matching: find.byType(Image),
+    );
+    expect(tester.getSize(logo), const Size(24, 24));
+  });
+
   testWidgets('the AppBar demo action opens a second tab', (tester) async {
     await openDemo(tester);
-    await tester.tap(find.byTooltip('Open the interactive demo in a new tab'));
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open the interactive demo'));
     await tester.pump();
 
     // two tabs now, but still exactly one mounted viewer (only the active
@@ -34,7 +51,9 @@ void main() {
   testWidgets('closing a tab drops it and keeps another active',
       (tester) async {
     await openDemo(tester);
-    await tester.tap(find.byTooltip('Open the interactive demo in a new tab'));
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open the interactive demo'));
     await tester.pump();
     expect(closeButtons(), findsNWidgets(2));
 
@@ -63,7 +82,7 @@ void main() {
   testWidgets('the More menu offers comparing against another PDF',
       (tester) async {
     await openDemo(tester);
-    await tester.tap(find.byTooltip('More actions'));
+    await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
     expect(find.text('Compare with another PDF…'), findsOneWidget);
   });

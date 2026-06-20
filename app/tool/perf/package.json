@@ -1,0 +1,10 @@
+{
+  "name": "dart-pdf-perf-driver",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless-Chrome driver for the dart-pdf render-worker web perf harness",
+  "dependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}

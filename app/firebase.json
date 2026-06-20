@@ -1,0 +1,31 @@
+{
+  "hosting": {
+    "site": "dartpdf-app",
+    "public": "build/web",
+    "ignore": ["firebase.json", ".firebaserc", "**/.*"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [
+      {
+        "comment": "Cache busting: Flutter's web entry/orchestration files are NOT content-hashed (same URLs every deploy), so without revalidation a returning visitor keeps running the previously cached app — the service worker only updates when flutter_bootstrap.js (which pins the SW version) and flutter_service_worker.js are fetched fresh. `no-cache` = 'store but revalidate before use' (cheap 304 when unchanged, full fetch when a deploy changed the bytes), so a new deploy is always picked up on the next load. Hashed content (assets/, canvaskit/) keeps Hosting's default caching.",
+        "source": "/index.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      { "source": "/flutter_bootstrap.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/flutter_service_worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/flutter.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/main.dart.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/main.dart.wasm", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/main.dart.mjs", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/pdf_render_worker.dart.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      {
+        "comment": "Cross-origin isolation: enables SharedArrayBuffer, which skwasm's multithreaded renderer uses (without it, --wasm falls back to single-threaded skwasm_heavy). COEP is `credentialless`, not `require-corp`: both isolate the page (crossOriginIsolated === true on Chromium/Firefox), but `require-corp` ALSO demands every cross-origin subresource send a CORP header — which broke the in-browser OCR (ocr_web.dart), whose first run pulls Transformers.js from jsDelivr and the Florence-2 model from HuggingFace's CDN; those don't send CORP, so the download failed with 'TypeError: Failed to fetch'. `credentialless` loads cross-origin resources without credentials instead of requiring CORP, so the OCR model fetch works while the renderer keeps its isolation. Safari has no credentialless support, so it just isn't cross-origin isolated there (single-threaded skwasm_heavy + working OCR) — an acceptable fallback. The Flutter shell + skwasm assets are same-origin; PDFs come from the local file picker (not fetched).",
+        "source": "**",
+        "headers": [
+          { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+          { "key": "Cross-Origin-Embedder-Policy", "value": "credentialless" }
+        ]
+      }
+    ]
+  }
+}

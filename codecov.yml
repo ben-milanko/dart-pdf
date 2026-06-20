@@ -18,6 +18,15 @@ flags:
   dart_pdf_editor:
     paths:
       - packages/dart_pdf_editor/lib
+  pdf_ocr_vlm:
+    paths:
+      - packages/pdf_ocr_vlm/lib
+  app:
+    paths:
+      - app/lib
+
+ignore:
+  - "**/test/**"
 
 coverage:
   status:
@@ -26,7 +35,13 @@ coverage:
         informational: true
     patch:
       default:
-        informational: true
+        # New code (the PR diff) must keep meaningful coverage without making
+        # UI-only branches fail solely for platform and host-callback glue.
+        target: 65%
+        # Allow a small slack so trivial diffs don't fail on rounding.
+        threshold: 1%
+        # Block the PR status when the diff drops below target.
+        informational: false
 
 comment:
   layout: "reach, diff, flags, files"

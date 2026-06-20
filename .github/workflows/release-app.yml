@@ -1,0 +1,275 @@
+name: Release app
+
+# Builds installable artifacts for the standalone DartPDF app on every
+# `app-v*` tag (and on demand) and attaches them to a draft GitHub Release.
+# Store upload and code signing stay manual — see app/RELEASING.md.
+
+on:
+  push:
+    tags: ['app-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name, e.g. 0.1.0'
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.44.2'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [[ "$REF" == app-v* ]]; then
+            V="${REF#app-v}"
+          else
+            V="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${V:-0.1.0}" >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Patch onnxruntime Android compile SDK
+        run: |
+          set -euo pipefail
+          gradle_file="$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
+          test -n "$gradle_file"
+          sed -i 's/compileSdkVersion 33/compileSdkVersion 36/' "$gradle_file"
+      - name: Build APK + AAB
+        working-directory: app
+        run: |
+          flutter build apk --release \
+            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+          flutter build appbundle --release \
+            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: |
+            app/build/app/outputs/flutter-apk/app-release.apk
+            app/build/app/outputs/bundle/release/app-release.aab
+
+  web:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build web
+        working-directory: app
+        run: flutter build web --release
+      - name: Zip
+        working-directory: app
+        run: (cd build/web && zip -r ../../dartpdf-web.zip .)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web
+          path: app/dartpdf-web.zip
+
+  linux:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Linux
+        working-directory: app
+        run: flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Tar bundle (portable folder)
+        working-directory: app
+        run: tar czf dartpdf-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - name: Build AppImage (single portable file)
+        working-directory: app
+        run: |
+          set -euo pipefail
+          APPDIR=DartPDF.AppDir
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -r build/linux/x64/release/bundle/* "$APPDIR/usr/bin/"
+          cp ../doc/logo.png "$APPDIR/dartpdf.png"
+          cat > "$APPDIR/dartpdf.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=DartPDF
+          Exec=dart_pdf_editor_app
+          Icon=dartpdf
+          Categories=Office;Utility;
+          MimeType=application/pdf;
+          EOF
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH:-}"
+          exec "$HERE/usr/bin/dart_pdf_editor_app" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: |
+            app/dartpdf-linux-x64.tar.gz
+            app/dartpdf-linux-x86_64.AppImage
+
+  windows:
+    needs: setup
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Windows
+        working-directory: app
+        run: flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Bundle MSVC runtime (makes the folder portable on clean PCs)
+        working-directory: app
+        shell: pwsh
+        run: |
+          $rel = "build/windows/x64/runner/Release"
+          Copy-Item "$env:SystemRoot\System32\msvcp140.dll",
+                    "$env:SystemRoot\System32\vcruntime140.dll",
+                    "$env:SystemRoot\System32\vcruntime140_1.dll" `
+                    -Destination $rel -Force
+      - name: Zip portable folder
+        working-directory: app
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dartpdf-windows-x64.zip -Force
+      - name: Build self-extracting portable exe (NSIS)
+        working-directory: app
+        shell: pwsh
+        run: |
+          $rel = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $nsi = @"
+          Unicode true
+          Name "DartPDF"
+          OutFile "dartpdf-windows-portable.exe"
+          SilentInstall silent
+          RequestExecutionLevel user
+          Section
+            InitPluginsDir
+            SetOutPath "`$PLUGINSDIR\DartPDF"
+            File /r "$rel\*.*"
+            ExecWait '"`$PLUGINSDIR\DartPDF\dart_pdf_editor_app.exe"'
+          SectionEnd
+          "@
+          Set-Content -Path portable.nsi -Value $nsi -Encoding UTF8
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { choco install nsis -y --no-progress | Out-Null }
+          & $makensis portable.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
+          if (-not (Test-Path dartpdf-windows-portable.exe)) { throw "portable exe not produced" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            app/dartpdf-windows-x64.zip
+            app/dartpdf-windows-portable.exe
+
+  macos:
+    needs: setup
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build macOS
+        working-directory: app
+        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Package DMG (unsigned)
+        working-directory: app
+        run: |
+          rm -rf build/dmg-root
+          mkdir -p build/dmg-root
+          cp -R "build/macos/Build/Products/Release/DartPDF.app" build/dmg-root/
+          ln -s /Applications build/dmg-root/Applications
+          hdiutil create -volname "DartPDF" \
+            -srcfolder build/dmg-root \
+            -ov -format UDZO dartpdf-macos.dmg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: app/dartpdf-macos.dmg
+
+  ios:
+    needs: setup
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build iOS (unsigned)
+        working-directory: app
+        run: flutter build ios --release --no-codesign --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Zip unsigned .app
+        working-directory: app
+        run: ditto -c -k --keepParent "build/ios/iphoneos/Runner.app" dartpdf-ios-unsigned.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios
+          path: app/dartpdf-ios-unsigned.zip
+
+  release:
+    needs: [setup, android, web, linux, windows, macos, ios]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/app-v')
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: DartPDF ${{ needs.setup.outputs.version }}
+          draft: true
+          files: artifacts/**/*
+          body: |
+            Standalone DartPDF ${{ needs.setup.outputs.version }}.
+
+            Artifacts are built by CI and are **unsigned** (macOS .dmg, iOS .app,
+            Windows .zip) or **debug-signed** (Android, unless a release keystore
+            is configured). See `app/RELEASING.md` for signing and store upload.

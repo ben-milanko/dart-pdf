@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <!-- Google Play feature graphic (1024x500). Text uses Helvetica Neue, so
+       render the PNG on macOS:
+         rsvg-convert -w 1024 -h 500 feature-graphic.svg -o feature-graphic.png
+       Same design language as banner.svg, re-laid for the 2.05:1 frame. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16BAFD"/>
+      <stop offset="1" stop-color="#0169B4"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0175C2"/>
+      <stop offset="1" stop-color="#13B9FD"/>
+    </linearGradient>
+    <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#13B9FD"/>
+      <stop offset="1" stop-color="#0175C2"/>
+    </linearGradient>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#26292E"/>
+      <stop offset="1" stop-color="#1A1C1F"/>
+    </linearGradient>
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18"/>
+      <feOffset dy="16"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge><feMergeNode/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="500" fill="url(#canvas)"/>
+  <!-- faint brand glow behind the mark -->
+  <circle cx="250" cy="250" r="300" fill="#13B9FD" opacity="0.06"/>
+
+  <!-- the mark, scaled from logo.svg: 1024 units * 0.332 = 340px tall -->
+  <g transform="translate(80 80) scale(0.332)">
+    <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+    <g filter="url(#drop)">
+      <path d="M 304 192 H 612 L 752 332 V 800 Q 752 832 720 832 H 304 Q 272 832 272 800 V 224 Q 272 192 304 192 Z"
+            fill="#FFFFFF"/>
+    </g>
+    <path d="M 304 192 H 612 L 752 332 V 800 Q 752 832 720 832 H 304 Q 272 832 272 800 V 224 Q 272 192 304 192 Z"
+          fill="#FFFFFF"/>
+    <path d="M 612 192 L 752 332 H 646 Q 612 332 612 298 Z" fill="#C6E3F8"/>
+    <rect x="332" y="396" width="216" height="34" rx="17" fill="#8FA6B5"/>
+    <rect x="332" y="478" width="384" height="40" rx="20" fill="#FFC93C"/>
+    <rect x="332" y="566" width="340" height="32" rx="16" fill="#C4D2DC"/>
+    <path d="M 330 748 C 384 642 462 642 506 716 C 542 776 584 772 618 718 C 646 674 686 690 702 712"
+          fill="none" stroke="url(#ink)" stroke-width="32" stroke-linecap="round"/>
+  </g>
+
+  <!-- wordmark + rule + tagline, vertically centred against the mark -->
+  <text x="470" y="246" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="110" font-weight="bold" fill="#FFFFFF">dart-pdf</text>
+  <rect x="474" y="276" width="408" height="8" rx="4" fill="url(#rule)"/>
+  <text x="476" y="330" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="27" fill="#9AA0A6">Pure-Dart PDF renderer &amp; editor for Flutter</text>
+</svg>

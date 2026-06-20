@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_controller.dart';
+import 'editing_form_style.dart';
 import 'text_prompt.dart';
 
 /// What an annotation context menu acts on: the controller and the
@@ -83,7 +84,10 @@ Future<void> showPdfAnnotationMenu({
   (double, double)? pagePoint,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
-  final canPaste = controller.hasAnnotationClipboard;
+  // a captured snapshot pastes back as vector graphics; otherwise the
+  // annotation clipboard (the most recent copy wins)
+  final canPasteSnapshot = controller.hasSnapshotClipboard;
+  final canPaste = canPasteSnapshot || controller.hasAnnotationClipboard;
   final hasSelection = request.annotations.isNotEmpty;
   if (!hasSelection && !canPaste) return;
   final stock = <PdfAnnotationMenuItem>[
@@ -106,8 +110,9 @@ Future<void> showPdfAnnotationMenu({
       label: 'Paste',
       icon: Icons.paste,
       enabled: canPaste,
-      onSelected: (request) =>
-          request.controller.pasteAnnotations(pageIndex, at: pagePoint),
+      onSelected: (request) => canPasteSnapshot
+          ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
+          : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
     ),
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
@@ -160,6 +165,7 @@ Future<void> showPdfFormFieldMenu({
   required PdfEditingController controller,
   required String fieldName,
   PdfTextPrompt textPrompt = showPdfTextPrompt,
+  PdfFontPicker? fontPicker,
 }) async {
   final field = controller.acroForm?.fieldNamed(fieldName);
   if (field == null) return;
@@ -171,6 +177,22 @@ Future<void> showPdfFormFieldMenu({
       };
 
   final items = <PdfAnnotationMenuItem>[
+    if (type == PdfFieldType.text)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-form-menu-style'),
+        label: 'Text style…',
+        icon: Icons.text_format,
+        onSelected: (_) async {
+          if (!controller.selectFormFieldByName(fieldName)) return;
+          if (!context.mounted) return;
+          await showPdfFormTextStylePopup(
+            context: context,
+            position: position,
+            controller: controller,
+            fontPicker: fontPicker,
+          );
+        },
+      ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-rename'),
       label: 'Rename…',

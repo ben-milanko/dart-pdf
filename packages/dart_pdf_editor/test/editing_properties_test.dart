@@ -237,6 +237,37 @@ void main() {
       expect(editing.selectedAnnotation!.borderWidth, width);
     });
 
+    testWidgets('typing an exact value into a slider readout commits it',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the stroke readout is an editable field; type an exact width
+      final field = find.byKey(const ValueKey('pdf-prop-stroke-input'));
+      expect(field, findsOneWidget);
+      await tester.enterText(field, '9');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editing.selectedAnnotation!.borderWidth, 9);
+
+      // out-of-range input clamps to the slider's max (16)
+      await tester.enterText(field, '500');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editing.selectedAnnotation!.borderWidth, 16);
+
+      // opacity reads back as a percentage and round-trips through it
+      final opacity = find.byKey(const ValueKey('pdf-prop-opacity-input'));
+      await tester.enterText(opacity, '40');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editing.selectedAnnotation!.appearanceOpacity, closeTo(0.4, 0.001));
+    });
+
     testWidgets('the fill clear button removes a shape fill', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
@@ -275,6 +306,29 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-prop-font-italic')));
       await tester.pump();
       expect(editing.selectedTextStyle?.font, PdfStandardFont.timesBoldItalic);
+    });
+
+    testWidgets('free text gets alignment controls', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 500, 320, 620), 'Hello');
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // a fresh box starts left-aligned
+      expect(editing.selectedTextAlign, PdfTextAlign.left);
+      expect(find.byKey(const ValueKey('pdf-prop-text-align-center')),
+          findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-text-align-center')));
+      await tester.pump();
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+      expect(editing.selectedAnnotation?.contents, 'Hello'); // text kept
+
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-text-align-right')));
+      await tester.pump();
+      expect(editing.selectedTextAlign, PdfTextAlign.right);
     });
 
     testWidgets('free text gets an outline (border) control', (tester) async {

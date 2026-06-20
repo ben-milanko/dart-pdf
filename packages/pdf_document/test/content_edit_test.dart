@@ -160,15 +160,46 @@ void main() {
       expect(editor.hasChanges, isFalse);
     });
 
-    test('TJ string elements replace individually', () {
+    test('replaces within a single TJ element', () {
       final doc = PdfDocument.open(buildContentPdf(
           'BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
       final editor = PdfEditor(doc);
-      // a match across the split is honestly out of reach
-      expect(editor.replaceText(0, 'split', 'joined'), 0);
       expect(editor.replaceText(0, 't run', 't sprint'), 1);
-      final out = PdfDocument.open(editor.save());
-      expect(pageText(out), contains('(t sprint)'));
+      expect(pageText(PdfDocument.open(editor.save())), contains('(t sprint)'));
+    });
+
+    test('matches across TJ array elements and their kern', () {
+      final doc = PdfDocument.open(buildContentPdf(
+          'BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
+      final editor = PdfEditor(doc);
+      // 'split' spans both strings and the -20 kern between them
+      expect(editor.replaceText(0, 'split', 'joined'), 1);
+      final text = pageText(PdfDocument.open(editor.save()));
+      expect(text, contains('(joined)'));
+      expect(text, contains('( run)'));
+      expect(text, isNot(contains('-20')), reason: 'interior kern consumed');
+    });
+
+    test('a width change inserts a compensating adjustment', () {
+      final doc = PdfDocument.open(buildContentPdf(
+          'BT /F1 12 Tf 72 700 Td [(AAA) (BBB)] TJ ET'));
+      final editor = PdfEditor(doc);
+      expect(editor.replaceText(0, 'AAA', 'AA'), 1);
+      // Helvetica 'A' is 667/1000 em; dropping one shifts 'BBB' back by 667,
+      // so a +667-unit kern is inserted to hold it in place.
+      expect(pageText(PdfDocument.open(editor.save())),
+          contains('[(AA) -667 (BBB)] TJ'));
+    });
+
+    test('a match can span consecutive show operators', () {
+      final doc = PdfDocument.open(buildContentPdf(
+          'BT /F1 12 Tf 72 700 Td (foo) Tj (bar) Tj ET'));
+      final editor = PdfEditor(doc);
+      expect(editor.replaceText(0, 'ooba', 'X'), 1);
+      final text = pageText(PdfDocument.open(editor.save()));
+      expect(text, contains('(fX)'));
+      expect(text, contains('(r)'));
+      expect(text, isNot(contains('(foo) Tj (bar) Tj')));
     });
 
     test('composite Type0 runs are skipped', () {

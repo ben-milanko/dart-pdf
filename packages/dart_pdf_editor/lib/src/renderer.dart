@@ -35,36 +35,172 @@ class PdfPageRenderer {
   static Future<ui.Picture> renderPicture(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      bool Function(PdfAnnotation)? skipAnnotation}) async {
+      bool Function(PdfAnnotation)? skipAnnotation,
+      int? rotation}) async {
     final cos = page.document.cos;
 
+    // Parsing the content stream (and decompressing it) dominates rendering on
+    // graphics-rich pages, and the page is interpreted twice here — once to
+    // discover images to decode, once to paint. Parse it once and feed both.
+    final pageOps = ContentStreamParser.parse(page.contentBytes());
+
+    // Discover the images to decode with a scan-only interpretation: it walks
+    // the same content (so it sees every image — including those drawn by
+    // Type3 glyphs and tiling patterns) but skips the path/text/colour/shading
+    // build work, so the collect walk is a fraction of the paint walk.
     final collector = ImageCollector();
-    final collecting = PdfInterpreter(cos: cos, device: collector)
-      ..drawPage(page);
+    final collecting =
+        PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
+          ..drawPageOperations(page, pageOps);
     if (annotations) collecting.drawAnnotations(page, skip: skipAnnotation);
-    final images = await decodeImages(cos, collector.streams);
+    final images =
+        await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page);
+    final size = pageSize(page, rotation: rotation);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    // The paper is opaque white; [pageColor] washes over it. A
-    // translucent page color (e.g. a copy-type tint) thus reads as a
-    // wash on white rather than compositing onto the viewer canvas
-    // behind the page. A fully opaque color makes the white backing a
-    // no-op, so this is free in the common case.
+    _paintBackground(canvas, size, pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+
+    final painting = PdfInterpreter(
+        cos: cos, device: CanvasPdfDevice(canvas, images: images))
+      ..drawPageOperations(page, pageOps);
+    if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
+    final picture = recorder.endRecording();
+    // The picture retains its own reference to every drawn image, so the
+    // decode handles (clones from the cache, or fresh decodes) can be freed
+    // now — the cache keeps the masters for the next render.
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
+  }
+
+  /// Renders [page] like [renderPicture] but by first recording the page's
+  /// interpreter callbacks into a portable [PdfRenderCommand] buffer (a
+  /// [RecordingPdfDevice]) and then replaying that buffer onto the canvas via
+  /// the unchanged [CanvasPdfDevice].
+  ///
+  /// The result is pixel-identical to [renderPicture] — the same canvas calls
+  /// happen in the same order — but the interpretation (the dominant cost: the
+  /// content-stream parse and walk) is now decoupled from the painting. This
+  /// is the seam the background-isolate work splits across: the recording half
+  /// is pure Dart and `dart:ui`-free, so it can move to a worker isolate, with
+  /// only this replay (cheap) and image decoding staying on the UI thread.
+  ///
+  /// For now both halves run on the calling isolate; this method exists so the
+  /// record/replay split can be exercised and proven equivalent before any
+  /// isolate machinery is introduced.
+  static Future<ui.Picture> renderPictureRecorded(PdfPage page,
+      {Color pageColor = const Color(0xFFFFFFFF),
+      bool annotations = true,
+      bool Function(PdfAnnotation)? skipAnnotation,
+      int? rotation}) async {
+    final cos = page.document.cos;
+    final pageOps = ContentStreamParser.parse(page.contentBytes());
+
+    // Record the page into a flat command buffer. This single walk also
+    // discovers every image (the recording device's drawImage calls), so the
+    // separate scan-only collect pass [renderPicture] runs is unnecessary here.
+    final recorder = RecordingPdfDevice();
+    final recording = PdfInterpreter(cos: cos, device: recorder)
+      ..drawPageOperations(page, pageOps);
+    if (annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+
+    final images = await decodeImages(cos, recorder.imageRequests,
+        cache: PdfImageCache.instance);
+
+    final box = page.cropBox;
+    final size = pageSize(page, rotation: rotation);
+    final uiRecorder = ui.PictureRecorder();
+    final canvas = Canvas(uiRecorder);
+
+    _paintBackground(canvas, size, pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+
+    replayCommands(recorder.commands, CanvasPdfDevice(canvas, images: images));
+    final picture = uiRecorder.endRecording();
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
+  }
+
+  /// Builds a page picture from an already-recorded [commands] buffer —
+  /// the replay half of an off-thread render. The interpreter walk that
+  /// produced [commands] happened elsewhere (a [PdfRenderWorker]'s isolate),
+  /// so this is just the cheap canvas replay plus the paper/transform setup,
+  /// pixel-identical to [renderPictureRecorded].
+  ///
+  /// The only UI-thread work besides the replay is decoding any images the
+  /// buffer carries (image XObjects serialize as self-contained streams; see
+  /// [serializeCommands]). Those decodes are shared through [PdfImageCache] like
+  /// every other render path — the reconstructed streams key by content, so a
+  /// page redrawn while scrolling reuses its decoded pixels instead of re-
+  /// running the codec. An image-free buffer decodes nothing.
+  static Future<ui.Picture> pictureFromCommands(
+      PdfPage page, List<PdfRenderCommand> commands,
+      {Color pageColor = const Color(0xFFFFFFFF),
+      int? rotation}) async {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    final images = requests.isEmpty
+        ? const <Object, ui.Image>{}
+        : await decodeImages(page.document.cos, requests,
+            cache: PdfImageCache.instance);
+
+    final box = page.cropBox;
+    final size = pageSize(page, rotation: rotation);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    _paintBackground(canvas, size, pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+    replayCommands(commands, CanvasPdfDevice(canvas, images: images));
+    final picture = recorder.endRecording();
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
+  }
+
+  /// Gathers every image draw request in [commands], descending into soft-mask
+  /// groups (whose own commands can draw images), in replay order.
+  static void _collectImageRequests(
+      List<PdfRenderCommand> commands, List<PdfImageRequest> out) {
+    for (final command in commands) {
+      switch (command) {
+        case PdfDrawImageCommand(:final request):
+          out.add(request);
+        case PdfEndSoftMaskedCommand(:final maskCommands):
+          _collectImageRequests(maskCommands, out);
+        default:
+          break;
+      }
+    }
+  }
+
+  /// Paints the page paper under the content: an opaque white backing when
+  /// [pageColor] is translucent (so a tint washes over white rather than the
+  /// viewer canvas behind the page), then [pageColor]. A fully opaque colour
+  /// makes the white backing a no-op, so it is free in the common case.
+  static void _paintBackground(Canvas canvas, Size size, Color pageColor) {
     if (pageColor.a < 1.0) {
       canvas.drawRect(
         Offset.zero & size,
         Paint()..color = const Color(0xFFFFFFFF),
       );
     }
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = pageColor,
-    );
-    switch (page.rotation) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = pageColor);
+  }
+
+  /// Sets the canvas up in PDF user space: /Rotate, then the y-flip and crop
+  /// box origin, so interpreter output (page space, y-up) lands correctly.
+  static void _applyPageTransform(
+      Canvas canvas, PdfPage page, Size size, PdfRect box,
+      {int? rotation}) {
+    switch (rotation ?? page.rotation) {
       case 90:
         canvas.translate(size.width, 0);
         canvas.rotate(math.pi / 2);
@@ -79,12 +215,6 @@ class PdfPageRenderer {
     canvas.translate(0, box.height);
     canvas.scale(1, -1);
     canvas.translate(-box.left, -box.bottom);
-
-    final painting = PdfInterpreter(
-        cos: cos, device: CanvasPdfDevice(canvas, images: images))
-      ..drawPage(page);
-    if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
-    return recorder.endRecording();
   }
 
   /// Renders one annotation's appearance into a picture in the same page
@@ -92,48 +222,48 @@ class PdfPageRenderer {
   /// 1 point) but with a transparent background — for live drag/resize
   /// previews. Null when the annotation has no appearance stream.
   static Future<ui.Picture?> renderAnnotationPicture(
-      PdfPage page, PdfAnnotation annotation) async {
+      PdfPage page, PdfAnnotation annotation, {int? rotation}) async {
     if (annotation.normalAppearance == null) return null;
     final cos = page.document.cos;
 
     final collector = ImageCollector();
-    PdfInterpreter(cos: cos, device: collector)
+    PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
         .drawAnnotation(page, annotation);
-    final images = await decodeImages(cos, collector.streams);
+    final images =
+        await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page);
+    final size = pageSize(page, rotation: rotation);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    switch (page.rotation) {
-      case 90:
-        canvas.translate(size.width, 0);
-        canvas.rotate(math.pi / 2);
-      case 180:
-        canvas.translate(size.width, size.height);
-        canvas.rotate(math.pi);
-      case 270:
-        canvas.translate(0, size.height);
-        canvas.rotate(-math.pi / 2);
-    }
-    canvas.translate(0, box.height);
-    canvas.scale(1, -1);
-    canvas.translate(-box.left, -box.bottom);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
 
     PdfInterpreter(cos: cos, device: CanvasPdfDevice(canvas, images: images))
         .drawAnnotation(page, annotation);
-    return recorder.endRecording();
+    final picture = recorder.endRecording();
+    for (final image in images.values) {
+      image.dispose();
+    }
+    return picture;
   }
 
   /// Renders [page] to a bitmap. [pixelRatio] of 2 doubles the resolution.
   static Future<ui.Image> renderImage(PdfPage page,
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
-    final picture = await renderPicture(page,
-        pageColor: pageColor, annotations: annotations);
+      bool annotations = true,
+      bool recorded = false,
+      int? rotation}) async {
+    final picture = recorded
+        ? await renderPictureRecorded(page,
+            pageColor: pageColor, annotations: annotations,
+            rotation: rotation)
+        : await renderPicture(page,
+            pageColor: pageColor, annotations: annotations,
+            rotation: rotation);
     try {
-      return await rasterize(picture, pageSize(page), pixelRatio);
+      return await rasterize(picture, pageSize(page, rotation: rotation),
+          pixelRatio);
     } finally {
       picture.dispose();
     }
@@ -185,15 +315,22 @@ class PdfPageRenderer {
   /// live preview) build a [PdfPageColorSampler] once instead.
   static Future<ui.Color?> sampleColor(PdfPage page, ui.Offset point,
           {Color pageColor = const Color(0xFFFFFFFF),
-          bool annotations = true}) async =>
+          bool annotations = true,
+          int? rotation}) async =>
       (await PdfPageColorSampler.of(page,
-              pageColor: pageColor, annotations: annotations))
+              pageColor: pageColor, annotations: annotations,
+              rotation: rotation))
           .colorAt(point);
 
-  /// Page size in points after applying /Rotate.
-  static Size pageSize(PdfPage page) {
+  /// Page size in points after applying rotation.
+  ///
+  /// [rotation] overrides the page's own /Rotate when set — the view
+  /// rotation feature uses this to display a page at a different
+  /// orientation without modifying the document.
+  static Size pageSize(PdfPage page, {int? rotation}) {
     final box = page.cropBox;
-    final swap = page.rotation == 90 || page.rotation == 270;
+    final r = rotation ?? page.rotation;
+    final swap = r == 90 || r == 270;
     return swap ? Size(box.height, box.width) : Size(box.width, box.height);
   }
 }
@@ -216,12 +353,13 @@ class PdfPageColorSampler {
   /// read the color the user actually sees.
   static Future<PdfPageColorSampler> of(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
+      bool annotations = true,
+      int? rotation}) async {
     final picture = await PdfPageRenderer.renderPicture(page,
-        pageColor: pageColor, annotations: annotations);
+        pageColor: pageColor, annotations: annotations, rotation: rotation);
     try {
       final image = await PdfPageRenderer.rasterize(
-          picture, PdfPageRenderer.pageSize(page), 1);
+          picture, PdfPageRenderer.pageSize(page, rotation: rotation), 1);
       try {
         final data = await image.toByteData();
         if (data == null) {

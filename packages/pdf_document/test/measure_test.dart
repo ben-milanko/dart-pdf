@@ -178,6 +178,122 @@ void main() {
       expect(annot.measurementText, '1 in');
     });
 
+    test('restyling the stroke width keeps the measurement caption', () {
+      final created = measured((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20);
+        e.addMeasurement(
+            0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
+      });
+      expect(appearanceText(created, created.page(0).annotations.single),
+          contains('(60 ft)'));
+
+      // the reported regression: changing the width dropped the caption
+      final editor = PdfEditor(created);
+      editor.restyleAnnotation(0, created.page(0).annotations.single,
+          strokeWidth: 6);
+      final restyled = PdfDocument.open(editor.save());
+      final annot = restyled.page(0).annotations.single;
+      final text = appearanceText(restyled, annot);
+      expect(text, contains('(60 ft)'));
+      expect(text, contains('/Helv 10 Tf')); // caption font still drawn
+      expect(annot.borderWidth, 6);
+    });
+
+    test('caption font and size are honored and recorded in /DA', () {
+      final doc = measured((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20);
+        e.addMeasurement(
+            0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)],
+            captionFont: PdfStandardFont.times, captionSize: 14);
+      });
+      final annot = doc.page(0).annotations.single;
+      expect(annot.defaultAppearance, contains('/TiRo 14 Tf'));
+      expect(appearanceText(doc, annot), contains('/TiRo 14 Tf'));
+    });
+
+    test('line endings are written and survive a restyle', () {
+      final created = measured((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20);
+        e.addMeasurement(
+            0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)],
+            startEnding: PdfLineEnding.openArrow,
+            endEnding: PdfLineEnding.closedArrow);
+      });
+      final a = created.page(0).annotations.single;
+      expect(pdfLineEndings(a),
+          (PdfLineEnding.openArrow, PdfLineEnding.closedArrow));
+
+      final editor = PdfEditor(created);
+      editor.restyleAnnotation(0, a, strokeWidth: 5);
+      final restyled = PdfDocument.open(editor.save());
+      final b = restyled.page(0).annotations.single;
+      // endings preserved through the width change, caption still present
+      expect(pdfLineEndings(b),
+          (PdfLineEnding.openArrow, PdfLineEnding.closedArrow));
+      expect(appearanceText(restyled, b), contains('(60 ft)'));
+    });
+
+    test('setting line endings on a measurement keeps its caption', () {
+      final created = measured((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20);
+        e.addMeasurement(
+            0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
+      });
+      final editor = PdfEditor(created);
+      editor.setLineEndings(0, created.page(0).annotations.single,
+          endEnding: PdfLineEnding.openArrow);
+      final reshaped = PdfDocument.open(editor.save());
+      final annot = reshaped.page(0).annotations.single;
+      expect(pdfLineEndings(annot)?.$2, PdfLineEnding.openArrow);
+      expect(appearanceText(reshaped, annot), contains('(60 ft)'));
+    });
+
+    test('a perimeter measurement carries its line endings too', () {
+      final doc = measured((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20);
+        e.addMeasurement(0, PdfMeasurementKind.perimeter,
+            const [(100, 100), (172, 100), (172, 172)],
+            endEnding: PdfLineEnding.openArrow);
+      });
+      final annot = doc.page(0).annotations.single;
+      expect(annot.subtype, 'PolyLine');
+      expect(pdfLineEndings(annot)?.$2, PdfLineEnding.openArrow);
+    });
+
+    test('setMeasurementCaptionStyle restyles the caption font in place', () {
+      final created = measured((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20);
+        e.addMeasurement(
+            0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
+      });
+      final original = created.page(0).annotations.single;
+      expect(appearanceText(created, original), contains('/Helv 10 Tf'));
+
+      final editor = PdfEditor(created);
+      final changed = editor.setMeasurementCaptionStyle(0, original,
+          font: PdfStandardFont.times, size: 16);
+      expect(changed, isTrue);
+      final doc = PdfDocument.open(editor.save());
+      final annot = doc.page(0).annotations.single;
+      // both /DA and the drawn caption pick up the new face + size
+      expect(annot.defaultAppearance, contains('/TiRo 16 Tf'));
+      final text = appearanceText(doc, annot);
+      expect(text, contains('/TiRo 16 Tf'));
+      expect(text, contains('(60 ft)')); // label still drawn
+    });
+
+    test('setMeasurementCaptionStyle is a no-op on a plain line', () {
+      final doc = PdfDocument.open(buildClassicPdf());
+      final editor = PdfEditor(doc);
+      editor.addLine(0, const (100, 100), const (300, 100));
+      final line = doc.page(0).annotations.single;
+      expect(line.measure, isNull);
+      expect(
+          editor.setMeasurementCaptionStyle(0, line,
+              font: PdfStandardFont.times),
+          isFalse);
+    });
+
     test('throws without any scale', () {
       final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
       expect(

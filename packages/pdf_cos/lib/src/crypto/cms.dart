@@ -19,7 +19,32 @@ abstract final class _Oid {
   static const messageDigest = '1.2.840.113549.1.9.4';
   static const signingTime = '1.2.840.113549.1.9.5';
   static const rsaEncryption = '1.2.840.113549.1.1.1';
+  static const rsassaPss = '1.2.840.113549.1.1.10';
   static const ecPublicKey = '1.2.840.10045.2.1';
+}
+
+/// Parses RSASSA-PSS-params (RFC 4055 §3.1) from an AlgorithmIdentifier's
+/// parameters, returning the message/MGF hash and the explicit salt length
+/// (null when absent — the verifier then recovers it from the signature).
+/// Missing or partial parameters fall back to the ASN.1 defaults (SHA-1).
+(crypto.Hash, int?) _pssParams(DerObject? params) {
+  var hash = crypto.sha1;
+  int? saltLength;
+  if (params != null && params.tag == DerTag.sequence) {
+    for (final field in params.children) {
+      if (field.tag == DerTag.context(0)) {
+        // hashAlgorithm [0] EXPLICIT AlgorithmIdentifier
+        final h = _hashFor(field.children.first.children.first.asOid);
+        if (h != null) hash = h;
+      } else if (field.tag == DerTag.context(2)) {
+        // saltLength [2] EXPLICIT INTEGER
+        saltLength = field.children.first.asInteger.toInt();
+      }
+      // maskGenAlgorithm [1] is assumed MGF1 over the same hash, and
+      // trailerField [3] is always 1 — neither needs reading here.
+    }
+  }
+  return (hash, saltLength);
 }
 
 /// Maps a digest OID (or a combined signature OID) to its hash.
@@ -57,6 +82,9 @@ class X509Certificate {
     final top = DerObject.parse(der).children;
     cert.tbsDer = top[0].encoded;
     cert.signatureAlgorithmOid = top[1].children[0].asOid;
+    if (top[1].children.length > 1) {
+      cert.signatureAlgorithmParams = top[1].children[1];
+    }
     cert.signatureValue = top[2].asBitString;
     final tbs = top[0].children;
     var i = 0;
@@ -96,11 +124,21 @@ class X509Certificate {
   /// The to-be-signed portion, what the issuer's signature covers.
   late final Uint8List tbsDer;
   late final String signatureAlgorithmOid;
+  DerObject? signatureAlgorithmParams;
   late final Uint8List signatureValue;
 
   /// Whether this certificate's signature verifies with [issuer]'s key.
-  /// False for unsupported algorithms (e.g. RSASSA-PSS) or missing keys.
+  /// False for unsupported algorithms or missing keys.
   bool isSignedBy(X509Certificate issuer) {
+    if (signatureAlgorithmOid == _Oid.rsassaPss) {
+      if (issuer.publicKey case final RsaPublicKey key) {
+        final (hash, saltLength) = _pssParams(signatureAlgorithmParams);
+        final digest = hash.convert(tbsDer).bytes;
+        return rsaVerifyPss(key, hash, digest, signatureValue,
+            saltLength: saltLength);
+      }
+      return false;
+    }
     final hash = _hashFor(signatureAlgorithmOid);
     if (hash == null) return false;
     final digest = hash.convert(tbsDer).bytes;
@@ -141,6 +179,10 @@ class CmsSignerInfo {
 
   late final String digestAlgorithmOid;
   late final String signatureAlgorithmOid;
+
+  /// The signature AlgorithmIdentifier parameters, when present — carries
+  /// the RSASSA-PSS-params (hash, MGF, salt length) for PSS signers.
+  DerObject? signatureAlgorithmParams;
   late final Uint8List signature;
 
   /// The signed attributes re-tagged as an EXPLICIT SET, the exact bytes
@@ -226,7 +268,11 @@ class CmsSignedData {
       }
       i++;
     }
-    signer.signatureAlgorithmOid = fields[i++].children[0].asOid;
+    final signatureAlgorithm = fields[i++].children;
+    signer.signatureAlgorithmOid = signatureAlgorithm[0].asOid;
+    if (signatureAlgorithm.length > 1) {
+      signer.signatureAlgorithmParams = signatureAlgorithm[1];
+    }
     signer.signature = fields[i].content;
     return signer;
   }
@@ -301,9 +347,21 @@ CmsVerification cmsVerify(
   if (cert == null) {
     return CmsVerification(digestMatches, false, 'no signer certificate');
   }
-  if (signer.signatureAlgorithmOid == '1.2.840.113549.1.1.10') {
+  if (signer.signatureAlgorithmOid == _Oid.rsassaPss) {
+    if (cert.publicKey case final RsaPublicKey key) {
+      // PSS names its own hash in the parameters; fall back to the
+      // signer's digest algorithm when they are absent.
+      var (pssHash, saltLength) = _pssParams(signer.signatureAlgorithmParams);
+      if (signer.signatureAlgorithmParams == null) pssHash = hash;
+      final signedDigest = pssHash.convert(signedBytes).bytes;
+      return CmsVerification(
+          digestMatches,
+          rsaVerifyPss(key, pssHash, signedDigest, signer.signature,
+              saltLength: saltLength),
+          null);
+    }
     return CmsVerification(
-        digestMatches, false, 'RSASSA-PSS is not supported yet');
+        digestMatches, false, 'RSASSA-PSS requires an RSA key');
   }
 
   // the signature algorithm may name the digest itself (sha256WithRSA);

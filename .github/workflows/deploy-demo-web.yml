@@ -33,6 +33,18 @@ jobs:
 
       - run: flutter pub get
 
+      # Compile the dedicated Web Worker that runs page interpretation + image
+      # decode off the UI thread. Without it the viewer silently falls back to
+      # on-thread rendering, so heavy PDFs hang the demo while scrolling.
+      - name: Build the render worker
+        working-directory: packages/dart_pdf_editor/example
+        run: dart run dart_pdf_editor:build_web_worker
+
+      # Default (no --wasm) builds the CanvasKit renderer, which benchmarks
+      # faster than skwasm for page rasterization (see benchmark/web). The
+      # render worker above keeps interpretation/decode off the UI thread
+      # regardless of renderer; firebase.json's COOP/COEP headers are kept
+      # (harmless for CanvasKit) but no longer required for the renderer.
       - run: flutter build web --release
         working-directory: packages/dart_pdf_editor/example
 

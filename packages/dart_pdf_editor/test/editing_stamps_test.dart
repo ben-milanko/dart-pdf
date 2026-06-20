@@ -150,9 +150,9 @@ void main() {
           scrollable: dockScrollable);
       await tester.tap(insertChip);
       await tester.pump();
-      await tester.scrollUntilVisible(find.byTooltip('Stamp'), 100,
+      await tester.scrollUntilVisible(find.byTooltip('Stamp (S)'), 100,
           scrollable: stripScrollable);
-      await tester.tap(find.byTooltip('Stamp'));
+      await tester.tap(find.byTooltip('Stamp (S)'));
       await tester.pumpAndSettle();
       expect(editing.tool, PdfEditTool.stamp);
 

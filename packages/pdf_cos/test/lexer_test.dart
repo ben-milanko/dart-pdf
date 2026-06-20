@@ -31,6 +31,28 @@ void main() {
       expect(lex('-.5').realValue, -0.5);
       expect(lex('4.').realValue, 4.0);
     });
+
+    test('large integers parse exactly, matching int.tryParse', () {
+      // The direct byte parser handles ≤18-digit mantissas; longer ones (incl.
+      // the 19-digit int64 max) must fall back to the exact string path.
+      expect(lex('999999999999999999').intValue, 999999999999999999); // 18
+      expect(lex('9223372036854775807').intValue, 9223372036854775807); // max
+      expect(lex('+9223372036854775807').intValue, 9223372036854775807);
+    });
+
+    test('an integer that overflows int64 is malformed', () {
+      // int.tryParse returns null past the 64-bit range; the lexer must throw
+      // rather than silently wrap from the direct parse.
+      expect(() => lex('9223372036854775808'), throwsA(isA<Exception>()));
+      expect(() => lex('99999999999999999999'), throwsA(isA<Exception>()));
+    });
+
+    test('an embedded sign is malformed, not a silent number', () {
+      // `1-2` lexes as one number token; both the direct and string paths
+      // must reject it the same way.
+      expect(() => lex('1-2'), throwsA(isA<Exception>()));
+      expect(() => lex('--5'), throwsA(isA<Exception>()));
+    });
   });
 
   group('names', () {

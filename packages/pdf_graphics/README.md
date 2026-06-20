@@ -4,7 +4,7 @@
 [![pub points](https://img.shields.io/pub/points/pdf_graphics)](https://pub.dev/packages/pdf_graphics/score)
 [![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg?flag=pdf_graphics)](https://codecov.io/gh/ben-milanko/dart-pdf)
-[![License: Apache-2.0](https://img.shields.io/github/license/ben-milanko/dart-pdf)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
 
 The rendering core of the
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): a
@@ -20,12 +20,12 @@ in CLIs and servers, and on the web. The Flutter canvas device lives in
 
 - Interpreter covering the full content operator set: paths, clipping,
   text, images and inline images, XObjects, transparency groups, soft
-  masks, blend modes, optional content, and type 0–4 functions.
+  masks, blend modes, optional content, and type 0-4 functions.
 - Fonts: Type 1, TrueType, CFF, Type 0/CID, and Type 3, embedded or with
   standard-14 metrics; encodings, CMaps, and glyph outlines.
 - Color: ICC profiles (validated against littleCMS), Separation/DeviceN
   with tint transforms, Indexed, Lab, and calibrated spaces.
-- Shadings and patterns: types 1–7 including the mesh families, with
+- Shadings and patterns: types 1-7 including the mesh families, with
   `/Extend` semantics; tiling and shading patterns.
 - Text extraction: run geometry for selection and search, reading in
   document order, rotation-aware page geometry.
@@ -58,3 +58,5 @@ print(text.text);
 | [`pdf_document`](https://pub.dev/packages/pdf_document) | pages, annotations, forms, signatures, editing |
 | `pdf_graphics` | content interpreter, fonts, text extraction |
 | [`dart_pdf_editor`](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer + editing UI |
+| [`pdf_ocr_ondevice`](https://pub.dev/packages/pdf_ocr_ondevice) | optional native offline OCR engine |
+| [`pdf_ocr_vlm`](https://pub.dev/packages/pdf_ocr_vlm) | optional HTTP/VLM OCR engine |

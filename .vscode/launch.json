@@ -2,6 +2,21 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "DartPDF app",
+            "type": "dart",
+            "request": "launch",
+            "cwd": "app",
+            "program": "lib/main.dart"
+        },
+        {
+            "name": "DartPDF app (Chrome)",
+            "type": "dart",
+            "request": "launch",
+            "cwd": "app",
+            "program": "lib/main.dart",
+            "deviceId": "chrome"
+        },
+        {
             "name": "Example app",
             "type": "dart",
             "request": "launch",

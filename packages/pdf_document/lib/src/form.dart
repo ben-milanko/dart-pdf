@@ -252,6 +252,47 @@ class PdfFormField {
     return da is CosString ? da.text : form.defaultAppearance;
   }
 
+  /// The /DA font size in points; 0 means auto-size (the appearance fits
+  /// the text to the box). Parsed from the `/Font size Tf` operator.
+  double get appearanceFontSize {
+    final m = RegExp(r'/[^\s/]+\s+(\d+(?:\.\d+)?)\s+Tf')
+        .firstMatch(defaultAppearance ?? '');
+    return double.tryParse(m?.group(1) ?? '') ?? 0;
+  }
+
+  /// The /DA text colour as 0xRRGGBB, or null when the /DA sets none (the
+  /// appearance then defaults to black). Reads the last `g` / `rg` / `k`
+  /// colour-setting operator and its operands (§12.7.3.3).
+  int? get appearanceColor {
+    final tokens = (defaultAppearance ?? '')
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+    int byte(double v) => (v.clamp(0.0, 1.0) * 255).round();
+    int? rgb;
+    final nums = <double>[];
+    for (final tok in tokens) {
+      final n = double.tryParse(tok);
+      if (n != null) {
+        nums.add(n);
+        continue;
+      }
+      if (tok == 'g' && nums.isNotEmpty) {
+        final v = byte(nums.last);
+        rgb = (v << 16) | (v << 8) | v;
+      } else if (tok == 'rg' && nums.length >= 3) {
+        final c = nums.sublist(nums.length - 3);
+        rgb = (byte(c[0]) << 16) | (byte(c[1]) << 8) | byte(c[2]);
+      } else if (tok == 'k' && nums.length >= 4) {
+        final c = nums.sublist(nums.length - 4);
+        double cmyk(int i) => (1 - c[i]) * (1 - c[3]);
+        rgb = (byte(cmyk(0)) << 16) | (byte(cmyk(1)) << 8) | byte(cmyk(2));
+      }
+      nums.clear();
+    }
+    return rgb;
+  }
+
   /// The current value as text: /V strings come back verbatim, button
   /// state names without the slash, multi-select arrays as their first
   /// string. Null when the field is empty.

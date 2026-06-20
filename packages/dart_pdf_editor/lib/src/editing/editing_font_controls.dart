@@ -88,3 +88,83 @@ class FontStyleToggles extends StatelessWidget {
     ]);
   }
 }
+
+/// A left / center / right alignment toggle group for a free-text box,
+/// reporting the chosen [PdfTextAlign] through [onChanged].
+///
+/// Package-internal chrome shared by the toolbar style popup and the
+/// annotation properties panel; not part of the public API.
+class TextAlignToggles extends StatelessWidget {
+  const TextAlignToggles({
+    super.key,
+    required this.align,
+    required this.onChanged,
+    this.keyPrefix = 'pdf-text-align',
+  });
+
+  /// The alignment the group highlights.
+  final PdfTextAlign align;
+
+  /// Called with the alignment the user picked.
+  final ValueChanged<PdfTextAlign> onChanged;
+
+  /// Prefix for the toggle keys (`<prefix>-left` / `-center` / `-right`),
+  /// so the toolbar and the panel get distinct ones.
+  final String keyPrefix;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Widget toggle({
+      required PdfTextAlign value,
+      required IconData icon,
+      required String tooltip,
+    }) {
+      final selected = value == align;
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          key: ValueKey('$keyPrefix-${value.name}'),
+          onTap: () => onChanged(value),
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: selected ? scheme.primary : Colors.transparent,
+              border: Border.all(
+                  color: selected ? scheme.primary : scheme.outline),
+            ),
+            child: Icon(
+              icon,
+              size: 17,
+              color: selected ? scheme.onPrimary : scheme.onSurface,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      toggle(
+        value: PdfTextAlign.left,
+        icon: Icons.format_align_left,
+        tooltip: 'Align left',
+      ),
+      const SizedBox(width: 8),
+      toggle(
+        value: PdfTextAlign.center,
+        icon: Icons.format_align_center,
+        tooltip: 'Align center',
+      ),
+      const SizedBox(width: 8),
+      toggle(
+        value: PdfTextAlign.right,
+        icon: Icons.format_align_right,
+        tooltip: 'Align right',
+      ),
+    ]);
+  }
+}

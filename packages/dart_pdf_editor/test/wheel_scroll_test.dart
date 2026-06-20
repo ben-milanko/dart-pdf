@@ -8,6 +8,7 @@
 // work"); _onPointerSignal now scrolls the list itself via jumpTo.
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -92,6 +93,46 @@ void main() {
     expect(afterRegion!.left, isNot(closeTo(beforeRegion!.left, 0.001)),
         reason: 'horizontal trackpad scroll should pan the zoom window');
   });
+
+  // Two ways a shift+mouse-wheel reaches Flutter: with the vertical delta
+  // still in dy (the engine passes the wheel through raw and Flutter's
+  // own pointerAxisModifiers do the flip) and pre-flipped into dx (the
+  // browser / macOS swap the axis at the source). Both must pan the zoom
+  // window sideways without scrolling the list — and crucially the dx form
+  // is the one the vertical Scrollable would otherwise eat as a vertical
+  // scroll, so it's the regression that broke real-app shift-scrolling.
+  for (final delta in const [Offset(0, 60), Offset(60, 0)]) {
+    testWidgets('shift+mouse wheel ($delta) pans horizontally while zoomed',
+        (tester) async {
+      final controller = await pumpViewer(tester);
+      await tester.tapAt(const Offset(400, 300));
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.tapAt(const Offset(400, 300));
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expect(controller.zoom, greaterThan(1.01));
+
+      final state =
+          tester.state<ScrollableState>(find.byType(Scrollable).first);
+      final scrollBefore = state.position.pixels;
+      final beforeRegion = controller.visiblePageRegion(0);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      final pointer = TestPointer(106, PointerDeviceKind.mouse);
+      pointer.hover(const Offset(400, 300));
+      for (var i = 0; i < 5; i++) {
+        await tester.sendEventToBinding(pointer.scroll(delta));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pumpAndSettle();
+
+      final afterRegion = controller.visiblePageRegion(0);
+      expect(afterRegion!.left, isNot(closeTo(beforeRegion!.left, 0.001)),
+          reason: 'shift+wheel should pan the zoom window horizontally');
+      expect(state.position.pixels, closeTo(scrollBefore, 0.001),
+          reason: 'shift+wheel should not scroll the document vertically');
+    });
+  }
 
   testWidgets('web-style trackpad scroll: vertical with a tool armed',
       (tester) async {

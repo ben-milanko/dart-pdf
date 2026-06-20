@@ -5,6 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'perf_log.dart';
+import 'raster_cache.dart';
+import 'render_worker.dart';
 import 'renderer.dart';
 
 /// Low-resolution page previews shown while a page's full render is
@@ -37,6 +40,42 @@ class PdfPagePreviewCache extends ChangeNotifier {
   final _entries = <int, _PreviewEntry>{};
   bool _disposed = false;
 
+  /// Optional persistent backing (see [PdfRasterCache]). When set, fresh
+  /// previews are written through to disk as they render, and [loadFromDisk]
+  /// can prime the in-memory cache from a previous session. The viewer
+  /// binds this to the open document; null leaves the cache session-only,
+  /// exactly as before.
+  PdfRasterCache? disk;
+
+  /// Loads any persisted previews for [pages] into memory, so a cold open
+  /// of a previously-seen document paints soft content at once. Pages that
+  /// already hold a (fresher, in-session) preview are left alone, and the
+  /// loaded entries are bound to the current [pages] objects so the
+  /// background prerender treats them as done — the on-screen full render
+  /// still replaces them when it lands.
+  Future<void> loadFromDisk(List<PdfPage> pages) async {
+    final cache = disk;
+    if (cache == null || _disposed) return;
+    for (var i = 0; i < pages.length; i++) {
+      if (_disposed) return;
+      if (_entries.containsKey(i)) continue;
+      final image = await cache.loadPreview(i);
+      if (image == null) continue;
+      if (_disposed || _entries.containsKey(i)) {
+        image.dispose();
+        continue;
+      }
+      // adopt without writing back — these bytes just came from disk
+      _entries[i] = _PreviewEntry(pages[i], image);
+      while (_entries.length > capacity) {
+        final oldest = _entries.keys.first;
+        if (oldest == i) break;
+        _entries.remove(oldest)!.image.dispose();
+      }
+      notifyListeners();
+    }
+  }
+
   /// The preview for page [index], as a clone the caller owns (and must
   /// dispose), or null when none is cached. Counts as a use for LRU.
   ui.Image? imageFor(int index) {
@@ -62,19 +101,48 @@ class PdfPagePreviewCache extends ChangeNotifier {
   }
 
   /// Interprets [page] and stores its preview — the background-prerender
-  /// path for pages that have never rendered on screen. The interpreter
-  /// walk is synchronous UI-thread work, so callers pace and gate these
-  /// (the viewer pauses while the user scrolls). A page that fails to
-  /// render simply gets no preview.
+  /// path for pages that have never rendered on screen. When [worker] is
+  /// supplied the interpreter walk is offloaded to a background isolate and
+  /// only the (cheap) replay + downscale run here; otherwise the walk is
+  /// synchronous UI-thread work, so callers pace and gate these (the viewer
+  /// pauses while the user scrolls). A page that fails to render simply gets
+  /// no preview.
   Future<void> renderPreview(int index, PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
+      bool annotations = true,
+      PdfRenderWorker? worker,
+      int? rotation}) async {
     if (_disposed || isFresh(index, page)) return;
     try {
-      final image = await PdfPageRenderer.renderImage(page,
-          pixelRatio: _ratioFor(PdfPageRenderer.pageSize(page)),
-          pageColor: pageColor,
-          annotations: annotations);
+      final sw = Stopwatch()..start();
+      final size = PdfPageRenderer.pageSize(page, rotation: rotation);
+      final ratio = _ratioFor(size);
+      // priority 1: prefetch yields to any on-screen page the worker owes
+      final commands = worker != null && worker.isActive
+          ? await worker.record(index, annotations: annotations, priority: 1)
+          : null;
+      if (_disposed || isFresh(index, page)) return;
+      final ui.Image image;
+      if (commands != null) {
+        final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
+            pageColor: pageColor, rotation: rotation);
+        try {
+          image = await PdfPageRenderer.rasterize(picture, size, ratio);
+        } finally {
+          picture.dispose();
+        }
+      } else {
+        image = await PdfPageRenderer.renderImage(page,
+            pixelRatio: ratio,
+            pageColor: pageColor,
+            annotations: annotations,
+            recorded: true,
+            rotation: rotation);
+      }
+      sw.stop();
+      PdfPerfLog.log('prerender page=$index '
+          '${commands != null ? 'worker ' : ''}'
+          'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
       _store(index, page, image);
     } catch (_) {
       // no preview is strictly better than a crash mid-scroll
@@ -85,10 +153,10 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// population as pages render on screen (raster-thread work only, no
   /// second interpreter walk). The picture stays owned by the caller.
   Future<void> putFromPicture(int index, PdfPage page,
-      ui.Picture picture) async {
+      ui.Picture picture, {int? rotation}) async {
     if (_disposed || isFresh(index, page)) return;
     try {
-      final size = PdfPageRenderer.pageSize(page);
+      final size = PdfPageRenderer.pageSize(page, rotation: rotation);
       final image =
           await PdfPageRenderer.rasterize(picture, size, _ratioFor(size));
       _store(index, page, image);
@@ -107,6 +175,10 @@ class PdfPagePreviewCache extends ChangeNotifier {
     while (_entries.length > capacity) {
       _entries.remove(_entries.keys.first)!.image.dispose();
     }
+    // Write through to disk so the next session opens with this preview
+    // already on screen. Fire-and-forget: the encode is a raster-thread
+    // readback and a slow/failed store must never stall rendering.
+    disk?.storePreview(index, image);
     notifyListeners();
   }
 
@@ -116,10 +188,24 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// render the moment the page is on screen, which is where edits
   /// happen — but the whole document doesn't re-interpret per pen
   /// stroke.
-  void rebind(List<PdfPage> pages) {
-    for (final entry in _entries.entries) {
-      if (entry.key < pages.length) entry.value.page = pages[entry.key];
+  ///
+  /// [changed] (when given) names pages whose *content* changed in the new
+  /// revision — most importantly a redaction burn, where the old preview
+  /// still shows the removed glyphs/images. Their previews are dropped
+  /// rather than rebound, so a fresh page state scrolled past during a fast
+  /// scroll paints blank (then re-renders) instead of flashing now-deleted
+  /// content. The rest rebind in place as before.
+  void rebind(List<PdfPage> pages, {bool Function(int index)? changed}) {
+    var dropped = false;
+    for (final index in _entries.keys.toList()) {
+      if (changed != null && changed(index)) {
+        _entries.remove(index)!.image.dispose();
+        dropped = true;
+      } else if (index < pages.length) {
+        _entries[index]!.page = pages[index];
+      }
     }
+    if (dropped && !_disposed) notifyListeners();
   }
 
   /// Drops every preview (different document, page color change...).

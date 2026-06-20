@@ -1,0 +1,66 @@
+name: dart_pdf_editor_app
+description: "DartPDF — a fully native Flutter PDF editor"
+publish_to: 'none'
+resolution: workspace
+
+# version is the single source of truth for every platform build; CI passes
+# --build-name / --build-number derived from it (see app/RELEASING.md).
+version: 1.2.3+6
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # The PDF engine and editing UI live in the workspace packages.
+  dart_pdf_editor: ^1.2.1
+  pdf_document: ^1.2.1
+
+  # On-device, downloadable OCR — adds a selectable text layer over scans
+  # without leaving the device (native platforms only).
+  pdf_ocr_ondevice: ^1.2.1
+
+  # Cross-platform file I/O and OS integration.
+  file_selector: ^1.0.3
+  share_plus: ^13.1.0
+  url_launcher: ^6.3.0
+  # Hands a finished PDF to the OS print dialog (iOS, Android, macOS, Windows,
+  # Linux, and the web). The engine here only renders pages, so the document
+  # bytes are printed verbatim — no re-layout.
+  printing: ^5.13.0
+  shared_preferences: ^2.3.0
+  desktop_drop: ^0.7.0
+  # Polls GitHub Releases for a newer build (in-app update checker). Works on
+  # the web build too, though the updater skips the check there.
+  http: ^1.2.0
+  # Reads the version stamped into the build artifact (derived from the
+  # pubspec version above), so the About box can't drift from the release.
+  package_info_plus: ^10.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # Only used by tool/screenshots_main.dart (not by lib/) to borrow the
+  # example's feature-showcase document for marketing screenshots.
+  pdf_viewer_example:
+    path: ../packages/dart_pdf_editor/example
+
+  # Programmatically-built PDFs for widget tests.
+  pdf_test_fixtures: ^1.2.1
+
+  # Text extraction, used by the on-device OCR integration test to assert
+  # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
+  pdf_graphics: ^1.2.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - web/favicon.png
+    - web/icons/Icon-512.png

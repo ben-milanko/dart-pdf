@@ -7,6 +7,71 @@ import '../theme.dart';
 import 'editing_controller.dart';
 import 'text_prompt.dart';
 
+TextDirection _flutterTextDirection(String text) =>
+    pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
+
+/// While the form-authoring tool is armed, outlines every form-field
+/// widget on a page and tags it with its field name — so empty fields
+/// (which render nothing) are discoverable and you can see what each one
+/// is named before selecting it.
+///
+/// Purely informational: it sits under the editing overlay's gestures
+/// ([IgnorePointer]) so selecting, moving, and resizing fields is
+/// unaffected. Mounted by [PdfViewer] only when
+/// [PdfEditingController.tool] is [PdfEditTool.form].
+class FormFieldLabelLayer extends StatelessWidget {
+  const FormFieldLabelLayer({
+    super.key,
+    required this.controller,
+    required this.pageIndex,
+    required this.geometry,
+  });
+
+  final PdfEditingController controller;
+  final int pageIndex;
+  final PdfPageGeometry geometry;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = PdfViewerTheme.of(context).annotationChromeColor ??
+        const Color(0xFF1E88E5);
+    final fields = controller.formWidgetsOn(pageIndex);
+    return IgnorePointer(
+      child: Stack(children: [
+        for (final (field, _, annotation) in fields)
+          _label(geometry.toViewRect(annotation.rect), field.name, chrome),
+      ]),
+    );
+  }
+
+  Widget _label(Rect rect, String name, Color chrome) {
+    return Positioned.fromRect(
+      rect: rect,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: chrome.withValues(alpha: 0.05),
+          border: Border.all(color: chrome.withValues(alpha: 0.5)),
+        ),
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Container(
+            constraints: BoxConstraints(maxWidth: rect.width),
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+            color: chrome.withValues(alpha: 0.85),
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xFFFFFFFF), fontSize: 10, height: 1.1),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One page's interactive form layer: places a tap target over every
 /// visible form-field widget so a reader can fill the form directly —
 /// click a text field and type, tap a check box or radio button, pick
@@ -50,7 +115,8 @@ class FormInteractionLayer extends StatefulWidget {
 }
 
 class _FormInteractionLayerState extends State<FormInteractionLayer> {
-  final TextEditingController _text = TextEditingController();
+  late final TextEditingController _text = TextEditingController()
+    ..addListener(_onTextChanged);
   late final FocusNode _focus = FocusNode()..addListener(_onFocusChange);
 
   // The text field being edited, if any. Fields die with every revision,
@@ -80,6 +146,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     _focus.dispose();
     _text.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    if (_editingField != null && mounted) setState(() {});
   }
 
   PdfEditingController get _controller => widget.controller;
@@ -196,7 +266,8 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     if (options.isEmpty) return;
     final name = field.name;
     final box = context.findRenderObject() as RenderBox?;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null) return;
     final topLeft = box.localToGlobal(viewRect.bottomLeft, ancestor: overlay);
     final picked = await showMenu<String>(
@@ -295,9 +366,8 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Widget _inlineEditor() {
     final rect = _editRect!;
     final scale = widget.geometry.scale;
-    final chromeColor =
-        PdfViewerTheme.of(context).annotationChromeColor ??
-            const Color(0xFF1E88E5);
+    final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
+        const Color(0xFF1E88E5);
     return Positioned.fromRect(
       rect: rect,
       child: Container(
@@ -325,6 +395,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
             // own focus steal while editing, so the field keeps focus
             // until this fires
             onTapOutside: (_) => _commitText(),
+            textDirection: _flutterTextDirection(_text.text),
+            textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
+                ? TextAlign.right
+                : TextAlign.left,
             textAlignVertical: _editMultiline
                 ? TextAlignVertical.top
                 : TextAlignVertical.center,
@@ -358,11 +432,16 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       child: IgnorePointer(
         child: Container(
           color: widget.pageColor.withValues(alpha: 0.92),
-          alignment:
-              _editMultiline ? Alignment.topLeft : Alignment.centerLeft,
+          alignment: _flutterTextDirection(value) == TextDirection.rtl
+              ? (_editMultiline ? Alignment.topRight : Alignment.centerRight)
+              : (_editMultiline ? Alignment.topLeft : Alignment.centerLeft),
           padding: EdgeInsets.all(2 * widget.geometry.scale),
           child: Text(
             value,
+            textDirection: _flutterTextDirection(value),
+            textAlign: _flutterTextDirection(value) == TextDirection.rtl
+                ? TextAlign.right
+                : TextAlign.left,
             maxLines: _editMultiline ? null : 1,
             overflow: TextOverflow.clip,
             style: TextStyle(

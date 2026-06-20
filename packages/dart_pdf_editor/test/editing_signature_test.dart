@@ -168,9 +168,9 @@ void main() {
 
       // no saved signature: the tool button opens the pad dialog first
       await tester.scrollUntilVisible(
-          find.byTooltip('Signature — tap a page to place it'), 100,
+          find.byTooltip('Signature — tap a page to place it (G)'), 100,
           scrollable: stripScrollable);
-      await tester.tap(find.byTooltip('Signature — tap a page to place it'));
+      await tester.tap(find.byTooltip('Signature — tap a page to place it (G)'));
       await tester.pumpAndSettle();
       expect(find.byType(PdfSignatureDialog), findsOneWidget);
 
@@ -202,9 +202,9 @@ void main() {
       editing.tool = null;
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-          find.byTooltip('Signature — tap a page to place it'), 100,
+          find.byTooltip('Signature — tap a page to place it (G)'), 100,
           scrollable: stripScrollable);
-      await tester.tap(find.byTooltip('Signature — tap a page to place it'));
+      await tester.tap(find.byTooltip('Signature — tap a page to place it (G)'));
       await tester.pumpAndSettle();
       expect(find.byType(PdfSignatureDialog), findsNothing);
       expect(editing.tool, PdfEditTool.signature);

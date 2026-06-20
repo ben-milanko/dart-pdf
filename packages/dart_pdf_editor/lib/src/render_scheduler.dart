@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/scheduler.dart';
 
+import 'perf_log.dart';
+
 /// Paces the first interpretation of PDF pages so a single frame never
 /// runs more than one synchronous content-stream walk.
 ///
@@ -34,6 +36,8 @@ class PdfPageRenderScheduler {
   set holding(bool value) {
     if (_holding == value || _disposed) return;
     _holding = value;
+    PdfPerfLog.log('renderHold ${_holding ? 'ON' : 'off'} '
+        '(pending=${_pending.length} focus=$_focus)');
     if (!_holding) _scheduleDrain();
   }
 
@@ -96,6 +100,8 @@ class PdfPageRenderScheduler {
           }
         }
         final next = _pending.removeAt(pick);
+        PdfPerfLog.log('scheduler grant page=${next.priority} '
+            'focus=$_focus remaining=${_pending.length}');
         try {
           next.render(); // one synchronous interpret this frame
         } catch (_) {

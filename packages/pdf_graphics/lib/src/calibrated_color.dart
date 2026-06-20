@@ -15,6 +15,13 @@ abstract class PdfCalibratedColorSpace {
 
   PdfColor toSrgb(List<double> values);
 
+  /// Maps raw 8-bit samples (0–255), as stored in image data or an Indexed
+  /// palette entry, to sRGB through the space's default component decode
+  /// (§8.6.5). The default decode is [0, 1] per component; Lab overrides it
+  /// with its L*/a*/b* ranges.
+  PdfColor toSrgbFromSamples(List<int> samples) =>
+      toSrgb([for (final s in samples) s / 255]);
+
   static PdfCalibratedColorSpace? parse(CosDocument cos, CosObject? object) {
     final resolved = cos.resolve(object);
     if (resolved is! CosArray || resolved.length < 2) return null;
@@ -276,6 +283,18 @@ class _LabColorSpace extends PdfCalibratedColorSpace {
       _CalRgbColorSpace._srgbTransfer(srgb[1]),
       _CalRgbColorSpace._srgbTransfer(srgb[2]),
     );
+  }
+
+  @override
+  PdfColor toSrgbFromSamples(List<int> samples) {
+    // §8.6.5.4 default decode for Lab samples: L* spans [0, 100], a*/b* span
+    // the /Range. Each raw byte 0–255 maps linearly onto its component range.
+    final l = (samples.isNotEmpty ? samples[0] : 0) / 255 * 100;
+    final a =
+        range[0] + (samples.length > 1 ? samples[1] : 0) / 255 * (range[1] - range[0]);
+    final b =
+        range[2] + (samples.length > 2 ? samples[2] : 0) / 255 * (range[3] - range[2]);
+    return toSrgb([l, a, b]);
   }
 
   static double _labInverse(double v) {

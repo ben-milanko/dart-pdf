@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.3
+
+- Version bump to keep the dart-pdf package suite aligned at 1.2.3. No
+  fixture changes since 1.2.2.
+
+## 1.2.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.2.2. No
+  fixture changes since 1.2.1.
+
+## 1.2.1
+
+- Add a package example for pub.dev scoring.
+
+## 1.2.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.2.0. No
+  fixture changes since 1.1.0.
+
+## 1.1.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.1.0. No
+  fixture changes since 1.0.0.
+
 ## 1.0.0
 
 First stable release. Adds fixtures exercising TrueType `post`-table

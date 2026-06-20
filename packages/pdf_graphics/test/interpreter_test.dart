@@ -372,6 +372,68 @@ void main() {
       expect(run.width, closeTo(5.501, 1e-9));
     });
 
+    test('a Type3 glyph that shows text does not corrupt the outer run', () {
+      // A Type3 CharProc is an arbitrary content stream and may itself show
+      // text, which re-enters _showText mid-loop. The run-text buffer is reused
+      // across calls, so the nested call must take a private buffer and leave
+      // the outer Type3 run's accumulated text intact.
+      final doc = CosDocument.open(buildClassicPdf());
+      final charProc = CosStream(
+        CosDictionary({'Length': const CosInteger(0)}),
+        // d0 (glyph width) then a nested text object showing "inner".
+        Uint8List.fromList(
+            '1000 0 d0 BT /F1 8 Tf 0 0 Td (inner) Tj ET'.codeUnits),
+      );
+      final type3 = CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type3'),
+        'FontBBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(750),
+          const CosInteger(750),
+        ]),
+        'FontMatrix': CosArray([
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+        ]),
+        'FirstChar': const CosInteger(0x58),
+        'LastChar': const CosInteger(0x58),
+        'Widths': CosArray([const CosInteger(600)]),
+        'Encoding': CosDictionary({
+          'Differences': CosArray([const CosInteger(0x58), const CosName('X')]),
+        }),
+        'CharProcs': CosDictionary({'X': charProc}),
+        'Resources': CosDictionary({
+          'Font': CosDictionary({
+            'F1': CosDictionary({
+              'Type': const CosName('Font'),
+              'Subtype': const CosName('Type1'),
+              'BaseFont': const CosName('Helvetica'),
+            }),
+          }),
+        }),
+      });
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(
+            Uint8List.fromList('BT /T3 10 Tf (X) Tj ET'.codeUnits)),
+        CosDictionary({
+          'Font': CosDictionary({'T3': type3}),
+        }),
+      );
+      // The nested CharProc text emits first, then the outer Type3 run.
+      final inner = device.texts.firstWhere((t) => t.text == 'inner');
+      final outer = device.texts.firstWhere((t) => t.text != 'inner');
+      expect(inner.text, 'inner');
+      expect(outer.text, 'X',
+          reason: 'the nested show must not overwrite the outer buffer');
+    });
+
     test('TJ adjustments shift subsequent runs', () {
       final doc = PdfDocument.open(buildClassicPdf());
       final device = RecordingDevice();
@@ -573,11 +635,13 @@ void main() {
       expect(device.texts[2].strokeColor, isNull);
     });
 
-    test('substituted fill+stroke text drops an unrenderable tiling fill', () {
+    test('substituted fill+stroke text fills a tiling pattern with its '
+        'representative colour', () {
       // /Pattern cs /P1 scn sets a tiling-pattern fill that can't be clipped
-      // through a substituted font's (absent) outlines. In fill+stroke mode
-      // the bogus solid fallback is dropped so the stroke reads as an outline
-      // instead of a solid block.
+      // through a substituted font's (absent) outlines. We fall back to the
+      // cell's fill colour (magenta) as a solid approximation rather than
+      // dropping the fill, so the glyphs read in the pattern's colour with the
+      // stroke on top.
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();
       const cell = '1 0 1 rg 0 0 1 1 re f';
@@ -610,7 +674,8 @@ void main() {
         resources,
       );
       final run = device.texts.single;
-      expect(run.fill, isFalse, reason: 'unrenderable tiling fill dropped');
+      expect(run.fill, isTrue, reason: 'tiling fill approximated as a solid');
+      expect(run.color, const PdfColor(1, 0, 1), reason: 'the cell fill colour');
       expect(run.strokeColor, const PdfColor(0, 0, 1));
     });
 
@@ -1031,6 +1096,95 @@ void main() {
       expect(device.texts.single.transform.e, 22);
       expect(device.texts.single.transform.f, closeTo(106.692, 1e-3));
       expect(device.clips, hasLength(1));
+    });
+  });
+
+  group('cancellation', () {
+    Uint8List heavyPdf() {
+      final ops = StringBuffer();
+      for (var i = 0; i < 200; i++) {
+        ops.write('q 1 0 0 1 ${i % 10} ${i % 10} cm '
+            '0 0 m 10 0 l 10 10 l 0 10 l h f Q\n');
+      }
+      final content = ops.toString();
+      final objects = <String>[
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+            '/Contents 4 0 R >>',
+        '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+      ];
+      final buffer = StringBuffer('%PDF-1.4\n');
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      final xref = buffer.length;
+      buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+      for (final o in offsets) {
+        buffer.write('${o.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      buffer.write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
+          'startxref\n$xref\n%%EOF\n');
+      return Uint8List.fromList(buffer.toString().codeUnits);
+    }
+
+    test('a cancelled token stops the walk early', () {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final ops = ContentStreamParser.parse(page.contentBytes());
+
+      final token = PdfCancellationToken()..cancelled = true;
+      final device = RecordingDevice();
+      final interp = PdfInterpreter(
+          cos: doc.cos, device: device, cancellation: token);
+      expect(
+        () => interp.drawPageOperations(page, ops),
+        throwsA(isA<PdfCancelledException>()),
+      );
+      final cancelledCalls = device.calls.length;
+
+      final fullDevice = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: fullDevice)
+          .drawPageOperations(page, ops);
+      expect(cancelledCalls, lessThan(fullDevice.calls.length),
+          reason: 'a cancelled walk stops before the full walk');
+    });
+
+    test('drawPageOperationsAsync yields and checks the token', () async {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final ops = ContentStreamParser.parse(page.contentBytes());
+
+      final token = PdfCancellationToken();
+      final device = RecordingDevice();
+      final interp = PdfInterpreter(
+          cos: doc.cos, device: device, cancellation: token);
+
+      // Cancel after a micro-task so the async walk picks it up at a yield.
+      Future<void>.delayed(Duration.zero).then((_) {
+        token.cancelled = true;
+      });
+
+      await expectLater(
+        interp.drawPageOperationsAsync(page, ops),
+        throwsA(isA<PdfCancelledException>()),
+      );
+    });
+
+    test('no token means no cancellation overhead', () {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final ops = ContentStreamParser.parse(page.contentBytes());
+
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawPageOperations(page, ops);
+      expect(device.calls, isNotEmpty);
     });
   });
 }

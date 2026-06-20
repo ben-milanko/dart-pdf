@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 
+import 'content_writer.dart';
 import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
@@ -108,6 +109,19 @@ class PdfAnnotation {
     final nm = document.cos.resolve(dict['NM']);
     return nm is CosString ? nm.text : null;
   }
+
+  /// The /Name appearance/icon name (§12.5.6.x): the named icon a /Text
+  /// or /Stamp annotation draws (e.g. `Comment`, `Approved`, `Check`).
+  /// Distinct from [name], which reads /NM.
+  String? get iconName {
+    final n = document.cos.resolve(dict['Name']);
+    return n is CosName ? n.value : null;
+  }
+
+  /// Whether this is a count check-mark: a /Stamp whose /Name is `Check`,
+  /// placed by the editor's count tool. The editing UI tallies these
+  /// Bluebeam-style.
+  bool get isCheckMark => subtype == 'Stamp' && iconName == 'Check';
 
   /// The /C color as 0xRRGGBB, if present. Gray and CMYK component
   /// counts are converted; an empty array (explicit "no color") and
@@ -253,6 +267,17 @@ class PdfAnnotation {
     return da is CosString ? da.text : null;
   }
 
+  /// The free-text rich-content string (§12.7.3.4 `/RC`) — the XHTML that
+  /// records per-run styling the flat /DA can't, written by
+  /// `PdfEditor.addFreeTextRich`. Null when absent (plain free text or a
+  /// non-free-text annotation). Parse it with
+  /// `PdfEditor.parseFreeTextRichContent`.
+  String? get richContent {
+    if (subtype != 'FreeText') return null;
+    final rc = document.cos.resolve(dict['RC']);
+    return rc is CosString ? rc.text : null;
+  }
+
   /// The complete style of a free-text annotation, parsed from /DA, /C,
   /// and /BS — everything needed to regenerate its appearance at a new
   /// size. Null for other subtypes or when /DA has no usable `Tf`.
@@ -295,6 +320,7 @@ class PdfAnnotation {
     final text = lastColor('rg') ?? gray() ?? 0x000000;
     final background = color;
     final width = borderWidth ?? 0;
+    final q = document.cos.resolve(dict['Q']);
     return PdfFreeTextStyle(
       fontName: tf.group(1)!,
       fontSize: size,
@@ -302,6 +328,7 @@ class PdfAnnotation {
       fillColor: background != null && background != text ? background : null,
       borderColor: lastColor('RG') ?? (width > 0 ? text : null),
       borderWidth: width,
+      alignment: PdfTextAlign.fromQuadding(q is CosInteger ? q.value : null),
     );
   }
 
@@ -450,6 +477,7 @@ class PdfFreeTextStyle {
     this.fillColor,
     this.borderColor,
     this.borderWidth = 0,
+    this.alignment = PdfTextAlign.left,
   });
 
   /// The /DA font resource name (e.g. `Helv`), unresolved.
@@ -465,6 +493,10 @@ class PdfFreeTextStyle {
   /// The box border color, or null for no border.
   final int? borderColor;
   final double borderWidth;
+
+  /// How the lines are aligned inside the box (the /Q quadding). Defaults
+  /// to [PdfTextAlign.left] when the annotation carries no /Q.
+  final PdfTextAlign alignment;
 }
 
 /// A /Link annotation: a clickable region with an action (§12.5.6.5).

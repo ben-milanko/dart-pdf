@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DartPDF: edit PDFs locally</title>
+  <meta name="description"
+    content="Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on iPhone, iPad, Mac, Android, Windows, Linux, and the web. Files stay local. No account. No uploads." />
+  <link rel="canonical" href="https://dart-pdf.com/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="DartPDF" />
+  <meta property="og:url" content="https://dart-pdf.com/" />
+  <meta property="og:title" content="DartPDF — private, local PDF editor for every device" />
+  <meta property="og:description"
+    content="Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on iPhone, iPad, Mac, Android, Windows, Linux, and the web. Files stay local. No account. No uploads." />
+  <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="DartPDF — pure-Dart PDF renderer & editor for Flutter" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="DartPDF — private, local PDF editor for every device" />
+  <meta name="twitter:description"
+    content="Edit, annotate, OCR, fill, sign, redact, and compare PDFs on every platform. Files stay local. No account. No uploads." />
+  <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
+
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <meta name="theme-color" content="#0169b4" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #ffffff;
+      --bg: #fbfcfd;
+      --ink: #202124;
+      --ink-soft: #3c4043;
+      --grey: #6b7177;
+      --grey-muted: #9aa0a6;
+      --line: #e7ebee;
+      --line-soft: #eef2f5;
+      --tint: #c6e3f8;
+      --tint-soft: #eaf5fe;
+      --blue-1: #16bafd;
+      --blue-2: #0169b4;
+      --blue-ink: #0175c2;
+      --amber: #ffc93c;
+      --dark: #202124;
+      --dark-2: #1a1b1d;
+      --radius: 14px;
+      --radius-lg: 22px;
+      --maxw: 1140px;
+      --grad: linear-gradient(135deg, #16bafd 0%, #0169b4 100%);
+      --shadow-sm: 0 1px 2px rgba(32, 33, 36, .06), 0 1px 3px rgba(32, 33, 36, .05);
+      --shadow-md: 0 6px 16px rgba(32, 33, 36, .08), 0 2px 6px rgba(32, 33, 36, .05);
+      --shadow-lg: 0 30px 70px -30px rgba(16, 42, 67, .4), 0 12px 30px -18px rgba(16, 42, 67, .3);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      line-height: 1.55;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+      margin: 0;
+      font-weight: 800;
+    }
+
+    p {
+      margin: 0;
+      text-wrap: pretty;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    ::selection {
+      background: rgba(255, 201, 60, .5);
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    .eyebrow {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--blue-2);
+    }
+
+    /* ---------- Buttons ---------- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 12px 20px;
+      border-radius: 11px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: transform .15s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--grad);
+      color: #fff;
+      box-shadow: 0 6px 18px -6px rgba(1, 105, 180, .6);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px -6px rgba(1, 105, 180, .65);
+    }
+
+    .btn-ghost {
+      background: var(--paper);
+      color: var(--ink);
+      border-color: var(--line);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--tint);
+      background: var(--tint-soft);
+      transform: translateY(-1px);
+    }
+
+    .btn-dark {
+      background: var(--ink);
+      color: #fff;
+    }
+
+    .btn-dark:hover {
+      transform: translateY(-1px);
+      background: #000;
+    }
+
+    .btn-outline-light {
+      background: transparent;
+      color: #fff;
+      border-color: rgba(255, 255, 255, .28);
+    }
+
+    .btn-outline-light:hover {
+      border-color: rgba(255, 255, 255, .55);
+      background: rgba(255, 255, 255, .06);
+    }
+
+    /* ---------- Header ---------- */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(251, 252, 253, .82);
+      backdrop-filter: saturate(180%) blur(14px);
+      border-bottom: 1px solid transparent;
+      transition: border-color .2s ease, background .2s ease;
+    }
+
+    header.scrolled {
+      border-color: var(--line);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 70px;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      font-weight: 800;
+      font-size: 19px;
+      letter-spacing: -.02em;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 30px;
+    }
+
+    .nav-links a {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--ink-soft);
+      transition: color .15s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--blue-2);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .menu-btn {
+      display: none;
+      background: none;
+      border: 0;
+      cursor: pointer;
+      padding: 8px;
+    }
+
+    /* ---------- Logo mark ---------- */
+    .mark {
+      width: 30px;
+      height: 30px;
+      flex: none;
+    }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 70px 0 40px;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(60% 55% at 78% 8%, rgba(22, 186, 253, .10), transparent 70%),
+        radial-gradient(50% 45% at 10% 0%, rgba(198, 227, 248, .35), transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-inner {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 430px);
+      gap: 56px;
+      align-items: center;
+    }
+
+    .hero h1 {
+      font-size: clamp(38px, 4.4vw, 54px);
+    }
+
+    .hero .hl {
+      position: relative;
+      z-index: 0;
+      background-image: linear-gradient(var(--amber), var(--amber));
+      background-repeat: no-repeat;
+      background-position: 0 92%;
+      background-size: 100% .30em;
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+    }
+
+    .hero p.sub {
+      margin-top: 22px;
+      font-size: 18px;
+      color: var(--grey);
+      max-width: 30em;
+    }
+
+    .hero-cta {
+      margin-top: 30px;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .hero-note {
+      margin-top: 18px;
+      font-size: 13.5px;
+      color: var(--grey-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #2bb673;
+      display: inline-block;
+    }
+
+    /* device frame */
+    .device {
+      position: relative;
+      border-radius: var(--radius-lg);
+      background: #000;
+      border: 1px solid rgba(255, 255, 255, .08);
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+    }
+
+    .device-shot {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1770 / 1728;
+      object-fit: cover;
+      background: #000;
+    }
+
+    .device-tag {
+      position: absolute;
+      right: -14px;
+      bottom: 26px;
+      z-index: 3;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow-md);
+      border-radius: 12px;
+      padding: 11px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .device-tag .swatch {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      background: var(--grad);
+      display: grid;
+      place-items: center;
+    }
+
+    /* ---------- Logos / trust strip ---------- */
+    .platforms-strip {
+      margin-top: 54px;
+    }
+
+    .platforms-strip .label {
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--grey-muted);
+      text-align: center;
+    }
+
+    .os-row {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px 28px;
+    }
+
+    .os-row span {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--ink-soft);
+    }
+
+    .os-row svg {
+      width: 18px;
+      height: 18px;
+      color: var(--grey);
+    }
+
+    /* ---------- Section headers ---------- */
+    .section {
+      padding: 92px 0;
+    }
+
+    .sec-head {
+      max-width: 640px;
+    }
+
+    .sec-head h2 {
+      font-size: clamp(28px, 3.2vw, 40px);
+      margin-top: 14px;
+    }
+
+    .sec-head p {
+      margin-top: 16px;
+      font-size: 17px;
+      color: var(--grey);
+    }
+
+    /* ---------- Feature grid ---------- */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 52px;
+    }
+
+    .feature {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      transition: transform .18s ease, box-shadow .2s ease, border-color .2s ease;
+    }
+
+    .feature:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--tint);
+    }
+
+    .ficon {
+      width: 42px;
+      height: 42px;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      background: var(--tint-soft);
+      color: var(--blue-2);
+      margin-bottom: 16px;
+    }
+
+    .ficon svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .feature h3 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -.01em;
+    }
+
+    .feature p {
+      margin-top: 6px;
+      font-size: 14.5px;
+      color: var(--grey);
+      line-height: 1.5;
+    }
+
+    /* ---------- Privacy dark band ---------- */
+    .band {
+      background: var(--dark);
+      color: #fff;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .band::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(46% 70% at 84% 50%, rgba(22, 186, 253, .16), transparent 70%);
+      pointer-events: none;
+    }
+
+    .band-inner {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 56px;
+      align-items: center;
+      padding: 96px 0;
+    }
+
+    .band h2 {
+      font-size: clamp(28px, 3.4vw, 42px);
+      color: #fff;
+    }
+
+    .band p {
+      margin-top: 20px;
+      font-size: 18px;
+      color: #c2c6cb;
+      max-width: 34em;
+    }
+
+    .band a.link {
+      margin-top: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 700;
+      color: #6fd0ff;
+      white-space: nowrap;
+    }
+
+    .band a.link:hover {
+      color: #9ee0ff;
+    }
+
+    .privacy-list {
+      display: grid;
+      gap: 14px;
+    }
+
+    .privacy-list li {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #e8eaed;
+    }
+
+    .privacy-list ul {
+      margin: 0;
+      padding: 0;
+    }
+
+    .pcheck {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      background: rgba(43, 182, 115, .18);
+      color: #4fd193;
+    }
+
+    .pcheck svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    /* ---------- Download ---------- */
+    .dl-wrap {
+      background: var(--paper);
+    }
+
+    .store-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 40px;
+    }
+
+    .store-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      border-radius: 13px;
+      background: var(--ink);
+      color: #fff;
+      transition: transform .15s ease, background .2s ease;
+      min-width: 200px;
+    }
+
+    .store-badge:hover {
+      transform: translateY(-2px);
+      background: #000;
+    }
+
+    .store-badge svg {
+      width: 26px;
+      height: 26px;
+      flex: none;
+    }
+
+    .store-badge .s1 {
+      font-size: 11px;
+      font-weight: 600;
+      opacity: .8;
+      line-height: 1.2;
+      display: block;
+      white-space: nowrap;
+    }
+
+    .store-badge .s2 {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+
+    .store-badge.is-soon {
+      background: #5f6368;
+      cursor: default;
+    }
+
+    .store-badge.is-soon:hover {
+      transform: none;
+      background: #5f6368;
+    }
+
+    .desktop-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .dl-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: border-color .2s ease, transform .18s ease, box-shadow .2s ease;
+    }
+
+    .dl-card {
+      text-decoration: none;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .dl-card:hover {
+      border-color: var(--tint);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-sm);
+      background: var(--paper);
+    }
+
+    .dl-card:hover .get {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px -6px rgba(1, 105, 180, .6);
+    }
+
+    .dl-card .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .dl-card svg.os {
+      width: 24px;
+      height: 24px;
+      color: var(--ink);
+    }
+
+    .dl-card .name {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .dl-card .meta {
+      font-size: 13px;
+      color: var(--grey-muted);
+      font-weight: 600;
+    }
+
+    .soon {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: var(--blue-2);
+      background: var(--tint-soft);
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+
+    .get {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      color: #fff;
+      background: var(--grad);
+      padding: 5px 12px;
+      border-radius: 999px;
+      text-decoration: none;
+      transition: transform .18s ease, box-shadow .2s ease;
+      box-shadow: 0 4px 12px -5px rgba(1, 105, 180, .55);
+    }
+
+    .get:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px -6px rgba(1, 105, 180, .6);
+    }
+
+    .free-note {
+      margin-top: 26px;
+      font-size: 14px;
+      color: var(--grey);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    /* ---------- Developers ---------- */
+    .dev {
+      background: var(--dark-2);
+      color: #fff;
+    }
+
+    .dev-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+      padding: 96px 0;
+    }
+
+    .dev h2 {
+      color: #fff;
+      font-size: clamp(28px, 3.2vw, 40px);
+    }
+
+    .dev p {
+      margin-top: 18px;
+      font-size: 17px;
+      color: #c2c6cb;
+      max-width: 32em;
+    }
+
+    .dev-cta {
+      margin-top: 30px;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .bench {
+      background: #232427;
+      border: 1px solid #313337;
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      font-family: "Manrope", monospace;
+    }
+
+    .bench .b-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+    }
+
+    .bench .b-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #8a9099;
+    }
+
+    .bench .b-pill {
+      font-size: 12px;
+      font-weight: 700;
+      color: #4fd193;
+      background: rgba(43, 182, 115, .14);
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    .bar-row {
+      margin-bottom: 18px;
+    }
+
+    .bar-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .bar-row .bl {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      white-space: nowrap;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #e8eaed;
+    }
+
+    .bar-row .bl .v {
+      color: #9aa0a6;
+      font-weight: 600;
+    }
+
+    .bar {
+      height: 9px;
+      border-radius: 999px;
+      background: #313337;
+      overflow: hidden;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+    }
+
+    .bar.dart i {
+      background: var(--grad);
+    }
+
+    .bar.other i {
+      background: #4a4d52;
+    }
+
+    .pkg-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+
+    .pkg {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: #232427;
+      border: 1px solid #313337;
+      border-radius: 11px;
+      padding: 11px 15px;
+      font-size: 14px;
+      color: #e8eaed;
+      transition: border-color .2s ease;
+    }
+
+    .pkg:hover {
+      border-color: #4a4d52;
+    }
+
+    .pkg code {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      color: #6fd0ff;
+      font-size: 13.5px;
+    }
+
+    .pkg .ver {
+      color: #8a9099;
+      font-size: 12px;
+    }
+
+    .eng-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .eng {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      background: #232427;
+      border: 1px solid #313337;
+      border-radius: 11px;
+      padding: 13px 15px;
+      transition: border-color .2s ease;
+    }
+
+    .eng:hover {
+      border-color: #4a4d52;
+    }
+
+    .eng code {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      color: #6fd0ff;
+      font-size: 13.5px;
+      flex: none;
+      min-width: 128px;
+    }
+
+    .eng span {
+      font-size: 13px;
+      color: #c2c6cb;
+      line-height: 1.4;
+    }
+
+    /* ---------- Footer ---------- */
+    footer {
+      background: var(--paper);
+      border-top: 1px solid var(--line);
+      padding: 56px 0 40px;
+    }
+
+    .foot {
+      display: flex;
+      justify-content: space-between;
+      gap: 40px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+
+    .foot-brand {
+      max-width: 280px;
+    }
+
+    .foot-brand p {
+      margin-top: 14px;
+      font-size: 14px;
+      color: var(--grey);
+    }
+
+    .foot-cols {
+      display: flex;
+      gap: 64px;
+      flex-wrap: wrap;
+    }
+
+    .foot-col h4 {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--grey-muted);
+      margin: 0 0 14px;
+    }
+
+    .foot-col a {
+      display: block;
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--ink-soft);
+      margin-bottom: 10px;
+      transition: color .15s ease;
+    }
+
+    .foot-col a:hover {
+      color: var(--blue-2);
+    }
+
+    .foot-bottom {
+      margin-top: 44px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line-soft);
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      font-size: 13.5px;
+      color: var(--grey-muted);
+    }
+
+    /* ---------- Reveal motion ---------- */
+    .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity .6s cubic-bezier(.2, .7, .2, 1), transform .6s cubic-bezier(.2, .7, .2, 1);
+    }
+
+    .reveal.in {
+      opacity: 1;
+      transform: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .reveal {
+        opacity: 1 !important;
+        transform: none !important;
+        transition: none;
+      }
+
+      html {
+        scroll-behavior: auto;
+      }
+    }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 940px) {
+
+      .hero-inner,
+      .band-inner,
+      .dev-inner {
+        grid-template-columns: 1fr;
+        gap: 40px;
+      }
+
+      .band-inner,
+      .dev-inner {
+        padding: 72px 0;
+      }
+
+      .features {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .device-tag {
+        right: 14px;
+      }
+
+      .nav-links {
+        display: none;
+      }
+
+      .nav-right .btn {
+        display: none;
+      }
+
+      .menu-btn {
+        display: inline-flex;
+      }
+
+      .nav {
+        gap: 12px;
+      }
+
+      .hero .hl {
+        white-space: normal;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .wrap {
+        padding: 0 20px;
+      }
+
+      .section {
+        padding: 64px 0;
+      }
+
+      .features {
+        grid-template-columns: 1fr;
+      }
+
+      .desktop-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .hero {
+        padding: 44px 0 24px;
+      }
+    }
+
+    /* mobile menu */
+    .mobile-menu {
+      display: none;
+      border-top: 1px solid var(--line);
+      background: var(--paper);
+      padding: 14px 0;
+    }
+
+    .mobile-menu.open {
+      display: block;
+    }
+
+    .mobile-menu a {
+      display: block;
+      padding: 12px 28px;
+      font-weight: 600;
+      font-size: 16px;
+      color: var(--ink-soft);
+    }
+
+    .mobile-menu a:hover {
+      background: var(--tint-soft);
+    }
+
+    .mobile-menu .menu-cta {
+      margin: 10px 28px 6px;
+      padding: 13px 18px;
+      border-radius: 11px;
+      text-align: center;
+      background: var(--grad);
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 6px 18px -6px rgba(1, 105, 180, .6);
+    }
+
+    .mobile-menu .menu-cta:hover {
+      background: var(--grad);
+      color: #fff;
+    }
+  </style>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "DartPDF",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "iOS, iPadOS, macOS, Android, Windows, Linux, Web",
+    "description": "Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on every device. Files stay local — no account, no uploads.",
+    "url": "https://dart-pdf.com/",
+    "image": "https://dart-pdf.com/assets/og-image.png",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Person",
+      "name": "Ben Milanko"
+    },
+    "softwareHelp": "https://dart-pdf.com/support",
+    "privacyPolicy": "https://dart-pdf.com/privacy"
+  }
+  </script>
+</head>
+
+<body>
+
+  <!-- ============ HEADER ============ -->
+  <header id="header">
+    <div class="wrap">
+      <nav class="nav">
+        <a class="brand" href="#top" aria-label="DartPDF home">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="g-ink" x1="6" y1="20" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#16BAFD" />
+                  <stop offset="1" stop-color="#0169B4" />
+                </linearGradient>
+              </defs>
+              <path d="M7 3.5h12.5L26 10v17.2A1.3 1.3 0 0 1 24.7 28.5H7A1.3 1.3 0 0 1 5.7 27.2V4.8A1.3 1.3 0 0 1 7 3.5Z"
+                fill="#fff" stroke="#d8dde1" stroke-width="1.2" />
+              <path d="M19.5 3.5 26 10h-5.2A1.3 1.3 0 0 1 19.5 8.7V3.5Z" fill="#eef2f5" stroke="#d8dde1"
+                stroke-width="1.2" />
+              <rect x="9.4" y="12.2" width="13.2" height="3.5" rx="1.2" fill="#FFC93C" />
+              <path d="M9.6 21.4c2.2-1.5 4.1-1.5 6.2 0 2.1 1.5 4 1.5 6.2-.2" stroke="url(#g-ink)" stroke-width="2.1"
+                stroke-linecap="round" />
+            </svg>
+          </span>
+          DartPDF
+        </a>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#developers">Developers</a>
+          <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
+        </div>
+        <div class="nav-right">
+          <a class="btn btn-ghost" href="https://app.dart-pdf.com" target="_blank" rel="noopener">
+            Open in browser
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 17 17 7M9 7h8v8" />
+            </svg>
+          </a>
+          <a class="btn btn-primary" href="#download">Download</a>
+          <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#202124" stroke-width="2"
+              stroke-linecap="round">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+        </div>
+      </nav>
+    </div>
+    <div class="mobile-menu" id="mobileMenu">
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#developers">Developers</a>
+      <a href="https://app.dart-pdf.com" target="_blank" rel="noopener">Open in browser</a>
+      <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
+      <a class="menu-cta" href="#download">Download</a>
+    </div>
+  </header>
+
+  <a id="top"></a>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="wrap hero-inner">
+      <div class="reveal">
+        <p class="eyebrow">PDF editor · files stay local</p>
+        <h1 style="margin-top:16px;">Edit PDFs anywhere.<br /><span class="hl">Keep your files on your device.</span>
+        </h1>
+        <p class="sub">Annotate, run OCR on scanned pages, fill forms, sign, redact, compare, and make small text or
+          image edits on iPhone, iPad, Mac, Android, Windows, Linux, or the web. You do not need an account, and DartPDF
+          does not upload your documents.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#download">Download</a>
+          <a class="btn btn-ghost" href="https://app.dart-pdf.com" target="_blank" rel="noopener">
+            Try it in your browser
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 17 17 7M9 7h8v8" />
+            </svg>
+          </a>
+        </div>
+        <p class="hero-note"><span class="dot"></span> Free, open source, and local</p>
+      </div>
+      <div class="reveal" style="transition-delay:.08s;">
+        <div class="device">
+          <img class="device-shot" src="assets/editor-screenshot.png" width="1770" height="1728"
+            alt="The DartPDF editor showing a PDF with annotation tools, page thumbnails, and a color palette."
+            loading="eager" />
+          <div class="device-tag">
+            <span class="swatch" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            </span>
+            Local
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap platforms-strip reveal">
+      <p class="label">One app across your devices</p>
+      <div class="os-row">
+        <span><svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+          </svg> iOS</span>
+        <span><svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M18.4395 5.5586c-.675 1.1664-1.352 2.3318-2.0274 3.498-.0366-.0155-.0742-.0286-.1113-.043-1.8249-.6957-3.484-.8-4.42-.787-1.8551.0185-3.3544.4643-4.2597.8203-.084-.1494-1.7526-3.021-2.0215-3.4864a1.1451 1.1451 0 0 0-.1406-.1914c-.3312-.364-.9054-.4859-1.379-.203-.475.282-.7136.9361-.3886 1.5019 1.9466 3.3696-.0966-.2158 1.9473 3.3593.0172.031-.4946.2642-1.3926 1.0177C2.8987 12.176.452 14.772 0 18.9902h24c-.119-1.1108-.3686-2.099-.7461-3.0683-.7438-1.9118-1.8435-3.2928-2.7402-4.1836a12.1048 12.1048 0 0 0-2.1309-1.6875c.6594-1.122 1.312-2.2559 1.9649-3.3848.2077-.3615.1886-.7956-.0079-1.1191a1.1001 1.1001 0 0 0-.8515-.5332c-.5225-.0536-.9392.3128-1.0488.5449zm-.0391 8.461c.3944.5926.324 1.3306-.1563 1.6503-.4799.3197-1.188.0985-1.582-.4941-.3944-.5927-.324-1.3307.1563-1.6504.4727-.315 1.1812-.1086 1.582.4941zM7.207 13.5273c.4803.3197.5506 1.0577.1563 1.6504-.394.5926-1.1038.8138-1.584.4941-.48-.3197-.5503-1.0577-.1563-1.6504.4008-.6021 1.1087-.8106 1.584-.4941z" />
+          </svg> Android</span>
+        <span><svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+          </svg> macOS</span>
+        <span><svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
+          </svg> Windows</span>
+        <span><svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z" />
+          </svg> Linux</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+            stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9.5" />
+            <path d="M2.5 12h19M12 2.5c2.7 2.7 2.7 16.3 0 19M12 2.5c-2.7 2.7-2.7 16.3 0 19M4 7h16M4 17h16" />
+          </svg> Web</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FEATURES ============ -->
+  <section class="section" id="features">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <p class="eyebrow">Features</p>
+        <h2>More than a viewer.</h2>
+        <p>Mark up a file, run OCR on scanned pages, fill forms, move pages, compare versions, or make small edits
+          without sending the PDF to a server.</p>
+      </div>
+      <div class="features">
+        <!-- Annotate -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="m15.5 4.5 4 4L8 20l-4.5.5L4 16 15.5 4.5Z" />
+              <path d="M13.5 6.5 17.5 10.5" />
+            </svg></div>
+          <h3>Annotate</h3>
+          <p>Highlight, ink, shapes, notes, and stamps.</p>
+        </article>
+        <!-- Forms -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="3.5" width="16" height="17" rx="2" />
+              <path d="M8 8h8M8 12h8M8 16h4" />
+            </svg></div>
+          <h3>Forms</h3>
+          <p>Fill existing fields or create your own.</p>
+        </article>
+        <!-- Sign -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 18c3 .4 4-3 5.5-7S11 3.5 12 5s-1 7-2.5 10.5" />
+              <path d="M8 16c2.5 1 4-1 6-1s3 1.5 4 .5" />
+            </svg></div>
+          <h3>Sign</h3>
+          <p>Drawn signatures, placed anywhere.</p>
+        </article>
+        <!-- Redact -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7h16M4 12h7" />
+              <rect x="13.5" y="14" width="6.5" height="3.6" rx="1" fill="currentColor" stroke="none" />
+              <path d="M4 17h5" />
+            </svg></div>
+          <h3>Redact</h3>
+          <p>Permanently remove sensitive content.</p>
+        </article>
+        <!-- Edit text & images -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 7V5h10v2M10 5v14M8 19h4" />
+              <rect x="14.5" y="12" width="6" height="6" rx="1.2" />
+            </svg></div>
+          <h3>Edit text &amp; images</h3>
+          <p>Change words and pictures in place.</p>
+        </article>
+        <!-- Pages -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3.5" y="4" width="10" height="13" rx="1.6" />
+              <path d="M16.5 8.5h2.2A1.3 1.3 0 0 1 20 9.8V19a1.3 1.3 0 0 1-1.3 1.3H9.5A1.3 1.3 0 0 1 8.2 19v-1.5" />
+            </svg></div>
+          <h3>Pages</h3>
+          <p>Reorder, delete, export to a new file.</p>
+        </article>
+        <!-- Search & select -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="m20 20-3.6-3.6" />
+            </svg></div>
+          <h3>Search &amp; select text</h3>
+          <p>Find and select real text, not images.</p>
+        </article>
+        <!-- OCR -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5" y="3.5" width="14" height="17" rx="2" />
+              <path d="M8 8h8M8 12h8M8 16h5" />
+              <path
+                d="M3.5 7V5.5A2.5 2.5 0 0 1 6 3h1.5M20.5 7V5.5A2.5 2.5 0 0 0 18 3h-1.5M3.5 17v1.5A2.5 2.5 0 0 0 6 21h1.5M20.5 17v1.5A2.5 2.5 0 0 1 18 21h-1.5" />
+            </svg></div>
+          <h3>OCR scanned pages</h3>
+          <p>Add selectable, searchable text to image-only PDFs.</p>
+        </article>
+        <!-- Compare -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3.5" y="5" width="7.5" height="14" rx="1.4" />
+              <rect x="13" y="5" width="7.5" height="14" rx="1.4" />
+            </svg></div>
+          <h3>Compare</h3>
+          <p>View two versions side by side.</p>
+        </article>
+        <!-- Password-protected -->
+        <article class="feature reveal">
+          <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4.5" y="10.5" width="15" height="9.5" rx="2" />
+              <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+              <circle cx="12" cy="15" r="1.2" fill="currentColor" stroke="none" />
+            </svg></div>
+          <h3>Open protected files</h3>
+          <p>Unlock password-protected PDFs.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PRIVACY BAND ============ -->
+  <section class="band" id="privacy">
+    <div class="wrap band-inner">
+      <div class="reveal">
+        <p class="eyebrow" style="color:#6fd0ff;">Privacy</p>
+        <h2 style="margin-top:14px;">Your documents never leave your device.</h2>
+        <p>DartPDF has no servers, analytics, or ads. It works with files locally, including OCR, and shares a document
+          only when you choose a destination.</p>
+        <a class="link" href="privacy.html" aria-label="Read the privacy policy">
+          Read the privacy policy
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9 6 6 6-6 6" />
+          </svg>
+        </a>
+      </div>
+      <div class="privacy-list reveal" style="transition-delay:.08s;">
+        <ul>
+          <li><span class="pcheck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg></span> No account required</li>
+          <li><span class="pcheck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg></span> No servers, no sync</li>
+          <li><span class="pcheck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg></span> No analytics, no ads</li>
+          <li><span class="pcheck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg></span> Shared only when you choose</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DOWNLOAD ============ -->
+  <section class="section dl-wrap" id="download">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <p class="eyebrow">Download</p>
+        <h2>Get DartPDF on your platform.</h2>
+        <p>Get it on the App Store and Google Play, install the desktop app, or use it right in your browser.</p>
+      </div>
+
+      <div class="store-row reveal">
+        <a class="store-badge" href="https://apps.apple.com/app/dartpdf/id6780083686"
+          aria-label="Download DartPDF on the App Store">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+          </svg>
+          <span><span class="s1">Download on the</span><span class="s2">App Store</span></span>
+        </a>
+        <a class="store-badge" href="https://play.google.com/store/apps/details?id=dev.milanko.dartpdf"
+          aria-label="Get DartPDF on Google Play">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M22.018 13.298l-3.919 2.218-3.515-3.493 3.543-3.521 3.891 2.202a1.49 1.49 0 0 1 0 2.594zM1.337.924a1.486 1.486 0 0 0-.112.568v21.017c0 .217.045.419.124.6l11.155-11.087L1.337.924zm12.207 10.065l3.258-3.238L3.45.195a1.466 1.466 0 0 0-.946-.179l11.04 10.973zm0 2.067l-11 10.933c.298.036.612-.016.906-.183l13.324-7.54-3.23-3.21z" />
+          </svg>
+          <span><span class="s1">Get it on</span><span class="s2">Google Play</span></span>
+        </a>
+      </div>
+
+      <div class="desktop-grid reveal">
+        <a class="dl-card" href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-macos.dmg"
+          aria-label="Download DartPDF for macOS (.dmg)">
+          <div class="top">
+            <svg class="os" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+            </svg>
+            <span class="get">Download</span>
+          </div>
+          <div>
+            <div class="name">macOS</div>
+            <div class="meta">Universal &middot; signed &amp; notarized</div>
+          </div>
+        </a>
+        <a class="dl-card"
+          href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe"
+          aria-label="Download DartPDF for Windows (portable .exe)">
+          <div class="top">
+            <svg class="os" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
+            </svg>
+            <span class="get">Download</span>
+          </div>
+          <div>
+            <div class="name">Windows</div>
+            <div class="meta">Portable &middot; 64-bit</div>
+          </div>
+        </a>
+        <a class="dl-card"
+          href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-linux-x86_64.AppImage"
+          aria-label="Download DartPDF for Linux (AppImage)">
+          <div class="top">
+            <svg class="os" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z" />
+            </svg>
+            <span class="get">Download</span>
+          </div>
+          <div>
+            <div class="name">Linux</div>
+            <div class="meta">AppImage &middot; 64-bit</div>
+          </div>
+        </a>
+        <a class="dl-card" href="https://app.dart-pdf.com" target="_blank" rel="noopener"
+          aria-label="Open DartPDF in your browser">
+          <div class="top">
+            <svg class="os" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9.5" />
+              <path d="M2.5 12h19M12 2.5c2.7 2.7 2.7 16.3 0 19M12 2.5c-2.7 2.7-2.7 16.3 0 19M4 7h16M4 17h16" />
+            </svg>
+            <span class="get">Open</span>
+          </div>
+          <div>
+            <div class="name">Web</div>
+            <div class="meta">Runs in any browser</div>
+          </div>
+        </a>
+      </div>
+
+      <p class="free-note">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0169b4" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 12l2 2 4-4" />
+          <circle cx="12" cy="12" r="9" />
+        </svg>
+        Free and open source. Other builds (<code>.zip</code>, <code>.tar.gz</code>) on
+        <a href="https://github.com/ben-milanko/dart-pdf/releases/latest" target="_blank" rel="noopener">GitHub
+          Releases</a>.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ DEVELOPERS ============ -->
+  <section class="dev" id="developers">
+    <div class="wrap dev-inner">
+      <div class="reveal">
+        <p class="eyebrow" style="color:#6fd0ff;">Developers</p>
+        <h2 style="margin-top:14px;">A pure-Dart PDF engine you can use too.</h2>
+        <p>The engine uses Dart instead of PDFium or native bindings, so it runs on the Dart VM, desktop, and browser
+          targets. The packages are Apache-2.0 licensed and published on pub.dev.</p>
+        <div class="dev-cta">
+          <a class="btn btn-primary" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 2A10 10 0 0 0 8.8 21.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .3.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2Z" />
+            </svg>
+            View on GitHub
+          </a>
+          <a class="btn btn-outline-light" href="https://pub.dev/packages/dart_pdf_editor" target="_blank"
+            rel="noopener">Packages on pub.dev</a>
+        </div>
+      </div>
+      <div class="reveal" style="transition-delay:.08s;">
+        <div class="bench">
+          <div class="b-top">
+            <span class="b-title">The engine, in packages</span>
+            <span class="b-pill">Apache-2.0</span>
+          </div>
+          <div class="eng-list">
+            <a class="eng" href="https://pub.dev/packages/pdf_cos" target="_blank"
+              rel="noopener"><code>pdf_cos</code><span>PDF object model, parser, filters, xref</span></a>
+            <a class="eng" href="https://pub.dev/packages/pdf_document" target="_blank"
+              rel="noopener"><code>pdf_document</code><span>Pages, fonts, encryption, signatures</span></a>
+            <a class="eng" href="https://pub.dev/packages/pdf_graphics" target="_blank"
+              rel="noopener"><code>pdf_graphics</code><span>Content-stream interpreter and renderer</span></a>
+            <a class="eng" href="https://pub.dev/packages/dart_pdf_editor" target="_blank"
+              rel="noopener"><code>dart_pdf_editor</code><span>Flutter viewer, editor and annotations</span></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="wrap">
+      <div class="foot">
+        <div class="foot-brand">
+          <a class="brand" href="#top">
+            <span class="mark" aria-hidden="true">
+              <svg viewBox="0 0 32 32" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="g-ink2" x1="6" y1="20" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#16BAFD" />
+                    <stop offset="1" stop-color="#0169B4" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d="M7 3.5h12.5L26 10v17.2A1.3 1.3 0 0 1 24.7 28.5H7A1.3 1.3 0 0 1 5.7 27.2V4.8A1.3 1.3 0 0 1 7 3.5Z"
+                  fill="#fff" stroke="#d8dde1" stroke-width="1.2" />
+                <path d="M19.5 3.5 26 10h-5.2A1.3 1.3 0 0 1 19.5 8.7V3.5Z" fill="#eef2f5" stroke="#d8dde1"
+                  stroke-width="1.2" />
+                <rect x="9.4" y="12.2" width="13.2" height="3.5" rx="1.2" fill="#FFC93C" />
+                <path d="M9.6 21.4c2.2-1.5 4.1-1.5 6.2 0 2.1 1.5 4 1.5 6.2-.2" stroke="url(#g-ink2)" stroke-width="2.1"
+                  stroke-linecap="round" />
+              </svg>
+            </span>
+            DartPDF
+          </a>
+          <p>A local PDF editor for desktop, mobile, and web.</p>
+        </div>
+        <div class="foot-cols">
+          <div class="foot-col">
+            <h4>Product</h4>
+            <a href="#features">Features</a>
+            <a href="#privacy">Privacy</a>
+            <a href="#download">Download</a>
+            <a href="https://dart-pdf-demo.web.app" target="_blank" rel="noopener">Browser demo</a>
+          </div>
+          <div class="foot-col">
+            <h4>Open source</h4>
+            <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://pub.dev/packages/dart_pdf_editor" target="_blank" rel="noopener">pub.dev</a>
+            <a href="#developers">Engine</a>
+          </div>
+          <div class="foot-col">
+            <h4>Legal</h4>
+            <a href="support.html">Support</a>
+            <a href="privacy.html">Privacy policy</a>
+            <a href="https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE" target="_blank"
+              rel="noopener">License</a>
+          </div>
+        </div>
+      </div>
+      <div class="foot-bottom">
+        <span>© Railway Engineering Solutions</span>
+        <span>Free and open source under Apache-2.0.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Header border on scroll
+    const header = document.getElementById('header');
+    const onScroll = () => header.classList.toggle('scrolled', window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+
+    // Mobile menu
+    const menuBtn = document.getElementById('menuBtn');
+    const mobileMenu = document.getElementById('mobileMenu');
+    menuBtn.addEventListener('click', () => {
+      const open = mobileMenu.classList.toggle('open');
+      menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+      mobileMenu.classList.remove('open');
+      menuBtn.setAttribute('aria-expanded', 'false');
+    }));
+
+    // Reveal on scroll
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  </script>
+</body>
+
+</html>

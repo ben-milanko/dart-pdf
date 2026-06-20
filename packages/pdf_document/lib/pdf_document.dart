@@ -3,10 +3,13 @@
 library;
 
 export 'src/annotation.dart';
+export 'src/cache_store.dart';
 export 'src/content_elements.dart';
 export 'src/content_writer.dart';
+export 'src/disk_cache.dart';
 export 'src/document.dart';
 export 'src/editor.dart';
+export 'src/font_embedder.dart';
 export 'src/form.dart';
 export 'src/image.dart';
 export 'src/image_pdf.dart';

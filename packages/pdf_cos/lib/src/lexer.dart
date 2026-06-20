@@ -117,26 +117,37 @@ class CosLexer {
   }
 
   CosToken _number(int start) {
+    // Content streams are number-dense (every coordinate, colour, index), so
+    // this is the tokenizer's hottest path. Scan the digit/sign/dot run once
+    // and parse straight from the bytes — no per-char StringBuffer.
     var isReal = false;
-    final sb = StringBuffer();
-    while (position < bytes.length) {
-      final b = bytes[position];
+    var p = position;
+    while (p < bytes.length) {
+      final b = bytes[p];
       if (_isDigit(b) || b == 0x2B || b == 0x2D) {
-        sb.writeCharCode(b);
+        // digit or sign
       } else if (b == 0x2E) {
         isReal = true;
-        sb.writeCharCode(b);
       } else {
         break;
       }
-      position++;
+      p++;
     }
-    final raw = sb.toString();
+    position = p;
+
     if (!isReal) {
-      final v = int.tryParse(raw);
-      if (v == null) throw CosParseException('malformed number "$raw"', start);
-      return CosToken(CosTokenType.integer, start, v);
+      // Parse the integer directly when it can't overflow (≤18 digits); this
+      // is bit-for-bit identical to int.tryParse over the same byte range.
+      final v = _parseIntRange(start, p);
+      if (v != null) return CosToken(CosTokenType.integer, start, v);
+      // Overflowing or malformed: fall back to the exact string semantics.
+      final raw = String.fromCharCodes(bytes, start, p);
+      final iv = int.tryParse(raw);
+      if (iv == null) throw CosParseException('malformed number "$raw"', start);
+      return CosToken(CosTokenType.integer, start, iv);
     }
+
+    final raw = String.fromCharCodes(bytes, start, p);
     var s = raw;
     if (s.startsWith('.')) s = '0$s';
     if (s.startsWith('-.')) s = '-0${s.substring(1)}';
@@ -144,6 +155,30 @@ class CosLexer {
     final v = double.tryParse(s);
     if (v == null) throw CosParseException('malformed number "$raw"', start);
     return CosToken(CosTokenType.real, start, v);
+  }
+
+  /// Parses the integer in `bytes[start..end)` exactly as
+  /// `int.tryParse(String.fromCharCodes(bytes, start, end))` would — an
+  /// optional leading `+`/`-` then digits — but without allocating a string.
+  /// Returns null for malformed input or a mantissa long enough to risk
+  /// 64-bit overflow (≥19 digits), so the caller can fall back to the string
+  /// path with identical semantics.
+  int? _parseIntRange(int start, int end) {
+    var i = start;
+    var negative = false;
+    final first = bytes[i];
+    if (first == 0x2B || first == 0x2D) {
+      negative = first == 0x2D;
+      i++;
+    }
+    if (i >= end || end - i > 18) return null; // empty mantissa, or too long
+    var value = 0;
+    for (; i < end; i++) {
+      final d = bytes[i] - 0x30;
+      if (d < 0 || d > 9) return null; // embedded sign or junk
+      value = value * 10 + d;
+    }
+    return negative ? -value : value;
   }
 
   CosToken _literalString(int start) {
@@ -240,6 +275,21 @@ class CosLexer {
 
   CosToken _name(int start) {
     position++; // /
+    final nameStart = position;
+    // Fast path: a name with no `#XX` escape is just the regular-byte run, so
+    // build the string straight from the range (most names have no escapes).
+    while (position < bytes.length && isRegular(bytes[position])) {
+      if (bytes[position] == 0x23) {
+        return _nameWithEscapes(start, nameStart);
+      }
+      position++;
+    }
+    return CosToken(
+        CosTokenType.name, start, String.fromCharCodes(bytes, nameStart, position));
+  }
+
+  CosToken _nameWithEscapes(int start, int nameStart) {
+    position = nameStart;
     final out = BytesBuilder();
     while (position < bytes.length && isRegular(bytes[position])) {
       var b = bytes[position++];
@@ -258,14 +308,16 @@ class CosLexer {
   }
 
   CosToken _keyword(int start) {
-    final sb = StringBuffer();
-    while (position < bytes.length && isRegular(bytes[position])) {
-      sb.writeCharCode(bytes[position++]);
+    var p = position;
+    while (p < bytes.length && isRegular(bytes[p])) {
+      p++;
     }
-    if (sb.isEmpty) {
+    if (p == start) {
       throw CosParseException(
           'unexpected byte 0x${bytes[position].toRadixString(16)}', start);
     }
-    return CosToken(CosTokenType.keyword, start, sb.toString());
+    position = p;
+    return CosToken(
+        CosTokenType.keyword, start, String.fromCharCodes(bytes, start, p));
   }
 }

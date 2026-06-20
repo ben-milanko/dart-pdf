@@ -38,6 +38,55 @@ List<((double, double), (double, double))> pdfInkCurveControls(
 /// /Polygon area (shoelace).
 enum PdfMeasurementKind { distance, perimeter, area }
 
+/// Slack (in points) the word-wrappers allow before breaking a line.
+///
+/// A box auto-sized to its content sets its width to `lineWidth + 2*pad`,
+/// and the wrapper breaks at `width - 2*pad`. In exact arithmetic those
+/// cancel and the line fits, but `(w + 6) - 6` rounds to a hair *under* `w`
+/// in IEEE-754 doubles, so a strict `> maxWidth` test would wrap the last
+/// word onto a new line. This tolerance is far below a visible point yet
+/// orders of magnitude above the rounding noise.
+const double _wrapTolerance = 1e-6;
+
+/// One styled run inside a rich free-text annotation.
+///
+/// A normal FreeText annotation has one `/DA` default appearance. Runs let
+/// this package generate an appearance stream with several fonts, sizes, or
+/// text colors inside the same annotation while keeping `/Contents` as the
+/// plain concatenated text.
+class PdfFreeTextRun {
+  const PdfFreeTextRun(
+    this.text, {
+    this.font = PdfStandardFont.helvetica,
+    this.fontSize = 12,
+    this.color = 0x000000,
+  });
+
+  final String text;
+  final PdfTextFont font;
+  final double fontSize;
+  final int color;
+}
+
+class _RichTextPiece {
+  const _RichTextPiece(this.text, this.style);
+
+  final String text;
+  final PdfFreeTextRun style;
+
+  bool sameStyle(PdfFreeTextRun other) =>
+      style.font.resourceName == other.font.resourceName &&
+      style.fontSize == other.fontSize &&
+      style.color == other.color;
+}
+
+class _RichTextLine {
+  const _RichTextLine(this.runs, this.width);
+
+  final List<_RichTextPiece> runs;
+  final double width;
+}
+
 /// Line ending styles (§12.5.6.7, Table 176) drawn at a /Line or
 /// /PolyLine endpoint by [PdfEditor.addLine] / [PdfEditor.addPolyLine].
 ///
@@ -560,10 +609,10 @@ extension PdfAnnotationEditing on PdfEditor {
       dict['OverlayText'] = CosString.fromText(overlayText);
       dict['Repeat'] = const CosBoolean(false);
       final rgb = ContentWriter.rgbComponents(overlayTextColor);
-      dict['DA'] = CosString(Uint8List.fromList(latin1.encode(
-          '/Helv ${ContentWriter.fmt(overlayFontSize)} Tf '
-          '${ContentWriter.fmt(rgb[0])} ${ContentWriter.fmt(rgb[1])} '
-          '${ContentWriter.fmt(rgb[2])} rg')));
+      dict['DA'] = CosString(Uint8List.fromList(
+          latin1.encode('/Helv ${ContentWriter.fmt(overlayFontSize)} Tf '
+              '${ContentWriter.fmt(rgb[0])} ${ContentWriter.fmt(rgb[1])} '
+              '${ContentWriter.fmt(rgb[2])} rg')));
     }
     _addAnnotation(
       pageIndex,
@@ -1074,6 +1123,10 @@ extension PdfAnnotationEditing on PdfEditor {
     double opacity = 1,
     List<double>? dashPattern,
     int? captionColor,
+    PdfStandardFont captionFont = PdfStandardFont.helvetica,
+    double captionSize = 10,
+    PdfLineEnding startEnding = PdfLineEnding.none,
+    PdfLineEnding endEnding = PdfLineEnding.none,
     String? author,
     String? name,
   }) {
@@ -1083,13 +1136,19 @@ extension PdfAnnotationEditing on PdfEditor {
           'or pass a measure');
     }
     final minPoints = kind == PdfMeasurementKind.distance ? 2 : 3;
-    if (points.length < (kind == PdfMeasurementKind.perimeter ? 2 : minPoints)) {
+    if (points.length <
+        (kind == PdfMeasurementKind.perimeter ? 2 : minPoints)) {
       throw ArgumentError.value(points, 'points',
           'needs ${kind == PdfMeasurementKind.area ? 3 : 2}+ points');
     }
 
     final closed = kind == PdfMeasurementKind.area;
     final (caption, anchor) = _measurementCaption(kind, points, m);
+
+    // endings ride the open kinds (distance/perimeter); a closed area
+    // polygon carries none.
+    final lineStart = closed ? PdfLineEnding.none : startEnding;
+    final lineEnd = closed ? PdfLineEnding.none : endEnding;
 
     // the geometry appearance, then the caption text drawn over its anchor
     final gs = _alphaState(opacity);
@@ -1099,35 +1158,21 @@ extension PdfAnnotationEditing on PdfEditor {
         dashPattern: dashPattern,
         closed: closed,
         fillColor: closed ? fillColor : null,
+        startEnding: lineStart,
+        endEnding: lineEnd,
         hasAlpha: gs != null);
 
-    const captionSize = 10.0;
     final labelColor = captionColor ?? strokeColor;
-    final textWidth = measureHelvetica(caption, captionSize);
-    const padX = 3.0, padY = 2.0;
-    final boxLeft = anchor.$1 - textWidth / 2 - padX;
-    final boxBottom = anchor.$2 - captionSize / 2 - padY;
-    final boxWidth = textWidth + 2 * padX;
-    final boxHeight = captionSize + 2 * padY;
-    content
-      ..fillColor(0xFFFFFF)
-      ..rect(boxLeft, boxBottom, boxWidth, boxHeight)
-      ..fill()
-      ..beginText()
-      ..font('Helv', captionSize)
-      ..fillColor(labelColor)
-      ..textAt(anchor.$1 - textWidth / 2,
-          anchor.$2 - captionSize * 0.36) // rough cap-height centering
-      ..showText(caption)
-      ..endText();
+    final captionBox = _drawMeasurementCaption(content, caption, anchor,
+        font: captionFont, size: captionSize, color: labelColor);
 
     // the rect must cover both the geometry and the caption box
     final geomRect = _pointBounds(points, strokeWidth);
     final rect = PdfRect(
-      math.min(geomRect.left, boxLeft),
-      math.min(geomRect.bottom, boxBottom),
-      math.max(geomRect.right, boxLeft + boxWidth),
-      math.max(geomRect.top, boxBottom + boxHeight),
+      math.min(geomRect.left, captionBox.left),
+      math.min(geomRect.bottom, captionBox.bottom),
+      math.max(geomRect.right, captionBox.right),
+      math.max(geomRect.top, captionBox.top),
     );
 
     final subtype = switch (kind) {
@@ -1140,10 +1185,17 @@ extension PdfAnnotationEditing on PdfEditor {
       PdfMeasurementKind.perimeter => 'PolyLineDimension',
       PdfMeasurementKind.area => 'PolygonDimension',
     };
+    String rgb(int c) =>
+        ContentWriter.rgbComponents(c).map(ContentWriter.fmt).join(' ');
     final dict = _markupDict(subtype, rect, strokeColor, caption, author)
       ..['BS'] = _borderStyle(strokeWidth, dashPattern: dashPattern)
       ..['IT'] = CosName(intent)
+      // the caption's font/size/color, so a restyle can redraw it (§12.7.2)
+      ..['DA'] = CosString.fromText('${rgb(labelColor)} rg '
+          '/${captionFont.resourceName} ${ContentWriter.fmt(captionSize)} Tf')
       ..['Measure'] = m.toCosDictionary();
+    final leArray =
+        CosArray([CosName(lineStart.pdfName), CosName(lineEnd.pdfName)]);
     if (kind == PdfMeasurementKind.distance) {
       dict['L'] = CosArray([
         CosReal(points.first.$1),
@@ -1151,8 +1203,10 @@ extension PdfAnnotationEditing on PdfEditor {
         CosReal(points.last.$1),
         CosReal(points.last.$2),
       ]);
-      dict['LE'] = CosArray(
-          [const CosName('None'), const CosName('None')]);
+      dict['LE'] = leArray;
+    } else if (kind == PdfMeasurementKind.perimeter) {
+      dict['Vertices'] = _pointArray(points);
+      dict['LE'] = leArray; // §12.5.6.7: endings ride the first/last vertex
     } else {
       dict['Vertices'] = _pointArray(points);
     }
@@ -1161,9 +1215,101 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, content, resources: _resources(extGState: gs, font: _helvetica())),
+      _form(rect, content,
+          resources: _resources(extGState: gs, font: _standardFont(captionFont))),
       name: name,
     );
+  }
+
+  /// Draws a measurement caption — a small white box and centered text at
+  /// [anchor] — into [content], returning the box's page-space bounds so
+  /// the caller can widen the annotation /Rect to include it. Shared by
+  /// [addMeasurement] and the restyle/resize regeneration so a width or
+  /// style change never drops the label.
+  PdfRect _drawMeasurementCaption(
+    ContentWriter content,
+    String caption,
+    (double, double) anchor, {
+    required PdfStandardFont font,
+    required double size,
+    required int color,
+  }) {
+    final textWidth = font.measure(caption, size);
+    const padX = 3.0, padY = 2.0;
+    final boxLeft = anchor.$1 - textWidth / 2 - padX;
+    final boxBottom = anchor.$2 - size / 2 - padY;
+    final boxWidth = textWidth + 2 * padX;
+    final boxHeight = size + 2 * padY;
+    content
+      ..fillColor(0xFFFFFF)
+      ..rect(boxLeft, boxBottom, boxWidth, boxHeight)
+      ..fill()
+      ..beginText()
+      ..font(font.resourceName, size)
+      ..fillColor(color)
+      ..textAt(anchor.$1 - textWidth / 2,
+          anchor.$2 - size * 0.36) // rough cap-height centering
+      ..showText(caption)
+      ..endText();
+    return PdfRect(
+        boxLeft, boxBottom, boxLeft + boxWidth, boxBottom + boxHeight);
+  }
+
+  /// Recovers a measurement caption's font, size, and color from the
+  /// annotation's /DA (written by [addMeasurement]). Falls back to
+  /// Helvetica 10 pt in the stroke color for measurements authored before
+  /// /DA was stored.
+  (PdfStandardFont, double, int) _measurementCaptionStyle(
+      PdfAnnotation annotation) {
+    final fallbackColor = annotation.color ?? 0x000000;
+    final da = annotation.defaultAppearance;
+    if (da == null) return (PdfStandardFont.helvetica, 10, fallbackColor);
+    final tf = RegExp(r'/(\S+)\s+([\d.]+)\s+Tf').firstMatch(da);
+    final size = double.tryParse(tf?.group(2) ?? '') ?? 10;
+    final font = tf == null
+        ? PdfStandardFont.helvetica
+        : (PdfStandardFont.tryFromName(tf.group(1)!) ?? PdfStandardFont.helvetica);
+    final rg = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg\b')
+        .allMatches(da)
+        .lastOrNull;
+    var color = fallbackColor;
+    if (rg != null) {
+      int byte(String s) =>
+          ((double.tryParse(s) ?? 0).clamp(0.0, 1.0) * 255).round();
+      color = (byte(rg.group(1)!) << 16) |
+          (byte(rg.group(2)!) << 8) |
+          byte(rg.group(3)!);
+    }
+    return (font, size, color);
+  }
+
+  /// If [annotation] is a measurement, recomputes its caption from the
+  /// /Measure and draws it into [w] over [points]' anchor, widening /Rect
+  /// to include the label and returning the expanded BBox plus the caption
+  /// font resource. For a non-measurement line it draws nothing and
+  /// returns [rect] with no font. Shared by every appearance regeneration
+  /// (restyle, resize, reshape, ending change) so the label is never lost.
+  (PdfRect, CosDictionary?) _appendMeasurementCaption(PdfAnnotation annotation,
+      PdfRect rect, List<(double, double)> points, ContentWriter w) {
+    final measure = annotation.measure;
+    if (measure == null) return (rect, null);
+    final kind = switch (annotation.subtype) {
+      'PolyLine' => PdfMeasurementKind.perimeter,
+      'Polygon' => PdfMeasurementKind.area,
+      _ => PdfMeasurementKind.distance,
+    };
+    final (caption, anchor) = _measurementCaption(kind, points, measure);
+    final (font, size, color) = _measurementCaptionStyle(annotation);
+    final box = _drawMeasurementCaption(w, caption, anchor,
+        font: font, size: size, color: color);
+    final full = PdfRect(
+      math.min(rect.left, box.left),
+      math.min(rect.bottom, box.bottom),
+      math.max(rect.right, box.right),
+      math.max(rect.top, box.top),
+    );
+    annotation.dict['Rect'] = _rectArray(full);
+    return (full, _standardFont(font));
   }
 
   /// The caption string and its page-space anchor (segment midpoint for a
@@ -1212,40 +1358,260 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect rect,
     String text, {
     double fontSize = 12,
-    PdfStandardFont font = PdfStandardFont.helvetica,
+    PdfTextFont font = PdfStandardFont.helvetica,
+    PdfTextDirection textDirection = PdfTextDirection.auto,
+    PdfTextAlign? align,
     int color = 0x000000,
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
+    int pageRotation = 0,
     String? author,
     String? name,
   }) {
+    // When the text contains non-Latin-1 characters and the font is a
+    // standard base-14 face (which only supports WinAnsi encoding), wrap it
+    // in a PdfUnicodeFont — a lightweight Type0 Identity-H font that encodes
+    // characters as 2-byte Unicode code points. The renderer substitutes a
+    // system font that covers the full Unicode range.
+    PdfUnicodeFont? unicodeFont;
+    if (font is PdfStandardFont &&
+        text.codeUnits.any((c) => c > 0xFF)) {
+      unicodeFont = PdfUnicodeFont(font);
+      unicodeFont.resetUsage();
+    }
+    final effectiveFont = unicodeFont ?? font;
+    // The font accumulates which glyphs the appearance shows (so an
+    // embedded font's /W and /ToUnicode cover exactly them); start fresh.
+    if (font is PdfEmbeddedFont) font.resetUsage();
     final w = _freeTextContent(rect, text,
         fontSize: fontSize,
-        font: font,
+        font: effectiveFont,
+        textDirection: textDirection,
+        align: align,
         color: color,
         fillColor: fillColor,
         borderColor: borderColor,
-        borderWidth: borderWidth);
+        borderWidth: borderWidth,
+        pageRotation: pageRotation);
 
     String rgb(int c) =>
         ContentWriter.rgbComponents(c).map(ContentWriter.fmt).join(' ');
     final da = '${rgb(color)} rg '
         '${borderColor != null ? '${rgb(borderColor)} RG ' : ''}'
-        '/${font.resourceName} ${ContentWriter.fmt(fontSize)} Tf';
+        '/${effectiveFont.resourceName} ${ContentWriter.fmt(fontSize)} Tf';
     final dict = _markupDict('FreeText', rect, fillColor ?? color, text, author)
       ..['DA'] = CosString.fromText(da)
-      ..['Q'] = const CosInteger(0);
+      ..['Q'] = CosInteger(align?.quadding ??
+          (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0));
+    if (borderColor != null && borderWidth > 0) {
+      dict['BS'] = _borderStyle(borderWidth);
+    }
+    final CosDictionary fontResource;
+    if (unicodeFont != null) {
+      fontResource = unicodeFont.buildResource(_updater.addObject);
+    } else if (font is PdfEmbeddedFont) {
+      fontResource = font.buildResource(_updater.addObject);
+    } else {
+      fontResource = _standardFont(font as PdfStandardFont);
+    }
+    _addAnnotation(
+      pageIndex,
+      dict,
+      _form(rect, w, resources: _resources(font: fontResource)),
+      name: name,
+    );
+  }
+
+  /// Adds a rich free-text annotation whose appearance can switch font,
+  /// size, and text color between [runs].
+  ///
+  /// `/Contents` remains the plain concatenation of the run text so comment
+  /// lists, sync payloads, and search-friendly metadata still see ordinary
+  /// text. `/DA` records the first run as the fallback style for other
+  /// viewers; the generated `/AP /N` appearance carries the per-run styling.
+  void addFreeTextRich(
+    int pageIndex,
+    PdfRect rect,
+    List<PdfFreeTextRun> runs, {
+    PdfTextDirection textDirection = PdfTextDirection.auto,
+    PdfTextAlign? align,
+    int? fillColor,
+    int? borderColor,
+    double borderWidth = 1,
+    int pageRotation = 0,
+    String? author,
+    String? name,
+  }) {
+    final nonEmpty = [
+      for (final run in runs)
+        if (run.text.isNotEmpty) run
+    ];
+    if (nonEmpty.isEmpty) return;
+    final text = nonEmpty.map((run) => run.text).join();
+    // Wrap standard fonts in PdfUnicodeFont for runs with non-Latin text.
+    final effective = [
+      for (final run in nonEmpty)
+        if (run.font is PdfStandardFont &&
+            run.text.codeUnits.any((c) => c > 0xFF))
+          PdfFreeTextRun(run.text,
+              font: PdfUnicodeFont(run.font as PdfStandardFont)
+                ..resetUsage(),
+              fontSize: run.fontSize,
+              color: run.color)
+        else
+          run,
+    ];
+    for (final font in _richFonts(effective)) {
+      if (font is PdfEmbeddedFont) font.resetUsage();
+    }
+    final w = _freeTextRichContent(rect, effective,
+        textDirection: textDirection,
+        align: align,
+        fillColor: fillColor,
+        borderColor: borderColor,
+        borderWidth: borderWidth,
+        pageRotation: pageRotation);
+
+    final first = effective.first;
+    String rgb(int c) =>
+        ContentWriter.rgbComponents(c).map(ContentWriter.fmt).join(' ');
+    final da = '${rgb(first.color)} rg '
+        '${borderColor != null ? '${rgb(borderColor)} RG ' : ''}'
+        '/${first.font.resourceName} ${ContentWriter.fmt(first.fontSize)} Tf';
+    final dict =
+        _markupDict('FreeText', rect, fillColor ?? first.color, text, author)
+          ..['DA'] = CosString.fromText(da)
+          // /RC + /DS (§12.7.3.4) preserve the per-run styling the flat /DA
+          // can't, so a later edit rebuilds the mixed fonts/sizes/colors
+          // rather than collapsing the box to the first run's style. Built
+          // from the unwrapped runs so base-14 family names survive.
+          ..['RC'] = CosString.fromText(_richContentXhtml(nonEmpty))
+          ..['DS'] = CosString.fromText(_richSpanStyle(nonEmpty.first))
+          ..['Q'] = CosInteger(align?.quadding ??
+              (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0));
     if (borderColor != null && borderWidth > 0) {
       dict['BS'] = _borderStyle(borderWidth);
     }
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w, resources: _resources(font: _standardFont(font))),
+      _form(rect, w,
+          resources: _resources(font: _richFontResources(effective))),
       name: name,
     );
   }
+
+  /// The §12.7.3.4 rich-content (`/RC`) string for [runs]: an XHTML
+  /// `<body>/<p>` whose `<span>`s carry each run's font, size and color.
+  /// The appearance stream alone can't be re-parsed into runs, so this is
+  /// what lets an edit rebuild mixed styling. Inverse of
+  /// [parseFreeTextRichContent].
+  static String _richContentXhtml(List<PdfFreeTextRun> runs) {
+    final b = StringBuffer(
+        '<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml"><p>');
+    for (final run in runs) {
+      b
+        ..write('<span style="')
+        ..write(_richSpanStyle(run))
+        ..write('">')
+        ..write(_xmlEscape(run.text))
+        ..write('</span>');
+    }
+    b.write('</p></body>');
+    return b.toString();
+  }
+
+  /// The CSS-ish style declaration for one run, shared by /RC spans and
+  /// the paragraph default /DS: family (the base-14 PostScript name, or an
+  /// embedded font's resource tag), size in points, colour, and explicit
+  /// weight/slant so the styling reads even if a viewer ignores the family.
+  static String _richSpanStyle(PdfFreeTextRun run) {
+    final font = run.font;
+    final family =
+        font is PdfStandardFont ? font.baseFont : font.resourceName;
+    final parts = [
+      'font-family:$family',
+      'font-size:${ContentWriter.fmt(run.fontSize)}pt',
+      'color:#${(run.color & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
+    ];
+    if (font is PdfStandardFont) {
+      if (font.isBold) parts.add('font-weight:bold');
+      if (font.isItalic) parts.add('font-style:italic');
+    }
+    return parts.join(';');
+  }
+
+  /// Parses a free-text `/RC` string back into styled runs — the inverse
+  /// of what [addFreeTextRich] writes. Lenient: reads each `<span>`'s
+  /// `font-family` (mapped to a base-14 face), `font-size` and `color`,
+  /// refines bold/italic from `font-weight`/`font-style`, and falls back
+  /// to [fallbackFont]/[fallbackSize]/[fallbackColor] (typically the box's
+  /// flat /DA) for anything a span omits. Returns an empty list when no
+  /// spans are found, so callers can fall back to the plain text path.
+  static List<PdfFreeTextRun> parseFreeTextRichContent(
+    String rc, {
+    PdfStandardFont fallbackFont = PdfStandardFont.helvetica,
+    double fallbackSize = 12,
+    int fallbackColor = 0x000000,
+  }) {
+    final runs = <PdfFreeTextRun>[];
+    for (final span
+        in RegExp(r'<span\b([^>]*)>(.*?)</span>', dotAll: true).allMatches(rc)) {
+      final attrs = span.group(1) ?? '';
+      final style =
+          RegExp(r'style\s*=\s*"([^"]*)"').firstMatch(attrs)?.group(1) ?? '';
+      final text = _xmlUnescape(span.group(2) ?? '');
+      if (text.isEmpty) continue;
+      runs.add(PdfFreeTextRun(
+        text,
+        font: _richSpanFont(style, fallbackFont),
+        fontSize: _richSpanSize(style) ?? fallbackSize,
+        color: _richSpanColor(style) ?? fallbackColor,
+      ));
+    }
+    return runs;
+  }
+
+  static PdfStandardFont _richSpanFont(String style, PdfStandardFont fallback) {
+    final family = RegExp(r'font-family\s*:\s*([^;]+)')
+        .firstMatch(style)
+        ?.group(1)
+        ?.trim();
+    var font = family == null ? null : PdfStandardFont.tryFromName(family);
+    if (RegExp(r'font-weight\s*:\s*(bold|[6-9]00)').hasMatch(style)) {
+      font = (font ?? fallback).withBold(true);
+    }
+    if (RegExp(r'font-style\s*:\s*(italic|oblique)').hasMatch(style)) {
+      font = (font ?? fallback).withItalic(true);
+    }
+    return font ?? fallback;
+  }
+
+  static double? _richSpanSize(String style) {
+    final m = RegExp(r'font-size\s*:\s*([\d.]+)').firstMatch(style);
+    return m == null ? null : double.tryParse(m.group(1)!);
+  }
+
+  static int? _richSpanColor(String style) {
+    final m = RegExp(r'color\s*:\s*#([0-9a-fA-F]{6})').firstMatch(style);
+    return m == null ? null : int.parse(m.group(1)!, radix: 16);
+  }
+
+  static String _xmlEscape(String s) => s
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('\n', '&#10;');
+
+  static String _xmlUnescape(String s) => s
+      .replaceAll('&#10;', '\n')
+      .replaceAll('&#xA;', '\n')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
 
   /// The free-text appearance content: optional background fill and
   /// border, then [text] wrapped into [rect] and clipped to it.
@@ -1253,47 +1619,278 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect rect,
     String text, {
     required double fontSize,
-    required PdfStandardFont font,
+    required PdfTextFont font,
+    required PdfTextDirection textDirection,
+    PdfTextAlign? align,
     required int color,
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
+    int pageRotation = 0,
   }) {
     const pad = 3.0;
     final w = ContentWriter();
+    final vr = _freeTextVisualRect(rect, pageRotation);
+    if (pageRotation != 0) {
+      w.save();
+      _freeTextCounterRotation(w, rect, pageRotation);
+    }
     if (fillColor != null) {
       w
         ..fillColor(fillColor)
-        ..rect(rect.left, rect.bottom, rect.width, rect.height)
+        ..rect(vr.left, vr.bottom, vr.width, vr.height)
         ..fill();
     }
     if (borderColor != null && borderWidth > 0) {
       w
         ..strokeColor(borderColor)
         ..lineWidth(borderWidth)
-        ..rect(rect.left + borderWidth / 2, rect.bottom + borderWidth / 2,
-            rect.width - borderWidth, rect.height - borderWidth)
+        ..rect(vr.left + borderWidth / 2, vr.bottom + borderWidth / 2,
+            vr.width - borderWidth, vr.height - borderWidth)
         ..stroke();
     }
     w
       ..save()
-      ..rect(rect.left, rect.bottom, rect.width, rect.height)
+      ..rect(vr.left, vr.bottom, vr.width, vr.height)
       ..clip()
       ..beginText()
       ..font(font.resourceName, fontSize)
       ..leading(fontSize * 1.2)
-      ..fillColor(color)
-      // first baseline sits one ascent below the top padding
-      ..textAt(rect.left + pad, rect.top - pad - fontSize * font.ascent / 1000);
-    final lines = _wrap(text, fontSize, rect.width - 2 * pad, font: font);
+      ..fillColor(color);
+    // first baseline sits one ascent below the top padding
+    final firstY = vr.top - pad - fontSize * font.ascent / 1000;
+    final lines = _wrap(text, fontSize, vr.width - 2 * pad, font: font);
+    final resolvedDirection = textDirection.resolve(text);
+    final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
+    var prevX = 0.0;
+    var prevY = 0.0;
     for (var i = 0; i < lines.length; i++) {
-      if (i > 0) w.nextLine();
-      w.showText(lines[i]);
+      final line = lines[i];
+      final width = font.measure(line, fontSize);
+      final x = _lineX(effectiveAlign, vr, width, pad);
+      final y = firstY - i * fontSize * 1.2;
+      w.textAt(x - prevX, y - prevY);
+      if (font is PdfUnicodeFont) {
+        // Logical order: our renderer's TextPainter applies BiDi and shaping
+        // correctly; visual-order text would double-reverse and break Arabic
+        // contextual forms.
+        w.showGlyphHex(font.encodeHex(line));
+      } else {
+        final visual = pdfVisualText(line, resolvedDirection);
+        if (font is PdfEmbeddedFont) {
+          w.showGlyphHex(font.encodeHex(visual));
+        } else {
+          w.showText(visual);
+        }
+      }
+      prevX = x;
+      prevY = y;
     }
     w
       ..endText()
       ..restore();
+    if (pageRotation != 0) w.restore();
     return w;
+  }
+
+  ContentWriter _freeTextRichContent(
+    PdfRect rect,
+    List<PdfFreeTextRun> runs, {
+    required PdfTextDirection textDirection,
+    PdfTextAlign? align,
+    required int? fillColor,
+    required int? borderColor,
+    required double borderWidth,
+    int pageRotation = 0,
+  }) {
+    const pad = 3.0;
+    final w = ContentWriter();
+    final vr = _freeTextVisualRect(rect, pageRotation);
+    if (pageRotation != 0) {
+      w.save();
+      _freeTextCounterRotation(w, rect, pageRotation);
+    }
+    if (fillColor != null) {
+      w
+        ..fillColor(fillColor)
+        ..rect(vr.left, vr.bottom, vr.width, vr.height)
+        ..fill();
+    }
+    if (borderColor != null && borderWidth > 0) {
+      w
+        ..strokeColor(borderColor)
+        ..lineWidth(borderWidth)
+        ..rect(vr.left + borderWidth / 2, vr.bottom + borderWidth / 2,
+            vr.width - borderWidth, vr.height - borderWidth)
+        ..stroke();
+    }
+    final plain = runs.map((run) => run.text).join();
+    final resolvedDirection = textDirection.resolve(plain);
+    final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
+    final lines = _wrapRich(runs, vr.width - 2 * pad);
+    var top = vr.top - pad;
+    var prevX = 0.0;
+    var prevY = 0.0;
+    w
+      ..save()
+      ..rect(vr.left, vr.bottom, vr.width, vr.height)
+      ..clip()
+      ..beginText();
+    for (final line in lines) {
+      if (line.runs.isEmpty) {
+        top -= 12 * 1.2;
+        continue;
+      }
+      final ascent = line.runs.fold<double>(
+          0,
+          (max, run) =>
+              math.max(max, run.style.fontSize * run.style.font.ascent / 1000));
+      final lineHeight = line.runs.fold<double>(
+          0, (max, run) => math.max(max, run.style.fontSize * 1.2));
+      var x = _lineX(effectiveAlign, vr, line.width, pad);
+      final y = top - ascent;
+      final drawRuns = resolvedDirection == PdfTextDirection.rtl
+          ? line.runs.reversed
+          : line.runs;
+      for (final run in drawRuns) {
+        final style = run.style;
+        final isUnicode = style.font is PdfUnicodeFont;
+        final visual =
+            isUnicode ? run.text : pdfVisualText(run.text, resolvedDirection);
+        final width = style.font.measure(visual, style.fontSize);
+        w
+          ..font(style.font.resourceName, style.fontSize)
+          ..fillColor(style.color)
+          ..textAt(x - prevX, y - prevY);
+        if (isUnicode) {
+          w.showGlyphHex((style.font as PdfUnicodeFont).encodeHex(run.text));
+        } else if (style.font is PdfEmbeddedFont) {
+          w.showGlyphHex((style.font as PdfEmbeddedFont).encodeHex(visual));
+        } else {
+          w.showText(visual);
+        }
+        prevX = x;
+        prevY = y;
+        x += width;
+      }
+      top -= lineHeight;
+    }
+    w
+      ..endText()
+      ..restore();
+    if (pageRotation != 0) w.restore();
+    return w;
+  }
+
+  /// The default alignment when a free-text box gives none: right for an
+  /// RTL paragraph (so it hugs the right edge as before), left otherwise.
+  static PdfTextAlign _alignForDirection(PdfTextDirection direction) =>
+      direction == PdfTextDirection.rtl
+          ? PdfTextAlign.right
+          : PdfTextAlign.left;
+
+  /// The x where a line of width [width] starts so it sits at [align]
+  /// inside the padded visual rect [vr]. Centering cancels the padding, so
+  /// a centered line is centered within the full width.
+  static double _lineX(
+          PdfTextAlign align, PdfRect vr, double width, double pad) =>
+      switch (align) {
+        PdfTextAlign.left => vr.left + pad,
+        PdfTextAlign.center => vr.left + (vr.width - width) / 2,
+        PdfTextAlign.right => vr.right - pad - width,
+      };
+
+  /// The rect in which text is laid out when [pageRotation] is active.
+  /// For 90/270 rotations the visual dimensions (what the user sees on
+  /// screen) are the page rect's height×width; for 180 they stay the same.
+  /// The visual rect is centered on the page rect.
+  static PdfRect _freeTextVisualRect(PdfRect pageRect, int pageRotation) {
+    if (pageRotation == 0) return pageRect;
+    if (pageRotation == 180) return pageRect;
+    final cx = (pageRect.left + pageRect.right) / 2;
+    final cy = (pageRect.bottom + pageRect.top) / 2;
+    final vw = pageRect.height;
+    final vh = pageRect.width;
+    return PdfRect(cx - vw / 2, cy - vh / 2, cx + vw / 2, cy + vh / 2);
+  }
+
+  /// Writes a `cm` operator that counter-rotates the content by
+  /// [pageRotation] about the center of [pageRect], so that text drawn
+  /// in the visual rect appears upright after the renderer applies the
+  /// page's display rotation.
+  static void _freeTextCounterRotation(
+      ContentWriter w, PdfRect pageRect, int pageRotation) {
+    final cx = (pageRect.left + pageRect.right) / 2;
+    final cy = (pageRect.bottom + pageRect.top) / 2;
+    switch (pageRotation) {
+      case 90:
+        w.concatMatrix(0, 1, -1, 0, cx + cy, cy - cx);
+      case 180:
+        w.concatMatrix(-1, 0, 0, -1, 2 * cx, 2 * cy);
+      case 270:
+        w.concatMatrix(0, -1, 1, 0, cx - cy, cx + cy);
+    }
+  }
+
+  Iterable<PdfTextFont> _richFonts(List<PdfFreeTextRun> runs) sync* {
+    final seen = <String>{};
+    for (final run in runs) {
+      if (seen.add(run.font.resourceName)) yield run.font;
+    }
+  }
+
+  CosDictionary _richFontResources(List<PdfFreeTextRun> runs) {
+    final dict = CosDictionary();
+    for (final font in _richFonts(runs)) {
+      final CosDictionary resource;
+      if (font is PdfEmbeddedFont) {
+        resource = font.buildResource(_updater.addObject);
+      } else if (font is PdfUnicodeFont) {
+        resource = font.buildResource(_updater.addObject);
+      } else {
+        resource = _standardFont(font as PdfStandardFont);
+      }
+      dict.entries.addAll(resource.entries);
+    }
+    return dict;
+  }
+
+  List<_RichTextLine> _wrapRich(List<PdfFreeTextRun> runs, double maxWidth) {
+    final lines = <_RichTextLine>[];
+    var current = <_RichTextPiece>[];
+    var width = 0.0;
+
+    void flushLine() {
+      lines.add(_RichTextLine(current, width));
+      current = <_RichTextPiece>[];
+      width = 0;
+    }
+
+    void addText(PdfFreeTextRun style, String text) {
+      if (text.isEmpty) return;
+      if (current.isNotEmpty && current.last.sameStyle(style)) {
+        current[current.length - 1] =
+            _RichTextPiece(current.last.text + text, current.last.style);
+      } else {
+        current.add(_RichTextPiece(text, style));
+      }
+      width += style.font.measure(text, style.fontSize);
+    }
+
+    for (final run in runs) {
+      for (final rune in run.text.runes) {
+        if (rune == 0x0A) {
+          flushLine();
+          continue;
+        }
+        final text = String.fromCharCode(rune);
+        final w = run.font.measure(text, run.fontSize);
+        if (width > 0 && width + w > maxWidth + _wrapTolerance) flushLine();
+        addText(run, text);
+      }
+    }
+    if (current.isNotEmpty || lines.isEmpty) flushLine();
+    return lines;
   }
 
   /// Adds a sticky-note (/Text) annotation with its top-left corner at
@@ -1399,6 +1996,50 @@ extension PdfAnnotationEditing on PdfEditor {
     return (w, gs);
   }
 
+  /// Adds a count check-mark: a checkmark drawn inside [rect], modelled as
+  /// a /Stamp with /Name /Check so the editing UI can tally them
+  /// Bluebeam-style (see [PdfAnnotation.isCheckMark]). Being a stamp, it
+  /// inherits select/move/resize/rotate/delete from the annotation
+  /// machinery for free.
+  void addCheckMark(
+    int pageIndex,
+    PdfRect rect, {
+    int color = 0x2E7D32,
+    double opacity = 1,
+    String? author,
+    String? name,
+  }) {
+    final (w, gs) = _checkMarkContent(rect, color, opacity);
+    _addAnnotation(
+      pageIndex,
+      _markupDict('Stamp', rect, color, null, author)
+        ..['Name'] = const CosName('Check'),
+      _form(rect, w, resources: gs == null ? null : _resources(extGState: gs)),
+      name: name,
+    );
+  }
+
+  /// The check-mark appearance: a tick stroked inside [rect], centered in
+  /// its largest square so it stays proportional whatever the rect aspect.
+  (ContentWriter, CosDictionary?) _checkMarkContent(
+      PdfRect rect, int color, double opacity) {
+    final gs = _alphaState(opacity);
+    final w = ContentWriter();
+    if (gs != null) w.extGState('GS0');
+    final s = math.min(rect.width, rect.height);
+    final ox = rect.left + (rect.width - s) / 2;
+    final oy = rect.bottom + (rect.height - s) / 2;
+    w
+      ..strokeColor(color)
+      ..lineWidth(s * 0.16)
+      ..roundLines()
+      ..moveTo(ox + s * 0.18, oy + s * 0.50)
+      ..lineTo(ox + s * 0.42, oy + s * 0.26)
+      ..lineTo(ox + s * 0.82, oy + s * 0.74)
+      ..stroke();
+    return (w, gs);
+  }
+
   /// Inserts [image] (a decoded PNG or JPEG) as a /Stamp annotation whose
   /// appearance draws it scaled to fill [rect].
   ///
@@ -1434,25 +2075,39 @@ extension PdfAnnotationEditing on PdfEditor {
       _markupDict('Stamp', rect, 0xC03030, null, author),
       _form(rect, w,
           resources: _resources(
-              extGState: gs,
-              xObject: CosDictionary({'Img0': imageRef}))),
+              extGState: gs, xObject: CosDictionary({'Img0': imageRef}))),
       name: name,
     );
   }
 
   /// Removes [annotation] from the page, along with its popup, if any.
   void removeAnnotation(int pageIndex, PdfAnnotation annotation) {
+    removeAnnotations(pageIndex, [annotation]);
+  }
+
+  /// Removes [annotations] from the page, along with their popups, if any.
+  ///
+  /// This is equivalent to calling [removeAnnotation] for every annotation,
+  /// but scans and rewrites the page's /Annots array once. Use it for
+  /// multi-select deletes so large annotation sets do not pay an O(n × m)
+  /// identity scan plus one staged replacement per removed item.
+  void removeAnnotations(int pageIndex, Iterable<PdfAnnotation> annotations) {
     final cos = document.cos;
     final page = document.page(pageIndex);
     final raw = page.dict['Annots'];
     final array = cos.resolve(raw);
     if (array is! CosArray) return;
-    final popup = cos.resolve(annotation.dict['Popup']);
+    final targets = Set<CosDictionary>.identity();
+    for (final annotation in annotations) {
+      targets.add(annotation.dict);
+      final popup = cos.resolve(annotation.dict['Popup']);
+      if (popup is CosDictionary) targets.add(popup);
+    }
+    if (targets.isEmpty) return;
     final before = array.items.length;
     array.items.removeWhere((item) {
       final resolved = cos.resolve(item);
-      return identical(resolved, annotation.dict) ||
-          (popup is CosDictionary && identical(resolved, popup));
+      return resolved is CosDictionary && targets.contains(resolved);
     });
     if (array.items.length == before) return;
     if (raw is CosReference) {
@@ -1567,8 +2222,8 @@ extension PdfAnnotationEditing on PdfEditor {
             ..._endingExtent(
                 endings.$2, points.last, points[points.length - 2], width),
           ];
-    final rect =
-        _pointBounds([...points, ...endingPoints], width + (dashed ? width : 0));
+    final rect = _pointBounds(
+        [...points, ...endingPoints], width + (dashed ? width : 0));
     final form = annotation.normalAppearance;
     final gs = _alphaState(form == null ? 1 : _appearanceOpacity(form));
     final w = _lineContent(points,
@@ -1592,13 +2247,15 @@ extension PdfAnnotationEditing on PdfEditor {
     } else {
       dict['Vertices'] = _pointArray(points);
     }
+    // a measurement's caption rides along, expanding /Rect to fit it
+    final (bbox, font) = _appendMeasurementCaption(annotation, rect, points, w);
     if (form != null) {
-      _replaceAppearance(dict, form, rect, w,
-          resources: _resources(extGState: gs));
+      _replaceAppearance(dict, form, bbox, w,
+          resources: _resources(extGState: gs, font: font));
     } else {
       dict['AP'] = CosDictionary({
-        'N': _updater
-            .addObject(_form(rect, w, resources: _resources(extGState: gs))),
+        'N': _updater.addObject(
+            _form(bbox, w, resources: _resources(extGState: gs, font: font))),
       });
     }
     _markAnnotationChanged(pageIndex, dict);
@@ -1637,6 +2294,49 @@ extension PdfAnnotationEditing on PdfEditor {
     ]);
     // re-wrap: the dict's /LE just changed under the caller's instance, and
     // reshape reads the endings back through a fresh parse
+    reshapeLineAnnotation(
+        pageIndex, PdfAnnotation.fromDict(document, annotation.dict), points);
+    return true;
+  }
+
+  /// Restyles a measurement's caption font and/or size in place, keeping
+  /// the annotation's object number, /Annots slot, and geometry. The new
+  /// face/size is recorded in /DA and the appearance regenerates from the
+  /// current points (so the label redraws in the new font; the caption's
+  /// color is preserved). Pass null for an axis to leave it unchanged. A
+  /// no-op (returns false) for a line annotation that carries no /Measure,
+  /// any other subtype, or when nothing changes.
+  bool setMeasurementCaptionStyle(
+    int pageIndex,
+    PdfAnnotation annotation, {
+    PdfStandardFont? font,
+    double? size,
+  }) {
+    final subtype = annotation.subtype;
+    if (subtype != 'Line' && subtype != 'PolyLine' && subtype != 'Polygon') {
+      return false;
+    }
+    if (annotation.measure == null) return false;
+    final (curFont, curSize, color) = _measurementCaptionStyle(annotation);
+    final newFont = font ?? curFont;
+    final newSize = size ?? curSize;
+    if (newFont == curFont && newSize == curSize) return false;
+    final List<(double, double)> points;
+    if (subtype == 'Line') {
+      final line = annotation.line;
+      if (line == null) return false;
+      points = [line.$1, line.$2];
+    } else {
+      final vertices = annotation.vertices;
+      if (vertices == null || vertices.length < 2) return false;
+      points = vertices;
+    }
+    final rgb =
+        ContentWriter.rgbComponents(color).map(ContentWriter.fmt).join(' ');
+    annotation.dict['DA'] = CosString.fromText('$rgb rg '
+        '/${newFont.resourceName} ${ContentWriter.fmt(newSize)} Tf');
+    // re-wrap: the dict's /DA just changed under the caller's instance, and
+    // reshape recovers the caption style back through a fresh parse
     reshapeLineAnnotation(
         pageIndex, PdfAnnotation.fromDict(document, annotation.dict), points);
     return true;
@@ -1747,7 +2447,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// match; regenerated appearances (shapes, free text, lines) ignore the
   /// flip — a mirrored rectangle or readable-text box looks the same.
   void resizeAnnotation(int pageIndex, PdfAnnotation annotation, PdfRect to,
-      {bool flipX = false, bool flipY = false}) {
+      {bool flipX = false, bool flipY = false, int pageRotation = 0}) {
     final from = annotation.rect;
     if (from.width <= 0 ||
         from.height <= 0 ||
@@ -1755,7 +2455,8 @@ extension PdfAnnotationEditing on PdfEditor {
         to.height <= 0) {
       throw ArgumentError('resizeAnnotation needs non-degenerate rects');
     }
-    final regenerated = _regenerateResizedAppearance(annotation, to);
+    final regenerated =
+        _regenerateResizedAppearance(annotation, to, pageRotation: pageRotation);
     if (!regenerated && (flipX || flipY)) {
       final form = annotation.normalAppearance;
       if (form != null) _flipFormArtwork(form, flipX: flipX, flipY: flipY);
@@ -1901,12 +2602,12 @@ extension PdfAnnotationEditing on PdfEditor {
   /// the /Rect and point arrays stay consistent with the appearance.
   void resizeAnnotationLocal(
       int pageIndex, PdfAnnotation annotation, PdfRect localTo,
-      {bool flipX = false, bool flipY = false}) {
+      {bool flipX = false, bool flipY = false, int pageRotation = 0}) {
     final quad = annotation.appearanceQuad;
     final theta = quad == null ? 0.0 : _quadRotation(quad);
     if (theta == 0) {
       resizeAnnotation(pageIndex, annotation, localTo,
-          flipX: flipX, flipY: flipY);
+          flipX: flipX, flipY: flipY, pageRotation: pageRotation);
       return;
     }
     if (localTo.width <= 0 || localTo.height <= 0) {
@@ -1928,7 +2629,8 @@ extension PdfAnnotationEditing on PdfEditor {
       return;
     }
 
-    if (_regenerateResizedAppearance(annotation, localTo)) {
+    if (_regenerateResizedAppearance(annotation, localTo,
+        pageRotation: pageRotation)) {
       // a fresh, unrotated appearance at the local box — re-applying the
       // resting angle is then plain rotation (which also sets /Rect).
       // PdfAnnotation parses /Rect once, so rotate a re-wrapped view of
@@ -2013,7 +2715,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// [opacity], when given, replaces the alpha the old appearance
   /// carried — [restyleAnnotation]'s opacity path.
   bool _regenerateResizedAppearance(PdfAnnotation annotation, PdfRect to,
-      {double? opacity}) {
+      {double? opacity, int pageRotation = 0}) {
     final form = annotation.normalAppearance;
     if (form == null) return false;
     final dict = annotation.dict;
@@ -2033,17 +2735,31 @@ extension PdfAnnotationEditing on PdfEditor {
       case 'FreeText':
         final style = annotation.freeTextStyle;
         if (style == null) return false;
-        final font = PdfStandardFont.tryFromName(style.fontName);
-        if (font == null) return false;
-        final w = _freeTextContent(to, annotation.contents ?? '',
+        final stdFont = PdfStandardFont.tryFromName(style.fontName);
+        if (stdFont == null) return false;
+        final text = annotation.contents ?? '';
+        PdfUnicodeFont? unicodeFont;
+        if (text.codeUnits.any((c) => c > 0xFF)) {
+          unicodeFont = PdfUnicodeFont(stdFont);
+          unicodeFont.resetUsage();
+        }
+        final PdfTextFont effectiveFont = unicodeFont ?? stdFont;
+        final w = _freeTextContent(to, text,
             fontSize: style.fontSize,
-            font: font,
+            font: effectiveFont,
+            // direction follows the text; /Q carries the explicit alignment
+            textDirection: PdfTextDirection.auto,
+            align: style.alignment,
             color: style.color,
             fillColor: style.fillColor,
             borderColor: style.borderColor,
-            borderWidth: style.borderWidth);
+            borderWidth: style.borderWidth,
+            pageRotation: pageRotation);
+        final CosDictionary fontResource = unicodeFont != null
+            ? unicodeFont.buildResource(_updater.addObject)
+            : _standardFont(stdFont);
         _replaceAppearance(dict, form, to, w,
-            resources: _resources(font: _standardFont(font)));
+            resources: _resources(font: fontResource));
         return true;
       case 'Line':
         final line = annotation.line;
@@ -2094,8 +2810,13 @@ extension PdfAnnotationEditing on PdfEditor {
         startEnding: endings.$1,
         endEnding: endings.$2,
         hasAlpha: gs != null);
-    _replaceAppearance(annotation.dict, form, rect, w,
-        resources: _resources(extGState: gs));
+    // A measurement carries a caption drawn over the line; regenerate it
+    // too (recovering its font/size/color from /DA) so a width or style
+    // change never drops the label, widening the BBox/Rect to keep it
+    // unclipped.
+    final (bbox, font) = _appendMeasurementCaption(annotation, rect, points, w);
+    _replaceAppearance(annotation.dict, form, bbox, w,
+        resources: _resources(extGState: gs, font: font));
     return true;
   }
 
@@ -2137,6 +2858,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double? strokeWidth,
     double? opacity,
     (List<double>?,)? dashPattern,
+    int pageRotation = 0,
   }) {
     if (color == null &&
         fillColor == null &&
@@ -2246,7 +2968,8 @@ extension PdfAnnotationEditing on PdfEditor {
         // /C is the background — or mirrors the text color when there is
         // none, the legacy form freeTextStyle reads back as "no fill"
         dict['C'] = _colorComponents(fill ?? textColor);
-        return _restyleRegenerate(pageIndex, dict);
+        return _restyleRegenerate(pageIndex, dict,
+            pageRotation: pageRotation);
       case 'Text':
         dict['C'] = _colorComponents(color ?? annotation.color ?? 0xFFD100);
         return _restyleRegenerate(pageIndex, dict);
@@ -2263,7 +2986,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// regenerate in their local frame and re-rotate (the
   /// [resizeAnnotationLocal] shape, at the same size).
   bool _restyleRegenerate(int pageIndex, CosDictionary dict,
-      {double? opacity}) {
+      {double? opacity, int pageRotation = 0}) {
     // re-wrap: /Rect and style entries are parsed at construction or
     // lazily, and the dict just changed under the caller's instance
     final annotation = PdfAnnotation.fromDict(document, dict);
@@ -2271,7 +2994,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final theta = quad == null ? 0.0 : _quadRotation(quad);
     if (theta == 0) {
       if (!_regenerateStyledAppearance(annotation, annotation.rect,
-          opacity: opacity)) {
+          opacity: opacity, pageRotation: pageRotation)) {
         return false;
       }
       _markAnnotationChanged(pageIndex, dict);
@@ -2286,7 +3009,8 @@ extension PdfAnnotationEditing on PdfEditor {
     final h = math.sqrt((ulx - llx) * (ulx - llx) + (uly - lly) * (uly - lly));
     if (w < 1e-9 || h < 1e-9) return false;
     final local = PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
-    if (!_regenerateStyledAppearance(annotation, local, opacity: opacity)) {
+    if (!_regenerateStyledAppearance(annotation, local,
+        opacity: opacity, pageRotation: pageRotation)) {
       return false;
     }
     dict['Rect'] = _rectArray(local);
@@ -2299,7 +3023,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// subtypes (stamps, notes), which regenerate at their current size
   /// but never resize this way.
   bool _regenerateStyledAppearance(PdfAnnotation annotation, PdfRect to,
-      {double? opacity}) {
+      {double? opacity, int pageRotation = 0}) {
     switch (annotation.subtype) {
       case 'Square' ||
             'Circle' ||
@@ -2307,7 +3031,8 @@ extension PdfAnnotationEditing on PdfEditor {
             'Line' ||
             'PolyLine' ||
             'Polygon':
-        return _regenerateResizedAppearance(annotation, to, opacity: opacity);
+        return _regenerateResizedAppearance(annotation, to,
+            opacity: opacity, pageRotation: pageRotation);
       case 'Stamp':
         final form = annotation.normalAppearance;
         if (form == null) return false;
@@ -2649,9 +3374,9 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = _shapeContent(subtype, rect, strokeColor, strokeWidth, fillColor,
         dashPattern: dash, hasAlpha: gs != null);
 
-    final dict =
-        _markupDict(subtype, rect, strokeColor ?? fillColor!, contents, author)
-          ..['BS'] = _borderStyle(stroking ? strokeWidth : 0, dashPattern: dash);
+    final dict = _markupDict(
+        subtype, rect, strokeColor ?? fillColor!, contents, author)
+      ..['BS'] = _borderStyle(stroking ? strokeWidth : 0, dashPattern: dash);
     if (fillColor != null) {
       dict['IC'] = CosArray([
         for (final c in ContentWriter.rgbComponents(fillColor)) CosReal(c),
@@ -2728,8 +3453,8 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     if (dashed) w.dash(const []);
     if (points.length >= 2) {
-      _drawEnding(w, startEnding, points.first, points[1], strokeColor,
-          strokeWidth);
+      _drawEnding(
+          w, startEnding, points.first, points[1], strokeColor, strokeWidth);
       _drawEnding(w, endEnding, points.last, points[points.length - 2],
           strokeColor, strokeWidth);
     }
@@ -2813,8 +3538,12 @@ extension PdfAnnotationEditing on PdfEditor {
       case PdfLineEnding.circle:
         final r = s * 0.4;
         return (
-          vertices: [(tip.$1 + r, tip.$2), (tip.$1, tip.$2 + r),
-            (tip.$1 - r, tip.$2), (tip.$1, tip.$2 - r)],
+          vertices: [
+            (tip.$1 + r, tip.$2),
+            (tip.$1, tip.$2 + r),
+            (tip.$1 - r, tip.$2),
+            (tip.$1, tip.$2 - r)
+          ],
           closed: true,
           filled: true,
           isCircle: true,
@@ -3087,14 +3816,14 @@ extension PdfAnnotationEditing on PdfEditor {
   /// Greedy word wrap with [font]'s metrics; a single word longer than
   /// [maxWidth] overflows (and is clipped by the appearance).
   List<String> _wrap(String text, double fontSize, double maxWidth,
-      {PdfStandardFont font = PdfStandardFont.helvetica}) {
+      {PdfTextFont font = PdfStandardFont.helvetica}) {
     final lines = <String>[];
     for (final paragraph in text.split('\n')) {
       var line = '';
       for (final word in paragraph.split(' ')) {
         final candidate = line.isEmpty ? word : '$line $word';
         if (line.isNotEmpty &&
-            measureStandardText(candidate, fontSize, font: font) > maxWidth) {
+            font.measure(candidate, fontSize) > maxWidth + _wrapTolerance) {
           lines.add(line);
           line = word;
         } else {
