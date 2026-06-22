@@ -172,6 +172,31 @@ class PdfFormFieldStyle {
   final bool multiline;
 }
 
+/// A snapshot clipboard shared across editing sessions, so a region copied
+/// with the Snapshot tool in one document (or app tab) pastes into another.
+///
+/// A [PdfEditingController] created without one keeps a private clipboard
+/// (single-document hosts need nothing extra). A host juggling several open
+/// documents constructs one [PdfSnapshotClipboard] and passes it to every
+/// controller; copying in any of them then makes the snapshot pasteable in
+/// all of them. It notifies when the held snapshot changes, so paste
+/// affordances in other sessions can light up.
+class PdfSnapshotClipboard extends ChangeNotifier {
+  PdfVectorSnapshot? _snapshot;
+
+  /// The captured region currently on the clipboard, or null when empty.
+  PdfVectorSnapshot? get snapshot => _snapshot;
+
+  /// Whether [snapshot] holds a region to paste.
+  bool get isNotEmpty => _snapshot != null;
+
+  set snapshot(PdfVectorSnapshot? value) {
+    if (identical(_snapshot, value)) return;
+    _snapshot = value;
+    notifyListeners();
+  }
+}
+
 /// An editing session over a PDF document: applies edits through
 /// [PdfEditor], owns the resulting document revisions, and carries the
 /// UI state of the editing tools (active tool, color, pending ink
@@ -199,13 +224,20 @@ class PdfFormFieldStyle {
 /// ```
 class PdfEditingController extends ChangeNotifier {
   PdfEditingController(Uint8List bytes,
-      {String password = '', PdfEditingPreferences? preferences})
+      {String password = '',
+      PdfEditingPreferences? preferences,
+      PdfSnapshotClipboard? snapshotClipboard})
       : _bytes = bytes,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
-        preferences = preferences ?? PdfEditingPreferences() {
+        preferences = preferences ?? PdfEditingPreferences(),
+        _ownsSnapshots = snapshotClipboard == null,
+        _snapshots = snapshotClipboard ?? PdfSnapshotClipboard() {
     this.preferences.addListener(notifyListeners);
+    // a shared clipboard can change under us (another tab copied) — surface
+    // that so this session's paste affordance updates
+    _snapshots.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences backing [color], [strokeWidth],
@@ -221,6 +253,9 @@ class PdfEditingController extends ChangeNotifier {
     _flashTimer?.cancel();
     _changeFeed?.close();
     preferences.removeListener(notifyListeners);
+    _snapshots.removeListener(notifyListeners);
+    // the shared clipboard outlives this session — only a private one is ours
+    if (_ownsSnapshots) _snapshots.dispose();
     super.dispose();
   }
 
@@ -2558,7 +2593,7 @@ class PdfEditingController extends ChangeNotifier {
     _clipboardSourcePage = _selected.last.$1;
     _pasteCount = 0;
     // the most recent copy wins ⌘V (see [copyVectorSnapshot])
-    _snapshotClipboard = null;
+    _snapshots.snapshot = null;
     notifyListeners();
     return snapshots.length;
   }
@@ -2630,21 +2665,32 @@ class PdfEditingController extends ChangeNotifier {
   /// The in-app snapshot clipboard: a detached vector copy of a page
   /// region ([captureVectorSnapshot]) that survives edits, undo, and
   /// document swaps. Filled by the Snapshot tool, consumed by
-  /// [pasteSnapshot].
-  PdfVectorSnapshot? _snapshotClipboard;
+  /// [pasteSnapshot]. Shared across sessions when the host passes one in
+  /// (so snapshots copy between tabs); private otherwise.
+  final PdfSnapshotClipboard _snapshots;
+
+  /// Whether [_snapshots] is ours to dispose (a private clipboard) or the
+  /// host's shared one (left alone).
+  final bool _ownsSnapshots;
+
   int _snapshotPasteCount = 0;
 
+  /// The snapshot the local paste bookkeeping below tracks. When the shared
+  /// clipboard moves on to a different snapshot (another tab copied), the
+  /// cascade and reuse reset on the next paste.
+  PdfVectorSnapshot? _lastPastedSnapshot;
+
   /// The object number of the captured form materialized by the last paste
-  /// of [_snapshotClipboard] into the current document — reused so repeat
+  /// of the snapshot clipboard into the current document — reused so repeat
   /// pastes share one XObject instead of re-embedding the page content.
   /// Reset whenever a fresh snapshot is captured.
   int? _snapshotCapturedRef;
 
   /// Whether [pasteSnapshot] has a captured region to paste.
-  bool get hasSnapshotClipboard => _snapshotClipboard != null;
+  bool get hasSnapshotClipboard => _snapshots.isNotEmpty;
 
   /// The captured region on the snapshot clipboard, or null.
-  PdfVectorSnapshot? get snapshotClipboard => _snapshotClipboard;
+  PdfVectorSnapshot? get snapshotClipboard => _snapshots.snapshot;
 
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
   /// vector snapshot — the page graphics under the region, copied inline,
@@ -2659,9 +2705,10 @@ class PdfEditingController extends ChangeNotifier {
   /// clipboard. Returns the captured snapshot.
   PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region) {
     final snapshot = captureVectorSnapshot(pageIndex, region);
-    _snapshotClipboard = snapshot;
+    _snapshots.snapshot = snapshot;
     _snapshotPasteCount = 0;
     _snapshotCapturedRef = null;
+    _lastPastedSnapshot = snapshot;
     _clipboard = const [];
     notifyListeners();
     return snapshot;
@@ -2676,9 +2723,17 @@ class PdfEditingController extends ChangeNotifier {
   /// cascading 12pt down-right per repeat. The region always clamps into
   /// the page's crop box. Returns whether anything was pasted.
   bool pasteSnapshot(int pageIndex, {(double, double)? at}) {
-    final snapshot = _snapshotClipboard;
+    final snapshot = _snapshots.snapshot;
     if (snapshot == null) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    // the shared clipboard may have moved to a snapshot we've never pasted
+    // (copied in another tab) — restart the cascade and drop the stale
+    // captured-form reuse, which belonged to the previous snapshot
+    if (!identical(snapshot, _lastPastedSnapshot)) {
+      _lastPastedSnapshot = snapshot;
+      _snapshotPasteCount = 0;
+      _snapshotCapturedRef = null;
+    }
     final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
     double left, bottom;
@@ -2710,6 +2765,29 @@ class PdfEditingController extends ChangeNotifier {
       ..add((pageIndex, total - 1));
     notifyListeners();
     return true;
+  }
+
+  /// Imports a snapshot from the single-page PDF in [pdfBytes] — the
+  /// interchange behind [PdfVectorSnapshot.toPdfBytes] / [PdfSnapshot.pdfBytes]
+  /// — onto the clipboard and pastes it onto [pageIndex], so a region a host
+  /// read off the OS clipboard (ours, or another PDF tool's such as Bluebeam)
+  /// drops in as a vector /Stamp. The imported snapshot becomes the current
+  /// snapshot clipboard. Returns false when the bytes aren't a readable
+  /// single-page PDF or nothing could be pasted.
+  bool pasteSnapshotBytes(Uint8List pdfBytes, int pageIndex,
+      {(double, double)? at}) {
+    final PdfVectorSnapshot snapshot;
+    try {
+      snapshot = PdfVectorSnapshot.fromPdfBytes(pdfBytes);
+    } catch (_) {
+      return false;
+    }
+    _snapshots.snapshot = snapshot;
+    _snapshotPasteCount = 0;
+    _snapshotCapturedRef = null;
+    _lastPastedSnapshot = snapshot;
+    _clipboard = const [];
+    return pasteSnapshot(pageIndex, at: at);
   }
 
   /// How far to move the interval [lo, hi] so it fits inside

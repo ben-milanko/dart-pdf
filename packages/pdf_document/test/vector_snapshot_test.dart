@@ -175,6 +175,46 @@ void main() {
       expect(doc.page(0).annotations, isEmpty);
     });
 
+    test('toPdfBytes writes a one-page PDF sized to the captured region', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final snap = PdfEditor(doc)
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+
+      final pdf = PdfDocument.open(snap.toPdfBytes());
+      expect(pdf.pageCount, 1);
+      // the page is exactly the captured region (160x40 at the origin)
+      expect(pdf.page(0).mediaBox, const PdfRect(0, 0, 160, 40));
+      // and it draws the captured vectors, with the page font carried along
+      final content = latin1.decode(pdf.page(0).contentBytes());
+      expect(content, contains('(Page 1) Tj'));
+      expect(content, contains('1 0 0 1 -60 -700 cm'));
+    });
+
+    test('fromPdfBytes re-imports a snapshot written by toPdfBytes', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final original = PdfEditor(doc)
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+
+      // round-trip through the interchange PDF, then paste into a fresh doc
+      final reimported = PdfVectorSnapshot.fromPdfBytes(original.toPdfBytes());
+      expect(reimported.displayWidth, original.displayWidth);
+      expect(reimported.displayHeight, original.displayHeight);
+
+      final target = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(target);
+      editor.pasteVectorSnapshot(
+          0, const PdfRect(100, 100, 260, 140), reimported);
+      final out = PdfDocument.open(editor.save());
+      final stamp = out.page(0).annotations.single;
+      expect(stamp.subtype, 'Stamp');
+      // the captured vectors survived the PDF round-trip
+      final res = out.cos
+          .resolve(stamp.normalAppearance!.dictionary['Resources']) as CosDictionary;
+      final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
+      final cap = out.cos.resolve(xobj['Cap']) as CosStream;
+      expect(latin1.decode(out.cos.decodeStreamData(cap)), contains('(Page 1) Tj'));
+    });
+
     test('a detached snapshot survives further edits to the source', () {
       final doc = PdfDocument.open(buildMultiPagePdf(1));
       final editor = PdfEditor(doc);

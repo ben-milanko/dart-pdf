@@ -25,6 +25,21 @@ class PdfVectorSnapshot {
   PdfVectorSnapshot._(this.region, this.displayWidth, this.displayHeight,
       this._content, this._resources, this._matrix);
 
+  /// Re-imports a snapshot from the single-page PDF written by [toPdfBytes]
+  /// — the interchange that lets snapshots move between documents, app tabs,
+  /// and other PDF tools (Bluebeam's Snapshot tool round-trips through the
+  /// very same one-page-PDF-of-the-region shape).
+  ///
+  /// The whole first page (its crop box) becomes the captured region, so the
+  /// PDF's page size is the snapshot's natural paste size. Throws if the
+  /// bytes aren't a readable PDF with at least one page.
+  factory PdfVectorSnapshot.fromPdfBytes(Uint8List bytes,
+      {String password = ''}) {
+    final document = PdfDocument.open(bytes, password: password);
+    return PdfEditor(document)
+        .captureVectorSnapshot(0, document.page(0).cropBox);
+  }
+
   /// The captured region in the source page's user space (points, origin
   /// bottom-left), before /Rotate.
   final PdfRect region;
@@ -48,6 +63,89 @@ class PdfVectorSnapshot {
   /// `[0 0 displayWidth displayHeight]` box — translation for an unrotated
   /// page, a rotation+translation for 90/180/270.
   final List<double> _matrix;
+
+  /// Serializes this snapshot as a self-contained, single-page PDF whose
+  /// page is exactly the captured region (MediaBox `[0 0 displayWidth
+  /// displayHeight]`, the page's /Rotate already baked into the content).
+  ///
+  /// This is the portable interchange behind copy/paste *between documents*
+  /// and *between app tabs*, and the interop format with other PDF tools:
+  /// Bluebeam's Snapshot likewise exchanges a region as a small PDF, so the
+  /// bytes here paste into Bluebeam as vectors, and a snapshot copied out of
+  /// Bluebeam re-imports through [PdfVectorSnapshot.fromPdfBytes]. Hosts put
+  /// these bytes on the OS clipboard (e.g. as `application/pdf`).
+  Uint8List toPdfBytes() {
+    final builder = CosDocumentBuilder();
+
+    // the page content replays the captured operators under the rotation
+    // matrix, clipped to the page box by the MediaBox
+    final body = BytesBuilder()
+      ..add(latin1.encode('q ${_matrix.map(_fmtNum).join(' ')} cm\n'))
+      ..add(_content)
+      ..add(latin1.encode('\nQ'));
+    final contentBytes = body.takeBytes();
+    final contentRef = builder.add(CosStream(
+      CosDictionary({'Length': CosInteger(contentBytes.length)}),
+      contentBytes,
+    ));
+
+    // the detached resources carry fonts / images / nested forms as inline
+    // streams — hoist them to indirect objects (§7.3.8) before referencing
+    final resources = _copyDetached(_resources) as CosDictionary;
+    _hoistBuilderStreams(builder, resources);
+
+    // register the pages node empty so the page can reference it as /Parent,
+    // then fill it in (the builder serializes nothing until build())
+    final pages = CosDictionary();
+    final pagesRef = builder.add(pages);
+    final pageRef = builder.add(CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': pagesRef,
+      'MediaBox': _rectArray(PdfRect(0, 0, displayWidth, displayHeight)),
+      'Resources': resources,
+      'Contents': contentRef,
+    }));
+    pages
+      ..['Type'] = const CosName('Pages')
+      ..['Kids'] = CosArray([pageRef])
+      ..['Count'] = CosInteger(1);
+    final rootRef = builder.add(CosDictionary({
+      'Type': const CosName('Catalog'),
+      'Pages': pagesRef,
+    }));
+    return builder.build(root: rootRef);
+  }
+}
+
+/// Replaces every inline [CosStream] in [node] with a reference to an object
+/// registered on [builder] (children first, so a stream nested in another
+/// stream's /Resources hoists too) — the [CosDocumentBuilder] counterpart of
+/// the updater's `_hoistStreams`.
+void _hoistBuilderStreams(CosDocumentBuilder builder, CosObject node) {
+  switch (node) {
+    case CosDictionary dict:
+      for (final key in dict.entries.keys.toList()) {
+        final value = dict.entries[key]!;
+        if (value is CosStream) {
+          _hoistBuilderStreams(builder, value.dictionary);
+          dict[key] = builder.add(value);
+        } else {
+          _hoistBuilderStreams(builder, value);
+        }
+      }
+    case CosArray array:
+      for (var i = 0; i < array.items.length; i++) {
+        final value = array.items[i];
+        if (value is CosStream) {
+          _hoistBuilderStreams(builder, value.dictionary);
+          array.items[i] = builder.add(value);
+        } else {
+          _hoistBuilderStreams(builder, value);
+        }
+      }
+    default:
+      break;
+  }
 }
 
 /// Capturing and pasting vector regions ([PdfVectorSnapshot]) — the vector

@@ -47,6 +47,13 @@ class PdfSnapshot {
   /// (or in-app via [PdfEditingController.pasteSnapshot]) — Bluebeam-style,
   /// the snapshot stays sharp at any zoom.
   final PdfVectorSnapshot vector;
+
+  /// The captured region as a self-contained, single-page PDF (the
+  /// [vector] serialized via [PdfVectorSnapshot.toPdfBytes]). Put these on
+  /// the OS clipboard as `application/pdf` to paste the snapshot, as
+  /// vectors, into another PDF tool such as Bluebeam — the cross-application
+  /// half of the Snapshot tool.
+  Uint8List get pdfBytes => vector.toPdfBytes();
 }
 
 /// Receives a region captured by the Snapshot tool ([PdfEditTool.snapshot])

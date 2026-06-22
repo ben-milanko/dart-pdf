@@ -2,6 +2,7 @@
 // as a raster image (handed to PdfViewer.onSnapshot) AND as detached
 // vector graphics kept on the clipboard for pasting back into the PDF.
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
@@ -97,6 +98,68 @@ void main() {
       // pinned to the low edge of the 612x792 crop box
       expect(rect.left, closeTo(0, 1e-6));
       expect(rect.bottom, closeTo(0, 1e-6));
+    });
+
+    test('a shared clipboard carries a snapshot between sessions (tabs)', () {
+      SharedPreferences.setMockInitialValues({});
+      final shared = PdfSnapshotClipboard();
+      addTearDown(shared.dispose);
+      final tabA = PdfEditingController(buildMultiPagePdf(1),
+          snapshotClipboard: shared);
+      final tabB = PdfEditingController(buildMultiPagePdf(1),
+          snapshotClipboard: shared);
+      addTearDown(tabA.dispose);
+      addTearDown(tabB.dispose);
+
+      // copy in one tab…
+      expect(tabB.hasSnapshotClipboard, isFalse);
+      tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      // …and the other can paste it
+      expect(tabB.hasSnapshotClipboard, isTrue);
+      expect(tabB.pasteSnapshot(0, at: (300, 400)), isTrue);
+      expect(tabB.document.page(0).annotations.single.subtype, 'Stamp');
+    });
+
+    test('private clipboards (no shared holder) stay independent', () {
+      SharedPreferences.setMockInitialValues({});
+      final tabA = PdfEditingController(buildMultiPagePdf(1));
+      final tabB = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(tabA.dispose);
+      addTearDown(tabB.dispose);
+
+      tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(tabA.hasSnapshotClipboard, isTrue);
+      // no shared holder → the copy doesn't leak into the other session
+      expect(tabB.hasSnapshotClipboard, isFalse);
+    });
+
+    test('pasteSnapshotBytes imports an interchange PDF (Bluebeam interop)',
+        () {
+      SharedPreferences.setMockInitialValues({});
+      // a snapshot serialized to the portable single-page PDF (as a host
+      // would read off the OS clipboard from us or another PDF tool)
+      final source = PdfDocument.open(buildMultiPagePdf(1));
+      final pdfBytes = PdfEditor(source)
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(editing.pasteSnapshotBytes(pdfBytes, 0, at: (300, 400)), isTrue);
+      expect(editing.document.page(0).annotations.single.subtype, 'Stamp');
+      // the import also lands on the clipboard for repeat pastes
+      expect(editing.hasSnapshotClipboard, isTrue);
+    });
+
+    test('pasteSnapshotBytes rejects non-PDF bytes', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(
+          editing.pasteSnapshotBytes(
+              Uint8List.fromList([1, 2, 3, 4]), 0),
+          isFalse);
+      expect(editing.isModified, isFalse);
     });
   });
 

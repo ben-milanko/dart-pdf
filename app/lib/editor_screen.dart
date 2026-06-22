@@ -98,6 +98,10 @@ class _EditorScreenState extends State<EditorScreen>
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
 
+  /// One snapshot clipboard shared by every tab's edit session, so a region
+  /// copied with the Snapshot tool in one document pastes into another.
+  final PdfSnapshotClipboard _snapshots = PdfSnapshotClipboard();
+
   DocumentTab? get _active =>
       _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
 
@@ -196,6 +200,7 @@ class _EditorScreenState extends State<EditorScreen>
     for (final tab in _tabs) {
       tab.dispose();
     }
+    _snapshots.dispose();
     _recents.dispose();
     _updates.removeListener(_onUpdateStatus);
     if (_ownsUpdates) _updates.dispose();
@@ -224,6 +229,7 @@ class _EditorScreenState extends State<EditorScreen>
       title: title,
       bytes: bytes,
       preferences: _prefs,
+      snapshotClipboard: _snapshots,
       originPath: originPath,
     ));
     _recents.add(title: title, path: originPath);
@@ -279,6 +285,7 @@ class _EditorScreenState extends State<EditorScreen>
           title: title,
           bytes: bytes,
           preferences: _prefs,
+          snapshotClipboard: _snapshots,
           originPath: originPath,
         ),
       );
@@ -353,6 +360,7 @@ class _EditorScreenState extends State<EditorScreen>
           title: entry.title,
           bytes: bytes,
           preferences: _prefs,
+          snapshotClipboard: _snapshots,
           originPath: path,
         ),
       );
