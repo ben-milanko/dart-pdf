@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'demo_brand_assets.dart';
 import 'demo_document.dart';
 import 'persistent_cache.dart';
+import 'platform_fonts.dart';
 import 'recent_files.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
@@ -117,6 +118,24 @@ class _ViewerAppState extends State<ViewerApp> {
   /// follow the persisted light/dark choice; the screen below shares
   /// the same instance with every editing session.
   final _prefs = PdfEditingPreferences();
+
+  @override
+  void initState() {
+    super.initState();
+    // Offer the host's installed fonts in the editor's font menu by default.
+    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // empty result (web, or a locked-down platform) just leaves the base-14,
+    // bundled and "Load font…" choices.
+    unawaited(_loadPlatformFonts());
+  }
+
+  Future<void> _loadPlatformFonts() async {
+    try {
+      pdfPlatformFonts = await loadPlatformFonts();
+    } catch (_) {
+      // Font discovery is best-effort; the menu degrades to its other choices.
+    }
+  }
 
   @override
   void dispose() {

@@ -15,6 +15,7 @@ export 'src/icc.dart';
 export 'src/image_pixels.dart';
 export 'src/interpreter.dart';
 export 'src/shading.dart';
+export 'src/struct_text.dart';
 export 'src/matrix.dart';
 export 'src/mesh.dart';
 export 'src/path.dart';
