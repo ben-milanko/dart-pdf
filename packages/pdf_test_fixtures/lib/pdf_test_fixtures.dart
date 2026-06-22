@@ -1491,3 +1491,93 @@ Uint8List buildTestJpeg() => Uint8List.fromList(const [
       0xFF,
       0xD9,
     ]);
+
+/// Builds a minimal Tagged PDF: one page whose content is tagged with
+/// marked-content (BDC/EMC + /MCID) and a logical structure tree.
+///
+/// Catalog carries /MarkInfo << /Marked true >>, document /Lang (en-US),
+/// and /ViewerPreferences << /DisplayDocTitle true >>. The structure tree
+/// is Document → [H1, P, Figure, Link], where:
+/// - H1 (mapped from a custom role "Title" via /RoleMap) tags MCID 0
+///   ("Heading One"), with /Lang en-US,
+/// - P tags MCID 1 ("Body paragraph text."),
+/// - Figure tags MCID 2 (a filled rectangle) and carries /Alt
+///   "A sample figure" plus /ActualText "Figure 1",
+/// - Link is an OBJR reference to the page's single /Link annotation.
+///
+/// The page declares /StructParents 0 and the tree's /ParentTree maps that
+/// key to the per-MCID parent elements, so the read path can be validated
+/// from either direction (top-down /K walk or bottom-up parent tree).
+Uint8List buildTaggedPdf() {
+  const content = '/Title <</MCID 0>> BDC\n'
+      'BT /F1 18 Tf 72 720 Td (Heading One) Tj ET\n'
+      'EMC\n'
+      '/P <</MCID 1>> BDC\n'
+      'BT /F1 12 Tf 72 690 Td (Body paragraph text.) Tj ET\n'
+      'EMC\n'
+      '/Figure <</MCID 2>> BDC\n'
+      '0 0 1 rg 72 600 200 60 re f\n'
+      'EMC';
+  final objects = <String>[
+    // 1 catalog
+    '<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R '
+        '/MarkInfo << /Marked true >> /Lang (en-US) '
+        '/ViewerPreferences << /DisplayDocTitle true >> >>',
+    // 2 pages
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    // 3 page
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> '
+        '/StructParents 0 /Annots [13 0 R] >>',
+    // 4 contents
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    // 5 font
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    // 6 struct tree root
+    '<< /Type /StructTreeRoot /K [7 0 R] '
+        '/RoleMap << /Title /H1 >> /ParentTree 12 0 R /ParentTreeNextKey 2 >>',
+    // 7 Document element
+    '<< /Type /StructElem /S /Document /P 6 0 R '
+        '/K [8 0 R 9 0 R 10 0 R 11 0 R] >>',
+    // 8 H1 (custom role Title -> H1)
+    '<< /Type /StructElem /S /Title /P 7 0 R /Pg 3 0 R /Lang (en-US) '
+        '/T (heading) /K 0 >>',
+    // 9 P
+    '<< /Type /StructElem /S /P /P 7 0 R /Pg 3 0 R /K 1 >>',
+    // 10 Figure
+    '<< /Type /StructElem /S /Figure /P 7 0 R /Pg 3 0 R '
+        '/Alt (A sample figure) /ActualText (Figure 1) /K 2 >>',
+    // 11 Link element -> OBJR to the link annotation
+    '<< /Type /StructElem /S /Link /P 7 0 R /Pg 3 0 R '
+        '/K << /Type /OBJR /Pg 3 0 R /Obj 13 0 R >> >>',
+    // 12 parent tree (number tree): MCIDs on page (key 0) + annot (key 1)
+    '<< /Nums [ 0 [8 0 R 9 0 R 10 0 R] 1 11 0 R ] >>',
+  ];
+
+  final buffer = StringBuffer('%PDF-1.5\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  // Object 13 is the page's single /Link annotation, shared by the page's
+  // /Annots ([13 0 R]) and the Link structure element's OBJR. /StructParent 1
+  // ties it back to the parent tree.
+  offsets.add(buffer.length);
+  buffer.write('13 0 obj\n<< /Type /Annot /Subtype /Link '
+      '/Rect [72 600 272 660] /StructParent 1 '
+      '/A << /S /URI /URI (https://example.com) >> >>\nendobj\n');
+
+  final count = objects.length + 1; // +1 for object 13
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${count + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${count + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}

@@ -18,12 +18,18 @@ class PdfExtractedRun {
     required this.transform,
     required this.width,
     required this.bounds,
+    this.mcid,
   });
 
   final String text;
 
   /// Offset of [text] inside the owning [PdfPageText.text].
   final int startIndex;
+
+  /// The marked-content id of the structure-tagged sequence this run belongs
+  /// to (§14.7), or null when the run is not tagged. Joins runs to the
+  /// logical structure tree — see [PdfTaggedText].
+  final int? mcid;
 
   /// Em space → page space (see [PdfTextRun.transform]).
   final PdfMatrix transform;
@@ -379,6 +385,7 @@ class PdfTextExtractor {
         transform: run.transform,
         width: run.width,
         bounds: _boundsOf(run.transform, 0, run.width),
+        mcid: run.mcid,
       ));
       previous = run;
     }
