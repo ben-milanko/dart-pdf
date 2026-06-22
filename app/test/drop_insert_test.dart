@@ -10,6 +10,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+// These tests exercise the *branching* a drop takes — show the open/insert
+// dialog when a document is open, and route to the right action — by driving
+// the desktop_drop channel directly. They deliberately do not read real files:
+// the bytes a dropped item carries are read lazily through dart:io, whose
+// futures never complete under the widget tester's fake clock (and the read is
+// triggered from a UI tap, so it can't be wrapped in runAsync either). The
+// actual page copy is covered by the editor package's insertPagesFrom* tests;
+// here we assert the synchronous effects each branch produces.
 void main() {
   late PdfEditingPreferences prefs;
 

@@ -39,6 +39,14 @@ its Linux branch fires even without a prior `entered`). Two traps:
   branch adds a loading tab (added before the byte read) so the title
   shows in the tab strip; the *insert* branch adds no tab. The actual page
   copy is covered by the editor package's `insertPagesFrom*` tests.
+  `tester.runAsync` does **not** rescue this: the read is triggered by a
+  UI tap (which needs frame pumps `runAsync` can't do), and the
+  `await readAsBytes` continuation is bound to the fake-async zone, so even
+  with the file written and the real read completed inside `runAsync`, the
+  continuation (insert + toast) never runs — the document stays unchanged
+  and no snackbar appears. Codecov flags the ~16 read/toast glue lines as
+  uncovered; `codecov/patch` still passes, and the branching that matters
+  is covered.
 - **Dialog dismiss needs time.** After tapping a dialog action, pump past
   the ~200 ms route-pop transition (the test pumps 350 ms) before
   asserting the dialog is gone. `pumpAndSettle` is unusable here because
