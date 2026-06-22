@@ -840,6 +840,13 @@ class _EditorScreenState extends State<EditorScreen>
                 ),
         ),
       if (compact && _tabs.isNotEmpty) _buildMobileTabsButton(),
+      if (!_readOnly && tab?.session != null && !tab!.isComparison)
+        IconButton(
+          key: const ValueKey('dartpdf-takeoff-button'),
+          icon: const Icon(Icons.functions),
+          tooltip: 'Takeoff totals',
+          onPressed: () => _showTakeoffPanel(tab.session!),
+        ),
       if (compact && !_readOnly && tab?.session != null)
         Padding(
           padding: const EdgeInsets.only(right: 8),
@@ -855,6 +862,22 @@ class _EditorScreenState extends State<EditorScreen>
           ),
         ),
     ];
+  }
+
+  /// Shows the construction-takeoff register — the per-tool running totals
+  /// over the live document (length, area, count, volume, …) — in a bottom
+  /// sheet. The panel listens to the edit session, so totals update as
+  /// measurements are added, edited, or undone.
+  void _showTakeoffPanel(PdfEditingController session) {
+    unawaited(showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: PdfTakeoffPanel(controller: session),
+        ),
+      ),
+    ));
   }
 
   Widget _buildAppMenu(DocumentTab? tab) => PopupMenuButton<VoidCallback>(
