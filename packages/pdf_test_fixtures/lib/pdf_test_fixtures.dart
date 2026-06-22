@@ -427,6 +427,70 @@ Uint8List buildAcroFormPdf() {
   return ascii(buffer.toString());
 }
 
+/// Builds a form with the "orphaned AcroField" defect some producers emit
+/// (notably a macOS 26.5 / Quartz build that re-saves filled forms): the
+/// /AcroForm /Fields tree and the on-page widget annotations are two
+/// disconnected copies of the same form.
+///
+/// - /Fields lists two terminal fields, `name` and `town`, as merged
+///   field+widget dicts that appear in **no** page /Annots. `name`
+///   carries a stale /V (`old`); `town` is empty.
+/// - The page /Annots shows three Widget annotations, none in /Fields and
+///   with no /Parent: `name` (same name as a /Fields entry, /V `Jane`),
+///   `town` (matching the empty /Fields entry, no /V), and `extra` (a
+///   page-only field with no /Fields entry at all, /V `Solo`).
+///
+/// A reader that only walks /Fields sees the invisible copies and misses
+/// what the page shows; reconciliation must adopt the page widgets.
+Uint8List buildOrphanedAcroFormPdf() {
+  final objects = <String>[
+    // 1: catalog — /Fields holds only the off-page copies (6, 7)
+    '<< /Type /Catalog /Pages 2 0 R /AcroForm << '
+        '/Fields [6 0 R 7 0 R] '
+        '/DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >> >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    // 3: page — /Annots lists only the orphan page widgets (8, 9, 10)
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Annots [8 0 R 9 0 R 10 0 R] >>',
+    '<< /Length 0 >>\nstream\n\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+        '/Encoding /WinAnsiEncoding >>',
+    // 6: off-page /Fields copy of `name`, stale value
+    '<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) '
+        '/Rect [72 700 300 724] /DA (/Helv 12 Tf 0 g) /V (old) >>',
+    // 7: off-page /Fields copy of `town`, empty
+    '<< /Type /Annot /Subtype /Widget /FT /Tx /T (town) '
+        '/Rect [72 660 300 684] /DA (/Helv 12 Tf 0 g) >>',
+    // 8: on-page orphan `name` — not in /Fields, the value the user sees
+    '<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) '
+        '/Rect [72 700 300 724] /DA (/Helv 12 Tf 0 g) /V (Jane) >>',
+    // 9: on-page orphan `town` — not in /Fields, empty
+    '<< /Type /Annot /Subtype /Widget /FT /Tx /T (town) '
+        '/Rect [72 660 300 684] /DA (/Helv 12 Tf 0 g) >>',
+    // 10: on-page orphan `extra` — no /Fields entry at all
+    '<< /Type /Annot /Subtype /Widget /FT /Tx /T (extra) '
+        '/Rect [72 620 300 644] /DA (/Helv 12 Tf 0 g) /V (Solo) >>',
+  ];
+
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// Builds a minimal TrueType font, unitsPerEm 1000, three glyphs:
 /// 0 = .notdef (empty), 1 = 'A' (triangle, advance 600),
 /// 2 = 'B' (square, advance 1000). The cmap is a (3,1) format 4 table.
