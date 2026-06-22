@@ -1,8 +1,10 @@
 part of 'editor.dart';
 
 /// Authoring and auto-tagging for the logical structure tree (§14.7) — the
-/// write half of Tagged PDF.
-extension PdfStructTreeAuthoring on PdfEditor {
+/// write half of Tagged PDF — plus PDF/A conversion. Grouped in one extension
+/// because PDF/A conversion reuses the XMP/metadata helpers below (Dart
+/// extension members are not callable across separate extensions).
+extension PdfTaggingAndArchival on PdfEditor {
   /// Marks the document tagged and writes a structure tree from [roots].
   ///
   /// Each [PdfStructSpec] becomes a /StructElem with its /S type, /Alt,
@@ -246,6 +248,85 @@ extension PdfStructTreeAuthoring on PdfEditor {
     );
     document.catalog['Metadata'] = _updater.addObject(stream);
     _updater.markChanged(document.catalog);
+  }
+
+  /// Converts the document toward PDF/A-[part]b (part 1, 2, or 3) by adding the
+  /// structural requirements that do not need the content rewritten: an
+  /// OutputIntent referencing the [iccProfile] ([iccComponents] = 1 gray,
+  /// 3 RGB, 4 CMYK), XMP metadata carrying the pdfaid identification, a
+  /// trailer /ID, and a catalog /Version cap. It refuses an encrypted document
+  /// (PDF/A forbids encryption and the content cannot be re-emitted here).
+  ///
+  /// It does NOT embed missing fonts or rewrite colour — run [validatePdfA]
+  /// afterward to see what remains. A document whose fonts are already
+  /// embedded and whose colour is device-independent (or covered by the
+  /// OutputIntent) becomes conformant. [title]/[creator] populate the
+  /// metadata and document info.
+  void convertToPdfA({
+    required Uint8List iccProfile,
+    int iccComponents = 3,
+    String outputConditionIdentifier = 'Custom',
+    String outputCondition = '',
+    int part = 2,
+    String level = 'B',
+    String? title,
+    String? creator,
+  }) {
+    if (document.cos.isEncrypted) {
+      throw StateError(
+          'cannot convert an encrypted document to PDF/A: re-save it '
+          'without encryption first');
+    }
+    if (title != null) setInfo(title: title);
+
+    // Cap the version (a catalog /Version name overrides the header, §7.5.5).
+    document.catalog['Version'] = CosName(part == 1 ? '1.4' : '1.7');
+
+    // OutputIntent + ICC DestOutputProfile.
+    final iccRef = _updater.addObject(CosStream(
+      CosDictionary({
+        'N': CosInteger(iccComponents),
+        'Length': CosInteger(iccProfile.length),
+      }),
+      iccProfile,
+    ));
+    final intent = CosDictionary({
+      'Type': CosName('OutputIntent'),
+      'S': CosName('GTS_PDFA1'),
+      'OutputConditionIdentifier':
+          CosString.fromText(outputConditionIdentifier),
+      'Info': CosString.fromText(
+          outputCondition.isEmpty ? outputConditionIdentifier : outputCondition),
+      'DestOutputProfile': iccRef,
+    });
+    if (outputCondition.isNotEmpty) {
+      intent['OutputCondition'] = CosString.fromText(outputCondition);
+    }
+    final existing = document.cos.resolve(document.catalog['OutputIntents']);
+    final intents = <CosObject>[
+      if (existing is CosArray) ...existing.items,
+      _updater.addObject(intent),
+    ];
+    document.catalog['OutputIntents'] = CosArray(intents);
+
+    // XMP identification metadata.
+    setXmpMetadata(
+      title: title,
+      creatorTool: creator,
+      pdfaPart: part,
+      pdfaConformance: level.toUpperCase(),
+    );
+
+    _updater.markChanged(document.catalog);
+
+    // Ensure a trailer /ID (required by PDF/A); derive it deterministically
+    // from the current bytes so re-runs are stable.
+    final existingId = document.cos.resolve(document.cos.trailer['ID']);
+    if (existingId is! CosArray || existingId.length < 2) {
+      final digest = crypto.md5.convert(document.cos.bytes).bytes;
+      final id = CosString(Uint8List.fromList(digest), isHex: true);
+      _updater.setTrailerEntry('ID', CosArray([id, id]));
+    }
   }
 
   /// Tags page [pageIndex]'s content and returns the structure specs for it.
