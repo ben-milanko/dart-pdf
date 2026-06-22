@@ -138,6 +138,29 @@ void main() {
     });
   });
 
+  group('standalone document timestamp', () {
+    test('addDocumentTimestamp stamps an already signed file', () async {
+      final signed = await freshEditor().saveSignedPades(
+        privateKey: signerKey,
+        certificates: [signerCert],
+        signingTime: signedAt,
+      );
+      final stamped = await PdfEditor(PdfDocument.open(signed))
+          .addDocumentTimestamp(testTsa());
+      final docTs = PdfSignature.of(PdfDocument.open(stamped))
+          .where((s) => s.isDocumentTimeStamp)
+          .toList();
+      expect(docTs, hasLength(1));
+      final result = docTs.single.validate();
+      expect(result.signatureValid, isTrue);
+      expect(result.timestamp!.valid, isTrue);
+      // the original approval signature survives the added revision
+      final approval = PdfSignature.of(PdfDocument.open(stamped))
+          .firstWhere((s) => !s.isDocumentTimeStamp);
+      expect(approval.validate().signatureValid, isTrue);
+    });
+  });
+
   group('Certify / DocMDP author signature', () {
     test('sets /Perms /DocMDP and a DocMDP transform at the given level',
         () async {
