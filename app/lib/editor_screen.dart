@@ -320,11 +320,34 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
-  /// Opens PDFs dropped onto the window (desktop and web). Non-PDFs are
-  /// ignored; each readable PDF opens in its own tab.
+  /// Handles PDFs dropped onto the window (desktop and web). Non-PDFs are
+  /// ignored. With an editable document already open, the drop offers a
+  /// choice — open each PDF in its own tab, or insert their pages into the
+  /// current document; with nothing open (or in read-only mode) each PDF
+  /// just opens in its own tab.
   Future<void> _onFilesDropped(List<DropItem> items) async {
-    for (final item in items) {
-      if (!item.name.toLowerCase().endsWith('.pdf')) continue;
+    final pdfs = [
+      for (final item in items)
+        if (item.name.toLowerCase().endsWith('.pdf')) item,
+    ];
+    if (pdfs.isEmpty) return;
+
+    final tab = _active;
+    final session = tab?.session;
+    if (session != null && !_readOnly) {
+      final action = await _promptDropAction(pdfs.length, tab!.title);
+      if (action == null || !mounted) return; // cancelled / disposed
+      if (action == _DropAction.insert) {
+        await _insertDropped(pdfs, session, tab.title);
+        return;
+      }
+    }
+    await _openDropped(pdfs);
+  }
+
+  /// Opens each dropped [pdfs] item in its own tab.
+  Future<void> _openDropped(List<DropItem> pdfs) async {
+    for (final item in pdfs) {
       // desktop_drop exposes a real path on desktop; on web it's a blob ref
       // we don't treat as a writable origin.
       final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
@@ -334,6 +357,67 @@ class _EditorScreenState extends State<EditorScreen>
         originPath: path,
       );
     }
+  }
+
+  /// Inserts the pages of each dropped PDF, appended in drop order, into the
+  /// active document's edit session. Unreadable files are skipped and
+  /// reported; the result is one undoable step per inserted file.
+  Future<void> _insertDropped(
+      List<DropItem> pdfs, PdfEditingController session, String title) async {
+    var inserted = 0;
+    final failed = <String>[];
+    for (final item in pdfs) {
+      try {
+        final bytes = await item.readAsBytes();
+        session.insertPagesFromBytes(bytes);
+        inserted++;
+      } catch (_) {
+        failed.add(item.name);
+      }
+    }
+    if (!mounted) return;
+    if (inserted == 0) {
+      _toast('Could not insert the dropped ${pdfs.length == 1 ? 'PDF' : 'PDFs'}');
+    } else if (failed.isEmpty) {
+      _toast(inserted == 1
+          ? 'Inserted pages into $title'
+          : 'Inserted $inserted PDFs into $title');
+    } else {
+      _toast('Inserted $inserted; could not read ${failed.join(', ')}');
+    }
+  }
+
+  /// Asks whether dropped PDFs (with a document already open) should open in
+  /// new tabs or have their pages inserted into the current document. Returns
+  /// null when cancelled.
+  Future<_DropAction?> _promptDropAction(int count, String title) {
+    final noun = count == 1 ? 'this PDF' : 'these $count PDFs';
+    final pages = count == 1 ? 'its pages' : 'their pages';
+    return showDialog<_DropAction>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('drop-action-dialog'),
+        title: Text('Add dropped ${count == 1 ? 'PDF' : 'PDFs'}'),
+        content: Text('Open $noun in a new tab, or insert $pages into '
+            '"$title"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const ValueKey('drop-action-open'),
+            onPressed: () => Navigator.of(context).pop(_DropAction.open),
+            child: Text(count == 1 ? 'Open in new tab' : 'Open in new tabs'),
+          ),
+          FilledButton(
+            key: const ValueKey('drop-action-insert'),
+            onPressed: () => Navigator.of(context).pop(_DropAction.insert),
+            child: const Text('Insert pages'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openRecent(RecentFile entry) async {
@@ -798,7 +882,12 @@ class _EditorScreenState extends State<EditorScreen>
           child: Stack(
             children: [
               Positioned.fill(child: _buildBody(tab)),
-              if (_dragging) const Positioned.fill(child: _DropOverlay()),
+              if (_dragging)
+                Positioned.fill(
+                  child: _DropOverlay(
+                    canInsert: tab?.session != null && !_readOnly,
+                  ),
+                ),
             ],
           ),
         ),
@@ -1261,8 +1350,15 @@ class _TabDragStartListener extends ReorderableDragStartListener {
 
 /// The translucent "drop a PDF here" scrim shown while a file is dragged over
 /// the window.
+/// How a drop should be handled when a document is already open.
+enum _DropAction { open, insert }
+
 class _DropOverlay extends StatelessWidget {
-  const _DropOverlay();
+  const _DropOverlay({this.canInsert = false});
+
+  /// Whether the drop can be inserted into the open document (vs. only
+  /// opened in a new tab) — drives the hint text.
+  final bool canInsert;
 
   @override
   Widget build(BuildContext context) {
@@ -1284,7 +1380,7 @@ class _DropOverlay extends StatelessWidget {
               Icon(Icons.file_download_outlined,
                   size: 40, color: scheme.primary),
               const SizedBox(height: 8),
-              const Text('Drop PDF to open'),
+              Text(canInsert ? 'Drop PDF to open or insert' : 'Drop PDF to open'),
             ],
           ),
         ),
