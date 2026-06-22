@@ -94,6 +94,43 @@ void main() {
     expect(find.text('Resolved'), findsNothing);
   });
 
+  testWidgets('controller.setReviewState records a review verdict',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..author = 'Ann'
+      ..addRectangle(0, const PdfRect(100, 100, 200, 150));
+    addTearDown(editing.dispose);
+
+    final root = editing.document.page(0).annotations.single;
+    expect(editing.setReviewState(0, root, PdfReviewState.accepted), isTrue);
+    final thread = PdfCommentThread.forPage(editing.document, 0).single;
+    expect(thread.state!.state, PdfReviewState.accepted);
+    expect(thread.state!.author, 'Ann');
+
+    // a blank reply is a no-op
+    final fresh = editing.document.page(0).annotations
+        .firstWhere((a) => !a.isReply && !a.isStateAnnotation);
+    expect(editing.replyToAnnotation(0, fresh, '   '), isFalse);
+  });
+
+  testWidgets('sending an empty reply just closes the field', (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addNote(0, 100, 700, 'root');
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await pumpSidebar(tester, editing, viewer);
+
+    await tester.tap(find.byKey(const ValueKey('pdf-reply-button')));
+    await tester.pump();
+    // send without typing anything
+    await tester.tap(find.byKey(const ValueKey('pdf-reply-send')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('pdf-reply-field')), findsNothing);
+    expect(editing.document.page(0).annotations.where((a) => a.isReply),
+        isEmpty);
+  });
+
   testWidgets('a reply emits on the change feed for sync', (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
       ..addNote(0, 100, 700, 'root');

@@ -4,6 +4,7 @@
 
 import 'dart:convert';
 
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -75,6 +76,68 @@ void main() {
       final out = PdfDocument.open(editor.save());
       final reply = out.page(0).annotations.firstWhere((a) => a.name == 'r');
       expect(reply.inReplyTo, 'fresh');
+    });
+  });
+
+  group('reply edge cases', () {
+    test('a reply without a name gets a generated /NM and carries /Subj', () {
+      final doc = edited(withRoot(), (e) {
+        e.replyToAnnotation(0, e.document.page(0).annotations.single,
+            'no name given', subject: 'Re: review');
+      });
+      final reply =
+          doc.page(0).annotations.firstWhere((a) => a.isReply);
+      expect(reply.name, isNotNull, reason: 'a UUID was minted');
+      expect(reply.subject, 'Re: review');
+    });
+
+    test('replying to a non-indirect annotation throws', () {
+      final doc = PdfDocument.open(buildClassicPdf());
+      // a dictionary that is not an object in the document
+      final detached = PdfAnnotation.fromDict(
+          doc,
+          CosDictionary({
+            'Type': const CosName('Annot'),
+            'Subtype': const CosName('Square'),
+            'Rect': CosArray(const [
+              CosInteger(0),
+              CosInteger(0),
+              CosInteger(10),
+              CosInteger(10)
+            ]),
+          }));
+      final editor = PdfEditor(doc);
+      expect(() => editor.replyToAnnotation(0, detached, 'hi'),
+          throwsArgumentError);
+      expect(() => editor.setReviewState(0, detached, PdfReviewState.accepted),
+          throwsArgumentError);
+    });
+  });
+
+  group('annotation thread getters on a plain annotation', () {
+    test('a plain markup carries no reply/state/date fields', () {
+      final doc = withRoot();
+      final root = doc.page(0).annotations.single;
+      expect(root.isReply, isFalse);
+      expect(root.isStateAnnotation, isFalse);
+      expect(root.inReplyTo, isNull);
+      expect(root.replyType, isNull);
+      expect(root.reviewState, isNull);
+      expect(root.stateModel, isNull);
+      expect(root.subject, isNull);
+      // no /CreationDate or /M on a freshly added square
+      expect(root.creationDate, isNull);
+      expect(root.modificationDate, isNull);
+    });
+
+    test('pdfFormatDate and the date getters round-trip', () {
+      final doc = edited(withRoot(), (e) {
+        e.replyToAnnotation(0, e.document.page(0).annotations.single, 'hi',
+            createdAt: DateTime.utc(2026, 6, 22, 13, 5, 9));
+      });
+      final reply = doc.page(0).annotations.firstWhere((a) => a.isReply);
+      expect(reply.creationDate, DateTime.utc(2026, 6, 22, 13, 5, 9));
+      expect(reply.modificationDate, DateTime.utc(2026, 6, 22, 13, 5, 9));
     });
   });
 
@@ -152,6 +215,54 @@ void main() {
           containsAll(['root-1', 'rA', 'rB']));
       expect(thread.comments.any((c) => c.annotation.isStateAnnotation),
           isFalse);
+    });
+
+    test('PdfComment exposes author/text and hasThread', () {
+      var doc = withRoot();
+      doc = edited(doc, (e) {
+        e.replyToAnnotation(0, e.document.page(0).annotations.single,
+            'a reply', author: 'Bob', name: 'rX');
+      });
+      final thread = PdfCommentThread.forPage(doc, 0).single;
+      expect(thread.root.hasThread, isTrue);
+      expect(thread.root.author, 'Ann');
+      final reply = thread.root.replies.single;
+      expect(reply.author, 'Bob');
+      expect(reply.text, 'a reply');
+      expect(reply.hasThread, isFalse);
+    });
+
+    test('thread state picks the newest entry across comments', () {
+      var doc = withRoot();
+      // a reply, an older state on the root, a newer state on the reply
+      doc = edited(doc, (e) {
+        e.replyToAnnotation(0, e.document.page(0).annotations.single,
+            'a reply', name: 'rX', createdAt: DateTime.utc(2030, 1, 1));
+      });
+      doc = edited(doc, (e) {
+        final root = e.document.page(0).annotations
+            .firstWhere((a) => a.name == 'root-1');
+        e.setReviewState(0, root, PdfReviewState.rejected,
+            author: 'Ann', at: DateTime.utc(2030, 1, 2));
+      });
+      doc = edited(doc, (e) {
+        final reply =
+            e.document.page(0).annotations.firstWhere((a) => a.name == 'rX');
+        e.setReviewState(0, reply, PdfReviewState.accepted,
+            author: 'Bob', at: DateTime.utc(2030, 1, 5));
+      });
+      final thread = PdfCommentThread.forPage(doc, 0).single;
+      expect(thread.state!.state, PdfReviewState.accepted,
+          reason: 'the later state on the reply wins');
+      expect(thread.state!.author, 'Bob');
+    });
+
+    test('rootsWithThreadsOnly drops bare roots', () {
+      // a root with no replies/state
+      final doc = withRoot();
+      expect(PdfCommentThread.forPage(doc, 0), hasLength(1));
+      expect(
+          PdfCommentThread.forPage(doc, 0, rootsWithThreadsOnly: true), isEmpty);
     });
 
     test('of() finds the thread for any member', () {

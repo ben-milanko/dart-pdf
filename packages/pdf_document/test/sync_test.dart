@@ -47,6 +47,13 @@ void main() {
       a.close();
     });
 
+    test('connecting a live id twice throws', () {
+      final hub = PdfLoopbackSyncHub();
+      final a = hub.connect('a');
+      expect(() => hub.connect('a'), throwsArgumentError);
+      a.close();
+    });
+
     test('a send never echoes to the sender', () async {
       final hub = PdfLoopbackSyncHub();
       final a = hub.connect('a');
@@ -100,6 +107,66 @@ void main() {
       expect(back.name, 'shared-1');
       expect(back.change.kind, PdfAnnotationChangeKind.created);
       expect(back.change.snapshot!.name, 'shared-1');
+    });
+  });
+
+  group('session surface', () {
+    test('bytes/peers/presence/changes are exposed', () async {
+      final hub = PdfLoopbackSyncHub();
+      final base = seeded();
+      final a = PdfSyncSession(bytes: base, transport: hub.connect('a'));
+      final b = PdfSyncSession(bytes: base, transport: hub.connect('b'));
+      addTearDown(() async {
+        await a.dispose();
+        await b.dispose();
+      });
+
+      expect(a.id, 'a');
+      expect(PdfDocument.open(a.bytes).pageCount, greaterThan(0));
+      await settle();
+      expect(a.peers, {'a', 'b'});
+
+      final presenceSeen = <Set<String>>[];
+      final presenceSub = a.presence.listen(presenceSeen.add);
+      addTearDown(presenceSub.cancel);
+
+      // a local edit notifies the session's own change stream
+      final localChanges = <List<PdfAnnotationChange>>[];
+      final changeSub = a.changes.listen(localChanges.add);
+      addTearDown(changeSub.cancel);
+      a.apply((e) => e.addNote(0, 50, 50, 'hi', name: 'n1'), pages: [0]);
+      await settle();
+      expect(localChanges, isNotEmpty);
+
+      // and an accepted remote change also surfaces on b.changes
+      final remoteChanges = <List<PdfAnnotationChange>>[];
+      final bSub = b.changes.listen(remoteChanges.add);
+      addTearDown(bSub.cancel);
+      a.apply((e) => e.addNote(0, 80, 80, 'yo', name: 'n2'), pages: [0]);
+      await settle();
+      expect(remoteChanges, isNotEmpty);
+    });
+
+    test('a remote removal is applied on the peer', () async {
+      final hub = PdfLoopbackSyncHub();
+      final base = seeded();
+      final a = PdfSyncSession(bytes: base, transport: hub.connect('a'));
+      final b = PdfSyncSession(bytes: base, transport: hub.connect('b'));
+      addTearDown(() async {
+        await a.dispose();
+        await b.dispose();
+      });
+
+      a.apply((e) => e.addNote(0, 50, 50, 'temp', name: 'temp-1'),
+          pages: [0]);
+      await settle();
+      expect(b.annotationDigest().keys, contains('temp-1'));
+
+      a.apply((e) => e.removeAnnotationByName('temp-1'), pages: [0]);
+      await settle();
+      expect(b.annotationDigest().keys, isNot(contains('temp-1')),
+          reason: 'the remove replayed through _applyRemote');
+      expect(a.annotationDigest(), b.annotationDigest());
     });
   });
 

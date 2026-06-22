@@ -125,11 +125,9 @@ extension PdfCommentEditing on PdfEditor {
 
   /// Stages an appearance-less thread annotation (reply or state) and
   /// links it into the page's /Annots. Unlike [_addAnnotation] it writes
-  /// no /AP: replies and state replies carry no page graphics.
+  /// no /AP: replies and state replies carry no page graphics. The caller
+  /// is responsible for the /NM (both creators stamp one).
   void _addThreadAnnotation(int pageIndex, CosDictionary annot) {
-    if (!annot.entries.containsKey('NM')) {
-      annot['NM'] = CosString.fromText(_generateAnnotationName());
-    }
     _linkAnnotation(pageIndex, _updater.addObject(annot));
   }
 }
