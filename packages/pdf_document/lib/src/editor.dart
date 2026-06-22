@@ -15,10 +15,13 @@ import 'form.dart';
 import 'image.dart';
 import 'measure.dart';
 import 'outline.dart';
+import 'pades.dart';
 import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
+import 'struct_tree.dart';
 import 'type0_metrics.dart';
+import 'xmp.dart';
 
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
@@ -34,8 +37,10 @@ part 'form_admin.dart';
 part 'form_editor.dart';
 part 'form_styling.dart';
 part 'ocr_editor.dart';
+part 'pades_editor.dart';
 part 'page_editor.dart';
 part 'signature_editor.dart';
+part 'struct_tree_editor.dart';
 part 'vector_snapshot.dart';
 
 /// High-level editing session over a [PdfDocument].

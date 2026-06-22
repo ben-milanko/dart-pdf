@@ -61,7 +61,13 @@ class PdfTextRun {
     this.fill = true,
     this.strokeColor,
     this.strokeWidth = 0,
+    this.mcid,
   });
+
+  /// The marked-content id (/MCID) of the innermost tagged marked-content
+  /// sequence enclosing this run, or null when the run is untagged. In a
+  /// Tagged PDF this ties the run to a structure element (§14.7).
+  final int? mcid;
 
   /// Whether the glyphs are filled (text rendering modes 0/2/4/6). False for
   /// stroke-only modes (1/5) and when a fill that can't be represented (an

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Font menu: offer the host platform's installed fonts as embeddable choices
+  alongside the base-14 families and bundled fonts. A host fills the new
+  `pdfPlatformFonts` registry once at startup (the example/app scan the OS
+  font directories on native; web stays empty), and every font menu picks
+  them up by default. Picking one embeds its outlines into the document so
+  the text renders and prints everywhere. New `PdfPlatformFont` type and an
+  optional `platformFonts` argument on `PdfFontMenuButton`/`showPdfFontMenu`.
+
 ## 1.2.3
 
 - Free text: align a text box left, center, or right. The alignment buttons
