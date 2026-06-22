@@ -3527,6 +3527,30 @@ class PdfEditingController extends ChangeNotifier {
     return count;
   }
 
+  /// Edits the selected text element and re-flows its whole paragraph via
+  /// [PdfEditor.reflowText]: when the replacement changes the paragraph's
+  /// line count, the paragraph re-wraps at its right margin and the lines
+  /// that follow it cascade up or down so nothing overlaps.
+  ///
+  /// Returns true when a paragraph was reflowed, false (nothing changed)
+  /// when the selection isn't part of a reflowable paragraph — single
+  /// column, left aligned, one font/size, regular leading (see
+  /// [PdfParagraphReflow]); the caller can fall back to
+  /// [replaceSelectedElementText] for an in-line correction.
+  bool reflowSelectedElementText(String text) {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null || !canEditSelectedElementText) {
+      return false;
+    }
+    var reflowed = false;
+    apply(
+        (e) => reflowed = e.reflowText(selected.$1, element.text!, text),
+        pages: [selected.$1]);
+    return reflowed;
+  }
+
+
   // ---------------------------------------------------------------------
   // forms
 

@@ -487,6 +487,30 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     controller.replaceSelectedElementText(text, fallbackFonts: fallbacks);
   }
 
+  Future<void> _reflowElementText(BuildContext context) async {
+    final element = controller.selectedElement;
+    if (element == null) return;
+    final text = await widget.textPrompt(
+      context,
+      title: 'Reflow paragraph',
+      initial: element.text ?? '',
+      multiline: true,
+    );
+    if (text == null || text == element.text) return;
+    final reflowed = controller.reflowSelectedElementText(text);
+    if (!reflowed && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: const Text(
+              "Couldn't reflow — this isn't a single-column paragraph this "
+              'tool can re-wrap. Try Replace text instead.'),
+          behavior: SnackBarBehavior.floating,
+          margin: pdfFloatingToastMargin(context),
+        ));
+    }
+  }
+
   void _flatten(BuildContext context) {
     final flattened = controller.flattenAllAnnotations();
     _flattenToast(
@@ -1074,12 +1098,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         tooltip: 'Delete element',
         onPressed: controller.deleteSelectedElement,
       ),
-      if (controller.canEditSelectedElementText)
+      if (controller.canEditSelectedElementText) ...[
         IconButton(
+          key: const ValueKey('pdf-replace-element-text'),
           icon: const Icon(Icons.edit),
           tooltip: 'Replace text',
           onPressed: () => _editElementText(context),
         ),
+        IconButton(
+          key: const ValueKey('pdf-reflow-element-text'),
+          icon: const Icon(Icons.wrap_text),
+          tooltip: 'Reflow paragraph',
+          onPressed: () => _reflowElementText(context),
+        ),
+      ],
     ]);
     return _centeredCard(
       context,

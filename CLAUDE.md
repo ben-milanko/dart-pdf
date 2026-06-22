@@ -191,8 +191,13 @@ annotation sidebar (`PdfAnnotationSidebar` — lists by page, tap selects
 via `selectAnnotation(page, slot)`, trailing delete), and a content
 tool (`PdfEditTool.content`: taps hit-test `PdfPageElements` — cached
 per revision in the controller — orange selection chrome; delete via
-`deleteElements`, text rewrite via `replaceText`; element ids die with
-every revision, so any edit clears the element selection).
+`deleteElements`, in-line text rewrite via `replaceText`
+(`replaceSelectedElementText`), and paragraph reflow via `reflowText`
+(`reflowSelectedElementText`) — the element strip's "Reflow paragraph"
+action (`pdf-reflow-element-text`) re-wraps the selected line's whole
+paragraph, toasting a fallback hint when the shape isn't reflowable;
+element ids die with every revision, so any edit clears the element
+selection).
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) —
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder
