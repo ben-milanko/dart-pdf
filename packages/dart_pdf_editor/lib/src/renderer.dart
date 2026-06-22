@@ -35,7 +35,8 @@ class PdfPageRenderer {
   static Future<ui.Picture> renderPicture(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      bool Function(PdfAnnotation)? skipAnnotation}) async {
+      bool Function(PdfAnnotation)? skipAnnotation,
+      int? rotation}) async {
     final cos = page.document.cos;
 
     // Parsing the content stream (and decompressing it) dominates rendering on
@@ -56,12 +57,12 @@ class PdfPageRenderer {
         await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page);
+    final size = pageSize(page, rotation: rotation);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
     _paintBackground(canvas, size, pageColor);
-    _applyPageTransform(canvas, page, size, box);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
 
     final painting = PdfInterpreter(
         cos: cos, device: CanvasPdfDevice(canvas, images: images))
@@ -95,7 +96,8 @@ class PdfPageRenderer {
   static Future<ui.Picture> renderPictureRecorded(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      bool Function(PdfAnnotation)? skipAnnotation}) async {
+      bool Function(PdfAnnotation)? skipAnnotation,
+      int? rotation}) async {
     final cos = page.document.cos;
     final pageOps = ContentStreamParser.parse(page.contentBytes());
 
@@ -111,12 +113,12 @@ class PdfPageRenderer {
         cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page);
+    final size = pageSize(page, rotation: rotation);
     final uiRecorder = ui.PictureRecorder();
     final canvas = Canvas(uiRecorder);
 
     _paintBackground(canvas, size, pageColor);
-    _applyPageTransform(canvas, page, size, box);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
 
     replayCommands(recorder.commands, CanvasPdfDevice(canvas, images: images));
     final picture = uiRecorder.endRecording();
@@ -140,7 +142,8 @@ class PdfPageRenderer {
   /// running the codec. An image-free buffer decodes nothing.
   static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
-      {Color pageColor = const Color(0xFFFFFFFF)}) async {
+      {Color pageColor = const Color(0xFFFFFFFF),
+      int? rotation}) async {
     final requests = <PdfImageRequest>[];
     _collectImageRequests(commands, requests);
     final images = requests.isEmpty
@@ -149,11 +152,11 @@ class PdfPageRenderer {
             cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page);
+    final size = pageSize(page, rotation: rotation);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     _paintBackground(canvas, size, pageColor);
-    _applyPageTransform(canvas, page, size, box);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
     replayCommands(commands, CanvasPdfDevice(canvas, images: images));
     final picture = recorder.endRecording();
     for (final image in images.values) {
@@ -195,8 +198,9 @@ class PdfPageRenderer {
   /// Sets the canvas up in PDF user space: /Rotate, then the y-flip and crop
   /// box origin, so interpreter output (page space, y-up) lands correctly.
   static void _applyPageTransform(
-      Canvas canvas, PdfPage page, Size size, PdfRect box) {
-    switch (page.rotation) {
+      Canvas canvas, PdfPage page, Size size, PdfRect box,
+      {int? rotation}) {
+    switch (rotation ?? page.rotation) {
       case 90:
         canvas.translate(size.width, 0);
         canvas.rotate(math.pi / 2);
@@ -218,7 +222,7 @@ class PdfPageRenderer {
   /// 1 point) but with a transparent background — for live drag/resize
   /// previews. Null when the annotation has no appearance stream.
   static Future<ui.Picture?> renderAnnotationPicture(
-      PdfPage page, PdfAnnotation annotation) async {
+      PdfPage page, PdfAnnotation annotation, {int? rotation}) async {
     if (annotation.normalAppearance == null) return null;
     final cos = page.document.cos;
 
@@ -229,10 +233,10 @@ class PdfPageRenderer {
         await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page);
+    final size = pageSize(page, rotation: rotation);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    _applyPageTransform(canvas, page, size, box);
+    _applyPageTransform(canvas, page, size, box, rotation: rotation);
 
     PdfInterpreter(cos: cos, device: CanvasPdfDevice(canvas, images: images))
         .drawAnnotation(page, annotation);
@@ -248,14 +252,18 @@ class PdfPageRenderer {
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      bool recorded = false}) async {
+      bool recorded = false,
+      int? rotation}) async {
     final picture = recorded
         ? await renderPictureRecorded(page,
-            pageColor: pageColor, annotations: annotations)
+            pageColor: pageColor, annotations: annotations,
+            rotation: rotation)
         : await renderPicture(page,
-            pageColor: pageColor, annotations: annotations);
+            pageColor: pageColor, annotations: annotations,
+            rotation: rotation);
     try {
-      return await rasterize(picture, pageSize(page), pixelRatio);
+      return await rasterize(picture, pageSize(page, rotation: rotation),
+          pixelRatio);
     } finally {
       picture.dispose();
     }
@@ -307,15 +315,22 @@ class PdfPageRenderer {
   /// live preview) build a [PdfPageColorSampler] once instead.
   static Future<ui.Color?> sampleColor(PdfPage page, ui.Offset point,
           {Color pageColor = const Color(0xFFFFFFFF),
-          bool annotations = true}) async =>
+          bool annotations = true,
+          int? rotation}) async =>
       (await PdfPageColorSampler.of(page,
-              pageColor: pageColor, annotations: annotations))
+              pageColor: pageColor, annotations: annotations,
+              rotation: rotation))
           .colorAt(point);
 
-  /// Page size in points after applying /Rotate.
-  static Size pageSize(PdfPage page) {
+  /// Page size in points after applying rotation.
+  ///
+  /// [rotation] overrides the page's own /Rotate when set — the view
+  /// rotation feature uses this to display a page at a different
+  /// orientation without modifying the document.
+  static Size pageSize(PdfPage page, {int? rotation}) {
     final box = page.cropBox;
-    final swap = page.rotation == 90 || page.rotation == 270;
+    final r = rotation ?? page.rotation;
+    final swap = r == 90 || r == 270;
     return swap ? Size(box.height, box.width) : Size(box.width, box.height);
   }
 }
@@ -338,12 +353,13 @@ class PdfPageColorSampler {
   /// read the color the user actually sees.
   static Future<PdfPageColorSampler> of(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
-      bool annotations = true}) async {
+      bool annotations = true,
+      int? rotation}) async {
     final picture = await PdfPageRenderer.renderPicture(page,
-        pageColor: pageColor, annotations: annotations);
+        pageColor: pageColor, annotations: annotations, rotation: rotation);
     try {
       final image = await PdfPageRenderer.rasterize(
-          picture, PdfPageRenderer.pageSize(page), 1);
+          picture, PdfPageRenderer.pageSize(page, rotation: rotation), 1);
       try {
         final data = await image.toByteData();
         if (data == null) {

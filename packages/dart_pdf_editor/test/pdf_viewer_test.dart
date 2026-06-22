@@ -8,6 +8,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextExtractor;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
@@ -30,6 +31,11 @@ void main() {
   // buildAnnotatedPdf link geometry, in view coordinates (800px viewport
   // over a 612pt page): centers of the annotation rects on page 1
   const annotScale = 800 / 612;
+  // The on-screen scale (px/pt) the viewer rests at with the 612pt-wide
+  // fixture filling the 800px-wide viewport — i.e. controller.zoom at
+  // fit-width. Public zoom is reported in px/pt (1.0 = actual size), so
+  // fit-width is 800/612, not 1.
+  const fitWidth = 800 / 612;
   Offset annotView(double x, double y) =>
       Offset(x * annotScale, (792 - y) * annotScale);
 
@@ -53,8 +59,9 @@ void main() {
     ));
     await tester.pump();
 
-    // 800×600 viewport, 612×792 pages: fit-page = 600 / (800 · 792/612)
-    expect(controller.zoom, closeTo(600 / (800 * 792 / 612), 0.001));
+    // 800×600 viewport, 612×792 pages: fit-page fits the height, so the
+    // scale is 600/792 px/pt (the whole page is 600px tall on screen)
+    expect(controller.zoom, closeTo(600 / 792, 0.001));
     final region = controller.visiblePageRegion(0)!;
     expect(region.left, closeTo(0, 0.001));
     expect(region.top, closeTo(0, 0.001));
@@ -339,8 +346,8 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 400));
 
     expect(controller.selectedText, 'Page');
-    // and the viewer did not zoom
-    expect(controller.zoom, 1);
+    // and the viewer did not zoom (still resting at fit-width)
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
   });
 
   testWidgets('double-click and drag selects whole words', (tester) async {
@@ -452,7 +459,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(const Offset(400, 300));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, greaterThan(1));
+    expect(controller.zoom, greaterThan(fitWidth));
 
     // zoomed: two-finger scroll must keep moving through the document
     // (regression: InteractiveViewer used to claim the gesture and pan
@@ -468,9 +475,10 @@ void main() {
     await gesture.panZoomEnd();
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     expect(controller.currentPage, greaterThan(0));
-    expect(controller.zoom, greaterThan(1)); // scrolling didn't unzoom
+    expect(controller.zoom, greaterThan(fitWidth)); // scrolling didn't unzoom
 
-    // trackpad pinch-out keeps working — and may pass 100% (2.5 × 0.2)
+    // trackpad pinch-out keeps working — and crosses below fit-width
+    // (2.5 × 0.2 = 0.5 of fit-width)
     final pinch = await tester.createGesture(
         kind: PointerDeviceKind.trackpad, pointer: 22);
     await pinch.panZoomStart(const Offset(400, 300));
@@ -478,7 +486,7 @@ void main() {
     await tester.pump();
     await pinch.panZoomEnd();
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, moreOrLessEquals(0.5, epsilon: 0.01));
+    expect(controller.zoom, moreOrLessEquals(0.5 * fitWidth, epsilon: 0.02));
   });
 
   testWidgets('zooming out past 100% floors at minZoom and recenters',
@@ -502,7 +510,8 @@ void main() {
     }
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, moreOrLessEquals(0.25, epsilon: 0.001));
+    // minZoom (0.25) is a fit-width multiple; in px/pt that is 0.25 × fit-width
+    expect(controller.zoom, moreOrLessEquals(0.25 * fitWidth, epsilon: 0.002));
 
     // pages lay out at a quarter width, centered — and MORE of the
     // document is on screen: several pages fit the viewport at once
@@ -514,12 +523,12 @@ void main() {
     final third = tester.getRect(find.byType(PdfPageView).at(2));
     expect(third.top, lessThan(600)); // and page 3
 
-    // double-tap from zoomed-out returns to exactly 100%
+    // double-tap from zoomed-out returns to fit-width
     await tester.tapAt(const Offset(400, 300));
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(const Offset(400, 300));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1);
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
   });
 
   testWidgets('trackpad fling keeps scrolling after lift-off', (tester) async {
@@ -676,7 +685,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(const Offset(400, 300));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, moreOrLessEquals(2.5, epsilon: 0.01));
+    // double-tap zooms 2.5× fit-width; in px/pt that is 2.5 × fit-width
+    expect(controller.zoom, moreOrLessEquals(2.5 * fitWidth, epsilon: 0.02));
 
     await tester.runAsync(() => controller.search('Page 4'));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
@@ -740,14 +750,16 @@ void main() {
       await tester.pump();
     }
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1); // wheeled past the end: no zoom
+    // wheeled past the end: no zoom (still resting at fit-width)
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
 
     for (var i = 0; i < 10; i++) {
       await tester.sendEventToBinding(pointer.scroll(const Offset(0, -400)));
       await tester.pump();
     }
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1); // and past the top: no zoom
+    // and past the top: no zoom
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
   });
 
   testWidgets('ctrl+wheel zooms, plain wheel scrolls', (tester) async {
@@ -758,7 +770,7 @@ void main() {
     // plain wheel: scrolls the list, no zoom
     await tester.sendEventToBinding(pointer.scroll(const Offset(0, 300)));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
-    expect(controller.zoom, 1);
+    expect(controller.zoom, closeTo(fitWidth, 0.001));
     expect(controller.currentPage, 0);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -766,7 +778,7 @@ void main() {
     await tester.sendEventToBinding(pointer.scroll(const Offset(0, -300)));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    expect(controller.zoom, greaterThan(1));
+    expect(controller.zoom, greaterThan(fitWidth));
   });
 
   testWidgets('default max zoom supports deep inspection of long plots',
@@ -919,6 +931,162 @@ void main() {
 
     // only page 0 got an overlay
     expect(find.byType(TextButton), findsOneWidget);
+  });
+
+  testWidgets('touch horizontal pan rubber-bands and springs back',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final controller = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    editing.tool = PdfEditTool.select;
+    await tester.pump();
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    // at 2.5×, the visible region is ~40% of the page width centered:
+    // left ≈ 0.3, right ≈ 0.7
+    final regionBefore = controller.visiblePageRegion(0)!;
+
+    // touch drag to the right → the content slides right, visible region
+    // slides left, pushing past the left edge (left < 0 in rubber-band)
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.touch);
+    var stamp = Duration.zero;
+    for (var i = 0; i < 12; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(const Offset(60, 0), timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // mid-drag: the visible region moved past the left edge
+    final regionMidDrag = controller.visiblePageRegion(0)!;
+    expect(regionMidDrag.left, lessThan(regionBefore.left),
+        reason: 'the content should have shifted');
+
+    await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
+    await tester.pump();
+
+    // the spring-back animation brings the page back to the edge
+    await tester.pumpAndSettle(const Duration(milliseconds: 500));
+    final regionAfter = controller.visiblePageRegion(0)!;
+    expect(regionAfter.left, moreOrLessEquals(0, epsilon: 0.02));
+
+    // clean up double-tap timer
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('touch horizontal pan moves the viewport within bounds',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final controller = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    editing.tool = PdfEditTool.select;
+    await tester.pump();
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    final regionBefore = controller.visiblePageRegion(0)!;
+
+    // touch drag to the LEFT → the content slides left, visible region
+    // moves right (still within bounds, no edge hit)
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.touch);
+    var stamp = Duration.zero;
+    for (var i = 0; i < 6; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(const Offset(-30, 0), timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    final regionDragged = controller.visiblePageRegion(0)!;
+    expect(regionDragged.left, greaterThan(regionBefore.left),
+        reason: 'horizontal touch pan should move the viewport');
+
+    await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('touch horizontal pan works without editing controller',
+      (tester) async {
+    final controller = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: PdfDocument.open(buildMultiPagePdf(3)),
+          controller: controller,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    final regionBefore = controller.visiblePageRegion(0)!;
+
+    // touch drag to the LEFT → viewport moves right
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.touch);
+    var stamp = Duration.zero;
+    for (var i = 0; i < 6; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(const Offset(-30, 0), timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    final regionDragged = controller.visiblePageRegion(0)!;
+    expect(regionDragged.left, greaterThan(regionBefore.left),
+        reason: 'horizontal touch pan should work in reader mode');
+
+    await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
   });
 
   testWidgets('controller survives the host recreating the viewer element',

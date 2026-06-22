@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'editor_screen.dart';
+import 'platform_fonts.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
 /// the MaterialApp can follow the persisted light/dark choice and every
@@ -32,6 +35,19 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     if (kIsWeb) {
       pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
     }
+    // Offer the host's installed fonts in the editor's font menu by default.
+    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // empty result (web, or a locked-down platform) just leaves the base-14,
+    // bundled and "Load font…" choices.
+    unawaited(_loadPlatformFonts());
+  }
+
+  Future<void> _loadPlatformFonts() async {
+    try {
+      pdfPlatformFonts = await loadPlatformFonts();
+    } catch (_) {
+      // Font discovery is best-effort; the menu degrades to its other choices.
+    }
   }
 
   @override
@@ -53,7 +69,11 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           useMaterial3: true,
         ),
         themeMode: _prefs.themeMode,
-        home: EditorScreen(prefs: _prefs, launchArgs: widget.launchArgs),
+        home: EditorScreen(
+          prefs: _prefs,
+          launchArgs: widget.launchArgs,
+          autoCheckUpdates: true,
+        ),
       ),
     );
   }

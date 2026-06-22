@@ -19,7 +19,35 @@ abstract final class _Oid {
   static const messageDigest = '1.2.840.113549.1.9.4';
   static const signingTime = '1.2.840.113549.1.9.5';
   static const rsaEncryption = '1.2.840.113549.1.1.1';
+  static const rsassaPss = '1.2.840.113549.1.1.10';
   static const ecPublicKey = '1.2.840.10045.2.1';
+  static const signingCertificate = '1.2.840.113549.1.9.16.2.12';
+  static const signingCertificateV2 = '1.2.840.113549.1.9.16.2.47';
+  static const signatureTimeStampToken = '1.2.840.113549.1.9.16.2.14';
+}
+
+/// Parses RSASSA-PSS-params (RFC 4055 §3.1) from an AlgorithmIdentifier's
+/// parameters, returning the message/MGF hash and the explicit salt length
+/// (null when absent — the verifier then recovers it from the signature).
+/// Missing or partial parameters fall back to the ASN.1 defaults (SHA-1).
+(crypto.Hash, int?) _pssParams(DerObject? params) {
+  var hash = crypto.sha1;
+  int? saltLength;
+  if (params != null && params.tag == DerTag.sequence) {
+    for (final field in params.children) {
+      if (field.tag == DerTag.context(0)) {
+        // hashAlgorithm [0] EXPLICIT AlgorithmIdentifier
+        final h = _hashFor(field.children.first.children.first.asOid);
+        if (h != null) hash = h;
+      } else if (field.tag == DerTag.context(2)) {
+        // saltLength [2] EXPLICIT INTEGER
+        saltLength = field.children.first.asInteger.toInt();
+      }
+      // maskGenAlgorithm [1] is assumed MGF1 over the same hash, and
+      // trailerField [3] is always 1 — neither needs reading here.
+    }
+  }
+  return (hash, saltLength);
 }
 
 /// Maps a digest OID (or a combined signature OID) to its hash.
@@ -57,6 +85,9 @@ class X509Certificate {
     final top = DerObject.parse(der).children;
     cert.tbsDer = top[0].encoded;
     cert.signatureAlgorithmOid = top[1].children[0].asOid;
+    if (top[1].children.length > 1) {
+      cert.signatureAlgorithmParams = top[1].children[1];
+    }
     cert.signatureValue = top[2].asBitString;
     final tbs = top[0].children;
     var i = 0;
@@ -68,9 +99,11 @@ class X509Certificate {
     cert.notAfter = validity[1].asTime;
     cert.subjectDer = tbs[i + 4].encoded;
     final spki = tbs[i + 5].children;
+    cert.subjectPublicKeyInfoDer = tbs[i + 5].encoded;
     final algorithm = spki[0].children;
     cert.publicKeyAlgorithmOid = algorithm[0].asOid;
     final keyBits = spki[1].asBitString;
+    cert.subjectPublicKeyBytes = keyBits;
     switch (cert.publicKeyAlgorithmOid) {
       case _Oid.rsaEncryption:
         cert.publicKey = RsaPublicKey.fromPkcs1(keyBits);
@@ -82,7 +115,52 @@ class X509Certificate {
       default:
         cert.publicKey = null;
     }
+    // extensions [3] EXPLICIT, when present (X.509 v3)
+    for (var j = i + 6; j < tbs.length; j++) {
+      if (tbs[j].tag == DerTag.context(3)) {
+        cert._parseExtensions(tbs[j].children.first);
+        break;
+      }
+    }
     return cert;
+  }
+
+  void _parseExtensions(DerObject extensions) {
+    for (final ext in extensions.children) {
+      final oid = ext.children[0].asOid;
+      // value is the last field (skip the optional critical BOOLEAN)
+      final value = ext.children.last;
+      if (oid == '1.3.6.1.5.5.7.1.1') {
+        // authorityInfoAccess: SEQUENCE OF AccessDescription
+        final aia = DerObject.parse(value.content);
+        for (final desc in aia.children) {
+          if (desc.children[0].asOid == '1.3.6.1.5.5.7.48.1' && // id-ad-ocsp
+              desc.children[1].tag == DerTag.contextPrimitive(6)) {
+            ocspResponderUrl = String.fromCharCodes(desc.children[1].content);
+          }
+        }
+      } else if (oid == '2.5.29.31') {
+        // cRLDistributionPoints: SEQUENCE OF DistributionPoint
+        final points = DerObject.parse(value.content);
+        for (final dp in points.children) {
+          _collectGeneralNameUris(dp, crlDistributionUrls);
+        }
+      }
+    }
+  }
+
+  static void _collectGeneralNameUris(DerObject node, List<String> out) {
+    // walk down to the [6] IA5String URI leaves, regardless of the
+    // DistributionPointName / [0] fullName nesting
+    if (node.tag == DerTag.contextPrimitive(6)) {
+      out.add(String.fromCharCodes(node.content));
+      return;
+    }
+    if (node.isConstructed) {
+      for (final child in node.children) {
+        _collectGeneralNameUris(child, out);
+      }
+    }
   }
 
   final Uint8List der;
@@ -93,14 +171,31 @@ class X509Certificate {
   late final DateTime notAfter;
   late final String publicKeyAlgorithmOid;
 
+  /// The DER of the whole SubjectPublicKeyInfo (algorithm + key bits).
+  late final Uint8List subjectPublicKeyInfoDer;
+
+  /// The subjectPublicKey BIT STRING payload (no unused-bits octet) — what
+  /// OCSP's issuerKeyHash is computed over (RFC 6960 §4.1.1).
+  late final Uint8List subjectPublicKeyBytes;
+
   /// The to-be-signed portion, what the issuer's signature covers.
   late final Uint8List tbsDer;
   late final String signatureAlgorithmOid;
+  DerObject? signatureAlgorithmParams;
   late final Uint8List signatureValue;
 
   /// Whether this certificate's signature verifies with [issuer]'s key.
-  /// False for unsupported algorithms (e.g. RSASSA-PSS) or missing keys.
+  /// False for unsupported algorithms or missing keys.
   bool isSignedBy(X509Certificate issuer) {
+    if (signatureAlgorithmOid == _Oid.rsassaPss) {
+      if (issuer.publicKey case final RsaPublicKey key) {
+        final (hash, saltLength) = _pssParams(signatureAlgorithmParams);
+        final digest = hash.convert(tbsDer).bytes;
+        return rsaVerifyPss(key, hash, digest, signatureValue,
+            saltLength: saltLength);
+      }
+      return false;
+    }
     final hash = _hashFor(signatureAlgorithmOid);
     if (hash == null) return false;
     final digest = hash.convert(tbsDer).bytes;
@@ -129,6 +224,14 @@ class X509Certificate {
     return out;
   }
 
+  /// The OCSP responder URL from the Authority Information Access extension,
+  /// when the certificate carries one.
+  String? ocspResponderUrl;
+
+  /// HTTP CRL distribution-point URLs from the CRL Distribution Points
+  /// extension.
+  final List<String> crlDistributionUrls = [];
+
   Map<String, String> get subject => _nameOf(subjectDer);
   Map<String, String> get issuer => _nameOf(issuerDer);
 
@@ -141,6 +244,10 @@ class CmsSignerInfo {
 
   late final String digestAlgorithmOid;
   late final String signatureAlgorithmOid;
+
+  /// The signature AlgorithmIdentifier parameters, when present — carries
+  /// the RSASSA-PSS-params (hash, MGF, salt length) for PSS signers.
+  DerObject? signatureAlgorithmParams;
   late final Uint8List signature;
 
   /// The signed attributes re-tagged as an EXPLICIT SET, the exact bytes
@@ -149,6 +256,14 @@ class CmsSignerInfo {
   Uint8List? signedAttrsDer;
   Uint8List? messageDigest;
   DateTime? signingTime;
+
+  /// True when an ESS signing-certificate / signing-certificate-v2 signed
+  /// attribute is present — the marker of a CAdES/PAdES baseline signature.
+  bool hasSigningCertificate = false;
+
+  /// The DER of an embedded RFC 3161 signature-time-stamp token, when the
+  /// SignerInfo carries one as an unsigned attribute (PAdES B-T and up).
+  Uint8List? signatureTimeStampToken;
 
   Uint8List? sidIssuerDer;
   BigInt? sidSerial;
@@ -222,12 +337,30 @@ class CmsSignedData {
           signer.messageDigest = values.first.content;
         } else if (oid == _Oid.signingTime) {
           signer.signingTime = values.first.asTime;
+        } else if (oid == _Oid.signingCertificateV2 ||
+            oid == _Oid.signingCertificate) {
+          signer.hasSigningCertificate = true;
         }
       }
       i++;
     }
-    signer.signatureAlgorithmOid = fields[i++].children[0].asOid;
-    signer.signature = fields[i].content;
+    final signatureAlgorithm = fields[i++].children;
+    signer.signatureAlgorithmOid = signatureAlgorithm[0].asOid;
+    if (signatureAlgorithm.length > 1) {
+      signer.signatureAlgorithmParams = signatureAlgorithm[1];
+    }
+    signer.signature = fields[i++].content;
+    // unsignedAttrs [1] IMPLICIT — scan for a signature-time-stamp token
+    if (i < fields.length && fields[i].tag == DerTag.context(1)) {
+      for (final attribute in fields[i].children) {
+        final oid = attribute.children[0].asOid;
+        final values = attribute.children[1].children;
+        if (values.isEmpty) continue;
+        if (oid == _Oid.signatureTimeStampToken) {
+          signer.signatureTimeStampToken = values.first.encoded;
+        }
+      }
+    }
     return signer;
   }
 
@@ -301,9 +434,21 @@ CmsVerification cmsVerify(
   if (cert == null) {
     return CmsVerification(digestMatches, false, 'no signer certificate');
   }
-  if (signer.signatureAlgorithmOid == '1.2.840.113549.1.1.10') {
+  if (signer.signatureAlgorithmOid == _Oid.rsassaPss) {
+    if (cert.publicKey case final RsaPublicKey key) {
+      // PSS names its own hash in the parameters; fall back to the
+      // signer's digest algorithm when they are absent.
+      var (pssHash, saltLength) = _pssParams(signer.signatureAlgorithmParams);
+      if (signer.signatureAlgorithmParams == null) pssHash = hash;
+      final signedDigest = pssHash.convert(signedBytes).bytes;
+      return CmsVerification(
+          digestMatches,
+          rsaVerifyPss(key, pssHash, signedDigest, signer.signature,
+              saltLength: saltLength),
+          null);
+    }
     return CmsVerification(
-        digestMatches, false, 'RSASSA-PSS is not supported yet');
+        digestMatches, false, 'RSASSA-PSS requires an RSA key');
   }
 
   // the signature algorithm may name the digest itself (sha256WithRSA);
@@ -328,24 +473,60 @@ CmsVerification cmsVerify(
   }
 }
 
-/// Builds a detached CMS SignedData over content whose digest is
-/// [contentDigest] (SHA-256), signing with RSA PKCS#1 v1.5.
-/// [certificates] is the DER chain, signer certificate first.
-Uint8List cmsSignDetached({
-  required List<int> contentDigest,
-  required RsaPrivateKey privateKey,
-  required List<Uint8List> certificates,
-  DateTime? signingTime,
-}) {
-  if (certificates.isEmpty) {
-    throw ArgumentError('at least the signer certificate is required');
-  }
-  final signerCert = X509Certificate.parse(certificates.first);
+/// Maps a digest [hash] to its bare AlgorithmIdentifier OID, or null for an
+/// unsupported hash. Public companion to the internal `_digestOidFor`.
+String? digestOidForHash(crypto.Hash hash) => _digestOidFor(hash);
 
-  final signedAttrs = derSetOf([
+/// Maps a digest (or combined signature) OID to its [crypto.Hash].
+crypto.Hash? hashForDigestOid(String oid) => _hashFor(oid);
+
+/// The ESS signing-certificate-v2 signed attribute (RFC 5035) binding the
+/// signature to [cert]: SigningCertificateV2 with one ESSCertIDv2 holding
+/// the certificate hash and its issuer/serial. This is what lifts a CMS
+/// signature to a PAdES/CAdES baseline (the signer commits to which
+/// certificate signed). [hash] is the cert-hash algorithm (sha256 default,
+/// for which the AlgorithmIdentifier is omitted per the ASN.1 DEFAULT).
+Uint8List essSigningCertificateV2Attribute(X509Certificate cert,
+    {crypto.Hash hash = crypto.sha256}) {
+  final certHash = hash.convert(cert.der).bytes;
+  final issuerSerial = derSequence([
+    // GeneralNames ::= SEQUENCE OF GeneralName; directoryName is [4] EXPLICIT
+    derSequence([derContext(4, cert.issuerDer)]),
+    derInteger(cert.serial),
+  ]);
+  final essCertId = derSequence([
+    if (hash != crypto.sha256)
+      derSequence([derOid(_digestOidFor(hash)!), derNull()]),
+    derOctetString(certHash),
+    issuerSerial,
+  ]);
+  final signingCertificateV2 = derSequence([
+    derSequence([essCertId]), // certs SEQUENCE OF ESSCertIDv2
+  ]);
+  return derSequence([
+    derOid(_Oid.signingCertificateV2),
+    derSet([signingCertificateV2]),
+  ]);
+}
+
+/// The DER SET OF signed attributes the CMS signature is computed over:
+/// content-type, message-digest (= [contentDigest]), optional signing-time,
+/// optional ESS signing-certificate-v2 (pass [essCertificate] for a PAdES
+/// baseline), and any [extra] attributes already DER-encoded as Attribute
+/// SEQUENCEs. [hash] selects the cert-hash and is matched to the message
+/// digest algorithm by the caller.
+Uint8List cmsSignedAttributes({
+  required List<int> contentDigest,
+  DateTime? signingTime,
+  X509Certificate? essCertificate,
+  crypto.Hash hash = crypto.sha256,
+  String contentType = _Oid.data,
+  List<Uint8List> extra = const [],
+}) {
+  return derSetOf([
     derSequence([
       derOid(_Oid.contentType),
-      derSet([derOid(_Oid.data)]),
+      derSet([derOid(contentType)]),
     ]),
     if (signingTime != null)
       derSequence([
@@ -356,26 +537,60 @@ Uint8List cmsSignDetached({
       derOid(_Oid.messageDigest),
       derSet([derOctetString(contentDigest)]),
     ]),
+    if (essCertificate != null)
+      essSigningCertificateV2Attribute(essCertificate, hash: hash),
+    ...extra,
   ]);
+}
 
-  final signature = rsaSign(privateKey, DigestOid.sha256,
-      crypto.sha256.convert(signedAttrs).bytes);
-
-  final sha256Algorithm = derSequence([derOid(DigestOid.sha256), derNull()]);
+/// Assembles a detached CMS SignedData from a [signedAttributes] blob (the
+/// SET OF from [cmsSignedAttributes]) and the RSA [signature] over it.
+/// [certificates] is the DER chain, signer first. [unsignedAttributes]
+/// (e.g. a signature-time-stamp) are carried in the SignerInfo's [1] field.
+/// [hash] is the digest algorithm named in digestAlgorithms and the
+/// SignerInfo (it must match what produced the message digest / signature).
+Uint8List cmsAssembleSignedData({
+  required Uint8List signedAttributes,
+  required Uint8List signature,
+  required List<Uint8List> certificates,
+  crypto.Hash hash = crypto.sha256,
+  List<Uint8List> unsignedAttributes = const [],
+  String eContentType = _Oid.data,
+  Uint8List? eContent,
+}) {
+  if (certificates.isEmpty) {
+    throw ArgumentError('at least the signer certificate is required');
+  }
+  final signerCert = X509Certificate.parse(certificates.first);
+  final digestOid = _digestOidFor(hash);
+  if (digestOid == null) {
+    throw ArgumentError('unsupported digest algorithm');
+  }
+  final digestAlgorithm = derSequence([derOid(digestOid), derNull()]);
   final signerInfo = derSequence([
     derInteger(BigInt.one),
     derSequence([signerCert.issuerDer, derInteger(signerCert.serial)]),
-    sha256Algorithm,
+    digestAlgorithm,
     // re-tag the SET of signed attributes as IMPLICIT [0]
-    Uint8List.fromList(signedAttrs)..[0] = DerTag.context(0),
+    Uint8List.fromList(signedAttributes)..[0] = DerTag.context(0),
     derSequence([derOid(_Oid.rsaEncryption), derNull()]),
     derOctetString(signature),
+    if (unsignedAttributes.isNotEmpty)
+      derContext(1, [for (final a in unsignedAttributes) ...a]),
   ]);
 
+  // RFC 5652 §5.1: SignedData is version 3 when the encapsulated content
+  // type is not id-data (e.g. an RFC 3161 TSTInfo), version 1 otherwise.
+  final version = eContentType == _Oid.data ? 1 : 3;
   final signedData = derSequence([
-    derInteger(BigInt.one),
-    derSet([sha256Algorithm]),
-    derSequence([derOid(_Oid.data)]),
+    derInteger(BigInt.from(version)),
+    derSet([digestAlgorithm]),
+    // encapContentInfo: detached carries only the type; encapsulated wraps
+    // the content in an EXPLICIT [0] OCTET STRING
+    derSequence([
+      derOid(eContentType),
+      if (eContent != null) derContext(0, derOctetString(eContent)),
+    ]),
     derContext(0, [for (final cert in certificates) ...cert]),
     derSet([signerInfo]),
   ]);
@@ -384,6 +599,75 @@ Uint8List cmsSignDetached({
     derOid(_Oid.signedData),
     derContext(0, signedData),
   ]);
+}
+
+/// Builds a CMS SignedData that *encapsulates* [eContent] (content type
+/// [eContentType]), signing it with RSA PKCS#1 v1.5. This is the form used
+/// by RFC 3161 timestamp tokens (eContentType id-ct-TSTInfo) and other
+/// attribute certificates. The content-type signed attribute is set to
+/// [eContentType] as RFC 5652 §11.1 requires.
+Uint8List cmsSignEncapsulated({
+  required Uint8List eContent,
+  required String eContentType,
+  required RsaPrivateKey privateKey,
+  required List<Uint8List> certificates,
+  crypto.Hash hash = crypto.sha256,
+  DateTime? signingTime,
+}) {
+  final signedAttrs = cmsSignedAttributes(
+    contentDigest: hash.convert(eContent).bytes,
+    contentType: eContentType,
+    signingTime: signingTime,
+    hash: hash,
+  );
+  final signature = rsaSign(
+      privateKey, _digestOidFor(hash)!, hash.convert(signedAttrs).bytes);
+  return cmsAssembleSignedData(
+    signedAttributes: signedAttrs,
+    signature: signature,
+    certificates: certificates,
+    hash: hash,
+    eContentType: eContentType,
+    eContent: eContent,
+  );
+}
+
+/// The signature-time-stamp unsigned attribute (RFC 3161 / ETSI) wrapping a
+/// bare RFC 3161 [timeStampToken] (a ContentInfo). Goes in a SignerInfo's
+/// unsigned-attributes set to lift a CAdES/PAdES signature from B-B to B-T.
+Uint8List cmsSignatureTimeStampAttribute(Uint8List timeStampToken) =>
+    derSequence([
+      derOid(_Oid.signatureTimeStampToken),
+      derSet([timeStampToken]),
+    ]);
+
+/// Builds a detached CMS SignedData over content whose digest is
+/// [contentDigest], signing with RSA PKCS#1 v1.5. [certificates] is the DER
+/// chain, signer certificate first. Pass [essCertificate] (normally the
+/// signer cert) to add the ESS signing-certificate-v2 attribute that makes
+/// the result a CAdES/PAdES baseline signature.
+Uint8List cmsSignDetached({
+  required List<int> contentDigest,
+  required RsaPrivateKey privateKey,
+  required List<Uint8List> certificates,
+  DateTime? signingTime,
+  X509Certificate? essCertificate,
+  crypto.Hash hash = crypto.sha256,
+}) {
+  final signedAttrs = cmsSignedAttributes(
+    contentDigest: contentDigest,
+    signingTime: signingTime,
+    essCertificate: essCertificate,
+    hash: hash,
+  );
+  final signature = rsaSign(
+      privateKey, _digestOidFor(hash)!, hash.convert(signedAttrs).bytes);
+  return cmsAssembleSignedData(
+    signedAttributes: signedAttrs,
+    signature: signature,
+    certificates: certificates,
+    hash: hash,
+  );
 }
 
 /// The outcome of X.509 path building and verification.

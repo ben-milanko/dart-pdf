@@ -193,6 +193,7 @@ class PdfEditorView extends StatefulWidget {
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.fontPicker,
     this.onSnapshot,
     this.textPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
@@ -292,6 +293,11 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
+
+  /// How the font menu's "Load font…" entry loads a custom `.ttf`/`.otf`
+  /// font to embed for new text. When null, only the standard families
+  /// and bundled fonts are offered.
+  final PdfFontPicker? fontPicker;
 
   /// See [PdfViewer.onSnapshot]. The snapshot tool always keeps a vector
   /// copy on the clipboard for in-app paste; this callback additionally
@@ -479,7 +485,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
-  void _save() => widget.onSave?.call(_session.bytes);
+  /// Whether there's anything to save: false while the document still
+  /// matches what was opened, which disables the Save button (and makes
+  /// the ⌘S / Ctrl+S shortcut a no-op).
+  bool get _canSave => _session.isModified;
+
+  void _save() {
+    if (!_canSave) return;
+    widget.onSave?.call(_session.bytes);
+  }
 
   void _saveAs() => widget.onSaveAs?.call(_session.bytes);
 
@@ -557,21 +571,45 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 showAuthor: features.authorEditable,
                 bottomSheet: bottomSheet,
+                fontPicker: widget.fontPicker,
+              );
+          // the dedicated full-area page grid, overlaid on the (still
+          // mounted) viewer so a tapped page can scroll it before the grid
+          // closes to reveal the page
+          PdfThumbnailView pageGrid() => PdfThumbnailView(
+                key: const ValueKey('pdf-shell-page-grid'),
+                controller: session,
+                viewerController: _viewer,
+                pageColor: pageColor,
+                showAnnotations: prefs.showAnnotations,
+                allowPageEditing: features.pageEditing,
+                onPickPdfToInsert:
+                    features.pageEditing ? widget.onPickPdfToInsert : null,
+                onExportPages: widget.onExportPages,
+                onOpenPage: (_) => prefs.showThumbnailView = false,
+                renderWorker: _worker,
               );
 
-          final reflowActive = features.reflowView && prefs.showReflowView;
+          // the full-area page grid replaces the page viewer; it wins over
+          // reflow if both prefs are somehow on (the toggle below also
+          // clears reflow). [altView] is "the viewer is hidden" — it
+          // suppresses the docked panels, the editing toolbar, and the
+          // viewer-only header controls, just as reflow does.
+          final gridActive = features.thumbnails && prefs.showThumbnailView;
+          final reflowActive =
+              features.reflowView && prefs.showReflowView && !gridActive;
+          final altView = reflowActive || gridActive;
           final showThumbnailsPanel =
-              features.thumbnails && showThumbnails && !reflowActive;
+              features.thumbnails && showThumbnails && !altView;
           final showSearchPanel = features.search &&
               features.searchResultsPanel &&
               prefs.showSearchResultsPanel &&
-              !reflowActive;
+              !altView;
           final showAnnotationsPanel = features.annotationSidebar &&
               prefs.showAnnotationSidebar &&
-              !reflowActive;
-          final showPropertiesPanel = features.propertiesPanel &&
-              prefs.showPropertiesPanel &&
-              !reflowActive;
+              !altView;
+          final showPropertiesPanel =
+              features.propertiesPanel && prefs.showPropertiesPanel && !altView;
 
           final sheets = !useSheets
               ? const <Widget>[]
@@ -618,8 +656,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // below the viewer instead, where it takes its own layout space.
           // Above the breakpoint it stays a set of transparent floating
           // cards with the page showing through the gaps.
-          final showToolbar =
-              features.toolbar && sheets.isEmpty && !reflowActive;
+          final showToolbar = features.toolbar && sheets.isEmpty && !altView;
           final dockToolbar = showToolbar &&
               constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
           final toolbar = !showToolbar
@@ -629,6 +666,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   viewerController: _viewer,
                   // save lives in the header now, not the dock
                   textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                  fontPicker: widget.fontPicker,
                   palette: widget.palette,
                   tools: features.tools,
                   groups: features.toolGroups,
@@ -649,6 +687,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 context,
                 preferences: prefs,
                 reflow: features.reflowView,
+                pageGrid: features.thumbnails,
                 pageColor: features.pageColorEditable,
                 author: features.author,
                 authorName: session.author,
@@ -697,13 +736,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             if (features.headerBar)
               PdfShellBar(
                 leading: [
-                  if (features.pageNumber && !reflowActive)
+                  if (features.pageNumber && !altView)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
-                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
-                  if (features.search && !reflowActive) ...[
+                  if (!altView) PdfShellZoomControl(controller: _viewer),
+                  if (features.search && !altView) ...[
                     PdfSearchField(
                       controller: _viewer,
                       searchController: _searchField,
@@ -716,12 +755,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   ],
                 ],
                 compactLeading: [
-                  if (features.pageNumber && !reflowActive)
+                  if (features.pageNumber && !altView)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
-                  if (features.search && !reflowActive)
+                  if (features.search && !altView)
                     PdfSearchField(
                       controller: _viewer,
                       searchController: _searchField,
@@ -735,6 +774,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     PdfShellViewOptionsButton(
                         preferences: prefs,
                         reflow: features.reflowView,
+                        pageGrid: features.thumbnails,
                         pageColor: features.pageColorEditable,
                         author: features.author,
                         authorName: session.author,
@@ -754,11 +794,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       ),
                       icon: const Icon(Icons.save_alt, size: 18),
                       label: const Text('Save'),
-                      onPressed: _save,
+                      onPressed: _canSave ? _save : null,
                     ),
                 ],
                 compactSheetChildren: [
-                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
+                  if (!altView) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
                   if (features.viewOptions) viewOptionsControl,
@@ -775,6 +815,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       key: const ValueKey('pdf-shell-save'),
                       icon: Icons.save_alt,
                       label: 'Save',
+                      enabled: _canSave,
                       onPressed: _save,
                     ),
                 ],
@@ -828,6 +869,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       properties(bottomSheet: false),
                   ]),
                 ),
+                // the page grid covers the (still-mounted) viewer: a tap can
+                // scroll the live viewer underneath, then the grid closes to
+                // reveal the chosen page. Opaque, so the viewer takes no taps
+                // while it shows.
+                if (gridActive) Positioned.fill(child: pageGrid()),
                 if (toolbar != null && !dockToolbar)
                   Positioned(
                     left: 0,

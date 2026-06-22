@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.2.3
+
+- Free-text annotations carry a horizontal alignment (left/center/right)
+  through the `/Q` quadding: `addFreeText` and `addFreeTextRich` take an
+  `align` argument, `PdfFreeTextStyle.alignment` reads it back, and resizing
+  or re-editing a box preserves it. Omitting `align` keeps the previous
+  behaviour — left for LTR text, right for RTL.
+- Fix a free-text box auto-sized to its contents wrapping the last word onto
+  a new line: the wrapper's strict width test now tolerates the sub-point
+  floating-point round-off in `(lineWidth + 2*pad) - 2*pad`.
+
+## 1.2.2
+
+- Embeddable fonts: `PdfEmbeddedFont.parse` reads a TrueType (`.ttf`) or
+  OpenType (`.otf`) file and `addFreeText` can now author text in it,
+  embedding the font as a full-Unicode Type0/CIDFontType2 (Identity-H)
+  composite with a `/ToUnicode` CMap — so authored text can use any font,
+  not just the base-14 faces, and stays selectable, searchable, and
+  portable. `PdfEmbeddedFont.fromFreeText` recovers the font from a box's
+  own appearance for lossless re-editing.
+- Fix non-Latin characters rendering as `??` in free-text annotation
+  appearances.
+- Fix free-text annotation appearances rendering sideways on rotated pages.
+- Right-to-left text direction support in free-text annotations and
+  AcroForm field appearances.
+- Faster batch annotation deletion.
+
 ## 1.2.1
 
 - Add a package example for pub.dev scoring.

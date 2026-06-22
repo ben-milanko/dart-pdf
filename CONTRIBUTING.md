@@ -35,6 +35,17 @@ pdf_cos  ←  pdf_document  ←  pdf_graphics  ←  dart_pdf_editor
 - Dependencies only flow left-to-right in the diagram above. A lower
   layer must never import a higher one.
 
+### Versioning (lockstep)
+
+The workspace packages are released together at one version. Whenever a
+package depends on a sibling, pin the lower bound to that sibling's
+**current** version (`pdf_document: ^1.2.3`, not `^1.2.0`). A stale lower
+bound makes pub.dev's downgrade analysis fail (0/20 on "compatible with
+dependency constraint lower bounds"), because it resolves the sibling to
+its minimum and the new APIs don't exist there. CI enforces this via
+`dart run tool/check_lockstep_constraints.dart`; bump every inter-package
+constraint when you bump versions (or run `dart pub upgrade --tighten`).
+
 ## Setup
 
 Flutter is pinned with [fvm](https://fvm.app) (see `.fvmrc`, currently

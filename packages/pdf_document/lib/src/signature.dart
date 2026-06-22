@@ -5,6 +5,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'document.dart';
 import 'form.dart';
+import 'pades.dart';
 
 /// A signed signature field: the /V signature dictionary of an AcroForm
 /// field with /FT /Sig (§12.8).
@@ -46,6 +47,14 @@ class PdfSignature {
   String? get subFilter {
     final value = document.cos.resolve(dict['SubFilter']);
     return value is CosName ? value.value : null;
+  }
+
+  /// True for a document timestamp (DocTimeStamp / ETSI.RFC3161) rather than
+  /// an approval or author signature — the archive timestamp of PAdES B-LTA.
+  bool get isDocumentTimeStamp {
+    final type = document.cos.resolve(dict['Type']);
+    return (type is CosName && type.value == 'DocTimeStamp') ||
+        subFilter == 'ETSI.RFC3161';
   }
 
   /// Claimed signing time from /M (the cryptographic signingTime
@@ -147,9 +156,77 @@ class PdfSignature {
       case 'adbe.pkcs7.sha1':
         return _validateCms(data, coversWholeDocument, problems,
             digestOfRanges: true);
+      case 'ETSI.RFC3161':
+        return _validateDocTimeStamp(data, coversWholeDocument, problems);
       default: // adbe.pkcs7.detached, ETSI.CAdES.detached
         return _validateCms(data, coversWholeDocument, problems);
     }
+  }
+
+  /// A document timestamp: /Contents is a bare RFC 3161 token over the byte
+  /// ranges. Validity = the token's imprint matches the signed bytes and the
+  /// TSA's CMS signature verifies.
+  PdfSignatureValidation _validateDocTimeStamp(
+      Uint8List data, bool coversWholeDocument, List<String> problems) {
+    final info = _validateTimestamp(contents, data);
+    if (info.problem != null) problems.add(info.problem!);
+    if (!info.valid && info.problem == null) {
+      problems.add('document timestamp does not verify');
+    }
+    return PdfSignatureValidation._(
+      info.valid,
+      info.valid,
+      coversWholeDocument,
+      info.tsaCertificate,
+      info.tsaCertificate != null ? [info.tsaCertificate!] : const [],
+      info.time != null ? [info.time!] : const [],
+      problems,
+      timestamp: info,
+    );
+  }
+
+  PdfTimestampInfo _validateTimestamp(Uint8List tokenDer, Uint8List stamped) {
+    try {
+      final token = TimeStampToken.parse(tokenDer);
+      final result = verifyTimeStampToken(token, stamped);
+      return PdfTimestampInfo(
+        time: result.genTime,
+        valid: result.valid,
+        tsaCertificate: token.signerCertificate,
+        problem: result.problem,
+      );
+    } on Object catch (e) {
+      return PdfTimestampInfo(
+          time: null, valid: false, problem: 'cannot parse timestamp: $e');
+    }
+  }
+
+  /// Determines the PAdES baseline level of a CMS signature from its CAdES
+  /// markers, [timestamp], and the document's /DSS and document timestamp.
+  PdfPadesLevel? _padesLevel(
+      CmsSignerInfo signer, PdfTimestampInfo? timestamp) {
+    if (subFilter != 'ETSI.CAdES.detached' || !signer.hasSigningCertificate) {
+      return null;
+    }
+    var level = PdfPadesLevel.bB;
+    if (timestamp != null && timestamp.valid) {
+      level = PdfPadesLevel.bT;
+      final dss = PdfDss.of(document);
+      if (dss != null && !dss.isEmpty) {
+        level = PdfPadesLevel.bLT;
+        if (_documentHasValidTimeStamp()) level = PdfPadesLevel.bLTA;
+      }
+    }
+    return level;
+  }
+
+  bool _documentHasValidTimeStamp() {
+    for (final sig in PdfSignature.of(document)) {
+      if (sig.isDocumentTimeStamp && sig.validate().signatureValid) {
+        return true;
+      }
+    }
+    return false;
   }
 
   PdfSignatureValidation _validateCms(
@@ -193,6 +270,22 @@ class PdfSignature {
     if (!verification.signatureValid && verification.problem == null) {
       problems.add('cryptographic signature is invalid');
     }
+
+    // PAdES extras: the signature timestamp, the baseline level, and the
+    // status the embedded /DSS revocation material reports for the signer.
+    final timestamp = signer.signatureTimeStampToken != null
+        ? _validateTimestamp(Uint8List.fromList(signer.signatureTimeStampToken!),
+            Uint8List.fromList(signer.signature))
+        : null;
+    if (timestamp != null && !timestamp.valid) {
+      problems.add('embedded signature timestamp does not verify'
+          '${timestamp.problem != null ? ': ${timestamp.problem}' : ''}');
+    }
+    final padesLevel = _padesLevel(signer, timestamp);
+    final dss = PdfDss.of(document);
+    final revocation = _embeddedRevocationStatus(
+        cms.certificateFor(signer), cms.certificates, dss);
+
     return PdfSignatureValidation._(
       digestMatches,
       verification.signatureValid,
@@ -201,7 +294,56 @@ class PdfSignature {
       cms.certificates,
       signer.signingTime != null ? [signer.signingTime!] : const [],
       problems,
+      padesLevel: padesLevel,
+      timestamp: timestamp,
+      embeddedRevocation: revocation,
     );
+  }
+
+  /// Resolves the signer certificate's revocation status from the /DSS the
+  /// document carries (offline LTV), or [PdfRevocationStatus.none] when no
+  /// material covers it.
+  PdfRevocationStatus _embeddedRevocationStatus(X509Certificate? signerCert,
+      List<X509Certificate> cmsCerts, PdfDss? dss) {
+    if (signerCert == null || dss == null) return PdfRevocationStatus.none;
+    final pool = [...cmsCerts, ...dss.certificates];
+    X509Certificate? issuer;
+    for (final c in pool) {
+      if (_sameDer(c.subjectDer, signerCert.issuerDer)) {
+        issuer = c;
+        break;
+      }
+    }
+    for (final ocsp in dss.ocspResponses) {
+      final single = ocsp.forSerial(signerCert.serial);
+      if (single == null) continue;
+      if (issuer != null && !ocsp.signatureValid(issuer)) continue;
+      return switch (single.status) {
+        OcspCertStatus.good => PdfRevocationStatus.good,
+        OcspCertStatus.revoked => PdfRevocationStatus.revoked,
+        OcspCertStatus.unknown => PdfRevocationStatus.unknown,
+      };
+    }
+    for (final crl in dss.crls) {
+      if (issuer != null) {
+        if (!_sameDer(crl.issuerDer, issuer.subjectDer)) continue;
+        if (!crl.signatureValid(issuer)) continue;
+      }
+      return crl.forSerial(signerCert.serial) != null
+          ? PdfRevocationStatus.revoked
+          : PdfRevocationStatus.good;
+    }
+    return dss.isEmpty
+        ? PdfRevocationStatus.none
+        : PdfRevocationStatus.unknown;
+  }
+
+  static bool _sameDer(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   PdfSignatureValidation _validateX509RsaSha1(
@@ -288,6 +430,9 @@ class PdfSignatureValidation {
     this.chainTrusted,
     this.trustChain = const [],
     this.chainProblems = const [],
+    this.padesLevel,
+    this.timestamp,
+    this.embeddedRevocation = PdfRevocationStatus.none,
   }) : signedAt = signingTimes.isEmpty ? null : signingTimes.first;
 
   PdfSignatureValidation _withChain(PdfTrustStore store, DateTime? at) {
@@ -320,6 +465,9 @@ class PdfSignatureValidation {
       chainTrusted: trusted,
       trustChain: chain,
       chainProblems: chainProblems,
+      padesLevel: padesLevel,
+      timestamp: timestamp,
+      embeddedRevocation: embeddedRevocation,
     );
   }
 
@@ -360,6 +508,117 @@ class PdfSignatureValidation {
   /// Why the chain is untrusted, when it is.
   final List<String> chainProblems;
 
+  /// The PAdES baseline level this signature reaches (B-B…B-LTA), or null
+  /// when it is not a PAdES (ETSI.CAdES.detached + signing-certificate-v2)
+  /// signature.
+  final PdfPadesLevel? padesLevel;
+
+  /// The signature timestamp (PAdES B-T and up), or — for a document
+  /// timestamp signature — the timestamp itself. Null when none is present.
+  final PdfTimestampInfo? timestamp;
+
+  /// What the document's embedded /DSS revocation material reports for the
+  /// signer certificate, checked offline. [PdfRevocationStatus.none] when no
+  /// material covers it.
+  final PdfRevocationStatus embeddedRevocation;
+
   /// The document bytes the signature covers are exactly what was signed.
   bool get intact => digestMatches && signatureValid;
+
+  /// The signature carries everything needed to validate it offline forever:
+  /// a valid timestamp and embedded revocation material (PAdES B-LT or B-LTA).
+  bool get isLtvEnabled =>
+      padesLevel != null && padesLevel!.index >= PdfPadesLevel.bLT.index;
+}
+
+/// A validated RFC 3161 timestamp embedded in a signature or document
+/// timestamp.
+class PdfTimestampInfo {
+  PdfTimestampInfo({
+    required this.time,
+    required this.valid,
+    this.tsaCertificate,
+    this.problem,
+  });
+
+  /// The trusted time the TSA attests (genTime), when the token parsed.
+  final DateTime? time;
+
+  /// The token's imprint matches the stamped bytes and the TSA's signature
+  /// verifies. Trust in the TSA certificate itself is a trust-store matter.
+  final bool valid;
+
+  /// The TSA's signing certificate, when embedded.
+  final X509Certificate? tsaCertificate;
+
+  final String? problem;
+}
+
+/// The revocation verdict for a certificate, from embedded LTV material.
+enum PdfRevocationStatus {
+  /// No OCSP/CRL covering the certificate was found.
+  none,
+
+  /// Material was found but is inconclusive (e.g. issuer unavailable).
+  unknown,
+
+  /// An OCSP "good" response or a CRL that does not list the serial.
+  good,
+
+  /// The certificate is listed revoked.
+  revoked,
+}
+
+/// The /DSS Document Security Store (PDF 2.0 §12.8.4.3): the certificates,
+/// OCSP responses, and CRLs a document carries for long-term validation.
+class PdfDss {
+  PdfDss(this.certificates, this.ocspResponses, this.crls);
+
+  final List<X509Certificate> certificates;
+  final List<OcspResponse> ocspResponses;
+  final List<CertificateRevocationList> crls;
+
+  bool get isEmpty =>
+      certificates.isEmpty && ocspResponses.isEmpty && crls.isEmpty;
+
+  /// Reads the catalog's /DSS, or null when the document has none.
+  static PdfDss? of(PdfDocument document) {
+    final dss = document.cos.resolve(document.catalog['DSS']);
+    if (dss is! CosDictionary) return null;
+
+    List<Uint8List> blobs(String key) {
+      final array = document.cos.resolve(dss[key]);
+      if (array is! CosArray) return const [];
+      final out = <Uint8List>[];
+      for (final item in array.items) {
+        final stream = document.cos.resolve(item);
+        if (stream is CosStream) {
+          try {
+            out.add(document.cos.decodeStreamData(stream));
+          } on Object {
+            // skip an undecodable entry rather than fail the whole store
+          }
+        }
+      }
+      return out;
+    }
+
+    List<T> parsed<T>(String key, T Function(Uint8List) parse) {
+      final out = <T>[];
+      for (final der in blobs(key)) {
+        try {
+          out.add(parse(der));
+        } on Object {
+          // skip a malformed entry
+        }
+      }
+      return out;
+    }
+
+    return PdfDss(
+      parsed('Certs', X509Certificate.parse),
+      parsed('OCSPs', OcspResponse.parse),
+      parsed('CRLs', CertificateRevocationList.parse),
+    );
+  }
 }

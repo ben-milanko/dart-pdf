@@ -12,12 +12,348 @@ import 'package:pdf_document/pdf_document.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
+import 'editing_color_picker.dart';
 import 'editing_controller.dart';
+import 'editing_fonts.dart';
+import 'editing_measure.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
+
+String? _textEditUiFamily(PdfTextFont font) {
+  if (font is PdfStandardFont) {
+    return switch (font.family) {
+      PdfStandardFontFamily.sans => 'Helvetica',
+      PdfStandardFontFamily.serif => 'Times New Roman',
+      PdfStandardFontFamily.mono => 'Courier',
+    };
+  }
+  // An embedded/bundled font has no platform family the way base-14 does;
+  // the editor registers its outline bytes (see _ensureEmbeddedFontPreview)
+  // under a synthetic family so the live preview matches what commits.
+  // Null until that async registration lands, then it falls back gracefully.
+  if (font is PdfEmbeddedFont) {
+    return _embeddedPreviewFamilies[_embeddedFontKey(font)];
+  }
+  return null;
+}
+
+/// Synthetic Flutter font families an embedded font's bytes have been
+/// registered under (via `ui.loadFontFromList`), keyed by
+/// [_embeddedFontKey]. Module-level so [_textEditUiFamily] (a free
+/// function the rich controller calls) and the overlay state share it.
+final Map<String, String> _embeddedPreviewFamilies = {};
+
+/// A stable key for an embedded font's outline data — its PostScript name
+/// plus byte length, enough to dedupe registrations without holding the
+/// bytes. The registered family is `'pdfedit-<key>'`.
+String _embeddedFontKey(PdfEmbeddedFont font) =>
+    '${font.postScriptName}:${font.fontBytes.length}';
+
+FontWeight _textEditWeight(PdfTextFont font) =>
+    font is PdfStandardFont && font.isBold
+        ? FontWeight.bold
+        : FontWeight.normal;
+
+FontStyle _textEditSlant(PdfTextFont font) =>
+    font is PdfStandardFont && font.isItalic
+        ? FontStyle.italic
+        : FontStyle.normal;
+
+class _TextEditStyle {
+  const _TextEditStyle(
+      {required this.font, required this.size, required this.color});
+
+  final PdfTextFont font;
+  final double size;
+  final Color color;
+
+  _TextEditStyle merge({PdfTextFont? font, double? size, int? color}) =>
+      _TextEditStyle(
+        font: font ?? this.font,
+        size: size ?? this.size,
+        color: color == null ? this.color : Color(0xFF000000 | color),
+      );
+
+  TextStyle toTextStyle(double scale) => TextStyle(
+        color: color,
+        fontSize: size * scale,
+        height: 1.2,
+        fontFamily: _textEditUiFamily(font),
+        fontWeight: _textEditWeight(font),
+        fontStyle: _textEditSlant(font),
+      );
+
+  PdfFreeTextRun toRun(String text) => PdfFreeTextRun(text,
+      font: font, fontSize: size, color: color.toARGB32() & 0xFFFFFF);
+}
+
+class _TextEditStyleRange {
+  const _TextEditStyleRange(this.start, this.end, this.style);
+
+  final int start;
+  final int end;
+  final _TextEditStyle style;
+}
+
+class _RichTextEditingController extends TextEditingController {
+  _RichTextEditingController();
+
+  _TextEditStyle defaultStyle = const _TextEditStyle(
+      font: PdfStandardFont.helvetica, size: 14, color: Color(0xFF000000));
+  double scale = 1;
+  final List<_TextEditStyleRange> _ranges = [];
+
+  void resetStyles(_TextEditStyle style) {
+    defaultStyle = style;
+    _ranges.clear();
+  }
+
+  /// Seeds the editor from a box's persisted per-run styling (its /RC):
+  /// sets [text] and a style range per run so reopening a mixed-format
+  /// box shows its bold/italic/colour, not a flattened single style.
+  /// [fallback] is the typing default (the box's flat /DA) for text added
+  /// afterwards. Runs with non-base-14 fonts keep their [PdfTextFont].
+  void seedRuns(List<PdfFreeTextRun> runs, _TextEditStyle fallback) {
+    defaultStyle = fallback;
+    final buffer = StringBuffer();
+    final ranges = <_TextEditStyleRange>[];
+    var offset = 0;
+    for (final run in runs) {
+      if (run.text.isEmpty) continue;
+      final start = offset;
+      buffer.write(run.text);
+      offset += run.text.length;
+      ranges.add(_TextEditStyleRange(
+          start,
+          offset,
+          _TextEditStyle(
+              font: run.font,
+              size: run.fontSize,
+              color: Color(0xFF000000 | (run.color & 0xFFFFFF)))));
+    }
+    _ranges
+      ..clear()
+      ..addAll(_mergeRanges(ranges));
+    // assigning text notifies listeners and rebuilds the styled span
+    text = buffer.toString();
+  }
+
+  bool get hasRichStyles => _ranges.isNotEmpty;
+
+  void applyStyle(TextSelection selection,
+      {PdfTextFont? font, double? size, int? color}) {
+    if (!selection.isValid || selection.isCollapsed) return;
+    final start = math.max(0, math.min(selection.start, selection.end));
+    final end = math.min(text.length, math.max(selection.start, selection.end));
+    if (start >= end) return;
+    final next = <_TextEditStyleRange>[];
+    for (final range in _ranges) {
+      if (range.end <= start || range.start >= end) {
+        next.add(range);
+        continue;
+      }
+      if (range.start < start) {
+        next.add(_TextEditStyleRange(range.start, start, range.style));
+      }
+      if (range.end > end) {
+        next.add(_TextEditStyleRange(end, range.end, range.style));
+      }
+    }
+    next.add(_TextEditStyleRange(start, end,
+        _styleAt(start).merge(font: font, size: size, color: color)));
+    _ranges
+      ..clear()
+      ..addAll(_mergeRanges(next));
+    notifyListeners();
+  }
+
+  List<PdfFreeTextRun> toPdfRuns() {
+    final value = text;
+    if (value.isEmpty) return const [];
+    final ranges = _mergeRanges([
+      for (final range in _ranges)
+        if (range.start < value.length && range.end > 0)
+          _TextEditStyleRange(range.start.clamp(0, value.length),
+              range.end.clamp(0, value.length), range.style)
+    ]);
+    final result = <PdfFreeTextRun>[];
+    var offset = 0;
+    for (final range in ranges) {
+      if (offset < range.start) {
+        result.add(defaultStyle.toRun(value.substring(offset, range.start)));
+      }
+      result.add(range.style.toRun(value.substring(range.start, range.end)));
+      offset = range.end;
+    }
+    if (offset < value.length) {
+      result.add(defaultStyle.toRun(value.substring(offset)));
+    }
+    return result;
+  }
+
+  _TextEditStyle _styleAt(int offset) {
+    for (final range in _ranges.reversed) {
+      if (offset >= range.start && offset < range.end) return range.style;
+    }
+    return defaultStyle;
+  }
+
+  static List<_TextEditStyleRange> _mergeRanges(
+      List<_TextEditStyleRange> ranges) {
+    ranges.sort((a, b) => a.start.compareTo(b.start));
+    final out = <_TextEditStyleRange>[];
+    for (final range in ranges) {
+      if (range.start >= range.end) continue;
+      if (out.isNotEmpty &&
+          out.last.end == range.start &&
+          identical(out.last.style.font, range.style.font) &&
+          out.last.style.size == range.style.size &&
+          out.last.style.color == range.style.color) {
+        final last = out.removeLast();
+        out.add(_TextEditStyleRange(last.start, range.end, last.style));
+      } else {
+        out.add(range);
+      }
+    }
+    return out;
+  }
+
+  @override
+  TextSpan buildTextSpan(
+      {required BuildContext context,
+      TextStyle? style,
+      required bool withComposing}) {
+    final value = text;
+    if (value.isEmpty || _ranges.isEmpty) {
+      return TextSpan(text: value, style: style);
+    }
+    final children = <InlineSpan>[];
+    var offset = 0;
+    for (final range in _mergeRanges(List.of(_ranges))) {
+      if (range.start >= value.length) continue;
+      final start = range.start.clamp(0, value.length);
+      final end = range.end.clamp(0, value.length);
+      if (offset < start) {
+        children.add(TextSpan(text: value.substring(offset, start)));
+      }
+      children.add(TextSpan(
+          text: value.substring(start, end),
+          style: range.style.toTextStyle(scale)));
+      offset = end;
+    }
+    if (offset < value.length) {
+      children.add(TextSpan(text: value.substring(offset)));
+    }
+    return TextSpan(style: style, children: children);
+  }
+}
+
+class _ScaledTextSelectionControls extends MaterialTextSelectionControls
+    with TextSelectionHandleControls {
+  _ScaledTextSelectionControls(this.scale, this.color);
+
+  final double scale;
+  final Color color;
+
+  double get _s => scale.isFinite && scale > 0 ? scale : 1.0;
+
+  @override
+  Widget buildHandle(
+      BuildContext context, TextSelectionHandleType type, double textLineHeight,
+      [VoidCallback? onTap]) {
+    // The collapsed handle is the touch caret's draggable dot. In an
+    // expanded text box it floats well below the caret (a stray dot near
+    // the box's bottom edge), so suppress it — the blinking caret already
+    // marks the insertion point. Range-selection handles stay.
+    if (type == TextSelectionHandleType.collapsed) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox.fromSize(
+      size: getHandleSize(textLineHeight),
+      child: CustomPaint(
+        painter: _InlineTextHandlePainter(
+          color: color,
+          scale: _s,
+          type: type,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Offset getHandleAnchor(TextSelectionHandleType type, double textLineHeight) {
+    final size = getHandleSize(textLineHeight);
+    return switch (type) {
+      TextSelectionHandleType.left => Offset(size.width / 2, size.height),
+      TextSelectionHandleType.right ||
+      TextSelectionHandleType.collapsed =>
+        Offset(size.width / 2, 0),
+    };
+  }
+
+  @override
+  Size getHandleSize(double textLineHeight) => Size(36 * _s, 34 * _s);
+}
+
+class _InlineTextHandlePainter extends CustomPainter {
+  _InlineTextHandlePainter({
+    required this.color,
+    required this.scale,
+    required this.type,
+  });
+
+  final Color color;
+  final double scale;
+  final TextSelectionHandleType type;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = scale;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3 * s
+      ..strokeCap = StrokeCap.round;
+    final fill = Paint()..color = color;
+    final cx = size.width / 2;
+    final radius = 7 * s;
+    final gap = 2 * s;
+    if (type == TextSelectionHandleType.left) {
+      canvas.drawLine(
+          Offset(cx, 2 * radius + gap), Offset(cx, size.height), paint);
+      canvas.drawCircle(Offset(cx, radius), radius, fill);
+      return;
+    }
+    canvas.drawLine(
+        Offset(cx, 0), Offset(cx, size.height - 2 * radius - gap), paint);
+    canvas.drawCircle(Offset(cx, size.height - radius), radius, fill);
+  }
+
+  @override
+  bool shouldRepaint(_InlineTextHandlePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.scale != scale ||
+      oldDelegate.type != type;
+}
+
+Color _inlineTextHandleColor(BuildContext context) {
+  final theme = PdfViewerTheme.of(context);
+  return theme.selectionHandleColor ??
+      theme.annotationChromeColor ??
+      const Color(0xFF2196F3);
+}
+
+enum _InlineTextFontChoice {
+  sans,
+  serif,
+  mono,
+  bundledSans,
+  bundledSerif,
+  bundledMono
+}
 
 /// A single-selection move drag's floating preview: the dragged
 /// annotation's appearance, reported up to [PdfViewer] so it paints above
@@ -88,6 +424,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
     this.onMoveDragPreview,
+    this.onTextEditClosed,
   });
 
   final PdfEditingController controller;
@@ -169,6 +506,14 @@ class EditingPageOverlay extends StatefulWidget {
   /// page below once the drag crosses a page boundary. Null clears it.
   final PdfMoveDragPreviewCallback? onMoveDragPreview;
 
+  /// Called when the in-place text editor closes while it still owned the
+  /// keyboard (Escape, ⌘Enter, or a commit by tapping the page) — not when
+  /// focus moved to another widget. The viewer wires this to reclaim its
+  /// own focus so its shortcuts (Escape → back out, tool keys, delete) work
+  /// again immediately; otherwise the removed field's focus node leaves
+  /// focus in limbo and the next key reaches nothing.
+  final VoidCallback? onTextEditClosed;
+
   @override
   State<EditingPageOverlay> createState() => _EditingPageOverlayState();
 }
@@ -189,6 +534,7 @@ typedef _AfterGhost = ({
   Rect to,
   Rect? source,
   ui.Picture? sourceClean,
+  Color? sourceWash,
   double rotation,
   double localAngle,
   bool flipX,
@@ -354,19 +700,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   PdfRect? _textEditPageRect;
   bool _textEditExisting = false;
   PdfEditTool? _textEditTool;
-  late final TextEditingController _textEditText = TextEditingController()
-    ..addListener(_onTextEditChanged);
-  late final FocusNode _textEditFocus = FocusNode()
+  late final _RichTextEditingController _textEditText =
+      _RichTextEditingController()..addListener(_onTextEditChanged);
+  late final FocusNode _textEditFocus = FocusNode(onKeyEvent: _onTextEditKey)
     ..addListener(_onTextEditFocus);
   PdfStandardFont _textEditFont = PdfStandardFont.helvetica;
+  // embedded-font keys whose preview registration is in flight, so a
+  // repeated restyle doesn't kick off a second load (see [_embeddedFontKey])
+  final Set<String> _embeddedFontsLoading = {};
   double _textEditSize = 14; // pt
   Color _textEditColor = const Color(0xFF000000);
   Color? _textEditFill; // the box background the commit will paint
+  bool _textEditStyleMenuOpen = false;
   // resting view-space rotation of the box being edited (radians,
   // clockwise positive): nonzero only when editing already-rotated text,
   // so the inline editor and afterimage sit on the artwork instead of
   // snapping back to horizontal
   double _textEditRotation = 0;
+  int _textEditStyleRevision = 0;
+  int _editSelectedTextRevision = 0;
+  int _textEditFocusHoldRevision = 0;
 
   // form-tool text fill: when set, the inline editor commits into this
   // field's /V instead of creating a free-text annotation
@@ -467,6 +820,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     bool washed,
     double rotation,
   })? _afterText;
+  // the lifted clean page (the page rendered without the resized text box)
+  // kept alive past the drag so a transparent box's commit afterimage shows
+  // the real page content behind it instead of an opaque-paper flash. Null
+  // when the lift wasn't ready — then [_afterText.washed] paints the paper
+  // fallback. Hides the old footprint [_afterTextHideRect] (view space).
+  ui.Picture? _afterTextClean;
+  Rect? _afterTextHideRect;
+  double _afterTextHideAngle = 0;
   _InkPaint? _afterSignature;
 
   // live drag preview: the selected annotation's appearance, rendered
@@ -515,6 +876,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _tool == PdfEditTool.select ||
       (_tool == null && _controller.hasAnnotationSelection);
 
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant EditingPageOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      _controller.addListener(_onControllerChanged);
+    }
+  }
+
   /// Shift/⌘/Ctrl held — a click toggles membership, a marquee adds.
   static bool get _additiveModifier {
     final keyboard = HardwareKeyboard.instance;
@@ -547,7 +923,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   bool get _lineDragTool =>
       _tool == PdfEditTool.line ||
       _tool == PdfEditTool.arrow ||
-      _tool == PdfEditTool.measureDistance;
+      _tool == PdfEditTool.measureDistance ||
+      _tool == PdfEditTool.calibrate;
 
   /// The measurement kind the armed tool creates, or null for a
   /// non-measurement tool.
@@ -995,6 +1372,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterShapeResize = null;
     _afterPath = null;
     _afterText = null;
+    _afterTextClean?.dispose();
+    _afterTextClean = null;
+    _afterTextHideRect = null;
+    _afterTextHideAngle = 0;
     _afterSignature = null;
     _afterEraseRects = null;
     _afterEraseFade = null;
@@ -1147,7 +1528,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return;
     unawaited(PdfPageRenderer.renderAnnotationPicture(
-            document.page(widget.pageIndex), annotation)
+            document.page(widget.pageIndex), annotation,
+            rotation: widget.geometry.rotation)
         .then((picture) {
       if (!mounted || _ghostKey != key) {
         picture?.dispose();
@@ -1305,6 +1687,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   @override
   void dispose() {
+    _controller.removeListener(_onControllerChanged);
     if (_textEditRect != null) _controller.setEditingText(false);
     // if THIS overlay was mid-move, drop the shared cross-page preview
     // before disposing [_ghost] so a neighbour page can't paint freed
@@ -1325,7 +1708,47 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onTextEditChanged() {
-    if (_textEditRect != null && mounted) setState(() {});
+    if (_textEditRect == null) return;
+    _controller.setEditingTextSelection(_textEditText.selection);
+    if (mounted) setState(() {});
+  }
+
+  void _onControllerChanged() {
+    final holdRevision = _controller.editingTextFocusHoldRevision;
+    if (holdRevision != _textEditFocusHoldRevision) {
+      _textEditFocusHoldRevision = holdRevision;
+      if (_textEditRect != null &&
+          !_controller.isEditingTextFocusCommitHeld &&
+          !_textEditFocus.hasFocus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
+        });
+      }
+    }
+    final editRevision = _controller.editSelectedTextRevision;
+    if (editRevision != _editSelectedTextRevision) {
+      _editSelectedTextRevision = editRevision;
+      if (_textEditRect == null &&
+          _controller.selectedAnnotationSlot?.$1 == widget.pageIndex &&
+          _controller.selectedAnnotation?.subtype == 'FreeText') {
+        final rect = _selectedViewRect;
+        if (rect != null) _openTextEditor(rect, existing: true);
+      }
+    }
+    if (_textEditRect == null) return;
+    final revision = _controller.editingTextStyleRevision;
+    if (revision == _textEditStyleRevision) return;
+    _textEditStyleRevision = revision;
+    final request = _controller.editingTextStyleRequest;
+    if (request == null) return;
+    // register an embedded font's bytes so the styled run previews in its
+    // real face, not the fallback — covers the inline menu and a host that
+    // drives restyleEditingTextSelection directly
+    if (request.font is PdfEmbeddedFont) {
+      _ensureEmbeddedFontPreview(request.font as PdfEmbeddedFont);
+    }
+    _textEditText.applyStyle(_textEditText.selection,
+        font: request.font, size: request.size, color: request.color);
   }
 
   Offset _handleCenter(Rect rect, _Handle handle) => Offset(
@@ -1567,18 +1990,34 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         rotation = chrome.$2;
       }
     }
-    _textEditText.text = existing ? (_controller.selectedText ?? '') : '';
+    final defaultFont = existing
+        ? (style?.font ?? _controller.fontFamily)
+        : (_controller.activeFont ?? _controller.fontFamily);
+    final defaultSize = style?.size ?? _controller.fontSize;
+    final defaultColor = annotationColor != null
+        ? Color(0xFF000000 | annotationColor)
+        : _controller.color;
+    final fallbackStyle = _TextEditStyle(
+        font: defaultFont, size: defaultSize, color: defaultColor);
+    // a box saved with mixed styling carries /RC: reseed its per-run fonts
+    // so reopening shows the bold/italic/colour, not a flattened style
+    final richRuns = existing ? _controller.selectedRichRuns : null;
+    if (richRuns != null && richRuns.isNotEmpty) {
+      _textEditText.seedRuns(richRuns, fallbackStyle);
+    } else {
+      _textEditText.resetStyles(fallbackStyle);
+      _textEditText.text = existing ? (_controller.selectedText ?? '') : '';
+    }
     setState(() {
       _textEditRect = rect;
       _textEditPageRect = _geometry.toPageRect(rect);
       _textEditRotation = rotation;
       _textEditExisting = existing;
       _textEditTool = _tool;
-      _textEditFont = style?.font ?? _controller.fontFamily;
-      _textEditSize = style?.size ?? _controller.fontSize;
-      _textEditColor = annotationColor != null
-          ? Color(0xFF000000 | annotationColor)
-          : _controller.color;
+      _textEditFont =
+          defaultFont is PdfStandardFont ? defaultFont : _controller.fontFamily;
+      _textEditSize = defaultSize;
+      _textEditColor = defaultColor;
       _textEditFill = existing
           ? (parsed?.fillColor != null
               ? Color(0xFF000000 | parsed!.fillColor!)
@@ -1604,6 +2043,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
         .firstMatch(field.defaultAppearance ?? '');
     final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
+    final formFont = tf == null
+        ? PdfStandardFont.helvetica
+        : PdfStandardFont.fromName(tf.group(1)!);
+    final formSize = size > 0 ? size : 12.0;
+    _textEditText.resetStyles(_TextEditStyle(
+        font: formFont, size: formSize, color: const Color(0xFF000000)));
     _textEditText.text = field.value ?? '';
     setState(() {
       _textEditRect = _geometry.toViewRect(rect);
@@ -1613,12 +2058,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditTool = _tool;
       _textEditFieldName = field.name;
       _textEditMultiline = field.isMultiline;
-      _textEditFont = tf == null
-          ? PdfStandardFont.helvetica
-          : PdfStandardFont.fromName(tf.group(1)!);
+      _textEditFont = formFont;
       // an auto-size /DA (0 Tf) edits at a readable default; the
       // committed appearance derives its own size as usual
-      _textEditSize = size > 0 ? size : 12;
+      _textEditSize = formSize;
       _textEditColor = const Color(0xFF000000);
       _textEditFill = null;
     });
@@ -1660,6 +2103,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     final text = _textEditText.text.trimRight();
     final existing = _textEditExisting;
+    final richRuns =
+        _textEditText.hasRichStyles ? _textEditText.toPdfRuns() : null;
     final font = _textEditFont;
     final size = _textEditSize;
     final color = _textEditColor;
@@ -1668,12 +2113,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _closeTextEditor();
     final before = _controller.document;
     if (existing) {
-      if (text.isNotEmpty && text != _controller.selectedText) {
+      if (text.isNotEmpty && richRuns != null) {
+        _controller.setSelectedRichText(richRuns);
+      } else if (text.isNotEmpty && text != _controller.selectedText) {
         _controller.setSelectedText(text);
       }
     } else if (text.isNotEmpty) {
-      _controller.addFreeText(
-          widget.pageIndex, _geometry.toPageRect(rect), text);
+      if (richRuns != null) {
+        _controller.addFreeTextRich(
+            widget.pageIndex, _geometry.toPageRect(rect), richRuns);
+      } else {
+        _controller.addFreeText(
+            widget.pageIndex, _geometry.toPageRect(rect), text);
+      }
     }
     if (identical(before, _controller.document)) return;
     // the editor's rendering, frozen until the new revision's raster
@@ -1694,8 +2146,44 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _cancelTextEdit() => _closeTextEditor();
 
+  /// What Escape does to the open editor. It must never destroy a box: a
+  /// brand-new free-text box keeps what was typed (an empty one just adds
+  /// nothing on close), matching the desktop convention where Escape
+  /// *finishes* the box rather than throwing it away — discarding it read
+  /// as Escape "deleting" the annotation you'd just placed. An existing box
+  /// or a form field reverts to its saved value instead (a real cancel,
+  /// and still non-destructive — the box stays).
+  void _onEscapeTextEdit() {
+    if (_textEditExisting || _textEditFieldName != null) {
+      _cancelTextEdit();
+    } else {
+      _commitTextEdit();
+    }
+  }
+
+  /// Escape ends the inline editor straight from the field's focus node, so
+  /// it fires even on platforms/states where the ancestor
+  /// `CallbackShortcuts` never sees the key (e.g. the field's own editing
+  /// actions swallow it). Returning `handled` stops the duplicate
+  /// `CallbackShortcuts` binding from also running; every other key falls
+  /// through to normal text input.
+  KeyEventResult _onTextEditKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape &&
+        _textEditRect != null) {
+      _onEscapeTextEdit();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   void _closeTextEditor() {
     if (_textEditRect == null) return;
+    // whether the editor still owned the keyboard: a close driven by Escape,
+    // ⌘Enter, or a tap on the page arrives with focus still on the field; a
+    // close because the user clicked another widget (e.g. a toolbar field)
+    // does not — that new focus must be left alone
+    final ownedFocus = _textEditFocus.hasFocus;
     if (mounted) {
       setState(() {
         _textEditRect = null;
@@ -1708,13 +2196,31 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditFieldName = null;
     }
     _controller.setEditingText(false);
+    // hand the keyboard back so the viewer's shortcuts work again right away
+    // (Escape → back out the tool, V/P/R tool keys, delete): the removed
+    // field's focus node otherwise leaves focus in limbo and the next key
+    // reaches nothing. Prefer the viewer's own node (via onTextEditClosed)
+    // so a *second* Escape lands on its handler; fall back to a plain
+    // unfocus in hosts that supply no hook. rect is already null, so the
+    // focus-loss listener's commit is a no-op.
+    if (ownedFocus) {
+      if (widget.onTextEditClosed != null) {
+        widget.onTextEditClosed!();
+      } else if (_textEditFocus.hasFocus) {
+        _textEditFocus.unfocus();
+      }
+    }
   }
 
   /// Losing focus commits — tapping another widget, switching panes.
   /// (Escape cancels first, so by the time the unfocus arrives the
   /// session is already gone and this is a no-op.)
   void _onTextEditFocus() {
-    if (!_textEditFocus.hasFocus) _commitTextEdit();
+    if (!_textEditFocus.hasFocus &&
+        !_textEditStyleMenuOpen &&
+        !_controller.isEditingTextFocusCommitHeld) {
+      _commitTextEdit();
+    }
   }
 
   void _panStart(DragStartDetails details) {
@@ -1760,6 +2266,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.line ||
             PdfEditTool.arrow ||
             PdfEditTool.measureDistance ||
+            PdfEditTool.calibrate ||
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
             PdfEditTool.image ||
@@ -2062,6 +2569,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final marqueeAdd = _marqueeAdd;
     final panned = _viewportPanning;
     final signaturePlace = _signatureDrag ? _signaturePreview : null;
+    // a free-text resize lifts the original box out of the page so the drag
+    // shows real content behind a transparent box; detach that lift (taking
+    // ownership from [_clearResizeClean]) so the commit afterimage can keep
+    // it up until the new raster lands — without it a transparent box
+    // flashes opaque paper on release
+    final textResizing = resizeRect != null && _textResizeStyle != null;
+    final liftClean = textResizing ? _resizeCleanPicture : null;
+    final liftHideRect = textResizing ? _resizeFrom : null;
+    final liftHideAngle = _resizeAngle;
+    if (liftClean != null) {
+      _resizeCleanPicture = null; // ownership transferred; don't dispose it
+      _resizeCleanFor = null;
+    }
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -2148,10 +2668,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             size: wrapStyle.size,
             color: wrapStyle.color,
             fill: wrapStyle.fill,
-            washed: true,
+            // with the lift up the box keeps its true (maybe transparent)
+            // fill and the lift hides the old footprint; only without a
+            // lift does it fall back to the opaque-paper wash
+            washed: liftClean == null,
             rotation: resizeAngle,
           );
+          _afterTextClean = liftClean;
+          _afterTextHideRect = liftHideRect;
+          _afterTextHideAngle = liftHideAngle;
           _afterDocument = _controller.document;
+        } else {
+          liftClean?.dispose(); // no commit: don't leak the detached lift
         }
       } else if (shapeStyle != null) {
         // the commit regenerates the shape at a constant stroke width —
@@ -2239,6 +2767,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _commitLineDrag(Offset start, Offset end) {
+    if (_tool == PdfEditTool.calibrate) {
+      unawaited(_commitCalibration(start, end));
+      return;
+    }
     final before = _controller.document;
     if (_tool == PdfEditTool.measureDistance) {
       _controller.addMeasurement(widget.pageIndex, PdfMeasurementKind.distance,
@@ -2260,6 +2792,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       dashed: _controller.dashedStroke,
     );
     _afterDocument = _controller.document;
+  }
+
+  /// Finishes the calibration drag: asks how long the drawn segment is in
+  /// the real world, then derives [PdfEditingController.measurementScale]
+  /// from it and disarms the tool. Nothing is stamped on the page.
+  Future<void> _commitCalibration(Offset start, Offset end) async {
+    final existing = _controller.measurementScale;
+    final result = await showPdfCalibrationLengthDialog(
+      context,
+      initialUnit: existing?.unitLabel,
+    );
+    if (!mounted || result == null) return;
+    final (length, unit) = result;
+    _controller.calibrateScale(
+      _geometry.toPagePoint(start),
+      _geometry.toPagePoint(end),
+      length,
+      unit,
+      pageUnitLabel: existing?.pageUnitLabel ?? pdfDefaultPageUnit(),
+    );
+    _controller.tool = PdfEditTool.select;
   }
 
   void _commitVertexDrag(List<Offset> points) {
@@ -2529,7 +3082,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerAnnotations = annotations;
       _sampler = null;
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
-              pageColor: pageColor, annotations: annotations)
+              pageColor: pageColor, annotations: annotations,
+              rotation: widget.geometry.rotation)
           .then((s) {
         // resolve the preview that was waiting on the raster
         if (mounted &&
@@ -2861,6 +3415,272 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
+  bool get _canStyleInlineTextSelection {
+    final selection = _textEditText.selection;
+    return _textEditRect != null && selection.isValid && !selection.isCollapsed;
+  }
+
+  _TextEditStyle _currentInlineTextStyle() {
+    final selection = _textEditText.selection;
+    final offset = selection.isValid
+        ? math.min(selection.baseOffset, selection.extentOffset)
+        : 0;
+    return _textEditText._styleAt(offset.clamp(0, _textEditText.text.length));
+  }
+
+  void _applyInlineTextStyle({PdfTextFont? font, double? size, Color? color}) {
+    if (!_canStyleInlineTextSelection) return;
+    final rgb = color == null ? null : color.toARGB32() & 0xFFFFFF;
+    if (font is PdfStandardFont) {
+      _controller.fontFamily = font;
+    } else if (font is PdfEmbeddedFont) {
+      _controller.activeFont = font;
+    }
+    if (size != null) _controller.fontSize = size;
+    if (color != null) _controller.color = Color(0xFF000000 | rgb!);
+    _controller.setEditingTextSelection(_textEditText.selection);
+    _controller.restyleEditingTextSelection(font: font, size: size, color: rgb);
+  }
+
+  /// Registers an embedded font's outline bytes with the engine under a
+  /// synthetic family so the inline editor can *preview* it — base-14
+  /// faces map to platform families, but an embedded/bundled font is drawn
+  /// from raw bytes the page renderer turns into paths, which a Flutter
+  /// `TextField` can't use until they're loaded as a font. Idempotent and
+  /// fire-and-forget: once the load lands it rebuilds so the styled run
+  /// switches from the fallback face to the real one.
+  void _ensureEmbeddedFontPreview(PdfEmbeddedFont font) {
+    final key = _embeddedFontKey(font);
+    if (_embeddedPreviewFamilies.containsKey(key) ||
+        _embeddedFontsLoading.contains(key)) {
+      return;
+    }
+    _embeddedFontsLoading.add(key);
+    final family = 'pdfedit-$key';
+    // copy the bytes: loadFontFromList wants an owned, immutable list
+    ui
+        .loadFontFromList(Uint8List.fromList(font.fontBytes), fontFamily: family)
+        .then((_) {
+      _embeddedPreviewFamilies[key] = family;
+      _embeddedFontsLoading.remove(key);
+      if (mounted) setState(() {});
+    }, onError: (_) {
+      // a font the engine rejects just keeps previewing in the fallback face
+      _embeddedFontsLoading.remove(key);
+    });
+  }
+
+  /// Toggles bold (or [italic]) on the inline text editor — the desktop
+  /// Cmd/Ctrl+B / Cmd/Ctrl+I shortcuts. Bold and italic are variants of the
+  /// base-14 faces, so an embedded font is left alone. With a selection the
+  /// toggle restyles it; with none it styles the whole box (or just sets the
+  /// face when the box is still empty).
+  void _toggleInlineTextStyle({required bool italic}) {
+    // form fields carry a single /DA font — no rich styling to toggle
+    if (_textEditRect == null || _textEditFieldName != null) return;
+
+    final base = _canStyleInlineTextSelection
+        ? _currentInlineTextStyle().font
+        : _textEditFont;
+    if (base is! PdfStandardFont) return;
+    final next =
+        italic ? base.withItalic(!base.isItalic) : base.withBold(!base.isBold);
+
+    if (_canStyleInlineTextSelection) {
+      _applyInlineTextStyle(font: next);
+      return;
+    }
+    final length = _textEditText.text.length;
+    if (length == 0) {
+      setState(() => _textEditFont = next);
+      _controller.fontFamily = next;
+      _textEditText.resetStyles(_TextEditStyle(
+          font: next, size: _textEditSize, color: _textEditColor));
+      return;
+    }
+    // a bare caret: style the whole box (select-all gives visible feedback)
+    _textEditText.selection =
+        TextSelection(baseOffset: 0, extentOffset: length);
+    _applyInlineTextStyle(font: next);
+  }
+
+  Future<void> _showInlineTextFontMenu(BuildContext context) async {
+    if (!_canStyleInlineTextSelection) return;
+    final box = context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null) return;
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight =
+        box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay);
+    _textEditStyleMenuOpen = true;
+    _textEditFocus.requestFocus();
+    final choice = await showMenu<_InlineTextFontChoice>(
+        context: context,
+        position: RelativeRect.fromRect(
+            Rect.fromPoints(topLeft, bottomRight), Offset.zero & overlay.size),
+        items: const [
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-std-sans'),
+              value: _InlineTextFontChoice.sans,
+              child: Text('Sans (Helvetica)',
+                  style: TextStyle(fontFamily: 'Helvetica'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-std-serif'),
+              value: _InlineTextFontChoice.serif,
+              child: Text('Serif (Times)',
+                  style: TextStyle(fontFamily: 'Times New Roman'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-std-mono'),
+              value: _InlineTextFontChoice.mono,
+              child: Text('Mono (Courier)',
+                  style: TextStyle(fontFamily: 'Courier'))),
+          PopupMenuDivider(),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-bundled-sans'),
+              value: _InlineTextFontChoice.bundledSans,
+              child: Text('DejaVu Sans',
+                  style: TextStyle(
+                      fontFamily: 'DejaVu Sans', package: 'dart_pdf_editor'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-bundled-serif'),
+              value: _InlineTextFontChoice.bundledSerif,
+              child: Text('DejaVu Serif',
+                  style: TextStyle(
+                      fontFamily: 'DejaVu Serif', package: 'dart_pdf_editor'))),
+          PopupMenuItem(
+              key: ValueKey('pdf-inline-font-bundled-mono'),
+              value: _InlineTextFontChoice.bundledMono,
+              child: Text('DejaVu Sans Mono',
+                  style: TextStyle(
+                      fontFamily: 'DejaVu Sans Mono',
+                      package: 'dart_pdf_editor'))),
+        ]);
+    _textEditStyleMenuOpen = false;
+    if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
+    if (choice == null || !mounted || !_canStyleInlineTextSelection) return;
+    final current = _currentInlineTextStyle().font;
+    PdfStandardFont standard(PdfStandardFontFamily family) =>
+        PdfStandardFont.styled(family,
+            bold: current is PdfStandardFont && current.isBold,
+            italic: current is PdfStandardFont && current.isItalic);
+    switch (choice) {
+      case _InlineTextFontChoice.sans:
+        _applyInlineTextStyle(font: standard(PdfStandardFontFamily.sans));
+      case _InlineTextFontChoice.serif:
+        _applyInlineTextStyle(font: standard(PdfStandardFontFamily.serif));
+      case _InlineTextFontChoice.mono:
+        _applyInlineTextStyle(font: standard(PdfStandardFontFamily.mono));
+      case _InlineTextFontChoice.bundledSans:
+      case _InlineTextFontChoice.bundledSerif:
+      case _InlineTextFontChoice.bundledMono:
+        final index = switch (choice) {
+          _InlineTextFontChoice.bundledSans => 0,
+          _InlineTextFontChoice.bundledSerif => 1,
+          _InlineTextFontChoice.bundledMono => 2,
+          _ => 0,
+        };
+        try {
+          final bytes = await loadBundledFont(pdfBundledFonts[index]);
+          if (mounted && _canStyleInlineTextSelection) {
+            _applyInlineTextStyle(font: PdfEmbeddedFont.parse(bytes));
+          }
+        } catch (_) {
+          // Missing/corrupt bundled assets leave the current style alone.
+        }
+    }
+  }
+
+  Future<void> _pickInlineTextColor(BuildContext context, Color initial) async {
+    if (!_canStyleInlineTextSelection) return;
+    _textEditStyleMenuOpen = true;
+    _textEditFocus.requestFocus();
+    final picked = await showPdfColorPicker(context, initial: initial);
+    _textEditStyleMenuOpen = false;
+    if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
+    if (picked != null && mounted) _applyInlineTextStyle(color: picked);
+  }
+
+  Widget _buildInlineTextStyleChip(Rect editorRect) {
+    final s = _chromeScale;
+    final current = _currentInlineTextStyle();
+    final above = editorRect.top - 54 * s >= 0;
+    final width = _geometry.viewSize.width;
+    final halfChip = 108 * s;
+    final anchor = Offset(
+      width <= 2 * halfChip
+          ? width / 2
+          : editorRect.center.dx.clamp(halfChip, width - halfChip),
+      above ? editorRect.top - 10 * s : editorRect.bottom + 10 * s,
+    );
+    final enabled = _canStyleInlineTextSelection;
+    final iconColor = Color(0xFF000000 | (current.color.toARGB32() & 0xFFFFFF));
+    return Positioned(
+      left: anchor.dx,
+      top: anchor.dy,
+      child: FractionalTranslation(
+        translation: Offset(-0.5, above ? -1 : 0),
+        child: Transform.scale(
+          scale: s,
+          alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
+          child: Focus(
+            canRequestFocus: false,
+            descendantsAreFocusable: false,
+            child: Material(
+              key: const ValueKey('pdf-inline-text-style-chip'),
+              elevation: 3,
+              borderRadius: BorderRadius.circular(22),
+              clipBehavior: Clip.antiAlias,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Builder(builder: (buttonContext) {
+                  return IconButton(
+                    key: const ValueKey('pdf-inline-text-font'),
+                    icon: const Icon(Icons.font_download_outlined),
+                    tooltip: 'Font',
+                    onPressed: enabled
+                        ? () => _showInlineTextFontMenu(buttonContext)
+                        : null,
+                  );
+                }),
+                IconButton(
+                  key: const ValueKey('pdf-inline-text-size-down'),
+                  icon: const Icon(Icons.text_decrease),
+                  tooltip: 'Smaller',
+                  onPressed: enabled
+                      ? () => _applyInlineTextStyle(
+                          size: (current.size - 1).clamp(8, 48).toDouble())
+                      : null,
+                ),
+                IconButton(
+                  key: const ValueKey('pdf-inline-text-size-up'),
+                  icon: const Icon(Icons.text_increase),
+                  tooltip: 'Larger',
+                  onPressed: enabled
+                      ? () => _applyInlineTextStyle(
+                          size: (current.size + 1).clamp(8, 48).toDouble())
+                      : null,
+                ),
+                Builder(builder: (buttonContext) {
+                  return IconButton(
+                    key: const ValueKey('pdf-inline-text-color'),
+                    icon: Icon(Icons.format_color_text, color: iconColor),
+                    tooltip: 'Color',
+                    onPressed: enabled
+                        ? () async {
+                            await _pickInlineTextColor(
+                                buttonContext, iconColor);
+                          }
+                        : null,
+                  );
+                }),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// The running measurement readout during placement — the formatted
   /// distance/perimeter/area, and the view-space point it should ride.
   /// Null when no measurement tool is mid-placement.
@@ -3033,6 +3853,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   @override
   Widget build(BuildContext context) {
+    _textEditText.scale = _geometry.scale;
     _ensureGhost();
     _ensureSourceClean();
     // the afterimage has served once the committed revision's raster is
@@ -3086,6 +3907,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // paint that same picture at rest so vector paste feedback is immediate
     // instead of waiting for the full-page raster. Dragging keeps using the
     // normal ghost path, and explicit commit afterimages take precedence.
+    final selectedAnnotation = _controller.selectedAnnotation;
+    final washRestGhost = selectedAnnotation?.subtype == 'FreeText';
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
@@ -3095,8 +3918,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             picture: _ghost!,
             from: selected,
             to: selected,
-            source: null,
-            sourceClean: null,
+            source: washRestGhost ? selected : null,
+            sourceClean: washRestGhost ? _sourceCleanPicture : null,
+            sourceWash: washRestGhost
+                ? Color.alphaBlend(widget.pageColor, const Color(0xFFFFFFFF))
+                : null,
             rotation: 0.0,
             localAngle: 0.0,
             flipX: false,
@@ -3110,6 +3936,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             to: _afterGhostTo!,
             source: _afterGhostSourceRect,
             sourceClean: _afterGhostSourceClean,
+            sourceWash: null,
             rotation: _afterGhostRotation,
             localAngle: _afterGhostLocalAngle,
             flipX: _afterGhostFlipX,
@@ -3318,11 +4145,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     ghostFlipY: _resizeHandle != null && _resizeFlipY,
                     // free-text resize lift: hide the original box's
                     // footprint with the page rendered without it (or an
-                    // opaque-paper wash until that lands)
-                    resizeClean:
-                        wrapResize != null ? _resizeCleanPicture : null,
-                    resizeHideRect: wrapResize != null ? _resizeFrom : null,
-                    resizeHideAngle: _resizeAngle,
+                    // opaque-paper wash until that lands). After the commit
+                    // the same lift carries on (kept alive as
+                    // [_afterTextClean]) so a transparent box's afterimage
+                    // shows page content behind it, not an opaque flash.
+                    resizeClean: wrapResize != null
+                        ? _resizeCleanPicture
+                        : _afterTextClean,
+                    resizeHideRect: wrapResize != null
+                        ? _resizeFrom
+                        : _afterTextHideRect,
+                    resizeHideAngle:
+                        wrapResize != null ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
                         widget.pageColor, const Color(0xFFFFFFFF)),
                     extraInk: extraInk,
@@ -3432,11 +4266,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     child: CallbackShortcuts(
                       bindings: {
                         const SingleActivator(LogicalKeyboardKey.escape):
-                            _cancelTextEdit,
+                            _onEscapeTextEdit,
                         const SingleActivator(LogicalKeyboardKey.enter,
                             meta: true): _commitTextEdit,
                         const SingleActivator(LogicalKeyboardKey.enter,
                             control: true): _commitTextEdit,
+                        const SingleActivator(LogicalKeyboardKey.keyB,
+                            meta: true): () => _toggleInlineTextStyle(
+                              italic: false,
+                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyB,
+                            control: true): () => _toggleInlineTextStyle(
+                              italic: false,
+                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyI,
+                            meta: true): () => _toggleInlineTextStyle(
+                              italic: true,
+                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyI,
+                            control: true): () => _toggleInlineTextStyle(
+                              italic: true,
+                            ),
                       },
                       child: Container(
                         // the chrome border lives in the inflate(2) gutter
@@ -3447,11 +4297,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         padding: const EdgeInsets.all(2),
                         // the box's own fill when it has one; otherwise wash
                         // the paper color over what's underneath: faint for a
-                        // fresh box, near-opaque when editing existing text
-                        // so the old rendering doesn't show through
+                        // fresh box, fully opaque when editing existing text
+                        // so the old rendering doesn't ghost through and read
+                        // as a misaligned shadow behind the live text
                         color: _textEditFill ??
                             widget.pageColor.withValues(
-                                alpha: _textEditExisting ? 0.92 : 0.3),
+                                alpha: _textEditExisting ? 1 : 0.3),
                         foregroundDecoration: BoxDecoration(
                           border: Border.all(
                               color: PdfViewerTheme.of(context)
@@ -3488,6 +4339,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     ? TextAlignVertical.top
                                     : TextAlignVertical.center,
                                 cursorColor: _textEditColor,
+                                selectionControls: _ScaledTextSelectionControls(
+                                    _chromeScale,
+                                    _inlineTextHandleColor(context)),
+                                contextMenuBuilder:
+                                    (context, editableTextState) {
+                                  final menu =
+                                      AdaptiveTextSelectionToolbar.editableText(
+                                          editableTextState: editableTextState);
+                                  if (_chromeScale == 1) return menu;
+                                  return Transform.scale(
+                                    scale: _chromeScale,
+                                    alignment: Alignment.topCenter,
+                                    child: menu,
+                                  );
+                                },
                                 // mirrors the committed appearance: same size
                                 // in view pixels, same 1.2 leading, matching
                                 // family and color
@@ -3532,6 +4398,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     ),
                   ),
                 ),
+              if (_textEditRect != null &&
+                  _textEditFieldName == null &&
+                  _controller.hasTouchInput)
+                _buildInlineTextStyleChip(_textEditRect!),
               if (showChip) _buildSelectionChip(chrome?.$1 ?? selected),
               if (_measureReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor),
@@ -4268,6 +5138,12 @@ class _EditingPreviewPainter extends CustomPainter {
         canvas.scale(geometry.scale);
         canvas.drawPicture(sourceClean);
         canvas.restore();
+      } else if (source != null && committed.sourceWash != null) {
+        final page = Offset.zero & size;
+        final clipped = source.inflate(2).intersect(page);
+        if (!clipped.isEmpty) {
+          canvas.drawRect(clipped, Paint()..color = committed.sourceWash!);
+        }
       }
       // full strength: this *is* the committed result, standing in for
       // the raster that hasn't landed yet

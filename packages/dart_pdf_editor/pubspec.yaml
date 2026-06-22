@@ -2,7 +2,7 @@ name: dart_pdf_editor
 description: >-
   Flutter PDF viewer and editor for Dart: native rendering, text selection,
   search, annotations, forms, signatures, page editing, and document comparison.
-version: 1.2.1
+version: 1.2.3
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -21,9 +21,9 @@ dependencies:
   flutter:
     sdk: flutter
   image: ^4.9.1
-  pdf_cos: ^1.2.0
-  pdf_document: ^1.2.0
-  pdf_graphics: ^1.2.0
+  pdf_cos: ^1.2.3
+  pdf_document: ^1.2.3
+  pdf_graphics: ^1.2.3
   shared_preferences: ^2.3.0
   # Web-only: the Web Worker render backend (render_worker_web.dart) talks to a
   # Worker over package:web's typed bindings. A no-op everywhere else.
@@ -31,6 +31,37 @@ dependencies:
 
 dev_dependencies:
   pdf_test_fixtures: ^1.2.0
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
+
+flutter:
+  # Bundled fonts offered by the font menu. DejaVu is a permissive
+  # Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are
+  # SIL Open Font Licence — see the *-LICENSE.txt files in assets/fonts/.
+  assets:
+    - assets/fonts/DejaVuSans.ttf
+    - assets/fonts/DejaVuSerif.ttf
+    - assets/fonts/DejaVuSansMono.ttf
+    - assets/fonts/FiraSans-Regular.ttf
+    - assets/fonts/Spectral-Regular.ttf
+    - assets/fonts/Lobster-Regular.ttf
+  fonts:
+    - family: DejaVu Sans
+      fonts:
+        - asset: assets/fonts/DejaVuSans.ttf
+    - family: DejaVu Serif
+      fonts:
+        - asset: assets/fonts/DejaVuSerif.ttf
+    - family: DejaVu Sans Mono
+      fonts:
+        - asset: assets/fonts/DejaVuSansMono.ttf
+    - family: Fira Sans
+      fonts:
+        - asset: assets/fonts/FiraSans-Regular.ttf
+    - family: Spectral
+      fonts:
+        - asset: assets/fonts/Spectral-Regular.ttf
+    - family: Lobster
+      fonts:
+        - asset: assets/fonts/Lobster-Regular.ttf

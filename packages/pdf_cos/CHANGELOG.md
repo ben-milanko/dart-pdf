@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.3
+
+- Version bump to keep the dart-pdf package suite aligned at 1.2.3. No COS
+  API changes since 1.2.2.
+
+## 1.2.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.2.2. No COS
+  API changes since 1.2.1.
+
 ## 1.2.1
 
 - Add a package example for pub.dev scoring.

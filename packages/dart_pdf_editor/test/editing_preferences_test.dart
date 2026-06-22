@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:pdf_document/pdf_document.dart' show PdfLineEnding;
+import 'package:pdf_document/pdf_document.dart'
+    show PdfLineEnding, PdfTextAlign;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +15,7 @@ void main() {
       a.color = const Color(0xFF123456);
       a.strokeWidth = 5;
       a.fontSize = 18;
+      a.textAlign = PdfTextAlign.center;
       a.opacity = 0.5;
       a.fingerDrawsInk = false;
       a.showThumbnailSidebar = false; // non-default, so the write is real
@@ -34,6 +36,7 @@ void main() {
       expect(b.color, const Color(0xFF123456));
       expect(b.strokeWidth, 5);
       expect(b.fontSize, 18);
+      expect(b.textAlign, PdfTextAlign.center);
       expect(b.opacity, 0.5);
       expect(b.fingerDrawsInk, isFalse);
       expect(b.showThumbnailSidebar, isFalse);
@@ -56,6 +59,7 @@ void main() {
       expect(prefs.color, const Color(0xFFE53935));
       expect(prefs.strokeWidth, 2);
       expect(prefs.fontSize, 14);
+      expect(prefs.textAlign, isNull); // null = follow text direction
       expect(prefs.opacity, 1);
       expect(prefs.fingerDrawsInk, isTrue);
       // the thumbnail strip is on by default since 9bbfc87
@@ -70,6 +74,20 @@ void main() {
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);
       expect(prefs.searchRegex, isFalse);
+    });
+
+    test('textAlign resets to null (follow text direction)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      a.textAlign = PdfTextAlign.right;
+      await pumpEventQueue();
+      a.textAlign = null; // clear the override, back to follow-direction
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.textAlign, isNull);
     });
 
     test('a value set while loading is not clobbered by stored data', () async {

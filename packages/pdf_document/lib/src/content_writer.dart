@@ -15,6 +15,31 @@ extension PdfTextDirectionResolution on PdfTextDirection {
   }
 }
 
+/// Horizontal alignment of the lines inside a free-text box, mapped to the
+/// /Q quadding value (§12.7.4.3): 0 left, 1 centered, 2 right.
+///
+/// When no alignment is given the appearance generator falls back to the
+/// text direction — left for LTR, right for RTL — so the default keeps the
+/// long-standing behaviour.
+enum PdfTextAlign {
+  left(0),
+  center(1),
+  right(2);
+
+  const PdfTextAlign(this.quadding);
+
+  /// The /Q quadding value this alignment is written as.
+  final int quadding;
+
+  /// The alignment for a /Q quadding value, defaulting to [left] for an
+  /// absent or unrecognized one.
+  static PdfTextAlign fromQuadding(int? quadding) => switch (quadding) {
+        1 => PdfTextAlign.center,
+        2 => PdfTextAlign.right,
+        _ => PdfTextAlign.left,
+      };
+}
+
 /// True when [text]'s first strong directional character is RTL.
 bool pdfTextLooksRtl(String text) {
   for (final rune in text.runes) {
@@ -98,7 +123,7 @@ bool _isRtlRune(int rune) =>
 /// Builds content-stream bytes operator by operator.
 ///
 /// Coordinates are PDF user space. Output is plain Latin-1 text; characters
-/// outside Latin-1 in shown text degrade to '?' (appearance streams are
+/// outside Latin-1 in shown text degrade to a space (appearance streams are
 /// authored with WinAnsi-encoded base-14 fonts for now).
 class ContentWriter {
   final StringBuffer _buffer = StringBuffer();
@@ -125,6 +150,28 @@ class ContentWriter {
       ..write(text)
       ..write('\n');
   }
+
+  /// Begins a /Span marked-content sequence with /ActualText so that text
+  /// extraction returns [logicalText] instead of whatever the Tj/TJ operands
+  /// encode. Used to preserve logical character order for RTL text that is
+  /// visually reordered in the content stream.
+  void beginActualText(String logicalText) {
+    final hex = StringBuffer();
+    hex.write('FEFF'); // UTF-16BE BOM
+    for (final rune in logicalText.runes) {
+      if (rune <= 0xFFFF) {
+        hex.write(rune.toRadixString(16).padLeft(4, '0'));
+      } else {
+        final hi = 0xD800 + ((rune - 0x10000) >> 10);
+        final lo = 0xDC00 + ((rune - 0x10000) & 0x3FF);
+        hex.write(hi.toRadixString(16).padLeft(4, '0'));
+        hex.write(lo.toRadixString(16).padLeft(4, '0'));
+      }
+    }
+    _buffer.write('/Span << /ActualText <${hex.toString()}> >> BDC\n');
+  }
+
+  void endMarkedContent() => _buffer.write('EMC\n');
 
   /// References /[name] in the resources' /ExtGState dictionary.
   void extGState(String name) => _buffer.write('/$name gs\n');
@@ -221,11 +268,16 @@ class ContentWriter {
         case 0x0D:
           _buffer.write('\\r');
         default:
-          _buffer.writeCharCode(code <= 0xFF ? code : 0x3F /* ? */);
+          _buffer.writeCharCode(code <= 0xFF ? code : 0x20 /* space */);
       }
     }
     _buffer.write(') Tj\n');
   }
+
+  /// Shows pre-encoded glyphs as a hex string operand — used for composite
+  /// (Type0) fonts whose codes are multi-byte glyph ids. [hex] is the raw
+  /// hex digits (e.g. `00480065` for two 2-byte glyph ids).
+  void showGlyphHex(String hex) => _buffer.write('<$hex> Tj\n');
 
   void nextLine() => op('T*');
 
@@ -336,6 +388,23 @@ double measureHelvetica(String text, double fontSize, {bool bold = false}) {
   return total * fontSize / 1000;
 }
 
+/// The common contract the free-text appearance generator needs from a
+/// font, whether it is one of the base-14 [PdfStandardFont] faces or an
+/// embedded `PdfEmbeddedFont`: a resource name for /DA and the /Font dict,
+/// an ascent for baseline placement, and text measurement for wrapping.
+abstract interface class PdfTextFont {
+  /// The /Font resource key referenced from /DA and the appearance
+  /// resources.
+  String get resourceName;
+
+  /// Ascender height in thousandths of an em — where the first baseline
+  /// sits below the top of a text box.
+  int get ascent;
+
+  /// Width of [text] in points at [fontSize].
+  double measure(String text, double fontSize);
+}
+
 /// The three base-14 type families the editors write text with — a
 /// sans-serif, serif, and monospace pick that every viewer renders
 /// without embedding. The bold/italic variants of each are individual
@@ -361,7 +430,7 @@ enum PdfStandardFontFamily {
 /// italic, and bold-italic variants of a sans-serif, serif, and
 /// monospace pick from the PDF base-14 set, which every viewer renders
 /// without embedding.
-enum PdfStandardFont {
+enum PdfStandardFont implements PdfTextFont {
   helvetica('Helvetica', 'Helv', 718, helveticaWidths, 556,
       PdfStandardFontFamily.sans),
   helveticaBold('Helvetica-Bold', 'HelvBold', 718, helveticaBoldWidths, 556,
@@ -407,10 +476,12 @@ enum PdfStandardFont {
   /// The appearance-resource name used in /DA, following Acrobat's
   /// short-name conventions (Helv, TiRo, Cour) with explicit suffixes
   /// for the bold/italic variants.
+  @override
   final String resourceName;
 
   /// Ascender height in thousandths of an em — where the first baseline
   /// sits below the top of a text box.
+  @override
   final int ascent;
 
   final List<int>? _widths; // null: monospaced at [_fallbackWidth]
@@ -434,6 +505,12 @@ enum PdfStandardFont {
 
   /// Advance widths for characters 32–126 (the font dict's /Widths).
   List<int> get widths => _widths ?? List.filled(95, _fallbackWidth);
+
+  /// Width of [text] in points at [fontSize] using this font's base-14
+  /// metrics.
+  @override
+  double measure(String text, double fontSize) =>
+      measureStandardText(text, fontSize, font: this);
 
   /// The variant of [family] with the requested [bold]/[italic] style.
   static PdfStandardFont styled(PdfStandardFontFamily family,

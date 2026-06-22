@@ -264,85 +264,336 @@ extension PdfContentEditing on PdfEditor {
   }
 
   /// Tier 3 — text editing. Replaces occurrences of [find] with [replace]
-  /// inside individual text-showing operations on page [index] and
-  /// returns how many were rewritten.
+  /// in the text-showing operations on page [index] and returns how many
+  /// were rewritten.
   ///
-  /// Honest limitations: the match must fall entirely inside one shown
-  /// string; only simple single-byte fonts qualify (composite /Type0
-  /// runs are skipped — their bytes are glyph indexes, not characters);
-  /// both strings must be Latin-1; and glyphs are not re-measured, so
-  /// replacing with a longer string can collide with whatever follows on
-  /// the line. Good for short corrections, not for reflowing paragraphs.
-  int replaceText(int index, String find, String replace) {
+  /// A match may span the multiple shown strings of one `TJ` array and any
+  /// run of consecutive `Tj`/`TJ` operators on the same line, so kerned
+  /// text (`[(spli) -20 (t run)]`) is matched as the single word it reads
+  /// as. Replacements are re-measured against the font's real advance
+  /// widths (its `/Widths`, or base-14 metrics by `/BaseFont`) and a
+  /// compensating `TJ` adjustment is inserted so whatever follows on the
+  /// line keeps its position regardless of how the width changed.
+  ///
+  /// Composite (/Type0) runs are handled too, for the common Identity-H /
+  /// CIDFontType2 / Identity-CIDToGIDMap shape: the existing text is read
+  /// from `/ToUnicode`, replacements are re-encoded through the embedded
+  /// font's own `cmap` (so any character the embedded program carries a
+  /// glyph for can be typed), and the new glyphs' widths and Unicode values
+  /// are merged into the descendant `/W` and `/ToUnicode` (see
+  /// [_Type0Editing]). A Type0 run is left untouched when it can't be safely
+  /// round-tripped (CFF descendant, stream /CIDToGIDMap, non-Identity-H
+  /// encoding, missing program/ToUnicode, or a character the font lacks).
+  ///
+  /// Remaining limitations: for simple fonts both strings must be Latin-1;
+  /// and matches do not cross a line break (`Td`/`T*`/`'`/`"`) — this
+  /// corrects and re-flows within a line, it does not re-flow paragraphs.
+  /// [fallbackFonts] (composite editing only) supply glyph outlines for
+  /// characters the document's own /Type0 font can't draw — a subsetted
+  /// embedded font physically lacks the glyphs it dropped, and this library
+  /// bundles none. When given, such a replacement is drawn in the first
+  /// fallback that can render it (style-matched to the document font); when
+  /// omitted, an undrawable replacement leaves the run untouched.
+  int replaceText(int index, String find, String replace,
+      {List<PdfEmbeddedFont> fallbackFonts = const []}) {
     if (find.isEmpty) throw ArgumentError.value(find, 'find', 'is empty');
-    final findBytes = latin1.encode(find);
-    final replaceBytes = latin1.encode(replace);
+    // the simple-font path is byte-encoded; non-Latin-1 strings can only be
+    // matched/drawn by the composite path, so leave these null there.
+    final findBytes = _tryLatin1(find);
+    final replaceBytes = _tryLatin1(replace);
 
     final page = document.page(index);
     final elements = PdfPageElements.of(document, index);
     final cos = document.cos;
     final fonts = cos.resolve(page.resources['Font']);
 
-    // fonts whose strings are single-byte character codes
-    bool replaceable(String? fontName) {
-      if (fontName == null) return true; // no Tf seen — assume simple
-      if (fonts is! CosDictionary) return true;
-      final font = cos.resolve(fonts[fontName]);
-      if (font is! CosDictionary) return true;
-      final subtype = cos.resolve(font['Subtype']);
-      return !(subtype is CosName && subtype.value == 'Type0');
+    CosDictionary? fontFor(String? name) {
+      if (name == null || fonts is! CosDictionary) return null;
+      final font = cos.resolve(fonts[name]);
+      return font is CosDictionary ? font : null;
     }
 
+    // composite (/Type0) fonts are rewritten by a separate path that decodes
+    // 2-byte glyph codes — built lazily and cached per font resource name.
+    final type0Cache = <String, _Type0Editing?>{};
+    _Type0Editing? type0For(String name, CosDictionary f) =>
+        type0Cache.putIfAbsent(
+            name, () => _Type0Editing.tryCreate(this, page, name, f, fallbackFonts));
+
+    final ops = elements.operations;
+    final rewritten = <ContentOperation>[];
     var count = 0;
-    var fontName = _firstFontOf(elements.operations);
-    for (final op in elements.operations) {
+    CosDictionary? font; // the font active at the current operation
+    String? fontName; // its /Font resource key
+    var fontSize = 0.0; // its size, for fallback Tf switches
+
+    var i = 0;
+    while (i < ops.length) {
+      final op = ops[i];
       if (op.operator == 'Tf' && op.operands.isNotEmpty) {
-        final name = op.operands[0];
-        if (name is CosName) fontName = name.value;
+        fontName = op.operands[0] is CosName
+            ? (op.operands[0] as CosName).value
+            : null;
+        font = fontFor(fontName);
+        if (op.operands.length >= 2) fontSize = _num(op.operands[1]);
+        rewritten.add(op);
+        i++;
         continue;
       }
-      final isShow = switch (op.operator) {
-        'Tj' || "'" || '"' || 'TJ' => true,
-        _ => false,
-      };
-      if (!isShow || !replaceable(fontName)) continue;
-
-      void patch(CosString string, void Function(CosString) write) {
-        final replaced = _replaceBytes(string.bytes, findBytes, replaceBytes);
-        if (replaced == null) return;
-        write(CosString(replaced, isHex: string.isHex));
-        count++;
+      if (op.operator == 'Tj' || op.operator == 'TJ') {
+        // a run is a maximal stretch of adjacent show operators: text
+        // state (font, position) is constant across it, so the strings
+        // read as one line and may be merged into a single TJ.
+        final run = <ContentOperation>[];
+        while (i < ops.length &&
+            (ops[i].operator == 'Tj' || ops[i].operator == 'TJ')) {
+          run.add(ops[i]);
+          i++;
+        }
+        final (ops_, n) = _isType0(cos, font) && fontName != null
+            ? (type0For(fontName, font!)
+                    ?.rewriteRun(run, find, replace, fontSize) ??
+                (run, 0))
+            : (findBytes != null && replaceBytes != null
+                ? _rewriteTextRun(run, font, findBytes, replaceBytes)
+                : (run, 0));
+        rewritten.addAll(ops_);
+        count += n;
+        continue;
       }
-
-      if (op.operator == 'TJ' && op.operands.isNotEmpty) {
-        final array = op.operands[0];
-        if (array is! CosArray) continue;
-        for (var i = 0; i < array.items.length; i++) {
-          if (array.items[i] case final CosString s) {
-            patch(s, (replacement) => array.items[i] = replacement);
+      // ' and " carry a line break, so they stand alone; a single string
+      // with nothing after it on its line needs no width compensation.
+      if ((op.operator == "'" || op.operator == '"') &&
+          !_isType0(cos, font) &&
+          findBytes != null &&
+          replaceBytes != null) {
+        final si = op.operator == '"' ? 2 : 0;
+        if (op.operands.length > si && op.operands[si] is CosString) {
+          final s = op.operands[si] as CosString;
+          final replaced = _replaceBytes(s.bytes, findBytes, replaceBytes);
+          if (replaced != null) {
+            op.operands[si] = CosString(replaced, isHex: s.isHex);
+            count += _findAll(s.bytes, findBytes).length;
           }
         }
-      } else {
-        final stringIndex = op.operator == '"' ? 2 : 0;
-        if (op.operands.length > stringIndex &&
-            op.operands[stringIndex] is CosString) {
-          patch(op.operands[stringIndex] as CosString,
-              (replacement) => op.operands[stringIndex] = replacement);
-        }
       }
+      rewritten.add(op);
+      i++;
     }
-    if (count > 0) _setContent(page, elements.serialize());
+
+    if (count > 0) {
+      // write the new glyphs' widths and Unicode values into the composite
+      // fonts they were added to before re-serializing the page.
+      for (final ctx in type0Cache.values) {
+        if (ctx != null && ctx.isDirty) ctx.commit();
+      }
+      ops
+        ..clear()
+        ..addAll(rewritten);
+      _setContent(page, elements.serialize());
+    }
     return count;
   }
 
-  static String? _firstFontOf(List<ContentOperation> operations) {
-    for (final op in operations) {
-      if (op.operator == 'Tf' && op.operands.isNotEmpty) {
-        final name = op.operands[0];
-        return name is CosName ? name.value : null;
+  /// [s] as Latin-1 bytes, or null when it has a code unit past 0xFF (the
+  /// simple-font path can't represent it; the composite path uses the string
+  /// directly).
+  static Uint8List? _tryLatin1(String s) {
+    for (final unit in s.codeUnits) {
+      if (unit > 0xFF) return null;
+    }
+    return Uint8List.fromList(s.codeUnits);
+  }
+
+  static bool _isType0(CosDocument cos, CosDictionary? font) {
+    if (font == null) return false;
+    final subtype = cos.resolve(font['Subtype']);
+    return subtype is CosName && subtype.value == 'Type0';
+  }
+
+  /// One position in a flattened run: a shown byte, or a `TJ` kern number
+  /// (advance of `-kern/1000` em). Exactly one field is set.
+  static List<({int? byte, double? kern})> _runCells(
+      List<ContentOperation> run) {
+    final cells = <({int? byte, double? kern})>[];
+    for (final op in run) {
+      if (op.operator == 'TJ' &&
+          op.operands.isNotEmpty &&
+          op.operands[0] is CosArray) {
+        for (final item in (op.operands[0] as CosArray).items) {
+          switch (item) {
+            case CosString(:final bytes):
+              for (final b in bytes) {
+                cells.add((byte: b, kern: null));
+              }
+            case CosInteger(:final value):
+              cells.add((byte: null, kern: value.toDouble()));
+            case CosReal(:final value):
+              cells.add((byte: null, kern: value));
+            default:
+              break; // names, dicts, etc. carry no advance in a TJ array
+          }
+        }
+      } else if (op.operands.isNotEmpty && op.operands[0] is CosString) {
+        for (final b in (op.operands[0] as CosString).bytes) {
+          cells.add((byte: b, kern: null));
+        }
       }
     }
-    return null;
+    return cells;
+  }
+
+  /// Rewrites one run of show operators, replacing [findBytes] with
+  /// [replaceBytes] across its strings. Returns the operations to emit in
+  /// the run's place (the originals untouched when nothing matched) and the
+  /// number of replacements.
+  (List<ContentOperation>, int) _rewriteTextRun(List<ContentOperation> run,
+      CosDictionary? font, List<int> findBytes, List<int> replaceBytes) {
+    if (_isType0(document.cos, font)) return (run, 0);
+
+    final cells = _runCells(run);
+    final charCell = <int>[]; // logical char index -> cell index
+    final logical = <int>[];
+    for (var c = 0; c < cells.length; c++) {
+      if (cells[c].byte case final int b) {
+        charCell.add(c);
+        logical.add(b);
+      }
+    }
+    final matches = _findAll(logical, findBytes);
+    if (matches.isEmpty) return (run, 0);
+
+    final widthOf = _widthsFor(font);
+    final totalChars = logical.length;
+    final out = <({int? byte, double? kern})>[];
+    var count = 0;
+    var cell = 0;
+    var m = 0;
+    while (cell < cells.length) {
+      if (m < matches.length && cell == charCell[matches[m].$1]) {
+        final (start, end) = matches[m];
+        final last = charCell[end - 1];
+        // advance the matched span covers, kern numbers inside it included
+        var oldWidth = 0.0;
+        for (var k = cell; k <= last; k++) {
+          oldWidth +=
+              cells[k].byte != null ? widthOf(cells[k].byte!) : -cells[k].kern!;
+        }
+        var newWidth = 0.0;
+        for (final b in replaceBytes) {
+          out.add((byte: b, kern: null));
+          newWidth += widthOf(b);
+        }
+        // keep the rest of the line put when text still follows the match
+        if (end < totalChars && (newWidth - oldWidth).abs() >= 0.001) {
+          out.add((byte: null, kern: newWidth - oldWidth));
+        }
+        count++;
+        cell = last + 1;
+        m++;
+      } else {
+        out.add(cells[cell]);
+        cell++;
+      }
+    }
+
+    // coalesce cells back into TJ array items, merging adjacent kerns
+    final items = <CosObject>[];
+    final buffer = <int>[];
+    var kern = 0.0;
+    void flushString() {
+      if (buffer.isNotEmpty) {
+        items.add(CosString(Uint8List.fromList(buffer)));
+        buffer.clear();
+      }
+    }
+
+    void flushKern() {
+      if (kern.abs() >= 0.001) items.add(_numberObject(kern));
+      kern = 0;
+    }
+
+    for (final c in out) {
+      if (c.byte case final int b) {
+        flushKern();
+        buffer.add(b);
+      } else {
+        flushString();
+        kern += c.kern!;
+      }
+    }
+    flushString();
+    flushKern();
+
+    // a single Tj whose result is one plain string stays a Tj, so simple
+    // corrections still serialize as `(text) Tj`
+    if (run.length == 1 &&
+        run[0].operator == 'Tj' &&
+        items.length == 1 &&
+        items[0] is CosString) {
+      final original = run[0].operands[0];
+      run[0].operands[0] = CosString((items[0] as CosString).bytes,
+          isHex: original is CosString && original.isHex);
+      return (run, count);
+    }
+    return ([
+      ContentOperation('TJ', [CosArray(items)])
+    ], count);
+  }
+
+  /// An advance-width lookup (thousandths of an em) for [font]: its own
+  /// /Widths when present, else base-14 metrics keyed off /BaseFont,
+  /// falling back to Helvetica.
+  double Function(int code) _widthsFor(CosDictionary? font) {
+    final cos = document.cos;
+    if (font != null) {
+      final widths = cos.resolve(font['Widths']);
+      if (widths is CosArray) {
+        final firstChar = _num(cos.resolve(font['FirstChar'])).round();
+        var missing = 0.0;
+        final descriptor = cos.resolve(font['FontDescriptor']);
+        if (descriptor is CosDictionary) {
+          missing = _num(cos.resolve(descriptor['MissingWidth']));
+        }
+        final table = [for (final w in widths.items) _num(cos.resolve(w))];
+        return (code) {
+          final i = code - firstChar;
+          return i >= 0 && i < table.length ? table[i] : missing;
+        };
+      }
+      final base = cos.resolve(font['BaseFont']);
+      if (base is CosName) {
+        final standard = PdfStandardFont.tryFromName(base.value);
+        if (standard != null) return (code) => standard.widthOf(code).toDouble();
+      }
+    }
+    return (code) => PdfStandardFont.helvetica.widthOf(code).toDouble();
+  }
+
+  static CosObject _numberObject(double value) {
+    final rounded = double.parse(value.toStringAsFixed(3));
+    return rounded == rounded.roundToDouble()
+        ? CosInteger(rounded.toInt())
+        : CosReal(rounded);
+  }
+
+  /// Non-overlapping byte matches of [needle] in [haystack] as `(start,
+  /// end)` index ranges, scanning left to right.
+  static List<(int, int)> _findAll(List<int> haystack, List<int> needle) {
+    final out = <(int, int)>[];
+    var i = 0;
+    outer:
+    while (i + needle.length <= haystack.length) {
+      for (var j = 0; j < needle.length; j++) {
+        if (haystack[i + j] != needle[j]) {
+          i++;
+          continue outer;
+        }
+      }
+      out.add((i, i + needle.length));
+      i += needle.length;
+    }
+    return out;
   }
 
   static Uint8List? _replaceBytes(

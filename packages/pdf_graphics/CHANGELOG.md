@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.3
+
+- Version bump to keep the dart-pdf package suite aligned at 1.2.3. No
+  graphics or interpreter changes since 1.2.2.
+
+## 1.2.2
+
+- The interpreter now checks for cancellation while walking a page's content
+  so a render can be preempted mid-interpretation — used by the viewer's
+  background render worker to drop superseded jobs on fast scrolls.
+
 ## 1.2.1
 
 - Add a package example for pub.dev scoring.

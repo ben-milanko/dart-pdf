@@ -3,13 +3,16 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfStandardFontFamily;
+    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
+import 'editing_fonts.dart';
+import 'editing_form_style.dart';
+import 'editing_value_field.dart';
 import 'editing_measure.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -80,6 +83,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.fontPicker,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
@@ -104,6 +108,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How the font menu's "Load font…" entry obtains a custom `.ttf`/`.otf`
+  /// file. When null, only the standard families and bundled fonts are
+  /// offered (no custom loading).
+  final PdfFontPicker? fontPicker;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -359,6 +368,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// place when the whole selection restyles.
   void _applyColor(Color color) {
     controller.color = color;
+    if (controller.restyleEditingTextSelection(
+        color: color.toARGB32() & 0xFFFFFF)) {
+      return;
+    }
     if (controller.canRestyleSelected) controller.restyleSelected(color: color);
   }
 
@@ -413,8 +426,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Future<void> _setScale(BuildContext context) async {
-    final scale =
-        await showPdfScaleDialog(context, initial: controller.measurementScale);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final scale = await showPdfScaleDialog(
+      context,
+      initial: controller.measurementScale,
+      onCalibrate: () {
+        controller.tool = PdfEditTool.calibrate;
+        messenger?.showSnackBar(const SnackBar(
+          content: Text('Draw a line of known length to calibrate the scale.'),
+        ));
+      },
+    );
     if (scale != null) controller.measurementScale = scale;
   }
 
@@ -461,7 +483,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       multiline: false,
     );
     if (text == null || text.isEmpty || text == element.text) return;
-    controller.replaceSelectedElementText(text);
+    // bundled fallbacks let composite (/Type0) edits draw characters the
+    // document's own (possibly subsetted) font lacks
+    final fallbacks = await loadFallbackFonts();
+    controller.replaceSelectedElementText(text, fallbackFonts: fallbacks);
   }
 
   void _flatten(BuildContext context) {
@@ -537,6 +562,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Future<void> _editSelectedText(BuildContext context) async {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return;
+    if (annotation.subtype == 'FreeText' &&
+        controller.requestEditSelectedTextInline()) {
+      return;
+    }
     final text = await widget.textPrompt(
       context,
       title: switch (annotation.subtype) {
@@ -699,7 +728,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           IconButton(
             icon: const Icon(Icons.save_alt),
             tooltip: 'Save… (⌘S / Ctrl+S)',
-            onPressed: () => widget.onSave!(controller.bytes),
+            // disabled while the document matches what was opened — there's
+            // nothing to write until an edit bumps the revision cursor
+            onPressed: controller.isModified
+                ? () => widget.onSave!(controller.bytes)
+                : null,
           ),
         ],
         if (widget.trailing.isNotEmpty) ...[
@@ -1009,6 +1042,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               ),
               if (controller.canEditSelectedText)
                 IconButton(
+                  key: const ValueKey('pdf-edit-selected-text'),
                   icon: const Icon(Icons.edit),
                   tooltip: 'Edit annotation text',
                   onPressed: () => _editSelectedText(context),
@@ -1213,16 +1247,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
         ),
       ),
-      SizedBox(
-        width: 38,
-        child: Text(
-          '${(value * 100).round()}%',
-          style: TextStyle(
-            fontFeatures: const [FontFeature.tabularFigures()],
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
+      PdfSliderValueField(
+        value: value,
+        min: 0.1,
+        max: 1,
+        width: 40,
+        display: (v) => '${(v * 100).round()}%',
+        parse: _parsePercent,
+        onSubmit: (v) {
+          controller.opacity = v;
+          if (restyling) controller.restyleSelected(opacity: v);
+          setState(() => _dragOpacity = null);
+        },
       ),
     ]);
   }
@@ -1252,6 +1288,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         showColor: widget.showColor,
         fields: fields,
         fontChipTrigger: fields.font,
+        fontPicker: widget.fontPicker,
       ),
     ];
   }
@@ -1278,7 +1315,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'insert':
         return const _StyleFields(opacity: true, font: true, boxColors: true);
       case 'measure':
-        return const _StyleFields(stroke: true, opacity: true, font: true);
+        return _StyleFields(
+          stroke: true,
+          opacity: true,
+          font: true,
+          // a distance line and a perimeter polyline carry endings; a
+          // closed area polygon does not
+          lineEndings: tool == PdfEditTool.measureDistance ||
+              tool == PdfEditTool.measurePerimeter,
+        );
       case 'markup':
         return const _StyleFields(opacity: true);
       default:
@@ -1293,6 +1338,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (annotation == null) return const _StyleFields();
     final canStroke = controller.canRestyleSelected;
     switch (annotation.subtype) {
+      case 'Widget':
+        // a form text field: its own style block, nothing else
+        return _StyleFields(formField: controller.canStyleSelectedFormField);
       case 'FreeText':
         final text = controller.canRestyleSelectedText;
         return _StyleFields(opacity: true, font: text, boxColors: text);
@@ -1302,6 +1350,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         return _StyleFields(
             stroke: canStroke,
             opacity: true,
+            // a /Polygon area measurement carries a caption font
+            font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
             shapeFill: controller.canFillSelected);
       case 'Line':
@@ -1309,6 +1359,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         return _StyleFields(
             stroke: canStroke,
             opacity: true,
+            // a measurement (/Line distance, /PolyLine perimeter) carries one
+            font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
             lineEndings: controller.canSetLineEndings);
       case 'Ink':
@@ -1397,6 +1449,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ),
         if (controller.canEditSelectedText)
           IconButton(
+            key: const ValueKey('pdf-edit-selected-text'),
             icon: const Icon(Icons.edit),
             tooltip: 'Edit annotation text',
             visualDensity: VisualDensity.compact,
@@ -1973,6 +2026,16 @@ extension _FaintColor on ColorScheme {
 /// Which controls the style popup should show for the active context —
 /// each tool/selection only carries the settings it can actually use, so
 /// the popup never shows (say) a font picker while a rectangle is armed.
+/// Parses a points readout ("12.0 pt") back to its number.
+double? _parsePoints(String s) =>
+    double.tryParse(s.replaceAll(RegExp('[^0-9.]'), ''));
+
+/// Parses a percent readout ("40%") back to the 0..1 underlying value.
+double? _parsePercent(String s) {
+  final n = double.tryParse(s.replaceAll(RegExp('[^0-9.]'), ''));
+  return n == null ? null : n / 100;
+}
+
 class _StyleFields {
   const _StyleFields({
     this.stroke = false,
@@ -1983,6 +2046,7 @@ class _StyleFields {
     this.boxColors = false,
     this.shapeFill = false,
     this.eraser = false,
+    this.formField = false,
   });
 
   final bool stroke;
@@ -2005,6 +2069,10 @@ class _StyleFields {
   /// Eraser radius — replaces every other control while the eraser is armed.
   final bool eraser;
 
+  /// The form text field style block (font, alignment, auto-size, size,
+  /// multiline, colour) — a single text-field widget is selected.
+  final bool formField;
+
   bool get isEmpty =>
       !stroke &&
       !opacity &&
@@ -2013,7 +2081,8 @@ class _StyleFields {
       !font &&
       !boxColors &&
       !shapeFill &&
-      !eraser;
+      !eraser &&
+      !formField;
 }
 
 /// The style popup: sliders for stroke width, opacity, and font size,
@@ -2029,10 +2098,14 @@ class _StyleMenu extends StatefulWidget {
     required this.fields,
     this.showColor = true,
     this.fontChipTrigger = false,
+    this.fontPicker,
   });
 
   /// Which controls to show — see [_StyleFields].
   final _StyleFields fields;
+
+  /// How the font menu's "Load font…" entry loads a custom font.
+  final PdfFontPicker? fontPicker;
 
   final PdfEditingController controller;
 
@@ -2064,17 +2137,38 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// selected annotation.
   double? _draggingStroke;
   double? _draggingOpacity;
+  bool _holdingTextEditFocus = false;
+
+  @override
+  void dispose() {
+    _endTextEditFocusHold();
+    super.dispose();
+  }
+
+  void _beginTextEditFocusHold() {
+    if (_holdingTextEditFocus || !controller.isEditingText) return;
+    _holdingTextEditFocus = true;
+    controller.beginEditingTextFocusHold();
+  }
+
+  void _endTextEditFocusHold() {
+    if (!_holdingTextEditFocus) return;
+    _holdingTextEditFocus = false;
+    controller.endEditingTextFocusHold();
+  }
 
   void _setFont(PdfStandardFont font) {
     controller.fontFamily = font; // the new default either way
+    if (controller.restyleEditingTextSelection(font: font)) return;
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(font: font);
+    } else if (controller.canRestyleMeasurementCaption) {
+      controller.setSelectedMeasurementCaption(font: font);
     }
   }
 
-  void _setFontFamily(PdfStandardFontFamily family, PdfStandardFont current) =>
-      _setFont(PdfStandardFont.styled(family,
-          bold: current.isBold, italic: current.isItalic));
+  void _setTextAlign(PdfTextAlign align) =>
+      controller.setSelectedTextAlign(align);
 
   static int? _rgb(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
@@ -2245,6 +2339,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   @override
   Widget build(BuildContext context) {
     return MenuAnchor(
+      onClose: _endTextEditFocusHold,
       menuChildren: [
         // the menu lives in its own overlay, outside the toolbar's
         // ListenableBuilder — it needs its own listener to track sliders
@@ -2253,6 +2348,10 @@ class _StyleMenuState extends State<_StyleMenu> {
           builder: (context, _) {
             final fields = widget.fields;
             final selectedStyle = controller.selectedTextStyle;
+            // a selected measurement exposes its caption font/size the same
+            // way a free text exposes its own; the font rows drive whichever
+            // is non-null
+            final captionStyle = controller.selectedMeasurementCaptionStyle;
             // with a restylable selection the stroke/opacity sliders
             // show — and change — its style; otherwise the defaults
             final restylingAnnotation = controller.canRestyleSelected;
@@ -2302,6 +2401,11 @@ class _StyleMenuState extends State<_StyleMenu> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (fields.formField)
+                    PdfFormFieldStyleControls(
+                      controller: controller,
+                      fontPicker: widget.fontPicker,
+                    ),
                   if (isEraser)
                     _slider(
                       key: const ValueKey('pdf-eraser-size'),
@@ -2309,7 +2413,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: controller.eraserRadius,
                       min: 2,
                       max: 40,
-                      display: '${controller.eraserRadius.round()} pt',
+                      display: (v) => '${v.round()} pt',
+                      parse: _parsePoints,
                       onChanged: (v) =>
                           controller.eraserRadius = v.roundToDouble(),
                     ),
@@ -2319,7 +2424,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: strokeValue,
                       min: 0.5,
                       max: 12,
-                      display: '${strokeValue.toStringAsFixed(1)} pt',
+                      display: (v) => '${v.toStringAsFixed(1)} pt',
+                      parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingStroke = v);
                         if (!restylingAnnotation) controller.strokeWidth = v;
@@ -2338,7 +2444,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: opacityValue,
                       min: 0.1,
                       max: 1,
-                      display: '${(opacityValue * 100).round()}%',
+                      display: (v) => '${(v * 100).round()}%',
+                      parse: _parsePercent,
                       onChanged: (v) {
                         setState(() => _draggingOpacity = v);
                         if (!restylingAnnotation) controller.opacity = v;
@@ -2426,22 +2533,35 @@ class _StyleMenuState extends State<_StyleMenu> {
                       label: 'Font size',
                       value: _draggingFontSize ??
                           selectedStyle?.size ??
+                          captionStyle?.size ??
                           controller.fontSize,
                       min: 8,
                       max: 48,
-                      display:
-                          '${(_draggingFontSize ?? selectedStyle?.size ?? controller.fontSize).round()} pt',
+                      display: (v) => '${v.round()} pt',
+                      parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingFontSize = v.roundToDouble());
-                        if (selectedStyle == null) {
+                        if (selectedStyle == null && captionStyle == null) {
                           controller.fontSize = v.roundToDouble();
                         }
                       },
                       onChangeEnd: (v) {
                         final size = v.roundToDouble();
-                        controller.fontSize = size;
+                        if (controller.restyleEditingTextSelection(
+                            size: size)) {
+                          controller.fontSize = size;
+                          setState(() => _draggingFontSize = null);
+                          return;
+                        }
                         if (controller.canRestyleSelectedText) {
+                          controller.fontSize = size;
                           controller.restyleSelectedText(size: size);
+                        } else if (controller.canRestyleMeasurementCaption) {
+                          // a selected measurement keeps its own caption size;
+                          // don't disturb the creation default
+                          controller.setSelectedMeasurementCaption(size: size);
+                        } else {
+                          controller.fontSize = size;
                         }
                         setState(() => _draggingFontSize = null);
                       },
@@ -2452,42 +2572,37 @@ class _StyleMenuState extends State<_StyleMenu> {
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Font')),
                         Expanded(
-                          child: SegmentedButton<PdfStandardFontFamily>(
-                            segments: const [
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.sans,
-                                  label: Text('Sans')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.serif,
-                                  label: Text('Serif')),
-                              ButtonSegment(
-                                  value: PdfStandardFontFamily.mono,
-                                  label: Text('Mono')),
-                            ],
-                            selected: {
-                              (selectedStyle?.font ?? controller.fontFamily)
-                                  .family
-                            },
-                            showSelectedIcon: false,
-                            style: const ButtonStyle(
-                              visualDensity: VisualDensity.compact,
-                              padding: WidgetStatePropertyAll(
-                                  EdgeInsets.symmetric(horizontal: 8)),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: PdfFontMenuButton(
+                              controller: controller,
+                              fontPicker: widget.fontPicker,
                             ),
-                            onSelectionChanged: (selection) => _setFontFamily(
-                                selection.single,
-                                selectedStyle?.font ?? controller.fontFamily),
                           ),
                         ),
                       ]),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.only(top: 6),
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Style')),
                         FontStyleToggles(
-                          font: selectedStyle?.font ?? controller.fontFamily,
+                          font: selectedStyle?.font ??
+                              captionStyle?.font ??
+                              controller.fontFamily,
                           onChanged: _setFont,
+                        ),
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(children: [
+                        const SizedBox(width: 86, child: Text('Align')),
+                        TextAlignToggles(
+                          align: controller.selectedTextAlign ??
+                              controller.textAlign ??
+                              PdfTextAlign.left,
+                          onChanged: _setTextAlign,
                         ),
                       ]),
                     ),
@@ -2517,20 +2632,40 @@ class _StyleMenuState extends State<_StyleMenu> {
       builder: (context, menu, _) => ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
-          void toggle() => menu.isOpen ? menu.close() : menu.open();
+          void toggle() {
+            if (menu.isOpen) {
+              menu.close();
+              return;
+            }
+            _beginTextEditFocusHold();
+            menu.open();
+          }
+
           final tip =
               widget.fields.eraser ? 'Eraser size' : 'Stroke, opacity, font';
+          Widget holdOnPointerDown(Widget child) => Listener(
+                onPointerDown: (_) => _beginTextEditFocusHold(),
+                child: Focus(
+                  canRequestFocus: false,
+                  descendantsAreFocusable: false,
+                  child: child,
+                ),
+              );
           if (widget.fontChipTrigger) {
-            return _FontChip(
-              controller: controller,
-              tooltip: tip,
-              onTap: toggle,
+            return holdOnPointerDown(
+              _FontChip(
+                controller: controller,
+                tooltip: tip,
+                onTap: toggle,
+              ),
             );
           }
-          return IconButton(
-            icon: const Icon(Icons.tune),
-            tooltip: tip,
-            onPressed: toggle,
+          return holdOnPointerDown(
+            IconButton(
+              icon: const Icon(Icons.tune),
+              tooltip: tip,
+              onPressed: toggle,
+            ),
           );
         },
       ),
@@ -2543,7 +2678,8 @@ class _StyleMenuState extends State<_StyleMenu> {
     required double value,
     required double min,
     required double max,
-    required String display,
+    required String Function(double) display,
+    double? Function(String)? parse,
     required ValueChanged<double> onChanged,
     ValueChanged<double>? onChangeEnd,
   }) {
@@ -2558,7 +2694,19 @@ class _StyleMenuState extends State<_StyleMenu> {
           onChangeEnd: onChangeEnd,
         ),
       ),
-      SizedBox(width: 44, child: Text(display, textAlign: TextAlign.end)),
+      // the readout is editable: type an exact value (general rule across
+      // the editing UI) — committing routes through the change-end callback,
+      // or onChanged for sliders that have none (live-only)
+      PdfSliderValueField(
+        key: key is ValueKey ? ValueKey('${key.value}-input') : null,
+        value: value,
+        min: min,
+        max: max,
+        width: 56,
+        display: display,
+        parse: parse,
+        onSubmit: onChangeEnd ?? onChanged,
+      ),
     ]);
   }
 }

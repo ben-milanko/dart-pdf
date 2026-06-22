@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont;
+    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
@@ -53,6 +53,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   double _eraserRadius = 8;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
+  PdfTextAlign? _textAlign;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
   PdfLineEnding _lineStartEnding = PdfLineEnding.none;
@@ -70,6 +71,8 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _showAnnotations = true;
   bool _highlightFormFields = true;
   bool _showReflowView = false;
+  bool _showThumbnailView = false;
+  double? _thumbnailViewTileWidth;
   bool _showPropertiesPanel = false;
   bool _showSearchResultsPanel = false;
   bool _searchMatchCase = false;
@@ -134,6 +137,10 @@ class PdfEditingPreferences extends ChangeNotifier {
         _fontFamily =
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
       }
+      final textAlign = store.getString('${_prefix}textAlign');
+      if (textAlign != null) {
+        _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
+      }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
       final lineStyle = store.getString('${_prefix}lineStyle');
       if (lineStyle != null) {
@@ -185,6 +192,11 @@ class PdfEditingPreferences extends ChangeNotifier {
           _highlightFormFields;
       _showReflowView =
           store.getBool('${_prefix}showReflowView') ?? _showReflowView;
+      _showThumbnailView =
+          store.getBool('${_prefix}showThumbnailView') ?? _showThumbnailView;
+      _thumbnailViewTileWidth =
+          store.getDouble('${_prefix}thumbnailViewTileWidth') ??
+              _thumbnailViewTileWidth;
       _thumbnailSidebarWidth =
           store.getDouble('${_prefix}thumbnailSidebarWidth') ??
               _thumbnailSidebarWidth;
@@ -245,8 +257,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         final key = entry['k'];
         final value = entry['v'];
         if (key is! String || value is! Map) continue;
-        final viewport =
-            PdfViewport.fromJson(Map<String, Object?>.from(value));
+        final viewport = PdfViewport.fromJson(Map<String, Object?>.from(value));
         if (viewport != null) result.add((key, viewport));
       }
     } catch (_) {
@@ -362,6 +373,10 @@ class PdfEditingPreferences extends ChangeNotifier {
         final font = PdfStandardFont.values.asNameMap()[v];
         if (font != null) fontFamily = font;
       }
+      if (slot.containsKey('textAlign')) {
+        final v = slot['textAlign'];
+        textAlign = v is String ? PdfTextAlign.values.asNameMap()[v] : null;
+      }
       if (slot['lineStyle'] case final String v) {
         final style = PdfLineStyle.values.asNameMap()[v];
         if (style != null) lineStyle = style;
@@ -454,6 +469,21 @@ class PdfEditingPreferences extends ChangeNotifier {
     _fontFamily = value;
     _write((s) => s.setString('${_prefix}fontFamily', value.name));
     _recordScoped('fontFamily', value.name);
+    notifyListeners();
+  }
+
+  /// Horizontal alignment (left/center/right) new free-text boxes are
+  /// created with — the box's /Q quadding. Null (the default) follows the
+  /// text direction: left for LTR, right for RTL. Persisted.
+  PdfTextAlign? get textAlign => _textAlign;
+
+  set textAlign(PdfTextAlign? value) {
+    if (value == _textAlign) return;
+    _textAlign = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}textAlign')
+        : s.setString('${_prefix}textAlign', value.name));
+    _recordScoped('textAlign', value?.name);
     notifyListeners();
   }
 
@@ -638,6 +668,32 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _showReflowView) return;
     _showReflowView = value;
     _write((s) => s.setBool('${_prefix}showReflowView', value));
+    notifyListeners();
+  }
+
+  /// Whether the host shows the dedicated full-area page thumbnail grid
+  /// (`PdfThumbnailView`) in place of the page viewer. A view mode, not a
+  /// docked panel — distinct from [showThumbnailSidebar].
+  bool get showThumbnailView => _showThumbnailView;
+
+  set showThumbnailView(bool value) {
+    if (value == _showThumbnailView) return;
+    _showThumbnailView = value;
+    _write((s) => s.setBool('${_prefix}showThumbnailView', value));
+    notifyListeners();
+  }
+
+  /// The page thumbnail grid's tile width, in logical pixels — the size
+  /// control in `PdfThumbnailView` drives it. Null until first changed,
+  /// where the widget's own default applies.
+  double? get thumbnailViewTileWidth => _thumbnailViewTileWidth;
+
+  set thumbnailViewTileWidth(double? value) {
+    if (value == _thumbnailViewTileWidth) return;
+    _thumbnailViewTileWidth = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}thumbnailViewTileWidth')
+        : s.setDouble('${_prefix}thumbnailViewTileWidth', value));
     notifyListeners();
   }
 

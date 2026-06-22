@@ -152,6 +152,79 @@ void main() {
       expect(redact, isNotNull);
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
     });
+
+    testWidgets('burning a redaction refreshes the stale low-res preview',
+        (tester) async {
+      // Regression: the burn swaps to a same-geometry revision, which used to
+      // *rebind* (keep, and mark fresh) the cached low-res preview — so a fast
+      // scroll right after redacting flashed the now-removed content, and the
+      // on-screen render could never replace it. The changed page's preview
+      // must be dropped at the swap so it refreshes to the redacted content.
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              pagePreviews: true,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      final cache = viewer.debugPreviewCache!;
+
+      // the redaction region in preview pixels: previews are 200px on the
+      // longest side, so a 612x792 page scales by 200/792; the box
+      // [60,712]-[200,748] (page space, y-up) maps to roughly x∈[15,50],
+      // y∈[11,20] from the top. Sample its center.
+      Future<int> previewLuma(int px, int py) async {
+        final image = cache.imageFor(0);
+        if (image == null) return -1;
+        late int luma;
+        await tester.runAsync(() async {
+          final data =
+              (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+          final i = (py * image.width + px) * 4;
+          luma = (data.getUint8(i) + data.getUint8(i + 1) + data.getUint8(i + 2)) ~/ 3;
+        });
+        image.dispose();
+        return luma;
+      }
+
+      // seed the preview from the pre-redaction content: the region is mostly
+      // white page (thin "Page 1" glyphs), so it reads light
+      await tester.runAsync(
+          () => cache.renderPreview(0, editing.document.page(0)));
+      expect(await previewLuma(32, 15), greaterThan(140),
+          reason: 'pre-redaction preview is light page');
+
+      editing.addRedaction(0, const PdfRect(60, 712, 200, 748));
+      editing.applyRedactions();
+      await tester.pump();
+
+      // let the on-screen render refresh the (now-dropped) preview; in the
+      // old rebind path it stayed "fresh" and this never converged
+      var luma = -1;
+      for (var i = 0; i < 60; i++) {
+        await tester
+            .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+        luma = await previewLuma(32, 15);
+        if (luma >= 0 && luma < 80) break;
+      }
+      expect(luma, lessThan(80),
+          reason: 'preview now shows the solid redaction fill, not old text');
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    });
   });
 
   group('toolbar apply flow', () {

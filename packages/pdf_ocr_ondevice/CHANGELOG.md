@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.3
+
+- Added `PdfOcrDownloadCancelToken` so hosts can wire a Cancel button to
+  in-flight model downloads; cancellation removes partial files and throws
+  `PdfOcrModelDownloadCanceled`.
+- Expanded the README download example to display file/overall progress and
+  show where to call `cancel()`.
+- Fix on-device OCR failing on Windows with a garbled "Load model from … File
+  doesn't exist" error. The ONNX Runtime session is now created from the model
+  *bytes* (`OrtSession.fromBuffer`) instead of a file path: on Windows the
+  binding passed the path as a narrow UTF-8 string where ONNX Runtime expects a
+  wide `wchar_t*`, mangling every path — even pure-ASCII ones — into CJK
+  mojibake. This supersedes the 1.2.2 ASCII path-staging workaround, which could
+  not help because the corruption happened regardless of the path's contents.
+
+## 1.2.2
+
+- Fix on-device OCR model path staging on Windows so the downloaded PP-OCR
+  ONNX model resolves correctly.
+
 ## 1.2.1
 
 - Add a package example and shorten the pubspec description for pub.dev

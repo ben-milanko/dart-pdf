@@ -14,6 +14,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'demo_brand_assets.dart';
 import 'demo_document.dart';
 import 'persistent_cache.dart';
+import 'platform_fonts.dart';
+import 'recent_files.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
@@ -51,6 +53,20 @@ Future<Uint8List?> _pickImage(BuildContext context) =>
     openFile(acceptedTypeGroups: const [_imageTypeGroup])
         .then((file) => file?.readAsBytes());
 
+/// Fonts the "Load font…" entry accepts.
+const _fontTypeGroup = XTypeGroup(
+  label: 'Fonts',
+  extensions: ['ttf', 'otf'],
+  mimeTypes: ['font/ttf', 'font/otf'],
+  uniformTypeIdentifiers: ['public.truetype-ttf-font', 'public.opentype-font'],
+);
+
+/// The font menu's "Load font…" picker: embeds the chosen TrueType or
+/// OpenType file so new text can use any font.
+Future<Uint8List?> _pickFont(BuildContext context) =>
+    openFile(acceptedTypeGroups: const [_fontTypeGroup])
+        .then((file) => file?.readAsBytes());
+
 @visibleForTesting
 String pdfSavePathWithExtension(String path) {
   final trimmed = path.trimRight();
@@ -72,11 +88,25 @@ void main() {
   if (kIsWeb) {
     pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
   }
+  // Diagnostics: turn on the in-app performance trace (interpret times,
+  // render-hold/scheduler transitions, prerender warms, and frame JANK,
+  // streamed to the browser console) without a rebuild by opening the demo
+  // with `?perf=1`. Off otherwise — it's verbose and adds per-line print
+  // overhead. `Uri.base` carries the page URL on web (and is harmless on
+  // native, where there's no query string), so no `package:web` import.
+  if (Uri.base.queryParameters['perf'] == '1') {
+    PdfPerfLog.enabled = true;
+  }
   runApp(const ViewerApp());
 }
 
 class ViewerApp extends StatefulWidget {
-  const ViewerApp({super.key});
+  const ViewerApp({super.key, this.cacheStore});
+
+  /// The persistent backend the on-disk caches and the recent-files list
+  /// share. Defaults to the platform store (filesystem / IndexedDB); tests
+  /// inject an in-memory one.
+  final PdfCacheStore? cacheStore;
 
   @override
   State<ViewerApp> createState() => _ViewerAppState();
@@ -88,6 +118,24 @@ class _ViewerAppState extends State<ViewerApp> {
   /// follow the persisted light/dark choice; the screen below shares
   /// the same instance with every editing session.
   final _prefs = PdfEditingPreferences();
+
+  @override
+  void initState() {
+    super.initState();
+    // Offer the host's installed fonts in the editor's font menu by default.
+    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // empty result (web, or a locked-down platform) just leaves the base-14,
+    // bundled and "Load font…" choices.
+    unawaited(_loadPlatformFonts());
+  }
+
+  Future<void> _loadPlatformFonts() async {
+    try {
+      pdfPlatformFonts = await loadPlatformFonts();
+    } catch (_) {
+      // Font discovery is best-effort; the menu degrades to its other choices.
+    }
+  }
 
   @override
   void dispose() {
@@ -108,16 +156,19 @@ class _ViewerAppState extends State<ViewerApp> {
           useMaterial3: true,
         ),
         themeMode: _prefs.themeMode,
-        home: ViewerScreen(prefs: _prefs),
+        home: ViewerScreen(prefs: _prefs, cacheStore: widget.cacheStore),
       ),
     );
   }
 }
 
 class ViewerScreen extends StatefulWidget {
-  const ViewerScreen({super.key, required this.prefs});
+  const ViewerScreen({super.key, required this.prefs, this.cacheStore});
 
   final PdfEditingPreferences prefs;
+
+  /// Optional override for the persistent cache backend (see [ViewerApp]).
+  final PdfCacheStore? cacheStore;
 
   @override
   State<ViewerScreen> createState() => _ViewerScreenState();
@@ -132,13 +183,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// instead of blank paper; the text cache lets search reuse a prior
   /// session's extraction instead of re-walking every page. Separate
   /// namespaces keep their byte budgets independent.
-  final PdfCacheStore _cacheStore = createPersistentCacheStore();
+  late final PdfCacheStore _cacheStore =
+      widget.cacheStore ?? createPersistentCacheStore();
   late final PdfRasterCache _rasterCache = PdfRasterCache(
     PdfDiskCache(_cacheStore, namespace: 'previews'),
   );
   late final PdfPageTextCache _textCache = PdfPageTextCache(
     PdfDiskCache(_cacheStore, namespace: 'text'),
   );
+
+  /// The "Open recent" list shown in the app menu, persisted on the shared
+  /// cache backend so a picked file reopens across sessions on every
+  /// platform.
+  late final RecentFilesStore _recents = RecentFilesStore(_cacheStore);
 
   /// One entry per open document. Each tab owns its own edit session and
   /// viewer controller, so switching tabs preserves each document's
@@ -228,7 +285,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ThemeMode.dark => 'Theme: dark — switch to system',
       };
 
-  List<PopupMenuEntry<VoidCallback>> _appMenuItems(_DocumentTab? tab) => [
+  List<PopupMenuEntry<VoidCallback>> _appMenuItems(
+          BuildContext menuContext, _DocumentTab? tab) =>
+      [
+        PopupMenuItem(
+          value: () => unawaited(_pickFile()),
+          child: const ListTile(
+            leading: Icon(Icons.folder_open),
+            title: Text('Open a PDF…'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
         PopupMenuItem(
           value: _openDemo,
           child: const ListTile(
@@ -237,6 +304,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
+        ..._recentMenuItems(menuContext),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: () => unawaited(_runOcr()),
@@ -293,6 +361,70 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ),
         ),
       ];
+
+  /// The "Open recent" entry of the app menu: a single "Recent files" row
+  /// that expands into a submenu listing remembered files (newest first)
+  /// plus a clear action. Files already open in a tab are left out — there's
+  /// no point offering a shortcut to reopen them — so the row is hidden
+  /// entirely until there's at least one closed file to show.
+  List<PopupMenuEntry<VoidCallback>> _recentMenuItems(BuildContext menuContext) {
+    final openTitles = {for (final tab in _tabs) tab.title};
+    final recents = [
+      for (final entry in _recents.entries)
+        if (!openTitles.contains(entry.title)) entry,
+    ].take(_maxRecentMenuItems).toList();
+    if (recents.isEmpty) return const [];
+    return [
+      const PopupMenuDivider(),
+      PopupMenuItem<VoidCallback>(
+        // A no-op: the nested button below owns the row's taps (opening the
+        // submenu). This only guards a stray tap on the row from invoking a
+        // null action.
+        value: () {},
+        padding: EdgeInsets.zero,
+        child: PopupMenuButton<VoidCallback>(
+          key: const ValueKey('recent-files-submenu'),
+          tooltip: 'Recent files',
+          // Run the chosen submenu action, then dismiss the parent menu,
+          // which stays open behind the submenu otherwise.
+          onSelected: (action) {
+            action();
+            if (Navigator.of(menuContext).canPop()) {
+              Navigator.of(menuContext).pop();
+            }
+          },
+          itemBuilder: (_) => [
+            for (final entry in recents)
+              PopupMenuItem<VoidCallback>(
+                value: () => unawaited(_openRecent(entry)),
+                child: ListTile(
+                  leading: const Icon(Icons.picture_as_pdf_outlined),
+                  title: Text(
+                    entry.title.isEmpty ? 'Untitled' : entry.title,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            const PopupMenuDivider(),
+            PopupMenuItem<VoidCallback>(
+              value: () => unawaited(_recents.clear()),
+              child: const ListTile(
+                leading: Icon(Icons.clear_all),
+                title: Text('Clear recent files'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ],
+          child: const ListTile(
+            leading: Icon(Icons.history),
+            title: Text('Recent files'),
+            trailing: Icon(Icons.arrow_right),
+          ),
+        ),
+      ),
+    ];
+  }
 
   void _toast(String message) {
     // Floating in the bottom-right corner on desktop, so toasts stay a
@@ -444,6 +576,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   @override
   void initState() {
     super.initState();
+    // the app menu rebuilds with the current recents whenever they change
+    _recents.addListener(_onRecentsChanged);
     // open a file straight away with:
     //   flutter run -d macos --dart-define=PDF=/path/to/file.pdf
     const preset = String.fromEnvironment('PDF');
@@ -454,8 +588,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  void _onRecentsChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _recents.removeListener(_onRecentsChanged);
+    _recents.dispose();
     for (final tab in _tabs) {
       tab.dispose();
     }
@@ -480,6 +620,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           preferences: _prefs,
         ),
       );
+      unawaited(_recents.record(file.name, bytes));
     } catch (e) {
       if (!mounted) return;
       _replaceLoadingTab(
@@ -537,11 +678,55 @@ class _ViewerScreenState extends State<ViewerScreen> {
           preferences: _prefs,
         ),
       );
+      unawaited(_recents.record(name, bytes));
     } catch (e) {
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
         _DocumentTab.error(title: name, error: 'Could not open $path\n$e'),
+      );
+    }
+  }
+
+  /// Reopens a file from the "Open recent" list by reading its stored bytes
+  /// back from the cache. A recent whose bytes have aged out is dropped
+  /// from the list with an explanatory tab.
+  Future<void> _openRecent(RecentFile entry) async {
+    final loading = _openLoading(entry.title);
+    try {
+      final bytes = await _recents.bytesFor(entry.id);
+      if (!mounted) return;
+      if (bytes == null) {
+        _replaceLoadingTab(
+          loading,
+          _DocumentTab.error(
+            title: entry.title,
+            error: 'Could not reopen ${entry.title} — its saved copy is no '
+                'longer available.',
+          ),
+        );
+        unawaited(_recents.remove(entry.id));
+        return;
+      }
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.document(
+          title: entry.title,
+          bytes: bytes,
+          preferences: _prefs,
+        ),
+      );
+      unawaited(_recents.touch(entry.id));
+    } catch (e) {
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.error(
+          title: entry.title,
+          error: 'Could not reopen ${entry.title}\n$e',
+        ),
       );
     }
   }
@@ -797,6 +982,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                               annotationMenuBuilder: _annotationMenuActions,
                               formImagePicker: _pickFormImage,
                               imagePicker: _pickImage,
+                              fontPicker: _pickFont,
                               onSnapshot: _saveSnapshot,
                             ),
     );
@@ -813,7 +999,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
         tooltip: 'DartPDF menu',
         onSelected: (action) => action(),
-        itemBuilder: (context) => _appMenuItems(tab),
+        itemBuilder: (context) => _appMenuItems(context, tab),
       );
 
   /// The horizontally scrolling row of open-document tabs plus the sticky
@@ -937,6 +1123,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
 const double _tabStripHeight = 42;
 const double _appMenuLeadingWidth = 60;
 const double _appMenuIconSize = 24;
+
+/// How many recent files the app menu lists at once.
+const int _maxRecentMenuItems = 8;
 
 class _OpeningDocument extends StatelessWidget {
   const _OpeningDocument({required this.title});

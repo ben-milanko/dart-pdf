@@ -275,6 +275,75 @@ void main() {
       expect(find.text('Hello, world!'), findsOneWidget);
     });
 
+    testWidgets('View options can swap in the full-area page grid',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(3), preferences: prefs));
+      expect(find.byType(PdfThumbnailView), findsNothing);
+      expect(find.byType(PdfViewer), findsOneWidget);
+      expect(find.byType(PdfEditingToolbar), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(prefs.showThumbnailView, isTrue);
+      expect(find.byType(PdfThumbnailView), findsOneWidget);
+      // the viewer stays mounted under the opaque grid (so a tap can scroll
+      // it), but the editing toolbar and the viewer-only header controls go
+      expect(find.byType(PdfViewer), findsOneWidget);
+      expect(find.byType(PdfEditingToolbar), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsNothing);
+
+      // tapping a page in the grid returns to the page view
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(prefs.showThumbnailView, isFalse);
+      expect(find.byType(PdfThumbnailView), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('opening the page grid clears reflow', (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      prefs.showReflowView = true;
+      await pump(
+          tester, PdfEditorView(bytes: buildClassicPdf(), preferences: prefs));
+      expect(find.byType(PdfReflowView), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(prefs.showReflowView, isFalse);
+      expect(prefs.showThumbnailView, isTrue);
+      expect(find.byType(PdfReflowView), findsNothing);
+      expect(find.byType(PdfThumbnailView), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('thumbnails: false hides the page-grid view option',
+        (tester) async {
+      await pump(
+          tester,
+          PdfEditorView(
+              bytes: buildMultiPagePdf(2),
+              features: const PdfEditorFeatures(thumbnails: false)));
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-page-grid')), findsNothing);
+    });
+
     testWidgets('reflowView: false hides editor reflow option', (tester) async {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
@@ -578,6 +647,31 @@ void main() {
       expect(find.byIcon(Icons.save_alt), findsNothing);
     });
 
+    testWidgets('save button is disabled until there are changes',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await pump(
+        tester,
+        PdfEditorView(controller: editing, onSave: (_) {}),
+      );
+      FilledButton saveButton() => tester
+          .widget<FilledButton>(find.byKey(const ValueKey('pdf-shell-save')));
+
+      // freshly opened: nothing to save, so the button is disabled
+      expect(saveButton().onPressed, isNull);
+
+      // an edit enables it
+      editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
+      await tester.pump();
+      expect(saveButton().onPressed, isNotNull);
+
+      // undoing back to the original disables it again
+      editing.undo();
+      await tester.pump();
+      expect(saveButton().onPressed, isNull);
+    });
+
     testWidgets('showSaveButton hides only the stock save control',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -593,6 +687,8 @@ void main() {
       );
       expect(find.byKey(const ValueKey('pdf-shell-save')), findsNothing);
 
+      // an edit so there's something to save (⌘S is a no-op otherwise)
+      editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
       await tester.pump();
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -613,6 +709,8 @@ void main() {
           onSave: (bytes) => saved = bytes,
         ),
       );
+      // an edit so there's something to save (⌘S is a no-op otherwise)
+      editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       // focus the viewer the way a user would: click it, so the
       // shell's CallbackShortcuts has a focused descendant
       await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);

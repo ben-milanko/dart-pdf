@@ -10,12 +10,15 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_info.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
+import 'printing.dart';
 import 'recents.dart';
 import 'settings_screen.dart';
+import 'update.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
 
@@ -35,6 +38,9 @@ class EditorScreen extends StatefulWidget {
     required this.prefs,
     this.launchArgs = const [],
     this.initialDocument,
+    this.updateService,
+    this.autoCheckUpdates = false,
+    this.printDocument,
   });
 
   final PdfEditingPreferences prefs;
@@ -46,6 +52,22 @@ class EditorScreen extends StatefulWidget {
   /// platform. Used by screenshot/integration harnesses (and handy in
   /// tests) to land directly in the editor without a file picker.
   final ({Uint8List bytes, String title})? initialDocument;
+
+  /// An update checker to use instead of the one the screen builds itself —
+  /// the seam tests use to inject a fake without real network.
+  final UpdateService? updateService;
+
+  /// Whether to check for a newer release on startup (and show a banner if one
+  /// is found). The host (production) sets this true; it defaults to false so
+  /// plain widget tests stay hermetic — no startup network traffic. The
+  /// Settings panel can still check on demand regardless.
+  final bool autoCheckUpdates;
+
+  /// Override for the print action. Tests inject a fake to assert the menu and
+  /// shortcut wiring without the real `printing` plugin (its method channel is
+  /// unavailable under flutter_test). Production leaves this null and the screen
+  /// falls back to [printPdfBytes].
+  final PdfPrinter? printDocument;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -59,6 +81,15 @@ class _EditorScreenState extends State<EditorScreen>
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
+
+  /// The update checker, owned here unless the host injected one.
+  late final UpdateService _updates =
+      widget.updateService ?? UpdateService(currentVersion: AppInfo.version);
+  bool get _ownsUpdates => widget.updateService == null;
+
+  /// True once the "update available" banner has been shown this session, so a
+  /// later check (or rebuild) doesn't stack a second copy.
+  bool _updateBannerShown = false;
 
   /// True while a file is being dragged over the window (desktop/web).
   bool _dragging = false;
@@ -88,6 +119,54 @@ class _EditorScreenState extends State<EditorScreen>
     startWebLaunchQueue(_openIncoming);
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    if (widget.autoCheckUpdates && UpdateService.supported) {
+      _updates.addListener(_onUpdateStatus);
+      unawaited(_startupUpdateCheck());
+    }
+  }
+
+  /// Runs the one-shot startup update check. When we built the service
+  /// ourselves it may have captured the compile-time version fallback, so
+  /// refresh it from the loaded package metadata before comparing.
+  Future<void> _startupUpdateCheck() async {
+    if (_ownsUpdates) {
+      await AppInfo.load();
+      _updates.currentVersion = AppInfo.version;
+    }
+    if (!mounted) return;
+    await _updates.checkForUpdates();
+  }
+
+  /// Surfaces a one-time, non-blocking banner when a newer release is found
+  /// and the user hasn't dismissed that exact version before.
+  void _onUpdateStatus() {
+    if (_updateBannerShown || !_updates.shouldNotify || !mounted) return;
+    _updateBannerShown = true;
+    final release = _updates.latest!;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showMaterialBanner(MaterialBanner(
+      key: const ValueKey('update-available-banner'),
+      content: Text('DartPDF ${release.version} is available.'),
+      leading: const Icon(Icons.system_update_alt),
+      actions: [
+        TextButton(
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            unawaited(_updates.dismiss());
+          },
+          child: const Text('Later'),
+        ),
+        FilledButton(
+          key: const ValueKey('update-banner-download'),
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            final url = _updates.downloadUrl;
+            if (url != null) unawaited(_openExternal(Uri.parse(url)));
+          },
+          child: const Text('Download'),
+        ),
+      ],
+    ));
   }
 
   /// Opens a `.pdf` passed on the command line — how Windows and Linux deliver
@@ -117,6 +196,8 @@ class _EditorScreenState extends State<EditorScreen>
       tab.dispose();
     }
     _recents.dispose();
+    _updates.removeListener(_onUpdateStatus);
+    if (_ownsUpdates) _updates.dispose();
     super.dispose();
   }
 
@@ -495,6 +576,31 @@ class _EditorScreenState extends State<EditorScreen>
     if (result.message != null) _toast(result.message!);
   }
 
+  // --- printing ------------------------------------------------------------
+
+  /// Hands the active document to the OS print dialog (the `printing` plugin —
+  /// native dialog on desktop/mobile, browser print on the web). The current
+  /// revision is printed, so unsaved edits are included. A failed or
+  /// unavailable backend surfaces as a toast rather than throwing.
+  Future<void> _print(DocumentTab tab) async {
+    final bytes = tab.session?.bytes;
+    if (bytes == null) return;
+    try {
+      await (widget.printDocument ?? printPdfBytes)(
+        bytes: bytes,
+        title: tab.title,
+      );
+    } catch (_) {
+      if (mounted) _toast('Could not print ${tab.title}');
+    }
+  }
+
+  /// Prints the active document, if one is open — bound to ⌘P / Ctrl+P.
+  void _printActive() {
+    final tab = _active;
+    if (tab?.session != null) unawaited(_print(tab!));
+  }
+
   // --- link actions --------------------------------------------------------
 
   /// GoTo and named page actions never reach here (the viewer follows them).
@@ -563,6 +669,15 @@ class _EditorScreenState extends State<EditorScreen>
             ),
           ),
           PopupMenuItem(
+            key: const ValueKey('menu-print'),
+            value: () => unawaited(_print(tab!)),
+            child: const ListTile(
+              leading: Icon(Icons.print_outlined),
+              title: Text('Print…'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
             value: _compareWith,
             child: const ListTile(
               leading: Icon(Icons.compare_arrows),
@@ -592,8 +707,12 @@ class _EditorScreenState extends State<EditorScreen>
           const PopupMenuDivider(),
         ],
         PopupMenuItem(
-          value: () =>
-              showAppSettings(context, prefs: _prefs, recents: _recents),
+          value: () => showAppSettings(
+            context,
+            prefs: _prefs,
+            recents: _recents,
+            updates: _updates,
+          ),
           child: const ListTile(
             leading: Icon(Icons.settings_outlined),
             title: Text('Settings'),
@@ -616,18 +735,29 @@ class _EditorScreenState extends State<EditorScreen>
         titleSpacing: _tabs.isEmpty ? null : 8,
         actions: _buildActions(tab),
       ),
-      body: DropTarget(
-        onDragEntered: (_) => setState(() => _dragging = true),
-        onDragExited: (_) => setState(() => _dragging = false),
-        onDragDone: (detail) {
-          setState(() => _dragging = false);
-          _onFilesDropped(detail.files);
+      body: CallbackShortcuts(
+        // ⌘P (macOS) / Ctrl+P (Windows, Linux, web) print the active document.
+        // Placed above the editor so the SDK's own shortcuts take precedence;
+        // an unhandled print key bubbles up to here.
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.keyP, meta: true):
+              _printActive,
+          const SingleActivator(LogicalKeyboardKey.keyP, control: true):
+              _printActive,
         },
-        child: Stack(
-          children: [
-            Positioned.fill(child: _buildBody(tab)),
-            if (_dragging) const Positioned.fill(child: _DropOverlay()),
-          ],
+        child: DropTarget(
+          onDragEntered: (_) => setState(() => _dragging = true),
+          onDragExited: (_) => setState(() => _dragging = false),
+          onDragDone: (detail) {
+            setState(() => _dragging = false);
+            _onFilesDropped(detail.files);
+          },
+          child: Stack(
+            children: [
+              Positioned.fill(child: _buildBody(tab)),
+              if (_dragging) const Positioned.fill(child: _DropOverlay()),
+            ],
+          ),
         ),
       ),
     );

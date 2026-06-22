@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.3
+
+- Version bump to align with `dart_pdf_editor` 1.2.3. No API changes since
+  1.2.2.
+
+## 1.2.2
+
+- Version bump to align with `dart_pdf_editor` 1.2.2. No API changes since
+  1.2.1.
+
 ## 1.2.1
 
 - Add a package example and shorten the pubspec description for pub.dev
