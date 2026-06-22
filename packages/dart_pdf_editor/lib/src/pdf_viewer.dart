@@ -1420,6 +1420,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// when not editing (no content can change under the viewer).
   int _contentStamp(int index) => widget.editing?.pageRenderStamp(index) ?? 0;
 
+  /// Page [index]'s current destructive-content stamp (advances only when an
+  /// edit removed content — a redaction burn), or 0 when not editing. Lets
+  /// the page view keep its raster across additive edits but drop it on a
+  /// destructive one.
+  int _destructiveStamp(int index) =>
+      widget.editing?.pageDestructiveStamp(index) ?? 0;
+
   /// Records the content stamp of every current page as the baseline the
   /// cached previews now reflect (after a swap, a prerender pass, or first
   /// build).
@@ -3526,6 +3533,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 settleGeneration: _settleGeneration,
                 pageEpoch: _pageEpoch,
                 contentStamp: _contentStamp(index),
+                destructiveStamp: _destructiveStamp(index),
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -3918,6 +3926,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.settleGeneration,
     required this.pageEpoch,
     required this.contentStamp,
+    required this.destructiveStamp,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -3970,11 +3979,17 @@ class _PdfViewerPage extends StatefulWidget {
   final int pageEpoch;
 
   /// This page's [PdfEditingController.pageRenderStamp]: changes when the
-  /// page's *content* changed in a same-geometry edit revision (a redaction
-  /// burn, a fill, an annotation edit). A reused [PdfPageView] State drops
-  /// its stale raster/preview rather than painting the pre-edit content
-  /// while the new render lands. 0 outside an editing session.
+  /// page's *content* changed in a same-geometry edit revision (a fill, an
+  /// annotation edit). A reused [PdfPageView] State re-renders but keeps
+  /// painting its current raster until the new one lands, so an additive
+  /// edit never flashes the page blank. 0 outside an editing session.
   final int contentStamp;
+
+  /// This page's [PdfEditingController.pageDestructiveStamp]: advances only
+  /// when content was *removed* (a redaction burn). A reused [PdfPageView]
+  /// State drops its raster immediately on a change so the deleted content
+  /// can't linger on screen. 0 outside an editing session.
+  final int destructiveStamp;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -4081,6 +4096,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         settleGeneration: widget.settleGeneration,
         pageEpoch: widget.pageEpoch,
         contentStamp: widget.contentStamp,
+        destructiveStamp: widget.destructiveStamp,
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
         onRasterReady: _onRasterReady,
