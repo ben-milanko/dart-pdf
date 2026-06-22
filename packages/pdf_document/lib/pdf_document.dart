@@ -3,6 +3,7 @@
 library;
 
 export 'src/annotation.dart';
+export 'src/attachment.dart';
 export 'src/cache_store.dart';
 export 'src/comments.dart';
 export 'src/conformance.dart';
@@ -17,8 +18,10 @@ export 'src/image.dart';
 export 'src/image_pdf.dart';
 export 'src/import_source.dart';
 export 'src/measure.dart';
+export 'src/outline.dart';
 export 'src/pades.dart';
 export 'src/page.dart';
+export 'src/page_labels.dart';
 export 'src/pdf_a.dart';
 export 'src/pdf_ua.dart';
 export 'src/rect.dart';
