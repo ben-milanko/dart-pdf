@@ -270,6 +270,43 @@ Uint8List derUtcTime(DateTime time) {
   return derEncode(DerTag.utcTime, text.codeUnits);
 }
 
+/// GeneralizedTime in the DER canonical form (always UTC, seconds present,
+/// no fractional part) — what RFC 5280 §4.1.2.5.2 and RFC 3161 require.
+Uint8List derGeneralizedTime(DateTime time) {
+  final t = time.toUtc();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final text = '${t.year.toString().padLeft(4, '0')}${two(t.month)}'
+      '${two(t.day)}${two(t.hour)}${two(t.minute)}${two(t.second)}Z';
+  return derEncode(DerTag.generalizedTime, text.codeUnits);
+}
+
+Uint8List derBoolean(bool value) =>
+    derEncode(0x01, [value ? 0xFF : 0x00]);
+
+/// ENUMERATED, same content form as INTEGER.
+Uint8List derEnumerated(int value) {
+  final bytes = <int>[];
+  var rest = value;
+  if (rest == 0) {
+    bytes.add(0);
+  } else {
+    while (rest > 0) {
+      bytes.insert(0, rest & 0xFF);
+      rest >>= 8;
+    }
+    if (bytes[0] >= 0x80) bytes.insert(0, 0);
+  }
+  return derEncode(0x0A, bytes);
+}
+
+/// BIT STRING with no unused trailing bits (the only form PKIX uses here).
+Uint8List derBitString(List<int> bytes) =>
+    derEncode(DerTag.bitString, [0, ...bytes]);
+
 /// Context-specific constructed value [n] wrapping raw encoded [content].
 Uint8List derContext(int n, List<int> content) =>
     derEncode(DerTag.context(n), content);
+
+/// Context-specific primitive value [n] carrying raw [content] octets.
+Uint8List derContextPrimitive(int n, List<int> content) =>
+    derEncode(DerTag.contextPrimitive(n), content);

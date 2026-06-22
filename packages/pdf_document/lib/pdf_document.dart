@@ -15,6 +15,7 @@ export 'src/image.dart';
 export 'src/image_pdf.dart';
 export 'src/import_source.dart';
 export 'src/measure.dart';
+export 'src/pades.dart';
 export 'src/page.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';

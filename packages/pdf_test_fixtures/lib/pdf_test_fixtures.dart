@@ -2,7 +2,9 @@ import 'dart:typed_data';
 
 export 'src/encrypted.dart';
 export 'src/icc_profiles.dart';
+export 'src/pkix_ltv.dart';
 export 'src/signer_identity.dart';
+export 'src/test_tsa.dart';
 
 Uint8List ascii(String s) => Uint8List.fromList(s.codeUnits);
 
