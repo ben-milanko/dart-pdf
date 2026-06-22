@@ -190,6 +190,30 @@ void main() {
       expect(content, contains('1 0 0 1 -60 -700 cm'));
     });
 
+    test('toPdfBytes hoists resource streams (an image XObject) to indirect '
+        'objects', () {
+      // a page whose /Resources carry an image XObject — i.e. a stream that
+      // can't live inline once another object references it (§7.3.8)
+      final base = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      base.stampPage(0,
+          (s) => s.jpegImage(buildTestJpeg(), x: 50, y: 700, width: 80, height: 80));
+      final doc = PdfDocument.open(base.save());
+
+      final snap = PdfEditor(doc)
+          .captureVectorSnapshot(0, const PdfRect(40, 690, 140, 790));
+      final pdf = PdfDocument.open(snap.toPdfBytes());
+
+      // the image rode along as an indirect stream, not an inline one
+      final res =
+          pdf.cos.resolve(pdf.page(0).resources) as CosDictionary;
+      final xobj = pdf.cos.resolve(res['XObject']) as CosDictionary;
+      expect(xobj.entries, isNotEmpty);
+      for (final value in xobj.entries.values) {
+        expect(value, isA<CosReference>());
+        expect(pdf.cos.resolve(value), isA<CosStream>());
+      }
+    });
+
     test('fromPdfBytes re-imports a snapshot written by toPdfBytes', () {
       final doc = PdfDocument.open(buildMultiPagePdf(1));
       final original = PdfEditor(doc)
