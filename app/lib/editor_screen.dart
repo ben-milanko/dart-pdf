@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_info.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
+import 'image_clipboard.dart';
 import 'image_export.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
@@ -42,6 +43,7 @@ class EditorScreen extends StatefulWidget {
     this.updateService,
     this.autoCheckUpdates = false,
     this.printDocument,
+    this.imageClipboardWriter,
   });
 
   final PdfEditingPreferences prefs;
@@ -69,6 +71,13 @@ class EditorScreen extends StatefulWidget {
   /// unavailable under flutter_test). Production leaves this null and the screen
   /// falls back to [printPdfBytes].
   final PdfPrinter? printDocument;
+
+  /// Override for writing a captured snapshot to the system clipboard. Tests
+  /// inject a fake to assert the Snapshot tool's clipboard wiring without the
+  /// real `super_clipboard` plugin (its platform channel is unavailable under
+  /// flutter_test). Production leaves this null and the screen falls back to
+  /// [copyPngToClipboard].
+  final ImageClipboardWriter? imageClipboardWriter;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -853,6 +862,17 @@ class _EditorScreenState extends State<EditorScreen>
       annotationMenuBuilder: _annotationMenuActions,
       formImagePicker: (context, field) => pickImageBytes(),
       imagePicker: (context) => pickImageBytes(),
+      // The Snapshot tool keeps a vector copy on the in-app clipboard for
+      // paste-back; this also drops the captured PNG on the system clipboard.
+      onSnapshot: clipboardSnapshotHandler(
+        writer: widget.imageClipboardWriter,
+        onResult: (copied) {
+          if (!mounted) return;
+          _toast(copied
+              ? 'Snapshot copied to clipboard'
+              : 'Could not copy snapshot to clipboard');
+        },
+      ),
     );
   }
 
