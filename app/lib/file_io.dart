@@ -228,3 +228,46 @@ Future<SaveResult> saveBytesAs(
       }
   }
 }
+
+/// Save-as for a rasterized page image ([bytes], PNG or JPEG per [mimeType]),
+/// using the same platform behaviour as [saveBytesAs]: a save dialog on
+/// desktop, a browser download on the web, the share sheet on phones. [name]
+/// is the suggested filename (with extension).
+Future<SaveResult> saveImageBytesAs(
+  BuildContext context,
+  Uint8List bytes,
+  String name,
+  String mimeType,
+) async {
+  final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
+
+  if (kIsWeb) {
+    await file.saveTo(name);
+    return SaveResult.downloaded(name);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        fileNameOverrides: [name],
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: const [imageTypeGroup],
+      );
+      if (location == null) return SaveResult.cancelled;
+      try {
+        await file.saveTo(location.path);
+        return SaveResult.saved(location.path);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}

@@ -315,6 +315,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
+        PopupMenuItem(
+          value: () => unawaited(_exportImage()),
+          enabled: tab?.session != null,
+          child: const ListTile(
+            leading: Icon(Icons.image_outlined),
+            title: Text('Export page as image…'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: _cycleTheme,
@@ -795,6 +804,135 @@ class _ViewerScreenState extends State<ViewerScreen> {
           _toast('Save failed: $e');
         }
     }
+  }
+
+  /// Renders the page the viewer is currently on to a raster image
+  /// ([PdfPageExport]) and saves it as PNG/JPEG, after prompting for the
+  /// format and resolution. The current edit revision is exported, so unsaved
+  /// changes are included.
+  Future<void> _exportImage() async {
+    final tab = _active;
+    final session = tab?.session;
+    final viewer = tab?.viewer;
+    if (tab == null || session == null || viewer == null) {
+      _toast('Open a document first');
+      return;
+    }
+    final choice = await _showImageExportDialog();
+    if (choice == null || !mounted) return;
+    final (format, dpi) = choice;
+
+    final pageIndex =
+        viewer.currentPage.clamp(0, session.document.pageCount - 1);
+    final isPng = format == PdfRasterFormat.png;
+    try {
+      final bytes = await PdfPageExport.exportPage(
+        session.document.page(pageIndex),
+        format: format,
+        dpi: dpi,
+      );
+      if (!mounted) return;
+      var stem = tab.title.trim();
+      if (stem.toLowerCase().endsWith('.pdf')) {
+        stem = stem.substring(0, stem.length - 4).trim();
+      }
+      if (stem.isEmpty) stem = 'page';
+      final name = '$stem-p${pageIndex + 1}.${isPng ? 'png' : 'jpg'}';
+      await _saveImageBytes(bytes, name, isPng ? 'image/png' : 'image/jpeg');
+    } catch (e) {
+      if (mounted) _toast('Export failed: $e');
+    }
+  }
+
+  /// Saves a page-image [bytes] as [name] ([mimeType] PNG/JPEG): a save dialog
+  /// on desktop, a download on the web, the share sheet on phones.
+  Future<void> _saveImageBytes(
+      Uint8List bytes, String name, String mimeType) async {
+    final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
+    if (kIsWeb) {
+      await file.saveTo(name);
+      _toast('Downloaded $name');
+      return;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android || TargetPlatform.iOS:
+        final box = context.findRenderObject() as RenderBox?;
+        final origin =
+            box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+        await SharePlus.instance.share(ShareParams(
+          files: [file],
+          fileNameOverrides: [name],
+          sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+        ));
+      default:
+        final location = await getSaveLocation(
+          suggestedName: name,
+          acceptedTypeGroups: const [_imageTypeGroup],
+        );
+        if (location == null) return;
+        try {
+          await file.saveTo(location.path);
+          _toast('Saved $name');
+        } catch (e) {
+          _toast('Save failed: $e');
+        }
+    }
+  }
+
+  /// Prompts for the export format (PNG/JPEG) and resolution (dpi). Returns
+  /// null when cancelled.
+  Future<(PdfRasterFormat, double)?> _showImageExportDialog() {
+    var format = PdfRasterFormat.png;
+    var dpi = 150.0;
+    return showDialog<(PdfRasterFormat, double)>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Export page as image'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Format'),
+              const SizedBox(height: 8),
+              SegmentedButton<PdfRasterFormat>(
+                segments: const [
+                  ButtonSegment(value: PdfRasterFormat.png, label: Text('PNG')),
+                  ButtonSegment(
+                      value: PdfRasterFormat.jpeg, label: Text('JPEG')),
+                ],
+                selected: {format},
+                onSelectionChanged: (s) => setState(() => format = s.first),
+              ),
+              const SizedBox(height: 16),
+              const Text('Resolution'),
+              const SizedBox(height: 8),
+              DropdownButton<double>(
+                value: dpi,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(value: 72, child: Text('72 dpi')),
+                  DropdownMenuItem(value: 150, child: Text('150 dpi')),
+                  DropdownMenuItem(value: 300, child: Text('300 dpi')),
+                  DropdownMenuItem(value: 600, child: Text('600 dpi')),
+                ],
+                onChanged: (d) => setState(() => dpi = d ?? dpi),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop((format, dpi)),
+              child: const Text('Export'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Adds an invisible, selectable/searchable OCR text layer over the

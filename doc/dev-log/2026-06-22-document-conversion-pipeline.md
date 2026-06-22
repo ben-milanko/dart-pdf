@@ -45,3 +45,17 @@ seam: a host implements the converter against a **headless LibreOffice service**
 keeping the pure-Dart layers `dart:io`-free and web-safe; the returned PDF bytes
 open with `PdfDocument.open` and the rest of dart-pdf applies unchanged. No
 `dart:io`/native deps entered `lib/`.
+
+**Apps: "Export page as image…".** Both the `/app` shell and the editor
+`example` got a menu action wiring `PdfPageExport` to the platform save flow.
+It renders the page the viewer is currently on (`PdfViewerController.currentPage`,
+clamped) at the current edit revision, after a small dialog picks format
+(PNG/JPEG) and resolution (72/150/300/600 dpi). Saving reuses each app's
+existing single-image path — desktop save dialog, web download, mobile share
+sheet: `/app` added `saveImageBytesAs` to `file_io.dart` and a reusable dialog +
+options in `image_export.dart`; the example carries a compact inline copy
+(`_exportImage`/`_saveImageBytes`/`_showImageExportDialog`). Current-page export
+keeps the save uniform across every platform (one file). Test:
+`app/test/export_image_menu_test.dart` asserts the menu entry shows only with a
+document open and opens the format/resolution dialog (the rasterize+save tail
+needs platform channels, so it stops at the dialog).

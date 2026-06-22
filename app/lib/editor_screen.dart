@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_info.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
+import 'image_export.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
 import 'printing.dart';
@@ -601,6 +602,39 @@ class _EditorScreenState extends State<EditorScreen>
     if (tab?.session != null) unawaited(_print(tab!));
   }
 
+  // --- image export --------------------------------------------------------
+
+  /// Renders the page the viewer is currently on to a PNG/JPEG and saves it
+  /// (save dialog on desktop, download on web, share sheet on mobile). The
+  /// current revision is used, so unsaved edits are included. Prompts for the
+  /// format and resolution first.
+  Future<void> _exportImage(DocumentTab tab) async {
+    final session = tab.session;
+    final viewer = tab.viewer;
+    if (session == null || viewer == null) return;
+
+    final options = await showImageExportDialog(context);
+    if (options == null || !mounted) return;
+
+    final pageIndex =
+        viewer.currentPage.clamp(0, session.document.pageCount - 1);
+    try {
+      final bytes = await PdfPageExport.exportPage(
+        session.document.page(pageIndex),
+        format: options.format.rasterFormat,
+        dpi: options.dpi,
+      );
+      if (!mounted) return;
+      final name =
+          imageExportFileName(tab.title, pageIndex + 1, options.format);
+      final result =
+          await saveImageBytesAs(context, bytes, name, options.format.mimeType);
+      if (result.message != null) _toast(result.message!);
+    } catch (_) {
+      if (mounted) _toast('Could not export ${tab.title}');
+    }
+  }
+
   // --- link actions --------------------------------------------------------
 
   /// GoTo and named page actions never reach here (the viewer follows them).
@@ -674,6 +708,15 @@ class _EditorScreenState extends State<EditorScreen>
             child: const ListTile(
               leading: Icon(Icons.print_outlined),
               title: Text('Print…'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
+            key: const ValueKey('menu-export-image'),
+            value: () => unawaited(_exportImage(tab!)),
+            child: const ListTile(
+              leading: Icon(Icons.image_outlined),
+              title: Text('Export page as image…'),
               contentPadding: EdgeInsets.zero,
             ),
           ),
