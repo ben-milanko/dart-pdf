@@ -601,6 +601,14 @@ extension PdfFormFilling on PdfEditor {
   }
 
   void _finishFieldEdit(PdfFormField field) {
+    // A reconciled field holds its canonical value on the /Fields dict we
+    // just wrote; the adopted page widgets may still carry the producer's
+    // stale /V, which would otherwise shadow it on read-back. Drop it so
+    // the field value and the regenerated appearance stay consistent.
+    for (final widget in field.reconciledWidgets) {
+      if (identical(widget, field.dict)) continue;
+      if (widget.entries.remove('V') != null) _stageFormDict(field, widget);
+    }
     _stageFormDict(field, field.dict);
     final form = field.form;
     if (form.needsAppearances) {

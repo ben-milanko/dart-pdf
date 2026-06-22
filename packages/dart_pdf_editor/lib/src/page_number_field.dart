@@ -69,15 +69,39 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
     }
   }
 
-  void _reset() => _field.text = '${widget.controller.currentPage + 1}';
+  void _reset() => _field.text = _displayFor(widget.controller.currentPage);
+
+  String _displayFor(int index) {
+    final controller = widget.controller;
+    return controller.hasPageLabels
+        ? controller.pageLabel(index)
+        : '${index + 1}';
+  }
 
   void _submit(String value) {
-    final count = widget.controller.pageCount;
-    final page = int.tryParse(value.trim());
-    if (page != null && count > 0) {
-      final target = page.clamp(1, count) - 1;
-      _field.text = '${target + 1}';
-      unawaited(widget.controller.jumpToPage(target));
+    final controller = widget.controller;
+    final count = controller.pageCount;
+    final trimmed = value.trim();
+    if (count == 0) {
+      _reset();
+      _focus.unfocus();
+      return;
+    }
+
+    // A document with logical labels accepts either a typed label or a
+    // physical page number; otherwise only the physical number.
+    int? target;
+    if (controller.hasPageLabels) {
+      target = controller.pageForLabel(trimmed);
+    }
+    target ??= () {
+      final page = int.tryParse(trimmed);
+      return page == null ? null : page.clamp(1, count) - 1;
+    }();
+
+    if (target != null) {
+      _field.text = _displayFor(target);
+      unawaited(controller.jumpToPage(target));
     } else {
       _reset();
     }
@@ -86,21 +110,30 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
 
   @override
   Widget build(BuildContext context) {
-    final count = widget.controller.pageCount;
+    final controller = widget.controller;
+    final count = controller.pageCount;
     if (count == 0) return const SizedBox.shrink();
     final style = widget.style ?? Theme.of(context).textTheme.titleMedium;
-    final digits = count.toString().length;
+    final labelled = controller.hasPageLabels;
+    // size for the longest content the field can hold
+    final width = labelled
+        ? _labelFieldWidth(controller, count)
+        : 24.0 + 10.0 * count.toString().length;
+    // labels can be alphanumeric (e.g. "A-3"), so relax the numeric-only
+    // constraints when the document carries them.
     return Row(mainAxisSize: MainAxisSize.min, children: [
       SizedBox(
-        width: 24.0 + 10.0 * digits,
+        width: width,
         child: TextField(
           key: const ValueKey('pdf-page-number-field'),
           controller: _field,
           focusNode: _focus,
           style: style,
           textAlign: TextAlign.center,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          keyboardType: labelled ? TextInputType.text : TextInputType.number,
+          inputFormatters: labelled
+              ? const []
+              : [FilteringTextInputFormatter.digitsOnly],
           decoration: const InputDecoration(
             isDense: true,
             contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
@@ -109,7 +142,21 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
           onSubmitted: _submit,
         ),
       ),
-      Text(' / $count', style: style),
+      Text(
+        labelled
+            ? '  (${controller.currentPage + 1} / $count)'
+            : ' / $count',
+        style: style,
+      ),
     ]);
+  }
+
+  double _labelFieldWidth(PdfViewerController controller, int count) {
+    var longest = 1;
+    for (var i = 0; i < count; i++) {
+      final len = controller.pageLabel(i).length;
+      if (len > longest) longest = len;
+    }
+    return (24.0 + 10.0 * longest).clamp(40.0, 120.0);
   }
 }

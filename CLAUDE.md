@@ -107,8 +107,19 @@ Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` — asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
 (`signature_editor.dart`, adbe.pkcs7.detached with ByteRange patching).
-Test signer identity in
-`pdf_test_fixtures/src/signer_identity.dart`.
+The enterprise tier — PAdES B-B/B-T/B-LT/B-LTA, RFC 3161 timestamps, the
+/DSS+/VRI Document Security Store, and Certify/DocMDP — is in
+`PdfEditor.saveSignedPades` (`pades_editor.dart`, async; TSA/OCSP/CRL
+transports injected via `pades.dart`'s `PdfTimestampClient`/
+`PdfRevocationClient`, no `dart:io`); crypto in `pdf_cos/src/crypto/`
+tsp/ocsp/crl + cms ESS/timestamp helpers (KATs vs OpenSSL in
+`pkix_test.dart`, fixtures from `tool/gen_pkix_fixtures.sh`). validate()
+reports `padesLevel`, `timestamp`, and offline `embeddedRevocation` from the
+/DSS. pyHanko 0.35 judges our B-LTA output VALID + LTV-enabled offline
+(`pdf_document/tool/emit_pades_ltv.dart`). See doc/dev-log.md. Signing
+encrypted files is still refused. Test signer identity in
+`pdf_test_fixtures/src/signer_identity.dart`; LTV CA/leaf/TSA + revocation
+fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and
@@ -208,6 +219,10 @@ reflow; `altView` = reflow-or-grid suppresses the panels/toolbar).
 ## Development session log
 
 Detailed per-session notes (gotchas, file pointers, design rationale)
-have been moved to [doc/dev-log.md](doc/dev-log.md) to keep this file
-under the context-size limit. Consult it (or git history) when you need
-the background on a specific subsystem; append new session notes there.
+live in [doc/dev-log/](doc/dev-log/) — **one file per session**, named
+`YYYY-MM-DD-slug.md`. Consult them (or git history) when you need the
+background on a specific subsystem. Record new session notes by **adding
+a new file** there (never append to a shared file — that conflicts on
+every concurrent PR); see [doc/dev-log/README.md](doc/dev-log/README.md).
+Notes written before 2026-06-22 are in the frozen
+[doc/dev-log.md](doc/dev-log.md) archive.
