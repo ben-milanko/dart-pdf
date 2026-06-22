@@ -3,6 +3,7 @@
 // link through snapshots so threads sync.
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -128,6 +129,28 @@ void main() {
       // no /CreationDate or /M on a freshly added square
       expect(root.creationDate, isNull);
       expect(root.modificationDate, isNull);
+    });
+
+    test('dates parse from a +offset and reject malformed strings', () {
+      final doc = PdfDocument.open(buildClassicPdf());
+      final annot = PdfAnnotation.fromDict(
+          doc,
+          CosDictionary({
+            'Type': const CosName('Annot'),
+            'Subtype': const CosName('Text'),
+            'Rect': CosArray(const [
+              CosInteger(0),
+              CosInteger(0),
+              CosInteger(10),
+              CosInteger(10)
+            ]),
+            // a local-offset date the way Acrobat writes it
+            'CreationDate': CosString.fromText("D:20260622133000+05'30'"),
+            'M': CosString.fromText('not a date'),
+          }));
+      // +05:30 maps back to 08:00 UTC
+      expect(annot.creationDate, DateTime.utc(2026, 6, 22, 8, 0, 0));
+      expect(annot.modificationDate, isNull, reason: 'malformed → null');
     });
 
     test('pdfFormatDate and the date getters round-trip', () {
@@ -265,6 +288,21 @@ void main() {
           PdfCommentThread.forPage(doc, 0, rootsWithThreadsOnly: true), isEmpty);
     });
 
+    test('lenient parsing: orphan state and a dateless reply', () {
+      final doc = PdfDocument.open(_threadEdgesPdf());
+      final thread = PdfCommentThread.forPage(doc, 0).single;
+      expect(thread.name, 'root-1');
+      expect(thread.replyCount, 3);
+      // the dateless replies sort ahead of the dated one (null date first),
+      // keeping their insertion order
+      expect(thread.root.replies.map((c) => c.name),
+          ['rep-none-a', 'rep-none-b', 'rep-dated']);
+      // the orphan state's /IRT dangled, so it attached to the root and
+      // still surfaces as the thread's verdict
+      expect(thread.isResolved, isTrue);
+      expect(thread.state!.state, PdfReviewState.completed);
+    });
+
     test('of() finds the thread for any member', () {
       var doc = withRoot();
       doc = edited(doc, (e) {
@@ -356,4 +394,51 @@ void main() {
 
 extension<T> on T {
   R let<R>(R Function(T) f) => f(this);
+}
+
+/// A hand-written PDF whose page carries a root markup, two replies (one
+/// dated, one dateless), and an *orphan* state annotation whose /IRT
+/// dangles — the lenient-parsing edges of [PdfCommentThread] that the
+/// authoring API never produces. Object offsets are computed so the xref
+/// is correct.
+Uint8List _threadEdgesPdf() {
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Annots [4 0 R 5 0 R 6 0 R 7 0 R 8 0 R] >>',
+    // 4: root markup
+    '<< /Type /Annot /Subtype /Square /Rect [10 10 50 50] /NM (root-1) '
+        '/Contents (please review) >>',
+    // 5: a dated reply
+    '<< /Type /Annot /Subtype /Text /Rect [10 10 50 50] /IRT 4 0 R /RT /R '
+        '/NM (rep-dated) /Contents (dated) /CreationDate (D:20300102000000Z00\'00\') >>',
+    // 6, 7: two dateless replies (so the sort comparator hits the null-date
+    // branch on both sides)
+    '<< /Type /Annot /Subtype /Text /Rect [10 10 50 50] /IRT 4 0 R /RT /R '
+        '/NM (rep-none-a) /Contents (undated a) >>',
+    '<< /Type /Annot /Subtype /Text /Rect [10 10 50 50] /IRT 4 0 R /RT /R '
+        '/NM (rep-none-b) /Contents (undated b) >>',
+    // 8: an orphan state annotation: /IRT dangles, so it falls back to the
+    // thread root (/State and /StateModel are text strings per §12.5.6.2)
+    '<< /Type /Annot /Subtype /Text /Rect [10 10 50 50] /IRT 99 0 R /RT /R '
+        '/NM (st-orphan) /Contents () /State (Completed) /StateModel (Review) >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return Uint8List.fromList(latin1.encode(buffer.toString()));
 }
