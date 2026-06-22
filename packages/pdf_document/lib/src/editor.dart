@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:pdf_cos/pdf_cos.dart';
 
 import 'annotation.dart';
+import 'comments.dart';
 import 'content_elements.dart';
 import 'content_writer.dart';
 import 'document.dart';
@@ -20,6 +21,7 @@ import 'type0_metrics.dart';
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
 part 'annotation_sync.dart';
+part 'comment_editor.dart';
 part 'content_editor.dart';
 part 'content_editor_type0.dart';
 part 'redaction.dart';

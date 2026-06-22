@@ -2328,6 +2328,46 @@ class PdfEditingController extends ChangeNotifier {
     }, pages: [for (final (page, _) in targets) page]);
   }
 
+  // ---------------------------------------------------------------------
+  // comment threads (§12.5.6.x)
+
+  /// Replies to [target] on [pageIndex] with [contents], stamping the
+  /// controller's [author]. The reply is appearance-less thread content
+  /// (it does not repaint the page); one revision, emitted on
+  /// [annotationChanges] so it syncs. Returns whether it was added (a
+  /// blank [contents] adds nothing).
+  bool replyToAnnotation(int pageIndex, PdfAnnotation target, String contents) {
+    if (contents.trim().isEmpty) return false;
+    // a thread edit changes no page graphics: const [] skips re-raster
+    // while still diffing for the change feed (see apply's pages contract)
+    return apply(
+        (e) => e.replyToAnnotation(pageIndex, target, contents, author: author),
+        pages: const []);
+  }
+
+  /// Records review [state] on [target]'s thread (a state reply). One
+  /// revision, emitted on [annotationChanges]. Returns whether it changed.
+  bool setReviewState(
+          int pageIndex, PdfAnnotation target, PdfReviewState state) =>
+      apply((e) => e.setReviewState(pageIndex, target, state, author: author),
+          pages: const []);
+
+  /// Marks [target]'s thread resolved (review state `Completed`).
+  bool resolveThread(int pageIndex, PdfAnnotation target) =>
+      apply((e) => e.resolveThread(pageIndex, target, author: author),
+          pages: const []);
+
+  /// Reopens [target]'s thread (review state `None`).
+  bool reopenThread(int pageIndex, PdfAnnotation target) =>
+      apply((e) => e.reopenThread(pageIndex, target, author: author),
+          pages: const []);
+
+  /// The reply threads on [pageIndex] (read-only model), assembled from
+  /// the current revision's annotations. Mirrors
+  /// [PdfCommentThread.forPage] against the controller's live document.
+  List<PdfCommentThread> commentThreads(int pageIndex) =>
+      PdfCommentThread.forPage(_document, pageIndex);
+
   /// Erases along [path] (page space) with the circle eraser: every
   /// ink annotation on [pageIndex] is sliced where the swept circle of
   /// [eraserRadius] crosses its strokes — strokes split, the rest

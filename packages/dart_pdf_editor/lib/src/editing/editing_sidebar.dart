@@ -98,6 +98,14 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   /// invalidated by an edit.
   final TextEditingController _search = TextEditingController();
 
+  /// The /NM of the root annotation whose inline reply field is open, if
+  /// any. Cleared on every revision (a sent reply revises the document and
+  /// closes the field).
+  String? _replyingTo;
+
+  /// The text being typed into the open reply field.
+  final TextEditingController _reply = TextEditingController();
+
   /// The document revision the selection state belongs to. Any edit,
   /// undo, or redo can shift /Annots slots, so a new revision drops it.
   PdfDocument? _builtFor;
@@ -139,6 +147,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     _preferences.removeListener(_onPreferences);
     _scroll.dispose();
     _search.dispose();
+    _reply.dispose();
     super.dispose();
   }
 
@@ -328,6 +337,194 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     );
   }
 
+  /// A short local-time stamp for a comment, or '' when undated.
+  static String _formatTime(DateTime? t) {
+    if (t == null) return '';
+    final l = t.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${l.year}-${two(l.month)}-${two(l.day)} '
+        '${two(l.hour)}:${two(l.minute)}';
+  }
+
+  /// The label and accent color for a review state chip, or null when the
+  /// state is `None` (an open/unresolved thread shows no chip).
+  static (String, Color)? _stateChip(PdfReviewState state, ColorScheme cs) =>
+      switch (state) {
+        PdfReviewState.completed => ('Resolved', Colors.green),
+        PdfReviewState.accepted => ('Accepted', Colors.green),
+        PdfReviewState.rejected => ('Rejected', Colors.red),
+        PdfReviewState.cancelled => ('Cancelled', Colors.orange),
+        PdfReviewState.marked => ('Marked', Colors.blue),
+        PdfReviewState.unmarked => ('Unmarked', cs.outline),
+        PdfReviewState.none => null,
+      };
+
+  /// Each comment in [root]'s reply tree with its depth (root = 0), in
+  /// document/pre-order.
+  static List<(PdfComment, int)> _flattenWithDepth(PdfComment root) {
+    final out = <(PdfComment, int)>[];
+    void walk(PdfComment comment, int depth) {
+      out.add((comment, depth));
+      for (final reply in comment.replies) {
+        walk(reply, depth + 1);
+      }
+    }
+
+    walk(root, 0);
+    return out;
+  }
+
+  /// The inline thread under a root markup tile: a review-state chip, the
+  /// reply tree (indented), and the reply / resolve controls.
+  List<Widget> _threadSection(BuildContext context, int page,
+      PdfAnnotation root, PdfCommentThread? thread) {
+    if (_selecting) return const []; // chrome stays clear during multi-select
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final widgets = <Widget>[];
+
+    // current review state chip
+    final entry = thread?.state;
+    if (entry != null) {
+      final chip = _stateChip(entry.state, cs);
+      if (chip != null) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.fromLTRB(56, 0, 12, 2),
+          child: Row(children: [
+            _Pill(label: chip.$1, color: chip.$2),
+            if (entry.author != null && entry.author!.isNotEmpty)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text('by ${entry.author}',
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: cs.onSurfaceVariant),
+                      overflow: TextOverflow.ellipsis),
+                ),
+              ),
+          ]),
+        ));
+      }
+    }
+
+    // the reply tree (skip the root itself, which is the tile above)
+    if (thread != null) {
+      for (final (comment, depth) in _flattenWithDepth(thread.root)) {
+        if (depth == 0) continue;
+        widgets.add(_replyTile(context, comment, depth));
+      }
+    }
+
+    // controls: an open reply field, or the Reply / Resolve buttons
+    final nm = root.name;
+    final replying = nm != null && _replyingTo == nm;
+    if (replying) {
+      widgets.add(Padding(
+        padding: const EdgeInsets.fromLTRB(56, 2, 12, 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TextField(
+            key: const ValueKey('pdf-reply-field'),
+            controller: _reply,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              hintText: 'Write a reply…',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _sendReply(page, root),
+          ),
+          Wrap(alignment: WrapAlignment.end, spacing: 4, children: [
+            TextButton(
+              onPressed: () => setState(() => _replyingTo = null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('pdf-reply-send'),
+              onPressed: () => _sendReply(page, root),
+              child: const Text('Reply'),
+            ),
+          ]),
+        ]),
+      ));
+    } else {
+      final resolved = thread?.isResolved ?? false;
+      widgets.add(Padding(
+        padding: const EdgeInsets.fromLTRB(52, 0, 12, 4),
+        child: Wrap(spacing: 0, children: [
+          TextButton.icon(
+            key: const ValueKey('pdf-reply-button'),
+            icon: const Icon(Icons.reply, size: 16),
+            label: const Text('Reply'),
+            style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: nm == null
+                ? null
+                : () => setState(() {
+                      _replyingTo = nm;
+                      _reply.text = '';
+                    }),
+          ),
+          TextButton.icon(
+            key: const ValueKey('pdf-resolve-button'),
+            icon: Icon(resolved ? Icons.replay : Icons.check_circle_outline,
+                size: 16),
+            label: Text(resolved ? 'Reopen' : 'Resolve'),
+            style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: () => resolved
+                ? widget.controller.reopenThread(page, root)
+                : widget.controller.resolveThread(page, root),
+          ),
+        ]),
+      ));
+    }
+    return widgets;
+  }
+
+  void _sendReply(int page, PdfAnnotation root) {
+    final text = _reply.text.trim();
+    if (text.isEmpty) {
+      setState(() => _replyingTo = null);
+      return;
+    }
+    // the revision that follows clears _replyingTo via the build reset
+    widget.controller.replyToAnnotation(page, root, text);
+  }
+
+  /// One reply in a thread, indented by [depth], showing author, text, and
+  /// a timestamp.
+  Widget _replyTile(BuildContext context, PdfComment comment, int depth) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final time = _formatTime(comment.createdAt);
+    final header = [
+      if (comment.author != null && comment.author!.isNotEmpty) comment.author!,
+      if (time.isNotEmpty) time,
+    ].join(' • ');
+    return Padding(
+      padding: EdgeInsets.fromLTRB(56.0 + (depth - 1) * 14, 0, 12, 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border(left: BorderSide(color: cs.outlineVariant, width: 2)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (header.isNotEmpty)
+            Text(header,
+                style: textTheme.labelSmall
+                    ?.copyWith(color: cs.onSurfaceVariant)),
+          Text(comment.text, style: textTheme.bodySmall),
+        ]),
+      ),
+    );
+  }
+
   Widget _selectionHeader(BuildContext context) {
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
@@ -372,6 +569,9 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                   _checked.clear();
                   _selecting = false;
                   _pageTexts.clear();
+                  // a revision closes any open reply field (the sent reply
+                  // is what produced the new revision)
+                  _replyingTo = null;
                 }
                 final query = _search.text.trim().toLowerCase();
                 final children = <Widget>[];
@@ -379,13 +579,30 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 for (var page = 0; page < document.pageCount; page++) {
                   final annotations =
                       widget.controller.pageAt(page).annotations;
+                  // map each thread to its root's dictionary so a tile can
+                  // render its replies and state inline
+                  final threadByDict = {
+                    for (final thread in widget.controller.commentThreads(page))
+                      thread.root.annotation.dict: thread,
+                  };
                   final tiles = <Widget>[];
                   for (var i = 0; i < annotations.length; i++) {
                     final annotation = annotations[i];
                     if (_unlisted.contains(annotation.subtype)) continue;
+                    // replies and review-state annotations are thread
+                    // content — shown nested under their root, not as their
+                    // own top-level rows
+                    if (annotation.isReply || annotation.isStateAnnotation) {
+                      continue;
+                    }
                     listed++;
                     if (!_matches(query, page, annotation)) continue;
                     tiles.add(_tile(context, page, i, annotation));
+                    // a markup annotation hosts a comment thread
+                    if (!_unselectable.contains(annotation.subtype)) {
+                      tiles.addAll(_threadSection(
+                          context, page, annotation, threadByDict[annotation.dict]));
+                    }
                   }
                   if (tiles.isNotEmpty) {
                     children
@@ -467,6 +684,31 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             ),
           ),
       ]),
+    );
+  }
+}
+
+/// A small rounded status chip used for a thread's review state.
+class _Pill extends StatelessWidget {
+  const _Pill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(label,
+          style: Theme.of(context)
+              .textTheme
+              .labelSmall
+              ?.copyWith(color: color, fontWeight: FontWeight.w600)),
     );
   }
 }

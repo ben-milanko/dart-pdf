@@ -4,6 +4,7 @@ library;
 
 export 'src/annotation.dart';
 export 'src/cache_store.dart';
+export 'src/comments.dart';
 export 'src/content_elements.dart';
 export 'src/content_writer.dart';
 export 'src/disk_cache.dart';
@@ -18,3 +19,4 @@ export 'src/measure.dart';
 export 'src/page.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';
+export 'src/sync.dart';
