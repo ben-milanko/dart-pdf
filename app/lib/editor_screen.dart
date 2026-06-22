@@ -18,6 +18,7 @@ import 'incoming_file.dart';
 import 'ocr.dart';
 import 'printing.dart';
 import 'recents.dart';
+import 'session_store.dart';
 import 'settings_screen.dart';
 import 'update.dart';
 import 'web_launch.dart';
@@ -79,9 +80,15 @@ class _EditorScreenState extends State<EditorScreen>
   PdfEditingPreferences get _prefs => widget.prefs;
 
   final _recents = RecentsStore();
+  final _session = SessionStore();
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
+
+  /// Gates session persistence until the previous session has been read back,
+  /// so an early tab open (e.g. an OS file-open) doesn't clobber the stored set
+  /// before [_restoreSession] has had a chance to re-open it.
+  bool _sessionLoaded = false;
 
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates =
@@ -120,6 +127,9 @@ class _EditorScreenState extends State<EditorScreen>
     startWebLaunchQueue(_openIncoming);
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    // Re-open the documents that were open when the app last closed, unless the
+    // app was launched to open a specific file (that explicit target wins).
+    unawaited(_restoreSession());
     if (widget.autoCheckUpdates && UpdateService.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
@@ -216,6 +226,72 @@ class _EditorScreenState extends State<EditorScreen>
     return proceed ? ui.AppExitResponse.exit : ui.AppExitResponse.cancel;
   }
 
+  // --- session restore -----------------------------------------------------
+
+  /// True when the app was launched to open a specific document (a screenshot/
+  /// test harness document, or a `.pdf` passed on the command line). In that
+  /// case the explicit target wins and we don't also restore the last session.
+  bool get _hasExplicitLaunchTarget =>
+      widget.initialDocument != null ||
+      (!kIsWeb &&
+          widget.launchArgs
+              .any((a) => a.toLowerCase().endsWith('.pdf')));
+
+  /// Re-opens the file-backed documents that were open when the app last closed.
+  /// Runs once at startup, then enables session persistence so this run's open
+  /// set is captured for next time. Documents whose file has since moved or been
+  /// deleted are dropped silently rather than surfacing an error tab.
+  Future<void> _restoreSession() async {
+    final documents = await _session.load();
+    if (mounted && !_hasExplicitLaunchTarget) {
+      for (final doc in documents) {
+        // Skip anything already open (e.g. an OS file-open that arrived first).
+        if (_tabs.any((t) => t.originPath == doc.path)) continue;
+        await _reopenSessionDocument(doc);
+        if (!mounted) return;
+      }
+    }
+    _sessionLoaded = true;
+    unawaited(_persistSession());
+  }
+
+  Future<void> _reopenSessionDocument(SessionDocument doc) async {
+    final loading = _openLoading(doc.title, originPath: doc.path);
+    try {
+      final bytes = await readPdfAtPath(doc.path);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final opened = _replaceLoadingTab(
+        loading,
+        DocumentTab.document(
+          title: doc.title,
+          bytes: bytes,
+          preferences: _prefs,
+          originPath: doc.path,
+        ),
+      );
+      if (opened) _recents.add(title: doc.title, path: doc.path);
+    } catch (_) {
+      // The file is gone (moved/deleted): drop the placeholder quietly.
+      if (mounted) await _closeTabs([loading]);
+    }
+  }
+
+  /// Persists the current open set (file-backed tabs, in order) so the next
+  /// launch can restore it. A no-op until the previous session has been read
+  /// back, so early opens can't clobber the stored set before [_restoreSession].
+  Future<void> _persistSession() async {
+    if (!_sessionLoaded) return;
+    final documents = <SessionDocument>[];
+    final seen = <String>{};
+    for (final tab in _tabs) {
+      final path = tab.originPath;
+      if (path == null || path.isEmpty || !seen.add(path)) continue;
+      documents.add(SessionDocument(title: tab.title, path: path));
+    }
+    await _session.save(documents);
+  }
+
   // --- opening -------------------------------------------------------------
 
   /// Opens [bytes] in a brand-new tab and makes it active, recording a recent.
@@ -238,6 +314,7 @@ class _EditorScreenState extends State<EditorScreen>
       _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
     });
+    unawaited(_persistSession());
   }
 
   DocumentTab _openLoading(String title, {String? originPath}) {
@@ -257,6 +334,7 @@ class _EditorScreenState extends State<EditorScreen>
       _activeIndex = index;
     });
     loading.dispose();
+    unawaited(_persistSession());
     return true;
   }
 
@@ -457,6 +535,7 @@ class _EditorScreenState extends State<EditorScreen>
         tab.dispose();
       }
     });
+    unawaited(_persistSession());
   }
 
   /// Opens the right-click context menu for the tab at [index] at [position]
@@ -572,6 +651,8 @@ class _EditorScreenState extends State<EditorScreen>
       });
       if (result.path != null) {
         _recents.add(title: tab.title, path: result.path);
+        // A Save As gave the tab a reusable origin — remember it for next time.
+        unawaited(_persistSession());
       }
     }
     if (result.message != null) _toast(result.message!);
@@ -1046,6 +1127,7 @@ class _EditorScreenState extends State<EditorScreen>
       _tabs.insert(newIndex, moved);
       _activeIndex = _tabs.indexOf(active);
     });
+    unawaited(_persistSession());
   }
 
   Widget _buildTabStrip() {
