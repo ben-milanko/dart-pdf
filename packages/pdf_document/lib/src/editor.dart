@@ -22,6 +22,7 @@ part 'annotation_editor.dart';
 part 'annotation_sync.dart';
 part 'content_editor.dart';
 part 'content_editor_type0.dart';
+part 'content_reflow.dart';
 part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
