@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -414,6 +415,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.showAnnotations = true,
     this.onPanViewport,
     this.onPanViewportEnd,
+    this.edgeAutoScroll,
     this.rasterCurrent = true,
     this.zoom = 1,
     this.predictStrokes = true,
@@ -462,6 +464,14 @@ class EditingPageOverlay extends StatefulWidget {
   /// viewer so a finger fling keeps its momentum (the overlay's pan path
   /// bypasses the list's scroll physics, which would otherwise carry it).
   final void Function(Velocity velocity)? onPanViewportEnd;
+
+  /// Per-frame edge auto-scroll for a region/selection drag. Given the drag
+  /// pointer's global position, returns the viewport scroll delta (this
+  /// overlay's local space, same as [onPanViewport]) to apply this frame so
+  /// the document keeps moving while the pointer rests against a viewport
+  /// edge — [Offset.zero] when the pointer is clear of every edge. With none,
+  /// dragging to the edge does not scroll the viewer.
+  final Offset Function(Offset globalPosition)? edgeAutoScroll;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -583,7 +593,7 @@ const double _rotateHandleDistance = 22;
 const double _rotateSnapRadians = 3 * math.pi / 180;
 
 class _EditingPageOverlayState extends State<EditingPageOverlay>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // shape/text/stamp drag
   Offset? _dragStart;
   Offset? _dragCurrent;
@@ -736,6 +746,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// so a drop over another page can be resolved to a page point (drag-end
   /// details carry no position).
   Offset? _moveCurrentGlobal;
+
+  // Edge auto-scroll: while a region/selection drag is in flight the ticker
+  // runs every frame, scrolling the viewer when the pointer rests against a
+  // viewport edge and re-tracking the held pointer onto the content scrolled
+  // under it (so the drag keeps growing during auto-scroll or a manual
+  // shift-scroll). [_autoScrollGlobal] is the latest pointer global position;
+  // [_autoScrollLastLocal] guards against redundant re-tracks.
+  late final Ticker _autoScrollTicker = createTicker(_onAutoScrollTick);
+  Offset? _autoScrollGlobal;
+  Offset? _autoScrollLastLocal;
+
   _Handle? _resizeHandle;
   Rect? _resizeFrom;
   Rect? _resizeRect;
@@ -1089,6 +1110,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _signatureDrag = false;
       _signaturePreview = null;
     });
+    _stopAutoScroll();
     _clearResizeClean();
     widget.onMoveDragPreview?.call(null);
     _bumpActiveStroke();
@@ -1704,6 +1726,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _clearSourceClean();
     _flashController.dispose();
     _activeStrokeRepaint.dispose();
+    _autoScrollTicker.dispose();
     super.dispose();
   }
 
@@ -2479,15 +2502,36 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       widget.onPanViewport?.call(details.delta);
       return;
     }
-    if (_marqueeStart != null) {
-      setState(() => _marqueeCurrent = position);
-      return;
-    }
     if (_signatureDrag) {
       setState(() => _signaturePreview = position);
       return;
     }
-    if (_rotateStartAngle != null) {
+    if (_activeStroke != null) {
+      // hot path: append + repaint the stroke layer only, no rebuild
+      _penCursor = position;
+      _activeStroke!.add(_geometry.toPagePoint(position));
+      _activeStrokePressures
+          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
+      _bumpActiveStroke();
+      return;
+    }
+    // region/selection drags (marquee, move, resize, vertex, shape/snapshot
+    // rect, rotate) track their current point in view space. Record the
+    // pointer's global position too: an edge auto-scroll tick re-derives the
+    // view-space point from it as the page scrolls under a held pointer.
+    _autoScrollGlobal = details.globalPosition;
+    _autoScrollLastLocal = position;
+    _applyDragPosition(position);
+    _maybeAutoScroll();
+  }
+
+  /// Applies a region drag's current pointer (view space) to whichever drag
+  /// is in flight — shared by [_panUpdate] and the edge auto-scroll tick so a
+  /// held pointer keeps tracking the page as it scrolls underneath.
+  void _applyDragPosition(Offset position) {
+    if (_marqueeStart != null) {
+      setState(() => _marqueeCurrent = position);
+    } else if (_rotateStartAngle != null) {
       final selected = _selectedViewRect;
       if (selected == null) return;
       setState(() {
@@ -2523,22 +2567,62 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _resizeRect = _anchorResized(resized);
       });
     } else if (_moveStart != null) {
-      _moveCurrentGlobal = details.globalPosition;
+      _moveCurrentGlobal = _autoScrollGlobal;
       setState(() => _moveCurrent = position);
       // float the artwork above every page so a move dragged onto the
       // page below isn't clipped behind it (this overlay can't paint
       // over a sibling list item)
       _reportMovePreview();
-    } else if (_activeStroke != null) {
-      // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = position;
-      _activeStroke!.add(_geometry.toPagePoint(position));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
     } else if (_dragStart != null) {
       setState(() => _dragCurrent = position);
     }
+  }
+
+  /// Drags whose region keeps growing while the pointer sits against the
+  /// viewport edge (and the viewer auto-scrolls under it).
+  bool get _autoScrollDragActive =>
+      _marqueeStart != null ||
+      _moveStart != null ||
+      _resizeHandle != null ||
+      _vertexHandle != null ||
+      _dragStart != null;
+
+  /// Runs the edge auto-scroll ticker for an in-flight region drag. The
+  /// ticker runs for the whole drag (not only at the edge) so a manual
+  /// shift-scroll mid-drag also re-tracks the held pointer onto the
+  /// newly revealed content.
+  void _maybeAutoScroll() {
+    if (widget.edgeAutoScroll == null || widget.onPanViewport == null) return;
+    if (!_autoScrollDragActive) return;
+    if (!_autoScrollTicker.isActive) _autoScrollTicker.start();
+  }
+
+  void _stopAutoScroll() {
+    if (_autoScrollTicker.isActive) _autoScrollTicker.stop();
+    _autoScrollGlobal = null;
+    _autoScrollLastLocal = null;
+  }
+
+  void _onAutoScrollTick(Duration _) {
+    final global = _autoScrollGlobal;
+    if (global == null || !_autoScrollDragActive) {
+      _stopAutoScroll();
+      return;
+    }
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    // Re-derive the view-space pointer: the page may have scrolled under a
+    // held pointer (the edge auto-scroll below, or a manual shift-scroll), so
+    // the same global point now lands on different content — grow the drag to
+    // it. The guard skips redundant rebuilds when nothing moved.
+    final local = box.globalToLocal(global);
+    if (local != _autoScrollLastLocal) {
+      _autoScrollLastLocal = local;
+      _applyDragPosition(local);
+    }
+    // Keep scrolling while the pointer rests in the viewport's edge band.
+    final delta = widget.edgeAutoScroll!(global);
+    if (delta != Offset.zero) widget.onPanViewport!(delta);
   }
 
   void _panEnd(DragEndDetails details) {
@@ -2608,6 +2692,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // drop any drag cursor; the next hover recomputes it
       _cursor = MouseCursor.defer;
     });
+    _stopAutoScroll();
     // the in-flight lift is done; the afterimage covers the commit gap
     _clearResizeClean();
     // the floating move preview hands off to the commit's afterimage (or

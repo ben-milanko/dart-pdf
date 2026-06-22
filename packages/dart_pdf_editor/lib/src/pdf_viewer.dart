@@ -2945,6 +2945,45 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _scrollbarPanBy(-delta.dx);
   }
 
+  /// How thick the viewport's auto-scroll edge band is (logical px) and how
+  /// fast a drag pinned to the very edge scrolls (logical px per frame).
+  static const double _edgeScrollBand = 60;
+  static const double _edgeScrollMaxSpeed = 16;
+
+  /// Per-frame viewport scroll for an editing drag whose pointer rests in the
+  /// viewport's edge band. Given the drag pointer's [globalPosition], returns
+  /// the pan delta to feed [_touchGrabPanBy] (overlay-local space, zoom
+  /// divided out), or [Offset.zero] when the pointer is clear of every edge.
+  /// The ramp grows linearly from the band's inner edge to the viewport edge,
+  /// so the closer the pointer is to the rim the faster it scrolls.
+  Offset _edgeAutoScrollDelta(Offset globalPosition) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return Offset.zero;
+    final origin = box.localToGlobal(Offset.zero);
+    final size = box.size;
+    double axis(double pos, double lo, double extent) {
+      if (extent <= 2 * _edgeScrollBand) return 0; // no room for two bands
+      final hi = lo + extent;
+      if (pos < lo + _edgeScrollBand) {
+        return _edgeScrollMaxSpeed *
+            ((lo + _edgeScrollBand - pos) / _edgeScrollBand).clamp(0.0, 1.0);
+      }
+      if (pos > hi - _edgeScrollBand) {
+        return -_edgeScrollMaxSpeed *
+            ((pos - (hi - _edgeScrollBand)) / _edgeScrollBand).clamp(0.0, 1.0);
+      }
+      return 0;
+    }
+
+    final dx = axis(globalPosition.dx, origin.dx, size.width);
+    final dy = axis(globalPosition.dy, origin.dy, size.height);
+    if (dx == 0 && dy == 0) return Offset.zero;
+    // [_touchGrabPanBy] deltas are list-space (the zoom transform divided
+    // out); the edge ramp is in on-screen px, so scale it back down.
+    final zoom = _transformScale.value;
+    return Offset(dx, dy) / (zoom == 0 ? 1 : zoom);
+  }
+
   /// Scroll-fling deceleration: velocity decays by e^-2 per second
   /// (≈ UIScrollView's "normal" rate), so a fling travels about half a
   /// second's worth of its release velocity. The tolerance stops the
@@ -3585,6 +3624,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 onSnapshot: widget.onSnapshot,
                 onPanViewport: _touchGrabPanBy,
                 onPanViewportEnd: _flingViewport,
+                edgeAutoScroll: _edgeAutoScrollDelta,
                 onShowAnnotationMenu: _showSelectionMenu,
                 onShowFormFieldMenu: _showFormFieldMenu,
                 onResolvePagePoint: _resolvePagePointGlobal,
@@ -3975,6 +4015,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onSnapshot,
     required this.onPanViewport,
     required this.onPanViewportEnd,
+    required this.edgeAutoScroll,
     required this.onShowAnnotationMenu,
     required this.onShowFormFieldMenu,
     required this.onResolvePagePoint,
@@ -4051,6 +4092,9 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [EditingPageOverlay.onPanViewportEnd].
   final void Function(Velocity velocity) onPanViewportEnd;
+
+  /// See [EditingPageOverlay.edgeAutoScroll].
+  final Offset Function(Offset globalPosition) edgeAutoScroll;
 
   /// See [EditingPageOverlay.onShowAnnotationMenu].
   final void Function(Offset globalPosition, int pageIndex,
@@ -4218,6 +4262,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               showAnnotations: widget.showAnnotations,
                               onPanViewport: widget.onPanViewport,
                               onPanViewportEnd: widget.onPanViewportEnd,
+                              edgeAutoScroll: widget.edgeAutoScroll,
                               onShowAnnotationMenu: widget.onShowAnnotationMenu,
                               onShowFormFieldMenu: widget.onShowFormFieldMenu,
                               onResolvePagePoint: widget.onResolvePagePoint,
