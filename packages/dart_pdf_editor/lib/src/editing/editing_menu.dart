@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_controller.dart';
+import 'editing_form_style.dart';
 import 'text_prompt.dart';
 
 /// What an annotation context menu acts on: the controller and the
@@ -164,6 +165,7 @@ Future<void> showPdfFormFieldMenu({
   required PdfEditingController controller,
   required String fieldName,
   PdfTextPrompt textPrompt = showPdfTextPrompt,
+  PdfFontPicker? fontPicker,
 }) async {
   final field = controller.acroForm?.fieldNamed(fieldName);
   if (field == null) return;
@@ -175,6 +177,22 @@ Future<void> showPdfFormFieldMenu({
       };
 
   final items = <PdfAnnotationMenuItem>[
+    if (type == PdfFieldType.text)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-form-menu-style'),
+        label: 'Text style…',
+        icon: Icons.text_format,
+        onSelected: (_) async {
+          if (!controller.selectFormFieldByName(fieldName)) return;
+          if (!context.mounted) return;
+          await showPdfFormTextStylePopup(
+            context: context,
+            position: position,
+            controller: controller,
+            fontPicker: fontPicker,
+          );
+        },
+      ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-rename'),
       label: 'Rename…',

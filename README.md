@@ -146,11 +146,12 @@ copyable without changing how the PDF looks.
 12. ✅ Content editing: stamping (`stampPage`, text, shapes, JPEG and
     PNG images over existing content), element deletion
     (`PdfPageElements` + `deleteElements`), and text editing
-    (`replaceText`, simple fonts, within one shown string; no reflow)
+    (`replaceText`, simple fonts, across a line's shown strings with
+    width-compensated re-measurement; no cross-line reflow)
 
-Deliberately deferred: richer text editing beyond single shown-string
-rewrites, RSASSA-PSS signatures, JBIG2 Huffman/refinement variants, and
-JPX subsampling/PCRL-CPRL progressions.
+Deliberately deferred: paragraph re-flow and composite /Type0 text
+editing, JBIG2 Huffman/refinement variants, and JPX subsampling/PCRL-CPRL
+progressions.
 
 ## Features
 

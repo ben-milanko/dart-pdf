@@ -65,6 +65,12 @@ enum PdfEditTool {
   /// live.
   measureArea,
 
+  /// Drag a straight segment of known real-world length to calibrate the
+  /// [PdfEditingController.measurementScale]. On release the editor asks
+  /// how long the drawn segment is and derives the scale from it (the
+  /// "two-point calibration" flow); nothing is stamped on the page.
+  calibrate,
+
   /// Drag out a box, then type the text shown inside it (/FreeText).
   freeText,
 
@@ -130,6 +136,41 @@ typedef PdfAnnotationEditPredicate = bool Function(PdfAnnotation annotation);
 /// The field kinds the form tool can create (and convert fields to) —
 /// the subset of [PdfFieldType] with creation support in [PdfEditor].
 enum PdfFormFieldKind { text, checkBox, pushButton }
+
+/// The text styling of a form text field, read from its /DA, /Q and /Ff —
+/// what the form-field style controls reflect and edit
+/// ([PdfEditingController.selectedFormFieldStyle]).
+class PdfFormFieldStyle {
+  const PdfFormFieldStyle({
+    required this.font,
+    required this.size,
+    required this.autoSize,
+    required this.color,
+    required this.align,
+    required this.multiline,
+  });
+
+  /// The base-14 face the field's /DA names, mapped leniently (an embedded
+  /// /DR font maps to Helvetica). Carries the bold/italic state the style
+  /// toggles reflect.
+  final PdfStandardFont font;
+
+  /// The /DA font size in points; when [autoSize] this is a readable
+  /// stand-in (the stored size is 0).
+  final double size;
+
+  /// Whether the field auto-sizes its text (the /DA size is 0).
+  final bool autoSize;
+
+  /// The /DA text colour (opaque).
+  final Color color;
+
+  /// The /Q alignment.
+  final PdfTextAlign align;
+
+  /// Whether the field wraps over multiple lines (/Ff multiline flag).
+  final bool multiline;
+}
 
 /// An editing session over a PDF document: applies edits through
 /// [PdfEditor], owns the resulting document revisions, and carries the
@@ -566,6 +607,7 @@ class PdfEditingController extends ChangeNotifier {
             'color',
             'fontSize',
             'fontFamily',
+            'textAlign',
             'opacity',
             'textFillColor',
             'textBorderColor',
@@ -627,6 +669,13 @@ class PdfEditingController extends ChangeNotifier {
     preferences.fontFamily = value;
   }
 
+  /// Horizontal alignment (left/center/right) new free-text boxes are
+  /// created with, or null (the default) to follow the text direction —
+  /// left for LTR, right for RTL. Persisted.
+  PdfTextAlign? get textAlign => preferences.textAlign;
+
+  set textAlign(PdfTextAlign? value) => preferences.textAlign = value;
+
   PdfEmbeddedFont? _activeFont;
 
   /// An embedded TrueType/OpenType font selected for new free text, taking
@@ -645,10 +694,13 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// A human label for the font new free text will be written in — the
-  /// embedded font's family, or the standard family name.
+  /// A human label for the font the font controls currently target — a
+  /// selected measurement's caption face, else the font new free text will
+  /// be written in (the embedded font's family, or the standard family).
   String get activeFontLabel =>
-      _activeFont?.familyName ?? preferences.fontFamily.family.label;
+      selectedMeasurementCaptionStyle?.font.family.label ??
+      _activeFont?.familyName ??
+      preferences.fontFamily.family.label;
 
   /// Parses [bytes] as a TrueType (.ttf) or OpenType (.otf) font and
   /// selects it for new free text via [activeFont]. Returns false when the
@@ -1210,6 +1262,7 @@ class PdfEditingController extends ChangeNotifier {
     (double, double) end,
     double realLength,
     String unitLabel, {
+    String pageUnitLabel = 'in',
     String? areaUnitLabel,
     int precision = 100,
   }) {
@@ -1221,6 +1274,7 @@ class PdfEditingController extends ChangeNotifier {
       pointLength: length,
       realLength: realLength,
       unitLabel: unitLabel,
+      pageUnitLabel: pageUnitLabel,
       areaUnitLabel: areaUnitLabel,
       precision: precision,
     );
@@ -1271,6 +1325,12 @@ class PdfEditingController extends ChangeNotifier {
           strokeWidth: preferences.strokeWidth,
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
+          // the caption is base-14 text; an embedded selection falls back
+          // to the active standard family
+          captionFont: preferences.fontFamily,
+          captionSize: preferences.fontSize,
+          startEnding: preferences.lineStartEnding,
+          endEnding: preferences.lineEndEnding,
           author: author),
       pages: [pageIndex],
     );
@@ -1280,6 +1340,7 @@ class PdfEditingController extends ChangeNotifier {
       (e) => e.addFreeText(pageIndex, rect, text,
           fontSize: preferences.fontSize,
           font: _activeFont ?? preferences.fontFamily,
+          align: preferences.textAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
@@ -1292,6 +1353,7 @@ class PdfEditingController extends ChangeNotifier {
           int pageIndex, PdfRect rect, List<PdfFreeTextRun> runs) =>
       apply(
           (e) => e.addFreeTextRich(pageIndex, rect, runs,
+              align: preferences.textAlign,
               fillColor: _rgbOf(preferences.textFillColor),
               borderColor: _rgbOf(preferences.textBorderColor),
               borderWidth: preferences.strokeWidth,
@@ -1322,6 +1384,7 @@ class PdfEditingController extends ChangeNotifier {
         (e) => e.addFreeText(pageIndex, rect, value,
             fontSize: fontSize,
             font: _activeFont ?? preferences.fontFamily,
+            align: preferences.textAlign,
             color: _colorValue,
             fillColor: _rgbOf(preferences.textFillColor),
             borderColor: _rgbOf(preferences.textBorderColor),
@@ -1743,6 +1806,22 @@ class PdfEditingController extends ChangeNotifier {
     if (!_selectedPages.remove(index)) _selectedPages.add(index);
     _pageSelectionAnchor = index;
     notifyListeners();
+  }
+
+  /// The page a shift-click extends a range from, or null when nothing
+  /// has anchored it yet — the strip reads it to preview the range while
+  /// Shift is held.
+  int? get pageSelectionAnchor => _pageSelectionAnchor;
+
+  /// The pages a shift-click on [index] would select right now: the
+  /// contiguous run from the current anchor to [index] (ascending), or
+  /// just [index] with no anchor yet. The live preview the strip paints
+  /// while Shift is held — mirrors [selectPageRange] without committing.
+  List<int> pageRangePreviewTo(int index) {
+    final anchor = _pageSelectionAnchor ?? index;
+    final lo = math.min(anchor, index);
+    final hi = math.max(anchor, index);
+    return [for (var i = lo; i <= hi; i++) i];
   }
 
   /// Selects the contiguous range from the current anchor to [index]
@@ -2909,6 +2988,39 @@ class PdfEditingController extends ChangeNotifier {
         pages: [_selected.last.$1]);
   }
 
+  /// Whether the single selected annotation is a measurement (a /Line,
+  /// /PolyLine, or /Polygon carrying a /Measure) whose caption font and
+  /// size can be restyled in place ([setSelectedMeasurementCaption]).
+  bool get canRestyleMeasurementCaption {
+    final annotation = selectedAnnotation;
+    return _selected.length == 1 &&
+        annotation != null &&
+        annotation.measure != null &&
+        annotation.normalAppearance != null &&
+        const {'Line', 'PolyLine', 'Polygon'}.contains(annotation.subtype);
+  }
+
+  /// The selected measurement caption's font and size, parsed from its
+  /// /DA, or null when no single measurement is selected — for the font
+  /// controls to reflect the current caption.
+  ({PdfStandardFont font, double size})? get selectedMeasurementCaptionStyle {
+    if (!canRestyleMeasurementCaption) return null;
+    return _freeTextStyleOf(selectedAnnotation!);
+  }
+
+  /// Restyles the selected measurement's caption font and/or size in
+  /// place — one revision, one undo, and the annotation keeps its /Annots
+  /// slot and object number. Pass null for an axis to leave it unchanged.
+  void setSelectedMeasurementCaption(
+      {PdfStandardFont? font, double? size}) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canRestyleMeasurementCaption) return;
+    apply(
+        (e) => e.setMeasurementCaptionStyle(_selected.last.$1, annotation,
+            font: font, size: size),
+        pages: [_selected.last.$1]);
+  }
+
   /// Rotates the selected annotation by [degrees] counterclockwise (page
   /// space) about its center. The selection keeps its /Annots slot.
   void rotateSelected(double degrees) {
@@ -2991,6 +3103,30 @@ class PdfEditingController extends ChangeNotifier {
     return _freeTextStyleOf(annotation!);
   }
 
+  /// The selected free-text annotation's per-run rich styling, parsed
+  /// from its /RC (§12.7.3.4) with any missing attribute defaulted from
+  /// the flat /DA. Null when the box carries no /RC (plain free text, or
+  /// authored before rich styling) so the editor falls back to seeding a
+  /// single uniform style. Lets reopening a mixed-format box rebuild its
+  /// bold/italic/colour runs instead of collapsing to one style.
+  List<PdfFreeTextRun>? get selectedRichRuns {
+    final annotation = selectedAnnotation;
+    if (annotation == null || annotation.subtype != 'FreeText') return null;
+    final rc = annotation.richContent;
+    if (rc == null) return null;
+    final style = _freeTextStyleOf(annotation);
+    final runs = PdfAnnotationEditing.parseFreeTextRichContent(rc,
+        fallbackFont: style.font, fallbackSize: style.size);
+    return runs.isEmpty ? null : runs;
+  }
+
+  /// The selected free-text annotation's horizontal alignment (its /Q
+  /// quadding), or null when the selection isn't a single free-text box.
+  PdfTextAlign? get selectedTextAlign {
+    if (!canRestyleSelectedText) return null;
+    return selectedAnnotation?.freeTextStyle?.alignment ?? PdfTextAlign.left;
+  }
+
   PdfRect _autosizeTextRect(PdfAnnotation annotation, String text,
       {required PdfStandardFont font, required double size}) {
     const pad = 3.0;
@@ -3037,6 +3173,7 @@ class PdfEditingController extends ChangeNotifier {
   void restyleSelectedText(
       {PdfStandardFont? font,
       double? size,
+      PdfTextAlign? align,
       (int?,)? fill,
       (int?,)? border,
       double? borderWidth}) {
@@ -3049,9 +3186,18 @@ class PdfEditingController extends ChangeNotifier {
     _rewriteSelected(annotation, annotation.contents ?? '',
         font: font ?? style.font,
         size: size ?? style.size,
+        align: align,
         fill: fill,
         border: border,
         borderWidth: borderWidth);
+  }
+
+  /// Sets the horizontal alignment of the selected free-text box (its /Q
+  /// quadding), regenerating its appearance, and makes it the default for
+  /// new boxes. A no-op when the selection isn't a single free-text box.
+  void setSelectedTextAlign(PdfTextAlign align) {
+    textAlign = align; // the new default either way
+    if (canRestyleSelectedText) restyleSelectedText(align: align);
   }
 
   /// Rewrites the selected free-text annotation in [font] — a base-14
@@ -3154,6 +3300,7 @@ class PdfEditingController extends ChangeNotifier {
   void _rewriteSelected(PdfAnnotation annotation, String text,
       {PdfTextFont? font,
       double? size,
+      PdfTextAlign? align,
       (int?,)? fill,
       (int?,)? border,
       double? borderWidth}) {
@@ -3181,6 +3328,8 @@ class PdfEditingController extends ChangeNotifier {
           e.addFreeText(page, rect, text,
               fontSize: size ?? style.size,
               font: font ?? style.font,
+              // keep the box's own alignment unless this edit changes it
+              align: align ?? parsed?.alignment ?? PdfTextAlign.left,
               color: parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -3229,6 +3378,7 @@ class PdfEditingController extends ChangeNotifier {
     final changed = apply((e) {
       e.removeAnnotation(page, annotation);
       e.addFreeTextRich(page, rect, runs,
+          align: parsed?.alignment ?? PdfTextAlign.left,
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: (parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1,
@@ -3356,18 +3506,23 @@ class PdfEditingController extends ChangeNotifier {
   /// Rewrites the selected text element's characters to [text] and
   /// returns how many text runs changed.
   ///
-  /// Built on [PdfEditor.replaceText], so its limits apply: identical
-  /// runs elsewhere on the page change too, composite (Type0) fonts are
-  /// skipped, and glyphs are not re-measured — longer replacements can
-  /// overlap what follows on the line.
-  int replaceSelectedElementText(String text) {
+  /// Built on [PdfEditor.replaceText], so its limits apply: identical runs
+  /// elsewhere on the page change too, and matches do not cross a line
+  /// break. Replacements are re-measured so the rest of the line keeps its
+  /// position. Composite (/Type0) text is handled; [fallbackFonts] (the
+  /// bundled DejaVu trio, see `loadFallbackFonts`) draw any character the
+  /// document's own font can't, so typing outside its subset still works.
+  int replaceSelectedElementText(String text,
+      {List<PdfEmbeddedFont> fallbackFonts = const []}) {
     final selected = _selectedElement;
     final element = selectedElement;
     if (selected == null || element == null || !canEditSelectedElementText) {
       return 0;
     }
     var count = 0;
-    apply((e) => count = e.replaceText(selected.$1, element.text!, text),
+    apply(
+        (e) => count = e.replaceText(selected.$1, element.text!, text,
+            fallbackFonts: fallbackFonts),
         pages: [selected.$1]);
     return count;
   }
@@ -3616,4 +3771,110 @@ class PdfEditingController extends ChangeNotifier {
   /// Flattens the interactive form: bakes every widget's appearance
   /// into its page and removes all fields ([PdfEditor.flattenForm]).
   bool flattenFormFields() => apply((e) => e.flattenForm());
+
+  /// The selected text field (name + field), or null unless exactly one
+  /// text-field widget is selected — the styling controls' target.
+  (String name, PdfFormField field)? get _selectedFormTextField {
+    if (_selected.length != 1) return null;
+    if (selectedAnnotation?.subtype != 'Widget') return null;
+    final ref = _widgetFieldForSlot(_selected.last);
+    if (ref == null) return null;
+    final field = acroForm?.fieldNamed(ref.$1);
+    if (field == null || field.type != PdfFieldType.text) return null;
+    return (ref.$1, field);
+  }
+
+  /// Whether a single text-field widget is selected, so its text styling
+  /// (font, size, colour, alignment, auto-size, multiline) can be changed
+  /// via [setFormFieldStyle] / [selectedFormFieldStyle].
+  bool get canStyleSelectedFormField => _selectedFormTextField != null;
+
+  /// The name of the selected text field, or null unless exactly one is
+  /// selected — the handle the style controls pass to [setFormFieldStyle].
+  String? get selectedFormFieldName => _selectedFormTextField?.$1;
+
+  /// The field name of the selected form widget of any field type (text,
+  /// check box, radio, button, …), or null unless exactly one form widget
+  /// is selected — for the properties panel's field-name row.
+  String? get selectedWidgetFieldName {
+    if (_selected.length != 1 || selectedAnnotation?.subtype != 'Widget') {
+      return null;
+    }
+    return _widgetFieldForSlot(_selected.last)?.$1;
+  }
+
+  /// Selects the field [name]'s first widget (so the style controls and
+  /// move/resize act on it) by hit-testing its rectangle's centre. Returns
+  /// false when the field or its first widget's page/rect can't be found.
+  bool selectFormFieldByName(String name) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null) return false;
+    final page = field.widgetPageIndex(0);
+    final rect = field.widgetRect(0);
+    if (page < 0 || rect == null) return false;
+    return selectFormWidgetAt(
+        page, (rect.left + rect.right) / 2, (rect.bottom + rect.top) / 2);
+  }
+
+  /// The selected text field's current style, or null when no single text
+  /// field is selected — drives the form-field style controls.
+  PdfFormFieldStyle? get selectedFormFieldStyle {
+    final sel = _selectedFormTextField;
+    if (sel == null) return null;
+    final field = sel.$2;
+    final name = RegExp(r'/(\S+)\s+[\d.]+\s+Tf')
+            .firstMatch(field.defaultAppearance ?? '')
+            ?.group(1) ??
+        'Helv';
+    final size = field.appearanceFontSize;
+    return PdfFormFieldStyle(
+      font: PdfStandardFont.fromName(name),
+      size: size == 0 ? 12 : size,
+      autoSize: size == 0,
+      color: Color(0xFF000000 | (field.appearanceColor ?? 0)),
+      align: PdfTextAlign.values.firstWhere(
+          (a) => a.quadding == field.quadding,
+          orElse: () => PdfTextAlign.left),
+      multiline: field.isMultiline,
+    );
+  }
+
+  /// Restyles the text field [name] ([PdfEditor.setTextFieldStyle]): each
+  /// non-null argument is applied. [font] may be a base-14 [PdfStandardFont]
+  /// or an embedded [PdfEmbeddedFont]; [autoSize] true (or [fontSize] 0)
+  /// fits the text to the box; [color] is 0xRRGGBB. Returns false for a
+  /// missing, read-only, or non-text field.
+  bool setFormFieldStyle(
+    String name, {
+    PdfTextFont? font,
+    double? fontSize,
+    bool? autoSize,
+    int? color,
+    PdfTextAlign? align,
+    bool? multiline,
+  }) {
+    final field = acroForm?.fieldNamed(name);
+    if (field == null || field.isReadOnly || field.type != PdfFieldType.text) {
+      return false;
+    }
+    final pages = _fieldPages(name);
+    try {
+      return apply((e) {
+        final f = e.acroForm?.fieldNamed(name);
+        if (f != null) {
+          e.setTextFieldStyle(f,
+              font: font,
+              fontSize: fontSize,
+              autoSize: autoSize,
+              color: color,
+              align: align,
+              multiline: multiline);
+        }
+      }, pages: pages);
+    } on ArgumentError {
+      return false;
+    } on StateError {
+      return false;
+    }
+  }
 }

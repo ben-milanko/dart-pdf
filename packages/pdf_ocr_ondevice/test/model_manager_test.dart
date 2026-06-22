@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -74,6 +75,44 @@ void main() {
     manager.close();
   });
 
+  test('download can be canceled and removes the partial file', () async {
+    final cancelToken = PdfOcrDownloadCancelToken();
+    final client = _StreamingClient((req) async {
+      return http.StreamedResponse(
+        Stream<List<int>>.fromIterable([
+          [1, 2],
+          [3, 4],
+        ]),
+        200,
+        contentLength: 4,
+      );
+    });
+    final manager = managerWith(client);
+    final model = _modelFor(base);
+    final progress = <PdfOcrDownloadProgress>[];
+
+    await expectLater(
+      manager.download(
+        model,
+        cancelToken: cancelToken,
+        onProgress: (p) {
+          progress.add(p);
+          cancelToken.cancel();
+        },
+      ),
+      throwsA(isA<PdfOcrModelDownloadCanceled>()),
+    );
+
+    expect(progress, isNotEmpty);
+    expect(await manager.isDownloaded(model), isFalse);
+    final dir = await manager.directory(model);
+    final leftovers = dir.existsSync()
+        ? dir.listSync().where((e) => e.path.endsWith('.part')).toList()
+        : const [];
+    expect(leftovers, isEmpty);
+    manager.close();
+  });
+
   test('a matching SHA-256 passes verification', () async {
     final sha = sha256.convert(bodies['det.onnx']!).toString();
     final manager = managerWith(serving(bodies));
@@ -108,8 +147,7 @@ void main() {
     manager.close();
   });
 
-  test('download skips files already present and delete clears them',
-      () async {
+  test('download skips files already present and delete clears them', () async {
     var detHits = 0;
     final client = MockClient((req) async {
       final name = req.url.pathSegments.last;
@@ -135,4 +173,15 @@ void main() {
     );
     manager.close();
   });
+}
+
+class _StreamingClient extends http.BaseClient {
+  _StreamingClient(this._handler);
+
+  final Future<http.StreamedResponse> Function(http.BaseRequest request)
+      _handler;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _handler(request);
 }

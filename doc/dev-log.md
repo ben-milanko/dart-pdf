@@ -1,4 +1,12 @@
-# dart-pdf — development session log
+# dart-pdf — development session log (frozen archive)
+
+> **This file is frozen — do not append to it.** Appending here from
+> feature branches made every concurrent PR conflict on the same trailing
+> lines (GitHub does not honor the `.gitattributes` `merge=union` driver
+> that resolves it locally). New session notes now go in one file per
+> session under [`doc/dev-log/`](dev-log/) — see
+> [`doc/dev-log/README.md`](dev-log/README.md). This archive holds all
+> notes written before 2026-06-22.
 
 Chronological notes moved out of CLAUDE.md to keep that file under the
 context-size limit. This is reference history (gotchas, file pointers,
@@ -2220,7 +2228,6 @@ an image across two sessions, empty-key no-op, loadFromDisk leaves a fresh
 in-session preview alone). GOTCHA: tests must capture page objects ONCE
 (like the viewer's `_pages`) — repeated `document.page(i)` calls can return
 fresh wrappers, defeating the preview cache's identity-based `isFresh`.
-
 Apple Pencil double-tap → eraser (Ben: "double tap on apple pencil to
 switch to eraser and back"): the pencil's hardware double-tap (and Pencil
 Pro squeeze) is an iOS `UIPencilInteraction` — Flutter exposes NO framework
@@ -2554,7 +2561,126 @@ affected. Removed the whole staging apparatus + its
 `onnx_ocr_model_runner_test.dart` (it only exercised the dead path logic;
 the surviving `load()` is native-only, unverifiable in the sandbox per the
 #76 honesty posture). 30 package tests still green; analyzer clean.
-
+Web OCR tiling (Ben: "the OCR on web isn't working well" — a scanned A3 CAD
+drawing came back as a stream of hallucinated dimension tokens, "20m 30m
+15m 16.2M…"). Root cause is resolution, not the parser. The web path
+(`app/lib/ocr_web.dart`) renders each page at pixelRatio 2 and hands the
+*whole* image to browser-local Florence-2 (`onnx-community/Florence-2-base-ft`
+via Transformers.js, bridged through `window.__dartPdfOcrRecognize` in
+`app/web/index.html`). Florence-2's image processor hard-resizes any input to
+**768x768** (note the warmup `full([1,3,768,768])`), so a 1192x842pt page —
+here a 3310x2340 DCTDecode scan, no text layer, the entire page is one image
+XObject — rendered to 2384x1684 then crushed ~4x AND squished to square. Small
+dimension text becomes a few unreadable pixels, and a generative VLM fills the
+void with plausible tokens → the garbage output. Fix: **tile** the page into
+overlapping sub-regions small enough to survive the 768 resize, recognize each,
+lift the per-tile boxes back into page-pixel space, then drop the duplicates the
+overlaps produce. Split the testable geometry/parsing/merge into a new web-free
+module `app/lib/ocr_tiling.dart` (`ocrTiles` grid with edge-flush last tiles +
+coverage guarantee; `parseFlorenceSpans` — the old `_spansFromFlorence` JSON
+shape handling minus the user-space step, returns raster-pixel `OcrRawSpan`s;
+`mergeOcrSpans` — IoU+text de-dup) because `ocr_web.dart` imports
+`dart:js_interop` and so can't be loaded by the VM test runner. `ocr_web.dart`
+now crops each tile on the raster thread (`PictureRecorder`+`drawImageRect` →
+`toImage` → PNG) so only the tile's pixels cross to JS, offsets the returned
+boxes by the tile origin, merges, then maps to user space as before. No
+index.html change needed: the bridge already post-processes boxes against each
+input image's own size, so per-tile it returns tile-local pixels. Default tile
+1024px / overlap 128 → ~6 model calls for an A3 page at 2x (legible vs. one
+illegible call). The model inference itself stays sandbox-unverifiable (no
+WebGPU/Transformers.js here, same honesty posture as the native ONNX path);
+the tiling, parsing, and merge are unit-tested (`app/test/ocr_tiling_test.dart`,
+11 — coverage/overlap/edge tiles, the `<OCR_WITH_REGION>` + bbox + plain-text
+shapes, overlap de-dup). Florence-2-base-ft is still a weak doc-OCR model — for
+dense CAD the cloud VLM tier (`pdf_ocr_vlm` dots.ocr) or a detect+recognize
+model does better — but tiling removes the squish-to-illegibility that turned
+its output into hallucinated noise. Analyzer clean; existing
+ocr_menu/ocr_status tests still green.
+Free-text box alignment — left/center/right controls for FreeText
+annotations. The PDF `/Q` quadding (0/1/2) is the model: new `PdfTextAlign`
+enum in `pdf_document`'s `content_writer.dart` (alongside
+`PdfTextDirection`), `quadding`/`fromQuadding` both ways. Threaded through
+`addFreeText`/`addFreeTextRich` and the `_freeTextContent`/
+`_freeTextRichContent` generators as an optional `align`; line-x is now
+`_lineX(align, vr, width, pad)` (left = `vr.left+pad`, right =
+`vr.right-pad-width`, center = `vr.left+(vr.width-width)/2` — the pad
+cancels, so center is centered within the padded box). Key subtlety: the
+old code *conflated* `/Q==2` with RTL — `addFreeText` wrote `Q=2` only when
+the text resolved RTL, and the resize path recovered direction from `/Q`
+via `_annotationTextDirection`. Decoupled: when `align` is null the
+generator still falls back to direction (`_alignForDirection`: RTL→right,
+else left) so default output is byte-identical, but `/Q` now means absolute
+alignment. The resize/regenerate path (`restyleAnnotation` FreeText case)
+passes `textDirection: auto` + `align: style.alignment` (read from `/Q` via
+the new `PdfFreeTextStyle.alignment`), so direction comes from the text and
+alignment from `/Q` — no more double-reversing an LTR right-aligned box.
+`_annotationTextDirection` deleted (only that one caller). Editor side:
+`PdfEditingPreferences.textAlign` is **nullable** — null = "follow
+direction" (so typing Arabic still auto-right-aligns and the RTL inline
+test still sees `/Q==2`); a non-null value is an explicit user choice.
+Controller `addFreeText`/`addFreeTextRich`/`placeFreeText` pass
+`align: preferences.textAlign`; `_rewriteSelected`/`_rewriteSelectedRich`
+preserve the box's own `parsed.alignment` across text/font/size edits;
+`restyleSelectedText(align:)`, `selectedTextAlign`, and
+`setSelectedTextAlign` (sets the default *and* restyles the selection).
+`textAlign` is in the freeText style scope so it persists per-tool. UI:
+shared `TextAlignToggles` (3 icon circles, mirrors `FontStyleToggles`) in
+`editing_font_controls.dart`, wired into the toolbar tune popup (`Align`
+row under `Style`) and the properties panel `_textStyleControls`. Default
+path renders identically to before; the only behaviour change is the rare
+"force RTL direction onto LTR text" edge case, which now no longer reverses
+on resize (arguably the prior bug).
+Dedicated page-grid view (Ben: "add a new view that is a dedicated
+thumbnail view ... all the same page controls as the strip ... allow
+changing the size of the thumbnails"): `PdfThumbnailView`
+(editing_thumbnails.dart, exported) — a full-area reflowing grid of page
+thumbnails with the strip's whole control set, plus a header size
+slider. Built in the SAME file as `PdfThumbnailSidebar` so it reuses the
+private `_PageTile`, `_PageThumbnail`, render-stamp-keyed `_ThumbnailCache`
+(serialized one-page-at-a-time rasters), `_PageActionsButton`, and the
+new shared `_PageSelectionBar` (the multi-select bulk bar — rotate/
+export/delete/clear, keys 'pdf-thumbnail-{rotate-selected-ccw,-cw,
+export-selected,delete-selected,clear-selection}' — extracted out of the
+sidebar's inline `_selectionAction` so both views expose identical keys).
+Layout: `Wrap` (not GridView — pages have mixed aspect ratios, so fixed
+grid cells don't fit) of `SizedBox(width: tileWidth)` tiles inside a
+`SingleChildScrollView` + the shared `PdfScrollbar`; footer 'pdf-
+thumbnail-view-add-page', per-tile rotate/delete reuse 'pdf-thumbnail-
+rotate-<i>'. Reorder is custom (`ReorderableListView` is list-only):
+`_GridPageCell` wraps each tile in a `DragTarget<int>` over an immediate
+`Draggable` (mouse) or `LongPressDraggable` (touch/stylus) — picked by a
+`MouseRegion` hover flag, so a finger drag still scrolls while a mouse
+picks up immediately; drop calls `controller.movePage(from, thisIndex)`
+(movePage lands the page AT the target index). `_PageTile` gained an
+optional `onActivatePage` so a plain tap is a "page picker" (jump the
+viewer + fire it) instead of the strip's plain jump; shift/⌘ taps still
+only extend the selection. Size lives in
+`PdfEditingPreferences.thumbnailViewTileWidth` (double?, clamped
+96–360, default 168, slider key 'pdf-thumbnail-view-size'); the raster
+bucket already snaps to 64px so slider drags don't re-render per pixel.
+Shell wiring (pdf_editor_view.dart): a new view mode alongside reflow —
+`gridActive = features.thumbnails && prefs.showThumbnailView`,
+`reflowActive` now gated `&& !gridActive`, `altView = reflow||grid` drives
+the panel/toolbar/header suppression (was `!reflowActive` everywhere). The
+grid is overlaid `Positioned.fill` OVER the still-mounted `PdfViewer`
+(opaque Material, so it eats taps) rather than swapped for it — so a
+tapped page scrolls the LIVE viewer before `onOpenPage` closes the grid to
+reveal it (swapping would unmount the viewer and lose the jump to the
+viewport-memory restore). Toggle is a View-options item 'pdf-shell-page-
+grid' (NOT a standalone header button — that pushed the Save button off
+an 800px header, breaking the existing save test; the menu costs zero
+header width and matches reflow). `_ViewOption.pageGrid` in shell_chrome.
+dart; pageGrid/reflow each clear the other since both replace the viewer.
+`showThumbnailView`/`thumbnailViewTileWidth` persist. Tests:
+editing_thumbnail_view_test.dart (10 — layout, add-page, page-picker tap,
+size slider→pref + pref→tile width, shift-select+delete, per-tile rotate,
+long-press drag reorder, export, read-only drops controls) and
+pdf_shell_test.dart +3 (view-options swaps in the grid + tap returns to
+page view, grid clears reflow, thumbnails:false hides the option). Gotcha:
+the long-press reorder test is the touch path (default test pointer never
+hovers → LongPressDraggable); `startGesture` then pump kLongPressTimeout
+before `moveTo`. PdfReader keeps only its read-only strip (its strip has
+no page controls, so "same controls as the strip" maps to the editor).
 Thumbnail right-click menu: a page context menu on the thumbnail strip
 (`editing_thumbnails.dart`), opened by secondary tap on a tile
 (`_PageTile`'s `GestureDetector.onSecondaryTapUp`) — rotate left / right /
@@ -2588,3 +2714,586 @@ and a read-only strip (no menu without a handler; export-only with one),
 plus a `duplicatePages` unit group. 47 page-ops tests green; the existing
 reorder test (`editing_test.dart`) still passes both its long-press-touch
 and immediate-mouse drag paths; analyzer clean.
+Web OCR "TypeError: Failed to fetch" (Ben, follow-on to the tiling fix). The
+deployed app is served cross-origin-isolated (`app/firebase.json`:
+COOP `same-origin` + COEP `require-corp`) so skwasm's multithreaded WASM
+renderer can use SharedArrayBuffer. But the browser-local OCR (`app/lib/ocr_web.dart`)
+pulls Transformers.js from jsDelivr and the Florence-2 model from HuggingFace's
+CDN on first run, and `require-corp` demands every cross-origin subresource send
+a CORP header — those CDNs don't, so the download was blocked and surfaced as
+`TypeError: Failed to fetch` (the engine's `onToast('OCR failed: $e')`). It was
+NOT a regression from the main merge (the COEP block predates it); the earlier
+garbled-but-working run was a local `flutter run`, which doesn't apply
+firebase.json headers. Fix (Ben's pick over self-hosting the model or
+investigating further): switch COEP to `credentialless`. Same page isolation
+(crossOriginIsolated stays true on Chromium/Firefox, so the multithreaded
+renderer is unaffected), but cross-origin resources load WITHOUT credentials
+instead of REQUIRING CORP, so the OCR model fetch goes through. Safari has no
+credentialless support → it just isn't isolated there (single-threaded
+skwasm_heavy + working OCR), an acceptable fallback. One-line header change +
+the rationale comment; strictly relaxes the policy, so nothing that worked under
+require-corp breaks. The deployed-app model inference still can't be exercised
+in-sandbox (no browser/WebGPU), and jsDelivr/HuggingFace are 403'd by the
+sandbox network policy, so the header behaviour is reasoned, not reproduced here.
+
+## RSASSA-PSS signature verification
+
+Closed the deferred RSASSA-PSS gap (`cmsVerify` previously hard-stopped at
+the id-RSASSA-PSS OID `1.2.840.113549.1.1.10`). The verification core is
+`rsaVerifyPss` in `pdf_cos/src/crypto/rsa.dart`: RSAVP1 (`s^e mod n` →
+EM of `emLen = ceil((modBits-1)/8)` bytes), `_mgf1` mask generation, then
+EMSA-PSS-VERIFY per RFC 8017 §9.1.2 — check the `0xBC` trailer, clear the
+top `8*emLen - emBits` bits, unmask DB with MGF1, and compare
+`H' = Hash(0x00*8 || mHash || salt)` against H. The salt length is
+**recovered** by scanning DB to its `0x01` separator, so any conformant
+signature verifies regardless of the declared length; an explicit
+`saltLength` (from the params) is enforced when passed. One hash drives
+both the message digest and MGF1 — PSS allows them to differ but real
+signers never do (the maskGenAlgorithm `[1]` and trailerField `[3]` params
+are therefore not read).
+
+`_pssParams` in `cms.dart` reads RSASSA-PSS-params (hashAlgorithm `[0]`,
+saltLength `[2]`) off the AlgorithmIdentifier, which is now captured into
+`CmsSignerInfo.signatureAlgorithmParams` and
+`X509Certificate.signatureAlgorithmParams` (both previously discarded the
+params after pulling the OID). Dispatch added in `cmsVerify` and
+`X509Certificate.isSignedBy`, so PSS-signed certs in a chain now verify
+too. Defaults follow the ASN.1 spec (SHA-1, no explicit salt) for the
+degenerate no-params case; `cmsVerify` falls back to the signer's digest
+algorithm when params are absent.
+
+KAT in `pki_test.dart` against two OpenSSL signatures over the 1024-bit
+test key (salt length = digest length, and salt length = 0), covering
+auto-recovery, explicit-length enforcement, wrong-digest, and corrupted-
+signature rejection. The other deferred items (richer text editing, JBIG2
+Huffman/refinement, JPX subsampling + PCRL/CPRL) were left as-is this pass.
+
+## Richer text editing — cross-string matching with width compensation
+
+Lifted `PdfEditor.replaceText` (`content_editor.dart`) past its "match must
+fall inside one shown string" limit. It now models each maximal run of
+consecutive `Tj`/`TJ` operators as a flat list of **cells** — one per shown
+byte, plus a kern cell for each `TJ` adjustment number — so a `find` matches
+across the strings of a `TJ` array (and across adjacent show operators)
+exactly as the kerned text reads. The deferred example
+`[(spli) -20 (t run)]` now matches "split" as one word, consuming the
+interior −20.
+
+Replacements are **re-measured** against the font's real advance widths via
+`_widthsFor`: the font's own `/Widths` (+`/FirstChar`, `/MissingWidth`)
+when present, else base-14 metrics keyed off `/BaseFont` through
+`PdfStandardFont.tryFromName`, falling back to Helvetica. When text still
+follows a match on the line, a compensating `TJ` number of
+`newWidth − oldWidth` (glyph units — font size cancels, so it's never
+needed) is inserted so the rest of the line holds position. `oldWidth`
+includes any kern cells interior to the match.
+
+Emission keeps fidelity: runs with no match are returned untouched (byte
+identical); a single `Tj` whose result is one plain string stays a `Tj`
+(so simple corrections still serialize as `(text) Tj` and the existing
+round-trip test holds); anything needing a kern collapses the whole run to
+one `TJ`. `'`/`"` carry a line break so they stay standalone and need no
+compensation (still handled by `_replaceBytes`). /Type0 runs are still
+skipped and matching still stops at a line break (`Td`/`T*`/`'`/`"`) — i.e.
+this corrects and re-flows *within* a line, not across paragraphs; /Type0
+(CID) editing and paragraph reflow remain the deferred follow-ons.
+
+Mechanics worth remembering: `replaceText` rebuilds the operation list and
+writes it back via `elements.operations..clear()..addAll(...)` then
+`serialize()`; `ContentOperation(operator, operands)` is constructible and
+its operand list is mutable, and `CosArray` serializes elements
+space-separated, so a compensated run reads `[(AA) -667 (BBB)] TJ`. Tests
+in `content_edit_test.dart` cover within-element, cross-element+kern,
+the exact −667 Helvetica compensation, and a match spanning two `Tj`
+operators. Width compensation ignores `Tc`/`Tw` (per-char/space spacing),
+which is exact only when both are zero — the common case; documented, not
+handled. The remaining deferred item this pass left untouched: JBIG2
+Huffman/refinement and JPX subsampling + PCRL/CPRL.
+
+## Inline text editor: ghost wash, stray touch handle, bold/italic shortcuts
+
+Three fixes to the in-place free-text editor (`editing_overlay.dart`),
+prompted by edit-time visual feedback.
+
+1. **Ghost behind the live text.** Editing existing free text washed the
+   paper color over the old appearance at `alpha: 0.92`, so ~8% of the
+   committed rendering bled through — and because the live Flutter text and
+   the PDF appearance use slightly different glyph advances, that 8% read
+   as a misaligned shadow. Bumped the existing-text wash to fully opaque
+   (`alpha: 1`); a box with its own fill (`_textEditFill`) is unchanged, and
+   fresh boxes still wash faint (0.3) so you can place them over content.
+   The residual on-commit reflow (Flutter layout → PDF base-14 layout) is a
+   separate, deeper metrics problem left as-is.
+
+2. **Stray touch caret dot.** `_ScaledTextSelectionControls.buildHandle`
+   painted a handle for `TextSelectionHandleType.collapsed` too — the touch
+   caret's draggable dot, which in an expanded text box floats near the
+   box's bottom edge as a stray blue dot far from the caret. `buildHandle`
+   now returns `SizedBox.shrink()` for the collapsed type; the blinking
+   caret marks the insertion point and the range-selection handles stay.
+
+3. **Bold/Italic desktop shortcuts.** Added Cmd/Ctrl+B and Cmd/Ctrl+I to
+   the editor's existing `CallbackShortcuts` (alongside Esc / Cmd+Enter).
+   `_toggleInlineTextStyle` toggles `withBold`/`withItalic` on the base-14
+   face: with a selection it restyles it through `_applyInlineTextStyle`
+   (the same path the inline style chip uses); with a bare caret it styles
+   the whole box (select-all for visible feedback); on an empty box it just
+   sets the face. Embedded (non-base-14) fonts and form-field editors are
+   left alone. Test in `editing_text_edit_test.dart` selects a word, sends
+   Ctrl+B then Ctrl+I, and asserts the run renders bold+italic and commits
+   as `/HelvBoldObl`. Gotcha that cost a run: restyling persists the
+   creation default to the SharedPreferences mock, so the test resets
+   `fontFamily` at the end — a sibling test builds a controller without
+   clearing prefs and would otherwise inherit the bold+italic family.
+
+## Rich free-text round-trip: /RC + /DS so re-editing keeps per-run styling
+
+Reopening a free-text box for editing lost its mixed formatting: the rich
+per-run model (`addFreeTextRich` — several fonts/sizes/colors in one box)
+was rasterized into the appearance stream, but only `/Contents` (plain
+text) and a single `/DA` (the *first* run's font) were persisted. On
+reopen `_openTextEditor` seeded the inline editor from `/DA` alone, so a
+box with "**bold** plain *italic*" came back uniformly in the first run's
+style. The appearance stream can't be re-parsed into runs (word wrap, hex
+glyphs, embedded fonts), so the fix is to persist the structure.
+
+`addFreeTextRich` (`annotation_editor.dart`) now also writes the spec's
+rich-text keys (§12.7.3.4): `/RC`, an XHTML `<body>/<p>` with one `<span
+style="font-family:…;font-size:…pt;color:#rrggbb[;font-weight:bold]
+[;font-style:italic]">` per run, and `/DS`, the first run's style as the
+paragraph default. `_richContentXhtml`/`_richSpanStyle` build them from the
+*unwrapped* runs (so base-14 PostScript family names survive — the Unicode
+wrapping for non-Latin text only affects the appearance). `/RC` is purely
+for our own re-edit; viewers render from `/AP` as before, so nothing about
+the on-page rendering changes.
+
+`PdfAnnotationEditing.parseFreeTextRichContent` is the lenient inverse:
+pulls `<span>`s, maps `font-family` through `PdfStandardFont.tryFromName`
+(refined by `font-weight`/`font-style`), reads size/color, and defaults any
+missing attribute from a caller-supplied fallback (the box's flat `/DA`).
+Static on the extension, so it's `PdfAnnotationEditing.parse…`, not
+`PdfEditor.parse…` — extension statics don't ride the extended type.
+`PdfAnnotation.richContent` exposes raw `/RC`; the controller's
+`selectedRichRuns` parses it with the `/DA` style as fallback, returning
+null when there's no `/RC` (plain or pre-existing boxes) so the editor
+falls back to the single-style seed.
+
+On reopen, `_openTextEditor` calls the new `_RichTextEditingController.
+seedRuns(runs, fallback)` when `selectedRichRuns` is non-empty: it sets the
+field text and one style range per run (merging adjacent identical), and
+keeps `fallback` (the `/DA` style) as the typing default for text added
+after. Uniform boxes still round-trip through `/DA` as before — they also
+get a one-span `/RC` now, harmless.
+
+Scope: base-14 faces round-trip exactly; embedded/Unicode runs fall back to
+the `/DA` face on re-edit (the appearance still renders correctly, only the
+re-edit distinction is lost). Resizing a rich box still flattens to the
+single-style appearance path — unchanged, separate from this fix. Tests:
+`annotation_editor_test.dart` (writer→parser round-trip incl. markup/newline
+escaping and attribute fallback) and `editing_text_edit_test.dart`
+(bold-one-word → commit → reopen shows the bold span again).
+
+## Inline editor follow-ups: embedded-font preview + Escape focus release
+
+Two more in-place free-text editor fixes, same "what you see while editing
+should match what commits" theme as the /RC round-trip.
+
+1. **Embedded/bundled font not visible mid-edit.** Changing part of a box to
+   a bundled (DejaVu) or custom embedded font showed no change in the editor,
+   though the committed appearance embedded it correctly. Base-14 faces map
+   to platform families ('Helvetica'/'Times New Roman'/'Courier'), but an
+   embedded font is drawn by the page renderer from outline bytes turned into
+   paths — a Flutter `TextField` can't use those until they're loaded as a
+   font. `_textEditUiFamily` returned null for any non-`PdfStandardFont`, so
+   the styled run fell back to the field face. Fix: when a restyle carries a
+   `PdfEmbeddedFont`, `_ensureEmbeddedFontPreview` registers its bytes via
+   `ui.loadFontFromList` under a synthetic family (`pdfedit-<postScript>:<len>`,
+   deduped through a module-level map + an in-flight set), then rebuilds so
+   the run switches to the real face. Hooked at the restyle *consume* point
+   (`_onControllerChanged`), so it covers both the inline font menu and a host
+   driving `restyleEditingTextSelection` directly. Needed a public
+   `PdfEmbeddedFont.fontBytes` getter (the parse keeps the raw program). The
+   box-default font (`_textEditFont`) is still always base-14, so only ranges
+   need this; reopen via /RC only ever yields base-14 runs, so no embedded
+   registration is needed there.
+
+2. **Escape didn't release focus.** `_closeTextEditor` cleared the editor but
+   never unfocused, so the field's focus node could keep primary focus (soft
+   keyboard/caret lingering, viewer shortcuts dead). Added
+   `_textEditFocus.unfocus()` on close. Also moved Escape onto the field's own
+   focus node via `FocusNode(onKeyEvent:)` — it cancels straight from the
+   focused node and returns `handled`, so it fires even where the ancestor
+   `CallbackShortcuts` Escape is shadowed by the field's own editing actions
+   (the redundant `CallbackShortcuts` binding stays, harmless: `handled` stops
+   the double-fire). Tests in `editing_text_edit_test.dart`: an embedded font
+   applied to a run previews in a `pdfedit-` family and commits as a Type0
+   face; Escape leaves no editor and no lingering focus.
+
+## Escape on the inline editor: finish the box, never delete it
+
+Follow-up to the focus-release work above. On desktop, placing a free-text
+box, typing, and pressing Escape *discarded* the box — which read as Escape
+"deleting" the annotation you'd just made. The earlier `onKeyEvent`/unfocus
+changes made Escape reliably end the edit, but it still ran the cancel path.
+
+Escape now goes through `_onEscapeTextEdit`, which never destroys a box:
+a brand-new box **commits** what was typed (an empty one adds nothing on
+close), matching the Figma/PowerPoint convention where Escape finishes the
+box; an existing box or a form field still **cancels** (reverts to the saved
+value — also non-destructive, the box stays). Wired into both the field's
+`onKeyEvent` and the redundant `CallbackShortcuts` binding. The old
+"Escape cancels without committing" test became "Escape keeps a newly placed
+box, committing what was typed", plus a new "Escape on an empty new box adds
+nothing". Existing-box and form Escape paths are unchanged (covered by the
+mouse/touch edit-in-place tests, which assert the annotation survives).
+
+### Second Escape backs out the tool: hand focus back to the viewer
+
+The "first Escape commits" change exposed a sequel bug: a *second* Escape did
+nothing, so the armed free-text tool never stepped back out. Cause: closing
+the editor `unfocus()`'d the field into limbo, so the viewer's `_focusNode`
+(which owns its `CallbackShortcuts`) held no focus and the next key reached
+nothing. Fix: `EditingPageOverlay.onTextEditClosed` — called from
+`_closeTextEditor` only when the editor still owned the keyboard (Escape /
+⌘Enter / tap-on-page commit, detected via `_textEditFocus.hasFocus` before
+the field is torn down; a close because focus moved to another widget, e.g. a
+toolbar field, is left alone). The viewer wires it to
+`_reclaimFocusAfterTextEdit` → `_focusNode.requestFocus()`. Now the two-Escape
+ladder works: first Escape commits the box and keeps the tool armed; the
+second reaches the viewer's `_onEscape` and disarms the tool to none (`tool =
+null`, the existing back-out step — not the select tool). Test: "two escapes:
+first commits the box, second backs out the tool".
+
+### Configurable scale reference unit (left side of the ratio)
+
+The scale dialog hard-coded "1 in = N unit" on the left — fine for an
+imperial drawing, wrong for a metric one where scales are quoted "1 cm = N m".
+`PdfMeasurementScale` now carries a `pageUnitLabel` (the on-page reference
+unit, one of `in`/`cm`/`mm`; default `in` so existing scales and the persisted
+JSON are byte-compatible — the `f` key is omitted when it's inches, and a
+legacy payload decodes as inches). `ratioLabel` and the dialog convert through
+`_pointsPerPageUnit` (72 pt = 1 in, 72/2.54 = 1 cm, 72/25.4 = 1 mm) instead of
+the bare `* 72`; the canonical `unitsPerPoint` is unchanged, so the stored
+`/Measure` math and all readouts are untouched — only how the ratio is quoted.
+The dialog's left side became a `pdf-scale-page-unit` dropdown, defaulting via
+the new `pdfDefaultPageUnit()` (inches in the imperial regions, centimetres
+elsewhere — shares `_isImperialRegion` with `pdfDefaultMeasurementUnit`, so it
+follows the device region, not the app's UI locale). Switching either dropdown
+keeps the typed number (it's a declaration of the ratio, not a unit
+conversion). Tests: `ratioLabel quotes the configurable on-page reference
+unit`, the encode/decode round-trip incl. the legacy-inches path, `the
+page-unit (left side) follows the device region`, and an end-to-end
+`a metric page unit produces the right per-point scale`.
+
+### Calibrate the scale by drawing a known length
+
+The scale dialog gained a "Calibrate" action (shown only when
+`showPdfScaleDialog(onCalibrate:)` is wired — the toolbar passes it). The
+controller's `calibrateScale` had been dead code; this is its first caller.
+Flow: tap Calibrate → dialog dismisses, `controller.tool` becomes the new
+`PdfEditTool.calibrate`, a SnackBar says "Draw a line of known length" →
+user drags one straight segment → on release the overlay shows
+`showPdfCalibrationLengthDialog` ("The line you drew represents [__]
+[unit]") → `calibrateScale(start, end, length, unit)` derives the scale and
+the tool steps back to select. Nothing is stamped on the page.
+
+Wiring notes: `calibrate` reuses the single-segment line-drag machinery —
+added to `_lineDragTool` (so the preview line paints) and to the pan-start
+drag-out switch; `_commitLineDrag` branches to `_commitCalibration` (async,
+`unawaited`) before the measurement/line paths. `_measureKind` deliberately
+returns null for it, so the live measure readout (which needs an existing
+scale) stays off and no `/Measure` annotation is added. The calibrated
+scale's real-world unit comes from the length dialog (defaulting to the
+device region via `pdfDefaultMeasurementUnit`); its on-page `pageUnitLabel`
+follows the existing scale or `pdfDefaultPageUnit()`. `calibrateScale` and
+`PdfMeasurementScale.fromReference` took an optional `pageUnitLabel` (default
+`in`, so the existing dead-code signature stays source-compatible). Tests in
+editing_measure_test.dart: the Calibrate button hides without a callback and
+fires + dismisses with one; an end-to-end mouse drag → length dialog → scale
+set (200 page-pt segment = 50 ft ⇒ unitsPerPoint 0.25, nothing stamped, tool
+back to select); and cancelling the length dialog leaves the scale unset.
+
+### Measurement captions: keep them on restyle, plus font + line endings
+
+Three fixes to measurement annotations (/Line, /PolyLine, /Polygon + /Measure):
+
+1. **Width change dropped the caption (regression).** The label is drawn
+   into the appearance stream, but both regeneration paths —
+   `_regenerateLineLikeAppearance` (restyle/resize) and `reshapeLineAnnotation`
+   (vertex drag, ending change) — rebuilt only the line geometry and never
+   the caption, so any restyle erased the label. Extracted
+   `_appendMeasurementCaption`: when the annotation carries a /Measure it
+   recomputes the caption from the geometry, recovers its font/size/color
+   from /DA, draws it, widens /Rect + BBox to fit, and returns the caption
+   font resource. Both paths now call it, so the label survives every edit.
+
+2. **Caption font formatting.** `addMeasurement` gained `captionFont`
+   (a `PdfStandardFont`, base-14) and `captionSize`, and records them as a
+   /DA string (`<rgb> rg /<resource> <size> Tf`) so regeneration can redraw
+   in the same face. `_measurementCaptionStyle` parses /DA back (Helvetica
+   10 pt in the stroke color for pre-/DA measurements). The controller feeds
+   `preferences.fontFamily`/`fontSize`; the measure tool's tune popup already
+   shows the font controls (`font: true`), so they now take effect.
+
+3. **Start/end line endings.** `addMeasurement` gained `startEnding`/
+   `endEnding` and writes /LE for distance (Line) and perimeter (PolyLine)
+   — area (Polygon) carries none. The controller passes
+   `preferences.lineStartEnding`/`lineEndEnding`; the measure tune popup now
+   enables the ending pickers for distance/perimeter. Editing a selected
+   measurement's endings already worked via `setSelectedLineEndings`
+   (`canSetLineEndings` accepts Line/PolyLine) and now keeps the caption.
+
+Shared `_drawMeasurementCaption` replaced the inlined caption block (now
+takes any standard font instead of hardcoded `Helv` 10 pt). Tests:
+measure_test.dart (restyle keeps caption, /DA font+size, endings written +
+survive restyle, perimeter endings, setLineEndings keeps caption);
+editing_measure_test.dart (new measurements adopt the active caption font +
+endings; a width change keeps the caption visible).
+
+### Restyle a selected measurement's caption font
+
+Follow-up to the above ("not yet done" item): the font controls now appear
+for a *selected* measurement and restyle its caption in place. Editor:
+`PdfEditor.setMeasurementCaptionStyle(page, annotation, {font, size})` —
+mirrors `setLineEndings` (reads the current /DA style via
+`_measurementCaptionStyle`, preserves the caption color, rewrites /DA with
+the new face/size, re-wraps the dict and calls `reshapeLineAnnotation`,
+which redraws the label through `_appendMeasurementCaption`). No-op (false)
+for a line without a /Measure. Controller: `canRestyleMeasurementCaption`
+(single /Line, /PolyLine, or /Polygon with a /Measure and an appearance),
+`selectedMeasurementCaptionStyle` (font+size from /DA via `_freeTextStyleOf`),
+`setSelectedMeasurementCaption({font, size})`. Toolbar: `_selectionStyleFields`
+sets `font: controller.canRestyleMeasurementCaption` on the Line/PolyLine and
+Polygon cases; the tune popup's font-size slider and `FontStyleToggles` read
+`captionStyle` (the new getter) and route changes through
+`setSelectedMeasurementCaption` when no FreeText is the target. `_setFont`
+and `pdfApplyFont` gained the same fallback (standard families only — a
+caption is a base-14 face, so embedded fonts don't apply). The slider leaves
+the *creation* default font size untouched while restyling a caption (unlike
+FreeText, where the box size and default move together), and
+`activeFontLabel` now reflects the selected caption's face. Tests:
+measure_test.dart (`setMeasurementCaptionStyle` restyles /DA + the drawn
+caption; no-op on a plain line); editing_measure_test.dart (the panel
+restyles a selected caption font, getters report it, label kept).
+
+### Shift-hover range preview on the thumbnail strip
+
+Holding Shift over the pages strip now previews the range a shift-click
+would select — the run from the current anchor to the hovered tile reads as
+a faint version of the selection chip (primary @ 0.08 fill, @ 0.45 border)
+before the click commits. Controller: `pageSelectionAnchor` getter and
+`pageRangePreviewTo(index)` (mirrors `selectPageRange` without mutating).
+`_PdfThumbnailSidebarState` tracks `_hoverPage` (a `MouseRegion` per tile,
+via a new `_PageTile.onHover`) and `_shiftHeld` (a `HardwareKeyboard`
+handler added/removed in init/dispose); `_rangePreview` is the previewed
+set. The hover field always updates but only triggers a rebuild while Shift
+is held, so plain hovering never churns the lazy list. `_PageTile` gained
+`inRangePreview` + `onHover` (both default off, so the full-area grid — which
+does its own hover-for-drag — is unaffected). The decorated chip Container
+got a stable `pdf-thumbnail-tile-chip-$index` key (never toggles, so it
+doesn't re-key the thumbnail raster) that the widget test reads the chip
+fill through. Tests: editing_page_ops_test.dart (`pageRangePreviewTo`
+mirrors the range / single page with no anchor; a Shift-hold over a hovered
+tile fills the previewed chips without committing, and releasing Shift
+clears them).
+
+### No layout shift when the selection bar appears (strip)
+
+The strip used to insert the `_PageSelectionBar` as an extra row when 2+
+pages were selected, which pushed every tile down. Now the strip's header
+is a single always-present fixed-height (36px) slot that swaps content: the
+"Pages" title + page-actions menu when idle, the bulk-action bar when 2+ are
+selected. Same height either way, so the tiles never move. `_PageSelectionBar`
+gained a `compact` flag: the strip passes `compact: true` for a one-row
+layout (a `Flexible` "N selected" count + the action icons in a horizontal
+`SingleChildScrollView`, so a narrow strip scrolls the actions instead of
+overflowing or wrapping); the full-area grid keeps the roomier two-row
+`Wrap`. The decorated tile chip's stable `pdf-thumbnail-tile-chip-$index`
+key (added for the shift-hover preview) doubles as the anchor a test reads
+to assert the first tile's top is unchanged when the bar swaps in. The two
+strip tests that tap selection actions now `ensureVisible` first (the
+actions can sit off the narrow strip's scroll). The grid's selection bar
+still appears as its own row — only the docked strip was asked to stop
+shifting, and the grid has the vertical room. Tests: editing_page_ops_test.dart
+(the bar swaps in without moving the first tile; the action taps reveal-then-tap).
+
+### No white flash when releasing a free-text resize
+
+A transparent free-text box flashed opaque paper on resize release. During
+the drag the box is "lifted" — the page is re-rendered without the
+annotation (`_resizeCleanPicture`) and the live preview paints only the
+box's own (maybe transparent) fill over it, so real page content shows
+through. On release the lift was dropped (`_clearResizeClean`) and the
+commit afterimage (`_afterText`) fell back to `washed: true`, i.e. a
+`pageColor @ 0.92` opaque-paper background — over a transparent box that's a
+white flash until the new raster lands. Fix: carry the lift past the drag.
+`_panEnd` detaches `_resizeCleanPicture` (taking ownership so
+`_clearResizeClean` won't dispose it) with the old footprint rect/angle, and
+the text-resize commit branch stashes them as `_afterTextClean` /
+`_afterTextHideRect` / `_afterTextHideAngle` and sets `_afterText.washed =
+liftClean == null` (the opaque wash is now only the fallback when the async
+clean render never landed). The painter already paints `resizeClean` over
+`resizeHideRect` independent of `dragging`, so `build` just feeds it the
+afterText lift when not dragging — no painter change. `_clearAfterimage`
+(and thus `dispose`) disposes `_afterTextClean`; a commit that produced no
+new revision disposes the detached lift to avoid a leak. Tests:
+editing_text_edit_test.dart (releasing a transparent-box resize keeps the
+lift — `resizeClean`/`resizeHideRect` stay non-null into the afterimage
+instead of an opaque wash; the text stays shown).
+
+### Form-field discoverability + text-box styling
+
+Two gaps in the form-authoring tool: empty fields render nothing (so an
+author can't see what fields exist) and a text field's look (/DA font/size/
+colour, /Q alignment, /Ff multiline, auto-size) was uneditable from the UI.
+
+Core (`pdf_document`): the pivot is making **form appearance generation
+handle embedded Type0 fonts**, not just byte-encoded base-14. `_regenerate
+VariableText` now reparses the field's /DA→/DR font; if it's a Type0 it
+rebuilds a `PdfEmbeddedFont` via the new `PdfEmbeddedFont.fromFontDict`
+(extracted from `fromFreeText`, which now delegates) and shows text with
+`encodeHex`/`showGlyphHex` + `buildResource` into the appearance /Resources,
+measuring with the embedded metrics — so **every** fill path (setTextValue,
+setChoiceValue, resizeFormWidget) is embedded-correct with no extra plumbing,
+even after reopen (the program re-extracts from /DR FontFile2). New
+`PdfFormStyling.setTextFieldStyle` (form_styling.dart) registers the chosen
+font in /DR (base-14 Type1 under its short name, or embedded as a fresh
+`FF<n>` Type0), rewrites /DA + /Q + /Ff, then regenerates. `PdfFormField`
+gained `appearanceFontSize` (0 = auto) and `appearanceColor` (parses the /DA
+g/rg/k op).
+
+Controller: `setFormFieldStyle(name, …)`, `canStyleSelectedFormField`,
+`selectedFormFieldName`, `selectedFormFieldStyle` (a `PdfFormFieldStyle`
+struct read from /DA·/Q·/Ff), and `selectFormFieldByName` (centre hit-test).
+`pdfApplyFont` now routes to a selected form field when it isn't a free-text
+box, so the existing font menu (standard/bundled/custom-embed) works for
+fields.
+
+UI — all three surfaces funnel through `setFormFieldStyle`/`selected
+FormFieldStyle`: (1) `FormFieldLabelLayer` (editing_form_layer.dart) outlines
+every widget and tags it with its name, mounted in pdf_viewer only when
+`tool == PdfEditTool.form` (IgnorePointer, so it never steals the overlay's
+gestures); (2) the properties panel's `_formFieldControls`; (3) a shared
+`PdfFormFieldStyleControls` widget (editing_form_style.dart) used by both the
+toolbar tune popup (new `_StyleFields.formField`, 'Widget' case in
+`_selectionStyleFields`) and a field-anchored popup launched from the form
+context menu's new "Text style…" entry. Tests: form_styling_test.dart
+(pure-Dart: base-14 + embedded /DR + reopen-refill), editing_form_style_test.dart
+(controller API + labels appear with the tool + panel/tune-popup surfaces).
+
+## Type0 (composite) text editing + slider edits + redaction preview fix
+
+Three threads landed together.
+
+**Redaction fast-scroll leak.** After `applyRedactions` burns marks, the
+document swaps to a *same-geometry* revision, so the viewer's
+`didUpdateWidget` took the `rebind` path — which kept the cached low-res
+previews and marked them fresh for the new page objects, so a fast scroll
+flashed the now-removed content and the on-screen render could never
+replace it (`isFresh` blocked `putFromPicture`). Fix: `PdfPagePreviewCache.
+rebind` gained a `changed` predicate; the viewer snapshots each page's
+`PdfEditingController.pageRenderStamp` and, on a same-geometry swap, drops
+(not rebinds) the preview for any page whose stamp advanced (redaction
+bumps the epoch → every page). A per-page `contentStamp` is threaded into
+`PdfPageView` so a reused on-screen state also drops its stale raster +
+preview when its content changed. Disk previews are already off during an
+edit session, so the leak was purely in-memory. Tests in
+`page_preview_test.dart` (rebind drop unit) and `editing_redaction_test.dart`
+(end-to-end: the post-burn preview shows the fill, not the old glyphs).
+
+**Editable slider readouts.** General rule — every editing slider's value is
+now typeable. New shared `editing_value_field.dart`'s `PdfSliderValueField`
+replaces the read-only readout `Text` in the properties panel
+(`_sliderRow`), the toolbar tune popup (`_slider`) + inline opacity, and the
+shared form-style control. It tracks the slider while unfocused and commits
+on Enter/blur through the slider's change-end callback (clamped to range);
+percent readouts round-trip via a `parse` that strips `%`.
+
+**Type0 text editing.** `replaceText` now rewrites composite /Type0 runs for
+the Identity-H / CIDFontType2 / Identity-CIDToGIDMap shape (what this lib
+emits and most producers use). `content_editor_type0.dart`'s `_Type0Editing`:
+reads existing text from /ToUnicode (so a `find` string matches), re-encodes
+replacements via the embedded program's own cmap
+(`PdfEmbeddedFont.glyphForRune`) — so *any* glyph the embedded font carries
+can be typed, not just ones already on the page — re-measures from the
+descendant /W (DW default), inserts the width-compensating kern, and on
+commit merges the new glyphs' advances + Unicode into /W and /ToUnicode.
+It bails (run untouched) on anything it can't round-trip: CFF descendant,
+stream /CIDToGIDMap, non-Identity-H, missing program/ToUnicode, a char the
+font lacks, or a code split across show strings. Crucial UI-integration
+piece: `PdfPageElements` previously Latin-1-decoded Type0 runs (garbage), so
+the content tool's prompt + `find` were wrong — now it decodes Type0 via
+shared `type0_metrics.dart` (`parseToUnicodeCmap`/`parseCidWidths`/
+`cidDefaultWidth`) so `element.text` is real Unicode and measures by /W.
+Tests in `content_edit_type0_test.dart` build a real Type0 page via
+`CosDocumentBuilder` + `PdfEmbeddedFont.buildResource` and cover rewrite,
+typing a not-yet-used char (ö, with /W + /ToUnicode updates), width
+compensation, shrink, no-match, delete, element-text decode, and the
+content-tool round-trip.
+
+A *subsetted* embedded font physically lacks the outlines it stripped, so
+typing a character whose glyph isn't in the embedded program needs an
+outside glyph source. That's handled by a **bundled-font fallback**:
+`replaceText(fallbackFonts:)` takes a list of `PdfEmbeddedFont`s; when the
+document's own /Type0 font can't draw the whole replacement, `_Type0Editing`
+picks the first fallback that can (style-matched to the document font's
+serif/mono /Flags), embeds it as a new page /Font resource, and emits the
+replacement between `Tf` switches (restoring the original font after) — so
+unchanged text stays in the document font and only the new characters adopt
+the fallback face. Because `pdf_document` is pure-Dart (no asset access),
+the bytes come from the editor: `loadFallbackFonts()` (`editing_fonts.dart`)
+loads + parses the already-bundled **DejaVu Sans/Serif/Mono** trio (wide
+Unicode, libre) once, and the content tool's `_editElementText` awaits it
+and passes them through `replaceSelectedElementText(fallbackFonts:)`. The
+simple-font path also stopped hard-encoding `find`/`replace` as Latin-1
+(`_tryLatin1` → null for non-Latin-1), so a Unicode replacement no longer
+throws before reaching the composite path. Tests:
+`content_edit_type0_test.dart` uses Liberation Sans as the document font and
+a DejaVu fallback for a glyph Liberation lacks, asserting the run switches
+fonts and the text round-trips through both /ToUnicodes;
+`editing_fonts_test.dart` asserts the trio resolves from assets.
+
+## Orphaned-AcroField reconciliation (macOS 26.5 / Quartz)
+
+Real-world ITF forms saved by a buggy macOS **26.5 (Build 25F71)** Quartz
+PDFContext (15.6.1 and the 25F80 patch are fine) leave the `/AcroForm
+/Fields` tree and the on-page widget annotations as **two disconnected
+copies of the same form**: the `/Fields` entries (merged field+widget
+dicts) appear on no page, while the visible page widgets carry the same
+fully-qualified `/T` but are absent from `/Fields` and have no `/Parent`.
+Read straight, `PdfAcroForm.fields` enumerated the invisible copies and
+missed everything the page actually shows, so filling silently updated the
+wrong dicts.
+
+Fix is a non-destructive model-level reconciliation in `form.dart`
+(`PdfAcroForm._reconcileOrphanWidgets`, run at the end of the cached
+`fields` getter — auto, lazy, no byte rewrite on open):
+
+- `_fieldTreeDicts()` = everything reachable from `/Fields` by descending
+  `/Kids`. `_orphanWidgetsByName()` = page `Widget` annots **not** in that
+  set, grouped by `_widgetFieldName` (own `/T` joined up any `/Parent`
+  chain). Both empty for well-formed forms → zero behavior change.
+- A `/Fields` terminal whose own widgets show on no page **adopts** the
+  matching orphan group (`PdfFormField._reconciled`); `widgets`, `value`,
+  and `isChecked` consult it first. Orphan groups with no `/Fields` entry
+  become **synthesized** terminal fields (`dict` = the page widget).
+- Value rule (user pick): the visible page widget's `/V` wins when set,
+  falling back to the `/Fields` copy — the producer split data across both,
+  page side is what the user sees. `reconciledWidgets` is public so
+  `form_editor`'s `_finishFieldEdit` strips the adopted widgets' stale `/V`
+  after a fill (skipping the dict itself for synthesized fields) so the
+  canonical value and regenerated appearance stay consistent.
+
+Filling needs no special-casing: `field.widgets` already returns the page
+copies, so `_regenerateVariableText` repaints the visible annotation and
+`_stageFormDict` stages it (page annots are indirect). The `/Fields` copy
+stays off-page so renderers walking page `/Annots` never double-draw.
+
+Tests: `pdf_test_fixtures.buildOrphanedAcroFormPdf()` reproduces the
+pattern (off-page `name`/`town` in `/Fields`; on-page `name`/`town`/`extra`
+orphans); `pdf_document/test/form_reconcile_test.dart` covers adoption,
+synthesis, `describeFields`, the well-formed no-op, and round-trip fills.
+`form_admin_test.dart`'s "widget no page lists" case now asserts on the
+in-memory editor doc — its old save/reopen relied on an *unstaged* page
+mutation, so the saved bytes actually retained an orphan widget that
+reconciliation (correctly) re-surfaced.

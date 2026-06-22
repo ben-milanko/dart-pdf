@@ -10,6 +10,68 @@ import 'text_prompt.dart';
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
 
+/// While the form-authoring tool is armed, outlines every form-field
+/// widget on a page and tags it with its field name — so empty fields
+/// (which render nothing) are discoverable and you can see what each one
+/// is named before selecting it.
+///
+/// Purely informational: it sits under the editing overlay's gestures
+/// ([IgnorePointer]) so selecting, moving, and resizing fields is
+/// unaffected. Mounted by [PdfViewer] only when
+/// [PdfEditingController.tool] is [PdfEditTool.form].
+class FormFieldLabelLayer extends StatelessWidget {
+  const FormFieldLabelLayer({
+    super.key,
+    required this.controller,
+    required this.pageIndex,
+    required this.geometry,
+  });
+
+  final PdfEditingController controller;
+  final int pageIndex;
+  final PdfPageGeometry geometry;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = PdfViewerTheme.of(context).annotationChromeColor ??
+        const Color(0xFF1E88E5);
+    final fields = controller.formWidgetsOn(pageIndex);
+    return IgnorePointer(
+      child: Stack(children: [
+        for (final (field, _, annotation) in fields)
+          _label(geometry.toViewRect(annotation.rect), field.name, chrome),
+      ]),
+    );
+  }
+
+  Widget _label(Rect rect, String name, Color chrome) {
+    return Positioned.fromRect(
+      rect: rect,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: chrome.withValues(alpha: 0.05),
+          border: Border.all(color: chrome.withValues(alpha: 0.5)),
+        ),
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Container(
+            constraints: BoxConstraints(maxWidth: rect.width),
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+            color: chrome.withValues(alpha: 0.85),
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xFFFFFFFF), fontSize: 10, height: 1.1),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One page's interactive form layer: places a tap target over every
 /// visible form-field widget so a reader can fill the form directly —
 /// click a text field and type, tap a check box or radio button, pick

@@ -7,6 +7,27 @@
   <title>DartPDF: edit PDFs locally</title>
   <meta name="description"
     content="Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on iPhone, iPad, Mac, Android, Windows, Linux, and the web. Files stay local. No account. No uploads." />
+  <link rel="canonical" href="https://dart-pdf.com/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="DartPDF" />
+  <meta property="og:url" content="https://dart-pdf.com/" />
+  <meta property="og:title" content="DartPDF — private, local PDF editor for every device" />
+  <meta property="og:description"
+    content="Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on iPhone, iPad, Mac, Android, Windows, Linux, and the web. Files stay local. No account. No uploads." />
+  <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="DartPDF — pure-Dart PDF renderer & editor for Flutter" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="DartPDF — private, local PDF editor for every device" />
+  <meta name="twitter:description"
+    content="Edit, annotate, OCR, fill, sign, redact, and compare PDFs on every platform. Files stay local. No account. No uploads." />
+  <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
+
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png" />
@@ -1081,6 +1102,30 @@
       color: #fff;
     }
   </style>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "DartPDF",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "iOS, iPadOS, macOS, Android, Windows, Linux, Web",
+    "description": "Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on every device. Files stay local — no account, no uploads.",
+    "url": "https://dart-pdf.com/",
+    "image": "https://dart-pdf.com/assets/og-image.png",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Person",
+      "name": "Ben Milanko"
+    },
+    "softwareHelp": "https://dart-pdf.com/support",
+    "privacyPolicy": "https://dart-pdf.com/privacy"
+  }
+  </script>
 </head>
 
 <body>
@@ -1380,17 +1425,18 @@
       <div class="sec-head reveal">
         <p class="eyebrow">Download</p>
         <h2>Get DartPDF on your platform.</h2>
-        <p>Use it in a browser, install the desktop app, or get the Android release from Google Play.</p>
+        <p>Get it on the App Store and Google Play, install the desktop app, or use it right in your browser.</p>
       </div>
 
       <div class="store-row reveal">
-        <span class="store-badge is-soon" role="img" aria-label="DartPDF on the App Store, coming soon">
+        <a class="store-badge" href="https://apps.apple.com/app/dartpdf/id6780083686"
+          aria-label="Download DartPDF on the App Store">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
           </svg>
-          <span><span class="s1">Coming soon to the</span><span class="s2">App Store</span></span>
-        </span>
+          <span><span class="s1">Download on the</span><span class="s2">App Store</span></span>
+        </a>
         <a class="store-badge" href="https://play.google.com/store/apps/details?id=dev.milanko.dartpdf"
           aria-label="Get DartPDF on Google Play">
           <svg viewBox="0 0 24 24" fill="currentColor">

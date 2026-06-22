@@ -4,7 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont;
+    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -12,6 +12,8 @@ import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
+import 'editing_form_style.dart';
+import 'editing_value_field.dart';
 import 'editing_measure.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -429,8 +431,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Future<void> _setScale(BuildContext context) async {
-    final scale =
-        await showPdfScaleDialog(context, initial: controller.measurementScale);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final scale = await showPdfScaleDialog(
+      context,
+      initial: controller.measurementScale,
+      onCalibrate: () {
+        controller.tool = PdfEditTool.calibrate;
+        messenger?.showSnackBar(const SnackBar(
+          content: Text('Draw a line of known length to calibrate the scale.'),
+        ));
+      },
+    );
     if (scale != null) controller.measurementScale = scale;
   }
 
@@ -477,7 +488,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       multiline: false,
     );
     if (text == null || text.isEmpty || text == element.text) return;
-    controller.replaceSelectedElementText(text);
+    // bundled fallbacks let composite (/Type0) edits draw characters the
+    // document's own (possibly subsetted) font lacks
+    final fallbacks = await loadFallbackFonts();
+    controller.replaceSelectedElementText(text, fallbackFonts: fallbacks);
   }
 
   void _flatten(BuildContext context) {
@@ -1237,16 +1251,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
         ),
       ),
-      SizedBox(
-        width: 38,
-        child: Text(
-          '${(value * 100).round()}%',
-          style: TextStyle(
-            fontFeatures: const [FontFeature.tabularFigures()],
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
+      PdfSliderValueField(
+        value: value,
+        min: 0.1,
+        max: 1,
+        width: 40,
+        display: (v) => '${(v * 100).round()}%',
+        parse: _parsePercent,
+        onSubmit: (v) {
+          controller.opacity = v;
+          if (restyling) controller.restyleSelected(opacity: v);
+          setState(() => _dragOpacity = null);
+        },
       ),
     ]);
   }
@@ -1303,7 +1319,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'insert':
         return const _StyleFields(opacity: true, font: true, boxColors: true);
       case 'measure':
-        return const _StyleFields(stroke: true, opacity: true, font: true);
+        return _StyleFields(
+          stroke: true,
+          opacity: true,
+          font: true,
+          // a distance line and a perimeter polyline carry endings; a
+          // closed area polygon does not
+          lineEndings: tool == PdfEditTool.measureDistance ||
+              tool == PdfEditTool.measurePerimeter,
+        );
       case 'markup':
         return const _StyleFields(opacity: true);
       default:
@@ -1318,6 +1342,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (annotation == null) return const _StyleFields();
     final canStroke = controller.canRestyleSelected;
     switch (annotation.subtype) {
+      case 'Widget':
+        // a form text field: its own style block, nothing else
+        return _StyleFields(formField: controller.canStyleSelectedFormField);
       case 'FreeText':
         final text = controller.canRestyleSelectedText;
         return _StyleFields(opacity: true, font: text, boxColors: text);
@@ -1327,6 +1354,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         return _StyleFields(
             stroke: canStroke,
             opacity: true,
+            // a /Polygon area measurement carries a caption font
+            font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
             shapeFill: controller.canFillSelected);
       case 'Line':
@@ -1334,6 +1363,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         return _StyleFields(
             stroke: canStroke,
             opacity: true,
+            // a measurement (/Line distance, /PolyLine perimeter) carries one
+            font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
             lineEndings: controller.canSetLineEndings);
       case 'Ink':
@@ -2001,6 +2032,16 @@ extension _FaintColor on ColorScheme {
 /// Which controls the style popup should show for the active context —
 /// each tool/selection only carries the settings it can actually use, so
 /// the popup never shows (say) a font picker while a rectangle is armed.
+/// Parses a points readout ("12.0 pt") back to its number.
+double? _parsePoints(String s) =>
+    double.tryParse(s.replaceAll(RegExp('[^0-9.]'), ''));
+
+/// Parses a percent readout ("40%") back to the 0..1 underlying value.
+double? _parsePercent(String s) {
+  final n = double.tryParse(s.replaceAll(RegExp('[^0-9.]'), ''));
+  return n == null ? null : n / 100;
+}
+
 class _StyleFields {
   const _StyleFields({
     this.stroke = false,
@@ -2011,6 +2052,7 @@ class _StyleFields {
     this.boxColors = false,
     this.shapeFill = false,
     this.eraser = false,
+    this.formField = false,
   });
 
   final bool stroke;
@@ -2033,6 +2075,10 @@ class _StyleFields {
   /// Eraser radius — replaces every other control while the eraser is armed.
   final bool eraser;
 
+  /// The form text field style block (font, alignment, auto-size, size,
+  /// multiline, colour) — a single text-field widget is selected.
+  final bool formField;
+
   bool get isEmpty =>
       !stroke &&
       !opacity &&
@@ -2041,7 +2087,8 @@ class _StyleFields {
       !font &&
       !boxColors &&
       !shapeFill &&
-      !eraser;
+      !eraser &&
+      !formField;
 }
 
 /// The style popup: sliders for stroke width, opacity, and font size,
@@ -2121,8 +2168,13 @@ class _StyleMenuState extends State<_StyleMenu> {
     if (controller.restyleEditingTextSelection(font: font)) return;
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(font: font);
+    } else if (controller.canRestyleMeasurementCaption) {
+      controller.setSelectedMeasurementCaption(font: font);
     }
   }
+
+  void _setTextAlign(PdfTextAlign align) =>
+      controller.setSelectedTextAlign(align);
 
   static int? _rgb(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
@@ -2302,6 +2354,10 @@ class _StyleMenuState extends State<_StyleMenu> {
           builder: (context, _) {
             final fields = widget.fields;
             final selectedStyle = controller.selectedTextStyle;
+            // a selected measurement exposes its caption font/size the same
+            // way a free text exposes its own; the font rows drive whichever
+            // is non-null
+            final captionStyle = controller.selectedMeasurementCaptionStyle;
             // with a restylable selection the stroke/opacity sliders
             // show — and change — its style; otherwise the defaults
             final restylingAnnotation = controller.canRestyleSelected;
@@ -2351,6 +2407,11 @@ class _StyleMenuState extends State<_StyleMenu> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (fields.formField)
+                    PdfFormFieldStyleControls(
+                      controller: controller,
+                      fontPicker: widget.fontPicker,
+                    ),
                   if (isEraser)
                     _slider(
                       key: const ValueKey('pdf-eraser-size'),
@@ -2358,7 +2419,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: controller.eraserRadius,
                       min: 2,
                       max: 40,
-                      display: '${controller.eraserRadius.round()} pt',
+                      display: (v) => '${v.round()} pt',
+                      parse: _parsePoints,
                       onChanged: (v) =>
                           controller.eraserRadius = v.roundToDouble(),
                     ),
@@ -2368,7 +2430,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: strokeValue,
                       min: 0.5,
                       max: 12,
-                      display: '${strokeValue.toStringAsFixed(1)} pt',
+                      display: (v) => '${v.toStringAsFixed(1)} pt',
+                      parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingStroke = v);
                         if (!restylingAnnotation) controller.strokeWidth = v;
@@ -2387,7 +2450,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: opacityValue,
                       min: 0.1,
                       max: 1,
-                      display: '${(opacityValue * 100).round()}%',
+                      display: (v) => '${(v * 100).round()}%',
+                      parse: _parsePercent,
                       onChanged: (v) {
                         setState(() => _draggingOpacity = v);
                         if (!restylingAnnotation) controller.opacity = v;
@@ -2475,27 +2539,35 @@ class _StyleMenuState extends State<_StyleMenu> {
                       label: 'Font size',
                       value: _draggingFontSize ??
                           selectedStyle?.size ??
+                          captionStyle?.size ??
                           controller.fontSize,
                       min: 8,
                       max: 48,
-                      display:
-                          '${(_draggingFontSize ?? selectedStyle?.size ?? controller.fontSize).round()} pt',
+                      display: (v) => '${v.round()} pt',
+                      parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingFontSize = v.roundToDouble());
-                        if (selectedStyle == null) {
+                        if (selectedStyle == null && captionStyle == null) {
                           controller.fontSize = v.roundToDouble();
                         }
                       },
                       onChangeEnd: (v) {
                         final size = v.roundToDouble();
-                        controller.fontSize = size;
                         if (controller.restyleEditingTextSelection(
                             size: size)) {
+                          controller.fontSize = size;
                           setState(() => _draggingFontSize = null);
                           return;
                         }
                         if (controller.canRestyleSelectedText) {
+                          controller.fontSize = size;
                           controller.restyleSelectedText(size: size);
+                        } else if (controller.canRestyleMeasurementCaption) {
+                          // a selected measurement keeps its own caption size;
+                          // don't disturb the creation default
+                          controller.setSelectedMeasurementCaption(size: size);
+                        } else {
+                          controller.fontSize = size;
                         }
                         setState(() => _draggingFontSize = null);
                       },
@@ -2521,8 +2593,22 @@ class _StyleMenuState extends State<_StyleMenu> {
                       child: Row(children: [
                         const SizedBox(width: 86, child: Text('Style')),
                         FontStyleToggles(
-                          font: selectedStyle?.font ?? controller.fontFamily,
+                          font: selectedStyle?.font ??
+                              captionStyle?.font ??
+                              controller.fontFamily,
                           onChanged: _setFont,
+                        ),
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(children: [
+                        const SizedBox(width: 86, child: Text('Align')),
+                        TextAlignToggles(
+                          align: controller.selectedTextAlign ??
+                              controller.textAlign ??
+                              PdfTextAlign.left,
+                          onChanged: _setTextAlign,
                         ),
                       ]),
                     ),
@@ -2598,7 +2684,8 @@ class _StyleMenuState extends State<_StyleMenu> {
     required double value,
     required double min,
     required double max,
-    required String display,
+    required String Function(double) display,
+    double? Function(String)? parse,
     required ValueChanged<double> onChanged,
     ValueChanged<double>? onChangeEnd,
   }) {
@@ -2613,7 +2700,19 @@ class _StyleMenuState extends State<_StyleMenu> {
           onChangeEnd: onChangeEnd,
         ),
       ),
-      SizedBox(width: 44, child: Text(display, textAlign: TextAlign.end)),
+      // the readout is editable: type an exact value (general rule across
+      // the editing UI) — committing routes through the change-end callback,
+      // or onChanged for sliders that have none (live-only)
+      PdfSliderValueField(
+        key: key is ValueKey ? ValueKey('${key.value}-input') : null,
+        value: value,
+        min: min,
+        max: max,
+        width: 56,
+        display: display,
+        parse: parse,
+        onSubmit: onChangeEnd ?? onChanged,
+      ),
     ]);
   }
 }

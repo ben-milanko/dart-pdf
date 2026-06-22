@@ -15,6 +15,7 @@ import '../theme.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_fonts.dart';
+import 'editing_measure.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
@@ -22,13 +23,34 @@ TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
 
 String? _textEditUiFamily(PdfTextFont font) {
-  if (font is! PdfStandardFont) return null;
-  return switch (font.family) {
-    PdfStandardFontFamily.sans => 'Helvetica',
-    PdfStandardFontFamily.serif => 'Times New Roman',
-    PdfStandardFontFamily.mono => 'Courier',
-  };
+  if (font is PdfStandardFont) {
+    return switch (font.family) {
+      PdfStandardFontFamily.sans => 'Helvetica',
+      PdfStandardFontFamily.serif => 'Times New Roman',
+      PdfStandardFontFamily.mono => 'Courier',
+    };
+  }
+  // An embedded/bundled font has no platform family the way base-14 does;
+  // the editor registers its outline bytes (see _ensureEmbeddedFontPreview)
+  // under a synthetic family so the live preview matches what commits.
+  // Null until that async registration lands, then it falls back gracefully.
+  if (font is PdfEmbeddedFont) {
+    return _embeddedPreviewFamilies[_embeddedFontKey(font)];
+  }
+  return null;
 }
+
+/// Synthetic Flutter font families an embedded font's bytes have been
+/// registered under (via `ui.loadFontFromList`), keyed by
+/// [_embeddedFontKey]. Module-level so [_textEditUiFamily] (a free
+/// function the rich controller calls) and the overlay state share it.
+final Map<String, String> _embeddedPreviewFamilies = {};
+
+/// A stable key for an embedded font's outline data — its PostScript name
+/// plus byte length, enough to dedupe registrations without holding the
+/// bytes. The registered family is `'pdfedit-<key>'`.
+String _embeddedFontKey(PdfEmbeddedFont font) =>
+    '${font.postScriptName}:${font.fontBytes.length}';
 
 FontWeight _textEditWeight(PdfTextFont font) =>
     font is PdfStandardFont && font.isBold
@@ -87,6 +109,36 @@ class _RichTextEditingController extends TextEditingController {
   void resetStyles(_TextEditStyle style) {
     defaultStyle = style;
     _ranges.clear();
+  }
+
+  /// Seeds the editor from a box's persisted per-run styling (its /RC):
+  /// sets [text] and a style range per run so reopening a mixed-format
+  /// box shows its bold/italic/colour, not a flattened single style.
+  /// [fallback] is the typing default (the box's flat /DA) for text added
+  /// afterwards. Runs with non-base-14 fonts keep their [PdfTextFont].
+  void seedRuns(List<PdfFreeTextRun> runs, _TextEditStyle fallback) {
+    defaultStyle = fallback;
+    final buffer = StringBuffer();
+    final ranges = <_TextEditStyleRange>[];
+    var offset = 0;
+    for (final run in runs) {
+      if (run.text.isEmpty) continue;
+      final start = offset;
+      buffer.write(run.text);
+      offset += run.text.length;
+      ranges.add(_TextEditStyleRange(
+          start,
+          offset,
+          _TextEditStyle(
+              font: run.font,
+              size: run.fontSize,
+              color: Color(0xFF000000 | (run.color & 0xFFFFFF)))));
+    }
+    _ranges
+      ..clear()
+      ..addAll(_mergeRanges(ranges));
+    // assigning text notifies listeners and rebuilds the styled span
+    text = buffer.toString();
   }
 
   bool get hasRichStyles => _ranges.isNotEmpty;
@@ -212,6 +264,13 @@ class _ScaledTextSelectionControls extends MaterialTextSelectionControls
   Widget buildHandle(
       BuildContext context, TextSelectionHandleType type, double textLineHeight,
       [VoidCallback? onTap]) {
+    // The collapsed handle is the touch caret's draggable dot. In an
+    // expanded text box it floats well below the caret (a stray dot near
+    // the box's bottom edge), so suppress it — the blinking caret already
+    // marks the insertion point. Range-selection handles stay.
+    if (type == TextSelectionHandleType.collapsed) {
+      return const SizedBox.shrink();
+    }
     return SizedBox.fromSize(
       size: getHandleSize(textLineHeight),
       child: CustomPaint(
@@ -365,6 +424,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
     this.onMoveDragPreview,
+    this.onTextEditClosed,
   });
 
   final PdfEditingController controller;
@@ -445,6 +505,14 @@ class EditingPageOverlay extends StatefulWidget {
   /// paints it above every page — a per-page overlay clips it behind the
   /// page below once the drag crosses a page boundary. Null clears it.
   final PdfMoveDragPreviewCallback? onMoveDragPreview;
+
+  /// Called when the in-place text editor closes while it still owned the
+  /// keyboard (Escape, ⌘Enter, or a commit by tapping the page) — not when
+  /// focus moved to another widget. The viewer wires this to reclaim its
+  /// own focus so its shortcuts (Escape → back out, tool keys, delete) work
+  /// again immediately; otherwise the removed field's focus node leaves
+  /// focus in limbo and the next key reaches nothing.
+  final VoidCallback? onTextEditClosed;
 
   @override
   State<EditingPageOverlay> createState() => _EditingPageOverlayState();
@@ -634,9 +702,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   PdfEditTool? _textEditTool;
   late final _RichTextEditingController _textEditText =
       _RichTextEditingController()..addListener(_onTextEditChanged);
-  late final FocusNode _textEditFocus = FocusNode()
+  late final FocusNode _textEditFocus = FocusNode(onKeyEvent: _onTextEditKey)
     ..addListener(_onTextEditFocus);
   PdfStandardFont _textEditFont = PdfStandardFont.helvetica;
+  // embedded-font keys whose preview registration is in flight, so a
+  // repeated restyle doesn't kick off a second load (see [_embeddedFontKey])
+  final Set<String> _embeddedFontsLoading = {};
   double _textEditSize = 14; // pt
   Color _textEditColor = const Color(0xFF000000);
   Color? _textEditFill; // the box background the commit will paint
@@ -749,6 +820,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     bool washed,
     double rotation,
   })? _afterText;
+  // the lifted clean page (the page rendered without the resized text box)
+  // kept alive past the drag so a transparent box's commit afterimage shows
+  // the real page content behind it instead of an opaque-paper flash. Null
+  // when the lift wasn't ready — then [_afterText.washed] paints the paper
+  // fallback. Hides the old footprint [_afterTextHideRect] (view space).
+  ui.Picture? _afterTextClean;
+  Rect? _afterTextHideRect;
+  double _afterTextHideAngle = 0;
   _InkPaint? _afterSignature;
 
   // live drag preview: the selected annotation's appearance, rendered
@@ -844,7 +923,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   bool get _lineDragTool =>
       _tool == PdfEditTool.line ||
       _tool == PdfEditTool.arrow ||
-      _tool == PdfEditTool.measureDistance;
+      _tool == PdfEditTool.measureDistance ||
+      _tool == PdfEditTool.calibrate;
 
   /// The measurement kind the armed tool creates, or null for a
   /// non-measurement tool.
@@ -1292,6 +1372,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterShapeResize = null;
     _afterPath = null;
     _afterText = null;
+    _afterTextClean?.dispose();
+    _afterTextClean = null;
+    _afterTextHideRect = null;
+    _afterTextHideAngle = 0;
     _afterSignature = null;
     _afterEraseRects = null;
     _afterEraseFade = null;
@@ -1657,6 +1741,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditStyleRevision = revision;
     final request = _controller.editingTextStyleRequest;
     if (request == null) return;
+    // register an embedded font's bytes so the styled run previews in its
+    // real face, not the fallback — covers the inline menu and a host that
+    // drives restyleEditingTextSelection directly
+    if (request.font is PdfEmbeddedFont) {
+      _ensureEmbeddedFontPreview(request.font as PdfEmbeddedFont);
+    }
     _textEditText.applyStyle(_textEditText.selection,
         font: request.font, size: request.size, color: request.color);
   }
@@ -1907,9 +1997,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final defaultColor = annotationColor != null
         ? Color(0xFF000000 | annotationColor)
         : _controller.color;
-    _textEditText.resetStyles(_TextEditStyle(
-        font: defaultFont, size: defaultSize, color: defaultColor));
-    _textEditText.text = existing ? (_controller.selectedText ?? '') : '';
+    final fallbackStyle = _TextEditStyle(
+        font: defaultFont, size: defaultSize, color: defaultColor);
+    // a box saved with mixed styling carries /RC: reseed its per-run fonts
+    // so reopening shows the bold/italic/colour, not a flattened style
+    final richRuns = existing ? _controller.selectedRichRuns : null;
+    if (richRuns != null && richRuns.isNotEmpty) {
+      _textEditText.seedRuns(richRuns, fallbackStyle);
+    } else {
+      _textEditText.resetStyles(fallbackStyle);
+      _textEditText.text = existing ? (_controller.selectedText ?? '') : '';
+    }
     setState(() {
       _textEditRect = rect;
       _textEditPageRect = _geometry.toPageRect(rect);
@@ -2048,8 +2146,44 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _cancelTextEdit() => _closeTextEditor();
 
+  /// What Escape does to the open editor. It must never destroy a box: a
+  /// brand-new free-text box keeps what was typed (an empty one just adds
+  /// nothing on close), matching the desktop convention where Escape
+  /// *finishes* the box rather than throwing it away — discarding it read
+  /// as Escape "deleting" the annotation you'd just placed. An existing box
+  /// or a form field reverts to its saved value instead (a real cancel,
+  /// and still non-destructive — the box stays).
+  void _onEscapeTextEdit() {
+    if (_textEditExisting || _textEditFieldName != null) {
+      _cancelTextEdit();
+    } else {
+      _commitTextEdit();
+    }
+  }
+
+  /// Escape ends the inline editor straight from the field's focus node, so
+  /// it fires even on platforms/states where the ancestor
+  /// `CallbackShortcuts` never sees the key (e.g. the field's own editing
+  /// actions swallow it). Returning `handled` stops the duplicate
+  /// `CallbackShortcuts` binding from also running; every other key falls
+  /// through to normal text input.
+  KeyEventResult _onTextEditKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape &&
+        _textEditRect != null) {
+      _onEscapeTextEdit();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   void _closeTextEditor() {
     if (_textEditRect == null) return;
+    // whether the editor still owned the keyboard: a close driven by Escape,
+    // ⌘Enter, or a tap on the page arrives with focus still on the field; a
+    // close because the user clicked another widget (e.g. a toolbar field)
+    // does not — that new focus must be left alone
+    final ownedFocus = _textEditFocus.hasFocus;
     if (mounted) {
       setState(() {
         _textEditRect = null;
@@ -2062,6 +2196,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditFieldName = null;
     }
     _controller.setEditingText(false);
+    // hand the keyboard back so the viewer's shortcuts work again right away
+    // (Escape → back out the tool, V/P/R tool keys, delete): the removed
+    // field's focus node otherwise leaves focus in limbo and the next key
+    // reaches nothing. Prefer the viewer's own node (via onTextEditClosed)
+    // so a *second* Escape lands on its handler; fall back to a plain
+    // unfocus in hosts that supply no hook. rect is already null, so the
+    // focus-loss listener's commit is a no-op.
+    if (ownedFocus) {
+      if (widget.onTextEditClosed != null) {
+        widget.onTextEditClosed!();
+      } else if (_textEditFocus.hasFocus) {
+        _textEditFocus.unfocus();
+      }
+    }
   }
 
   /// Losing focus commits — tapping another widget, switching panes.
@@ -2118,6 +2266,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.line ||
             PdfEditTool.arrow ||
             PdfEditTool.measureDistance ||
+            PdfEditTool.calibrate ||
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
             PdfEditTool.image ||
@@ -2419,6 +2568,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final marqueeAdd = _marqueeAdd;
     final panned = _viewportPanning;
     final signaturePlace = _signatureDrag ? _signaturePreview : null;
+    // a free-text resize lifts the original box out of the page so the drag
+    // shows real content behind a transparent box; detach that lift (taking
+    // ownership from [_clearResizeClean]) so the commit afterimage can keep
+    // it up until the new raster lands — without it a transparent box
+    // flashes opaque paper on release
+    final textResizing = resizeRect != null && _textResizeStyle != null;
+    final liftClean = textResizing ? _resizeCleanPicture : null;
+    final liftHideRect = textResizing ? _resizeFrom : null;
+    final liftHideAngle = _resizeAngle;
+    if (liftClean != null) {
+      _resizeCleanPicture = null; // ownership transferred; don't dispose it
+      _resizeCleanFor = null;
+    }
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -2505,10 +2667,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             size: wrapStyle.size,
             color: wrapStyle.color,
             fill: wrapStyle.fill,
-            washed: true,
+            // with the lift up the box keeps its true (maybe transparent)
+            // fill and the lift hides the old footprint; only without a
+            // lift does it fall back to the opaque-paper wash
+            washed: liftClean == null,
             rotation: resizeAngle,
           );
+          _afterTextClean = liftClean;
+          _afterTextHideRect = liftHideRect;
+          _afterTextHideAngle = liftHideAngle;
           _afterDocument = _controller.document;
+        } else {
+          liftClean?.dispose(); // no commit: don't leak the detached lift
         }
       } else if (shapeStyle != null) {
         // the commit regenerates the shape at a constant stroke width —
@@ -2596,6 +2766,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _commitLineDrag(Offset start, Offset end) {
+    if (_tool == PdfEditTool.calibrate) {
+      unawaited(_commitCalibration(start, end));
+      return;
+    }
     final before = _controller.document;
     if (_tool == PdfEditTool.measureDistance) {
       _controller.addMeasurement(widget.pageIndex, PdfMeasurementKind.distance,
@@ -2617,6 +2791,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       dashed: _controller.dashedStroke,
     );
     _afterDocument = _controller.document;
+  }
+
+  /// Finishes the calibration drag: asks how long the drawn segment is in
+  /// the real world, then derives [PdfEditingController.measurementScale]
+  /// from it and disarms the tool. Nothing is stamped on the page.
+  Future<void> _commitCalibration(Offset start, Offset end) async {
+    final existing = _controller.measurementScale;
+    final result = await showPdfCalibrationLengthDialog(
+      context,
+      initialUnit: existing?.unitLabel,
+    );
+    if (!mounted || result == null) return;
+    final (length, unit) = result;
+    _controller.calibrateScale(
+      _geometry.toPagePoint(start),
+      _geometry.toPagePoint(end),
+      length,
+      unit,
+      pageUnitLabel: existing?.pageUnitLabel ?? pdfDefaultPageUnit(),
+    );
+    _controller.tool = PdfEditTool.select;
   }
 
   void _commitVertexDrag(List<Offset> points) {
@@ -3242,6 +3437,68 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (color != null) _controller.color = Color(0xFF000000 | rgb!);
     _controller.setEditingTextSelection(_textEditText.selection);
     _controller.restyleEditingTextSelection(font: font, size: size, color: rgb);
+  }
+
+  /// Registers an embedded font's outline bytes with the engine under a
+  /// synthetic family so the inline editor can *preview* it — base-14
+  /// faces map to platform families, but an embedded/bundled font is drawn
+  /// from raw bytes the page renderer turns into paths, which a Flutter
+  /// `TextField` can't use until they're loaded as a font. Idempotent and
+  /// fire-and-forget: once the load lands it rebuilds so the styled run
+  /// switches from the fallback face to the real one.
+  void _ensureEmbeddedFontPreview(PdfEmbeddedFont font) {
+    final key = _embeddedFontKey(font);
+    if (_embeddedPreviewFamilies.containsKey(key) ||
+        _embeddedFontsLoading.contains(key)) {
+      return;
+    }
+    _embeddedFontsLoading.add(key);
+    final family = 'pdfedit-$key';
+    // copy the bytes: loadFontFromList wants an owned, immutable list
+    ui
+        .loadFontFromList(Uint8List.fromList(font.fontBytes), fontFamily: family)
+        .then((_) {
+      _embeddedPreviewFamilies[key] = family;
+      _embeddedFontsLoading.remove(key);
+      if (mounted) setState(() {});
+    }, onError: (_) {
+      // a font the engine rejects just keeps previewing in the fallback face
+      _embeddedFontsLoading.remove(key);
+    });
+  }
+
+  /// Toggles bold (or [italic]) on the inline text editor — the desktop
+  /// Cmd/Ctrl+B / Cmd/Ctrl+I shortcuts. Bold and italic are variants of the
+  /// base-14 faces, so an embedded font is left alone. With a selection the
+  /// toggle restyles it; with none it styles the whole box (or just sets the
+  /// face when the box is still empty).
+  void _toggleInlineTextStyle({required bool italic}) {
+    // form fields carry a single /DA font — no rich styling to toggle
+    if (_textEditRect == null || _textEditFieldName != null) return;
+
+    final base = _canStyleInlineTextSelection
+        ? _currentInlineTextStyle().font
+        : _textEditFont;
+    if (base is! PdfStandardFont) return;
+    final next =
+        italic ? base.withItalic(!base.isItalic) : base.withBold(!base.isBold);
+
+    if (_canStyleInlineTextSelection) {
+      _applyInlineTextStyle(font: next);
+      return;
+    }
+    final length = _textEditText.text.length;
+    if (length == 0) {
+      setState(() => _textEditFont = next);
+      _controller.fontFamily = next;
+      _textEditText.resetStyles(_TextEditStyle(
+          font: next, size: _textEditSize, color: _textEditColor));
+      return;
+    }
+    // a bare caret: style the whole box (select-all gives visible feedback)
+    _textEditText.selection =
+        TextSelection(baseOffset: 0, extentOffset: length);
+    _applyInlineTextStyle(font: next);
   }
 
   Future<void> _showInlineTextFontMenu(BuildContext context) async {
@@ -3885,11 +4142,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     ghostFlipY: _resizeHandle != null && _resizeFlipY,
                     // free-text resize lift: hide the original box's
                     // footprint with the page rendered without it (or an
-                    // opaque-paper wash until that lands)
-                    resizeClean:
-                        wrapResize != null ? _resizeCleanPicture : null,
-                    resizeHideRect: wrapResize != null ? _resizeFrom : null,
-                    resizeHideAngle: _resizeAngle,
+                    // opaque-paper wash until that lands). After the commit
+                    // the same lift carries on (kept alive as
+                    // [_afterTextClean]) so a transparent box's afterimage
+                    // shows page content behind it, not an opaque flash.
+                    resizeClean: wrapResize != null
+                        ? _resizeCleanPicture
+                        : _afterTextClean,
+                    resizeHideRect: wrapResize != null
+                        ? _resizeFrom
+                        : _afterTextHideRect,
+                    resizeHideAngle:
+                        wrapResize != null ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
                         widget.pageColor, const Color(0xFFFFFFFF)),
                     extraInk: extraInk,
@@ -3999,11 +4263,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     child: CallbackShortcuts(
                       bindings: {
                         const SingleActivator(LogicalKeyboardKey.escape):
-                            _cancelTextEdit,
+                            _onEscapeTextEdit,
                         const SingleActivator(LogicalKeyboardKey.enter,
                             meta: true): _commitTextEdit,
                         const SingleActivator(LogicalKeyboardKey.enter,
                             control: true): _commitTextEdit,
+                        const SingleActivator(LogicalKeyboardKey.keyB,
+                            meta: true): () => _toggleInlineTextStyle(
+                              italic: false,
+                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyB,
+                            control: true): () => _toggleInlineTextStyle(
+                              italic: false,
+                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyI,
+                            meta: true): () => _toggleInlineTextStyle(
+                              italic: true,
+                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyI,
+                            control: true): () => _toggleInlineTextStyle(
+                              italic: true,
+                            ),
                       },
                       child: Container(
                         // the chrome border lives in the inflate(2) gutter
@@ -4014,11 +4294,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         padding: const EdgeInsets.all(2),
                         // the box's own fill when it has one; otherwise wash
                         // the paper color over what's underneath: faint for a
-                        // fresh box, near-opaque when editing existing text
-                        // so the old rendering doesn't show through
+                        // fresh box, fully opaque when editing existing text
+                        // so the old rendering doesn't ghost through and read
+                        // as a misaligned shadow behind the live text
                         color: _textEditFill ??
                             widget.pageColor.withValues(
-                                alpha: _textEditExisting ? 0.92 : 0.3),
+                                alpha: _textEditExisting ? 1 : 0.3),
                         foregroundDecoration: BoxDecoration(
                           border: Border.all(
                               color: PdfViewerTheme.of(context)

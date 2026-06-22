@@ -170,6 +170,25 @@ void main() {
       expect(editing.selectedPages, [0, 1, 2]);
     });
 
+    test('pageRangePreviewTo mirrors the range a shift-click would select',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      addTearDown(editing.dispose);
+      editing.selectPage(1); // anchor at 1
+      expect(editing.pageSelectionAnchor, 1);
+      // a hover over 4 previews 1..4 without committing the selection
+      expect(editing.pageRangePreviewTo(4), [1, 2, 3, 4]);
+      expect(editing.pageRangePreviewTo(0), [0, 1]); // backwards too
+      expect(editing.selectedPages, [1]); // preview never mutates
+    });
+
+    test('pageRangePreviewTo with no anchor previews just the page', () {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      expect(editing.pageSelectionAnchor, isNull);
+      expect(editing.pageRangePreviewTo(2), [2]);
+    });
+
     test('togglePageSelection adds then removes individual pages', () {
       final editing = PdfEditingController(buildMultiPagePdf(5));
       addTearDown(editing.dispose);
@@ -356,6 +375,102 @@ void main() {
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
+    testWidgets('holding shift previews the hovered range on the strip',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      BoxDecoration chip(int i) => tester
+          .widget<Container>(
+              find.byKey(ValueKey('pdf-thumbnail-tile-chip-$i')))
+          .decoration as BoxDecoration;
+
+      // anchor at Page 2 (index 1)
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(editing.selectedPages, [1]);
+
+      // hover Page 4 (index 3) with a mouse
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(tester.getCenter(find.text('Page 4')));
+      await tester.pump();
+
+      // no preview until shift goes down
+      expect(chip(3).color, isNull);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      // 1..3 now read as filled chips (anchor + the previewed run); the
+      // pages outside the range stay clear — and nothing is committed
+      expect(chip(1).color, isNotNull);
+      expect(chip(2).color, isNotNull);
+      expect(chip(3).color, isNotNull);
+      expect(chip(0).color, isNull);
+      expect(chip(4).color, isNull);
+      expect(editing.selectedPages, [1]);
+
+      // releasing shift clears the preview (only the real selection remains)
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(chip(2).color, isNull);
+      expect(chip(3).color, isNull);
+      expect(chip(1).color, isNotNull); // still selected
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
+    testWidgets('the selection bar swaps in without shifting the tiles',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      final firstTile = find.byKey(const ValueKey('pdf-thumbnail-tile-chip-0'));
+      final before = tester.getTopLeft(firstTile).dy;
+
+      // multi-select so the bulk-action bar replaces the "Pages" header
+      editing.selectPage(0);
+      editing.selectPageRange(2);
+      await tester.pump();
+      expect(editing.selectedPageCount, 3);
+      expect(find.byKey(const ValueKey('pdf-thumbnail-clear-selection')),
+          findsOneWidget); // the bar is showing
+
+      // the header slot is a fixed height, so the first tile hasn't moved
+      expect(tester.getTopLeft(firstTile).dy, before);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
     testWidgets('shift-click selects a range, then deletes it', (tester) async {
       // a tall surface so every tile builds (the list is lazy)
       tester.view.physicalSize = const Size(800, 1400);
@@ -389,10 +504,12 @@ void main() {
       expect(editing.selectedPages, [1, 2, 3]);
 
       // the selection bar appears; its delete removes the whole selection
-      expect(find.byKey(const ValueKey('pdf-thumbnail-delete-selected')),
-          findsOneWidget);
-      await tester.tap(
-          find.byKey(const ValueKey('pdf-thumbnail-delete-selected')));
+      // (the actions scroll horizontally on the narrow strip, so reveal it)
+      final deleteSelected =
+          find.byKey(const ValueKey('pdf-thumbnail-delete-selected'));
+      expect(deleteSelected, findsOneWidget);
+      await tester.ensureVisible(deleteSelected);
+      await tester.tap(deleteSelected);
       await tester.pump();
       expect(labelsOf(editing.document), ['Page 1', 'Page 5']);
       expect(editing.hasPageSelection, isFalse);
@@ -461,10 +578,17 @@ void main() {
       await tester.pump();
       expect(editing.selectedPages, [0, 1, 2]);
 
+      // the single-row actions scroll horizontally on the narrow strip;
+      // reveal each before tapping it
+      Future<void> tapAction(String key) async {
+        final finder = find.byKey(ValueKey(key));
+        await tester.ensureVisible(finder);
+        await tester.tap(finder);
+        await tester.pump();
+      }
+
       // rotate right, then left: the two cancel back to no rotation
-      await tester.tap(
-          find.byKey(const ValueKey('pdf-thumbnail-rotate-selected-cw')));
-      await tester.pump();
+      await tapAction('pdf-thumbnail-rotate-selected-cw');
       expect(editing.document.page(0).rotation, 90);
       expect(editing.document.page(1).rotation, 90);
       expect(editing.document.page(2).rotation, 90);
@@ -472,24 +596,18 @@ void main() {
       // the selection survives a visual rotation
       expect(editing.selectedPages, [0, 1, 2]);
 
-      await tester.tap(
-          find.byKey(const ValueKey('pdf-thumbnail-rotate-selected-ccw')));
-      await tester.pump();
+      await tapAction('pdf-thumbnail-rotate-selected-ccw');
       expect(editing.document.page(0).rotation, 0);
       expect(editing.selectedPages, [0, 1, 2]);
 
       // export hands the host the selected pages
-      await tester
-          .tap(find.byKey(const ValueKey('pdf-thumbnail-export-selected')));
-      await tester.pump();
+      await tapAction('pdf-thumbnail-export-selected');
       expect(exported, isNotNull);
       expect(labelsOf(PdfDocument.open(exported!)),
           ['Page 1', 'Page 2', 'Page 3']);
 
       // clear empties the selection (and dismisses the bar)
-      await tester
-          .tap(find.byKey(const ValueKey('pdf-thumbnail-clear-selection')));
-      await tester.pump();
+      await tapAction('pdf-thumbnail-clear-selection');
       expect(editing.hasPageSelection, isFalse);
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });

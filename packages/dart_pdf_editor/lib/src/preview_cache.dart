@@ -188,10 +188,24 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// render the moment the page is on screen, which is where edits
   /// happen — but the whole document doesn't re-interpret per pen
   /// stroke.
-  void rebind(List<PdfPage> pages) {
-    for (final entry in _entries.entries) {
-      if (entry.key < pages.length) entry.value.page = pages[entry.key];
+  ///
+  /// [changed] (when given) names pages whose *content* changed in the new
+  /// revision — most importantly a redaction burn, where the old preview
+  /// still shows the removed glyphs/images. Their previews are dropped
+  /// rather than rebound, so a fresh page state scrolled past during a fast
+  /// scroll paints blank (then re-renders) instead of flashing now-deleted
+  /// content. The rest rebind in place as before.
+  void rebind(List<PdfPage> pages, {bool Function(int index)? changed}) {
+    var dropped = false;
+    for (final index in _entries.keys.toList()) {
+      if (changed != null && changed(index)) {
+        _entries.remove(index)!.image.dispose();
+        dropped = true;
+      } else if (index < pages.length) {
+        _entries[index]!.page = pages[index];
+      }
     }
+    if (dropped && !_disposed) notifyListeners();
   }
 
   /// Drops every preview (different document, page color change...).

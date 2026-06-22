@@ -107,14 +107,41 @@ Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` — asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
 (`signature_editor.dart`, adbe.pkcs7.detached with ByteRange patching).
-Test signer identity in
-`pdf_test_fixtures/src/signer_identity.dart`.
+The enterprise tier — PAdES B-B/B-T/B-LT/B-LTA, RFC 3161 timestamps, the
+/DSS+/VRI Document Security Store, and Certify/DocMDP — is in
+`PdfEditor.saveSignedPades` (`pades_editor.dart`, async; TSA/OCSP/CRL
+transports injected via `pades.dart`'s `PdfTimestampClient`/
+`PdfRevocationClient`, no `dart:io`); crypto in `pdf_cos/src/crypto/`
+tsp/ocsp/crl + cms ESS/timestamp helpers (KATs vs OpenSSL in
+`pkix_test.dart`, fixtures from `tool/gen_pkix_fixtures.sh`). validate()
+reports `padesLevel`, `timestamp`, and offline `embeddedRevocation` from the
+/DSS. pyHanko 0.35 judges our B-LTA output VALID + LTV-enabled offline
+(`pdf_document/tool/emit_pades_ltv.dart`). See doc/dev-log.md. Signing
+encrypted files is still refused. Test signer identity in
+`pdf_test_fixtures/src/signer_identity.dart`; LTV CA/leaf/TSA + revocation
+fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and
-`PdfEditor.replaceText` (simple fonts only) — all in
-`content_editor.dart`/`content_elements.dart`; the content-stream
-tokenizer (`ContentStreamParser`) now lives in pdf_cos.
+`PdfEditor.replaceText` (matches across a line's shown
+strings and consecutive Tj/TJ runs, with width-compensated re-measurement
+from the font's /Widths so following text holds position; composite
+/Type0 runs are handled too for the Identity-H/CIDFontType2/Identity-
+CIDToGIDMap shape — `content_editor_type0.dart`'s `_Type0Editing` reads
+existing text from /ToUnicode, re-encodes replacements through the
+embedded font's own cmap so any glyph the program carries can be typed,
+and merges new glyphs' advances + Unicode into the descendant /W and
+/ToUnicode; when the document font can't draw a character — a subsetted
+font dropped it — `replaceText(fallbackFonts:)` embeds a style-matched
+bundled fallback as a new page /Font resource and emits that replacement
+between Tf switches (the editor passes the DejaVu trio via
+`loadFallbackFonts()`); cross-line reflow and CFF/non-Identity Type0 still
+out) — all
+in `content_editor.dart`/`content_elements.dart`; shared Type0 metric
+parsing (/ToUnicode + /W) is in `type0_metrics.dart`, and
+`PdfPageElements` decodes Type0 runs through it so `element.text` is real
+Unicode (what the content-edit UI shows and passes as `find`). The
+content-stream tokenizer (`ContentStreamParser`) now lives in pdf_cos.
 The roadmap is complete. Polish landed since: LZW/RunLength filters, xref recovery
 (`CosDocument.open` falls back to scanning for `N G obj` when the xref
 chain is broken), type 4 PostScript calculator functions, /Count-based
@@ -135,8 +162,11 @@ lossless bit-perfect vs OpenJPEG, lossy ±1), deep-zoom detail patch
 (`PdfPageView` renders the visible slice past the raster caps;
 `rasterizeRegion`), and real ICC (`IccProfile` in pdf_graphics —
 gray TRC, matrix/TRC, mft1/mft2/mAB LUTs, validated vs littleCMS;
-wired into sc/scn and image decoding). Remaining gaps:
-RSASSA-PSS, JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
+wired into sc/scn and image decoding). RSASSA-PSS verification is in
+(`rsaVerifyPss` in pdf_cos rsa.dart — MGF1 + EMSA-PSS with salt-length
+recovery, KAT vs OpenSSL; PSS-params parsing and dispatch in cms.dart's
+`cmsVerify` and `X509Certificate.isSignedBy`). Remaining gaps:
+JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
 The editing UI is in (dart_pdf_editor `src/editing/`): `PdfEditingController`
 owns the edit session — every edit is an incremental save, so revisions
 are byte prefixes of one buffer and undo/redo is a stack of lengths;
@@ -171,10 +201,22 @@ repainted via `viewportChanges` (a separate Listenable so scrolling
 doesn't spam controller listeners). `PdfViewer.initialFit` defaults to
 `PdfViewerFit.page` (whole first page visible, Chrome-style) — widget
 tests that do view-coordinate math pin `initialFit: PdfViewerFit.width`.
+`PdfThumbnailView` (same file, exported) is the full-area sibling: a
+reflowing `Wrap` grid with the strip's whole control set plus a header
+size slider (`thumbnailViewTileWidth` pref), custom drag reorder
+(`DragTarget`+`Draggable`/`LongPressDraggable`, mouse-immediate via a
+`MouseRegion` hover flag), and a "page picker" tap (`_PageTile.
+onActivatePage`). `PdfEditorView` overlays it over the live viewer as a
+view mode (`showThumbnailView`, toggled from View options alongside
+reflow; `altView` = reflow-or-grid suppresses the panels/toolbar).
 
 ## Development session log
 
 Detailed per-session notes (gotchas, file pointers, design rationale)
-have been moved to [doc/dev-log.md](doc/dev-log.md) to keep this file
-under the context-size limit. Consult it (or git history) when you need
-the background on a specific subsystem; append new session notes there.
+live in [doc/dev-log/](doc/dev-log/) — **one file per session**, named
+`YYYY-MM-DD-slug.md`. Consult them (or git history) when you need the
+background on a specific subsystem. Record new session notes by **adding
+a new file** there (never append to a shared file — that conflicts on
+every concurrent PR); see [doc/dev-log/README.md](doc/dev-log/README.md).
+Notes written before 2026-06-22 are in the frozen
+[doc/dev-log.md](doc/dev-log.md) archive.

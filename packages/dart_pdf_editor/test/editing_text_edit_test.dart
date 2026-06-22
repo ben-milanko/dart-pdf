@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -80,6 +81,55 @@ void main() {
       expect(annotation.rect.width, closeTo(expectedWidth, 0.01));
       expect(annotation.rect.height, closeTo(18 * 1.2 * 2 + 6, 0.01));
       expect(editing.selectedAnnotation, isNotNull);
+    });
+
+    test('textAlign preference flows into new free text', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.center
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
+
+      final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.alignment, PdfTextAlign.center);
+    });
+
+    test('setSelectedTextAlign changes the box and the creation default', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Aligned');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.selectedTextAlign, PdfTextAlign.left);
+
+      editing.setSelectedTextAlign(PdfTextAlign.right);
+
+      expect(editing.document.page(0).annotations.single.freeTextStyle!.alignment,
+          PdfTextAlign.right);
+      // the selection survives the rewrite
+      expect(editing.selectedTextAlign, PdfTextAlign.right);
+      // and right becomes the default for new boxes
+      expect(editing.textAlign, PdfTextAlign.right);
+    });
+
+    test('restyleSelectedText preserves alignment across a size change', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.center
+        ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+
+      editing.restyleSelectedText(size: 22);
+
+      expect(editing.selectedTextAlign, PdfTextAlign.center);
+      expect(editing.document.page(0).annotations.single.defaultAppearance,
+          contains('22 Tf'));
+    });
+
+    test('addFreeTextRich applies the alignment default', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..textAlign = PdfTextAlign.right;
+      editing.addFreeTextRich(0, const PdfRect(100, 600, 360, 650),
+          [const PdfFreeTextRun('Rich')]);
+
+      final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.alignment, PdfTextAlign.right);
     });
 
     test('text fill and border preferences flow into new free text', () {
@@ -376,20 +426,87 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('Escape cancels the editor without committing', (tester) async {
+    testWidgets('Escape keeps a newly placed box, committing what was typed',
+        (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing.tool = PdfEditTool.freeText;
       await tester.pump();
 
       await drag(tester, view(100, 700), view(300, 640));
-      await tester.enterText(find.byKey(editorKey), 'never mind');
+      await tester.enterText(find.byKey(editorKey), 'keep me');
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
 
       expect(find.byKey(editorKey), findsNothing);
       expect(editing.isEditingText, isFalse);
-      expect(editing.document.page(0).annotations, isEmpty);
+      // Escape finishes the box rather than discarding it — losing the box
+      // you just placed read as Escape "deleting" the annotation
+      expect(editing.document.page(0).annotations, hasLength(1));
+      expect(editing.document.page(0).annotations.single.contents, 'keep me');
       expect(editing.tool, PdfEditTool.freeText, reason: 'tool stays armed');
+      await settle(tester);
+    });
+
+    testWidgets('two escapes: first commits the box, second backs out the tool',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(300, 640));
+      await tester.enterText(find.byKey(editorKey), 'keep me');
+      await tester.pump();
+
+      // first Escape: commit and close, tool stays armed
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byKey(editorKey), findsNothing);
+      expect(editing.document.page(0).annotations, hasLength(1));
+      expect(editing.tool, PdfEditTool.freeText);
+
+      // second Escape: the viewer reclaimed focus on close, so its own
+      // shortcut runs and backs the tool out to none
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(editing.tool, isNull,
+          reason: 'a second Escape must reach the viewer and disarm the tool');
+      await settle(tester);
+    });
+
+    testWidgets('Escape on an empty new box adds nothing', (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(300, 640));
+      // no text typed
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(find.byKey(editorKey), findsNothing);
+      expect(editing.document.page(0).annotations, isEmpty,
+          reason: 'an empty box has nothing to keep');
+      await settle(tester);
+    });
+
+    testWidgets('Escape releases keyboard focus, not just the editor',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(300, 640));
+      await tester.enterText(find.byKey(editorKey), 'typing');
+      await tester.pump();
+      final focused = tester.binding.focusManager.primaryFocus;
+      expect(focused?.hasFocus, isTrue, reason: 'the field holds focus');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(find.byKey(editorKey), findsNothing);
+      expect(focused?.hasFocus, isFalse,
+          reason: 'Escape hands the keyboard back, leaving no lingering focus');
       await settle(tester);
     });
 
@@ -441,6 +558,8 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
+      expect(editing.document.page(0).annotations, hasLength(1),
+          reason: 'Escape (mouse-edit path) must not delete the box');
       await settle(tester);
     });
 
@@ -468,6 +587,29 @@ void main() {
       expect(annotation.contents, 'Edited in place');
       // the rewrite kept the original 14pt Helvetica style
       expect(annotation.defaultAppearance, contains('/Helv 14 Tf'));
+      await settle(tester);
+    });
+
+    testWidgets('Escape while editing existing free text keeps the annotation',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 300, 660), 'Original');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630)); // select
+      await tap(tester, view(200, 630)); // edit
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(find.byKey(editorKey), findsNothing);
+      expect(editing.document.page(0).annotations, hasLength(1),
+          reason: 'Escape cancels the edit, it must not delete the box');
+      expect(
+          editing.document.page(0).annotations.single.contents, 'Original');
       await settle(tester);
     });
 
@@ -595,6 +737,64 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('an embedded font applied to a run previews in its real face',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      final embedded = editing.activeFont as PdfEmbeddedFont;
+
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630)); // first tap selects
+      await tap(tester, view(200, 630)); // second tap edits
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+
+      // apply the embedded font to "world" through the public restyle path
+      expect(editing.restyleEditingTextSelection(font: embedded), isTrue);
+      // let ui.loadFontFromList register the outline bytes and rebuild
+      await tester.pumpAndSettle();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!.whereType<TextSpan>().singleWhere(
+            (child) => child.text == 'world',
+          );
+      // the run renders in the registered synthetic family, not the fallback
+      expect(styled.style?.fontFamily, startsWith('pdfedit-'));
+
+      await tap(tester, view(450, 400)); // outside: commit
+      final annotation = editing.document.page(0).annotations.single;
+      final res = editing.document.cos
+          .resolve(annotation.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
+      final fonts = editing.document.cos.resolve(res['Font']) as CosDictionary;
+      // the committed appearance embeds the font (a Type0 face for the run)
+      expect(
+          fonts.entries.values.any((ref) {
+            final f = editing.document.cos.resolve(ref);
+            return f is CosDictionary &&
+                (editing.document.cos.resolve(f['Subtype']) as CosName?)
+                        ?.value ==
+                    'Type0';
+          }),
+          isTrue);
+      await settle(tester);
+    });
+
     testWidgets('touch inline style chip changes selected text font',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -642,6 +842,114 @@ void main() {
           editing.document.cos.decodeStreamData(annotation.normalAppearance!));
       expect(content, contains('/TiRo 14 Tf'));
       expect(content, contains('(world) Tj'));
+      await settle(tester);
+    });
+
+    testWidgets('Ctrl+B and Ctrl+I toggle bold/italic on the selection',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630)); // first tap selects
+      await tap(tester, view(200, 630)); // second tap edits
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+
+      Future<void> press(LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(key);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pump();
+      }
+
+      await press(LogicalKeyboardKey.keyB);
+      await press(LogicalKeyboardKey.keyI);
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!.whereType<TextSpan>().singleWhere(
+            (child) => child.text == 'world',
+          );
+      expect(styled.style?.fontWeight, FontWeight.bold);
+      expect(styled.style?.fontStyle, FontStyle.italic);
+
+      await tap(tester, view(450, 400)); // outside: commit
+      final annotation = editing.document.page(0).annotations.single;
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(content, contains('/HelvBoldObl 14 Tf'));
+      expect(content, contains('(world) Tj'));
+      expect(content, contains('(Hello ) Tj'));
+      // restyling also moved the persisted creation default; reset it so a
+      // later test that builds a controller without clearing prefs still
+      // starts from plain Helvetica
+      editing.fontFamily = PdfStandardFont.helvetica;
+      await settle(tester);
+    });
+
+    testWidgets('reopening a mixed-format box restores its per-run styling',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // open, bold just "world", commit
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      var field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+      expect(
+          editing.restyleEditingTextSelection(
+              font: PdfStandardFont.helveticaBold),
+          isTrue);
+      await tester.pump();
+      await tap(tester, view(450, 400)); // commit
+      await settle(tester);
+
+      // the saved box carries /RC describing the bold run
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.richContent, isNotNull);
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      final runs = editing.selectedRichRuns!;
+      expect(runs.map((r) => r.text).join(), 'Hello world');
+      expect(runs.firstWhere((r) => r.text.contains('world')).font,
+          PdfStandardFont.helveticaBold);
+
+      // reopen: the editor's span shows "world" bold again, not flattened
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      expect(find.byKey(editorKey), findsOneWidget);
+      field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.controller!.text, 'Hello world');
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!.whereType<TextSpan>().singleWhere(
+            (child) => child.text == 'world',
+          );
+      expect(styled.style?.fontWeight, FontWeight.bold);
+
+      await tap(tester, view(450, 400)); // commit, no change
+      editing.fontFamily = PdfStandardFont.helvetica;
       await settle(tester);
     });
 
@@ -696,6 +1004,43 @@ void main() {
       // switching family keeps the bold+italic style
       await pickFont(const ValueKey('pdf-font-std-serif'));
       expect(editing.fontFamily, PdfStandardFont.timesBoldItalic);
+    });
+
+    testWidgets('the style menu sets text alignment for new text',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('pdf-group-insert')), 80);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-insert')));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+
+      // no selection: the buttons set the creation default
+      expect(editing.textAlign, isNull);
+      await tester.tap(find.byKey(const ValueKey('pdf-text-align-center')));
+      await tester.pump();
+      expect(editing.textAlign, PdfTextAlign.center);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-text-align-right')));
+      await tester.pump();
+      expect(editing.textAlign, PdfTextAlign.right);
     });
 
     testWidgets('the style menu sets text fill and border defaults',
@@ -927,6 +1272,47 @@ void main() {
 
       await gesture.up();
       await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets('releasing a resize keeps the lift, so no opaque flash',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..fontSize = 16
+        // a transparent box (no fill): the one that used to flash opaque
+        // white over the page on release
+        ..textFillColor = null
+        ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Clear box')
+        ..tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(300, 600));
+      await gesture.moveTo(view(260, 600));
+      await gesture.moveTo(view(220, 600));
+      await tester.pump();
+
+      // wait for the async clean lift (the page rendered without the box)
+      // to land during the drag
+      var painter = overlayPainter(tester);
+      for (var i = 0; i < 40 && painter.resizeClean == null; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        painter = overlayPainter(tester);
+      }
+      expect(painter.resizeClean, isNotNull, reason: 'clean lift never landed');
+
+      await gesture.up();
+      await tester.pump();
+
+      // the commit happened, and the lift carried into the afterimage:
+      // the painter still hides the old footprint with real page content
+      // (resizeClean) instead of washing opaque paper over a transparent
+      // box — that wash was the white flash.
+      painter = overlayPainter(tester);
+      expect(painter.resizeClean, isNotNull);
+      expect(painter.resizeHideRect, isNotNull);
+      expect(find.text('Clear box'), findsOneWidget); // text still shown
       await settle(tester);
     });
 

@@ -587,20 +587,43 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 bottomSheet: bottomSheet,
                 fontPicker: widget.fontPicker,
               );
+          // the dedicated full-area page grid, overlaid on the (still
+          // mounted) viewer so a tapped page can scroll it before the grid
+          // closes to reveal the page
+          PdfThumbnailView pageGrid() => PdfThumbnailView(
+                key: const ValueKey('pdf-shell-page-grid'),
+                controller: session,
+                viewerController: _viewer,
+                pageColor: pageColor,
+                showAnnotations: prefs.showAnnotations,
+                allowPageEditing: features.pageEditing,
+                onPickPdfToInsert:
+                    features.pageEditing ? widget.onPickPdfToInsert : null,
+                onExportPages: widget.onExportPages,
+                onOpenPage: (_) => prefs.showThumbnailView = false,
+                renderWorker: _worker,
+              );
 
-          final reflowActive = features.reflowView && prefs.showReflowView;
+          // the full-area page grid replaces the page viewer; it wins over
+          // reflow if both prefs are somehow on (the toggle below also
+          // clears reflow). [altView] is "the viewer is hidden" — it
+          // suppresses the docked panels, the editing toolbar, and the
+          // viewer-only header controls, just as reflow does.
+          final gridActive = features.thumbnails && prefs.showThumbnailView;
+          final reflowActive =
+              features.reflowView && prefs.showReflowView && !gridActive;
+          final altView = reflowActive || gridActive;
           final showThumbnailsPanel =
-              features.thumbnails && showThumbnails && !reflowActive;
+              features.thumbnails && showThumbnails && !altView;
           final showSearchPanel = features.search &&
               features.searchResultsPanel &&
               prefs.showSearchResultsPanel &&
-              !reflowActive;
+              !altView;
           final showAnnotationsPanel = features.annotationSidebar &&
               prefs.showAnnotationSidebar &&
-              !reflowActive;
-          final showPropertiesPanel = features.propertiesPanel &&
-              prefs.showPropertiesPanel &&
-              !reflowActive;
+              !altView;
+          final showPropertiesPanel =
+              features.propertiesPanel && prefs.showPropertiesPanel && !altView;
 
           final sheets = !useSheets
               ? const <Widget>[]
@@ -647,8 +670,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // below the viewer instead, where it takes its own layout space.
           // Above the breakpoint it stays a set of transparent floating
           // cards with the page showing through the gaps.
-          final showToolbar =
-              features.toolbar && sheets.isEmpty && !reflowActive;
+          final showToolbar = features.toolbar && sheets.isEmpty && !altView;
           final dockToolbar = showToolbar &&
               constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
           final toolbar = !showToolbar
@@ -680,6 +702,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 context,
                 preferences: prefs,
                 reflow: features.reflowView,
+                pageGrid: features.thumbnails,
                 pageColor: features.pageColorEditable,
                 author: features.author,
                 authorName: session.author,
@@ -732,13 +755,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             if (features.headerBar)
               PdfShellBar(
                 leading: [
-                  if (features.pageNumber && !reflowActive)
+                  if (features.pageNumber && !altView)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
-                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
-                  if (features.search && !reflowActive) ...[
+                  if (!altView) PdfShellZoomControl(controller: _viewer),
+                  if (features.search && !altView) ...[
                     PdfSearchField(
                       controller: _viewer,
                       searchController: _searchField,
@@ -751,12 +774,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   ],
                 ],
                 compactLeading: [
-                  if (features.pageNumber && !reflowActive)
+                  if (features.pageNumber && !altView)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: PdfPageNumberField(controller: _viewer),
                     ),
-                  if (features.search && !reflowActive)
+                  if (features.search && !altView)
                     PdfSearchField(
                       controller: _viewer,
                       searchController: _searchField,
@@ -770,6 +793,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     PdfShellViewOptionsButton(
                         preferences: prefs,
                         reflow: features.reflowView,
+                        pageGrid: features.thumbnails,
                         pageColor: features.pageColorEditable,
                         author: features.author,
                         authorName: session.author,
@@ -797,7 +821,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     ),
                 ],
                 compactSheetChildren: [
-                  if (!reflowActive) PdfShellZoomControl(controller: _viewer),
+                  if (!altView) PdfShellZoomControl(controller: _viewer),
                 ],
                 compactControls: [
                   if (features.viewOptions) viewOptionsControl,
@@ -869,6 +893,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       properties(bottomSheet: false),
                   ]),
                 ),
+                // the page grid covers the (still-mounted) viewer: a tap can
+                // scroll the live viewer underneath, then the grid closes to
+                // reveal the chosen page. Opaque, so the viewer takes no taps
+                // while it shows.
+                if (gridActive) Positioned.fill(child: pageGrid()),
                 if (toolbar != null && !dockToolbar)
                   Positioned(
                     left: 0,

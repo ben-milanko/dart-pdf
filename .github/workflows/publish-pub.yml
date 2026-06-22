@@ -1,5 +1,15 @@
 name: Publish to pub.dev
 
+# Tag-triggered OIDC publishing. Each `<pkg>-v<version>` tag publishes that
+# package's working directory to pub.dev with no stored token — pub.dev trusts
+# the GitHub Actions identity.
+#
+# REQUIRED ONE-TIME SETUP per package (pub.dev → package → Admin → Automated
+# publishing): enable "Publishing from GitHub Actions", set Repository to
+# ben-milanko/dart-pdf and the Tag pattern to `<pkg>-v{{version}}`
+# (e.g. pdf_cos-v{{version}}). Without this, every job here fails with
+# "publishing from github is not enabled". See doc/RELEASING-packages.md.
+
 on:
   push:
     tags:
@@ -8,6 +18,8 @@ on:
       - 'pdf_document-v*'
       - 'pdf_graphics-v*'
       - 'dart_pdf_editor-v*'
+      - 'pdf_ocr_vlm-v*'
+      - 'pdf_ocr_ondevice-v*'
 
 jobs:
   publish-pdf-cos:
@@ -59,3 +71,23 @@ jobs:
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_editor
+
+  publish-pdf-ocr-vlm:
+    if: startsWith(github.ref_name, 'pdf_ocr_vlm-v')
+    permissions:
+      contents: read
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      environment: pub.dev
+      working-directory: packages/pdf_ocr_vlm
+
+  publish-pdf-ocr-ondevice:
+    if: startsWith(github.ref_name, 'pdf_ocr_ondevice-v')
+    permissions:
+      contents: read
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      environment: pub.dev
+      working-directory: packages/pdf_ocr_ondevice

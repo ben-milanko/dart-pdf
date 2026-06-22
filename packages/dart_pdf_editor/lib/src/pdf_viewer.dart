@@ -450,6 +450,7 @@ class PdfViewer extends StatefulWidget {
     this.editingTextPrompt,
     this.annotationMenuBuilder,
     this.formImagePicker,
+    this.fontPicker,
     this.imagePicker,
     this.onSnapshot,
     this.pageSpacing = 12,
@@ -564,6 +565,12 @@ class PdfViewer extends StatefulWidget {
   /// (signature and logo fields) — typically a file picker returning
   /// PNG or JPEG bytes. With none, tapping a push button does nothing.
   final PdfFormImagePicker? formImagePicker;
+
+  /// How the form field "Text style…" popup loads a custom `.ttf`/`.otf`
+  /// font (its "More fonts → Load font…" entry) — typically a file picker
+  /// returning the font bytes. With none, that popup still offers the
+  /// standard and bundled fonts; only the load-custom entry is hidden.
+  final PdfFontPicker? fontPicker;
 
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
   /// insert — typically a file picker returning PNG or JPEG bytes. With
@@ -706,6 +713,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   Timer? _scrollSettleTimer;
   int _settleGeneration = 0;
 
+  /// Bumped whenever the document is swapped for a revision whose page
+  /// structure differs (insert/remove/reorder — the non-same-geometry path
+  /// that clears the preview cache). Threaded to every [_PdfViewerPage] so a
+  /// slot-reused page State drops the stale raster of the page that used to
+  /// occupy its slot instead of painting it during a fast scroll.
+  int _pageEpoch = 0;
+
   /// Paces every page's first (UI-thread) interpret so no frame runs
   /// more than one — [PdfPageRenderScheduler]. Its [holding] flag stands
   /// in for the old render hold: while the list scrolls faster than
@@ -740,6 +754,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// identity), so a page whose render throws can't be retried forever.
   final _previewAttempts = Set<PdfPage>.identity();
   bool _prerendering = false;
+
+  /// The editing controller's [PdfEditingController.pageRenderStamp] for
+  /// each page as of the displayed revision — the content the cached
+  /// previews (and on-screen rasters) reflect. A same-geometry edit swap
+  /// compares the new stamps against this snapshot: any page whose stamp
+  /// advanced had its content change (most importantly a redaction burn),
+  /// so its stale preview is dropped instead of rebound. Empty (and all
+  /// stamps read as 0) outside an editing session.
+  final Map<int, int> _contentStamps = {};
 
   late List<PdfPage> _pages;
   late List<double> _aspects; // height / width, after /Rotate
@@ -908,6 +931,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         if (animation != null) _transform.value = animation.value;
       });
     _loadPages();
+    _snapshotContentStamps();
     _bindRasterCache();
     _scroll.addListener(_onScroll);
     _scroll.addListener(_onScrollForDetail);
@@ -1314,10 +1338,25 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // objects — edited pages refresh from their on-screen render); a
       // different document starts clean
       if (sameGeometry) {
-        _previews.rebind(_pages);
+        // a page whose content stamp advanced changed materially (a
+        // redaction burn removes glyphs/images): drop its stale preview so
+        // a fast scroll can't flash the deleted content, instead of
+        // rebinding it. Untouched pages rebind in place as before.
+        _previews.rebind(_pages,
+            changed: (i) {
+          final prev = _contentStamps[i];
+          return prev != null && prev != _contentStamp(i);
+        });
       } else {
         _previews.clear();
+        // the page list shifted under the lazy list's slot-keyed States;
+        // bump the epoch so each reused page drops the raster of the page
+        // that used to sit in its slot (otherwise a fast scroll right after
+        // an insert/remove/reorder paints the wrong, stale low-res page)
+        _pageEpoch++;
       }
+      // the cached previews (rebound or cleared) now reflect this revision
+      _snapshotContentStamps();
       // re-point (and, for a different file, re-prime) the persistent
       // preview backing; an edit revision keeps its rebound previews so the
       // prime is a no-op there
@@ -1348,9 +1387,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _previewAttempts.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
     } else if (!identical(oldWidget.rasterCache, widget.rasterCache) ||
-        oldWidget.documentId != widget.documentId) {
+        oldWidget.documentId != widget.documentId ||
+        (oldWidget.editing == null) != (widget.editing == null)) {
       // the host swapped the cache or the document's identity without
-      // changing the document object (e.g. a path became known)
+      // changing the document object (e.g. a path became known), or toggled
+      // editing on/off in place — entering an edit session must drop the
+      // index-keyed disk backing, leaving it must restore (and re-prime) it
       _bindRasterCache();
     }
   }
@@ -1382,6 +1424,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _pages = [for (var i = 0; i < count; i++) widget.document.page(i)];
     _recomputeAspects();
     _controller._setPageCount(count);
+  }
+
+  /// Page [index]'s current content stamp from the editing controller, or 0
+  /// when not editing (no content can change under the viewer).
+  int _contentStamp(int index) => widget.editing?.pageRenderStamp(index) ?? 0;
+
+  /// Records the content stamp of every current page as the baseline the
+  /// cached previews now reflect (after a swap, a prerender pass, or first
+  /// build).
+  void _snapshotContentStamps() {
+    _contentStamps
+      ..clear()
+      ..addEntries([
+        for (var i = 0; i < _pages.length; i++) MapEntry(i, _contentStamp(i)),
+      ]);
   }
 
   void _recomputeAspects() {
@@ -1427,7 +1484,19 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _bindRasterCache({bool prime = true}) {
     final raster = widget.rasterCache;
     final key = _rasterKey();
-    if (!widget.pagePreviews || raster == null || key == null) {
+    // An edit session mutates page content and structure per revision, so its
+    // previews are never served from the (index-keyed) persistent backing.
+    // Inserting, removing, or reordering pages shifts the index a stored
+    // raster was keyed by, so priming from disk would bind a stale-by-index
+    // preview to the wrong page and surface it during fast scrolling — and,
+    // marked fresh, it would block the on-screen full render from replacing
+    // it. The in-memory preview cache (rebound on a same-geometry edit,
+    // cleared and re-prerendered otherwise) covers the session; disk priming
+    // is reserved for static documents, mirroring the text cache.
+    if (!widget.pagePreviews ||
+        raster == null ||
+        key == null ||
+        widget.editing != null) {
       _previews.disk = null;
       return;
     }
@@ -2203,6 +2272,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       controller: editing,
       fieldName: fieldName,
       textPrompt: widget.editingTextPrompt ?? showPdfTextPrompt,
+      fontPicker: widget.fontPicker,
     );
   }
 
@@ -2422,6 +2492,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       }
     }
     _clearSelection();
+  }
+
+  /// Reclaims keyboard focus after the in-place text editor closes while it
+  /// owned the keyboard (Escape, ⌘Enter, or a tap-on-page commit), so the
+  /// viewer's own shortcuts fire on the very next key — notably a second
+  /// Escape stepping the armed tool back out. Without it the removed field's
+  /// focus node leaves focus in limbo and that next key reaches nothing.
+  void _reclaimFocusAfterTextEdit() {
+    if (mounted) _focusNode.requestFocus();
   }
 
   /// The controller behind any in-place text editor — the editing
@@ -3455,6 +3534,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                     widget.interactiveForms && widget.showAnnotations,
                 scale: _renderScale,
                 settleGeneration: _settleGeneration,
+                pageEpoch: _pageEpoch,
+                contentStamp: _contentStamp(index),
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -3481,6 +3562,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 previewCache: widget.pagePreviews ? _previews : null,
                 renderWorker: widget.renderWorker,
                 predictStrokes: widget.predictStrokes,
+                onTextEditClosed: _reclaimFocusAfterTextEdit,
               ),
             ),
           ),
@@ -3844,6 +3926,8 @@ class _PdfViewerPage extends StatefulWidget {
     required this.interactiveForms,
     required this.scale,
     required this.settleGeneration,
+    required this.pageEpoch,
+    required this.contentStamp,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -3867,6 +3951,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.previewCache,
     required this.renderWorker,
     required this.predictStrokes,
+    required this.onTextEditClosed,
   });
 
   final PdfPage page;
@@ -3888,6 +3973,18 @@ class _PdfViewerPage extends StatefulWidget {
 
   final double scale;
   final int settleGeneration;
+
+  /// Bumped on a structural document swap (insert/remove/reorder) so a
+  /// slot-reused [PdfPageView] State drops the previous page's stale raster
+  /// instead of painting it for the page now in its slot.
+  final int pageEpoch;
+
+  /// This page's [PdfEditingController.pageRenderStamp]: changes when the
+  /// page's *content* changed in a same-geometry edit revision (a redaction
+  /// burn, a fill, an annotation edit). A reused [PdfPageView] State drops
+  /// its stale raster/preview rather than painting the pre-edit content
+  /// while the new render lands. 0 outside an editing session.
+  final int contentStamp;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -3952,6 +4049,9 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [PdfViewer.predictStrokes].
   final bool predictStrokes;
 
+  /// See [EditingPageOverlay.onTextEditClosed].
+  final VoidCallback onTextEditClosed;
+
   @override
   State<_PdfViewerPage> createState() => _PdfViewerPageState();
 }
@@ -3989,6 +4089,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         rotation: widget.effectiveRotation,
         scale: widget.scale,
         settleGeneration: widget.settleGeneration,
+        pageEpoch: widget.pageEpoch,
+        contentStamp: widget.contentStamp,
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
         onRasterReady: _onRasterReady,
@@ -4079,12 +4181,29 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               onShowFormFieldMenu: widget.onShowFormFieldMenu,
                               onResolvePagePoint: widget.onResolvePagePoint,
                               onMoveDragPreview: widget.onMoveDragPreview,
+                              onTextEditClosed: widget.onTextEditClosed,
                               rasterCurrent: _rastered,
                               zoom: zoom,
                               predictStrokes: widget.predictStrokes,
                             ),
                           ),
                         ),
+                ),
+              // field-name labels: while the form-authoring tool is armed,
+              // outline every field and tag it with its name so empty
+              // fields (which render nothing) are discoverable
+              if (editing != null)
+                Positioned.fill(
+                  child: ListenableBuilder(
+                    listenable: editing,
+                    builder: (context, _) => editing.tool == PdfEditTool.form
+                        ? FormFieldLabelLayer(
+                            controller: editing,
+                            pageIndex: widget.index,
+                            geometry: geometry,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
                 ),
               // direct form fill: a per-field tap layer in reading /
               // selection modes (the form-authoring tool owns fields

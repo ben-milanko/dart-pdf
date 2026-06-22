@@ -34,6 +34,8 @@ class PdfPageView extends StatefulWidget {
     this.renderScheduler,
     this.previewCache,
     this.previewIndex = 0,
+    this.pageEpoch = 0,
+    this.contentStamp = 0,
     this.renderWorker,
   });
 
@@ -62,6 +64,26 @@ class PdfPageView extends StatefulWidget {
 
   /// This page's index in [previewCache].
   final int previewIndex;
+
+  /// Bumped by the viewer whenever the document is swapped for a revision
+  /// whose page structure differs (insert, remove, reorder). The lazy list
+  /// has no per-page key, so it reconciles States by slot: after pages
+  /// shift, a reused State keeps the same [previewIndex] while [page]
+  /// silently becomes a different page, and its already-rastered [_image]/
+  /// preview would otherwise keep painting the *old* page during a fast
+  /// scroll. A changed epoch forces the stale rasters to drop and re-render.
+  /// Unchanged across same-geometry (content-only) edits, so those keep
+  /// re-rendering in place without a blank flash.
+  final int pageEpoch;
+
+  /// This page's content stamp (see [_PdfViewerPage.contentStamp]). Unlike
+  /// [pageEpoch] it is per-page, so a content-only same-geometry edit that
+  /// changed *this* page advances it while leaving untouched pages alone.
+  /// When it changes the held raster and preview are the pre-edit content —
+  /// most dangerously after a redaction burn, where keeping them would
+  /// flash the removed glyphs/images during a fast scroll — so both drop
+  /// and the page re-renders. 0 outside an editing session (never changes).
+  final int contentStamp;
 
   /// While true, a page that has not been interpreted yet keeps its
   /// paper placeholder instead of starting the (UI-thread) interpreter
@@ -224,7 +246,23 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview = null;
       _refreshPreview();
     }
-    if (!identical(oldWidget.page, widget.page) ||
+    if (oldWidget.pageEpoch != widget.pageEpoch ||
+        oldWidget.contentStamp != widget.contentStamp) {
+      // Either a structural document change reused this State for a different
+      // page at the same slot (pageEpoch; previewIndex unchanged, so the
+      // branches above don't fire), or this page's own content changed in a
+      // same-geometry edit (contentStamp — a redaction burn, a fill). Either
+      // way the held raster and preview are stale: drop them so a fast scroll
+      // can't flash the old (or, after a redaction, removed) content; the
+      // preview cache (cleared for changed pages) and _render below repaint.
+      _image?.dispose();
+      _image = null;
+      _preview?.dispose();
+      _preview = null;
+    }
+    if (oldWidget.pageEpoch != widget.pageEpoch ||
+        oldWidget.contentStamp != widget.contentStamp ||
+        !identical(oldWidget.page, widget.page) ||
         oldWidget.rotation != widget.rotation ||
         oldWidget.pageColor != widget.pageColor ||
         oldWidget.showAnnotations != widget.showAnnotations) {

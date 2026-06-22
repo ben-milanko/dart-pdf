@@ -17,6 +17,13 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: dart analyze --fatal-infos
+      # Enforce the lockstep versioning invariant: every workspace package
+      # must depend on its siblings at the current release version (`^x.y.z`).
+      # A stale lower bound makes pub.dev's downgrade analysis fail (0/20 on
+      # "compatible with dependency constraint lower bounds"). See the script
+      # header and dart.dev/go/downgrade-testing.
+      - name: Check lockstep dependency lower bounds
+        run: dart run tool/check_lockstep_constraints.dart
       # Compile the web render worker. `dart analyze` does NOT catch
       # `.toJS`-conversion errors (e.g. an async/Future-returning message
       # handler), which only surface at `dart compile js` — the step the deploy

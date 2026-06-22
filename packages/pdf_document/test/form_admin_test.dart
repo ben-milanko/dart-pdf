@@ -136,8 +136,9 @@ void main() {
       annots.items.removeWhere(
           (item) => identical(doc.cos.resolve(item), field.dict));
       editor.removeField(field); // must not throw
-      expect(PdfAcroForm.of(PdfDocument.open(editor.save()))!
-          .fieldNamed('name'), isNull);
+      // the field is gone and not resurrected: with its widget on no page,
+      // orphan-widget reconciliation has nothing to re-adopt.
+      expect(editor.acroForm!.fieldNamed('name'), isNull);
     });
   });
 

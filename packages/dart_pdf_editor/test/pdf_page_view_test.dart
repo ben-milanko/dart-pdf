@@ -64,6 +64,55 @@ void main() {
     expect(narrow.width, 306);
   });
 
+  testWidgets('a structural epoch bump drops the slot\'s stale raster',
+      (tester) async {
+    // The lazy page list has no per-page key, so after an insert/remove/
+    // reorder a page State is reused for a different page in the same slot.
+    // A bumped pageEpoch must drop the previous page's raster so a fast
+    // scroll can't paint it for the page now in the slot. renderHold (raised
+    // by the viewer during a fast scroll) keeps the re-render pending, so the
+    // raster shown between the swap and the new render is observable.
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    // varied heights (792, 396, 1008) let us tell the pages apart by raster.
+    final doc = PdfDocument.open(buildVariedHeightPdf(3));
+    final hold = ValueNotifier<bool>(false);
+    addTearDown(hold.dispose);
+    Widget at(PdfPage page, int epoch) => Center(
+        child: SizedBox(
+            width: 612,
+            child:
+                PdfPageView(page: page, pageEpoch: epoch, renderHold: hold)));
+
+    await tester.pumpWidget(at(doc.page(0), 0));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.height, 792);
+
+    // Hold renders (as during a fast scroll). A same-epoch page change (a
+    // content-only edit reused the slot): the old raster is intentionally
+    // kept and re-rendered in place when the hold releases — no blank flash.
+    hold.value = true;
+    await tester.pumpWidget(at(doc.page(2), 0));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.height, 792,
+        reason: 'a same-geometry edit keeps the raster while the render holds');
+
+    // Bumped epoch (a structural change put a different page in this slot):
+    // the stale raster must drop now, before the held render lands — else the
+    // fast scroll paints page 0's image for page 2.
+    await tester.pumpWidget(at(doc.page(2), 1));
+    await tester.pump();
+    expect(find.byType(RawImage), findsNothing,
+        reason: 'a structural epoch bump drops the previous page raster');
+
+    // Releasing the hold re-renders for the page now in the slot.
+    hold.value = false;
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.height, 1008);
+  });
+
   testWidgets('raster resolution is capped at deep zoom', (tester) async {
     final doc = PdfDocument.open(buildClassicPdf());
     await tester.pumpWidget(

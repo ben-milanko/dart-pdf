@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Font menu: offer the host platform's installed fonts as embeddable choices
+  alongside the base-14 families and bundled fonts. A host fills the new
+  `pdfPlatformFonts` registry once at startup (the example/app scan the OS
+  font directories on native; web stays empty), and every font menu picks
+  them up by default. Picking one embeds its outlines into the document so
+  the text renders and prints everywhere. New `PdfPlatformFont` type and an
+  optional `platformFonts` argument on `PdfFontMenuButton`/`showPdfFontMenu`.
+
+## 1.2.3
+
+- Free text: align a text box left, center, or right. The alignment buttons
+  sit in the text style popup and the annotation properties panel — they
+  apply to the selected box and set the default for new boxes (remembered
+  per the text tool). New boxes still follow the text direction until you
+  pick an alignment.
+
 ## 1.2.2
 
 - View rotation: rotate the displayed page in 90° steps without changing the

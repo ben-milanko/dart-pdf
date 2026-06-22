@@ -52,6 +52,64 @@ Future<Uint8List> loadBundledFont(PdfBundledFont font) async {
   return _bundledCache[font.assetKey] = bytes;
 }
 
+/// A font discovered on the host platform (e.g. an OS-installed family),
+/// offered as a font-menu choice. The editor can't read font files itself
+/// (`dart:io` is banned in `lib/` so the package keeps running on the web),
+/// so the host app discovers these and registers them in [pdfPlatformFonts]:
+/// a label, the engine font family to preview the menu entry with (optional)
+/// and a lazy byte loader called only when the font is chosen — its outlines
+/// then embed into the document so the text renders everywhere.
+class PdfPlatformFont {
+  const PdfPlatformFont({
+    required this.label,
+    required this.loadBytes,
+    this.family,
+  });
+
+  /// The name shown in the font menu.
+  final String label;
+
+  /// The engine font-family name to preview the menu entry with — a real
+  /// platform family the host knows the system can draw. When null the entry
+  /// previews in the menu's default face (the bytes still embed on pick).
+  final String? family;
+
+  /// Lazily loads the font's program bytes for embedding. Returns null when
+  /// the font can no longer be read (e.g. it was uninstalled).
+  final Future<Uint8List?> Function() loadBytes;
+}
+
+/// Platform (OS-installed) fonts offered in every font menu, on top of the
+/// base-14 families and the [pdfBundledFonts]. The editor library can't
+/// enumerate the host's fonts, so a host app fills this once at startup
+/// (see the example/app's `loadPlatformFonts`) and every [showPdfFontMenu]
+/// picks it up by default. Empty until a host populates it.
+List<PdfPlatformFont> pdfPlatformFonts = const [];
+
+List<PdfEmbeddedFont>? _fallbackFontsCache;
+
+/// The bundled DejaVu trio (sans, serif, monospace) parsed for use as
+/// content-edit fallbacks: when rewriting composite (/Type0) page text, a
+/// document's own font may be subsetted and lack the glyph for a character
+/// the user types, so these wide-Unicode faces draw it instead (the closest
+/// serif/mono match is chosen). Loaded and cached once; a missing/corrupt
+/// asset is skipped.
+Future<List<PdfEmbeddedFont>> loadFallbackFonts() async {
+  if (_fallbackFontsCache != null) return _fallbackFontsCache!;
+  final fonts = <PdfEmbeddedFont>[];
+  for (final label in const ['DejaVu Sans', 'DejaVu Serif', 'DejaVu Sans Mono']) {
+    final bundled =
+        pdfBundledFonts.where((f) => f.label == label).firstOrNull;
+    if (bundled == null) continue;
+    try {
+      fonts.add(PdfEmbeddedFont.parse(await loadBundledFont(bundled)));
+    } catch (_) {
+      // skip a font that fails to load/parse
+    }
+  }
+  return _fallbackFontsCache = fonts;
+}
+
 /// Applies [font] to [controller]: it becomes the font new free text is
 /// written in (an embedded font sets [PdfEditingController.activeFont]; a
 /// standard family sets [PdfEditingController.fontFamily]) and, when a
@@ -65,6 +123,13 @@ void pdfApplyFont(PdfEditingController controller, PdfTextFont font) {
   if (controller.restyleEditingTextSelection(font: font)) return;
   if (controller.canRestyleSelectedText) {
     controller.restyleSelectedFont(font);
+  } else if (controller.selectedFormFieldName case final name?) {
+    controller.setFormFieldStyle(name, font: font);
+  } else if (font is PdfStandardFont &&
+      controller.canRestyleMeasurementCaption) {
+    // a measurement caption is drawn in a base-14 face (/DA resource name),
+    // so only a standard family applies — embedded fonts don't
+    controller.setSelectedMeasurementCaption(font: font);
   }
 }
 
@@ -79,6 +144,7 @@ class PdfFontMenuButton extends StatelessWidget {
     required this.controller,
     this.fontPicker,
     this.bundled = pdfBundledFonts,
+    this.platformFonts,
   });
 
   final PdfEditingController controller;
@@ -89,6 +155,10 @@ class PdfFontMenuButton extends StatelessWidget {
 
   /// The bundled fonts offered. Defaults to [pdfBundledFonts].
   final List<PdfBundledFont> bundled;
+
+  /// The platform fonts offered. Defaults to the host-populated
+  /// [pdfPlatformFonts] registry when null.
+  final List<PdfPlatformFont>? platformFonts;
 
   @override
   Widget build(BuildContext context) {
@@ -109,6 +179,7 @@ class PdfFontMenuButton extends StatelessWidget {
         controller: controller,
         fontPicker: fontPicker,
         bundled: bundled,
+        platformFonts: platformFonts,
       ),
     );
   }
@@ -130,6 +201,11 @@ class _BundledChoice extends _FontChoice {
   final PdfBundledFont font;
 }
 
+class _PlatformChoice extends _FontChoice {
+  const _PlatformChoice(this.font);
+  final PdfPlatformFont font;
+}
+
 class _LoadChoice extends _FontChoice {
   const _LoadChoice();
 }
@@ -144,15 +220,19 @@ Text _fontChoiceText(String label,
         ));
 
 /// Pops a font menu anchored at [context]'s widget and applies the pick:
-/// the standard families, the [bundled] fonts, then "Load font…" (when a
-/// [fontPicker] is given). Bundled and custom fonts embed into the
-/// document so the text renders everywhere.
+/// the standard families, the [bundled] fonts, the platform fonts
+/// ([platformFonts], defaulting to the host-populated [pdfPlatformFonts]
+/// registry), then "Load font…" (when a [fontPicker] is given). Bundled,
+/// platform and custom fonts embed into the document so the text renders
+/// everywhere.
 Future<void> showPdfFontMenu({
   required BuildContext context,
   required PdfEditingController controller,
   PdfFontPicker? fontPicker,
   List<PdfBundledFont> bundled = pdfBundledFonts,
+  List<PdfPlatformFont>? platformFonts,
 }) async {
+  final platform = platformFonts ?? pdfPlatformFonts;
   final box = context.findRenderObject() as RenderBox?;
   final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
   if (box == null || overlay == null) return;
@@ -191,6 +271,16 @@ Future<void> showPdfFontMenu({
           child: _fontChoiceText(bundled[i].label,
               fontFamily: bundled[i].label, package: 'dart_pdf_editor'),
         ),
+      if (platform.isNotEmpty) const PopupMenuDivider(),
+      for (var i = 0; i < platform.length; i++)
+        PopupMenuItem(
+          key: ValueKey('pdf-font-platform-$i'),
+          value: _PlatformChoice(platform[i]),
+          // A platform family previews in its real face; a null family just
+          // names the font in the menu's default face (still embeds on pick).
+          child: _fontChoiceText(platform[i].label,
+              fontFamily: platform[i].family),
+        ),
       if (fontPicker != null) ...[
         const PopupMenuDivider(),
         const PopupMenuItem(
@@ -221,6 +311,16 @@ Future<void> showPdfFontMenu({
         pdfApplyFont(controller, PdfEmbeddedFont.parse(bytes));
       } catch (_) {
         // A missing/corrupt bundled asset just leaves the font unchanged.
+      }
+    case _PlatformChoice(:final font):
+      try {
+        final bytes = await font.loadBytes();
+        if (bytes != null) {
+          pdfApplyFont(controller, PdfEmbeddedFont.parse(bytes));
+        }
+      } catch (_) {
+        // An unreadable/unsupported platform font (e.g. .ttc, WOFF, or one
+        // uninstalled since discovery) leaves the font unchanged.
       }
     case _LoadChoice():
       if (fontPicker == null) return;

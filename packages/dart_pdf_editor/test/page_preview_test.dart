@@ -57,6 +57,38 @@ void main() {
     clone.dispose();
   });
 
+  testWidgets('rebind drops previews of pages whose content changed',
+      (tester) async {
+    // A same-geometry edit revision rebinds previews to the new page objects
+    // without re-rendering — except pages whose content actually changed (a
+    // redaction burn), whose stale previews must be dropped so a fast scroll
+    // can't flash the removed content.
+    final document = PdfDocument.open(buildMultiPagePdf(3));
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    await tester.runAsync(() async {
+      for (var i = 0; i < 3; i++) {
+        await cache.renderPreview(i, document.page(i));
+      }
+    });
+    expect(cache.has(0) && cache.has(1) && cache.has(2), isTrue);
+
+    final next = PdfDocument.open(buildMultiPagePdf(3));
+    final pages = [for (var i = 0; i < 3; i++) next.page(i)];
+    cache.rebind(pages, changed: (i) => i == 1);
+
+    // the changed page's stale preview is gone; the rest rebind to the new
+    // page objects (so an on-screen render still treats them as fresh)
+    expect(cache.has(1), isFalse, reason: 'changed page dropped, not rebound');
+    expect(cache.has(0), isTrue);
+    expect(cache.has(2), isTrue);
+    expect(cache.isFresh(0, pages[0]), isTrue);
+    expect(cache.isFresh(2, pages[2]), isTrue);
+    // a dropped page is no longer fresh, so its next on-screen render refills
+    // it (in the buggy rebind path it stayed "fresh" and could never refresh)
+    expect(cache.isFresh(1, pages[1]), isFalse);
+  });
+
   testWidgets('a held page paints the cached preview, then the full render',
       (tester) async {
     final document = PdfDocument.open(buildClassicPdf());

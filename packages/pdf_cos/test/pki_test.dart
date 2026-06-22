@@ -89,6 +89,53 @@ void main() {
     });
   });
 
+  group('RSASSA-PSS', () {
+    final key = RsaPrivateKey.fromPem(_testKeyPem).publicKey;
+    final digest = crypto.sha256
+        .convert('dart-pdf rsa-pss test message'.codeUnits)
+        .bytes;
+    // openssl dgst -sha256 -sigopt rsa_padding_mode:pss with the test key
+    final saltlen32 = hex(
+        '947efe60e7e20e12114a40430fb9af047816df63acbd1d1612133b579458016b'
+        '242dc8cf7bb02baaffb4fbc8e2f230637a518619d1891a051f418f6624614f16'
+        'eede4a750afd6f440639aa726c77380bb5a069e68a45a268e477ac4612be08f0'
+        '6de69d5ffdd8e98064e8e5d23093cff4b8ebf7d2344b45a54d1be6bb2d4f4bda');
+    final saltlen0 = hex(
+        'aa257a313a19e4ed227f57008d1710f7aa6232b27443cf45e1b373ce348538fb'
+        'a1549fc911473099d8811d43d5caad3e353585acbbdc1355a7bef0748469887c'
+        '04178099ef59d489245b5a317a97fd39e93011e43150af4d5ee196cf25cae9ac'
+        'd0823f19a123564c42aaab13cbe47a0ed363ac2023ee2b8905eee1678d225eb3');
+
+    test('verifies an openssl signature, recovering the salt length', () {
+      expect(rsaVerifyPss(key, crypto.sha256, digest, saltlen32), isTrue);
+      expect(rsaVerifyPss(key, crypto.sha256, digest, saltlen0), isTrue);
+    });
+
+    test('enforces an explicit salt length when given', () {
+      expect(
+          rsaVerifyPss(key, crypto.sha256, digest, saltlen32, saltLength: 32),
+          isTrue);
+      expect(
+          rsaVerifyPss(key, crypto.sha256, digest, saltlen0, saltLength: 0),
+          isTrue);
+      // the wrong declared length is rejected even though the math holds
+      expect(
+          rsaVerifyPss(key, crypto.sha256, digest, saltlen32, saltLength: 0),
+          isFalse);
+    });
+
+    test('rejects a wrong digest', () {
+      final other =
+          crypto.sha256.convert('dart-pdf rsa-pss test messagE'.codeUnits).bytes;
+      expect(rsaVerifyPss(key, crypto.sha256, other, saltlen32), isFalse);
+    });
+
+    test('rejects a corrupted signature', () {
+      final bad = Uint8List.fromList(saltlen32)..[10] ^= 1;
+      expect(rsaVerifyPss(key, crypto.sha256, digest, bad), isFalse);
+    });
+  });
+
   group('ECDSA', () {
     // vector produced with openssl: prime256v1 key, SHA-256 over
     // 'dart-pdf ecdsa test message'

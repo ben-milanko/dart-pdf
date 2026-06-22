@@ -59,6 +59,12 @@ class PdfEmbeddedFont implements PdfTextFont {
   /// A human-friendly family name (name table id 1), for font menus.
   final String familyName;
 
+  /// The raw font program (the TrueType/OpenType bytes this was parsed
+  /// from). Exposed so a host can register the same outline data with a
+  /// UI toolkit's font system — e.g. to preview the font while editing —
+  /// rather than re-loading it from disk.
+  Uint8List get fontBytes => _bytes;
+
   final Uint8List _bytes;
   final int _unitsPerEm;
   final int _numHMetrics;
@@ -226,9 +232,26 @@ class PdfEmbeddedFont implements PdfTextFont {
           ?.group(1);
       final dict = name != null ? cos.resolve(fonts[name]) : null;
       if (dict is! CosDictionary) return null;
-      final sub = cos.resolve(dict['Subtype']);
+      return fromFontDict(cos, dict, name ?? 'F0');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Reparses the embedded font program of a [Type0] font dictionary
+  /// [type0] — typically an AcroForm /DR entry — back into a usable
+  /// [PdfEmbeddedFont] so callers can measure and re-encode text in it.
+  ///
+  /// [resourceName] becomes the reparsed font's [resourceName] (so its
+  /// `encodeHex`/`buildResource` round-trip under the same /DA name).
+  /// Returns null when [type0] isn't a Type0 font or carries no embedded
+  /// /FontFile2 (TrueType) or /FontFile3 (CFF/OpenType) program.
+  static PdfEmbeddedFont? fromFontDict(
+      CosDocument cos, CosDictionary type0, String resourceName) {
+    try {
+      final sub = cos.resolve(type0['Subtype']);
       if (sub is! CosName || sub.value != 'Type0') return null;
-      final desc = cos.resolve(dict['DescendantFonts']);
+      final desc = cos.resolve(type0['DescendantFonts']);
       if (desc is! CosArray || desc.items.isEmpty) return null;
       final cid = cos.resolve(desc.items.first);
       if (cid is! CosDictionary) return null;
@@ -239,7 +262,7 @@ class PdfEmbeddedFont implements PdfTextFont {
       if (file is! CosStream) return null;
       final bytes = cos.decodeStreamData(file);
       return PdfEmbeddedFont.parse(Uint8List.fromList(bytes),
-          resourceName: name ?? 'F0');
+          resourceName: resourceName);
     } catch (_) {
       return null;
     }

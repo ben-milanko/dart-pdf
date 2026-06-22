@@ -1,5 +1,8 @@
 # Releasing DartPDF
 
+> Releasing the pub.dev **packages** (not the app) is documented separately in
+> [`doc/RELEASING-packages.md`](../doc/RELEASING-packages.md).
+
 The standalone app ships from the `app/` workspace package. Versioning,
 artifact builds, and packaging are automated; **code signing and store upload
 are manual** because they need credentials only the maintainer holds.

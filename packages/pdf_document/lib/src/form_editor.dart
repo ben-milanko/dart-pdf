@@ -282,19 +282,28 @@ extension PdfFormFilling on PdfEditor {
 
   void _regenerateVariableText(PdfFormField field, String rawText,
       {PdfTextDirection textDirection = PdfTextDirection.auto}) {
-    final text = sanitizeFieldText(rawText);
     final cos = document.cos;
     final da = _parseDefaultAppearance(field.defaultAppearance);
     final fontDict = _formFont(field.form, da.fontName);
+    // an embedded (Type0) /DR font shows text as 2-byte glyph ids: reparse
+    // its program so the appearance can encode and measure with it. A
+    // base-14 /DR entry stays on the simple byte path. Text past Latin-1 is
+    // only sanitized for the simple fonts — an embedded font can show it.
+    final embedded = fontDict == null
+        ? null
+        : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);
+    final text = embedded != null ? rawText : sanitizeFieldText(rawText);
 
     for (final widget in field.widgets) {
       final rect = pdfRectFrom(cos, widget['Rect']);
       if (rect == null || rect.width <= 0 || rect.height <= 0) continue;
       final w = rect.width, h = rect.height;
       const pad = 2.0;
+      embedded?.resetUsage();
 
-      double measure(String s, double size) =>
-          _measureFieldText(fontDict, s, size);
+      double measure(String s, double size) => embedded != null
+          ? embedded.measure(s, size)
+          : _measureFieldText(fontDict, s, size);
 
       final multiline = field.isMultiline;
       var size = da.fontSize;
@@ -354,9 +363,13 @@ extension PdfFormFilling on PdfEditor {
           _ => pad,
         };
         final y = firstY - i * size * 1.15;
-        writer
-          ..textAt(x - prevX, y - prevY)
-          ..showText(pdfVisualText(lines[i], resolvedDirection));
+        final visual = pdfVisualText(lines[i], resolvedDirection);
+        writer.textAt(x - prevX, y - prevY);
+        if (embedded != null) {
+          writer.showGlyphHex(embedded.encodeHex(visual));
+        } else {
+          writer.showText(visual);
+        }
         prevX = x;
         prevY = y;
       }
@@ -365,8 +378,12 @@ extension PdfFormFilling on PdfEditor {
         ..restore()
         ..raw('EMC');
 
+      // the embedded font's resource carries only the glyphs just shown
+      // (encodeHex recorded them); build it after the content stream
       final resources = CosDictionary({
-        'Font': _appearanceFontResource(field.form, da.fontName, fontDict),
+        'Font': embedded != null
+            ? embedded.buildResource(_updater.addObject)
+            : _appearanceFontResource(field.form, da.fontName, fontDict),
       });
       final form = _widgetForm(w, h, writer, resources: resources);
       _setNormalAppearance(widget, form);
@@ -584,6 +601,14 @@ extension PdfFormFilling on PdfEditor {
   }
 
   void _finishFieldEdit(PdfFormField field) {
+    // A reconciled field holds its canonical value on the /Fields dict we
+    // just wrote; the adopted page widgets may still carry the producer's
+    // stale /V, which would otherwise shadow it on read-back. Drop it so
+    // the field value and the regenerated appearance stay consistent.
+    for (final widget in field.reconciledWidgets) {
+      if (identical(widget, field.dict)) continue;
+      if (widget.entries.remove('V') != null) _stageFormDict(field, widget);
+    }
     _stageFormDict(field, field.dict);
     final form = field.form;
     if (form.needsAppearances) {

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.3
 
 - Print the open document through the OS print dialog on every platform
   (browser print on the web), from ⌘P / Ctrl+P or the DartPDF menu.
