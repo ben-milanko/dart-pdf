@@ -254,6 +254,109 @@ void main() {
       expect(editor.hasChanges, isFalse);
     });
 
+    test('a line-count change before absolute content is left untouched', () {
+      // the paragraph is followed by an absolutely positioned (Tm) line that
+      // can't cascade, so growing it would overlap — reflow must bail.
+      const abs = 'BT /F1 12 Tf 14 TL 72 700 Td '
+          '(one two three) Tj '
+          'T* (four five six) Tj '
+          '1 0 0 1 72 600 Tm (absolute footer) Tj ET';
+      final editor = PdfEditor(PdfDocument.open(buildReflowPdf(abs)));
+      expect(
+          editor.reflowText(0, 'three',
+              'three plus a good many more words that force another line'),
+          isFalse);
+      expect(editor.hasChanges, isFalse);
+    });
+
+    test('a replacement the font cannot encode is left untouched', () {
+      // U+0142 (ł) is outside Latin-1, so the simple font can't draw it and
+      // the rewrite must bail rather than emit a broken show string.
+      final editor = PdfEditor(PdfDocument.open(buildReflowPdf(fixture)));
+      expect(
+          editor.reflowText(0, 'delta', 'delta łł and more to wrap'),
+          isFalse);
+      expect(editor.hasChanges, isFalse);
+    });
+
+    test('TD breaks and char/word spacing are handled', () {
+      const tdSpacing = 'BT /F1 12 Tf 0.5 Tc 1 Tw 72 700 Td '
+          '(alpha beta) Tj '
+          '0 -15 TD (gamma delta) Tj '
+          '0 -30 TD (footer) Tj ET';
+      final doc = PdfDocument.open(buildReflowPdf(tdSpacing));
+      final footerBefore =
+          textRuns(doc).firstWhere((r) => r.text == 'footer').bottom;
+      final editor = PdfEditor(doc);
+      expect(
+          editor.reflowText(0, 'beta',
+              'beta and several more words here to force a new wrapped line'),
+          isTrue);
+      final out = PdfDocument.open(editor.save());
+      // TD leading was 15; the paragraph re-emits Td breaks at that pitch
+      expect(pageContent(out), contains('0 -15 Td'));
+      final after = textRuns(out);
+      final body = after.where((r) => r.text != 'footer').toList();
+      final grew = body.length - 2;
+      expect(grew, greaterThan(0));
+      expect(after.firstWhere((r) => r.text == 'footer').bottom,
+          closeTo(footerBefore - grew * 15, 0.01));
+    });
+
+    test("a paragraph using ' / \" operators is left untouched", () {
+      const apos = 'BT /F1 12 Tf 14 TL 72 700 Td '
+          "(first) Tj (second) ' 0 0 (third) \" ET";
+      final editor = PdfEditor(PdfDocument.open(buildReflowPdf(apos)));
+      // the show-and-break operators are out of scope; reflow declines them
+      expect(editor.reflowText(0, 'second', 'SECOND longer text here now'),
+          isFalse);
+      expect(editor.hasChanges, isFalse);
+    });
+
+    test('a line-ending hyphen is repaired before reflow', () {
+      const hyphen = 'BT /F1 12 Tf 14 TL 72 700 Td '
+          '(combi-) Tj '
+          'T* (nation of words) Tj '
+          '0 -28 Td (footer) Tj ET';
+      final doc = PdfDocument.open(buildReflowPdf(hyphen));
+      final editor = PdfEditor(doc);
+      // the soft hyphen joins "combi" + "nation" into one searchable word
+      expect(
+          editor.reflowText(0, 'combination',
+              'combination and several extra trailing words to force wrapping'),
+          isTrue);
+      final out = PdfDocument.open(editor.save());
+      final body = textRuns(out).where((r) => r.text != 'footer').toList();
+      expect(body.map((r) => r.text).join(' '),
+          contains('combination and several extra'));
+    });
+
+    test('a single-line paragraph grows using its leading for new breaks', () {
+      // a one-line paragraph (kept single because the next line is a
+      // different font, so grouping does not absorb it) whose connecting
+      // break is a relative Td — growing it must use the line's /TL leading.
+      const single = 'BT /F1 12 Tf 28 TL 72 700 Td '
+          '(alpha beta single line) Tj '
+          '0 -28 Td /F2 12 Tf (other font next) Tj ET';
+      final doc = PdfDocument.open(buildReflowPdf(single));
+      final nextBefore =
+          textRuns(doc).firstWhere((r) => r.text == 'other font next').bottom;
+      final editor = PdfEditor(doc);
+      expect(
+          editor.reflowText(0, 'single',
+              'single plus a good many additional words to force a wrap here'),
+          isTrue);
+      final out = PdfDocument.open(editor.save());
+      expect(pageContent(out), contains('0 -28 Td'));
+      final after = textRuns(out);
+      final body =
+          after.where((r) => r.text != 'other font next').toList();
+      final grew = body.length - 1;
+      expect(grew, greaterThan(0));
+      expect(after.firstWhere((r) => r.text == 'other font next').bottom,
+          closeTo(nextBefore - grew * 28, 0.01));
+    });
+
     test('the page round-trips and re-parses after a reflow', () {
       final doc = PdfDocument.open(buildReflowPdf(fixture));
       final editor = PdfEditor(doc);
