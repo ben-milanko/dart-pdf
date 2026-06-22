@@ -17,6 +17,7 @@ import 'page.dart';
 import 'rect.dart';
 import 'struct_tree.dart';
 import 'type0_metrics.dart';
+import 'xmp.dart';
 
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';

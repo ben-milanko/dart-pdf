@@ -177,16 +177,24 @@ extension PdfStructTreeAuthoring on PdfEditor {
   /// structurally valid Tagged PDF; semantic accuracy depends on the source.
   ///
   /// [title] sets the document /Title (PDF/UA wants a title shown via
-  /// /DisplayDocTitle); [lang] the document language (default 'en-US').
-  int autoTag({String? title, String lang = 'en-US'}) {
+  /// /DisplayDocTitle); [lang] the document language (default 'en-US'). When
+  /// [writeUaMetadata] is true (the default) an XMP packet declaring
+  /// pdfuaid:part = 1 and dc:title is written, so the result is a complete
+  /// PDF/UA-1 candidate that the validator accepts.
+  int autoTag(
+      {String? title, String lang = 'en-US', bool writeUaMetadata = true}) {
     if (title != null) setInfo(title: title);
     final roots = <PdfStructSpec>[];
     for (var i = 0; i < document.pageCount; i++) {
       roots.addAll(_autoTagPage(i));
     }
-    final document_ = PdfStructSpec('Document');
-    document_.children.addAll(roots);
-    writeStructTree([document_], lang: lang);
+    final documentRoot = PdfStructSpec('Document');
+    documentRoot.children.addAll(roots);
+    writeStructTree([documentRoot], lang: lang);
+    if (writeUaMetadata) {
+      setXmpMetadata(
+          title: title ?? document.info['Title'], pdfUaPart: 1);
+    }
     var count = 1;
     void countNode(PdfStructSpec s) {
       count++;
@@ -195,6 +203,49 @@ extension PdfStructTreeAuthoring on PdfEditor {
 
     roots.forEach(countNode);
     return count;
+  }
+
+  /// Attaches an XMP metadata packet as the catalog /Metadata stream, building
+  /// it from the given identification fields (see [buildXmpPacket]). Used for
+  /// the PDF/UA ([pdfUaPart]) and PDF/A ([pdfaPart]/[pdfaConformance])
+  /// identification schemas. Falls back to the document /Info for
+  /// title/author/producer when those are not given.
+  void setXmpMetadata({
+    String? title,
+    String? author,
+    String? producer,
+    String? creatorTool,
+    int? pdfaPart,
+    String? pdfaConformance,
+    int? pdfUaPart,
+  }) {
+    final info = document.info;
+    final packet = buildXmpPacket(
+      title: title ?? info['Title'],
+      author: author ?? info['Author'],
+      producer: producer ?? info['Producer'],
+      creatorTool: creatorTool ?? info['Creator'],
+      pdfaPart: pdfaPart,
+      pdfaConformance: pdfaConformance,
+      pdfUaPart: pdfUaPart,
+    );
+    setMetadataStream(packet);
+  }
+
+  /// Sets the catalog /Metadata to a /Type /Metadata /Subtype /XML stream
+  /// holding [xml] (a complete XMP packet). The stream is left uncompressed
+  /// (PDF/A requires the document-level metadata stream to be unfiltered).
+  void setMetadataStream(Uint8List xml) {
+    final stream = CosStream(
+      CosDictionary({
+        'Type': CosName('Metadata'),
+        'Subtype': CosName('XML'),
+        'Length': CosInteger(xml.length),
+      }),
+      xml,
+    );
+    document.catalog['Metadata'] = _updater.addObject(stream);
+    _updater.markChanged(document.catalog);
   }
 
   /// Tags page [pageIndex]'s content and returns the structure specs for it.
