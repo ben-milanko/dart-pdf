@@ -391,3 +391,60 @@ int? pageStructParentsKey(PdfPage page) {
   final v = page.document.cos.resolve(page.dict['StructParents']);
   return v is CosInteger ? v.value : null;
 }
+
+/// Author-side description of one structure element to write — the input to
+/// `PdfEditor.writeStructTree`. Build a tree of these, attach the
+/// marked-content ids ([mcids], on page [pageIndex]) and object references
+/// ([objects]) each element tags, then hand the roots to the editor.
+///
+/// [type] is the structure type, normally a standard one (Document, Part,
+/// Sect, H1..H6, P, L, LI, LBody, Figure, Table, TR, TH, TD, Link, Span, …);
+/// a custom type can be mapped to a standard one through the role map passed
+/// to `writeStructTree`.
+class PdfStructSpec {
+  PdfStructSpec(this.type,
+      {this.alt,
+      this.actualText,
+      this.lang,
+      this.title,
+      this.pageIndex = 0,
+      List<int>? mcids,
+      List<PdfStructSpec>? children})
+      : mcids = mcids ?? <int>[],
+        children = children ?? <PdfStructSpec>[];
+
+  /// Structure type (/S), without the leading slash.
+  final String type;
+
+  /// Alternate description (/Alt) — required on figures for PDF/UA.
+  String? alt;
+
+  /// Replacement text (/ActualText).
+  String? actualText;
+
+  /// Natural language (/Lang) of this element's content.
+  String? lang;
+
+  /// Human-readable title (/T).
+  String? title;
+
+  /// The page (zero-based) whose content carries this element's [mcids] and
+  /// the page its [objects] live on.
+  int pageIndex;
+
+  /// Marked-content ids on page [pageIndex] this element directly tags.
+  final List<int> mcids;
+
+  /// Whole-object references (e.g. annotations) this element tags, written as
+  /// /OBJR entries. The object must already be an indirect object.
+  final List<CosReference> objects = <CosReference>[];
+
+  /// Child structure elements, in reading order.
+  final List<PdfStructSpec> children;
+
+  /// Appends and returns [child] for fluent construction.
+  PdfStructSpec add(PdfStructSpec child) {
+    children.add(child);
+    return child;
+  }
+}
