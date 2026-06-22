@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pdf_cos/pdf_cos.dart';
 
@@ -13,15 +14,21 @@ import 'font_embedder.dart';
 import 'form.dart';
 import 'image.dart';
 import 'measure.dart';
+import 'outline.dart';
 import 'page.dart';
+import 'page_labels.dart';
 import 'rect.dart';
 import 'type0_metrics.dart';
 
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
 part 'annotation_sync.dart';
+part 'attachment_editor.dart';
 part 'content_editor.dart';
 part 'content_editor_type0.dart';
+part 'header_footer.dart';
+part 'outline_editor.dart';
+part 'page_labels_editor.dart';
 part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
@@ -43,6 +50,12 @@ class PdfEditor {
 
   /// Pages whose original content this session already wrapped in q/Q.
   final Set<CosDictionary> _wrappedPages = {};
+
+  /// Session-time open/closed intent for outline items, keyed by object
+  /// number. Lets a childless item remember the state it was created with
+  /// until it gains children (whose /Count then records the sign). Reopened
+  /// documents fall back to the /Count sign — see [PdfOutlineEditing].
+  final Map<int, bool> _outlineOpenOverride = {};
 
   /// The document-default measurement scale, set by
   /// [PdfAnnotationEditing.setMeasurementScale]; [PdfAnnotationEditing.addMeasurement]
