@@ -141,6 +141,28 @@ class PdfViewerController extends ChangeNotifier {
   /// Zero-based index of the page nearest the viewport center.
   int get currentPage => _currentPage;
 
+  /// Whether the document defines logical page labels (`/PageLabels`). When
+  /// true, [pageLabel] differs from the physical page number on at least
+  /// some pages.
+  bool get hasPageLabels => _state?._hasPageLabels ?? false;
+
+  /// The logical label for zero-based [index] (e.g. "iv", "A-3"), or its
+  /// 1-based physical number when the document carries no `/PageLabels` (or
+  /// no viewer is attached). See [PdfPageLabels].
+  String pageLabel(int index) =>
+      _state?._pageLabelFor(index) ?? '${index + 1}';
+
+  /// The zero-based page index whose logical [pageLabel] equals [label]
+  /// (case-sensitive), or null when none matches. Lets a page field accept
+  /// a typed label as well as a physical number.
+  int? pageForLabel(String label) {
+    if (_state == null) return null;
+    for (var i = 0; i < _pageCount; i++) {
+      if (pageLabel(i) == label) return i;
+    }
+    return null;
+  }
+
   /// Extra rotation applied to every page's display, in degrees (0, 90,
   /// 180, or 270). This is a view-only setting — the document's /Rotate
   /// entries are untouched.
@@ -1412,9 +1434,22 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _loadPages() {
     final count = widget.document.pageCount;
     _pages = [for (var i = 0; i < count; i++) widget.document.page(i)];
+    _pageLabels = null; // recompute lazily for the (possibly new) document
     _recomputeAspects();
     _controller._setPageCount(count);
   }
+
+  /// The document's logical page labels (/PageLabels), parsed once per
+  /// document and reset on a document swap in [_loadPages].
+  PdfPageLabels? _pageLabels;
+  PdfPageLabels get _labels =>
+      _pageLabels ??= PdfPageLabels.of(widget.document);
+
+  /// The logical label for page [index], or its 1-based number when the
+  /// document carries no labels.
+  String _pageLabelFor(int index) => _labels.labelFor(index);
+
+  bool get _hasPageLabels => !_labels.isEmpty;
 
   /// Page [index]'s current content stamp from the editing controller, or 0
   /// when not editing (no content can change under the viewer).
