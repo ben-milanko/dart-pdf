@@ -302,6 +302,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       _GroupTool.tool(
           PdfEditTool.measurePerimeter, Icons.timeline, 'Measure perimeter'),
       _GroupTool.tool(PdfEditTool.measureArea, Icons.crop_din, 'Measure area'),
+      _GroupTool.tool(PdfEditTool.measureVolume, Icons.view_in_ar,
+          'Measure volume (area × depth)'),
+      _GroupTool.tool(PdfEditTool.measureSlope, Icons.trending_up,
+          'Measure slope (rise/run)'),
+      _GroupTool.tool(PdfEditTool.measureAngle, Icons.architecture,
+          'Measure angle — click three points'),
+      _GroupTool.tool(PdfEditTool.measureArc, Icons.gesture,
+          'Measure arc length — click three points'),
     ]),
     _ToolGroup('edit', 'Edit', Icons.design_services, [
       _GroupTool.tool(
@@ -415,6 +423,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case PdfEditTool.measureDistance:
       case PdfEditTool.measurePerimeter:
       case PdfEditTool.measureArea:
+      case PdfEditTool.measureVolume:
+      case PdfEditTool.measureSlope:
+      case PdfEditTool.measureAngle:
+      case PdfEditTool.measureArc:
         await _armMeasureTool(context, tool);
       case PdfEditTool.signature:
         await _toggleSignatureTool(context);
@@ -1316,10 +1328,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           stroke: true,
           opacity: true,
           font: true,
-          // a distance line and a perimeter polyline carry endings; a
-          // closed area polygon does not
+          // open measurements (distance/slope lines, perimeter/angle/arc
+          // polylines) carry endings; closed area/volume polygons don't
           lineEndings: tool == PdfEditTool.measureDistance ||
-              tool == PdfEditTool.measurePerimeter,
+              tool == PdfEditTool.measureSlope ||
+              tool == PdfEditTool.measurePerimeter ||
+              tool == PdfEditTool.measureAngle ||
+              tool == PdfEditTool.measureArc,
         );
       case 'markup':
         return const _StyleFields(opacity: true);

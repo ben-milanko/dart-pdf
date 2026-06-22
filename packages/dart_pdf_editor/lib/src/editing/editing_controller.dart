@@ -65,6 +65,26 @@ enum PdfEditTool {
   /// live.
   measureArea,
 
+  /// Drag a straight segment read as a slope (rise/run): the inclination
+  /// above horizontal, in degrees, is shown live and stamped as a /Line
+  /// takeoff measurement.
+  measureSlope,
+
+  /// Click three points — arm end, vertex, arm end — to measure the
+  /// interior angle (degrees) at the middle vertex. Auto-finishes on the
+  /// third click; stamped as a /PolyLine takeoff measurement.
+  measureAngle,
+
+  /// Click three points on a circular arc — start, a point on the arc, end
+  /// — to measure its swept length. Auto-finishes on the third click;
+  /// stamped as a /PolyLine takeoff measurement.
+  measureArc,
+
+  /// Place a closed /Polygon, then enter a depth, to measure a volume
+  /// (area × depth). Stamped as a /Polygon takeoff measurement carrying the
+  /// depth.
+  measureVolume,
+
   /// Drag a straight segment of known real-world length to calibrate the
   /// [PdfEditingController.measurementScale]. On release the editor asks
   /// how long the drawn segment is and derives the scale from it (the
@@ -572,6 +592,10 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.measureDistance => 'measureDistance',
         PdfEditTool.measurePerimeter => 'measurePerimeter',
         PdfEditTool.measureArea => 'measureArea',
+        PdfEditTool.measureSlope => 'measureSlope',
+        PdfEditTool.measureAngle => 'measureAngle',
+        PdfEditTool.measureArc => 'measureArc',
+        PdfEditTool.measureVolume => 'measureVolume',
         PdfEditTool.freeText => 'freeText',
         PdfEditTool.note => 'note',
         PdfEditTool.stamp => 'stamp',
@@ -601,7 +625,11 @@ class PdfEditingController extends ChangeNotifier {
           const {'color', 'strokeWidth', 'opacity', 'lineStyle'},
         PdfEditTool.measureDistance ||
         PdfEditTool.measurePerimeter ||
-        PdfEditTool.measureArea =>
+        PdfEditTool.measureArea ||
+        PdfEditTool.measureSlope ||
+        PdfEditTool.measureAngle ||
+        PdfEditTool.measureArc ||
+        PdfEditTool.measureVolume =>
           const {'color', 'strokeWidth', 'opacity'},
         PdfEditTool.freeText => const {
             'color',

@@ -356,6 +356,87 @@ Future<(double, String)?> showPdfCalibrationLengthDialog(
       builder: (context) => _PdfCalibrationLengthDialog(initialUnit: initialUnit),
     );
 
+/// Asks for the extrusion depth of a volume measurement, in the scale's
+/// distance unit ([unitLabel], shown as a suffix). Returns the depth, or
+/// null when dismissed. Used by the volume tool after the footprint polygon
+/// is drawn.
+Future<double?> showPdfDepthDialog(
+  BuildContext context, {
+  String? unitLabel,
+}) =>
+    showDialog<double>(
+      context: context,
+      builder: (context) => _PdfDepthDialog(unitLabel: unitLabel),
+    );
+
+class _PdfDepthDialog extends StatefulWidget {
+  const _PdfDepthDialog({this.unitLabel});
+
+  final String? unitLabel;
+
+  @override
+  State<_PdfDepthDialog> createState() => _PdfDepthDialogState();
+}
+
+class _PdfDepthDialogState extends State<_PdfDepthDialog> {
+  final _value = TextEditingController();
+
+  @override
+  void dispose() {
+    _value.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final depth = double.tryParse(_value.text.trim());
+    if (depth == null || depth <= 0) {
+      Navigator.of(context).pop();
+      return;
+    }
+    Navigator.of(context).pop(depth);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unit = widget.unitLabel;
+    return AlertDialog(
+      title: const Text('Volume depth'),
+      content: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Depth: '),
+          SizedBox(
+            width: 100,
+            child: TextField(
+              key: const ValueKey('pdf-depth-value'),
+              controller: _value,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              textAlign: TextAlign.end,
+              onSubmitted: (_) => _submit(),
+            ),
+          ),
+          if (unit != null && unit.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Text(unit),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('pdf-depth-apply'),
+          onPressed: _submit,
+          child: const Text('Measure'),
+        ),
+      ],
+    );
+  }
+}
+
 class _PdfCalibrationLengthDialog extends StatefulWidget {
   const _PdfCalibrationLengthDialog({this.initialUnit});
 
