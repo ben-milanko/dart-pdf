@@ -1,3 +1,4 @@
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -65,6 +66,28 @@ void main() {
     test('formatAngle defaults to degrees', () {
       final m = ftScale();
       expect(m.formatAngle(90), '90 °');
+    });
+
+    test('volume/angle fall back when the measure carries no such formats', () {
+      // a measure built directly, without the /V or /T formats scale() adds.
+      const bare = PdfMeasure(
+        ratio: '1 in = 1 ft',
+        x: [PdfNumberFormat(unit: 'ft', conversion: 1)],
+        distance: [PdfNumberFormat(unit: 'ft')],
+        area: [PdfNumberFormat(unit: 'ft²')],
+      );
+      // formatVolume has no /V formats → numeric value with a derived unit.
+      expect(bare.formatVolume(1, 2), contains('2'));
+      // formatAngle has no /T formats → plain degrees.
+      expect(bare.formatAngle(45), contains('45'));
+    });
+
+    test('arc metrics handle the short-way winding', () {
+      // mid just off the chord near the start → a small sweep, not the major
+      // arc; exercises the winding-agreement branch.
+      final m = pdfArcMetrics((0, 0), (1, 0.1), (2, 0))!;
+      expect(m.sweep, lessThan(180));
+      expect(m.length, greaterThan(0));
     });
 
     test('volume formats round-trip through /Measure (custom /V key)', () {
@@ -212,8 +235,97 @@ void main() {
       });
       final summary = PdfTakeoffSummary.of(doc);
       final slab = summary.groups.single;
-      expect(slab.formattedTotal(doc.page(0).annotations.single.measure),
-          '400 ft²');
+      final measure = doc.page(0).annotations.single.measure;
+      expect(slab.formattedTotal(measure), '400 ft²');
+      // without a measure the fallback prints number + unit.
+      expect(slab.formattedTotal(), contains('ft²'));
+    });
+
+    test('formattedTotal renders each kind through its measure formats', () {
+      final doc = edited((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20, precision: 1);
+        e.addMeasurement(
+            0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)],
+            label: 'Wall'); // 60 ft
+        e.addMeasurement(0, PdfMeasurementKind.volume,
+            const [(0, 0), (72, 0), (72, 72), (0, 72)],
+            depth: 2, label: 'Fill'); // 800 ft³
+        e.addMeasurement(0, PdfMeasurementKind.angle,
+            const [(100, 100), (0, 100), (0, 200)],
+            label: 'Corner'); // 90°
+      });
+      final measure = doc.page(0).annotations.first.measure;
+      final summary = PdfTakeoffSummary.of(doc);
+      String totalOf(String label) => summary.groups
+          .firstWhere((g) => g.label == label)
+          .formattedTotal(measure);
+      expect(totalOf('Wall'), '60 ft');
+      expect(totalOf('Fill'), '800 ft³');
+      expect(totalOf('Corner'), '90 °');
+    });
+
+    test('totalLength sums distance, perimeter, and arc groups', () {
+      final doc = edited((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20, precision: 1);
+        e.addMeasurement(
+            0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
+        e.addMeasurement(0, PdfMeasurementKind.perimeter,
+            const [(100, 100), (172, 100), (172, 172)]); // 40 ft
+      });
+      final summary = PdfTakeoffSummary.of(doc);
+      // 60 ft + 40 ft = 100 ft.
+      expect(summary.totalLength, closeTo(100, 0.5));
+    });
+
+    test('pages argument scopes the scan', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)));
+      editor.setMeasurementScale(1 / 72, 'ft', 20, precision: 1);
+      editor.addMeasurement(0, PdfMeasurementKind.count, const [(10, 10)]);
+      editor.addMeasurement(1, PdfMeasurementKind.count, const [(10, 10)]);
+      final doc = PdfDocument.open(editor.save());
+      expect(PdfTakeoffSummary.of(doc).totalCount, 2);
+      expect(PdfTakeoffSummary.of(doc, pages: const [0]).totalCount, 1);
+    });
+  });
+
+  group('PdfTakeoffData round-trip', () {
+    test('encodes and decodes kind, depth, label, and holes', () {
+      final data = PdfTakeoffData(
+        kind: PdfMeasurementKind.areaCutout,
+        depth: 3.5,
+        label: 'Deck',
+        holes: const [
+          [(1, 2), (3, 4), (5, 6)],
+        ],
+      );
+      final doc = edited((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 20, precision: 1);
+        // a polygon to hang the /Takeoff dict on for reading.
+        e.addMeasurement(0, PdfMeasurementKind.areaCutout,
+            const [(0, 0), (72, 0), (72, 72), (0, 72)],
+            depth: 3.5, label: 'Deck', holes: const [
+          [(18, 18), (54, 18), (54, 54)],
+        ]);
+      });
+      final read = doc.page(0).annotations.single.takeoff!;
+      expect(read.kind, PdfMeasurementKind.areaCutout);
+      expect(read.depth, 3.5);
+      expect(read.label, 'Deck');
+      expect(read.holes.length, 1);
+      expect(read.holes.first.length, 3);
+      // the in-memory encode path produces a usable dictionary too.
+      expect(data.toCosDictionary()['K'], isA<CosName>());
+    });
+
+    test('arc with collinear points falls back without throwing', () {
+      final doc = edited((e) {
+        e.setMeasurementScale(1 / 72, 'ft', 1, precision: 100);
+        e.addMeasurement(
+            0, PdfMeasurementKind.arc, const [(0, 0), (36, 0), (72, 0)]);
+      });
+      final annot = doc.page(0).annotations.single;
+      // collinear → arc length falls back to the polyline length (72pt = 1ft).
+      expect(annot.measurementResult!.value, closeTo(1, 1e-3));
     });
   });
 

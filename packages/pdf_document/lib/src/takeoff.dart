@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:pdf_cos/pdf_cos.dart';
 
 import 'annotation.dart';
@@ -264,7 +262,3 @@ double pdfMeasurementAngle(List<(double, double)> vertices) {
   if (vertices.length < 3) return 0;
   return pdfAngleDegrees(vertices[1], vertices[0], vertices[2]);
 }
-
-/// Clamp helper kept local so callers don't depend on dart:math directly.
-double pdfClampDouble(double v, double lo, double hi) =>
-    math.min(math.max(v, lo), hi);
