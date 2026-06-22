@@ -1312,17 +1312,74 @@ class PdfEditingController extends ChangeNotifier {
     return scale.toMeasure().formatArea(pdfShoelaceArea(points));
   }
 
-  /// Adds a measurement annotation of [kind] through [points] using the
-  /// active [measurementScale]. A no-op without a scale.
-  void addMeasurement(
-      int pageIndex, PdfMeasurementKind kind, List<(double, double)> points) {
+  /// The live net-area readout (outer shoelace minus [holes]) for a
+  /// page-space polygon, or null without a scale or fewer than three points.
+  String? measuredNetArea(List<(double, double)> points,
+      [List<List<(double, double)>> holes = const []]) {
     final scale = measurementScale;
-    if (scale == null) return;
+    if (scale == null || points.length < 3) return null;
+    return scale.toMeasure().formatArea(pdfNetPolygonArea(points, holes));
+  }
+
+  /// The live volume readout (area × [depth], depth in the scale's unit)
+  /// for a page-space polygon, or null without a scale.
+  String? measuredVolume(List<(double, double)> points, double depth) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 3) return null;
+    return scale.toMeasure().formatVolume(pdfShoelaceArea(points), depth);
+  }
+
+  /// The live angle readout (degrees at the middle vertex) for the three
+  /// page-space [points], or null with fewer than three. Needs no scale —
+  /// an angle is unit-free.
+  String? measuredAngle(List<(double, double)> points) {
+    if (points.length < 3) return null;
+    return (measurementScale?.toMeasure() ??
+            PdfMeasure.scale(unitsPerPoint: 1, unitLabel: ''))
+        .formatAngle(pdfMeasurementAngle(points));
+  }
+
+  /// The live slope readout (inclination above horizontal, degrees) for a
+  /// segment from [start] to [end]. Needs no scale.
+  String? measuredSlope((double, double) start, (double, double) end) {
+    return (measurementScale?.toMeasure() ??
+            PdfMeasure.scale(unitsPerPoint: 1, unitLabel: ''))
+        .formatAngle(pdfSlopeDegrees(start, end));
+  }
+
+  /// The live arc-length readout for the three page-space [points] (start,
+  /// mid, end on the arc), or null without a scale or fewer than three.
+  String? measuredArc(List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 3) return null;
+    final metrics = pdfArcMetrics(points[0], points[1], points[2]);
+    final len = metrics?.length ?? pdfPolylineLength(points);
+    return scale.toMeasure().formatDistance(len);
+  }
+
+  /// Adds a measurement annotation of [kind] through [points] using the
+  /// active [measurementScale] (count needs none). [depth] feeds a volume,
+  /// [holes] cut a net-area polygon, [label] buckets the running total.
+  /// A no-op for a scaled kind without a scale.
+  void addMeasurement(
+    int pageIndex,
+    PdfMeasurementKind kind,
+    List<(double, double)> points, {
+    double? depth,
+    List<List<(double, double)>> holes = const [],
+    String? label,
+  }) {
+    final scale = measurementScale;
+    if (scale == null && kind != PdfMeasurementKind.count) return;
     apply(
       (e) => e.addMeasurement(pageIndex, kind, points,
-          measure: scale.toMeasure(),
+          measure: scale?.toMeasure(),
+          depth: depth,
+          holes: holes,
+          label: label,
           strokeColor: _colorValue,
           strokeWidth: preferences.strokeWidth,
+          fillColor: _rgbOf(preferences.shapeFillColor),
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
           // the caption is base-14 text; an embedded selection falls back
@@ -1334,6 +1391,52 @@ class PdfEditingController extends ChangeNotifier {
           author: author),
       pages: [pageIndex],
     );
+  }
+
+  /// Drops a single count marker at the page-space [point], tagged [label]
+  /// so the running total tallies it with its siblings.
+  void addCountMark(int pageIndex, (double, double) point, {String? label}) =>
+      addMeasurement(pageIndex, PdfMeasurementKind.count, [point],
+          label: label);
+
+  /// The per-tool running totals over the live document — the takeoff
+  /// register's data source. Rebuilt on demand (cheap: a single annotation
+  /// walk), so callers refresh it whenever the controller notifies.
+  PdfTakeoffSummary get takeoffSummary => PdfTakeoffSummary.of(_document);
+
+  /// Writes the active [measurementScale] into the document itself (a /VP
+  /// viewport /Measure on [pageIndex], or every page when null) so the
+  /// drawing scale travels with the file — surviving a reopen and portable
+  /// across devices — not just in this device's preferences. A no-op
+  /// without a scale.
+  void persistScaleToDocument({int? pageIndex}) {
+    final scale = measurementScale;
+    if (scale == null) return;
+    final measure = scale.toMeasure();
+    final pages = pageIndex != null
+        ? [pageIndex]
+        : List<int>.generate(_document.pageCount, (i) => i);
+    apply((e) {
+      for (final p in pages) {
+        e.setPageMeasurementScale(p, measure);
+      }
+    }, pages: pages);
+  }
+
+  /// Adopts the drawing scale the document already carries (a page /VP
+  /// /Measure) when this session has none yet, so a reopened or shared file
+  /// measures correctly without re-calibration. Returns true when a scale
+  /// was adopted. Call after binding a new document.
+  bool adoptDocumentScale() {
+    if (measurementScale != null) return false;
+    for (var i = 0; i < _document.pageCount; i++) {
+      final m = _document.page(i).measure;
+      if (m != null) {
+        measurementScale = PdfMeasurementScale.fromMeasure(m);
+        return true;
+      }
+    }
+    return false;
   }
 
   void addFreeText(int pageIndex, PdfRect rect, String text) => apply(

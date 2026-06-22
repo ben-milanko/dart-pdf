@@ -61,6 +61,23 @@ class PdfMeasurementScale {
   /// `1 / precision`).
   final int precision;
 
+  /// Recovers a scale from a document-borne [PdfMeasure] (a page /VP
+  /// viewport's /Measure, or an annotation's), so the editor can adopt the
+  /// drawing scale a reopened or shared file already carries. The on-page
+  /// reference unit isn't stored in /Measure, so it defaults to inches.
+  static PdfMeasurementScale fromMeasure(PdfMeasure measure) =>
+      PdfMeasurementScale(
+        unitsPerPoint: measure.scaleFactor,
+        unitLabel: measure.distance.isNotEmpty
+            ? measure.distance.first.unit
+            : measure.x.first.unit,
+        areaUnitLabel:
+            measure.area.isNotEmpty ? measure.area.first.unit : null,
+        precision: measure.distance.isNotEmpty
+            ? measure.distance.first.precision
+            : 100,
+      );
+
   /// The /Measure dictionary model this scale stamps onto annotations.
   PdfMeasure toMeasure() => PdfMeasure.scale(
         unitsPerPoint: unitsPerPoint,

@@ -15,6 +15,7 @@ import 'image.dart';
 import 'measure.dart';
 import 'page.dart';
 import 'rect.dart';
+import 'takeoff.dart';
 import 'type0_metrics.dart';
 
 part 'annotation_clipboard.dart';

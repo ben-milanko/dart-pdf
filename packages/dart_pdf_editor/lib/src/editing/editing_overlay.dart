@@ -2905,8 +2905,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfMeasurementKind.area:
         _controller.addMeasurement(
             widget.pageIndex, PdfMeasurementKind.area, pagePoints);
-      case PdfMeasurementKind.distance:
-      case null:
+      default:
+        // distance is a drag tool (handled elsewhere); the remaining
+        // takeoff kinds aren't wired as multi-vertex tools here, so a poly
+        // gesture with none of them active is a plain poly annotation.
         if (_tool == PdfEditTool.polygon) {
           _controller.addPolygon(widget.pageIndex, pagePoints);
         } else {
@@ -3705,6 +3707,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             ? _controller.measuredArea(pagePoints)
             : _controller.measuredPerimeter(pagePoints);
         return text == null ? null : (text, view.last);
+      default:
+        // the other takeoff kinds have no in-overlay live readout yet.
+        return null;
     }
   }
 

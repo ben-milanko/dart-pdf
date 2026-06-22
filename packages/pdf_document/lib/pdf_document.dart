@@ -18,3 +18,4 @@ export 'src/measure.dart';
 export 'src/page.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';
+export 'src/takeoff.dart';
