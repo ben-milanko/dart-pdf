@@ -237,6 +237,12 @@ void main() {
       expect(captured!.pngBytes, isNotEmpty);
       // PNG magic number
       expect(captured!.pngBytes.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
+      // the host-facing interchange bytes are a valid single-page PDF (what a
+      // host writes to the OS clipboard for Bluebeam) and re-import cleanly
+      final interchange = PdfDocument.open(captured!.pdfBytes);
+      expect(interchange.pageCount, 1);
+      expect(PdfVectorSnapshot.fromPdfBytes(captured!.pdfBytes).displayWidth,
+          closeTo(captured!.vector.displayWidth, 1e-6));
       // the vector half pastes back into the document
       expect(editing.pasteSnapshot(1, at: (300, 400)), isTrue);
       expect(editing.document.page(1).annotations.single.subtype, 'Stamp');
