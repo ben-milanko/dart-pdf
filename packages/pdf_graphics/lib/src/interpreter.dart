@@ -251,6 +251,11 @@ class PdfInterpreter {
   final Map<CosStream, List<ContentOperation>> _patternOpsCache = {};
   final Map<CosStream, IccProfile?> _iccCache = {};
   final List<bool> _visibilityStack = [];
+  // Marked-content id stack, kept in lockstep with [_visibilityStack]: one
+  // entry per BDC/BMC, holding that sequence's /MCID (null when it declares
+  // none). The current MCID for a text run is the innermost non-null entry —
+  // this is how tagged-PDF content is tied back to structure elements.
+  final List<int?> _mcidStack = [];
   Set<CosReference>? _optionalContentOn;
   Set<CosReference>? _optionalContentOff;
   String? _optionalContentBaseState;
@@ -305,6 +310,7 @@ class PdfInterpreter {
   void drawPageOperations(PdfPage page, List<ContentOperation> operations) {
     _state = _GraphicsState();
     _visibilityStack.clear();
+    _mcidStack.clear();
     _pageBox = page.mediaBox;
     device.save();
     try {
@@ -328,6 +334,7 @@ class PdfInterpreter {
       PdfPage page, List<ContentOperation> operations) async {
     _state = _GraphicsState();
     _visibilityStack.clear();
+    _mcidStack.clear();
     _pageBox = page.mediaBox;
     device.save();
     try {
@@ -770,6 +777,9 @@ class PdfInterpreter {
       while (_visibilityStack.length > savedVisibilityDepth) {
         _visibilityStack.removeLast();
       }
+      while (_mcidStack.length > savedVisibilityDepth) {
+        _mcidStack.removeLast();
+      }
       _state = savedState;
       device.restore();
     }
@@ -786,6 +796,9 @@ class PdfInterpreter {
       while (_visibilityStack.length > previousVisibilityDepth) {
         _visibilityStack.removeLast();
       }
+      while (_mcidStack.length > previousVisibilityDepth) {
+        _mcidStack.removeLast();
+      }
       _currentFormDepth = previousDepth;
     }
   }
@@ -800,6 +813,9 @@ class PdfInterpreter {
     } finally {
       while (_visibilityStack.length > previousVisibilityDepth) {
         _visibilityStack.removeLast();
+      }
+      while (_mcidStack.length > previousVisibilityDepth) {
+        _mcidStack.removeLast();
       }
       _currentFormDepth = previousDepth;
     }
@@ -1088,10 +1104,13 @@ class PdfInterpreter {
       // --- marked content, compatibility, Type3 metrics ---
       case 'BDC':
         _visibilityStack.add(_markedContentVisible(resources, o));
+        _mcidStack.add(_markedContentMcid(resources, o));
       case 'BMC':
         _visibilityStack.add(true);
+        _mcidStack.add(null);
       case 'EMC':
         if (_visibilityStack.isNotEmpty) _visibilityStack.removeLast();
+        if (_mcidStack.isNotEmpty) _mcidStack.removeLast();
       case 'MP' || 'DP':
       case 'BX' || 'EX':
       case 'd0' || 'd1':
@@ -1105,6 +1124,33 @@ class PdfInterpreter {
   }
 
   bool get _contentVisible => _visibilityStack.every((visible) => visible);
+
+  /// The MCID of the innermost enclosing marked-content sequence that
+  /// declared one, or null when no enclosing sequence is tagged.
+  int? get _currentMcid {
+    for (var i = _mcidStack.length - 1; i >= 0; i--) {
+      final mcid = _mcidStack[i];
+      if (mcid != null) return mcid;
+    }
+    return null;
+  }
+
+  /// The /MCID of a BDC operator's property list, or null. The properties
+  /// are either an inline dictionary or a name into /Properties (§14.6.1).
+  int? _markedContentMcid(CosDictionary resources, List<CosObject> operands) {
+    if (operands.length < 2) return null;
+    var property = operands[1];
+    if (property is CosName) {
+      final properties = cos.resolve(resources['Properties']);
+      final named =
+          properties is CosDictionary ? properties[property.value] : null;
+      if (named == null) return null;
+      property = cos.resolve(named);
+    }
+    if (property is! CosDictionary) return null;
+    final mcid = cos.resolve(property['MCID']);
+    return mcid is CosInteger ? mcid.value : null;
+  }
 
   bool _markedContentVisible(
       CosDictionary resources, List<CosObject> operands) {
@@ -1904,6 +1950,7 @@ class PdfInterpreter {
           fontSize: size,
           glyphs: glyphs,
           invisible: mode == 3 || mode == 7 || paintedAsTiling,
+          mcid: _currentMcid,
         ));
       }
     }

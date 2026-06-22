@@ -1,4 +1,12 @@
-# dart-pdf — development session log
+# dart-pdf — development session log (frozen archive)
+
+> **This file is frozen — do not append to it.** Appending here from
+> feature branches made every concurrent PR conflict on the same trailing
+> lines (GitHub does not honor the `.gitattributes` `merge=union` driver
+> that resolves it locally). New session notes now go in one file per
+> session under [`doc/dev-log/`](dev-log/) — see
+> [`doc/dev-log/README.md`](dev-log/README.md). This archive holds all
+> notes written before 2026-06-22.
 
 Chronological notes moved out of CLAUDE.md to keep that file under the
 context-size limit. This is reference history (gotchas, file pointers,
