@@ -123,4 +123,23 @@ void main() {
       expect(green.g, greaterThan(green.b));
     });
   });
+
+  testWidgets('rejects a non-positive dpi or scale', (tester) async {
+    final page = redDoc().page(0);
+    await expectLater(
+        PdfPageExport.exportPage(page, dpi: 0), throwsArgumentError);
+    await expectLater(
+        PdfPageExport.exportPage(page, scale: 0), throwsArgumentError);
+    await expectLater(
+        PdfPageExport.exportPage(page, scale: -1), throwsArgumentError);
+  });
+
+  testWidgets('exportPages rejects a start outside the document',
+      (tester) async {
+    final doc = redDoc();
+    await expectLater(
+        PdfPageExport.exportPages(doc, start: -1), throwsRangeError);
+    await expectLater(
+        PdfPageExport.exportPages(doc, start: 5), throwsRangeError);
+  });
 }
