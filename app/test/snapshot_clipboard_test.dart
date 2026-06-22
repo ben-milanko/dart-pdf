@@ -91,6 +91,31 @@ void main() {
     expect(reported, isFalse);
   });
 
+  testWidgets('the default writer hands a PNG item to super_clipboard',
+      (tester) async {
+    // copyPngToClipboard is the production ImageClipboardWriter. There's no
+    // native clipboard channel under flutter_test, so the plugin call throws —
+    // which the handler turns into a copied=false result. This exercises the
+    // real writer + the handler's catch path together.
+    bool? reported;
+    final handler = clipboardSnapshotHandler(
+      // no writer: → defaults to copyPngToClipboard
+      onResult: (copied) => reported = copied,
+    );
+
+    await tester.pumpWidget(
+      Builder(builder: (context) {
+        handler(context, makeSnapshot(Uint8List.fromList([0x89, 0x50, 1, 2])));
+        return const SizedBox();
+      }),
+    );
+    // let the async plugin call reject and the catch run
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(reported, isFalse);
+  });
+
   group('Snapshot tool through the viewer', () {
     const scale = 800 / 612;
     Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
