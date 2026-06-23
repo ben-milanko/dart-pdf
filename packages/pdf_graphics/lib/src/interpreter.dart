@@ -354,13 +354,17 @@ class PdfInterpreter {
   /// Draws the page's annotation appearance streams, normally called after
   /// [drawPage] so they paint over the content (§12.5.5).
   ///
-  /// Hidden and NoView annotations are skipped, as are Popups — those are
-  /// only shown by a viewer when their parent note is opened.
+  /// Hidden and NoView annotations are skipped, as are Popups and comment
+  /// thread content — replies and review-state annotations
+  /// ([PdfAnnotation.isReply]/[PdfAnnotation.isStateAnnotation]) are shown
+  /// by a viewer in its comment pane, not painted as a second icon over
+  /// the page (matching Acrobat).
   void drawAnnotations(PdfPage page, {bool Function(PdfAnnotation)? skip}) {
     _pageBox = page.mediaBox;
     for (final annotation in page.annotations) {
       if (annotation.isHidden || annotation.isNoView) continue;
       if (annotation.subtype == 'Popup') continue;
+      if (annotation.isReply || annotation.isStateAnnotation) continue;
       if (skip != null && skip(annotation)) continue;
       final form = annotation.normalAppearance;
       if (form == null) {

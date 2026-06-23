@@ -9,7 +9,8 @@ part of 'editor.dart';
 /// including across documents. Capture with [capture], paste with
 /// [PdfAnnotationClipboard.pasteAnnotation].
 class PdfAnnotationSnapshot {
-  PdfAnnotationSnapshot._(this._dict, this.subtype, this.rect);
+  PdfAnnotationSnapshot._(this._dict, this.subtype, this.rect,
+      {this.inReplyTo});
 
   /// Fully detached: no [CosReference]s, streams held inline. Pastes
   /// re-copy it ([_materialize]), so one snapshot can paste many times
@@ -22,6 +23,15 @@ class PdfAnnotationSnapshot {
   /// The source /Rect in its page's space — paste offsets are relative
   /// to this.
   final PdfRect rect;
+
+  /// For a reply ([PdfAnnotation.isReply]) captured with `keepName`, the
+  /// /NM of the annotation it replies to. /IRT itself is an indirect
+  /// reference that cannot travel in a detached snapshot, so the link
+  /// rides as the parent's name and is relinked on
+  /// [PdfAnnotationClipboard.pasteAnnotation] (and so [upsertAnnotation])
+  /// by finding the parent in the receiving document. Null for non-replies
+  /// and clipboard captures (which mint a fresh, parentless annotation).
+  final String? inReplyTo;
 
   /// Entries that don't travel: the page link (/P), reply threads and
   /// popups (whose /Parent points back into the source document),
@@ -51,10 +61,16 @@ class PdfAnnotationSnapshot {
     final copier = _SnapshotCopier(document);
     final out = CosDictionary();
     annotation.dict.entries.forEach((key, value) {
-      if (_dropped.contains(key) && !(keepName && key == 'NM')) return;
+      // /NM and /RT travel only for sync (keepName): a reply needs its
+      // reply-type, and the /IRT link rides separately as [inReplyTo]
+      if (_dropped.contains(key) &&
+          !(keepName && (key == 'NM' || key == 'RT'))) {
+        return;
+      }
       out[key] = copier.copy(value);
     });
-    return PdfAnnotationSnapshot._(out, annotation.subtype, annotation.rect);
+    return PdfAnnotationSnapshot._(out, annotation.subtype, annotation.rect,
+        inReplyTo: keepName ? annotation.inReplyTo : null);
   }
 
   /// The /NM identity captured with `keepName: true`, if any.
@@ -70,6 +86,7 @@ class PdfAnnotationSnapshot {
         'v': 1,
         'subtype': subtype,
         'rect': [rect.left, rect.bottom, rect.right, rect.top],
+        if (inReplyTo != null) 'irt': inReplyTo,
         'dict': _encodeCos(_dict),
       };
 
@@ -81,11 +98,13 @@ class PdfAnnotationSnapshot {
     }
     final subtype = json['subtype'];
     final rect = json['rect'];
+    final irt = json['irt'];
     final dict = _decodeCos(json['dict']);
     if (subtype is! String ||
         rect is! List ||
         rect.length != 4 ||
         rect.any((v) => v is! num) ||
+        (irt != null && irt is! String) ||
         dict is! CosDictionary) {
       throw const FormatException('malformed annotation snapshot');
     }
@@ -94,6 +113,7 @@ class PdfAnnotationSnapshot {
       subtype,
       PdfRect((rect[0] as num).toDouble(), (rect[1] as num).toDouble(),
           (rect[2] as num).toDouble(), (rect[3] as num).toDouble()),
+      inReplyTo: irt as String?,
     );
   }
 
@@ -280,6 +300,20 @@ extension PdfAnnotationClipboard on PdfEditor {
       dict['InkList'] = CosArray([
         for (final stroke in ink.items) _shiftPoints(stroke, dx, dy) ?? stroke,
       ]);
+    }
+    // re-establish a reply's /IRT link by the parent's /NM: the reference
+    // could not travel detached, so it arrives as snapshot.inReplyTo and is
+    // resolved against the receiving document (orphaned when the parent
+    // isn't present, which keeps a stray reply valid rather than dangling)
+    final irtName = snapshot.inReplyTo;
+    if (irtName != null) {
+      final parent = _findByName(irtName, pageIndex: pageIndex);
+      final ref =
+          parent == null ? null : document.cos.referenceTo(parent.$2.dict);
+      if (ref != null) {
+        dict['IRT'] = ref;
+        if (dict['RT'] is! CosName) dict['RT'] = const CosName('R');
+      }
     }
     _hoistStreams(dict);
 

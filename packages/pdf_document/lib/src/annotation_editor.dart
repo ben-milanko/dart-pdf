@@ -3910,9 +3910,15 @@ extension PdfAnnotationEditing on PdfEditor {
       annot['NM'] = CosString.fromText(name ?? _generateAnnotationName());
     }
     annot['AP'] = CosDictionary({'N': _updater.addObject(form)});
-    final page = document.page(pageIndex);
-    final annotRef = _updater.addObject(annot);
+    _linkAnnotation(pageIndex, _updater.addObject(annot));
+  }
 
+  /// Appends [annotRef] to page [pageIndex]'s /Annots, creating the array
+  /// when absent and staging whichever object now owns it. Shared by the
+  /// appearance-bearing [_addAnnotation] and the appearance-less
+  /// [_addThreadAnnotation].
+  void _linkAnnotation(int pageIndex, CosReference annotRef) {
+    final page = document.page(pageIndex);
     final raw = page.dict['Annots'];
     final resolved = document.cos.resolve(raw);
     if (resolved is CosArray) {

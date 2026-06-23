@@ -135,13 +135,19 @@ and merges new glyphs' advances + Unicode into the descendant /W and
 font dropped it — `replaceText(fallbackFonts:)` embeds a style-matched
 bundled fallback as a new page /Font resource and emits that replacement
 between Tf switches (the editor passes the DejaVu trio via
-`loadFallbackFonts()`); cross-line reflow and CFF/non-Identity Type0 still
+`loadFallbackFonts()`); within-line only — CFF/non-Identity Type0 still
 out) — all
 in `content_editor.dart`/`content_elements.dart`; shared Type0 metric
 parsing (/ToUnicode + /W) is in `type0_metrics.dart`, and
 `PdfPageElements` decodes Type0 runs through it so `element.text` is real
 Unicode (what the content-edit UI shows and passes as `find`). The
 content-stream tokenizer (`ContentStreamParser`) now lives in pdf_cos.
+Paragraph-level reflow is in: `PdfEditor.reflowText` (`content_reflow.dart`)
+re-wraps a whole detected paragraph when the replacement changes its line
+count and cascades the following lines through the content stream's own
+relative breaks — single-column, left-aligned, simple + Identity-H Type0
+fonts; multi-column/justified/first-line-indent/`'`/`"`/vertical out (see
+[doc/dev-log.md](doc/dev-log.md)).
 The roadmap is complete. Polish landed since: LZW/RunLength filters, xref recovery
 (`CosDocument.open` falls back to scanning for `N G obj` when the xref
 chain is broken), type 4 PostScript calculator functions, /Count-based
@@ -185,8 +191,13 @@ annotation sidebar (`PdfAnnotationSidebar` — lists by page, tap selects
 via `selectAnnotation(page, slot)`, trailing delete), and a content
 tool (`PdfEditTool.content`: taps hit-test `PdfPageElements` — cached
 per revision in the controller — orange selection chrome; delete via
-`deleteElements`, text rewrite via `replaceText`; element ids die with
-every revision, so any edit clears the element selection).
+`deleteElements`, in-line text rewrite via `replaceText`
+(`replaceSelectedElementText`), and paragraph reflow via `reflowText`
+(`reflowSelectedElementText`) — the element strip's "Reflow paragraph"
+action (`pdf-reflow-element-text`) re-wraps the selected line's whole
+paragraph, toasting a fallback hint when the shape isn't reflowable;
+element ids die with every revision, so any edit clears the element
+selection).
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) —
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder

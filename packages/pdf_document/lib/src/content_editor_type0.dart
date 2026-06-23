@@ -138,6 +138,38 @@ class _Type0Editing {
 
   double _widthOf(int code) => _cidWidths[code] ?? _dw;
 
+  /// Encodes [text] as an Identity-H hex show string (2-byte glyph ids),
+  /// recording each glyph's width and Unicode for [commit]. Returns null
+  /// when the embedded font lacks a glyph for any rune — paragraph reflow
+  /// has no fallback path, so the caller bails rather than draw `.notdef`.
+  CosString? encodeReflowLine(String text) {
+    final buffer = <int>[];
+    for (final rune in text.runes) {
+      if (rune == 0x20) {
+        // a space need not carry an outline; emit the font's space glyph if
+        // it has one, else a zero advance so wrapping math still holds.
+        final gid = _embedded.glyphForRune(rune);
+        buffer
+          ..add(gid >> 8)
+          ..add(gid & 0xFF);
+        if (gid != 0) _useGlyph(gid, rune);
+        continue;
+      }
+      final gid = _embedded.glyphForRune(rune);
+      if (gid == 0) return null; // the font can't draw it
+      buffer
+        ..add(gid >> 8)
+        ..add(gid & 0xFF);
+      _useGlyph(gid, rune);
+    }
+    return CosString(Uint8List.fromList(buffer), isHex: true);
+  }
+
+  /// Advance of [text] in text-space points at [size], from the embedded
+  /// font's own metrics — used to re-measure reflowed lines.
+  double measureReflow(String text, double size) =>
+      _embedded.measure(text, size);
+
   /// Rewrites one run of show operators (active font size [fontSize]),
   /// replacing [find] with [replace]. Returns the operations to emit and how
   /// many replacements were made (the originals, untouched, when nothing

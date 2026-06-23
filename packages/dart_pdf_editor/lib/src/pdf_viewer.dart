@@ -1455,6 +1455,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// when not editing (no content can change under the viewer).
   int _contentStamp(int index) => widget.editing?.pageRenderStamp(index) ?? 0;
 
+  /// Page [index]'s current destructive-content stamp (advances only when an
+  /// edit removed content — a redaction burn), or 0 when not editing. Lets
+  /// the page view keep its raster across additive edits but drop it on a
+  /// destructive one.
+  int _destructiveStamp(int index) =>
+      widget.editing?.pageDestructiveStamp(index) ?? 0;
+
   /// Records the content stamp of every current page as the baseline the
   /// cached previews now reflect (after a swap, a prerender pass, or first
   /// build).
@@ -2938,6 +2945,45 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _scrollbarPanBy(-delta.dx);
   }
 
+  /// How thick the viewport's auto-scroll edge band is (logical px) and how
+  /// fast a drag pinned to the very edge scrolls (logical px per frame).
+  static const double _edgeScrollBand = 60;
+  static const double _edgeScrollMaxSpeed = 16;
+
+  /// Per-frame viewport scroll for an editing drag whose pointer rests in the
+  /// viewport's edge band. Given the drag pointer's [globalPosition], returns
+  /// the pan delta to feed [_touchGrabPanBy] (overlay-local space, zoom
+  /// divided out), or [Offset.zero] when the pointer is clear of every edge.
+  /// The ramp grows linearly from the band's inner edge to the viewport edge,
+  /// so the closer the pointer is to the rim the faster it scrolls.
+  Offset _edgeAutoScrollDelta(Offset globalPosition) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return Offset.zero;
+    final origin = box.localToGlobal(Offset.zero);
+    final size = box.size;
+    double axis(double pos, double lo, double extent) {
+      if (extent <= 2 * _edgeScrollBand) return 0; // no room for two bands
+      final hi = lo + extent;
+      if (pos < lo + _edgeScrollBand) {
+        return _edgeScrollMaxSpeed *
+            ((lo + _edgeScrollBand - pos) / _edgeScrollBand).clamp(0.0, 1.0);
+      }
+      if (pos > hi - _edgeScrollBand) {
+        return -_edgeScrollMaxSpeed *
+            ((pos - (hi - _edgeScrollBand)) / _edgeScrollBand).clamp(0.0, 1.0);
+      }
+      return 0;
+    }
+
+    final dx = axis(globalPosition.dx, origin.dx, size.width);
+    final dy = axis(globalPosition.dy, origin.dy, size.height);
+    if (dx == 0 && dy == 0) return Offset.zero;
+    // [_touchGrabPanBy] deltas are list-space (the zoom transform divided
+    // out); the edge ramp is in on-screen px, so scale it back down.
+    final zoom = _transformScale.value;
+    return Offset(dx, dy) / (zoom == 0 ? 1 : zoom);
+  }
+
   /// Scroll-fling deceleration: velocity decays by e^-2 per second
   /// (≈ UIScrollView's "normal" rate), so a fling travels about half a
   /// second's worth of its release velocity. The tolerance stops the
@@ -3561,6 +3607,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 settleGeneration: _settleGeneration,
                 pageEpoch: _pageEpoch,
                 contentStamp: _contentStamp(index),
+                destructiveStamp: _destructiveStamp(index),
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -3577,6 +3624,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 onSnapshot: widget.onSnapshot,
                 onPanViewport: _touchGrabPanBy,
                 onPanViewportEnd: _flingViewport,
+                edgeAutoScroll: _edgeAutoScrollDelta,
                 onShowAnnotationMenu: _showSelectionMenu,
                 onShowFormFieldMenu: _showFormFieldMenu,
                 onResolvePagePoint: _resolvePagePointGlobal,
@@ -3953,6 +4001,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.settleGeneration,
     required this.pageEpoch,
     required this.contentStamp,
+    required this.destructiveStamp,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -3966,6 +4015,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onSnapshot,
     required this.onPanViewport,
     required this.onPanViewportEnd,
+    required this.edgeAutoScroll,
     required this.onShowAnnotationMenu,
     required this.onShowFormFieldMenu,
     required this.onResolvePagePoint,
@@ -4005,11 +4055,17 @@ class _PdfViewerPage extends StatefulWidget {
   final int pageEpoch;
 
   /// This page's [PdfEditingController.pageRenderStamp]: changes when the
-  /// page's *content* changed in a same-geometry edit revision (a redaction
-  /// burn, a fill, an annotation edit). A reused [PdfPageView] State drops
-  /// its stale raster/preview rather than painting the pre-edit content
-  /// while the new render lands. 0 outside an editing session.
+  /// page's *content* changed in a same-geometry edit revision (a fill, an
+  /// annotation edit). A reused [PdfPageView] State re-renders but keeps
+  /// painting its current raster until the new one lands, so an additive
+  /// edit never flashes the page blank. 0 outside an editing session.
   final int contentStamp;
+
+  /// This page's [PdfEditingController.pageDestructiveStamp]: advances only
+  /// when content was *removed* (a redaction burn). A reused [PdfPageView]
+  /// State drops its raster immediately on a change so the deleted content
+  /// can't linger on screen. 0 outside an editing session.
+  final int destructiveStamp;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -4036,6 +4092,9 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [EditingPageOverlay.onPanViewportEnd].
   final void Function(Velocity velocity) onPanViewportEnd;
+
+  /// See [EditingPageOverlay.edgeAutoScroll].
+  final Offset Function(Offset globalPosition) edgeAutoScroll;
 
   /// See [EditingPageOverlay.onShowAnnotationMenu].
   final void Function(Offset globalPosition, int pageIndex,
@@ -4116,6 +4175,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         settleGeneration: widget.settleGeneration,
         pageEpoch: widget.pageEpoch,
         contentStamp: widget.contentStamp,
+        destructiveStamp: widget.destructiveStamp,
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
         onRasterReady: _onRasterReady,
@@ -4202,6 +4262,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                               showAnnotations: widget.showAnnotations,
                               onPanViewport: widget.onPanViewport,
                               onPanViewportEnd: widget.onPanViewportEnd,
+                              edgeAutoScroll: widget.edgeAutoScroll,
                               onShowAnnotationMenu: widget.onShowAnnotationMenu,
                               onShowFormFieldMenu: widget.onShowFormFieldMenu,
                               onResolvePagePoint: widget.onResolvePagePoint,

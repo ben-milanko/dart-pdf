@@ -123,6 +123,77 @@ class PdfAnnotation {
   /// Bluebeam-style.
   bool get isCheckMark => subtype == 'Stamp' && iconName == 'Check';
 
+  /// The /NM of the annotation this one is in reply to (§12.5.6.x): /IRT
+  /// is an indirect reference to the parent markup annotation, which this
+  /// resolves to its [name]. Null when the annotation is not a reply (or
+  /// the parent carries no /NM). Used to assemble comment threads
+  /// ([PdfCommentThread]) and to relink replies across documents on sync.
+  String? get inReplyTo {
+    final irt = document.cos.resolve(dict['IRT']);
+    if (irt is! CosDictionary) return null;
+    final nm = document.cos.resolve(irt['NM']);
+    return nm is CosString ? nm.text : null;
+  }
+
+  /// The /RT reply type (§12.5.6.x): `R` (a reply in a thread, the default
+  /// when /IRT is present) or `Group` (this annotation is grouped with the
+  /// /IRT one, sharing its properties). Null when absent.
+  String? get replyType {
+    final rt = document.cos.resolve(dict['RT']);
+    return rt is CosName ? rt.value : null;
+  }
+
+  /// The review/marked /State (§12.5.6.2): `Accepted`, `Rejected`,
+  /// `Cancelled`, `Completed`, `None` (the Review model) or `Marked` /
+  /// `Unmarked` (the Marked model). Carried by a dedicated reply
+  /// annotation, never on the comment it annotates.
+  String? get reviewState {
+    final s = document.cos.resolve(dict['State']);
+    return s is CosString ? s.text : null;
+  }
+
+  /// The /StateModel naming which family [reviewState] belongs to —
+  /// `Review` or `Marked` (§12.5.6.2). Its presence is what marks an
+  /// annotation as a *state* annotation rather than a content reply.
+  String? get stateModel {
+    final s = document.cos.resolve(dict['StateModel']);
+    return s is CosString ? s.text : null;
+  }
+
+  /// The /Subj short subject/heading of a markup annotation (§12.5.6.2).
+  String? get subject {
+    final s = document.cos.resolve(dict['Subj']);
+    return s is CosString ? s.text : null;
+  }
+
+  /// The /CreationDate parsed from its PDF date string (§7.9.4), if any.
+  DateTime? get creationDate => _parsePdfDate(
+      document.cos.resolve(dict['CreationDate']) is CosString
+          ? (document.cos.resolve(dict['CreationDate']) as CosString).text
+          : null);
+
+  /// The /M modification date parsed from its PDF date string, if any.
+  DateTime? get modificationDate {
+    final m = document.cos.resolve(dict['M']);
+    return m is CosString ? _parsePdfDate(m.text) : null;
+  }
+
+  /// Whether this is a *state* annotation (§12.5.6.2): a reply that records
+  /// a review/marked state ([reviewState] + [stateModel]) rather than text.
+  /// Such annotations carry the thread's status, not page graphics, so the
+  /// renderer treats them like popups and does not paint them.
+  bool get isStateAnnotation => stateModel != null;
+
+  /// Whether this is a thread reply (§12.5.6.x): it carries /IRT and its
+  /// /RT is `R` (or absent, which defaults to a reply). Group annotations
+  /// (/RT `Group`) are not replies. Replies are thread content, shown by a
+  /// viewer in the comment pane, not painted as a second icon on the page.
+  bool get isReply {
+    if (dict['IRT'] == null) return false;
+    final rt = replyType;
+    return rt == null || rt == 'R';
+  }
+
   /// The /C color as 0xRRGGBB, if present. Gray and CMYK component
   /// counts are converted; an empty array (explicit "no color") and
   /// malformed entries resolve to null.
@@ -562,6 +633,37 @@ class PdfAnnotation {
     final destination = PdfDestination.parse(document, raw);
     return destination == null ? null : PdfGoToAction(destination);
   }
+}
+
+/// Parses a PDF date string (§7.9.4, `D:YYYYMMDDHHmmSSOHH'mm'`) to a
+/// [DateTime] in UTC, leniently: every field past the year is optional and
+/// a missing or malformed string returns null. Shared by the annotation
+/// timestamp getters; the same shape is produced by [pdfFormatDate].
+DateTime? _parsePdfDate(String? value) {
+  if (value == null) return null;
+  final match = RegExp(
+          r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?")
+      .firstMatch(value);
+  if (match == null) return null;
+  int part(int i, [int fallback = 0]) =>
+      match.group(i) == null ? fallback : int.parse(match.group(i)!);
+  var time = DateTime.utc(
+      part(1), part(2, 1), part(3, 1), part(4), part(5), part(6));
+  if (match.group(7) == '+' || match.group(7) == '-') {
+    final offset = Duration(hours: part(8), minutes: part(9));
+    time = match.group(7) == '+' ? time.subtract(offset) : time.add(offset);
+  }
+  return time;
+}
+
+/// Formats [time] as a PDF date string (§7.9.4) in UTC — the form the
+/// comment editor stamps on /CreationDate and /M, round-tripping through
+/// [_parsePdfDate] and parsing in other readers (Acrobat).
+String pdfFormatDate(DateTime time) {
+  final t = time.toUtc();
+  String two(int v) => v.toString().padLeft(2, '0');
+  return "D:${t.year.toString().padLeft(4, '0')}${two(t.month)}${two(t.day)}"
+      "${two(t.hour)}${two(t.minute)}${two(t.second)}Z00'00'";
 }
 
 /// A free-text annotation's text and box styling, as recoverable from

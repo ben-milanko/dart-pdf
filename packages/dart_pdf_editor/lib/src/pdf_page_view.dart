@@ -36,6 +36,7 @@ class PdfPageView extends StatefulWidget {
     this.previewIndex = 0,
     this.pageEpoch = 0,
     this.contentStamp = 0,
+    this.destructiveStamp = 0,
     this.renderWorker,
   });
 
@@ -79,11 +80,22 @@ class PdfPageView extends StatefulWidget {
   /// This page's content stamp (see [_PdfViewerPage.contentStamp]). Unlike
   /// [pageEpoch] it is per-page, so a content-only same-geometry edit that
   /// changed *this* page advances it while leaving untouched pages alone.
-  /// When it changes the held raster and preview are the pre-edit content —
-  /// most dangerously after a redaction burn, where keeping them would
-  /// flash the removed glyphs/images during a fast scroll — so both drop
-  /// and the page re-renders. 0 outside an editing session (never changes).
+  /// When it changes the page re-renders, but the held raster and preview
+  /// stay painted until the fresh render replaces them — an additive edit
+  /// (ink, a highlight, a shape) on a heavy page must not flash the page
+  /// blank, and the just-added markup rides on top through the editing
+  /// overlay until the new raster (with it baked in) lands. 0 outside an
+  /// editing session (never changes).
   final int contentStamp;
+
+  /// This page's [PdfEditingController.pageDestructiveStamp]. Unlike
+  /// [contentStamp] it advances only when an edit *removed* content from
+  /// this page (a redaction burn). When it changes the held raster and
+  /// preview are dropped immediately — keeping the pre-edit (un-redacted)
+  /// content up, even for the frame before the re-render lands or in a
+  /// fast-scroll preview, would expose the very content the burn deleted.
+  /// 0 outside an editing session (never changes).
+  final int destructiveStamp;
 
   /// While true, a page that has not been interpreted yet keeps its
   /// paper placeholder instead of starting the (UI-thread) interpreter
@@ -246,28 +258,39 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview = null;
       _refreshPreview();
     }
-    if (oldWidget.pageEpoch != widget.pageEpoch ||
-        oldWidget.contentStamp != widget.contentStamp) {
+    final blanked = oldWidget.pageEpoch != widget.pageEpoch ||
+        oldWidget.destructiveStamp != widget.destructiveStamp;
+    if (blanked) {
       // Either a structural document change reused this State for a different
       // page at the same slot (pageEpoch; previewIndex unchanged, so the
-      // branches above don't fire), or this page's own content changed in a
-      // same-geometry edit (contentStamp — a redaction burn, a fill). Either
-      // way the held raster and preview are stale: drop them so a fast scroll
-      // can't flash the old (or, after a redaction, removed) content; the
-      // preview cache (cleared for changed pages) and _render below repaint.
+      // branches above don't fire), or content was removed from this page in
+      // a same-geometry edit (destructiveStamp — a redaction burn). Either
+      // way the held raster and preview show content that must not linger:
+      // drop them so neither the gap before the re-render nor a fast-scroll
+      // preview can flash the old (or, after a redaction, removed) content;
+      // the preview cache (cleared for changed pages) and _render below
+      // repaint. An *additive* same-geometry edit (ink, a highlight, a
+      // shape — contentStamp only) deliberately does NOT land here: its old
+      // raster stays painted until the fresh one replaces it.
       _image?.dispose();
       _image = null;
       _preview?.dispose();
       _preview = null;
     }
-    if (oldWidget.pageEpoch != widget.pageEpoch ||
+    if (blanked ||
         oldWidget.contentStamp != widget.contentStamp ||
         !identical(oldWidget.page, widget.page) ||
         oldWidget.rotation != widget.rotation ||
         oldWidget.pageColor != widget.pageColor ||
         oldWidget.showAnnotations != widget.showAnnotations) {
+      // Re-interpret at the new content/page. Unless we blanked above, the
+      // old raster (and detail patch) stay up until the new render replaces
+      // them — _dropPicture nulls _rasteredRatio so _renderNow still re-
+      // rasters — so an additive edit on a heavy page never flashes blank.
+      // Only drop the detail patch when we already blanked, so a redaction
+      // or slot reuse can't keep a stale sharp slice over the cleared base.
       _dropPicture();
-      _dropDetail();
+      if (blanked) _dropDetail();
       _render();
     } else if (oldWidget.scale != widget.scale ||
         oldWidget.settleGeneration != widget.settleGeneration) {

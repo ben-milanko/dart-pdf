@@ -13,10 +13,12 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_info.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
+import 'image_export.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
 import 'printing.dart';
 import 'recents.dart';
+import 'session_store.dart';
 import 'settings_screen.dart';
 import 'update.dart';
 import 'web_launch.dart';
@@ -78,9 +80,15 @@ class _EditorScreenState extends State<EditorScreen>
   PdfEditingPreferences get _prefs => widget.prefs;
 
   final _recents = RecentsStore();
+  final _session = SessionStore();
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
+
+  /// Gates session persistence until the previous session has been read back,
+  /// so an early tab open (e.g. an OS file-open) doesn't clobber the stored set
+  /// before [_restoreSession] has had a chance to re-open it.
+  bool _sessionLoaded = false;
 
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates =
@@ -119,6 +127,9 @@ class _EditorScreenState extends State<EditorScreen>
     startWebLaunchQueue(_openIncoming);
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    // Re-open the documents that were open when the app last closed, unless the
+    // app was launched to open a specific file (that explicit target wins).
+    unawaited(_restoreSession());
     if (widget.autoCheckUpdates && UpdateService.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
@@ -215,6 +226,72 @@ class _EditorScreenState extends State<EditorScreen>
     return proceed ? ui.AppExitResponse.exit : ui.AppExitResponse.cancel;
   }
 
+  // --- session restore -----------------------------------------------------
+
+  /// True when the app was launched to open a specific document (a screenshot/
+  /// test harness document, or a `.pdf` passed on the command line). In that
+  /// case the explicit target wins and we don't also restore the last session.
+  bool get _hasExplicitLaunchTarget =>
+      widget.initialDocument != null ||
+      (!kIsWeb &&
+          widget.launchArgs
+              .any((a) => a.toLowerCase().endsWith('.pdf')));
+
+  /// Re-opens the file-backed documents that were open when the app last closed.
+  /// Runs once at startup, then enables session persistence so this run's open
+  /// set is captured for next time. Documents whose file has since moved or been
+  /// deleted are dropped silently rather than surfacing an error tab.
+  Future<void> _restoreSession() async {
+    final documents = await _session.load();
+    if (mounted && !_hasExplicitLaunchTarget) {
+      for (final doc in documents) {
+        // Skip anything already open (e.g. an OS file-open that arrived first).
+        if (_tabs.any((t) => t.originPath == doc.path)) continue;
+        await _reopenSessionDocument(doc);
+        if (!mounted) return;
+      }
+    }
+    _sessionLoaded = true;
+    unawaited(_persistSession());
+  }
+
+  Future<void> _reopenSessionDocument(SessionDocument doc) async {
+    final loading = _openLoading(doc.title, originPath: doc.path);
+    try {
+      final bytes = await readPdfAtPath(doc.path);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final opened = _replaceLoadingTab(
+        loading,
+        DocumentTab.document(
+          title: doc.title,
+          bytes: bytes,
+          preferences: _prefs,
+          originPath: doc.path,
+        ),
+      );
+      if (opened) _recents.add(title: doc.title, path: doc.path);
+    } catch (_) {
+      // The file is gone (moved/deleted): drop the placeholder quietly.
+      if (mounted) await _closeTabs([loading]);
+    }
+  }
+
+  /// Persists the current open set (file-backed tabs, in order) so the next
+  /// launch can restore it. A no-op until the previous session has been read
+  /// back, so early opens can't clobber the stored set before [_restoreSession].
+  Future<void> _persistSession() async {
+    if (!_sessionLoaded) return;
+    final documents = <SessionDocument>[];
+    final seen = <String>{};
+    for (final tab in _tabs) {
+      final path = tab.originPath;
+      if (path == null || path.isEmpty || !seen.add(path)) continue;
+      documents.add(SessionDocument(title: tab.title, path: path));
+    }
+    await _session.save(documents);
+  }
+
   // --- opening -------------------------------------------------------------
 
   /// Opens [bytes] in a brand-new tab and makes it active, recording a recent.
@@ -237,6 +314,7 @@ class _EditorScreenState extends State<EditorScreen>
       _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
     });
+    unawaited(_persistSession());
   }
 
   DocumentTab _openLoading(String title, {String? originPath}) {
@@ -256,6 +334,7 @@ class _EditorScreenState extends State<EditorScreen>
       _activeIndex = index;
     });
     loading.dispose();
+    unawaited(_persistSession());
     return true;
   }
 
@@ -319,11 +398,34 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
-  /// Opens PDFs dropped onto the window (desktop and web). Non-PDFs are
-  /// ignored; each readable PDF opens in its own tab.
+  /// Handles PDFs dropped onto the window (desktop and web). Non-PDFs are
+  /// ignored. With an editable document already open, the drop offers a
+  /// choice — open each PDF in its own tab, or insert their pages into the
+  /// current document; with nothing open (or in read-only mode) each PDF
+  /// just opens in its own tab.
   Future<void> _onFilesDropped(List<DropItem> items) async {
-    for (final item in items) {
-      if (!item.name.toLowerCase().endsWith('.pdf')) continue;
+    final pdfs = [
+      for (final item in items)
+        if (item.name.toLowerCase().endsWith('.pdf')) item,
+    ];
+    if (pdfs.isEmpty) return;
+
+    final tab = _active;
+    final session = tab?.session;
+    if (session != null && !_readOnly) {
+      final action = await _promptDropAction(pdfs.length, tab!.title);
+      if (action == null || !mounted) return; // cancelled / disposed
+      if (action == _DropAction.insert) {
+        await _insertDropped(pdfs, session, tab.title);
+        return;
+      }
+    }
+    await _openDropped(pdfs);
+  }
+
+  /// Opens each dropped [pdfs] item in its own tab.
+  Future<void> _openDropped(List<DropItem> pdfs) async {
+    for (final item in pdfs) {
       // desktop_drop exposes a real path on desktop; on web it's a blob ref
       // we don't treat as a writable origin.
       final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
@@ -333,6 +435,67 @@ class _EditorScreenState extends State<EditorScreen>
         originPath: path,
       );
     }
+  }
+
+  /// Inserts the pages of each dropped PDF, appended in drop order, into the
+  /// active document's edit session. Unreadable files are skipped and
+  /// reported; the result is one undoable step per inserted file.
+  Future<void> _insertDropped(
+      List<DropItem> pdfs, PdfEditingController session, String title) async {
+    var inserted = 0;
+    final failed = <String>[];
+    for (final item in pdfs) {
+      try {
+        final bytes = await item.readAsBytes();
+        session.insertPagesFromBytes(bytes);
+        inserted++;
+      } catch (_) {
+        failed.add(item.name);
+      }
+    }
+    if (!mounted) return;
+    if (inserted == 0) {
+      _toast('Could not insert the dropped ${pdfs.length == 1 ? 'PDF' : 'PDFs'}');
+    } else if (failed.isEmpty) {
+      _toast(inserted == 1
+          ? 'Inserted pages into $title'
+          : 'Inserted $inserted PDFs into $title');
+    } else {
+      _toast('Inserted $inserted; could not read ${failed.join(', ')}');
+    }
+  }
+
+  /// Asks whether dropped PDFs (with a document already open) should open in
+  /// new tabs or have their pages inserted into the current document. Returns
+  /// null when cancelled.
+  Future<_DropAction?> _promptDropAction(int count, String title) {
+    final noun = count == 1 ? 'this PDF' : 'these $count PDFs';
+    final pages = count == 1 ? 'its pages' : 'their pages';
+    return showDialog<_DropAction>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('drop-action-dialog'),
+        title: Text('Add dropped ${count == 1 ? 'PDF' : 'PDFs'}'),
+        content: Text('Open $noun in a new tab, or insert $pages into '
+            '"$title"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const ValueKey('drop-action-open'),
+            onPressed: () => Navigator.of(context).pop(_DropAction.open),
+            child: Text(count == 1 ? 'Open in new tab' : 'Open in new tabs'),
+          ),
+          FilledButton(
+            key: const ValueKey('drop-action-insert'),
+            onPressed: () => Navigator.of(context).pop(_DropAction.insert),
+            child: const Text('Insert pages'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openRecent(RecentFile entry) async {
@@ -456,6 +619,7 @@ class _EditorScreenState extends State<EditorScreen>
         tab.dispose();
       }
     });
+    unawaited(_persistSession());
   }
 
   /// Opens the right-click context menu for the tab at [index] at [position]
@@ -571,6 +735,8 @@ class _EditorScreenState extends State<EditorScreen>
       });
       if (result.path != null) {
         _recents.add(title: tab.title, path: result.path);
+        // A Save As gave the tab a reusable origin — remember it for next time.
+        unawaited(_persistSession());
       }
     }
     if (result.message != null) _toast(result.message!);
@@ -599,6 +765,39 @@ class _EditorScreenState extends State<EditorScreen>
   void _printActive() {
     final tab = _active;
     if (tab?.session != null) unawaited(_print(tab!));
+  }
+
+  // --- image export --------------------------------------------------------
+
+  /// Renders the page the viewer is currently on to a PNG/JPEG and saves it
+  /// (save dialog on desktop, download on web, share sheet on mobile). The
+  /// current revision is used, so unsaved edits are included. Prompts for the
+  /// format and resolution first.
+  Future<void> _exportImage(DocumentTab tab) async {
+    final session = tab.session;
+    final viewer = tab.viewer;
+    if (session == null || viewer == null) return;
+
+    final options = await showImageExportDialog(context);
+    if (options == null || !mounted) return;
+
+    final pageIndex =
+        viewer.currentPage.clamp(0, session.document.pageCount - 1);
+    try {
+      final bytes = await PdfPageExport.exportPage(
+        session.document.page(pageIndex),
+        format: options.format.rasterFormat,
+        dpi: options.dpi,
+      );
+      if (!mounted) return;
+      final name =
+          imageExportFileName(tab.title, pageIndex + 1, options.format);
+      final result =
+          await saveImageBytesAs(context, bytes, name, options.format.mimeType);
+      if (result.message != null) _toast(result.message!);
+    } catch (_) {
+      if (mounted) _toast('Could not export ${tab.title}');
+    }
   }
 
   // --- link actions --------------------------------------------------------
@@ -674,6 +873,15 @@ class _EditorScreenState extends State<EditorScreen>
             child: const ListTile(
               leading: Icon(Icons.print_outlined),
               title: Text('Print…'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
+            key: const ValueKey('menu-export-image'),
+            value: () => unawaited(_exportImage(tab!)),
+            child: const ListTile(
+              leading: Icon(Icons.image_outlined),
+              title: Text('Export page as image…'),
               contentPadding: EdgeInsets.zero,
             ),
           ),
@@ -755,7 +963,12 @@ class _EditorScreenState extends State<EditorScreen>
           child: Stack(
             children: [
               Positioned.fill(child: _buildBody(tab)),
-              if (_dragging) const Positioned.fill(child: _DropOverlay()),
+              if (_dragging)
+                Positioned.fill(
+                  child: _DropOverlay(
+                    canInsert: tab?.session != null && !_readOnly,
+                  ),
+                ),
             ],
           ),
         ),
@@ -1026,6 +1239,7 @@ class _EditorScreenState extends State<EditorScreen>
       _tabs.insert(newIndex, moved);
       _activeIndex = _tabs.indexOf(active);
     });
+    unawaited(_persistSession());
   }
 
   Widget _buildTabStrip() {
@@ -1241,8 +1455,15 @@ class _TabDragStartListener extends ReorderableDragStartListener {
 
 /// The translucent "drop a PDF here" scrim shown while a file is dragged over
 /// the window.
+/// How a drop should be handled when a document is already open.
+enum _DropAction { open, insert }
+
 class _DropOverlay extends StatelessWidget {
-  const _DropOverlay();
+  const _DropOverlay({this.canInsert = false});
+
+  /// Whether the drop can be inserted into the open document (vs. only
+  /// opened in a new tab) — drives the hint text.
+  final bool canInsert;
 
   @override
   Widget build(BuildContext context) {
@@ -1264,7 +1485,7 @@ class _DropOverlay extends StatelessWidget {
               Icon(Icons.file_download_outlined,
                   size: 40, color: scheme.primary),
               const SizedBox(height: 8),
-              const Text('Drop PDF to open'),
+              Text(canInsert ? 'Drop PDF to open or insert' : 'Drop PDF to open'),
             ],
           ),
         ),

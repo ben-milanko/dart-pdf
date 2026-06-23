@@ -282,6 +282,25 @@ class PdfEditingController extends ChangeNotifier {
   int pageRenderStamp(int pageIndex) =>
       _renderStampEpoch + (_renderStamps[pageIndex] ?? 0);
 
+  /// Destructive-render epoch: bumped only by edits that *remove* existing
+  /// page content (a redaction burn), as opposed to the additive ones (ink,
+  /// highlights, shapes, fills) that merely lay new marks on top. The viewer
+  /// keeps the on-screen raster painted across an additive edit — so a heavy
+  /// page never flashes blank while the new render lands — but must drop it
+  /// on a destructive one, so the removed content can't linger on screen (or
+  /// in a fast-scroll preview) for even a frame. A burn recompacts the whole
+  /// file (every page may have changed), so this is a single all-pages
+  /// counter rather than a per-page map.
+  int _destructiveStampEpoch = 0;
+
+  /// A value that changes whenever content was *removed* from any page (see
+  /// [_destructiveStampEpoch]); stable across additive edits, undo, and redo.
+  /// The viewer uses it to decide whether to blank the held raster
+  /// (destructive) or keep it up until the re-render lands (additive). Takes
+  /// a page index to mirror [pageRenderStamp]'s shape, though the burn that
+  /// drives it is always document-wide.
+  int pageDestructiveStamp(int pageIndex) => _destructiveStampEpoch;
+
   PdfDocument _document;
 
   /// The document at the current revision. Changes identity on every
@@ -1210,6 +1229,10 @@ class PdfEditingController extends ChangeNotifier {
     _hardModified = true;
     _selected.clear();
     _bumpRenderStamps(null); // every page may have changed
+    // a burn removes content irreversibly — mark it destructive so the
+    // viewer blanks each page's raster instead of holding the (now
+    // un-redacted) one up while the fresh render lands
+    _destructiveStampEpoch++;
     _document = PdfDocument.open(bytes, password: _password);
     _invalidateElements();
     notifyListeners();
@@ -2459,6 +2482,46 @@ class PdfEditingController extends ChangeNotifier {
     }, pages: [for (final (page, _) in targets) page]);
   }
 
+  // ---------------------------------------------------------------------
+  // comment threads (§12.5.6.x)
+
+  /// Replies to [target] on [pageIndex] with [contents], stamping the
+  /// controller's [author]. The reply is appearance-less thread content
+  /// (it does not repaint the page); one revision, emitted on
+  /// [annotationChanges] so it syncs. Returns whether it was added (a
+  /// blank [contents] adds nothing).
+  bool replyToAnnotation(int pageIndex, PdfAnnotation target, String contents) {
+    if (contents.trim().isEmpty) return false;
+    // a thread edit changes no page graphics: const [] skips re-raster
+    // while still diffing for the change feed (see apply's pages contract)
+    return apply(
+        (e) => e.replyToAnnotation(pageIndex, target, contents, author: author),
+        pages: const []);
+  }
+
+  /// Records review [state] on [target]'s thread (a state reply). One
+  /// revision, emitted on [annotationChanges]. Returns whether it changed.
+  bool setReviewState(
+          int pageIndex, PdfAnnotation target, PdfReviewState state) =>
+      apply((e) => e.setReviewState(pageIndex, target, state, author: author),
+          pages: const []);
+
+  /// Marks [target]'s thread resolved (review state `Completed`).
+  bool resolveThread(int pageIndex, PdfAnnotation target) =>
+      apply((e) => e.resolveThread(pageIndex, target, author: author),
+          pages: const []);
+
+  /// Reopens [target]'s thread (review state `None`).
+  bool reopenThread(int pageIndex, PdfAnnotation target) =>
+      apply((e) => e.reopenThread(pageIndex, target, author: author),
+          pages: const []);
+
+  /// The reply threads on [pageIndex] (read-only model), assembled from
+  /// the current revision's annotations. Mirrors
+  /// [PdfCommentThread.forPage] against the controller's live document.
+  List<PdfCommentThread> commentThreads(int pageIndex) =>
+      PdfCommentThread.forPage(_document, pageIndex);
+
   /// Erases along [path] (page space) with the circle eraser: every
   /// ink annotation on [pageIndex] is sliced where the swept circle of
   /// [eraserRadius] crosses its strokes — strokes split, the rest
@@ -3657,6 +3720,30 @@ class PdfEditingController extends ChangeNotifier {
         pages: [selected.$1]);
     return count;
   }
+
+  /// Edits the selected text element and re-flows its whole paragraph via
+  /// [PdfEditor.reflowText]: when the replacement changes the paragraph's
+  /// line count, the paragraph re-wraps at its right margin and the lines
+  /// that follow it cascade up or down so nothing overlaps.
+  ///
+  /// Returns true when a paragraph was reflowed, false (nothing changed)
+  /// when the selection isn't part of a reflowable paragraph — single
+  /// column, left aligned, one font/size, regular leading (see
+  /// [PdfParagraphReflow]); the caller can fall back to
+  /// [replaceSelectedElementText] for an in-line correction.
+  bool reflowSelectedElementText(String text) {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null || !canEditSelectedElementText) {
+      return false;
+    }
+    var reflowed = false;
+    apply(
+        (e) => reflowed = e.reflowText(selected.$1, element.text!, text),
+        pages: [selected.$1]);
+    return reflowed;
+  }
+
 
   // ---------------------------------------------------------------------
   // forms
