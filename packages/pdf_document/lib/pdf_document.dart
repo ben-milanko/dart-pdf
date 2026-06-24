@@ -3,6 +3,7 @@
 library;
 
 export 'src/annotation.dart';
+export 'src/annotation_align.dart';
 export 'src/attachment.dart';
 export 'src/cache_store.dart';
 export 'src/comments.dart';

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -1076,6 +1076,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
             ]),
           ),
+          if (controller.canAlignSelected) ...[
+            const _StripDivider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+              child: _alignmentCluster(context),
+            ),
+          ],
           if (settings.isNotEmpty) ...[
             const _StripDivider(),
             Padding(
@@ -1087,6 +1094,48 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ),
     );
     return _centeredCard(context, padding: EdgeInsets.zero, child: row);
+  }
+
+  /// The align/distribute buttons shown while two or more annotations are
+  /// selected: edge + centre alignment, then even-spacing distribution
+  /// (which needs three, so those disable below that). Each button defers
+  /// to [PdfEditingController.alignSelected].
+  Widget _alignmentCluster(BuildContext context) {
+    final canDistribute = controller.canDistributeSelected;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      _alignButton(
+          PdfAlignment.left, Icons.align_horizontal_left, 'Align left'),
+      _alignButton(PdfAlignment.horizontalCenter,
+          Icons.align_horizontal_center, 'Align horizontal centers'),
+      _alignButton(
+          PdfAlignment.right, Icons.align_horizontal_right, 'Align right'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.top, Icons.align_vertical_top, 'Align top'),
+      _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
+          'Align vertical centers'),
+      _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
+          'Align bottom'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.distributeHorizontal,
+          Icons.horizontal_distribute, 'Distribute horizontally',
+          enabled: canDistribute),
+      _alignButton(PdfAlignment.distributeVertical, Icons.vertical_distribute,
+          'Distribute vertically',
+          enabled: canDistribute),
+    ]);
+  }
+
+  /// One alignment button. Disabled buttons (distribution with too few
+  /// annotations) still render so the cluster's layout stays stable.
+  Widget _alignButton(PdfAlignment alignment, IconData icon, String tooltip,
+      {bool enabled = true}) {
+    return IconButton(
+      key: ValueKey('pdf-align-${alignment.name}'),
+      icon: Icon(icon),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      onPressed: enabled ? () => controller.alignSelected(alignment) : null,
+    );
   }
 
   /// The strip shown while a page-content element is selected.

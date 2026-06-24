@@ -2899,6 +2899,56 @@ class PdfEditingController extends ChangeNotifier {
     }, pages: [for (final (page, _) in targets) page]);
   }
 
+  /// The selected annotations that share the primary selection's page, in
+  /// selection order — the candidates an alignment acts on. Aligning across
+  /// pages has no geometric meaning, so the primary page wins and other
+  /// pages' selections are left alone.
+  List<PdfAnnotation> _alignmentTargets() {
+    final page = selectedPage;
+    if (page == null) return const [];
+    final out = <PdfAnnotation>[];
+    for (final slot in _selected) {
+      if (slot.$1 != page) continue;
+      final annotation = _annotationAt(slot);
+      if (annotation != null) out.add(annotation);
+    }
+    return out;
+  }
+
+  /// Whether [alignSelected] can line the selection up: two or more
+  /// annotations selected on the primary selection's page.
+  bool get canAlignSelected => _alignmentTargets().length >= 2;
+
+  /// Whether [alignSelected] can distribute the selection: three or more
+  /// annotations on the primary page (the extremes anchor, so distribution
+  /// only moves anything with a rect in between).
+  bool get canDistributeSelected => _alignmentTargets().length >= 3;
+
+  /// Lines up (or spreads out) the selected annotations on the primary
+  /// page per [alignment], as one revision. Needs two annotations to align
+  /// and three to distribute; a no-op below that, or when the selection is
+  /// already aligned (nothing would move). The selection survives — a move
+  /// keeps each annotation's /Annots slot.
+  void alignSelected(PdfAlignment alignment) {
+    final page = selectedPage;
+    if (page == null) return;
+    final targets = _alignmentTargets();
+    if (targets.length < alignment.minimumCount) return;
+    final offsets =
+        alignmentOffsets([for (final a in targets) a.rect], alignment);
+    final moves = <(PdfAnnotation, double, double)>[];
+    for (var i = 0; i < targets.length; i++) {
+      final (:dx, :dy) = offsets[i];
+      if (dx != 0 || dy != 0) moves.add((targets[i], dx, dy));
+    }
+    if (moves.isEmpty) return;
+    apply((e) {
+      for (final (annotation, dx, dy) in moves) {
+        e.moveAnnotation(page, annotation, dx, dy);
+      }
+    }, pages: [page]);
+  }
+
   /// Re-homes the single selected annotation onto [targetPage], shifted
   /// by ([dx], [dy]) in page space — what a move drag dropped over a
   /// *different* page produces. The annotation leaves its source page and
