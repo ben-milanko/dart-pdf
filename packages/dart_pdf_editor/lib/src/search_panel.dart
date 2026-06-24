@@ -217,6 +217,7 @@ class PdfSearchResultsPanel extends StatefulWidget {
     this.maxWidth = 480,
     this.bottomSheet = false,
     this.showOptions = true,
+    this.onClose,
   });
 
   final PdfViewerController controller;
@@ -246,6 +247,12 @@ class PdfSearchResultsPanel extends StatefulWidget {
   /// grip) for hosting inside a bottom sheet on a small screen, rather
   /// than as a fixed-width docked column.
   final bool bottomSheet;
+
+  /// Closes the docked panel — the host turns its visibility preference
+  /// off. When given (and not a [bottomSheet]) a close (×) button appears
+  /// in the panel's header. Null leaves the panel with no close button (a
+  /// bottom sheet supplies its own).
+  final VoidCallback? onClose;
 
   @override
   State<PdfSearchResultsPanel> createState() => _PdfSearchResultsPanelState();
@@ -414,29 +421,47 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final showGrip = widget.resizable && !widget.bottomSheet;
-    final onLeftEdge = !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    final onLeftEdge =
+        !widget.bottomSheet && widget.side == PdfSidebarSide.left;
     final barInset = showGrip && onLeftEdge;
     final content = Material(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            child: ListenableBuilder(
-              listenable: controller,
-              builder: (context, _) => Column(children: [
-                if (widget.showOptions) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: _SearchOptionsBar(
-                          controller: controller,
-                          preferences: widget.preferences),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                ],
-                Expanded(child: _body(context, barInset: barInset)),
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) => Column(children: [
+          // the docked panel's close button; a bottom sheet supplies
+          // its own in its sheet chrome
+          if (!widget.bottomSheet && widget.onClose != null)
+            Padding(
+              // clear the right-edge resize grip when it rides this side
+              padding: EdgeInsets.fromLTRB(
+                  16, 4, barInset ? PdfSidebarResizeGrip.width + 4 : 4, 0),
+              child: Row(children: [
+                Expanded(
+                  child: Text('Search results',
+                      style: Theme.of(context).textTheme.titleSmall),
+                ),
+                PdfSidebarCloseButton(
+                  key: const ValueKey('pdf-search-panel-close'),
+                  onPressed: widget.onClose!,
+                ),
               ]),
             ),
-          );
+          if (widget.showOptions) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _SearchOptionsBar(
+                    controller: controller, preferences: widget.preferences),
+              ),
+            ),
+            const Divider(height: 1),
+          ],
+          Expanded(child: _body(context, barInset: barInset)),
+        ]),
+      ),
+    );
     if (widget.bottomSheet) return content;
     return SizedBox(
       width: _width,

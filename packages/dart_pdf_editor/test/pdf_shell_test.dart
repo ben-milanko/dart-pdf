@@ -1089,6 +1089,29 @@ void main() {
           findsNothing);
     });
 
+    testWidgets('wide: a docked panel\'s close button hides it',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      // the default 800x600 test surface is above the compact width
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-properties-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(find.byType(PdfAnnotationPropertiesPanel), findsOneWidget);
+
+      // the docked panel carries its own little × (the sheet variants are
+      // not mounted on a wide screen)
+      final close = find.byKey(const ValueKey('pdf-properties-panel-close'));
+      expect(close, findsOneWidget);
+      await tester.tap(close, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(find.byType(PdfAnnotationPropertiesPanel), findsNothing);
+      expect(prefs.showPropertiesPanel, isFalse);
+    });
+
     testWidgets('compact reader: the thumbnail strip is a bottom sheet',
         (tester) async {
       final prefs = PdfEditingPreferences();

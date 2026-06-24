@@ -287,6 +287,10 @@ class _PdfReaderState extends State<PdfReader> {
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: false,
                 bottomSheet: bottomSheet,
+                // the sheet chrome carries its own close button
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showThumbnailSidebar = false,
                 renderWorker: _worker,
               );
           return Column(children: [

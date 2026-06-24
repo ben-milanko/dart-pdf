@@ -44,6 +44,7 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
     this.maxWidth = 420,
     this.showAuthor = true,
     this.bottomSheet = false,
+    this.onClose,
     this.fontPicker,
   });
 
@@ -77,6 +78,12 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
   /// grip) for hosting inside a bottom sheet on a small screen, rather
   /// than as a fixed-width docked column.
   final bool bottomSheet;
+
+  /// Closes the docked panel — the host turns its visibility preference
+  /// off. When given (and not a [bottomSheet]) a close (×) button appears
+  /// in the panel's header. Null leaves the panel with no close button (a
+  /// bottom sheet supplies its own).
+  final VoidCallback? onClose;
 
   @override
   State<PdfAnnotationPropertiesPanel> createState() =>
@@ -269,8 +276,7 @@ class _PdfAnnotationPropertiesPanelState
         onFormatChanged: (format) => _preferences.colorPickerFormat = format);
     if (picked != null) {
       _controller.restyleSelectedText(
-          border: (_rgb(picked),),
-          borderWidth: _controller.strokeWidth);
+          border: (_rgb(picked),), borderWidth: _controller.strokeWidth);
     }
   }
 
@@ -562,8 +568,7 @@ class _PdfAnnotationPropertiesPanelState
           TextAlignToggles(
             keyPrefix: 'pdf-prop-text-align',
             align: _controller.selectedTextAlign ?? PdfTextAlign.left,
-            onChanged: (align) =>
-                _controller.restyleSelectedText(align: align),
+            onChanged: (align) => _controller.restyleSelectedText(align: align),
           ),
         ]),
       ),
@@ -788,53 +793,74 @@ class _PdfAnnotationPropertiesPanelState
   @override
   Widget build(BuildContext context) {
     final showGrip = widget.resizable && !widget.bottomSheet;
-    final onLeftEdge = !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    final onLeftEdge =
+        !widget.bottomSheet && widget.side == PdfSidebarSide.left;
+    // the docked panel's close button rides a slim header; a bottom sheet
+    // supplies its own in its sheet chrome
+    final closeable = !widget.bottomSheet && widget.onClose != null;
     final content = Material(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            child: ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) {
-                final annotation = _controller.selectedAnnotation;
-                _syncFields(annotation);
-                if (annotation == null) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('Select an annotation to see its properties',
-                          textAlign: TextAlign.center),
-                    ),
-                  );
-                }
-                final count = _controller.selectedAnnotationSlots.length;
-                final children = count == 1
-                    ? _buildSingle(annotation)
-                    : _buildMulti(annotation, count);
-                final barClearance = PdfScrollbar.hitExtent +
-                    (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
-                return Stack(children: [
-                  ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(context)
-                        .copyWith(scrollbars: false),
-                    child: ListView(
-                        controller: _scroll,
-                        padding: EdgeInsets.only(right: barClearance),
-                        children: children),
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: Column(children: [
+        if (closeable)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 4, 0),
+            child: Row(children: [
+              Expanded(
+                child: Text('Properties',
+                    style: Theme.of(context).textTheme.titleSmall),
+              ),
+              PdfSidebarCloseButton(
+                key: const ValueKey('pdf-properties-panel-close'),
+                onPressed: widget.onClose!,
+              ),
+            ]),
+          ),
+        Expanded(
+          child: ListenableBuilder(
+            listenable: _controller,
+            builder: (context, _) {
+              final annotation = _controller.selectedAnnotation;
+              _syncFields(annotation);
+              if (annotation == null) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('Select an annotation to see its properties',
+                        textAlign: TextAlign.center),
                   ),
-                  Positioned(
-                    top: 0,
-                    bottom: 0,
-                    right:
-                        showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0,
-                    child: PdfScrollbar(
-                      scroll: _scroll,
-                      thumbKey:
-                          const ValueKey('pdf-properties-scrollbar-thumb'),
-                    ),
+                );
+              }
+              final count = _controller.selectedAnnotationSlots.length;
+              final children = count == 1
+                  ? _buildSingle(annotation)
+                  : _buildMulti(annotation, count);
+              final barClearance = PdfScrollbar.hitExtent +
+                  (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
+              return Stack(children: [
+                ScrollConfiguration(
+                  behavior: ScrollConfiguration.of(context)
+                      .copyWith(scrollbars: false),
+                  child: ListView(
+                      controller: _scroll,
+                      padding: EdgeInsets.only(right: barClearance),
+                      children: children),
+                ),
+                Positioned(
+                  top: 0,
+                  bottom: 0,
+                  right:
+                      showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0,
+                  child: PdfScrollbar(
+                    scroll: _scroll,
+                    thumbKey: const ValueKey('pdf-properties-scrollbar-thumb'),
                   ),
-                ]);
-              },
-            ),
-          );
+                ),
+              ]);
+            },
+          ),
+        ),
+      ]),
+    );
     if (widget.bottomSheet) return content;
     return SizedBox(
       width: _width,
