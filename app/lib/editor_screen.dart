@@ -388,7 +388,21 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   /// Opens a file the OS handed us (association, share, launch arg).
+  ///
+  /// If a tab already holds this exact path, focus it instead of opening a
+  /// duplicate. The same launch file can arrive twice — once via the
+  /// command-line launch args and once via the native `getInitialFile`
+  /// channel (Windows delivers both) — and re-opening an already-open
+  /// document from the OS should surface the existing tab, not stack copies.
   Future<void> _openIncoming(IncomingFile file) async {
+    final path = file.path;
+    if (path != null && path.isNotEmpty) {
+      final existing = _tabs.indexWhere((t) => t.originPath == path);
+      if (existing != -1) {
+        setState(() => _activeIndex = existing);
+        return;
+      }
+    }
     await _openLoadedBytes(
       file.bytes == null
           ? readPdfAtPath(file.path!)

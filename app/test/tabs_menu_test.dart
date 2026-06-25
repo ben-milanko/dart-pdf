@@ -242,4 +242,29 @@ void main() {
     expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
         FontWeight.w600);
   });
+
+  testWidgets('re-opening the same file focuses its tab instead of duplicating',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+
+    await openTab(tester, 'alpha.pdf', path: '/docs/alpha.pdf');
+    await openTab(tester, 'beta.pdf', path: '/docs/beta.pdf');
+    // beta was opened last, so it is the active tab.
+    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+        FontWeight.w600);
+
+    // The OS hands us alpha a second time (another "open with" of the same
+    // file, e.g. via the single-instance forwarder or both launch-arg and
+    // getInitialFile delivery on cold start).
+    await openTab(tester, 'alpha.pdf', path: '/docs/alpha.pdf');
+
+    // No duplicate tab, and alpha is now focused rather than re-loaded.
+    expect(tabTitle('alpha.pdf'), findsOneWidget);
+    expect(find.byTooltip('Close tab'), findsNWidgets(2));
+    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+        FontWeight.w600);
+    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+        FontWeight.normal);
+  });
 }
