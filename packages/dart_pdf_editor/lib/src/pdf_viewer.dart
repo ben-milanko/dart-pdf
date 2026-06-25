@@ -1414,6 +1414,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // index-keyed disk backing, leaving it must restore (and re-prime) it
       _bindRasterCache();
     }
+    // previews were paused (e.g. the page grid overlaid the viewer and was
+    // hogging the render worker) and just re-enabled — pick the background
+    // prerender back up
+    if (!oldWidget.pagePreviews && widget.pagePreviews) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+    }
   }
 
   /// Whether [document] lays out exactly like the one on screen: same

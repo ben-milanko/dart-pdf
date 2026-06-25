@@ -145,3 +145,35 @@ diagnose a "grid still feels slow" report:
 All timeline events are unconditional (no-op when not recording); the
 `PdfPerfLog` lines stay off unless the dart-define / `?perf=1` is set, so
 tests and normal runs are unaffected.
+
+## Follow-up 2: the page grid was starved by the viewer's preview prerender
+
+A web perf trace of a ~50-page CAD document (`?perf=1`) showed the grid
+taking ~1 min for the first 30 pages, every tile logging
+`worker result page=N declined (null) → local` →
+`thumbnail page=N tile px=320 local interpret+raster=140–965ms`. The same
+page that *declined* for the thumbnail had just been interpreted fine by the
+worker for a `prerender` — so the decline was **preemption**, not page
+content: the full-area page grid (`PdfThumbnailView`) overlays the still-
+mounted viewer, and the viewer's preview prerender (worker priority 1) kept
+preempting every grid tile's worker request (priority 2). Net effect: each
+visible grid page was interpreted **twice** — once off-thread for a preview
+the user couldn't see (the grid covers the viewer), once on the **UI thread**
+for the thumbnail (the local fallback) — and the prerender was warming pages
+around the *viewer's* scroll position (25–47), not the grid's visible pages
+(0–29).
+
+Fix: pause the viewer's preview prerender while the grid overlays it —
+`PdfEditorView` passes `PdfViewer(pagePreviews: !gridActive)`, and the viewer
+resumes the prerender when the flag flips back (a new `didUpdateWidget`
+branch, since previews were never togglable before). With the worker no
+longer hogged, grid tiles are served off-thread (replay at tile resolution,
+no second interpret, no UI-thread jank) nearest the grid's focus first.
+
+Deliberately did **not** also raise the thumbnail tile's worker priority
+above the prerender's: with priority 1 a tile would preempt an in-flight
+prerender, and `renderPreview` falls back to a *local* (UI-thread) render on
+a null/preempted result — that just moves the jank onto the viewer in the
+docked-strip case. Pausing under the grid is the targeted fix; the absolute
+fill time is still bounded by the per-page CAD interpret cost (1–11 s/page in
+this document), which the worker can only do once each.
