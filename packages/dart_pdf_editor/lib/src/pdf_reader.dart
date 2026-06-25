@@ -219,7 +219,8 @@ class _PdfReaderState extends State<PdfReader> {
   void _syncWorker() {
     if (identical(_session.document, _workerDoc)) return;
     _worker?.dispose();
-    _worker = PdfRenderWorker.start(_session.bytes);
+    _worker = startPdfRenderWorker(_session.bytes,
+        pageCount: _session.document.pageCount);
     _workerDoc = _session.document;
   }
 

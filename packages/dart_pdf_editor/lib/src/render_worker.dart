@@ -1,7 +1,9 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'perf_log.dart';
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
     if (dart.library.js_interop) 'render_worker_web.dart';
@@ -16,6 +18,33 @@ import 'render_worker_stub.dart'
 /// the historical behavior — so apps that haven't built the worker script are
 /// unaffected. Ignored on native, where the isolate backend needs no script.
 String? pdfRenderWorkerScriptUrl;
+
+/// How many [PdfRenderWorker]s the reader/editor spin up as a
+/// [PdfRenderWorkerPool] for a multi-page document, so pages interpret in
+/// parallel (most visibly: a page grid of a heavy document fills up to this
+/// many times faster). 1 keeps the historical single-worker behavior.
+///
+/// Each worker holds its own copy of the document, so this trades memory for
+/// throughput — a few is plenty. Small documents fall back to a single worker
+/// regardless (the parallelism has nothing to spread). Tune it once at
+/// launch, like [pdfRenderWorkerScriptUrl].
+int pdfRenderWorkerPoolSize = 3;
+
+/// Documents with at least this many pages use a [PdfRenderWorkerPool]
+/// ([pdfRenderWorkerPoolSize] workers); shorter ones use a single worker,
+/// where spinning up extra workers would cost more (startup, memory) than the
+/// parallelism saves.
+const int pdfRenderWorkerPoolMinPages = 12;
+
+/// Starts the right worker for a [pageCount]-page document: a
+/// [PdfRenderWorkerPool] when the document is long enough and the pool size is
+/// above 1, otherwise a single [PdfRenderWorker].
+PdfRenderWorker startPdfRenderWorker(Uint8List bytes, {required int pageCount}) {
+  if (pdfRenderWorkerPoolSize > 1 && pageCount >= pdfRenderWorkerPoolMinPages) {
+    return PdfRenderWorkerPool(bytes, size: pdfRenderWorkerPoolSize);
+  }
+  return PdfRenderWorker.start(bytes);
+}
 
 /// Records a PDF page's interpreter callbacks into a portable command buffer
 /// OFF the UI thread, so the dominant render cost — the content-stream parse
@@ -86,4 +115,82 @@ abstract class PdfRenderWorker {
   /// Tears the worker down (kills the isolate, fails pending requests with
   /// null). Idempotent.
   void dispose();
+}
+
+/// Fans page interpretation out across several [PdfRenderWorker]s running in
+/// parallel, so independent pages (a grid of thumbnails, a fast scroll
+/// through a heavy document) interpret concurrently instead of queueing
+/// behind one worker.
+///
+/// The dominant render cost is the content-stream walk, and a single worker
+/// does them strictly one at a time — so a page of thumbnails of a heavy CAD
+/// document fills only as fast as that one worker can churn. A pool of
+/// [size] workers cuts that wall by up to [size]×: each [record] is routed to
+/// the least-busy worker, so up to [size] pages are interpreting at once.
+///
+/// Itself a [PdfRenderWorker], so it drops in wherever one is expected with
+/// no caller changes. Each worker opens its own copy of the document from the
+/// same bytes, so memory scales with [size] — keep it modest (a few), and on
+/// web especially, where each worker is a separate script instance holding
+/// its own copy of the file.
+class PdfRenderWorkerPool implements PdfRenderWorker {
+  PdfRenderWorkerPool(Uint8List bytes, {int size = 3})
+      : _workers = [
+          for (var i = 0; i < math.max(1, size); i++)
+            PdfRenderWorker.start(bytes)
+        ],
+        _inflight = List<int>.filled(math.max(1, size), 0) {
+    PdfPerfLog.log('worker pool started size=${_workers.length}');
+  }
+
+  final List<PdfRenderWorker> _workers;
+
+  /// In-flight [record] count per worker, so the next request goes to the
+  /// least-loaded one — keeps every worker busy when there's work to spread.
+  final List<int> _inflight;
+
+  /// The active worker with the fewest in-flight requests, or -1 when none is
+  /// active (the caller then renders locally, exactly as for a single worker).
+  int _pick() {
+    var best = -1;
+    var bestLoad = 1 << 30;
+    for (var i = 0; i < _workers.length; i++) {
+      if (!_workers[i].isActive) continue;
+      if (_inflight[i] < bestLoad) {
+        bestLoad = _inflight[i];
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true, int priority = 0}) {
+    final i = _pick();
+    if (i < 0) return Future<List<PdfRenderCommand>?>.value(null);
+    _inflight[i]++;
+    return _workers[i]
+        .record(pageIndex, annotations: annotations, priority: priority)
+        .whenComplete(() => _inflight[i]--);
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {
+    // a queued request lives on exactly one worker, but we don't track which —
+    // clearing it from all is a cheap no-op on the rest
+    for (final worker in _workers) {
+      worker.cancel(pageIndex, priority: priority);
+    }
+  }
+
+  @override
+  bool get isActive => _workers.any((worker) => worker.isActive);
+
+  @override
+  void dispose() {
+    for (final worker in _workers) {
+      worker.dispose();
+    }
+  }
 }
