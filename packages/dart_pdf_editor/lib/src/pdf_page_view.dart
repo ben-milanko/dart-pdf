@@ -5,6 +5,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart'
+    show PdfRenderCommand, PdfDrawImageCommand, PdfEndSoftMaskedCommand;
 
 import 'perf_log.dart';
 import 'preview_cache.dart';
@@ -408,6 +410,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       if (_abandoned(pageIndex)) return _emptyPicture();
       if (commands != null) {
         _lastInterpretPath = 'worker';
+        _logImageStats(pageIndex, commands);
         return PdfPageRenderer.pictureFromCommands(widget.page, commands,
             pageColor: widget.pageColor, rotation: widget.rotation);
       }
@@ -419,6 +422,36 @@ class _PdfPageViewState extends State<PdfPageView> {
     return PdfPageRenderer.renderPictureRecorded(widget.page,
         pageColor: widget.pageColor, annotations: widget.showAnnotations,
         rotation: widget.rotation);
+  }
+
+  /// Reports, when the perf log is on, how many images a worker buffer carries
+  /// and their total decoded ("capped") megapixels — the deciding number for
+  /// why a raster-heavy page is still slow: one oversized image escaping the
+  /// resolution cap looks very different from many tiles each capped but
+  /// summing large. Cheap and skipped entirely when the log is off.
+  void _logImageStats(int pageIndex, List<PdfRenderCommand> commands) {
+    if (!PdfPerfLog.enabled) return;
+    var count = 0;
+    var pixels = 0;
+    void walk(List<PdfRenderCommand> cs) {
+      for (final c in cs) {
+        if (c is PdfDrawImageCommand) {
+          final d = c.request.decoded;
+          if (d != null) {
+            count++;
+            pixels += d.width * d.height;
+          }
+        } else if (c is PdfEndSoftMaskedCommand) {
+          walk(c.maskCommands);
+        }
+      }
+    }
+
+    walk(commands);
+    if (count > 0) {
+      PdfPerfLog.log('images page=$pageIndex count=$count '
+          'decodedMpx=${(pixels / 1e6).toStringAsFixed(1)}');
+    }
   }
 
   /// Whether the page this render was for is gone — the widget unmounted, or
