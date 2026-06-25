@@ -978,6 +978,21 @@ void main() {
     expect(actions, isEmpty);
   });
 
+  testWidgets('a JavaScript button action surfaces to onAction',
+      (tester) async {
+    // The viewer follows GoTo/Named/URI itself; JavaScript (and other
+    // action types it has no handler for) are the host's call via onAction.
+    final actions = <PdfAction>[];
+    await pumpViewer(tester,
+        bytes: buildAnnotatedPdf(), onAction: (a, _) => actions.add(a));
+
+    await tester.tapAt(annotView(136, 532)); // the JavaScript push button
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(actions, hasLength(1));
+    expect((actions.single as PdfJavaScriptAction).script, 'app.alert(42)');
+  });
+
   testWidgets('hidden annotations neither fire nor change the cursor',
       (tester) async {
     final actions = <PdfAction>[];
