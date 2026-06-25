@@ -82,3 +82,40 @@ in `editing_thumbnails.dart`. Three problems the user reported:
 Kept thumbnails at sharp tile resolution (the user's call over unifying
 on the ~200px preview cache); the preview cache is only the placeholder
 source, not the thumbnail store.
+
+## Follow-up: the warm pass was slowing visible thumbnails
+
+First cut registered the whole-document warm as lowest-priority tasks in
+the *same* serialized queue as the on-screen tiles. Two problems on a heavy
+CAD document (~3–4 s/page to interpret):
+
+1. Visible tiles and warm renders both hit the render worker at **priority
+   2**, so the worker couldn't tell "the thumb you're looking at" from a
+   background page — an in-flight warm render wasn't preempted.
+2. The scheduler serializes through one slot (`_drain` awaits each task).
+   A warm render holding that slot blocked a tile requested mid-warm for
+   the *whole* render, and because the tile's worker request was never even
+   sent while the slot was held, worker priority alone couldn't rescue it.
+
+Fix — warm is now a **separate paced loop** in `PdfThumbnailCache`
+(`setWarm`/`clearWarm`/`_warmLoop`), not a scheduler task:
+
+- It renders one off-screen page at a time, nearest `focus` first, and
+  **steps aside (returns) whenever a tile is queued or rendering**
+  (`_foregroundBusy`); the foreground `_drain`'s `finally` re-kicks it when
+  the queue empties. `focus`/`setWarm` also re-kick.
+- `rasterizeThumbnail` gained `priority` + `skipIfWorkerDeclines`. Warm
+  renders at worker **priority 3** (below tiles' 2) and **declines the
+  UI-thread fallback** — so a tile arriving mid-warm preempts the warm
+  render at the worker (returns null → warm skips, no heavy local interpret),
+  and the tile renders immediately.
+- The old scheduler lost its `warm` flag/rank — it's foreground-only now.
+
+**Gotcha that bit once:** the first version of `_warmLoop` *busy-waited* on
+`SchedulerBinding.instance.endOfFrame` while `_foregroundBusy`. In widget
+tests the foreground render parks forever on a never-completing
+`toImage` (rasterization needs `tester.runAsync`), so `_draining` stays
+true and the loop spun, scheduling a frame every iteration → `pumpAndSettle`
+never settled and 22 tests failed. Stepping aside (return + re-kick) instead
+of busy-waiting fixes it; the only `endOfFrame` left is the bounded
+between-pages breathe, reached just once per page per pass.

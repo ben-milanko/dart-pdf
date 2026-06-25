@@ -145,11 +145,6 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// one is reused by the other.
   PdfThumbnailCache get _cache => widget.controller.thumbnailCache;
 
-  /// Background-warm bookkeeping: one stable token per page so [_ensureWarm]
-  /// can register (and later cancel) the idle prerender of every page's
-  /// thumbnail without re-queueing pages already enqueued.
-  final _ThumbnailWarmer _warmer = _ThumbnailWarmer();
-
   /// Per-slot keys so [_revealPage] can [Scrollable.ensureVisible] a
   /// built tile.
   final Map<int, GlobalKey> _tileKeys = {};
@@ -245,7 +240,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // old session's warm prerender must be withdrawn from the old cache —
     // [build] re-arms it against the new one
     if (!identical(old.controller, widget.controller)) {
-      _warmer.cancelAll(old.controller.thumbnailCache);
+      old.controller.thumbnailCache.clearWarm(this);
     }
   }
 
@@ -255,8 +250,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     _preferences.removeListener(_onPreferences);
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     // the cache outlives the panel (it belongs to the session), so only
-    // withdraw this strip's background-warm tasks — don't dispose it
-    _warmer.cancelAll(_cache);
+    // withdraw this strip's background warm — don't dispose it
+    _cache.clearWarm(this);
     _scroll.dispose();
     super.dispose();
   }
@@ -283,9 +278,10 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     if (widget.followsViewer) _revealPage(current);
   }
 
-  /// Renders one page's thumbnail straight into the shared cache — the
-  /// background fill of every page (see [_ThumbnailWarmer]). Lowest priority
-  /// in the queue, so it never delays an on-screen tile; a page another
+  /// Renders one page's thumbnail straight into the shared cache — the idle
+  /// background fill of every page (see [PdfThumbnailCache.setWarm]). Renders
+  /// at the lower warm worker priority and declines the UI-thread fallback,
+  /// so a tile the user is looking at always preempts it; a page another
   /// surface (a tile, the grid) already rendered is skipped.
   Future<void> _warmRender(int index, int pixelWidth) async {
     final controller = widget.controller;
@@ -302,6 +298,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       annotations: widget.showAnnotations,
       pixelWidth: pixelWidth,
       worker: widget.renderWorker,
+      priority: 3,
+      skipIfWorkerDeclines: true,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -367,12 +365,12 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final controller = widget.controller;
     // (re)arm the idle background prerender of every page into the shared
     // cache, at the resolution this strip renders, so the page grid and
-    // scrolling back open onto already-cached thumbnails. Lowest priority,
-    // so it never delays a visible tile.
+    // scrolling back open onto already-cached thumbnails. A paced loop that
+    // yields to every visible tile, so it never delays one.
     final pixelWidth =
         _thumbnailBucket(_tileWidth * MediaQuery.devicePixelRatioOf(context));
-    _warmer.sync(
-      _cache,
+    _cache.setWarm(
+      this,
       controller.document.pageCount,
       '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
       (index) => _warmRender(index, pixelWidth),
@@ -853,9 +851,6 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
   /// queue) — the same instance the docked strip uses.
   PdfThumbnailCache get _cache => widget.controller.thumbnailCache;
 
-  /// Background-warm bookkeeping (see [_ThumbnailWarmer]).
-  final _ThumbnailWarmer _warmer = _ThumbnailWarmer();
-
   PdfEditingPreferences get _preferences => widget.controller.preferences;
 
   double get _tileWidth =>
@@ -881,7 +876,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     // a different edit session brings its own (empty) shared cache; withdraw
     // the warm prerender from the old one ([build] re-arms the new)
     if (!identical(old.controller, widget.controller)) {
-      _warmer.cancelAll(old.controller.thumbnailCache);
+      old.controller.thumbnailCache.clearWarm(this);
     }
   }
 
@@ -889,8 +884,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
   void dispose() {
     _preferences.removeListener(_onPreferences);
     // the cache belongs to the session, not this grid — only withdraw its
-    // warm tasks
-    _warmer.cancelAll(_cache);
+    // background warm
+    _cache.clearWarm(this);
     _scroll.dispose();
     super.dispose();
   }
@@ -909,7 +904,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
   }
 
   /// Renders one page's thumbnail straight into the shared cache — the idle
-  /// background fill (see [_ThumbnailWarmer]).
+  /// background fill (see [PdfThumbnailCache.setWarm]). Lower worker priority
+  /// and no UI-thread fallback, so a visible tile always preempts it.
   Future<void> _warmRender(int index, int pixelWidth) async {
     final controller = widget.controller;
     if (index >= controller.document.pageCount) return;
@@ -925,6 +921,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       annotations: widget.showAnnotations,
       pixelWidth: pixelWidth,
       worker: widget.renderWorker,
+      priority: 3,
+      skipIfWorkerDeclines: true,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -941,13 +939,12 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     final controller = widget.controller;
     final tileWidth = _tileWidth;
     // (re)arm the idle background prerender of every page at the cell's
-    // thumbnail resolution (the tile pads ~21px around the thumbnail). The
-    // cells the user is looking at always render first — warm tasks rank
-    // below every visible tile.
+    // thumbnail resolution (the tile pads ~21px around the thumbnail). A
+    // paced loop that yields to every visible cell, so it never delays one.
     final pixelWidth = _thumbnailBucket(
         (tileWidth - 21) * MediaQuery.devicePixelRatioOf(context));
-    _warmer.sync(
-      _cache,
+    _cache.setWarm(
+      this,
       controller.document.pageCount,
       '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
       (index) => _warmRender(index, pixelWidth),
@@ -1888,43 +1885,6 @@ class _PageThumbnailState extends State<_PageThumbnail> {
   }
 }
 
-/// Tracks a panel's idle background prerender of every page into the shared
-/// [PdfThumbnailCache]: one stable token per page so [sync] can (re)register
-/// the warm tasks when the render parameters change and [cancelAll] can
-/// withdraw them when the panel is disposed or the session swaps.
-class _ThumbnailWarmer {
-  final Map<int, Object> _tokens = {};
-  String? _signature;
-
-  /// (Re)registers a lowest-priority warm task for each of [pageCount] pages
-  /// against [cache], rendering through [render]. A no-op when nothing
-  /// changed since the last call (same [signature] and page count), so it is
-  /// cheap to call from every build.
-  void sync(PdfThumbnailCache cache, int pageCount, String signature,
-      Future<void> Function(int page) render) {
-    if (signature == _signature && _tokens.length == pageCount) return;
-    _signature = signature;
-    // a page-count drop (a removed page) leaves stale high tokens — withdraw
-    for (final index in _tokens.keys.toList()) {
-      if (index >= pageCount) cache.cancel(_tokens.remove(index)!);
-    }
-    for (var i = 0; i < pageCount; i++) {
-      final token = _tokens[i] ??= Object();
-      cache.request(token, i, () => render(i), warm: true);
-    }
-  }
-
-  /// Withdraws every warm task from [cache] (panel disposed, or its session
-  /// swapped out from under it).
-  void cancelAll(PdfThumbnailCache cache) {
-    for (final token in _tokens.values) {
-      cache.cancel(token);
-    }
-    _tokens.clear();
-    _signature = null;
-  }
-}
-
 /// The shared-cache key a page's thumbnail is stored under: page index, its
 /// render stamp (so an edit re-renders only the pages it touched), the paper
 /// color, the raster width bucket, and whether annotations are drawn. The
@@ -1951,9 +1911,16 @@ int _thumbnailFocusFromScroll(ScrollController scroll, int pageCount) {
 }
 
 /// Interprets [pageIndex] and rasterizes it to a tile-resolution image, off
-/// the UI thread via [worker] when one is active (priority 2 — thumbnails
-/// yield to the on-screen page and its previews) and locally otherwise.
-/// Returns null when the page has no area or can't be offloaded cleanly.
+/// the UI thread via [worker] when one is active and locally otherwise.
+/// Returns null when the page has no area or can't be rendered.
+///
+/// [priority] orders the worker's queue (lower served first): on-screen
+/// tiles use 2, the background warm a lower 3, so a tile the user is looking
+/// at preempts an in-flight warm render. When [skipIfWorkerDeclines] is true
+/// (the warm pass) a page the worker won't offload — or whose render the
+/// worker preempted for a higher-priority tile — returns null instead of
+/// falling back to a heavy UI-thread interpret, so warming never blocks a
+/// frame.
 Future<ui.Image?> rasterizeThumbnail({
   required PdfEditingController controller,
   required int pageIndex,
@@ -1961,6 +1928,8 @@ Future<ui.Image?> rasterizeThumbnail({
   required bool annotations,
   required int pixelWidth,
   required PdfRenderWorker? worker,
+  int priority = 2,
+  bool skipIfWorkerDeclines = false,
 }) async {
   final page = controller.pageAt(pageIndex);
   final size = PdfPageRenderer.pageSize(page);
@@ -1969,8 +1938,9 @@ Future<ui.Image?> rasterizeThumbnail({
   // the heavy interpret runs on the isolate, only the small replay + raster
   // stays here. Image pages and the web fallback return null and rasterize
   // locally.
-  final commands = worker != null && worker.isActive
-      ? await worker.record(pageIndex, annotations: annotations, priority: 2)
+  final usingWorker = worker != null && worker.isActive;
+  final commands = usingWorker
+      ? await worker.record(pageIndex, annotations: annotations, priority: priority)
       : null;
   if (commands != null) {
     final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
@@ -1981,6 +1951,10 @@ Future<ui.Image?> rasterizeThumbnail({
       picture.dispose();
     }
   }
+  // the worker declined (inline-image page) or preempted this render for a
+  // higher-priority tile; the warm pass skips rather than burning the UI
+  // thread, on-screen tiles fall back to a local interpret as before
+  if (usingWorker && skipIfWorkerDeclines) return null;
   return PdfPageRenderer.renderImage(page,
       pixelRatio: ratio, pageColor: pageColor, annotations: annotations);
 }

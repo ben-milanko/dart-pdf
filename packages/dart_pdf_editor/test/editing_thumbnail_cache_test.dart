@@ -23,20 +23,6 @@ void main() {
       expect(order, [5, 2, 0]);
     });
 
-    test('a warm task yields to every on-screen task regardless of distance',
-        () async {
-      final cache = PdfThumbnailCache();
-      addTearDown(cache.dispose);
-      final order = <String>[];
-      cache.focus = 5;
-      // the warm task sits right on the focus, the tile task five pages away —
-      // the tile still wins because warm ranks below every on-screen task
-      cache.request(Object(), 5, () async => order.add('warm'), warm: true);
-      cache.request(Object(), 0, () async => order.add('tile'));
-      await settle();
-      expect(order, ['tile', 'warm']);
-    });
-
     test('a cancelled request never runs', () async {
       final cache = PdfThumbnailCache();
       addTearDown(cache.dispose);
