@@ -303,6 +303,87 @@ void main() {
       });
     }
   });
+
+  // maxImagePixelRatio caps each decoded image to ~display resolution before it
+  // crosses the worker boundary — the fix for raster-thread jank on CAD sheets
+  // whose embedded underlays are 100+ megapixels. A tiny ratio must shrink
+  // them; a null/huge ratio must leave them at native resolution; and the
+  // command transcript must be untouched either way (only the pixels change).
+  group('image resolution cap', () {
+    final files = <String>[
+      '../../test_corpora/ghent/1-CMYK/'
+          'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',
+      '../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf',
+    ];
+    for (final path in files) {
+      final file = File(path);
+      final name = path.split('/').last;
+      test(name, () {
+        if (!file.existsSync()) {
+          markTestSkipped('$path not found');
+          return;
+        }
+        final doc = PdfDocument.open(file.readAsBytesSync());
+        var sawCapped = false;
+        for (var i = 0; i < doc.pageCount; i++) {
+          final page = doc.page(i);
+          final ops = ContentStreamParser.parse(page.contentBytes());
+          final recorder = RecordingPdfDevice();
+          PdfInterpreter(cos: doc.cos, device: recorder)
+              .drawPageOperations(page, ops);
+
+          final uncapped = serializeCommands(recorder.commands,
+              cos: doc.cos, decodeImages: true);
+          if (uncapped == null) continue; // inline image: page declines
+          // A tiny ratio drives every image to display resolution; a huge ratio
+          // can never downscale (the cap never upscales).
+          final capped = serializeCommands(recorder.commands,
+              cos: doc.cos, decodeImages: true, maxImagePixelRatio: 0.002);
+          final huge = serializeCommands(recorder.commands,
+              cos: doc.cos, decodeImages: true, maxImagePixelRatio: 1e6);
+          expect(capped, isNotNull);
+          expect(huge, isNotNull);
+
+          final native = _imageCommands(deserializeCommands(uncapped));
+          final small = _imageCommands(deserializeCommands(capped!));
+          final big = _imageCommands(deserializeCommands(huge!));
+
+          // The cap only changes pixels, never the command stream.
+          expect(_transcript(deserializeCommands(capped)),
+              equals(_transcript(deserializeCommands(uncapped))),
+              reason: '$name page $i transcript diverged under the cap');
+
+          for (var k = 0; k < native.length; k++) {
+            final nat = native[k].request.decoded;
+            final cap = small[k].request.decoded;
+            final hg = big[k].request.decoded;
+            if (nat == null) {
+              // Platform-codec image: ships no pixels regardless of the ratio.
+              expect(cap, isNull);
+              expect(hg, isNull);
+              continue;
+            }
+            expect(cap, isNotNull);
+            expect(hg, isNotNull);
+            // A huge ratio leaves native resolution untouched.
+            expect(hg!.width, nat.width);
+            expect(hg.height, nat.height);
+            // A tiny ratio never exceeds native and never under-runs 1px.
+            expect(cap!.width, lessThanOrEqualTo(nat.width));
+            expect(cap.height, lessThanOrEqualTo(nat.height));
+            expect(cap.width, greaterThanOrEqualTo(1));
+            expect(cap.height, greaterThanOrEqualTo(1));
+            expect(cap.rgba.length, cap.width * cap.height * 4);
+            if (cap.width < nat.width || cap.height < nat.height) {
+              sawCapped = true;
+            }
+          }
+        }
+        expect(sawCapped, isTrue,
+            reason: '$name capped no image — the test proved nothing');
+      });
+    }
+  });
 }
 
 /// Every image draw command in [commands], in replay (DFS) order, descending

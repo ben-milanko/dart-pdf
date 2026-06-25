@@ -139,13 +139,16 @@ class _WebRenderWorker implements PdfRenderWorker {
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-      {bool annotations = true, int priority = 0}) async {
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio}) async {
     if (_disposed || _failed) {
       _wlog('record page=$pageIndex skipped (disposed=$_disposed '
           'failed=$_failed) → local');
       return null;
     }
-    final request = _WebPending(priority, _seq++, pageIndex, annotations);
+    final request =
+        _WebPending(priority, _seq++, pageIndex, annotations, imagePixelRatio);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -202,6 +205,8 @@ class _WebRenderWorker implements PdfRenderWorker {
       ..setProperty('id'.toJS, request.id.toJS)
       ..setProperty('page'.toJS, request.pageIndex.toJS)
       ..setProperty('annotations'.toJS, request.annotations.toJS);
+    final ratio = request.imagePixelRatio;
+    if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
     worker.postMessage(message);
 
     // Watchdog: a record that never comes back wedges the single in-flight slot
@@ -280,12 +285,14 @@ class _WebRenderWorker implements PdfRenderWorker {
 /// One queued record request and its pending result (mirrors the isolate
 /// backend's `_PendingRequest`).
 class _WebPending {
-  _WebPending(this.priority, this.seq, this.pageIndex, this.annotations);
+  _WebPending(this.priority, this.seq, this.pageIndex, this.annotations,
+      this.imagePixelRatio);
 
   final int priority;
   final int seq;
   final int pageIndex;
   final bool annotations;
+  final double? imagePixelRatio;
   final completer = Completer<Uint8List?>();
   int id = -1;
 }

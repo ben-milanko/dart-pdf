@@ -58,8 +58,15 @@ abstract class PdfRenderWorker {
   /// [priority] orders the worker's single queue — lower is served first, so
   /// the on-screen page (0) preempts background prefetch (1) even though the
   /// isolate processes one page at a time.
+  ///
+  /// [imagePixelRatio] (screen pixels per page point, device pixel ratio
+  /// included) caps each decoded image to display resolution before it is
+  /// serialized — see `serializeCommands`'s `maxImagePixelRatio`. Pass the
+  /// resolution the page will be shown at; a raster-heavy CAD sheet then ships
+  /// a display-sized underlay instead of its native 100+ megapixels. Null
+  /// leaves images at native resolution.
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-      {bool annotations = true, int priority = 0});
+      {bool annotations = true, int priority = 0, double? imagePixelRatio});
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
   /// [priority], completing its future with null — as if the page had declined

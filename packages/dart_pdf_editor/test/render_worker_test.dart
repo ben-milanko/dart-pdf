@@ -141,6 +141,28 @@ void main() {
     });
   });
 
+  testWidgets('imagePixelRatio caps a decoded image to display resolution',
+      (tester) async {
+    await tester.runAsync(() async {
+      // A Flate+SMask image decodes off-thread, so the worker ships its pixels
+      // and the cap can shrink them. A tiny ratio must yield fewer pixels than
+      // the uncapped record; the cap never upscales.
+      final bytes = PdfImageDocument.fromImageBytes([_alphaPng()]);
+      final worker = PdfRenderWorker.start(bytes);
+      addTearDown(worker.dispose);
+
+      final native = _firstImage((await worker.record(0))!)?.decoded;
+      final capped =
+          _firstImage((await worker.record(0, imagePixelRatio: 0.01))!)?.decoded;
+      expect(native, isNotNull);
+      expect(capped, isNotNull);
+      expect(capped!.width * capped.height,
+          lessThan(native!.width * native.height),
+          reason: 'a tiny display ratio must downsample the shipped pixels');
+      expect(capped.rgba.length, capped.width * capped.height * 4);
+    });
+  });
+
   testWidgets('an inline image still declines (null → local render)',
       (tester) async {
     await tester.runAsync(() async {

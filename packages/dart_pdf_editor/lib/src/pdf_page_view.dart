@@ -389,9 +389,15 @@ class _PdfPageViewState extends State<PdfPageView> {
     final pageIndex = widget.previewIndex;
     final worker = widget.renderWorker;
     if (worker != null && worker.isActive) {
-      // priority 0: the on-screen page preempts background prefetch
+      // priority 0: the on-screen page preempts background prefetch.
+      // imagePixelRatio caps embedded images to ~2x the page's on-screen
+      // resolution so a CAD raster underlay isn't decoded/shipped/rasterized
+      // at its native 100+ megapixels (the deep-zoom patch re-rasters the
+      // visible region for sharper zoom).
       final commands = await worker.record(pageIndex,
-          annotations: widget.showAnnotations, priority: 0);
+          annotations: widget.showAnnotations,
+          priority: 0,
+          imagePixelRatio: _effectiveRatio());
       // Abandoned while the worker ran — the State was disposed or the lazy
       // list recycled it onto another page (this is the cancel() path: a
       // cancelled request returns null). Skip the local fallback: the page is

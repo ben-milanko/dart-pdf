@@ -1678,10 +1678,12 @@ class _PageThumbnailState extends State<_PageThumbnail> {
         // priority 2: thumbnails yield to the on-screen page (0) and its
         // previews (1); the heavy interpret runs on the isolate, only the
         // small replay + raster stays here. Image pages and the web
-        // fallback return null and rasterize locally as before.
+        // fallback return null and rasterize locally as before. The thumbnail
+        // rasterizes at [ratio], so cap the worker's images to that — no need
+        // to ship a full-resolution raster underlay for a thumbnail.
         final commands = worker != null && worker.isActive
             ? await worker.record(pageIndex,
-                annotations: annotations, priority: 2)
+                annotations: annotations, priority: 2, imagePixelRatio: ratio)
             : null;
         if (!mounted || _pendingKey != key) return;
         final ui.Image image;

@@ -117,9 +117,13 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final sw = Stopwatch()..start();
       final size = PdfPageRenderer.pageSize(page, rotation: rotation);
       final ratio = _ratioFor(size);
-      // priority 1: prefetch yields to any on-screen page the worker owes
+      // priority 1: prefetch yields to any on-screen page the worker owes.
+      // The preview is rasterized at [ratio] (longest side ~200px), so cap the
+      // worker's images to that — a heavy raster underlay need not ship at full
+      // resolution just to be downscaled into a thumbnail.
       final commands = worker != null && worker.isActive
-          ? await worker.record(index, annotations: annotations, priority: 1)
+          ? await worker.record(index,
+              annotations: annotations, priority: 1, imagePixelRatio: ratio)
           : null;
       if (_disposed || isFresh(index, page)) return;
       final ui.Image image;

@@ -173,6 +173,62 @@ PdfDecodedPixels _finish(Uint8List rgba, int width, int height,
   return PdfDecodedPixels(rgba, width, height);
 }
 
+/// Area-average (box filter) downsample of premultiplied RGBA [pixels] to
+/// [targetWidth]×[targetHeight]. Each destination pixel is the mean of the
+/// source pixels in its cell, so a large raster underlay shrinks to the
+/// resolution it is actually displayed at — the whole point on heavy CAD
+/// sheets, where a 160-megapixel scan blocks the raster thread (and blows the
+/// decoded-image cache) when drawn into a page only a few thousand pixels wide.
+///
+/// Averaging premultiplied samples directly is correct: alpha rides along with
+/// the colour it weights. Never upscales — returns [pixels] unchanged when the
+/// target is at least as large on both axes. The caller passes target
+/// dimensions that already preserve the aspect it wants; this only resamples.
+PdfDecodedPixels downsamplePdfDecodedPixels(
+    PdfDecodedPixels pixels, int targetWidth, int targetHeight) {
+  final sw = pixels.width;
+  final sh = pixels.height;
+  var tw = targetWidth < 1 ? 1 : targetWidth;
+  var th = targetHeight < 1 ? 1 : targetHeight;
+  if (tw >= sw && th >= sh) return pixels; // already small enough; no upscale
+  if (tw > sw) tw = sw;
+  if (th > sh) th = sh;
+  final src = pixels.rgba;
+  final dst = Uint8List(tw * th * 4);
+  var di = 0;
+  for (var ty = 0; ty < th; ty++) {
+    final sy0 = ty * sh ~/ th;
+    var sy1 = (ty + 1) * sh ~/ th;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    for (var tx = 0; tx < tw; tx++) {
+      final sx0 = tx * sw ~/ tw;
+      var sx1 = (tx + 1) * sw ~/ tw;
+      if (sx1 <= sx0) sx1 = sx0 + 1;
+      // Local int accumulators: a cell spans (sw/tw)·(sh/th) source pixels, so
+      // the worst sum is bounded by the source pixel count × 255 — well within
+      // a 64-bit int (native) and float64's 2^53 (web).
+      var r = 0, g = 0, b = 0, a = 0, n = 0;
+      for (var sy = sy0; sy < sy1; sy++) {
+        var si = (sy * sw + sx0) * 4;
+        for (var sx = sx0; sx < sx1; sx++) {
+          r += src[si];
+          g += src[si + 1];
+          b += src[si + 2];
+          a += src[si + 3];
+          si += 4;
+          n++;
+        }
+      }
+      dst[di] = r ~/ n;
+      dst[di + 1] = g ~/ n;
+      dst[di + 2] = b ~/ n;
+      dst[di + 3] = a ~/ n;
+      di += 4;
+    }
+  }
+  return PdfDecodedPixels(dst, tw, th);
+}
+
 /// Premultiplies straight-alpha RGBA in place. `decodeImageFromPixels` treats
 /// rgba8888 as premultiplied, so straight alpha would make transparent-but-
 /// colored pixels (a white backdrop under an /SMask cutout) composite

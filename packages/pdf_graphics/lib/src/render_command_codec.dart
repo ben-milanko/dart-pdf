@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -83,16 +84,85 @@ class _UnserializableImage implements Exception {
 /// premultiplied RGBA beside the command, so the consumer skips the decode and
 /// only runs the engine codec — issue #73's image-decode offload. Images that
 /// need the platform JPEG codec carry no pixels and decode locally as before.
+///
+/// [maxImagePixelRatio] (screen pixels per page point, including the device
+/// pixel ratio) caps the resolution of each decoded image to ~2× the pixels it
+/// covers on screen — a giant raster underlay on a CAD sheet is shipped (and
+/// later rasterized, and cached) at display resolution instead of its native
+/// 100+ megapixels, which is what otherwise blocks the (single-threaded, on
+/// web) raster thread for hundreds of milliseconds every time a settled scroll
+/// re-rasters the page. Null leaves images at native resolution (the historic
+/// behavior). Only consulted when [decodeImages] is true. The deep-zoom detail
+/// patch re-rasters the visible region from the same picture, so under deep
+/// zoom an image softens at this cap rather than re-decoding sharper — the
+/// accepted trade for smooth panning of image-heavy sheets.
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
-    {CosDocument? cos, bool decodeImages = false}) {
+    {CosDocument? cos,
+    bool decodeImages = false,
+    double? maxImagePixelRatio}) {
   final w = _Writer();
   w.u8(_formatVersion);
   try {
-    _writeCommands(w, commands, cos, decode: decodeImages);
+    _writeCommands(w, commands, cos,
+        decode: decodeImages, maxImageRatio: maxImagePixelRatio);
   } on _UnserializableImage {
     return null;
   }
   return w.takeBytes();
+}
+
+// A capped image never exceeds these — matching the viewer's full-page raster
+// caps ([_PdfPageViewState._maxPixels] / `_maxDimension`) so even a sheet-sized
+// underlay stays within a GPU texture limit, rasterizes in tens of ms not
+// hundreds, and fits the decoded-image cache (so a settled scroll reuses it
+// instead of re-decoding it every time).
+const int _maxImagePixels = 1 << 24; // ~16.7M px (64 MB RGBA)
+const double _maxImageDimension = 8192;
+
+// The on-screen pixels an image covers, scaled up by this much, is the
+// resolution it is decoded/shipped at — one zoom-doubling of headroom over the
+// base raster before the deep-zoom patch (which re-rasters the same picture)
+// softens it.
+const double _imageResolutionHeadroom = 2.0;
+
+/// Returns [decoded] resampled down to ~[ratio]× ([_imageResolutionHeadroom]×)
+/// the pixels it occupies on screen, or unchanged when it already fits or the
+/// reduction would be negligible. [transform] maps the unit image square to
+/// page points, so its column lengths are the image's drawn width/height in
+/// points; multiplying by [ratio] (px/point) gives the on-screen pixel size.
+PdfDecodedPixels _capImageResolution(
+    PdfDecodedPixels decoded, PdfMatrix transform, double ratio) {
+  if (!(ratio > 0)) return decoded;
+  final widthPts =
+      math.sqrt(transform.a * transform.a + transform.b * transform.b);
+  final heightPts =
+      math.sqrt(transform.c * transform.c + transform.d * transform.d);
+  if (!(widthPts > 0) || !(heightPts > 0)) return decoded;
+
+  var tw = (widthPts * ratio * _imageResolutionHeadroom).ceil();
+  var th = (heightPts * ratio * _imageResolutionHeadroom).ceil();
+  if (tw >= decoded.width && th >= decoded.height) return decoded; // no upscale
+  if (tw > decoded.width) tw = decoded.width;
+  if (th > decoded.height) th = decoded.height;
+  if (tw < 1) tw = 1;
+  if (th < 1) th = 1;
+
+  // Hard ceilings so a monster sheet can't ship/rasterize an oversized texture.
+  final maxEdge = math.max(tw, th);
+  if (maxEdge > _maxImageDimension) {
+    final s = _maxImageDimension / maxEdge;
+    tw = (tw * s).floor().clamp(1, decoded.width);
+    th = (th * s).floor().clamp(1, decoded.height);
+  }
+  if (tw * th > _maxImagePixels) {
+    final s = math.sqrt(_maxImagePixels / (tw * th));
+    tw = (tw * s).floor().clamp(1, decoded.width);
+    th = (th * s).floor().clamp(1, decoded.height);
+  }
+
+  // Not worth a full-buffer copy for a sliver — keep the native pixels.
+  if (tw * th >= decoded.width * decoded.height * 0.9) return decoded;
+  return downsamplePdfDecodedPixels(decoded, tw, th);
 }
 
 /// Reconstructs the command buffer written by [serializeCommands].
@@ -104,10 +174,10 @@ List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
 }
 
 void _writeCommands(_Writer w, List<PdfRenderCommand> commands, CosDocument? cos,
-    {bool decode = false}) {
+    {bool decode = false, double? maxImageRatio}) {
   w.u32(commands.length);
   for (final command in commands) {
-    _writeCommand(w, command, cos, decode: decode);
+    _writeCommand(w, command, cos, decode: decode, maxImageRatio: maxImageRatio);
   }
 }
 
@@ -121,7 +191,7 @@ List<PdfRenderCommand> _readCommands(_Reader r) {
 }
 
 void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
-    {bool decode = false}) {
+    {bool decode = false, double? maxImageRatio}) {
   switch (command) {
     case PdfSaveCommand():
       w.u8(_tSave);
@@ -190,7 +260,12 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       // Optional off-thread decode: the premultiplied pixels ride beside the
       // stream so the consumer skips the pure-Dart decode. The stream above is
       // still written, so the pixels cache by content like a local render.
-      final decoded = decode ? decodePdfImagePixels(cos, request.stream) : null;
+      var decoded = decode ? decodePdfImagePixels(cos, request.stream) : null;
+      // Cap to display resolution before it crosses the thread boundary — this
+      // is what shrinks the multi-hundred-MB payload of a CAD raster underlay.
+      if (decoded != null && maxImageRatio != null) {
+        decoded = _capImageResolution(decoded, request.transform, maxImageRatio);
+      }
       w.boolean(decoded != null);
       if (decoded != null) {
         w.u32(decoded.width);
@@ -222,7 +297,8 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       w.f64(backdropLuminance);
       w.f64(transferScale);
       w.f64(transferOffset);
-      _writeCommands(w, maskCommands, cos, decode: decode); // nested
+      _writeCommands(w, maskCommands, cos,
+          decode: decode, maxImageRatio: maxImageRatio); // nested
   }
 }
 
