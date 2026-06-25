@@ -17,8 +17,8 @@ void main() {
       final annots = doc.page(0).annotations;
       final links =
           annots.where((a) => a.subtype == 'Link').toList(growable: false);
-      // 4 original actions + 4 TOC GoTo entries
-      expect(links, hasLength(8));
+      // 4 app actions + 1 real web hyperlink + 4 TOC GoTo entries
+      expect(links, hasLength(9));
       expect(annots.where((a) => a.subtype == 'Widget'), hasLength(1));
     });
 

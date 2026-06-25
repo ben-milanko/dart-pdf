@@ -218,10 +218,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
   String _ocrModel = 'model';
   String? _ocrApiKey;
 
-  /// GoTo and the standard named page actions never get here (the viewer
-  /// follows them itself). Custom-scheme URIs are dispatched as app
-  /// commands — the conventional way a PDF drives its host app — and
-  /// anything else just gets described in a snackbar.
+  /// GoTo, the standard named page actions, and real web links (the
+  /// page's https pub.dev link) never get here — the viewer follows them
+  /// itself. Custom-scheme URIs are dispatched as app commands — the
+  /// conventional way a PDF drives its host app — and anything else just
+  /// gets described in a snackbar.
   void _onAction(PdfAction action, PdfAnnotation annotation) {
     final tab = _active;
     if (action is PdfUriAction) {

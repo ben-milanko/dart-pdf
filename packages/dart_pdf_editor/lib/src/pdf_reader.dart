@@ -100,6 +100,7 @@ class PdfReader extends StatefulWidget {
     this.preferences,
     this.features = const PdfReaderFeatures(),
     this.onAction,
+    this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -141,6 +142,9 @@ class PdfReader extends StatefulWidget {
 
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
+
+  /// See [PdfViewer.onLaunchUrl].
+  final PdfUrlLauncher? onLaunchUrl;
 
   /// See [PdfViewer.pageOverlayBuilder].
   final PdfPageOverlayBuilder? pageOverlayBuilder;
@@ -400,6 +404,7 @@ class _PdfReaderState extends State<PdfReader> {
                                 formController:
                                     features.fillForms ? _session : null,
                                 onAction: widget.onAction,
+                                onLaunchUrl: widget.onLaunchUrl,
                                 pageOverlayBuilder: widget.pageOverlayBuilder,
                                 initialFit: widget.initialFit,
                                 backgroundColor: widget.backgroundColor,
