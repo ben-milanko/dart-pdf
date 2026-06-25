@@ -202,6 +202,13 @@ class PdfViewerController extends ChangeNotifier {
   @visibleForTesting
   PdfPagePreviewCache? get debugPreviewCache => _state?._previews;
 
+  /// The attached viewer's low-res page previews (see [PdfViewer.pagePreviews]),
+  /// or null when no viewer is attached or previews are off. The page
+  /// thumbnail panels read it to paint an instant soft placeholder while a
+  /// tile's sharp raster is still rendering — the same images the viewer
+  /// shows during a fast scroll, shared rather than re-rendered.
+  PdfPagePreviewCache? get pagePreviewCache => _state?._previews;
+
   /// Test hook: whether the attached viewer is currently holding page
   /// renders back for a fast scroll; false when no viewer is attached.
   @visibleForTesting

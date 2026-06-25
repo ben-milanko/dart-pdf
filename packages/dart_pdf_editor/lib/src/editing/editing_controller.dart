@@ -12,6 +12,7 @@ import 'editing_preferences.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
+import 'thumbnail_cache.dart';
 
 /// The annotation tools a [PdfEditingController] can arm.
 ///
@@ -215,11 +216,21 @@ class PdfEditingController extends ChangeNotifier {
   /// live there too).
   final PdfEditingPreferences preferences;
 
+  /// The session's shared page-thumbnail cache (and its viewport-ordered
+  /// render queue). Every thumbnail surface — the docked strip, the
+  /// full-area page grid — draws from this one cache, so a page rendered for
+  /// one is reused by the other and survives a tile scrolling out of view
+  /// and back. Lives as long as the session; a new session brings a fresh,
+  /// empty cache (render stamps restart at zero, so stale keys can't collide
+  /// across sessions). See [PdfThumbnailCache].
+  final PdfThumbnailCache thumbnailCache = PdfThumbnailCache();
+
   @override
   void dispose() {
     _inkTimer?.cancel();
     _flashTimer?.cancel();
     _changeFeed?.close();
+    thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
     super.dispose();
   }
