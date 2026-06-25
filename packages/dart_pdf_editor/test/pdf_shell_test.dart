@@ -266,6 +266,74 @@ void main() {
           findsOneWidget);
     });
 
+    // Opens the keyboard-shortcuts sheet from the settings menu.
+    Future<void> openShortcutsSheet(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('rebinding a shortcut updates the label and persists on Done',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // Capture a new key for the rectangle tool.
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
+      await tester.pumpAndSettle();
+      expect(find.text('Press a key'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.pumpAndSettle();
+
+      // The capture dialog closed and the new binding is shown.
+      expect(find.text('Press a key'), findsNothing);
+      expect(find.text('B'), findsOneWidget);
+      expect(find.text('R'), findsNothing);
+
+      // Done commits the draft; reopening shows the persisted binding.
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-done')));
+      await tester.pumpAndSettle();
+      await openShortcutsSheet(tester);
+      expect(find.text('B'), findsOneWidget);
+    });
+
+    testWidgets('Delete clears a binding and Reset restores the defaults',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pumpAndSettle();
+      expect(find.text('R'), findsNothing);
+      expect(find.text('Unbound'), findsWidgets);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-reset')));
+      await tester.pumpAndSettle();
+      expect(find.text('R'), findsOneWidget);
+    });
+
+    testWidgets('Escape cancels key capture and leaves the binding intact',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
+      await tester.pumpAndSettle();
+      expect(find.text('Press a key'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Press a key'), findsNothing);
+      expect(find.text('R'), findsOneWidget);
+    });
+
     testWidgets('view options can switch the editor to reflow text',
         (tester) async {
       final prefs = PdfEditingPreferences();
