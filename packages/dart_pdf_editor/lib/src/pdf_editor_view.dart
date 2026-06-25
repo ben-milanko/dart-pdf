@@ -862,11 +862,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                               textCache: widget.textCache,
                               documentId: _documentKey,
                               // while the full-area page grid overlays the
-                              // viewer, its (invisible) preview prerender would
-                              // monopolize the single render worker and starve
-                              // the grid's own thumbnails onto the UI thread —
-                              // pause it so the grid gets the worker
-                              pagePreviews: !gridActive,
+                              // viewer, pause the viewer entirely: its
+                              // (invisible) page renders and preview prerender
+                              // both compete for the single render worker and
+                              // would starve the grid's own thumbnails. It
+                              // stays laid out, so tapping a grid page still
+                              // scrolls it before the grid closes.
+                              active: !gridActive,
                             ),
                     ),
                     if (showAnnotationsPanel && !useSheets)

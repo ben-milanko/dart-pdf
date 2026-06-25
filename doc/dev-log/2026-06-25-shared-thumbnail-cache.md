@@ -177,3 +177,27 @@ a null/preempted result — that just moves the jank onto the viewer in the
 docked-strip case. Pausing under the grid is the targeted fix; the absolute
 fill time is still bounded by the per-page CAD interpret cost (1–11 s/page in
 this document), which the worker can only do once each.
+
+## Follow-up 3: pause the whole viewer under the grid, not just its previews
+
+A second trace (worker now serving the tiles — follow-up 2 worked) showed the
+grid's first tile still waiting `worker record=11882ms`: on a fresh 41 MB doc
+the viewer was restored to page 31 and rendered its *on-screen* pages
+(`interpret page=31/30/32`, 5–11 s each) at worker priority 0 before any grid
+tile, even though the grid fully covers it. Pausing only the prerender didn't
+stop these.
+
+`PdfViewer` gained an `active` flag (default true); `PdfEditorView` passes
+`active: !gridActive`. When false the viewer forces the render-scheduler hold
+(its pages don't interpret) and bails the preview prerender, but stays laid
+out — so the grid's tap-to-open still `jumpToPage`s it before the grid closes.
+Held from the first frame (initState) for the persisted-grid-on-open case,
+released + prerender-resumed when `active` flips back (didUpdateWidget); the
+velocity tracker and settle timers OR their hold with `!active` so a paused
+viewer never releases.
+
+What this does NOT fix (and can't, cheaply): the raw per-page interpret is
+~650–1600 ms each on a **single** web worker, serialized — so a 133-page CAD
+document still takes ~100 s to fully warm on first open. The real levers are a
+worker *pool* (parallel interprets) or persisting thumbnails to the on-disk
+raster cache (instant re-open) — both larger, noted for a future session.
