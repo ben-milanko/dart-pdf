@@ -13,6 +13,7 @@
 /// page goes crisp.
 library;
 
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -227,6 +228,53 @@ PdfDecodedPixels downsamplePdfDecodedPixels(
     }
   }
   return PdfDecodedPixels(dst, tw, th);
+}
+
+/// The pixel size an image should be decoded/stored at so it is no sharper than
+/// [headroom]× its on-screen footprint — the cap behind `serializeCommands`'s
+/// `maxImagePixelRatio` (see render_command_codec.dart), extracted as a pure
+/// function so every branch is unit-testable without a giant fixture image.
+///
+/// [srcWidth]/[srcHeight] are the image's native pixels; [widthPts]/[heightPts]
+/// are its drawn size on the page in points (the column lengths of its CTM);
+/// [ratio] is screen pixels per point (device pixel ratio included). The target
+/// is `headroom × drawnPixels`, never upscaled past the source, and never past
+/// the hard ceilings ([maxDimension] per edge, [maxPixels] total) that keep a
+/// sheet-sized raster underlay within a GPU texture limit and the decoded-image
+/// cache. Returns `(srcWidth, srcHeight)` unchanged when no worthwhile
+/// reduction applies (already small enough, a degenerate transform, or a
+/// non-positive ratio) — the caller then ships the native pixels as-is.
+(int, int) cappedImagePixelSize(
+    int srcWidth, int srcHeight, double widthPts, double heightPts, double ratio,
+    {double headroom = 2.0,
+    int maxPixels = 1 << 24,
+    double maxDimension = 8192}) {
+  if (srcWidth < 1 || srcHeight < 1) return (srcWidth, srcHeight);
+  if (!(ratio > 0) || !(widthPts > 0) || !(heightPts > 0)) {
+    return (srcWidth, srcHeight);
+  }
+  // ceil() of a positive double is >= 1, so tw/th never under-run 1px.
+  var tw = (widthPts * ratio * headroom).ceil();
+  var th = (heightPts * ratio * headroom).ceil();
+  if (tw >= srcWidth && th >= srcHeight) return (srcWidth, srcHeight); // no up
+  if (tw > srcWidth) tw = srcWidth;
+  if (th > srcHeight) th = srcHeight;
+
+  final maxEdge = math.max(tw, th);
+  if (maxEdge > maxDimension) {
+    final s = maxDimension / maxEdge;
+    tw = (tw * s).floor().clamp(1, srcWidth);
+    th = (th * s).floor().clamp(1, srcHeight);
+  }
+  if (tw * th > maxPixels) {
+    final s = math.sqrt(maxPixels / (tw * th));
+    tw = (tw * s).floor().clamp(1, srcWidth);
+    th = (th * s).floor().clamp(1, srcHeight);
+  }
+
+  // Not worth a full-buffer resample for a sliver — keep the native pixels.
+  if (tw * th >= srcWidth * srcHeight * 0.9) return (srcWidth, srcHeight);
+  return (tw, th);
 }
 
 /// Premultiplies straight-alpha RGBA in place. `decodeImageFromPixels` treats

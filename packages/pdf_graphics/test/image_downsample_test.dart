@@ -64,4 +64,53 @@ void main() {
       expect(out.rgba, equals(<int>[9, 9, 9, 9]));
     });
   });
+
+  group('cappedImagePixelSize', () {
+    // An image drawn at `pts` points wide/tall, displayed at `ratio` px/point,
+    // should cap to ~headroom×(pts·ratio) — here headroom defaults to 2.
+    test('caps to ~2x the on-screen footprint', () {
+      // 4000px native, drawn 100pt across, shown at 1px/pt → ~200px target.
+      expect(cappedImagePixelSize(4000, 4000, 100, 100, 1.0), (200, 200));
+    });
+
+    test('never upscales: a tiny native image is returned unchanged', () {
+      expect(cappedImagePixelSize(64, 64, 1000, 1000, 4.0), (64, 64));
+    });
+
+    test('a non-positive ratio leaves the image untouched', () {
+      expect(cappedImagePixelSize(4000, 4000, 100, 100, 0), (4000, 4000));
+      expect(cappedImagePixelSize(4000, 4000, 100, 100, -1), (4000, 4000));
+    });
+
+    test('a degenerate (zero-extent) transform leaves it untouched', () {
+      expect(cappedImagePixelSize(4000, 4000, 0, 100, 1.0), (4000, 4000));
+      expect(cappedImagePixelSize(4000, 4000, 100, 0, 1.0), (4000, 4000));
+    });
+
+    test('a zero-pixel source is returned as-is', () {
+      expect(cappedImagePixelSize(0, 10, 100, 100, 1.0), (0, 10));
+    });
+
+    test('clamps the long edge to maxDimension', () {
+      // Drawn enormous so the 2x footprint would exceed 8192 on the long edge;
+      // the cap scales both axes down preserving aspect.
+      final (w, h) = cappedImagePixelSize(40000, 20000, 9000, 4500, 1.0);
+      expect(w, lessThanOrEqualTo(8192));
+      expect(h, lessThanOrEqualTo(8192));
+      expect(w, greaterThan(h)); // 2:1 aspect preserved
+    });
+
+    test('clamps total area to maxPixels', () {
+      // A near-square huge draw that stays under 8192/edge but blows the
+      // 16.7Mpx area ceiling → scaled to fit it.
+      final (w, h) = cappedImagePixelSize(20000, 20000, 4000, 4000, 1.0);
+      expect(w * h, lessThanOrEqualTo(1 << 24));
+      expect(w, h); // square aspect preserved
+    });
+
+    test('skips a negligible (<10%) reduction', () {
+      // 2x footprint lands at ~96% of native — not worth resampling.
+      expect(cappedImagePixelSize(100, 100, 49, 49, 1.0), (100, 100));
+    });
+  });
 }

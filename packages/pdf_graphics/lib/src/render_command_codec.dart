@@ -111,57 +111,21 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
   return w.takeBytes();
 }
 
-// A capped image never exceeds these — matching the viewer's full-page raster
-// caps ([_PdfPageViewState._maxPixels] / `_maxDimension`) so even a sheet-sized
-// underlay stays within a GPU texture limit, rasterizes in tens of ms not
-// hundreds, and fits the decoded-image cache (so a settled scroll reuses it
-// instead of re-decoding it every time).
-const int _maxImagePixels = 1 << 24; // ~16.7M px (64 MB RGBA)
-const double _maxImageDimension = 8192;
-
-// The on-screen pixels an image covers, scaled up by this much, is the
-// resolution it is decoded/shipped at — one zoom-doubling of headroom over the
-// base raster before the deep-zoom patch (which re-rasters the same picture)
-// softens it.
-const double _imageResolutionHeadroom = 2.0;
-
-/// Returns [decoded] resampled down to ~[ratio]× ([_imageResolutionHeadroom]×)
-/// the pixels it occupies on screen, or unchanged when it already fits or the
-/// reduction would be negligible. [transform] maps the unit image square to
-/// page points, so its column lengths are the image's drawn width/height in
-/// points; multiplying by [ratio] (px/point) gives the on-screen pixel size.
+/// Returns [decoded] resampled down to ~2× the pixels it occupies on screen
+/// (see [cappedImagePixelSize], whose ceilings match the viewer's full-page
+/// raster caps so a sheet-sized underlay stays within a GPU texture limit and
+/// the decoded-image cache), or unchanged when it already fits. [transform]
+/// maps the unit image square to page points, so its column lengths are the
+/// image's drawn width/height in points; [ratio] is screen px per point.
 PdfDecodedPixels _capImageResolution(
     PdfDecodedPixels decoded, PdfMatrix transform, double ratio) {
-  if (!(ratio > 0)) return decoded;
   final widthPts =
       math.sqrt(transform.a * transform.a + transform.b * transform.b);
   final heightPts =
       math.sqrt(transform.c * transform.c + transform.d * transform.d);
-  if (!(widthPts > 0) || !(heightPts > 0)) return decoded;
-
-  var tw = (widthPts * ratio * _imageResolutionHeadroom).ceil();
-  var th = (heightPts * ratio * _imageResolutionHeadroom).ceil();
-  if (tw >= decoded.width && th >= decoded.height) return decoded; // no upscale
-  if (tw > decoded.width) tw = decoded.width;
-  if (th > decoded.height) th = decoded.height;
-  if (tw < 1) tw = 1;
-  if (th < 1) th = 1;
-
-  // Hard ceilings so a monster sheet can't ship/rasterize an oversized texture.
-  final maxEdge = math.max(tw, th);
-  if (maxEdge > _maxImageDimension) {
-    final s = _maxImageDimension / maxEdge;
-    tw = (tw * s).floor().clamp(1, decoded.width);
-    th = (th * s).floor().clamp(1, decoded.height);
-  }
-  if (tw * th > _maxImagePixels) {
-    final s = math.sqrt(_maxImagePixels / (tw * th));
-    tw = (tw * s).floor().clamp(1, decoded.width);
-    th = (th * s).floor().clamp(1, decoded.height);
-  }
-
-  // Not worth a full-buffer copy for a sliver — keep the native pixels.
-  if (tw * th >= decoded.width * decoded.height * 0.9) return decoded;
+  final (tw, th) = cappedImagePixelSize(
+      decoded.width, decoded.height, widthPts, heightPts, ratio);
+  if (tw == decoded.width && th == decoded.height) return decoded;
   return downsamplePdfDecodedPixels(decoded, tw, th);
 }
 
