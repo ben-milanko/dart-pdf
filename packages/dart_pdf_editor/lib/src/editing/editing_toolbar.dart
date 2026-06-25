@@ -4,7 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -492,6 +492,30 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     // document's own (possibly subsetted) font lacks
     final fallbacks = await loadFallbackFonts();
     controller.replaceSelectedElementText(text, fallbackFonts: fallbacks);
+  }
+
+  Future<void> _reflowElementText(BuildContext context) async {
+    final element = controller.selectedElement;
+    if (element == null) return;
+    final text = await widget.textPrompt(
+      context,
+      title: 'Reflow paragraph',
+      initial: element.text ?? '',
+      multiline: true,
+    );
+    if (text == null || text == element.text) return;
+    final reflowed = controller.reflowSelectedElementText(text);
+    if (!reflowed && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: const Text(
+              "Couldn't reflow — this isn't a single-column paragraph this "
+              'tool can re-wrap. Try Replace text instead.'),
+          behavior: SnackBarBehavior.floating,
+          margin: pdfFloatingToastMargin(context),
+        ));
+    }
   }
 
   void _flatten(BuildContext context) {
@@ -1059,6 +1083,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
             ]),
           ),
+          if (controller.canAlignSelected) ...[
+            const _StripDivider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+              child: _alignmentCluster(context),
+            ),
+          ],
           if (settings.isNotEmpty) ...[
             const _StripDivider(),
             Padding(
@@ -1072,6 +1103,48 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return _centeredCard(context, padding: EdgeInsets.zero, child: row);
   }
 
+  /// The align/distribute buttons shown while two or more annotations are
+  /// selected: edge + centre alignment, then even-spacing distribution
+  /// (which needs three, so those disable below that). Each button defers
+  /// to [PdfEditingController.alignSelected].
+  Widget _alignmentCluster(BuildContext context) {
+    final canDistribute = controller.canDistributeSelected;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      _alignButton(
+          PdfAlignment.left, Icons.align_horizontal_left, 'Align left'),
+      _alignButton(PdfAlignment.horizontalCenter,
+          Icons.align_horizontal_center, 'Align horizontal centers'),
+      _alignButton(
+          PdfAlignment.right, Icons.align_horizontal_right, 'Align right'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.top, Icons.align_vertical_top, 'Align top'),
+      _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
+          'Align vertical centers'),
+      _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
+          'Align bottom'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.distributeHorizontal,
+          Icons.horizontal_distribute, 'Distribute horizontally',
+          enabled: canDistribute),
+      _alignButton(PdfAlignment.distributeVertical, Icons.vertical_distribute,
+          'Distribute vertically',
+          enabled: canDistribute),
+    ]);
+  }
+
+  /// One alignment button. Disabled buttons (distribution with too few
+  /// annotations) still render so the cluster's layout stays stable.
+  Widget _alignButton(PdfAlignment alignment, IconData icon, String tooltip,
+      {bool enabled = true}) {
+    return IconButton(
+      key: ValueKey('pdf-align-${alignment.name}'),
+      icon: Icon(icon),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      onPressed: enabled ? () => controller.alignSelected(alignment) : null,
+    );
+  }
+
   /// The strip shown while a page-content element is selected.
   Widget _elementStrip(BuildContext context) {
     final row = Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1081,12 +1154,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         tooltip: 'Delete element',
         onPressed: controller.deleteSelectedElement,
       ),
-      if (controller.canEditSelectedElementText)
+      if (controller.canEditSelectedElementText) ...[
         IconButton(
+          key: const ValueKey('pdf-replace-element-text'),
           icon: const Icon(Icons.edit),
           tooltip: 'Replace text',
           onPressed: () => _editElementText(context),
         ),
+        IconButton(
+          key: const ValueKey('pdf-reflow-element-text'),
+          icon: const Icon(Icons.wrap_text),
+          tooltip: 'Reflow paragraph',
+          onPressed: () => _reflowElementText(context),
+        ),
+      ],
     ]);
     return _centeredCard(
       context,

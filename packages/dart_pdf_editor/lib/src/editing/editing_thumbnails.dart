@@ -64,6 +64,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.followsViewer = true,
     this.allowPageEditing = true,
     this.bottomSheet = false,
+    this.onClose,
     this.onPickPdfToInsert,
     this.onExportPages,
     this.renderWorker,
@@ -115,6 +116,12 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// grip) for hosting inside a bottom sheet on a small screen, rather
   /// than as a fixed-width docked column.
   final bool bottomSheet;
+
+  /// Closes the docked panel — the host turns its visibility preference
+  /// off. When given (and not a [bottomSheet]) a close (×) button appears
+  /// in the strip's header. Null leaves the strip with no close button (a
+  /// bottom sheet supplies its own).
+  final VoidCallback? onClose;
 
   /// Picks a PDF to insert and returns its bytes (null = cancelled). When
   /// given, a "Insert PDF…" entry appears in the strip's page-actions
@@ -178,8 +185,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// happens while Shift is held, where the preview is actually visible —
   /// plain hovering never churns the list.
   void _setHover(int index, bool hovering) {
-    final next =
-        hovering ? index : (_hoverPage == index ? null : _hoverPage);
+    final next = hovering ? index : (_hoverPage == index ? null : _hoverPage);
     if (next == _hoverPage) return;
     _hoverPage = next;
     if (_shiftHeld && mounted) setState(() {});
@@ -345,33 +351,49 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                       8 + inset, 2, _extraRightPadding + inset, 2),
                   child: SizedBox(
                     height: 36,
-                    child: controller.selectedPageCount > 1
-                        ? _PageSelectionBar(
-                            controller: controller,
-                            allowPageEditing: widget.allowPageEditing,
-                            onExportPages: widget.onExportPages,
-                            compact: true,
-                          )
-                        : Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Pages',
-                                  style:
-                                      Theme.of(context).textTheme.labelMedium,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (widget.onPickPdfToInsert != null ||
-                                  widget.onExportPages != null)
-                                _PageActionsButton(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: controller.selectedPageCount > 1
+                              ? _PageSelectionBar(
                                   controller: controller,
-                                  viewerController: widget.viewerController,
-                                  onPickPdfToInsert: widget.onPickPdfToInsert,
+                                  allowPageEditing: widget.allowPageEditing,
                                   onExportPages: widget.onExportPages,
+                                  compact: true,
+                                )
+                              : Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Pages',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelMedium,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if (widget.onPickPdfToInsert != null ||
+                                        widget.onExportPages != null)
+                                      _PageActionsButton(
+                                        controller: controller,
+                                        viewerController:
+                                            widget.viewerController,
+                                        onPickPdfToInsert:
+                                            widget.onPickPdfToInsert,
+                                        onExportPages: widget.onExportPages,
+                                      ),
+                                  ],
                                 ),
-                            ],
+                        ),
+                        // the docked strip's close button; a bottom sheet
+                        // supplies its own in its sheet chrome
+                        if (!widget.bottomSheet && widget.onClose != null)
+                          PdfSidebarCloseButton(
+                            key: const ValueKey('pdf-thumbnail-panel-close'),
+                            onPressed: widget.onClose!,
                           ),
+                      ],
+                    ),
                   ),
                 ),
                 Expanded(

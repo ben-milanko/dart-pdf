@@ -554,6 +554,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: features.pageEditing,
                 bottomSheet: bottomSheet,
+                // the sheet chrome carries its own close button
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showThumbnailSidebar = false,
                 // page-level file actions live in the strip's footer; insert
                 // needs page editing on, export stands on its own
                 onPickPdfToInsert:
@@ -568,6 +572,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: _viewer,
                 preferences: prefs,
                 bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showSearchResultsPanel = false,
               );
           PdfAnnotationSidebar annotations({required bool bottomSheet}) =>
               PdfAnnotationSidebar(
@@ -576,6 +583,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 viewerController: _viewer,
                 bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showAnnotationSidebar = false,
               );
           PdfAnnotationPropertiesPanel properties(
                   {required bool bottomSheet}) =>
@@ -585,6 +595,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 showAuthor: features.authorEditable,
                 bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showPropertiesPanel = false,
                 fontPicker: widget.fontPicker,
               );
           // the dedicated full-area page grid, overlaid on the (still

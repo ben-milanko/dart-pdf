@@ -1106,6 +1106,90 @@ void main() {
           findsNothing);
     });
 
+    testWidgets('wide: every docked panel\'s close button hides it',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      // the default 800x600 test surface is above the compact width, so
+      // panels dock to the side and carry their own little × (the sheet
+      // variants — and their close buttons — are not mounted here)
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
+
+      // each panel: (toggle key, close key, panel type, "now closed" check).
+      // The thumbnails strip is shown by default; the rest start hidden, so
+      // their toggles open them first.
+      final cases = <({
+        String? toggle,
+        String close,
+        Type type,
+        bool Function() closed,
+      })>[
+        (
+          toggle: null,
+          close: 'pdf-thumbnail-panel-close',
+          type: PdfThumbnailSidebar,
+          closed: () => !prefs.showThumbnailSidebar,
+        ),
+        (
+          toggle: 'pdf-shell-search-results-toggle',
+          close: 'pdf-search-panel-close',
+          type: PdfSearchResultsPanel,
+          closed: () => !prefs.showSearchResultsPanel,
+        ),
+        (
+          toggle: 'pdf-shell-annotations-toggle',
+          close: 'pdf-annotation-panel-close',
+          type: PdfAnnotationSidebar,
+          closed: () => !prefs.showAnnotationSidebar,
+        ),
+        (
+          toggle: 'pdf-shell-properties-toggle',
+          close: 'pdf-properties-panel-close',
+          type: PdfAnnotationPropertiesPanel,
+          closed: () => !prefs.showPropertiesPanel,
+        ),
+      ];
+
+      for (final c in cases) {
+        if (c.toggle != null) {
+          await tester.tap(find.byKey(ValueKey(c.toggle!)),
+              kind: PointerDeviceKind.mouse);
+          await tester.pump();
+        }
+        expect(find.byType(c.type), findsOneWidget,
+            reason: 'panel ${c.type} should be docked open');
+        final close = find.byKey(ValueKey(c.close));
+        expect(close, findsOneWidget,
+            reason: '${c.type} should carry a docked close button');
+        await tester.tap(close, kind: PointerDeviceKind.mouse);
+        await tester.pump();
+        expect(find.byType(c.type), findsNothing,
+            reason: 'closing should hide ${c.type}');
+        expect(c.closed(), isTrue,
+            reason: 'closing should turn ${c.type}\'s preference off');
+      }
+    });
+
+    testWidgets('wide reader: the docked thumbnail strip has a close button',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      await prefs.ready;
+      addTearDown(prefs.dispose);
+      // wide surface: the strip docks (shown by default) rather than
+      // floating up as a sheet
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(3), preferences: prefs));
+      expect(find.byType(PdfThumbnailSidebar), findsOneWidget);
+
+      final close = find.byKey(const ValueKey('pdf-thumbnail-panel-close'));
+      expect(close, findsOneWidget);
+      await tester.tap(close, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(find.byType(PdfThumbnailSidebar), findsNothing);
+      expect(prefs.showThumbnailSidebar, isFalse);
+    });
+
     testWidgets('compact reader: the thumbnail strip is a bottom sheet',
         (tester) async {
       final prefs = PdfEditingPreferences();

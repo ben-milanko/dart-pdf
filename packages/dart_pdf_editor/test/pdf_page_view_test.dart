@@ -113,6 +113,56 @@ void main() {
     expect(tester.widget<RawImage>(find.byType(RawImage)).image!.height, 1008);
   });
 
+  testWidgets('an additive content edit keeps the raster; a destructive one '
+      'drops it', (tester) async {
+    // After finishing an ink markup on a heavy page the document swaps and
+    // the page's contentStamp advances. The old raster must stay painted
+    // until the new render lands (the just-drawn markup rides on top via the
+    // editing overlay) — otherwise the whole page flashes blank while the
+    // slow re-interpret runs. A redaction burn, by contrast, advances the
+    // destructiveStamp and must drop the (un-redacted) raster at once.
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    final hold = ValueNotifier<bool>(false);
+    addTearDown(hold.dispose);
+    Widget at({int content = 0, int destructive = 0}) => Center(
+        child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+                page: page,
+                contentStamp: content,
+                destructiveStamp: destructive,
+                renderHold: hold)));
+
+    await tester.pumpWidget(at());
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(find.byType(RawImage), findsOneWidget);
+
+    // Hold renders (as the viewer does while a heavy page re-interprets).
+    // An additive edit (contentStamp bump) keeps the raster on screen.
+    hold.value = true;
+    await tester.pumpWidget(at(content: 1));
+    await tester.pump();
+    expect(find.byType(RawImage), findsOneWidget,
+        reason: 'an additive edit must not flash the page blank');
+
+    // A destructive edit (destructiveStamp bump) drops the raster at once so
+    // the removed content can't linger before the re-render lands.
+    await tester.pumpWidget(at(content: 1, destructive: 1));
+    await tester.pump();
+    expect(find.byType(RawImage), findsNothing,
+        reason: 'a destructive edit drops the stale raster immediately');
+
+    // Releasing the hold re-renders.
+    hold.value = false;
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(find.byType(RawImage), findsOneWidget);
+  });
+
   testWidgets('raster resolution is capped at deep zoom', (tester) async {
     final doc = PdfDocument.open(buildClassicPdf());
     await tester.pumpWidget(

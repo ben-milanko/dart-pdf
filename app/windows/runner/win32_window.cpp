@@ -16,7 +16,10 @@ namespace {
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+// App-unique window class. A second instance locates the running window by
+// this class name (see runner/main.cpp), so it must not be the generic Flutter
+// template name shared by every Flutter desktop app.
+constexpr const wchar_t kWindowClassName[] = L"DARTPDF_WIN32_WINDOW";
 
 /// Registry key for app theme preference.
 ///
