@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import '../page_range_dialog.dart';
 import '../pdf_viewer.dart';
 import '../perf_log.dart';
+import '../raster_cache.dart';
 import '../render_worker.dart';
 import '../renderer.dart';
 import '../scrollbar.dart';
@@ -70,6 +71,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.onPickPdfToInsert,
     this.onExportPages,
     this.renderWorker,
+    this.rasterCache,
   });
 
   final PdfEditingController controller;
@@ -78,6 +80,12 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// [PdfViewer.renderWorker]) so rasterizing thumbnails of heavy pages
   /// doesn't block the UI thread. Pass the same worker the viewer uses.
   final PdfRenderWorker? renderWorker;
+
+  /// Optional persistent on-disk thumbnail cache, bound to the open document
+  /// (see [PdfRasterCache]). When given, unedited pages open straight from
+  /// disk in a later session and freshly-rendered ones write through, so a
+  /// re-opened page grid doesn't re-interpret every page.
+  final PdfRasterCache? rasterCache;
 
   /// The viewer to navigate when a thumbnail is tapped.
   final PdfViewerController viewerController;
@@ -303,6 +311,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       priority: 3,
       skipIfWorkerDeclines: true,
       reason: 'warm',
+      disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -366,6 +375,9 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   Widget build(BuildContext context) {
     final width = _width;
     final controller = widget.controller;
+    // persist thumbnails to disk (bound to this document) so a later session
+    // opens onto already-rendered pages instead of re-interpreting them
+    _cache.disk = widget.rasterCache;
     // (re)arm the idle background prerender of every page into the shared
     // cache, at the resolution this strip renders, so the page grid and
     // scrolling back open onto already-cached thumbnails. A paced loop that
@@ -798,6 +810,7 @@ class PdfThumbnailView extends StatefulWidget {
     this.onExportPages,
     this.onOpenPage,
     this.renderWorker,
+    this.rasterCache,
     this.minTileWidth = 96,
     this.maxTileWidth = 360,
     this.defaultTileWidth = 168,
@@ -811,6 +824,10 @@ class PdfThumbnailView extends StatefulWidget {
   /// Offloads tile interpretation to a background isolate — pass the same
   /// worker the viewer uses. See [PdfThumbnailSidebar.renderWorker].
   final PdfRenderWorker? renderWorker;
+
+  /// Optional persistent on-disk thumbnail cache, bound to the open document.
+  /// See [PdfThumbnailSidebar.rasterCache].
+  final PdfRasterCache? rasterCache;
 
   /// The paper color thumbnails render on (match the viewer's).
   final Color pageColor;
@@ -927,6 +944,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       priority: 3,
       skipIfWorkerDeclines: true,
       reason: 'warm',
+      disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -942,6 +960,9 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final tileWidth = _tileWidth;
+    // persist thumbnails to disk (bound to this document) so a re-opened grid
+    // loads already-rendered pages instead of re-interpreting them
+    _cache.disk = widget.rasterCache;
     // (re)arm the idle background prerender of every page at the cell's
     // thumbnail resolution (the tile pads ~21px around the thumbnail). A
     // paced loop that yields to every visible cell, so it never delays one.
@@ -1828,6 +1849,9 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           annotations: annotations,
           pixelWidth: pixelWidth,
           worker: worker,
+          // only persist/read disk for pages untouched this session — the
+          // disk key is content-derived and render stamps reset per session
+          disk: controller.pageRenderStamp(pageIndex) == 0 ? cache.disk : null,
         );
         if (image == null) return;
         PdfThumbnailSidebar.debugRasterizations++;
@@ -1935,11 +1959,23 @@ Future<ui.Image?> rasterizeThumbnail({
   int priority = 2,
   bool skipIfWorkerDeclines = false,
   String reason = 'tile',
+  PdfRasterCache? disk,
 }) async {
   final page = controller.pageAt(pageIndex);
   final size = PdfPageRenderer.pageSize(page);
   if (size.width <= 0 || size.height <= 0) return null;
   final ratio = pixelWidth / size.width;
+  // an unedited page reopened in a later session can come straight off disk —
+  // no interpret at all. [disk] is supplied already gated to such pages (its
+  // key is content-derived, and render stamps reset per session), so loading
+  // it back is always for the right pixels.
+  if (disk != null) {
+    final stored = await disk.loadThumbnail(pageIndex, pixelWidth);
+    if (stored != null) {
+      PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth disk-hit');
+      return stored;
+    }
+  }
   // a DevTools-timeline span for the whole thumbnail render (free when no
   // trace is recording; appears when you capture one), split into its phases
   // so a trace shows where the time actually goes — and matching gated
@@ -1977,6 +2013,8 @@ Future<ui.Image?> rasterizeThumbnail({
         PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth worker '
             'record=${_traceMs(recordMs)} replay=${_traceMs(replayMs)} '
             'raster=${_traceMs(rasterMs)}');
+        // write through so this page opens straight from disk next session
+        disk?.storeThumbnail(pageIndex, pixelWidth, image);
         return image;
       } finally {
         picture.dispose();
@@ -1999,6 +2037,7 @@ Future<ui.Image?> rasterizeThumbnail({
     PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
         'local interpret+raster=${_traceMs(localMs)} '
         '${usingWorker ? '(worker declined)' : '(no worker)'}');
+    disk?.storeThumbnail(pageIndex, pixelWidth, image);
     return image;
   } finally {
     trace.finish();

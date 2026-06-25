@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/scheduler.dart';
 
 import '../perf_log.dart';
+import '../raster_cache.dart';
 
 /// A shared, viewport-aware cache of rasterized page thumbnails — and the
 /// render queues that fill it.
@@ -45,6 +46,12 @@ class PdfThumbnailCache {
 
   /// Maximum number of cached rasters (LRU eviction past it).
   final int capacity;
+
+  /// Optional persistent backing for thumbnails, bound to the open document
+  /// (see [PdfRasterCache]). The thumbnail surfaces set this each build; when
+  /// present, unedited pages render straight from disk on a later open and
+  /// freshly-rendered ones write through. Null leaves the cache session-only.
+  PdfRasterCache? disk;
 
   // LinkedHashMap insertion order doubles as LRU order: a claim re-inserts,
   // eviction drops the first key.

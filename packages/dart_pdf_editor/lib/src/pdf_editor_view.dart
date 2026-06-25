@@ -518,6 +518,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final session = _session;
           final prefs = _prefs;
           final pageColor = widget.pageColor ?? prefs.pageColor;
+          // the persistent thumbnail cache, bound to this document, so the
+          // page grid/strip persist their rasters and reopen onto them
+          final key = _documentKey;
+          final thumbnailDisk = (widget.rasterCache != null && key != null)
+              ? widget.rasterCache!.forDocument(key)
+              : null;
           final showThumbnails =
               pdfShellShowThumbnailSidebar(prefs, constraints);
           // on a narrow screen the panels float up from the bottom as
@@ -547,6 +553,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
                 renderWorker: _worker,
+                rasterCache: thumbnailDisk,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
               PdfSearchResultsPanel(
@@ -589,6 +596,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onExportPages: widget.onExportPages,
                 onOpenPage: (_) => prefs.showThumbnailView = false,
                 renderWorker: _worker,
+                rasterCache: thumbnailDisk,
               );
 
           // the full-area page grid replaces the page viewer; it wins over

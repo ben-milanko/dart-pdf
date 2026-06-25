@@ -1,7 +1,10 @@
+import 'dart:ui' as ui;
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/thumbnail_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -144,6 +147,61 @@ void main() {
           () => Future<void>.delayed(const Duration(milliseconds: 100)));
       await tester.pump();
       expect(PdfThumbnailSidebar.debugRasterizations, 3);
+    });
+  });
+
+  group('thumbnail disk persistence', () {
+    testWidgets('a rendered thumbnail writes through to disk and reloads',
+        (tester) async {
+      final store = PdfMemoryCacheStore();
+      final disk = PdfRasterCache(PdfDiskCache(store)).forDocument('doc-thumb');
+      final controller = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(controller.dispose);
+      const white = Color(0xFFFFFFFF);
+
+      // render page 0 with a disk cache → writes the raster through
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: white,
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          disk: disk,
+        );
+        // storeThumbnail is fire-and-forget — let the PNG encode + write land
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      expect(rendered, isNotNull);
+      rendered!.dispose();
+
+      // the PNG is on disk, only at the bucket it rendered at
+      await tester.runAsync(() async {
+        final loaded = await disk.loadThumbnail(0, 128);
+        expect(loaded, isNotNull);
+        loaded!.dispose();
+        expect(await disk.loadThumbnail(0, 256), isNull); // different size
+        expect(await disk.loadThumbnail(1, 128), isNull); // never rendered
+      });
+      expect(store.debugBytes, greaterThan(0));
+
+      // a later render of the same page+size comes straight back from disk
+      ui.Image? fromDisk;
+      await tester.runAsync(() async {
+        fromDisk = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: white,
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          disk: disk,
+        );
+      });
+      expect(fromDisk, isNotNull);
+      fromDisk!.dispose();
     });
   });
 }

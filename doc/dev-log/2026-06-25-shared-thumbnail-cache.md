@@ -201,3 +201,34 @@ What this does NOT fix (and can't, cheaply): the raw per-page interpret is
 document still takes ~100 s to fully warm on first open. The real levers are a
 worker *pool* (parallel interprets) or persisting thumbnails to the on-disk
 raster cache (instant re-open) — both larger, noted for a future session.
+
+## Follow-up 4: parallel worker pool + on-disk thumbnail persistence
+
+Ben opted into both levers above.
+
+**Worker pool** (`PdfRenderWorkerPool`, render_worker.dart): itself a
+`PdfRenderWorker`, holds N child workers and routes each `record` to the
+least-busy one (tracked via a per-worker in-flight count), so up to N pages
+interpret concurrently instead of queueing behind one. The reader and editor
+build one via `startPdfRenderWorker(bytes, pageCount:)` —
+`pdfRenderWorkerPoolSize` workers (default 3) for documents ≥
+`pdfRenderWorkerPoolMinPages` (12), a single worker below that (the
+parallelism has nothing to spread, and extra workers cost startup + memory).
+Each worker opens its own copy of the document, so it's memory-for-throughput;
+the size is a launch-time global like `pdfRenderWorkerScriptUrl`. On the
+profiled 133-page doc this is the big first-open win — 3× fewer seconds to
+fill, bounded now by 3 parallel interprets rather than one serial.
+
+**Disk persistence**: `PdfRasterCache` gained `loadThumbnail`/`storeThumbnail`
+under a resolution-tagged key (`$doc/t$pixelWidth/$page`), distinct from the
+preview namespace. `PdfThumbnailCache` carries an optional `disk` the panels
+set each build (bound to the document via `rasterCache.forDocument(key)`,
+threaded from `PdfEditorView.rasterCache`). `rasterizeThumbnail` reads it
+first (returns the stored PNG decoded, no interpret) and writes through after
+rendering. **Gated to unedited pages only** (`pageRenderStamp == 0`): the disk
+key is content-derived and render stamps reset per session, so persisting an
+edited page would serve stale pixels on reopen — edited pages always render
+fresh and skip disk. So a re-opened grid (or a later session of the same file)
+paints already-rendered thumbnails immediately; only the *first* open pays the
+interpret. Needs the host to supply a `rasterCache` (same one the viewer uses
+for preview persistence); without it, session-only as before.
