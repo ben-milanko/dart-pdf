@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' show TimelineTask;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -8,6 +9,7 @@ import 'package:flutter/services.dart';
 
 import '../page_range_dialog.dart';
 import '../pdf_viewer.dart';
+import '../perf_log.dart';
 import '../render_worker.dart';
 import '../renderer.dart';
 import '../scrollbar.dart';
@@ -300,6 +302,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       worker: widget.renderWorker,
       priority: 3,
       skipIfWorkerDeclines: true,
+      reason: 'warm',
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -923,6 +926,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       worker: widget.renderWorker,
       priority: 3,
       skipIfWorkerDeclines: true,
+      reason: 'warm',
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -1930,34 +1934,78 @@ Future<ui.Image?> rasterizeThumbnail({
   required PdfRenderWorker? worker,
   int priority = 2,
   bool skipIfWorkerDeclines = false,
+  String reason = 'tile',
 }) async {
   final page = controller.pageAt(pageIndex);
   final size = PdfPageRenderer.pageSize(page);
   if (size.width <= 0 || size.height <= 0) return null;
   final ratio = pixelWidth / size.width;
-  // the heavy interpret runs on the isolate, only the small replay + raster
-  // stays here. Image pages and the web fallback return null and rasterize
-  // locally.
-  final usingWorker = worker != null && worker.isActive;
-  final commands = usingWorker
-      ? await worker.record(pageIndex, annotations: annotations, priority: priority)
-      : null;
-  if (commands != null) {
-    final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
-        pageColor: pageColor);
-    try {
-      return await PdfPageRenderer.rasterize(picture, size, ratio);
-    } finally {
-      picture.dispose();
+  // a DevTools-timeline span for the whole thumbnail render (free when no
+  // trace is recording; appears when you capture one), split into its phases
+  // so a trace shows where the time actually goes — and matching gated
+  // PdfPerfLog console lines for `--dart-define=PDF_PERF_LOG=true` / `?perf=1`.
+  final trace = TimelineTask()
+    ..start('thumbnail', arguments: {
+      'page': pageIndex,
+      'pixelWidth': pixelWidth,
+      'priority': priority,
+      'reason': reason,
+    });
+  final sw = Stopwatch()..start();
+  try {
+    // the heavy interpret runs on the isolate, only the small replay + raster
+    // stays here. Image pages and the web fallback return null and rasterize
+    // locally.
+    final usingWorker = worker != null && worker.isActive;
+    final commands = usingWorker
+        ? await worker.record(pageIndex,
+            annotations: annotations, priority: priority)
+        : null;
+    final recordMs = sw.elapsedMicroseconds / 1000.0;
+    if (commands != null) {
+      trace.instant('worker.record',
+          arguments: {'ms': recordMs, 'commands': commands.length});
+      sw.reset();
+      final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
+          pageColor: pageColor);
+      final replayMs = sw.elapsedMicroseconds / 1000.0;
+      sw.reset();
+      try {
+        final image = await PdfPageRenderer.rasterize(picture, size, ratio);
+        final rasterMs = sw.elapsedMicroseconds / 1000.0;
+        trace.instant('rasterize', arguments: {'ms': rasterMs});
+        PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth worker '
+            'record=${_traceMs(recordMs)} replay=${_traceMs(replayMs)} '
+            'raster=${_traceMs(rasterMs)}');
+        return image;
+      } finally {
+        picture.dispose();
+      }
     }
+    // the worker declined (inline-image page) or preempted this render for a
+    // higher-priority tile; the warm pass skips rather than burning the UI
+    // thread, on-screen tiles fall back to a local interpret as before
+    if (usingWorker && skipIfWorkerDeclines) {
+      trace.instant('worker declined → skip', arguments: {'ms': recordMs});
+      PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+          'worker-declined skip record=${_traceMs(recordMs)}');
+      return null;
+    }
+    sw.reset();
+    final image = await PdfPageRenderer.renderImage(page,
+        pixelRatio: ratio, pageColor: pageColor, annotations: annotations);
+    final localMs = sw.elapsedMicroseconds / 1000.0;
+    trace.instant('local interpret+raster', arguments: {'ms': localMs});
+    PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+        'local interpret+raster=${_traceMs(localMs)} '
+        '${usingWorker ? '(worker declined)' : '(no worker)'}');
+    return image;
+  } finally {
+    trace.finish();
   }
-  // the worker declined (inline-image page) or preempted this render for a
-  // higher-priority tile; the warm pass skips rather than burning the UI
-  // thread, on-screen tiles fall back to a local interpret as before
-  if (usingWorker && skipIfWorkerDeclines) return null;
-  return PdfPageRenderer.renderImage(page,
-      pixelRatio: ratio, pageColor: pageColor, annotations: annotations);
 }
+
+String _traceMs(double v) => '${v.toStringAsFixed(1)}ms';
 
 /// Marks the viewer's viewport on a thumbnail: [region] is the visible
 /// part of the page as fractions of its area.

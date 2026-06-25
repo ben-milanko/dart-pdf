@@ -119,3 +119,29 @@ true and the loop spun, scheduling a frame every iteration → `pumpAndSettle`
 never settled and 22 tests failed. Stepping aside (return + re-kick) instead
 of busy-waiting fixes it; the only `endOfFrame` left is the bounded
 between-pages breathe, reached just once per page per pass.
+
+## Instrumentation for grid perf traces
+
+Added timeline/console instrumentation on the thumbnail render path to
+diagnose a "grid still feels slow" report:
+
+- `rasterizeThumbnail` opens a `dart:developer` `TimelineTask` (`thumbnail`,
+  args page/pixelWidth/priority/reason) with instant markers splitting the
+  render into `worker.record` → `rasterize` (worker path) or
+  `local interpret+raster` / `worker declined → skip`. These are free when no
+  trace is recording and appear in a DevTools Performance capture or
+  `flutter run --profile`. Matching gated `PdfPerfLog` lines print the same
+  per-phase ms under `--dart-define=PDF_PERF_LOG=true` (or `?perf=1` on the
+  web demo).
+- `PdfThumbnailCache` logs scheduler grants (`thumbnail grant page= focus=
+  pending=`, also a `Timeline.instantSync`), warm activity
+  (`thumbnail warm page=`), warm-yields-to-foreground, and the armed warm
+  signature (`thumbnail warm armed pages= key=`, which carries the
+  pixel-width bucket so a too-high grid resolution is visible at a glance).
+- `reason` distinguishes on-screen tiles (`tile`) from the background warm
+  (`warm`); only one thumbnail surface is mounted at a time, so grid vs strip
+  is unambiguous from context.
+
+All timeline events are unconditional (no-op when not recording); the
+`PdfPerfLog` lines stay off unless the dart-define / `?perf=1` is set, so
+tests and normal runs are unaffected.

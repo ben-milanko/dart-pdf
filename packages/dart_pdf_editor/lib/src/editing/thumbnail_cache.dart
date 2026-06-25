@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:developer' show Timeline;
 import 'dart:ui' as ui;
 
 import 'package:flutter/scheduler.dart';
+
+import '../perf_log.dart';
 
 /// A shared, viewport-aware cache of rasterized page thumbnails — and the
 /// render queues that fill it.
@@ -115,6 +118,13 @@ class PdfThumbnailCache {
           }
         }
         final next = _pending.removeAt(pick);
+        Timeline.instantSync('thumbnail grant', arguments: {
+          'page': next.pageIndex,
+          'focus': _focus,
+          'pending': _pending.length,
+        });
+        PdfPerfLog.log('thumbnail grant page=${next.pageIndex} '
+            'focus=$_focus pending=${_pending.length}');
         try {
           // one synchronous-ish interpret at a time; the awaits inside let
           // the engine breathe between pages
@@ -164,6 +174,7 @@ class PdfThumbnailCache {
     _warmSignature = signature;
     _warmCount = pageCount;
     _warmAttempted.clear();
+    PdfPerfLog.log('thumbnail warm armed pages=$pageCount key=$signature');
     _kickWarm();
   }
 
@@ -190,12 +201,19 @@ class PdfThumbnailCache {
         // never compete with the page the user is looking at — step aside and
         // let the foreground drain re-kick us when it's done (its `finally`
         // calls _kickWarm), rather than busy-waiting on frames
-        if (_foregroundBusy) return;
+        if (_foregroundBusy) {
+          PdfPerfLog.log('thumbnail warm yields — foreground busy '
+              '(pending=${_pending.length} draining=$_draining)');
+          return;
+        }
         final page = _nextWarmPage();
         if (page == null) return; // every page attempted this pass
         _warmAttempted.add(page);
         final renderer = _warmRenderer;
         if (renderer == null) return;
+        Timeline.instantSync('thumbnail warm', arguments: {'page': page});
+        PdfPerfLog.log('thumbnail warm page=$page focus=$_focus '
+            '(${_warmAttempted.length}/$_warmCount)');
         try {
           await renderer(page);
         } catch (_) {
