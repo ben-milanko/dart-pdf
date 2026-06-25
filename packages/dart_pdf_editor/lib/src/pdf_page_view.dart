@@ -5,8 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
-import 'package:pdf_graphics/pdf_graphics.dart'
-    show PdfRenderCommand, PdfDrawImageCommand, PdfEndSoftMaskedCommand;
+import 'package:pdf_graphics/pdf_graphics.dart' show PdfRenderCommand;
 
 import 'perf_log.dart';
 import 'preview_cache.dart';
@@ -425,29 +424,15 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   /// Reports, when the perf log is on, how many images a worker buffer carries
-  /// and their total decoded ("capped") megapixels — the deciding number for
-  /// why a raster-heavy page is still slow: one oversized image escaping the
+  /// and their total decoded megapixels — the deciding number for why a
+  /// raster-heavy page is still slow: one oversized image escaping the
   /// resolution cap looks very different from many tiles each capped but
-  /// summing large. Cheap and skipped entirely when the log is off.
+  /// summing large. The walk lives in [PdfPageRenderer.decodedImageStats] (and
+  /// is tested there); this only formats the line, and is skipped entirely when
+  /// the log is off.
   void _logImageStats(int pageIndex, List<PdfRenderCommand> commands) {
     if (!PdfPerfLog.enabled) return;
-    var count = 0;
-    var pixels = 0;
-    void walk(List<PdfRenderCommand> cs) {
-      for (final c in cs) {
-        if (c is PdfDrawImageCommand) {
-          final d = c.request.decoded;
-          if (d != null) {
-            count++;
-            pixels += d.width * d.height;
-          }
-        } else if (c is PdfEndSoftMaskedCommand) {
-          walk(c.maskCommands);
-        }
-      }
-    }
-
-    walk(commands);
+    final (count, pixels) = PdfPageRenderer.decodedImageStats(commands);
     if (count > 0) {
       PdfPerfLog.log('images page=$pageIndex count=$count '
           'decodedMpx=${(pixels / 1e6).toStringAsFixed(1)}');

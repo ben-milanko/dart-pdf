@@ -165,6 +165,27 @@ class PdfPageRenderer {
     return picture;
   }
 
+  /// Counts the decoded images a worker [commands] buffer carries and their
+  /// total pixels (recursing soft-mask groups). The deciding diagnostic for why
+  /// a raster-heavy page is slow: one oversized image escaping the resolution
+  /// cap looks very different from many tiles each capped but summing large.
+  /// Images shipped un-decoded (the platform-codec path) don't count.
+  static (int count, int pixels) decodedImageStats(
+      List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    var count = 0;
+    var pixels = 0;
+    for (final request in requests) {
+      final decoded = request.decoded;
+      if (decoded != null) {
+        count++;
+        pixels += decoded.width * decoded.height;
+      }
+    }
+    return (count, pixels);
+  }
+
   /// Gathers every image draw request in [commands], descending into soft-mask
   /// groups (whose own commands can draw images), in replay order.
   static void _collectImageRequests(
