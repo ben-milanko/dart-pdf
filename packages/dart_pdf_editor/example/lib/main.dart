@@ -218,10 +218,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
   String _ocrModel = 'model';
   String? _ocrApiKey;
 
-  /// GoTo and the standard named page actions never get here (the viewer
-  /// follows them itself). Custom-scheme URIs are dispatched as app
-  /// commands — the conventional way a PDF drives its host app — and
-  /// anything else just gets described in a snackbar.
+  /// GoTo, the standard named page actions, and real web links (the
+  /// page's https pub.dev link) never get here — the viewer follows them
+  /// itself. Custom-scheme URIs are dispatched as app commands — the
+  /// conventional way a PDF drives its host app — and anything else just
+  /// gets described in a snackbar.
   void _onAction(PdfAction action, PdfAnnotation annotation) {
     final tab = _active;
     if (action is PdfUriAction) {
@@ -1036,6 +1037,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
         title: _tabs.isEmpty ? const Text('dart-pdf viewer') : _buildTabStrip(),
         titleSpacing: _tabs.isEmpty ? null : 8,
         actions: [
+          if (tab?.session != null && !_readOnly && !tab!.isComparison)
+            IconButton(
+              key: const ValueKey('dartpdf-takeoff-button'),
+              icon: const Icon(Icons.functions),
+              tooltip: 'Takeoff totals',
+              onPressed: () => _showTakeoffPanel(tab.session!),
+            ),
           if (tab?.viewer != null)
             ListenableBuilder(
               listenable: tab!.viewer!,
@@ -1123,6 +1131,22 @@ class _ViewerScreenState extends State<ViewerScreen> {
                               fontPicker: _pickFont,
                               onSnapshot: _saveSnapshot,
                             ),
+    );
+  }
+
+  /// Shows the construction-takeoff register — per-tool running totals over
+  /// the live document (length, area, count, volume, …) — in a bottom
+  /// sheet. The panel rebuilds with the edit session, so totals update as
+  /// measurements are added, edited, or undone.
+  void _showTakeoffPanel(PdfEditingController session) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: PdfTakeoffPanel(controller: session),
+        ),
+      ),
     );
   }
 

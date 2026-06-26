@@ -33,10 +33,8 @@ List<((double, double), (double, double))> pdfInkCurveControls(
   ];
 }
 
-/// The kind of measurement [PdfAnnotationEditing.addMeasurement] creates:
-/// a /Line distance, a /PolyLine perimeter (sum of segment lengths), or a
-/// /Polygon area (shoelace).
-enum PdfMeasurementKind { distance, perimeter, area }
+// PdfMeasurementKind lives in measure.dart (shared with the readers in
+// annotation.dart and the takeoff summary).
 
 /// Slack (in points) the word-wrappers allow before breaking a line.
 ///
@@ -1102,16 +1100,61 @@ extension PdfAnnotationEditing on PdfEditor {
     return measure;
   }
 
-  /// Adds a measurement annotation: a /Line ([PdfMeasurementKind.distance]),
-  /// /PolyLine ([PdfMeasurementKind.perimeter]), or /Polygon
-  /// ([PdfMeasurementKind.area]) carrying a /Measure dictionary (§12.9).
+  /// Writes [measure] into the page's /VP viewport array (§12.9) so the
+  /// drawing scale travels *with the document* — surviving a reopen and
+  /// portable across devices — rather than living only in an app-side
+  /// preference. A single viewport covering the page crop box carries the
+  /// /Measure; an existing measurement viewport is replaced. Also adopts
+  /// [measure] as the editor's default for subsequent [addMeasurement]
+  /// calls. Returns the page's resolved scale.
+  PdfMeasure setPageMeasurementScale(int pageIndex, PdfMeasure measure) {
+    final page = document.page(pageIndex);
+    final box = page.cropBox;
+    final viewport = CosDictionary({
+      'Type': const CosName('Viewport'),
+      'BBox': CosArray([
+        CosReal(box.left),
+        CosReal(box.bottom),
+        CosReal(box.right),
+        CosReal(box.top),
+      ]),
+      'Name': CosString.fromText('Measurement'),
+      'Measure': measure.toCosDictionary(),
+    });
+    final existing = document.cos.resolve(page.dict['VP']);
+    final kept = <CosObject>[];
+    if (existing is CosArray) {
+      for (final item in existing.items) {
+        final vp = document.cos.resolve(item);
+        // drop any prior measurement viewport; keep unrelated ones.
+        if (vp is CosDictionary && vp['Measure'] != null) continue;
+        kept.add(item);
+      }
+    }
+    page.dict['VP'] = CosArray([viewport, ...kept]);
+    _updater.markChanged(page.dict);
+    _defaultMeasure = measure;
+    return measure;
+  }
+
+  /// Adds a measurement annotation carrying a /Measure dictionary (§12.9)
+  /// and, for the takeoff kinds, a /Takeoff record (depth/holes/label).
+  ///
+  /// Geometry by kind:
+  ///  - distance/slope → /Line (two points)
+  ///  - perimeter → /PolyLine (2+ points); angle/arc → /PolyLine (3 points)
+  ///  - area/areaCutout/volume → /Polygon (3+ points, closed)
+  ///  - count → a small "×" marker (/Square) at the single point
   ///
   /// The measured value (distance = `|segment| × scaleFactor`, perimeter =
-  /// `Σ segments × scaleFactor`, area = `shoelace × scaleFactor²`) is
-  /// formatted through [measure] (or the document default set by
-  /// [setMeasurementScale]), stamped into /Contents, and drawn as a
-  /// caption at the segment midpoint / polygon centroid. Throws a
-  /// [StateError] when no scale is available.
+  /// `Σ segments × scaleFactor`, area = `shoelace × scaleFactor²`, volume =
+  /// `area × depth`, angle/slope in degrees, arc length along the circle
+  /// through the three points, net area = outer − holes) is formatted
+  /// through [measure] (or the document default set by [setMeasurementScale]),
+  /// stamped into /Contents, and drawn as a caption at the geometry's
+  /// anchor. [depth] feeds a volume, [holes] cut a net-area polygon,
+  /// [label] buckets the running total. Throws a [StateError] when no scale
+  /// is available (count needs none).
   void addMeasurement(
     int pageIndex,
     PdfMeasurementKind kind,
@@ -1127,47 +1170,100 @@ extension PdfAnnotationEditing on PdfEditor {
     double captionSize = 10,
     PdfLineEnding startEnding = PdfLineEnding.none,
     PdfLineEnding endEnding = PdfLineEnding.none,
+    double? depth,
+    List<List<(double, double)>> holes = const [],
+    String? label,
     String? author,
     String? name,
   }) {
     final m = measure ?? _defaultMeasure;
-    if (m == null) {
+    if (m == null && kind != PdfMeasurementKind.count) {
       throw StateError('no measurement scale set — call setMeasurementScale '
           'or pass a measure');
     }
-    final minPoints = kind == PdfMeasurementKind.distance ? 2 : 3;
-    if (points.length <
-        (kind == PdfMeasurementKind.perimeter ? 2 : minPoints)) {
-      throw ArgumentError.value(points, 'points',
-          'needs ${kind == PdfMeasurementKind.area ? 3 : 2}+ points');
+    final minPoints = switch (kind) {
+      PdfMeasurementKind.count => 1,
+      PdfMeasurementKind.distance ||
+      PdfMeasurementKind.slope ||
+      PdfMeasurementKind.perimeter =>
+        2,
+      PdfMeasurementKind.angle || PdfMeasurementKind.arc => 3,
+      PdfMeasurementKind.area ||
+      PdfMeasurementKind.areaCutout ||
+      PdfMeasurementKind.volume =>
+        3,
+    };
+    if (points.length < minPoints) {
+      throw ArgumentError.value(
+          points, 'points', 'needs $minPoints+ points for ${kind.name}');
     }
 
-    final closed = kind == PdfMeasurementKind.area;
-    final (caption, anchor) = _measurementCaption(kind, points, m);
+    final isPolygon = kind == PdfMeasurementKind.area ||
+        kind == PdfMeasurementKind.areaCutout ||
+        kind == PdfMeasurementKind.volume;
+    final isLine = kind == PdfMeasurementKind.distance ||
+        kind == PdfMeasurementKind.slope;
+    final isCount = kind == PdfMeasurementKind.count;
+    // the classic three are recognised by subtype; the rest need /Takeoff.
+    final classic = kind == PdfMeasurementKind.distance ||
+        kind == PdfMeasurementKind.perimeter ||
+        kind == PdfMeasurementKind.area;
 
-    // endings ride the open kinds (distance/perimeter); a closed area
-    // polygon carries none.
-    final lineStart = closed ? PdfLineEnding.none : startEnding;
-    final lineEnd = closed ? PdfLineEnding.none : endEnding;
-
-    // the geometry appearance, then the caption text drawn over its anchor
     final gs = _alphaState(opacity);
-    final content = _lineContent(points,
-        strokeColor: strokeColor,
-        strokeWidth: strokeWidth,
-        dashPattern: dashPattern,
-        closed: closed,
-        fillColor: closed ? fillColor : null,
-        startEnding: lineStart,
-        endEnding: lineEnd,
-        hasAlpha: gs != null);
-
     final labelColor = captionColor ?? strokeColor;
-    final captionBox = _drawMeasurementCaption(content, caption, anchor,
-        font: captionFont, size: captionSize, color: labelColor);
+    final markerR = math.max(6.0, strokeWidth * 3);
 
-    // the rect must cover both the geometry and the caption box
-    final geomRect = _pointBounds(points, strokeWidth);
+    final ContentWriter content;
+    if (isCount) {
+      content = _countMarker(points.first,
+          radius: markerR, strokeColor: strokeColor, strokeWidth: strokeWidth,
+          hasAlpha: gs != null);
+    } else {
+      final drawPoints =
+          kind == PdfMeasurementKind.arc ? _arcPolyline(points) : points;
+      content = _lineContent(drawPoints,
+          strokeColor: strokeColor,
+          strokeWidth: strokeWidth,
+          dashPattern: dashPattern,
+          closed: isPolygon,
+          fillColor: isPolygon ? fillColor : null,
+          startEnding: isPolygon ? PdfLineEnding.none : startEnding,
+          endEnding: isPolygon ? PdfLineEnding.none : endEnding,
+          hasAlpha: gs != null);
+      // a net-area cutout draws each hole as an inner outline.
+      for (final hole in holes) {
+        if (hole.length < 3) continue;
+        content
+          ..strokeColor(strokeColor)
+          ..lineWidth(strokeWidth)
+          ..moveTo(hole.first.$1, hole.first.$2);
+        for (final (x, y) in hole.skip(1)) {
+          content.lineTo(x, y);
+        }
+        content
+          ..closePath()
+          ..stroke();
+      }
+    }
+
+    final (caption, anchor) =
+        _takeoffCaption(kind, points, m, depth: depth, holes: holes);
+    final PdfRect captionBox;
+    if (caption.isEmpty) {
+      captionBox = PdfRect(anchor.$1, anchor.$2, anchor.$1, anchor.$2);
+    } else {
+      captionBox = _drawMeasurementCaption(content, caption, anchor,
+          font: captionFont, size: captionSize, color: labelColor);
+    }
+
+    // the rect covers geometry (+ holes / the marker) and the caption box.
+    final boundsPoints = isCount
+        ? [
+            (points.first.$1 - markerR, points.first.$2 - markerR),
+            (points.first.$1 + markerR, points.first.$2 + markerR),
+          ]
+        : [for (final h in holes) ...h, ...points];
+    final geomRect = _pointBounds(boundsPoints, strokeWidth);
     final rect = PdfRect(
       math.min(geomRect.left, captionBox.left),
       math.min(geomRect.bottom, captionBox.bottom),
@@ -1175,15 +1271,25 @@ extension PdfAnnotationEditing on PdfEditor {
       math.max(geomRect.top, captionBox.top),
     );
 
-    final subtype = switch (kind) {
-      PdfMeasurementKind.distance => 'Line',
-      PdfMeasurementKind.perimeter => 'PolyLine',
-      PdfMeasurementKind.area => 'Polygon',
-    };
+    final subtype = isPolygon
+        ? 'Polygon'
+        : isLine
+            ? 'Line'
+            : isCount
+                ? 'Square'
+                : 'PolyLine';
     final intent = switch (kind) {
-      PdfMeasurementKind.distance => 'LineDimension',
-      PdfMeasurementKind.perimeter => 'PolyLineDimension',
-      PdfMeasurementKind.area => 'PolygonDimension',
+      PdfMeasurementKind.distance || PdfMeasurementKind.slope =>
+        'LineDimension',
+      PdfMeasurementKind.perimeter ||
+      PdfMeasurementKind.angle ||
+      PdfMeasurementKind.arc =>
+        'PolyLineDimension',
+      PdfMeasurementKind.area ||
+      PdfMeasurementKind.areaCutout ||
+      PdfMeasurementKind.volume =>
+        'PolygonDimension',
+      PdfMeasurementKind.count => 'Count',
     };
     String rgb(int c) =>
         ContentWriter.rgbComponents(c).map(ContentWriter.fmt).join(' ');
@@ -1192,11 +1298,16 @@ extension PdfAnnotationEditing on PdfEditor {
       ..['IT'] = CosName(intent)
       // the caption's font/size/color, so a restyle can redraw it (§12.7.2)
       ..['DA'] = CosString.fromText('${rgb(labelColor)} rg '
-          '/${captionFont.resourceName} ${ContentWriter.fmt(captionSize)} Tf')
-      ..['Measure'] = m.toCosDictionary();
+          '/${captionFont.resourceName} ${ContentWriter.fmt(captionSize)} Tf');
+    if (m != null) dict['Measure'] = m.toCosDictionary();
+    if (!classic || label != null) {
+      dict['Takeoff'] = PdfTakeoffData(
+              kind: kind, depth: depth, holes: holes, label: label)
+          .toCosDictionary();
+    }
     final leArray =
-        CosArray([CosName(lineStart.pdfName), CosName(lineEnd.pdfName)]);
-    if (kind == PdfMeasurementKind.distance) {
+        CosArray([CosName(startEnding.pdfName), CosName(endEnding.pdfName)]);
+    if (isLine) {
       dict['L'] = CosArray([
         CosReal(points.first.$1),
         CosReal(points.first.$2),
@@ -1204,13 +1315,11 @@ extension PdfAnnotationEditing on PdfEditor {
         CosReal(points.last.$2),
       ]);
       dict['LE'] = leArray;
-    } else if (kind == PdfMeasurementKind.perimeter) {
+    } else if (!isCount) {
       dict['Vertices'] = _pointArray(points);
-      dict['LE'] = leArray; // §12.5.6.7: endings ride the first/last vertex
-    } else {
-      dict['Vertices'] = _pointArray(points);
+      if (!isPolygon) dict['LE'] = leArray; // endings ride first/last vertex
     }
-    if (closed && fillColor != null) dict['IC'] = _colorComponents(fillColor);
+    if (isPolygon && fillColor != null) dict['IC'] = _colorComponents(fillColor);
 
     _addAnnotation(
       pageIndex,
@@ -1219,6 +1328,131 @@ extension PdfAnnotationEditing on PdfEditor {
           resources: _resources(extGState: gs, font: _standardFont(captionFont))),
       name: name,
     );
+  }
+
+  /// A small "×" count marker centred on [point], a [radius]-half cross in
+  /// [strokeColor]. The count tool drops one per click; the running total
+  /// tallies them.
+  ContentWriter _countMarker(
+    (double, double) point, {
+    required double radius,
+    required int strokeColor,
+    required double strokeWidth,
+    required bool hasAlpha,
+  }) {
+    final (x, y) = point;
+    final w = ContentWriter();
+    if (hasAlpha) w.extGState('GS0');
+    w
+      ..strokeColor(strokeColor)
+      ..lineWidth(strokeWidth)
+      ..lineCap(1)
+      ..moveTo(x - radius, y - radius)
+      ..lineTo(x + radius, y + radius)
+      ..moveTo(x - radius, y + radius)
+      ..lineTo(x + radius, y - radius)
+      ..stroke();
+    return w;
+  }
+
+  /// Tessellates the circular arc through [points] (start, mid, end) into a
+  /// polyline for the drawn appearance, falling back to the raw points when
+  /// they're collinear.
+  List<(double, double)> _arcPolyline(List<(double, double)> points) {
+    if (points.length < 3) return points;
+    final start = points[0], mid = points[1], end = points[2];
+    final metrics = pdfArcMetrics(start, mid, end);
+    if (metrics == null) return points;
+    // recover the centre the same way pdfArcMetrics does.
+    final ax = start.$1, ay = start.$2;
+    final bx = mid.$1, by = mid.$2;
+    final cx = end.$1, cy = end.$2;
+    final d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+    final a2 = ax * ax + ay * ay, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+    final ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+    final uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+    double ang((double, double) p) => math.atan2(p.$2 - uy, p.$1 - ux);
+    double wrap(double v) {
+      while (v <= -math.pi) {
+        v += 2 * math.pi;
+      }
+      while (v > math.pi) {
+        v -= 2 * math.pi;
+      }
+      return v;
+    }
+    final a0 = ang(start);
+    final leg1 = wrap(ang(mid) - a0);
+    final leg2 = wrap(ang(end) - ang(mid));
+    // Sweep from start to end passing through mid; if the two legs disagree
+    // in winding the mid isn't between, so take the direct sweep.
+    final fullSweep = (leg1.sign == leg2.sign || leg2 == 0)
+        ? leg1 + leg2
+        : wrap(ang(end) - a0);
+    final segments = math.max(8, (metrics.sweep / 6).ceil());
+    final r = metrics.radius;
+    final out = <(double, double)>[];
+    for (var i = 0; i <= segments; i++) {
+      final t = a0 + fullSweep * (i / segments);
+      out.add((ux + r * math.cos(t), uy + r * math.sin(t)));
+    }
+    return out;
+  }
+
+  /// The caption string and its page-space anchor for any takeoff kind. The
+  /// anchor is the segment midpoint (distance/slope), the angle/arc vertex,
+  /// or the centroid (perimeter/area/volume/cutout). Count returns an empty
+  /// caption (the marker speaks for itself).
+  (String, (double, double)) _takeoffCaption(
+    PdfMeasurementKind kind,
+    List<(double, double)> points,
+    PdfMeasure? m, {
+    double? depth,
+    List<List<(double, double)>> holes = const [],
+  }) {
+    String angle(double deg) =>
+        m?.formatAngle(deg) ??
+        const PdfNumberFormat(unit: '°', precision: 10).format(deg);
+    switch (kind) {
+      case PdfMeasurementKind.count:
+        return ('', points.first);
+      case PdfMeasurementKind.distance:
+        final a = points.first, b = points.last;
+        final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+        return (
+          m!.formatDistance(math.sqrt(dx * dx + dy * dy)),
+          ((a.$1 + b.$1) / 2, (a.$2 + b.$2) / 2)
+        );
+      case PdfMeasurementKind.slope:
+        final a = points.first, b = points.last;
+        return (
+          angle(pdfSlopeDegrees(a, b)),
+          ((a.$1 + b.$1) / 2, (a.$2 + b.$2) / 2)
+        );
+      case PdfMeasurementKind.perimeter:
+        return (m!.formatDistance(pdfPolylineLength(points)), _centroid(points));
+      case PdfMeasurementKind.angle:
+        return (
+          angle(pdfAngleDegrees(points[1], points[0], points[2])),
+          points[1]
+        );
+      case PdfMeasurementKind.arc:
+        final metrics = pdfArcMetrics(points[0], points[1], points[2]);
+        final len = metrics?.length ?? pdfPolylineLength(points);
+        return (m!.formatDistance(len), points[1]);
+      case PdfMeasurementKind.area:
+        return (m!.formatArea(pdfShoelaceArea(points)), _centroid(points));
+      case PdfMeasurementKind.areaCutout:
+        return (
+          m!.formatArea(pdfNetPolygonArea(points, holes)),
+          _centroid(points)
+        );
+      case PdfMeasurementKind.volume:
+        return (
+          m!.formatVolume(pdfShoelaceArea(points), depth ?? 0),
+          _centroid(points)
+        );
+    }
   }
 
   /// Draws a measurement caption — a small white box and centered text at
@@ -1291,14 +1525,16 @@ extension PdfAnnotationEditing on PdfEditor {
   /// (restyle, resize, reshape, ending change) so the label is never lost.
   (PdfRect, CosDictionary?) _appendMeasurementCaption(PdfAnnotation annotation,
       PdfRect rect, List<(double, double)> points, ContentWriter w) {
+    final kind = annotation.measurementKind;
+    if (kind == null) return (rect, null);
     final measure = annotation.measure;
-    if (measure == null) return (rect, null);
-    final kind = switch (annotation.subtype) {
-      'PolyLine' => PdfMeasurementKind.perimeter,
-      'Polygon' => PdfMeasurementKind.area,
-      _ => PdfMeasurementKind.distance,
-    };
-    final (caption, anchor) = _measurementCaption(kind, points, measure);
+    if (measure == null && kind != PdfMeasurementKind.count) {
+      return (rect, null);
+    }
+    final takeoff = annotation.takeoff;
+    final (caption, anchor) = _takeoffCaption(kind, points, measure,
+        depth: takeoff?.depth, holes: takeoff?.holes ?? const []);
+    if (caption.isEmpty) return (rect, null); // count marker: no label
     final (font, size, color) = _measurementCaptionStyle(annotation);
     final box = _drawMeasurementCaption(w, caption, anchor,
         font: font, size: size, color: color);
@@ -1310,30 +1546,6 @@ extension PdfAnnotationEditing on PdfEditor {
     );
     annotation.dict['Rect'] = _rectArray(full);
     return (full, _standardFont(font));
-  }
-
-  /// The caption string and its page-space anchor (segment midpoint for a
-  /// distance, the path/polygon centroid otherwise) for a measurement.
-  (String, (double, double)) _measurementCaption(
-      PdfMeasurementKind kind, List<(double, double)> points, PdfMeasure m) {
-    switch (kind) {
-      case PdfMeasurementKind.distance:
-        final a = points.first, b = points.last;
-        final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
-        final caption = m.formatDistance(math.sqrt(dx * dx + dy * dy));
-        return (caption, ((a.$1 + b.$1) / 2, (a.$2 + b.$2) / 2));
-      case PdfMeasurementKind.perimeter:
-        var total = 0.0;
-        for (var i = 0; i + 1 < points.length; i++) {
-          final dx = points[i + 1].$1 - points[i].$1;
-          final dy = points[i + 1].$2 - points[i].$2;
-          total += math.sqrt(dx * dx + dy * dy);
-        }
-        return (m.formatDistance(total), _centroid(points));
-      case PdfMeasurementKind.area:
-        final caption = m.formatArea(pdfShoelaceArea(points));
-        return (caption, _centroid(points));
-    }
   }
 
   (double, double) _centroid(List<(double, double)> points) {

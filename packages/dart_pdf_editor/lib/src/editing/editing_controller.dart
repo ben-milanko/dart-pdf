@@ -66,6 +66,26 @@ enum PdfEditTool {
   /// live.
   measureArea,
 
+  /// Drag a straight segment read as a slope (rise/run): the inclination
+  /// above horizontal, in degrees, is shown live and stamped as a /Line
+  /// takeoff measurement.
+  measureSlope,
+
+  /// Click three points — arm end, vertex, arm end — to measure the
+  /// interior angle (degrees) at the middle vertex. Auto-finishes on the
+  /// third click; stamped as a /PolyLine takeoff measurement.
+  measureAngle,
+
+  /// Click three points on a circular arc — start, a point on the arc, end
+  /// — to measure its swept length. Auto-finishes on the third click;
+  /// stamped as a /PolyLine takeoff measurement.
+  measureArc,
+
+  /// Place a closed /Polygon, then enter a depth, to measure a volume
+  /// (area × depth). Stamped as a /Polygon takeoff measurement carrying the
+  /// depth.
+  measureVolume,
+
   /// Drag a straight segment of known real-world length to calibrate the
   /// [PdfEditingController.measurementScale]. On release the editor asks
   /// how long the drawn segment is and derives the scale from it (the
@@ -602,6 +622,10 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.measureDistance => 'measureDistance',
         PdfEditTool.measurePerimeter => 'measurePerimeter',
         PdfEditTool.measureArea => 'measureArea',
+        PdfEditTool.measureSlope => 'measureSlope',
+        PdfEditTool.measureAngle => 'measureAngle',
+        PdfEditTool.measureArc => 'measureArc',
+        PdfEditTool.measureVolume => 'measureVolume',
         PdfEditTool.freeText => 'freeText',
         PdfEditTool.note => 'note',
         PdfEditTool.stamp => 'stamp',
@@ -631,7 +655,11 @@ class PdfEditingController extends ChangeNotifier {
           const {'color', 'strokeWidth', 'opacity', 'lineStyle'},
         PdfEditTool.measureDistance ||
         PdfEditTool.measurePerimeter ||
-        PdfEditTool.measureArea =>
+        PdfEditTool.measureArea ||
+        PdfEditTool.measureSlope ||
+        PdfEditTool.measureAngle ||
+        PdfEditTool.measureArc ||
+        PdfEditTool.measureVolume =>
           const {'color', 'strokeWidth', 'opacity'},
         PdfEditTool.freeText => const {
             'color',
@@ -1346,17 +1374,74 @@ class PdfEditingController extends ChangeNotifier {
     return scale.toMeasure().formatArea(pdfShoelaceArea(points));
   }
 
-  /// Adds a measurement annotation of [kind] through [points] using the
-  /// active [measurementScale]. A no-op without a scale.
-  void addMeasurement(
-      int pageIndex, PdfMeasurementKind kind, List<(double, double)> points) {
+  /// The live net-area readout (outer shoelace minus [holes]) for a
+  /// page-space polygon, or null without a scale or fewer than three points.
+  String? measuredNetArea(List<(double, double)> points,
+      [List<List<(double, double)>> holes = const []]) {
     final scale = measurementScale;
-    if (scale == null) return;
+    if (scale == null || points.length < 3) return null;
+    return scale.toMeasure().formatArea(pdfNetPolygonArea(points, holes));
+  }
+
+  /// The live volume readout (area × [depth], depth in the scale's unit)
+  /// for a page-space polygon, or null without a scale.
+  String? measuredVolume(List<(double, double)> points, double depth) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 3) return null;
+    return scale.toMeasure().formatVolume(pdfShoelaceArea(points), depth);
+  }
+
+  /// The live angle readout (degrees at the middle vertex) for the three
+  /// page-space [points], or null with fewer than three. Needs no scale —
+  /// an angle is unit-free.
+  String? measuredAngle(List<(double, double)> points) {
+    if (points.length < 3) return null;
+    return (measurementScale?.toMeasure() ??
+            PdfMeasure.scale(unitsPerPoint: 1, unitLabel: ''))
+        .formatAngle(pdfMeasurementAngle(points));
+  }
+
+  /// The live slope readout (inclination above horizontal, degrees) for a
+  /// segment from [start] to [end]. Needs no scale.
+  String? measuredSlope((double, double) start, (double, double) end) {
+    return (measurementScale?.toMeasure() ??
+            PdfMeasure.scale(unitsPerPoint: 1, unitLabel: ''))
+        .formatAngle(pdfSlopeDegrees(start, end));
+  }
+
+  /// The live arc-length readout for the three page-space [points] (start,
+  /// mid, end on the arc), or null without a scale or fewer than three.
+  String? measuredArc(List<(double, double)> points) {
+    final scale = measurementScale;
+    if (scale == null || points.length < 3) return null;
+    final metrics = pdfArcMetrics(points[0], points[1], points[2]);
+    final len = metrics?.length ?? pdfPolylineLength(points);
+    return scale.toMeasure().formatDistance(len);
+  }
+
+  /// Adds a measurement annotation of [kind] through [points] using the
+  /// active [measurementScale] (count needs none). [depth] feeds a volume,
+  /// [holes] cut a net-area polygon, [label] buckets the running total.
+  /// A no-op for a scaled kind without a scale.
+  void addMeasurement(
+    int pageIndex,
+    PdfMeasurementKind kind,
+    List<(double, double)> points, {
+    double? depth,
+    List<List<(double, double)>> holes = const [],
+    String? label,
+  }) {
+    final scale = measurementScale;
+    if (scale == null && kind != PdfMeasurementKind.count) return;
     apply(
       (e) => e.addMeasurement(pageIndex, kind, points,
-          measure: scale.toMeasure(),
+          measure: scale?.toMeasure(),
+          depth: depth,
+          holes: holes,
+          label: label,
           strokeColor: _colorValue,
           strokeWidth: preferences.strokeWidth,
+          fillColor: _rgbOf(preferences.shapeFillColor),
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
           // the caption is base-14 text; an embedded selection falls back
@@ -1368,6 +1453,52 @@ class PdfEditingController extends ChangeNotifier {
           author: author),
       pages: [pageIndex],
     );
+  }
+
+  /// Drops a single count marker at the page-space [point], tagged [label]
+  /// so the running total tallies it with its siblings.
+  void addCountMark(int pageIndex, (double, double) point, {String? label}) =>
+      addMeasurement(pageIndex, PdfMeasurementKind.count, [point],
+          label: label);
+
+  /// The per-tool running totals over the live document — the takeoff
+  /// register's data source. Rebuilt on demand (cheap: a single annotation
+  /// walk), so callers refresh it whenever the controller notifies.
+  PdfTakeoffSummary get takeoffSummary => PdfTakeoffSummary.of(_document);
+
+  /// Writes the active [measurementScale] into the document itself (a /VP
+  /// viewport /Measure on [pageIndex], or every page when null) so the
+  /// drawing scale travels with the file — surviving a reopen and portable
+  /// across devices — not just in this device's preferences. A no-op
+  /// without a scale.
+  void persistScaleToDocument({int? pageIndex}) {
+    final scale = measurementScale;
+    if (scale == null) return;
+    final measure = scale.toMeasure();
+    final pages = pageIndex != null
+        ? [pageIndex]
+        : List<int>.generate(_document.pageCount, (i) => i);
+    apply((e) {
+      for (final p in pages) {
+        e.setPageMeasurementScale(p, measure);
+      }
+    }, pages: pages);
+  }
+
+  /// Adopts the drawing scale the document already carries (a page /VP
+  /// /Measure) when this session has none yet, so a reopened or shared file
+  /// measures correctly without re-calibration. Returns true when a scale
+  /// was adopted. Call after binding a new document.
+  bool adoptDocumentScale() {
+    if (measurementScale != null) return false;
+    for (var i = 0; i < _document.pageCount; i++) {
+      final m = _document.page(i).measure;
+      if (m != null) {
+        measurementScale = PdfMeasurementScale.fromMeasure(m);
+        return true;
+      }
+    }
+    return false;
   }
 
   void addFreeText(int pageIndex, PdfRect rect, String text) => apply(
@@ -2908,6 +3039,56 @@ class PdfEditingController extends ChangeNotifier {
         e.moveAnnotation(page, annotation, dx, dy);
       }
     }, pages: [for (final (page, _) in targets) page]);
+  }
+
+  /// The selected annotations that share the primary selection's page, in
+  /// selection order — the candidates an alignment acts on. Aligning across
+  /// pages has no geometric meaning, so the primary page wins and other
+  /// pages' selections are left alone.
+  List<PdfAnnotation> _alignmentTargets() {
+    final page = selectedPage;
+    if (page == null) return const [];
+    final out = <PdfAnnotation>[];
+    for (final slot in _selected) {
+      if (slot.$1 != page) continue;
+      final annotation = _annotationAt(slot);
+      if (annotation != null) out.add(annotation);
+    }
+    return out;
+  }
+
+  /// Whether [alignSelected] can line the selection up: two or more
+  /// annotations selected on the primary selection's page.
+  bool get canAlignSelected => _alignmentTargets().length >= 2;
+
+  /// Whether [alignSelected] can distribute the selection: three or more
+  /// annotations on the primary page (the extremes anchor, so distribution
+  /// only moves anything with a rect in between).
+  bool get canDistributeSelected => _alignmentTargets().length >= 3;
+
+  /// Lines up (or spreads out) the selected annotations on the primary
+  /// page per [alignment], as one revision. Needs two annotations to align
+  /// and three to distribute; a no-op below that, or when the selection is
+  /// already aligned (nothing would move). The selection survives — a move
+  /// keeps each annotation's /Annots slot.
+  void alignSelected(PdfAlignment alignment) {
+    final page = selectedPage;
+    if (page == null) return;
+    final targets = _alignmentTargets();
+    if (targets.length < alignment.minimumCount) return;
+    final offsets =
+        alignmentOffsets([for (final a in targets) a.rect], alignment);
+    final moves = <(PdfAnnotation, double, double)>[];
+    for (var i = 0; i < targets.length; i++) {
+      final (:dx, :dy) = offsets[i];
+      if (dx != 0 || dy != 0) moves.add((targets[i], dx, dy));
+    }
+    if (moves.isEmpty) return;
+    apply((e) {
+      for (final (annotation, dx, dy) in moves) {
+        e.moveAnnotation(page, annotation, dx, dy);
+      }
+    }, pages: [page]);
   }
 
   /// Re-homes the single selected annotation onto [targetPage], shifted

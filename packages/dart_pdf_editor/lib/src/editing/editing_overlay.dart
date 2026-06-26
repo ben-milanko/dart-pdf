@@ -937,14 +937,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _tool == PdfEditTool.polyline ||
       _tool == PdfEditTool.polygon ||
       _tool == PdfEditTool.measurePerimeter ||
-      _tool == PdfEditTool.measureArea;
+      _tool == PdfEditTool.measureArea ||
+      _tool == PdfEditTool.measureAngle ||
+      _tool == PdfEditTool.measureArc ||
+      _tool == PdfEditTool.measureVolume;
+
+  /// The number of clicks a fixed-arity poly tool takes before it
+  /// auto-finishes — three for the angle and arc takeoffs — or null for an
+  /// open-ended poly tool (finished by a double-tap).
+  int? get _fixedPolyCount => switch (_tool) {
+        PdfEditTool.measureAngle || PdfEditTool.measureArc => 3,
+        _ => null,
+      };
 
   /// A tool placed by dragging a single straight segment (a /Line or a
-  /// distance measurement).
+  /// distance/slope measurement).
   bool get _lineDragTool =>
       _tool == PdfEditTool.line ||
       _tool == PdfEditTool.arrow ||
       _tool == PdfEditTool.measureDistance ||
+      _tool == PdfEditTool.measureSlope ||
       _tool == PdfEditTool.calibrate;
 
   /// The measurement kind the armed tool creates, or null for a
@@ -953,6 +965,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         PdfEditTool.measureDistance => PdfMeasurementKind.distance,
         PdfEditTool.measurePerimeter => PdfMeasurementKind.perimeter,
         PdfEditTool.measureArea => PdfMeasurementKind.area,
+        PdfEditTool.measureSlope => PdfMeasurementKind.slope,
+        PdfEditTool.measureAngle => PdfMeasurementKind.angle,
+        PdfEditTool.measureArc => PdfMeasurementKind.arc,
+        PdfEditTool.measureVolume => PdfMeasurementKind.volume,
         _ => null,
       };
 
@@ -2289,6 +2305,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.line ||
             PdfEditTool.arrow ||
             PdfEditTool.measureDistance ||
+            PdfEditTool.measureSlope ||
             PdfEditTool.calibrate ||
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
@@ -2341,7 +2358,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfEditTool.polyline ||
             PdfEditTool.polygon ||
             PdfEditTool.measurePerimeter ||
-            PdfEditTool.measureArea:
+            PdfEditTool.measureArea ||
+            PdfEditTool.measureAngle ||
+            PdfEditTool.measureArc ||
+            PdfEditTool.measureVolume:
         break; // taps add vertices; double-tap finishes
       case PdfEditTool.note || PdfEditTool.content || PdfEditTool.count:
         break; // driven by taps
@@ -2856,8 +2876,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     final before = _controller.document;
-    if (_tool == PdfEditTool.measureDistance) {
-      _controller.addMeasurement(widget.pageIndex, PdfMeasurementKind.distance,
+    final lineKind = _measureKind; // distance or slope for a measure tool
+    if (lineKind != null) {
+      _controller.addMeasurement(widget.pageIndex, lineKind,
           [_geometry.toPagePoint(start), _geometry.toPagePoint(end)]);
     } else {
       _controller.addLine(widget.pageIndex, _geometry.toPagePoint(start),
@@ -2897,6 +2918,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       pageUnitLabel: existing?.pageUnitLabel ?? pdfDefaultPageUnit(),
     );
     _controller.tool = PdfEditTool.select;
+  }
+
+  /// Finishes a volume measurement: asks for the extrusion depth (in the
+  /// scale's unit), then stamps a /Polygon takeoff carrying it. Cancelling
+  /// the dialog drops the in-progress polygon without stamping anything.
+  Future<void> _commitVolume(List<(double, double)> pagePoints) async {
+    final depth = await showPdfDepthDialog(
+      context,
+      unitLabel: _controller.measurementScale?.unitLabel,
+    );
+    if (!mounted || depth == null) return;
+    _controller.addMeasurement(
+        widget.pageIndex, PdfMeasurementKind.volume, pagePoints,
+        depth: depth);
   }
 
   void _commitVertexDrag(List<Offset> points) {
@@ -2953,13 +2988,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _addPolyPoint(Offset point) {
+    var reachedFixed = false;
     setState(() {
       final points = _polyPoints ?? <Offset>[];
       if (points.isEmpty || (point - points.last).distance >= 2) {
         _polyPoints = [...points, point];
       }
       _polyHover = null;
+      final fixed = _fixedPolyCount;
+      reachedFixed = fixed != null && (_polyPoints?.length ?? 0) >= fixed;
     });
+    // angle/arc take exactly three clicks, then commit themselves.
+    if (reachedFixed) _finishPolyPath();
   }
 
   void _finishPolyPath([Offset? finalPoint]) {
@@ -2970,9 +3010,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         (points.isEmpty || (finalPoint - points.last).distance >= 2)) {
       points.add(finalPoint);
     }
-    final closed =
-        _tool == PdfEditTool.polygon || _tool == PdfEditTool.measureArea;
-    final minPoints = closed ? 3 : 2;
+    final closed = _tool == PdfEditTool.polygon ||
+        _tool == PdfEditTool.measureArea ||
+        _tool == PdfEditTool.measureVolume;
+    final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
     if (points.length < minPoints) return;
     final simplified = <Offset>[];
     for (final point in points) {
@@ -2990,8 +3031,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfMeasurementKind.area:
         _controller.addMeasurement(
             widget.pageIndex, PdfMeasurementKind.area, pagePoints);
-      case PdfMeasurementKind.distance:
-      case null:
+      case PdfMeasurementKind.angle:
+        _controller.addMeasurement(
+            widget.pageIndex, PdfMeasurementKind.angle, pagePoints);
+      case PdfMeasurementKind.arc:
+        _controller.addMeasurement(
+            widget.pageIndex, PdfMeasurementKind.arc, pagePoints);
+      case PdfMeasurementKind.volume:
+        // volume needs a depth: prompt for it, then commit asynchronously.
+        unawaited(_commitVolume(pagePoints));
+        _clearAfterimage();
+        setState(() {
+          _polyPoints = null;
+          _polyHover = null;
+        });
+        return;
+      default:
+        // distance/slope are drag tools (handled elsewhere); a poly gesture
+        // with no measure kind active is a plain poly annotation.
         if (_tool == PdfEditTool.polygon) {
           _controller.addPolygon(widget.pageIndex, pagePoints);
         } else {
@@ -3770,14 +3827,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final kind = _measureKind;
     if (kind == null) return null;
     switch (kind) {
-      case PdfMeasurementKind.distance:
+      case PdfMeasurementKind.distance || PdfMeasurementKind.slope:
         final start = _dragStart, current = _dragCurrent;
         if (start == null || current == null) return null;
         if ((current - start).distance < 1) return null;
-        final text = _controller.measuredDistance(
-            _geometry.toPagePoint(start), _geometry.toPagePoint(current));
+        final a = _geometry.toPagePoint(start);
+        final b = _geometry.toPagePoint(current);
+        final text = kind == PdfMeasurementKind.slope
+            ? _controller.measuredSlope(a, b)
+            : _controller.measuredDistance(a, b);
         return text == null ? null : (text, current);
-      case PdfMeasurementKind.perimeter || PdfMeasurementKind.area:
+      case PdfMeasurementKind.perimeter ||
+            PdfMeasurementKind.area ||
+            PdfMeasurementKind.angle ||
+            PdfMeasurementKind.arc ||
+            PdfMeasurementKind.volume:
         final points = _polyPoints;
         if (points == null || points.isEmpty) return null;
         final view = [
@@ -3786,10 +3850,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _polyHover!,
         ];
         final pagePoints = [for (final p in view) _geometry.toPagePoint(p)];
-        final text = kind == PdfMeasurementKind.area
-            ? _controller.measuredArea(pagePoints)
-            : _controller.measuredPerimeter(pagePoints);
+        // volume's depth isn't known until placement finishes, so the live
+        // readout shows the enclosed footprint area.
+        final text = switch (kind) {
+          PdfMeasurementKind.area ||
+          PdfMeasurementKind.volume =>
+            _controller.measuredArea(pagePoints),
+          PdfMeasurementKind.angle => _controller.measuredAngle(pagePoints),
+          PdfMeasurementKind.arc => _controller.measuredArc(pagePoints),
+          _ => _controller.measuredPerimeter(pagePoints),
+        };
         return text == null ? null : (text, view.last);
+      default:
+        // count/areaCutout have no in-overlay live readout.
+        return null;
     }
   }
 

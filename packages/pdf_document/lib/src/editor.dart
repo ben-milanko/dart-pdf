@@ -21,6 +21,7 @@ import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
 import 'struct_tree.dart';
+import 'takeoff.dart';
 import 'type0_metrics.dart';
 import 'xmp.dart';
 

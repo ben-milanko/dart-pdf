@@ -17,6 +17,7 @@ export 'src/editing/editing_properties.dart';
 export 'src/editing/editing_sidebar.dart';
 export 'src/editing/editing_signature.dart';
 export 'src/editing/editing_stamps.dart';
+export 'src/editing/editing_takeoff.dart';
 export 'src/editing/editing_thumbnails.dart';
 export 'src/editing/editing_toolbar.dart';
 export 'src/editing/line_style.dart';

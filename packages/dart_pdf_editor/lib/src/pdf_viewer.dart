@@ -10,6 +10,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'editing/editing_controller.dart';
 import 'editing/editing_form_layer.dart';
@@ -456,6 +457,12 @@ enum PdfViewerFit {
 typedef PdfActionHandler = void Function(
     PdfAction action, PdfAnnotation annotation);
 
+/// Signature for [PdfViewer.onLaunchUrl]: open the hyperlink [uri] of a
+/// tapped /URI action. Returns whether it was opened — false hands the
+/// link back to [PdfViewer.onAction] so a custom scheme can still be
+/// dispatched there.
+typedef PdfUrlLauncher = Future<bool> Function(Uri uri);
+
 /// Signature for [PdfViewer.pageOverlayBuilder]: returns widgets stacked
 /// over one page. Use [geometry] to convert PDF coordinates to view
 /// coordinates, e.g. `Positioned.fromRect(rect: geometry.toViewRect(...))`.
@@ -473,6 +480,7 @@ class PdfViewer extends StatefulWidget {
     required this.document,
     this.controller,
     this.onAction,
+    this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.editing,
     this.formController,
@@ -496,6 +504,7 @@ class PdfViewer extends StatefulWidget {
     this.pagePreviews = true,
     this.previewWindow = 20,
     this.predictStrokes = true,
+    this.toolShortcuts = pdfEditToolShortcuts,
     this.renderWorker,
     this.rasterCache,
     this.textCache,
@@ -544,15 +553,37 @@ class PdfViewer extends StatefulWidget {
   /// always render locally. Null and the web fallback keep today's
   /// on-thread behavior.
   final PdfRenderWorker? renderWorker;
+
+  /// Single-key shortcuts that arm editing tools while [editing] is active.
+  ///
+  /// Defaults to [pdfEditToolShortcuts]. Pass a replacement map to rebind
+  /// keys, omit tools to leave them unbound, or pass an empty map to disable
+  /// tool shortcuts entirely. Modifier-based viewer/editor shortcuts (copy,
+  /// undo, paste, delete, Escape, etc.) are not affected.
+  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
+
   final PdfViewerController? controller;
 
   /// Called when a tapped link or button carries an action the viewer
   /// doesn't follow itself. /GoTo destinations and the four standard
-  /// /Named page actions navigate internally and never reach this; URI,
-  /// JavaScript, and everything else is the app's call — the conventional
-  /// bridge for PDFs that drive the app is a URI action with a custom
-  /// scheme, dispatched here.
+  /// /Named page actions navigate internally and never reach this, and a
+  /// /URI action whose link [onLaunchUrl] opens is consumed there too;
+  /// JavaScript, unrecognized actions, and links [onLaunchUrl] declines
+  /// are the app's call — the conventional bridge for PDFs that drive the
+  /// app is a URI action with a custom scheme, dispatched here.
   final PdfActionHandler? onAction;
+
+  /// Opens the hyperlink of a tapped /URI action (and of a push button
+  /// whose action is a /URI). Defaults to launching well-known external
+  /// schemes — http, https, mailto, tel, sms — in the platform's default
+  /// handler via `url_launcher`, leaving custom schemes for [onAction].
+  ///
+  /// Replace it to widen or narrow what opens, to confirm before leaving
+  /// the document, or to route links into the app. Return false (or throw)
+  /// to decline a link; the viewer then surfaces it to [onAction], so the
+  /// custom-scheme convention keeps working. A link this opens never
+  /// reaches [onAction].
+  final PdfUrlLauncher? onLaunchUrl;
 
   /// Stacks app widgets over each page, positioned in PDF coordinates via
   /// the provided geometry. Overlays live in the page's transformed space,
@@ -1233,7 +1264,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _prerendering = true;
     try {
       while (mounted && widget.pagePreviews && widget.active) {
-        if (_renderScheduler.holding || (_scrollSettleTimer?.isActive ?? false)) {
+        if (_renderScheduler.holding ||
+            (_scrollSettleTimer?.isActive ?? false)) {
           return; // restarted by the settle timer
         }
         if (_renderScheduler.hasPending) {
@@ -1350,8 +1382,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // heights/sec). Held pages paint their low-res preview, not blank, so
     // a genuinely slow scroll only shows a brief preview before the grace
     // lapses and the page sharpens; the settle timer clears the burst.
-    final opening =
-        now - _scrollBurstStart < const Duration(milliseconds: 150);
+    final opening = now - _scrollBurstStart < const Duration(milliseconds: 150);
     final hold = opening || velocity > math.max(800, 2 * viewport);
     PdfPerfLog.log('scroll page=${_controller.currentPage} '
         'v=${velocity.toStringAsFixed(0)}px/s '
@@ -1689,9 +1720,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients || _viewWidth <= 0) return;
-      final target = (_slotStart(anchorPage) +
-              fraction * _scrollExtentOf(anchorPage))
-          .clamp(0.0, _scroll.position.maxScrollExtent);
+      final target =
+          (_slotStart(anchorPage) + fraction * _scrollExtentOf(anchorPage))
+              .clamp(0.0, _scroll.position.maxScrollExtent);
       if ((target - _scroll.offset).abs() > 0.5) _scroll.jumpTo(target);
     });
   }
@@ -1929,7 +1960,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           key, index, () => PdfTextExtractor.extract(widget.document, index));
       return _textCache[index] ??= text;
     }
-    return _textCache[index] ??= PdfTextExtractor.extract(widget.document, index);
+    return _textCache[index] ??=
+        PdfTextExtractor.extract(widget.document, index);
   }
 
   Future<List<PdfSearchResult>> _searchAllPages(
@@ -2260,7 +2292,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final hasSelection = _selRange != null;
     final hasText = _pageText(page).text.isNotEmpty;
     if (!hasSelection && !hasText) return;
-    final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
     final picked = await showMenu<_TextMenuAction>(
       context: context,
       position: RelativeRect.fromRect(
@@ -2353,9 +2386,45 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         _scrollToDestination(destination);
       case PdfNamedAction(:final name) when _handleNamedAction(name):
         break; // handled internally
+      case PdfUriAction():
+        unawaited(_openUri(action, annotation));
       default:
         widget.onAction?.call(action, annotation);
     }
+  }
+
+  /// Follows a tapped /URI link: hands it to [PdfViewer.onLaunchUrl] (the
+  /// default opens well-known external schemes via `url_launcher`), and
+  /// only when that declines — a custom scheme, an unparseable URI, or a
+  /// launch that failed — surfaces it to [PdfViewer.onAction] so the host
+  /// keeps the last word.
+  Future<void> _openUri(PdfUriAction action, PdfAnnotation annotation) async {
+    final uri = Uri.tryParse(action.uri);
+    if (uri != null) {
+      var opened = false;
+      try {
+        opened = await (widget.onLaunchUrl ?? _launchExternalUrl)(uri);
+      } catch (_) {
+        // A platform with no url_launcher binding, or a launcher that
+        // threw: treat it as declined and fall through to onAction.
+        opened = false;
+      }
+      if (opened) return;
+    }
+    if (mounted) widget.onAction?.call(action, annotation);
+  }
+
+  /// The default [PdfViewer.onLaunchUrl]: opens a hyperlink in the
+  /// platform's external handler, but only for the schemes a viewer is
+  /// expected to follow on its own. Custom schemes (the convention for
+  /// PDFs that drive their host app) return false so they reach
+  /// [PdfViewer.onAction].
+  static const _externalSchemes = {'http', 'https', 'mailto', 'tel', 'sms'};
+  static Future<bool> _launchExternalUrl(Uri uri) {
+    if (!_externalSchemes.contains(uri.scheme.toLowerCase())) {
+      return Future.value(false);
+    }
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   bool _handleNamedAction(String name) {
@@ -3549,9 +3618,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
             ? const Color(0xFF202124)
             : const Color(0xFF404347));
     // the rubber-band marquee's chrome, matching the editing overlay's
-    final marqueeColor =
-        PdfViewerTheme.of(context).annotationChromeColor ??
-            const Color(0xFF1E88E5);
+    final marqueeColor = PdfViewerTheme.of(context).annotationChromeColor ??
+        const Color(0xFF1E88E5);
     return LayoutBuilder(builder: (context, constraints) {
       // _viewWidth still holds the previous layout's width here; a change
       // rescales every page, so pin the reading position before adopting it
@@ -3572,9 +3640,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           // scroll/transform once this frame's new extents exist
           _pendingViewport = null;
           _appliedInitialFit = true;
-          _layoutZoom = pending.zoom <= 1
-              ? pending.zoom.clamp(widget.minZoom, 1.0)
-              : 1.0;
+          _layoutZoom =
+              pending.zoom <= 1 ? pending.zoom.clamp(widget.minZoom, 1.0) : 1.0;
           final page =
               _pages.isEmpty ? 0 : pending.page.clamp(0, _pages.length - 1);
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3728,7 +3795,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                   // unmodified single-key tool shortcuts (V select, P pen,
                   // R rectangle, …) — safe because an open in-place text
                   // editor disables every binding above
-                  for (final entry in pdfEditToolShortcuts.entries)
+                  for (final entry in widget.toolShortcuts.entries)
                     SingleActivator(entry.value): () => _armTool(entry.key),
                 },
               },

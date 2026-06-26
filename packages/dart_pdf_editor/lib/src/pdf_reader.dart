@@ -100,6 +100,7 @@ class PdfReader extends StatefulWidget {
     this.preferences,
     this.features = const PdfReaderFeatures(),
     this.onAction,
+    this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -141,6 +142,9 @@ class PdfReader extends StatefulWidget {
 
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
+
+  /// See [PdfViewer.onLaunchUrl].
+  final PdfUrlLauncher? onLaunchUrl;
 
   /// See [PdfViewer.pageOverlayBuilder].
   final PdfPageOverlayBuilder? pageOverlayBuilder;
@@ -288,6 +292,10 @@ class _PdfReaderState extends State<PdfReader> {
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: false,
                 bottomSheet: bottomSheet,
+                // the sheet chrome carries its own close button
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showThumbnailSidebar = false,
                 renderWorker: _worker,
               );
           return Column(children: [
@@ -350,7 +358,7 @@ class _PdfReaderState extends State<PdfReader> {
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-view-options'),
                       icon: Icons.display_settings_outlined,
-                      label: 'View',
+                      label: 'Settings',
                       onPressed: () {
                         showPdfShellViewOptionsSheet(
                           context,
@@ -397,6 +405,7 @@ class _PdfReaderState extends State<PdfReader> {
                                 formController:
                                     features.fillForms ? _session : null,
                                 onAction: widget.onAction,
+                                onLaunchUrl: widget.onLaunchUrl,
                                 pageOverlayBuilder: widget.pageOverlayBuilder,
                                 initialFit: widget.initialFit,
                                 backgroundColor: widget.backgroundColor,

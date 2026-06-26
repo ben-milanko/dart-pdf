@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_info.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
+import 'image_clipboard.dart';
 import 'image_export.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
@@ -43,6 +44,7 @@ class EditorScreen extends StatefulWidget {
     this.updateService,
     this.autoCheckUpdates = false,
     this.printDocument,
+    this.imageClipboardWriter,
   });
 
   final PdfEditingPreferences prefs;
@@ -70,6 +72,13 @@ class EditorScreen extends StatefulWidget {
   /// unavailable under flutter_test). Production leaves this null and the screen
   /// falls back to [printPdfBytes].
   final PdfPrinter? printDocument;
+
+  /// Override for writing a captured snapshot to the system clipboard. Tests
+  /// inject a fake to assert the Snapshot tool's clipboard wiring without the
+  /// real `super_clipboard` plugin (its platform channel is unavailable under
+  /// flutter_test). Production leaves this null and the screen falls back to
+  /// [copyPngToClipboard].
+  final ImageClipboardWriter? imageClipboardWriter;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -388,7 +397,21 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   /// Opens a file the OS handed us (association, share, launch arg).
+  ///
+  /// If a tab already holds this exact path, focus it instead of opening a
+  /// duplicate. The same launch file can arrive twice — once via the
+  /// command-line launch args and once via the native `getInitialFile`
+  /// channel (Windows delivers both) — and re-opening an already-open
+  /// document from the OS should surface the existing tab, not stack copies.
   Future<void> _openIncoming(IncomingFile file) async {
+    final path = file.path;
+    if (path != null && path.isNotEmpty) {
+      final existing = _tabs.indexWhere((t) => t.originPath == path);
+      if (existing != -1) {
+        setState(() => _activeIndex = existing);
+        return;
+      }
+    }
     await _openLoadedBytes(
       file.bytes == null
           ? readPdfAtPath(file.path!)
@@ -1023,6 +1046,17 @@ class _EditorScreenState extends State<EditorScreen>
       annotationMenuBuilder: _annotationMenuActions,
       formImagePicker: (context, field) => pickImageBytes(),
       imagePicker: (context) => pickImageBytes(),
+      // The Snapshot tool keeps a vector copy on the in-app clipboard for
+      // paste-back; this also drops the captured PNG on the system clipboard.
+      onSnapshot: clipboardSnapshotHandler(
+        writer: widget.imageClipboardWriter,
+        onResult: (copied) {
+          if (!mounted) return;
+          _toast(copied
+              ? 'Snapshot copied to clipboard'
+              : 'Could not copy snapshot to clipboard');
+        },
+      ),
     );
   }
 
@@ -1053,6 +1087,13 @@ class _EditorScreenState extends State<EditorScreen>
                 ),
         ),
       if (compact && _tabs.isNotEmpty) _buildMobileTabsButton(),
+      if (!_readOnly && tab?.session != null && !tab!.isComparison)
+        IconButton(
+          key: const ValueKey('dartpdf-takeoff-button'),
+          icon: const Icon(Icons.functions),
+          tooltip: 'Takeoff totals',
+          onPressed: () => _showTakeoffPanel(tab.session!),
+        ),
       if (compact && !_readOnly && tab?.session != null)
         Padding(
           padding: const EdgeInsets.only(right: 8),
@@ -1068,6 +1109,22 @@ class _EditorScreenState extends State<EditorScreen>
           ),
         ),
     ];
+  }
+
+  /// Shows the construction-takeoff register — the per-tool running totals
+  /// over the live document (length, area, count, volume, …) — in a bottom
+  /// sheet. The panel listens to the edit session, so totals update as
+  /// measurements are added, edited, or undone.
+  void _showTakeoffPanel(PdfEditingController session) {
+    unawaited(showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: PdfTakeoffPanel(controller: session),
+        ),
+      ),
+    ));
   }
 
   Widget _buildAppMenu(DocumentTab? tab) => PopupMenuButton<VoidCallback>(

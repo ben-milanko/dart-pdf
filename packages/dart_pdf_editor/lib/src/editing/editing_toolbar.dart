@@ -2,8 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -87,6 +88,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.palette = defaultPalette,
     this.tools,
     this.groups,
+    this.toolShortcuts = pdfEditToolShortcuts,
     this.showMarkup = true,
     this.showUndoRedo = true,
     this.showColor = true,
@@ -116,6 +118,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// The colors offered for new annotations.
   final List<Color> palette;
+
+  /// Shortcut labels to show in tooltips. Keep this in sync with
+  /// [PdfViewer.toolShortcuts] when rebinding keys in the stock editor UI.
+  /// Tools omitted from the map show no shortcut label.
+  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
 
   /// The tools to expose, null meaning all of them. A group disappears
   /// from the dock when none of its tools are in the set. Sub-controls
@@ -302,6 +309,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       _GroupTool.tool(
           PdfEditTool.measurePerimeter, Icons.timeline, 'Measure perimeter'),
       _GroupTool.tool(PdfEditTool.measureArea, Icons.crop_din, 'Measure area'),
+      _GroupTool.tool(PdfEditTool.measureVolume, Icons.view_in_ar,
+          'Measure volume (area × depth)'),
+      _GroupTool.tool(PdfEditTool.measureSlope, Icons.trending_up,
+          'Measure slope (rise/run)'),
+      _GroupTool.tool(PdfEditTool.measureAngle, Icons.architecture,
+          'Measure angle — click three points'),
+      _GroupTool.tool(PdfEditTool.measureArc, Icons.gesture,
+          'Measure arc length — click three points'),
     ]),
     _ToolGroup('edit', 'Edit', Icons.design_services, [
       _GroupTool.tool(
@@ -415,6 +430,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case PdfEditTool.measureDistance:
       case PdfEditTool.measurePerimeter:
       case PdfEditTool.measureArea:
+      case PdfEditTool.measureVolume:
+      case PdfEditTool.measureSlope:
+      case PdfEditTool.measureAngle:
+      case PdfEditTool.measureArc:
         await _armMeasureTool(context, tool);
       case PdfEditTool.signature:
         await _toggleSignatureTool(context);
@@ -1076,6 +1095,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
             ]),
           ),
+          if (controller.canAlignSelected) ...[
+            const _StripDivider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+              child: _alignmentCluster(context),
+            ),
+          ],
           if (settings.isNotEmpty) ...[
             const _StripDivider(),
             Padding(
@@ -1087,6 +1113,48 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ),
     );
     return _centeredCard(context, padding: EdgeInsets.zero, child: row);
+  }
+
+  /// The align/distribute buttons shown while two or more annotations are
+  /// selected: edge + centre alignment, then even-spacing distribution
+  /// (which needs three, so those disable below that). Each button defers
+  /// to [PdfEditingController.alignSelected].
+  Widget _alignmentCluster(BuildContext context) {
+    final canDistribute = controller.canDistributeSelected;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      _alignButton(
+          PdfAlignment.left, Icons.align_horizontal_left, 'Align left'),
+      _alignButton(PdfAlignment.horizontalCenter,
+          Icons.align_horizontal_center, 'Align horizontal centers'),
+      _alignButton(
+          PdfAlignment.right, Icons.align_horizontal_right, 'Align right'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.top, Icons.align_vertical_top, 'Align top'),
+      _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
+          'Align vertical centers'),
+      _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
+          'Align bottom'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.distributeHorizontal,
+          Icons.horizontal_distribute, 'Distribute horizontally',
+          enabled: canDistribute),
+      _alignButton(PdfAlignment.distributeVertical, Icons.vertical_distribute,
+          'Distribute vertically',
+          enabled: canDistribute),
+    ]);
+  }
+
+  /// One alignment button. Disabled buttons (distribution with too few
+  /// annotations) still render so the cluster's layout stays stable.
+  Widget _alignButton(PdfAlignment alignment, IconData icon, String tooltip,
+      {bool enabled = true}) {
+    return IconButton(
+      key: ValueKey('pdf-align-${alignment.name}'),
+      icon: Icon(icon),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      onPressed: enabled ? () => controller.alignSelected(alignment) : null,
+    );
   }
 
   /// The strip shown while a page-content element is selected.
@@ -1348,10 +1416,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           stroke: true,
           opacity: true,
           font: true,
-          // a distance line and a perimeter polyline carry endings; a
-          // closed area polygon does not
+          // open measurements (distance/slope lines, perimeter/angle/arc
+          // polylines) carry endings; closed area/volume polygons don't
           lineEndings: tool == PdfEditTool.measureDistance ||
-              tool == PdfEditTool.measurePerimeter,
+              tool == PdfEditTool.measureSlope ||
+              tool == PdfEditTool.measurePerimeter ||
+              tool == PdfEditTool.measureAngle ||
+              tool == PdfEditTool.measureArc,
         );
       case 'markup':
         return const _StyleFields(opacity: true);
@@ -1656,9 +1727,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// A tool's tooltip with its keyboard shortcut appended (e.g.
   /// "Rectangle (R)"), so the bindings in [pdfEditToolShortcuts] are
   /// discoverable on hover. Markups and unbound tools keep the plain tip.
-  static String _entryTip(_GroupTool entry) {
+  String _entryTip(_GroupTool entry) {
     final tool = entry.tool;
-    final key = tool == null ? null : pdfEditToolShortcutLabel(tool);
+    final key = tool == null
+        ? null
+        : pdfEditToolShortcutLabel(tool, shortcuts: widget.toolShortcuts);
     return key == null ? entry.tip : '${entry.tip} ($key)';
   }
 
