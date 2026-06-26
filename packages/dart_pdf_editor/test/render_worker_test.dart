@@ -8,7 +8,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/painting.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf_document/pdf_document.dart';
@@ -19,6 +19,56 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 PdfImageRequest? _firstImage(List<PdfRenderCommand> commands) {
   for (final c in commands) {
     if (c is PdfDrawImageCommand) return c.request;
+  }
+  return null;
+}
+
+/// A synchronous in-process [PdfRenderWorker] for widget tests: it records the
+/// page on the test isolate (no background isolate to spawn or await), so
+/// PdfPageView's worker render path — including the progressive vector-first
+/// pass — runs deterministically under pump(). Honors [decodeImages] exactly
+/// like the real backends.
+class _SyncWorker implements PdfRenderWorker {
+  _SyncWorker(this._bytes);
+
+  final Uint8List _bytes;
+  late final PdfDocument _doc = PdfDocument.open(_bytes);
+  bool _disposed = false;
+
+  @override
+  bool get isActive => !_disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true}) async {
+    if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
+    final page = _doc.page(pageIndex);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    final interpreter = PdfInterpreter(cos: _doc.cos, device: recorder)
+      ..drawPageOperations(page, ops);
+    if (annotations) interpreter.drawAnnotations(page);
+    final bytes = serializeCommands(recorder.commands,
+        cos: _doc.cos,
+        decodeImages: decodeImages,
+        maxImagePixelRatio: imagePixelRatio);
+    return bytes == null ? null : deserializeCommands(bytes);
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _disposed = true;
+}
+
+/// The image of the first painted [RawImage], or null while none has rastered.
+ui.Image? _firstRasteredImage(WidgetTester tester) {
+  for (final raw in tester.widgetList<RawImage>(find.byType(RawImage))) {
+    if (raw.image != null) return raw.image;
   }
   return null;
 }
@@ -187,6 +237,43 @@ void main() {
           includeImages: false);
       addTearDown(vector.dispose);
       expect(PdfPageRenderer.decodedImageStats(fast), (0, 0));
+    });
+  });
+
+  testWidgets('PdfPageView renders an image page through the worker',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Exercises PdfPageView's worker render path end to end: the progressive
+      // vector-first pass (record decodeImages:false → paint linework) and the
+      // full pass (record decodeImages:true → re-raster with the image), which
+      // no widget test covered before (the viewer's worker is normally null).
+      final bytes = PdfImageDocument.fromImageBytes([_alphaPng()]);
+      final page = PdfDocument.open(bytes).page(0);
+      final worker = _SyncWorker(bytes);
+      addTearDown(worker.dispose);
+
+      await tester.pumpWidget(MediaQuery(
+        data: const MediaQueryData(),
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(
+            child: SizedBox(
+              width: 120,
+              height: 120,
+              child: PdfPageView(page: page, renderWorker: worker),
+            ),
+          ),
+        ),
+      ));
+
+      // Drive the async passes and their GPU rasters to completion.
+      ui.Image? rastered;
+      for (var i = 0; i < 80 && rastered == null; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        rastered = _firstRasteredImage(tester);
+      }
+      expect(rastered, isNotNull,
+          reason: 'the page rasterized through the worker render path');
     });
   });
 
