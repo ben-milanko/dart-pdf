@@ -65,8 +65,19 @@ abstract class PdfRenderWorker {
   /// resolution the page will be shown at; a raster-heavy CAD sheet then ships
   /// a display-sized underlay instead of its native 100+ megapixels. Null
   /// leaves images at native resolution.
+  ///
+  /// [decodeImages] false records the page's vector/text but ships its images
+  /// un-decoded (just their streams), so the buffer comes back fast even on a
+  /// page whose raster underlay takes seconds to decode — the fast first pass
+  /// of progressive rendering. The caller replays it with
+  /// `PdfPageRenderer.pictureFromCommands(includeImages: false)` to paint the
+  /// linework immediately, then records again with [decodeImages] true for the
+  /// images. Default true (decode in the worker, the normal full render).
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-      {bool annotations = true, int priority = 0, double? imagePixelRatio});
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true});
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
   /// [priority], completing its future with null — as if the page had declined

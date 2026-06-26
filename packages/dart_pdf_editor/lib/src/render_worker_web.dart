@@ -141,14 +141,15 @@ class _WebRenderWorker implements PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
       int priority = 0,
-      double? imagePixelRatio}) async {
+      double? imagePixelRatio,
+      bool decodeImages = true}) async {
     if (_disposed || _failed) {
       _wlog('record page=$pageIndex skipped (disposed=$_disposed '
           'failed=$_failed) → local');
       return null;
     }
-    final request =
-        _WebPending(priority, _seq++, pageIndex, annotations, imagePixelRatio);
+    final request = _WebPending(
+        priority, _seq++, pageIndex, annotations, imagePixelRatio, decodeImages);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -204,7 +205,8 @@ class _WebRenderWorker implements PdfRenderWorker {
       ..setProperty('kind'.toJS, 'record'.toJS)
       ..setProperty('id'.toJS, request.id.toJS)
       ..setProperty('page'.toJS, request.pageIndex.toJS)
-      ..setProperty('annotations'.toJS, request.annotations.toJS);
+      ..setProperty('annotations'.toJS, request.annotations.toJS)
+      ..setProperty('decodeImages'.toJS, request.decodeImages.toJS);
     final ratio = request.imagePixelRatio;
     if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
     worker.postMessage(message);
@@ -286,13 +288,14 @@ class _WebRenderWorker implements PdfRenderWorker {
 /// backend's `_PendingRequest`).
 class _WebPending {
   _WebPending(this.priority, this.seq, this.pageIndex, this.annotations,
-      this.imagePixelRatio);
+      this.imagePixelRatio, this.decodeImages);
 
   final int priority;
   final int seq;
   final int pageIndex;
   final bool annotations;
   final double? imagePixelRatio;
+  final bool decodeImages;
   final completer = Completer<Uint8List?>();
   int id = -1;
 }

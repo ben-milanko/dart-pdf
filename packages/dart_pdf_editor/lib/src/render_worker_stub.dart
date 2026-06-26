@@ -19,7 +19,8 @@ class _NullRenderWorker implements PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(int pageIndex,
           {bool annotations = true,
           int priority = 0,
-          double? imagePixelRatio}) async =>
+          double? imagePixelRatio,
+          bool decodeImages = true}) async =>
       null;
 
   @override

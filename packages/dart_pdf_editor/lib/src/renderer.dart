@@ -140,12 +140,19 @@ class PdfPageRenderer {
   /// every other render path — the reconstructed streams key by content, so a
   /// page redrawn while scrolling reuses its decoded pixels instead of re-
   /// running the codec. An image-free buffer decodes nothing.
+  ///
+  /// [includeImages] false skips image decoding entirely and replays with an
+  /// empty image map, so the device draws the page's vector/text and skips
+  /// every image. This is the fast first pass of progressive rendering: a heavy
+  /// raster underlay can take many seconds to decode, so the page paints its
+  /// linework immediately and the images drop in on a later full pass.
   static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
       {Color pageColor = const Color(0xFFFFFFFF),
-      int? rotation}) async {
+      int? rotation,
+      bool includeImages = true}) async {
     final requests = <PdfImageRequest>[];
-    _collectImageRequests(commands, requests);
+    if (includeImages) _collectImageRequests(commands, requests);
     final images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
@@ -184,6 +191,15 @@ class PdfPageRenderer {
       }
     }
     return (count, pixels);
+  }
+
+  /// Whether [commands] draws any image at all (decoded or not, including
+  /// inside soft-mask groups) — the cue the progressive vector-first pass uses
+  /// to decide whether a slower full (image-decoding) pass needs to follow it.
+  static bool hasImageDraws(List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    return requests.isNotEmpty;
   }
 
   /// Gathers every image draw request in [commands], descending into soft-mask

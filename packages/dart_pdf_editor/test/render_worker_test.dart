@@ -163,6 +163,33 @@ void main() {
     });
   });
 
+  testWidgets('decodeImages:false records vector/text but ships images raw',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The fast pass of progressive rendering: the page's image draws are
+      // present (so a full pass is known to be needed) but carry no decoded
+      // pixels, so the buffer comes back without paying the image decode.
+      final bytes = PdfImageDocument.fromImageBytes([_alphaPng()]);
+      final page = PdfDocument.open(bytes).page(0);
+      final worker = PdfRenderWorker.start(bytes);
+      addTearDown(worker.dispose);
+
+      final fast = await worker.record(0, decodeImages: false);
+      expect(fast, isNotNull);
+      expect(_firstImage(fast!)?.decoded, isNull,
+          reason: 'decodeImages:false ships the image stream, not its pixels');
+      expect(PdfPageRenderer.hasImageDraws(fast), isTrue,
+          reason: 'the image draw command is still in the buffer');
+
+      // includeImages:false replays the vector/text and skips the image, so the
+      // picture builds without decoding anything — the fast first paint.
+      final vector = await PdfPageRenderer.pictureFromCommands(page, fast,
+          includeImages: false);
+      addTearDown(vector.dispose);
+      expect(PdfPageRenderer.decodedImageStats(fast), (0, 0));
+    });
+  });
+
   testWidgets('an inline image still declines (null → local render)',
       (tester) async {
     await tester.runAsync(() async {

@@ -95,10 +95,11 @@ class _IsolateRenderWorker implements PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
       int priority = 0,
-      double? imagePixelRatio}) async {
+      double? imagePixelRatio,
+      bool decodeImages = true}) async {
     if (_disposed || _spawnFailed) return null;
     final request = _PendingRequest(
-        priority, _seq++, pageIndex, annotations, imagePixelRatio);
+        priority, _seq++, pageIndex, annotations, imagePixelRatio, decodeImages);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -155,6 +156,7 @@ class _IsolateRenderWorker implements PdfRenderWorker {
       request.pageIndex,
       request.annotations,
       request.imagePixelRatio,
+      request.decodeImages,
     ]);
   }
 
@@ -199,13 +201,14 @@ class _IsolateRenderWorker implements PdfRenderWorker {
 /// One queued record request and its pending result.
 class _PendingRequest {
   _PendingRequest(this.priority, this.seq, this.pageIndex, this.annotations,
-      this.imagePixelRatio);
+      this.imagePixelRatio, this.decodeImages);
 
   final int priority;
   final int seq;
   final int pageIndex;
   final bool annotations;
   final double? imagePixelRatio;
+  final bool decodeImages;
   final completer = Completer<Uint8List?>();
   int id = -1;
 }
@@ -246,14 +249,15 @@ void _workerMain(_WorkerInit init) {
     final pageIndex = request[1] as int;
     final annotations = request[2] as bool;
     final imagePixelRatio = request[3] as double?;
+    final decodeImages = request[4] as bool;
 
     final token = PdfCancellationToken();
     activeToken = token;
     Uint8List? buffer;
     try {
       if (document != null) {
-        buffer = await _recordPageAsync(
-            document, pageIndex, annotations, imagePixelRatio, token);
+        buffer = await _recordPageAsync(document, pageIndex, annotations,
+            imagePixelRatio, decodeImages, token);
       }
     } on PdfCancelledException {
       buffer = null;
@@ -270,8 +274,13 @@ void _workerMain(_WorkerInit init) {
 
 /// Records one page into a serialized command buffer, yielding periodically
 /// so the cancel port's listener can fire and set [token.cancelled].
-Future<Uint8List?> _recordPageAsync(PdfDocument document, int pageIndex,
-    bool annotations, double? imagePixelRatio, PdfCancellationToken token) async {
+Future<Uint8List?> _recordPageAsync(
+    PdfDocument document,
+    int pageIndex,
+    bool annotations,
+    double? imagePixelRatio,
+    bool decodeImages,
+    PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
   final ops = ContentStreamParser.parse(page.contentBytes());
@@ -282,6 +291,6 @@ Future<Uint8List?> _recordPageAsync(PdfDocument document, int pageIndex,
   if (annotations) interpreter.drawAnnotations(page);
   return serializeCommands(recorder.commands,
       cos: document.cos,
-      decodeImages: true,
+      decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio);
 }
