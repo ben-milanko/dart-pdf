@@ -379,6 +379,39 @@ void main() {
           closeTo(annotations[1].appearanceOpacity, 1e-6));
     });
 
+    testWidgets('a line shows stroke, opacity, line type and end controls',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addLine(0, (100, 100), (220, 160));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // a line now gets the whole appearance set, not just colour + line type
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-opacity')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-line-type')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-line-start-ending')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-line-end-ending')),
+          findsOneWidget);
+
+      // picking an end ending restyles the line in place, slot preserved
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-line-end-ending')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open arrow').last);
+      await tester.pumpAndSettle();
+      expect(pdfLineEndings(editing.selectedAnnotation!)!.$2,
+          PdfLineEnding.openArrow);
+
+      // the stroke slider drives the line's pen width
+      await tester.drag(
+          find.byKey(const ValueKey('pdf-prop-stroke')), const Offset(60, 0));
+      await tester.pump();
+      expect(editing.selectedAnnotation!.borderWidth, greaterThan(2));
+    });
+
     testWidgets('the dragged width persists as a preference', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);

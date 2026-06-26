@@ -10,6 +10,7 @@ import 'editing_panel.dart';
 import 'editing_preferences.dart';
 import 'editing_value_field.dart';
 import 'text_prompt.dart';
+import 'line_ending_controls.dart';
 import 'line_style.dart';
 
 /// A panel showing — and editing — the selected annotation's properties.
@@ -362,6 +363,26 @@ class _PdfAnnotationPropertiesPanelState
     );
   }
 
+  /// One line-ending dropdown (start or end) laid out like the panel's
+  /// other rows: a fixed-width label and a dropdown previewing each shape.
+  Widget _lineEndingRow(String label, String keyValue, PdfLineEnding value,
+      {required bool atEnd, required ValueChanged<PdfLineEnding> onChanged}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(children: [
+        SizedBox(width: 78, child: Text(label)),
+        Expanded(
+          child: PdfLineEndingDropdown(
+            dropdownKey: ValueKey(keyValue),
+            atEnd: atEnd,
+            value: value,
+            onChanged: onChanged,
+          ),
+        ),
+      ]),
+    );
+  }
+
   Widget _textRow(String label, TextEditingController controller,
       {required Key key,
       required VoidCallback onCommit,
@@ -428,13 +449,15 @@ class _PdfAnnotationPropertiesPanelState
   }
 
   static const _fillable = {'Square', 'Circle', 'Polygon', 'FreeText'};
-  static const _stroked = {'Square', 'Circle', 'Polygon', 'Ink'};
+  static const _stroked = {
+    'Square', 'Circle', 'Line', 'PolyLine', 'Polygon', 'Ink', //
+  };
   static const _lineStyled = {
     'Square', 'Circle', 'Line', 'PolyLine', 'Polygon', //
   };
   static const _translucent = {
-    'Square', 'Circle', 'Polygon', 'Ink', 'Highlight', 'Underline',
-    'StrikeOut', 'Squiggly', 'Stamp', //
+    'Square', 'Circle', 'Line', 'PolyLine', 'Polygon', 'Ink', 'Highlight',
+    'Underline', 'StrikeOut', 'Squiggly', 'Stamp', //
   };
 
   List<Widget> _styleControls(PdfAnnotation annotation) {
@@ -490,6 +513,21 @@ class _PdfAnnotationPropertiesPanelState
             },
           ),
         ]),
+      ));
+    }
+    // start/end endings apply only to a single selected /Line or /PolyLine
+    if (_controller.canSetLineEndings) {
+      final endings = _controller.selectedLineEndings!;
+      children.add(_lineEndingRow(
+        'Line start', 'pdf-prop-line-start-ending', endings.$1,
+        atEnd: false,
+        onChanged: (ending) =>
+            _controller.setSelectedLineEndings(start: ending),
+      ));
+      children.add(_lineEndingRow(
+        'Line end', 'pdf-prop-line-end-ending', endings.$2,
+        atEnd: true,
+        onChanged: (ending) => _controller.setSelectedLineEndings(end: ending),
       ));
     }
     if (_allSelected(_translucent)) {
