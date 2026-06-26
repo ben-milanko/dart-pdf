@@ -87,6 +87,12 @@ void main() {
   // worker degrades to local rendering, so this is safe before a worker build.
   if (kIsWeb) {
     pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+    // Fan page decoding across a few Web Workers so a raster-heavy document
+    // (every CAD sheet a multi-second image decode) warms several pages at once
+    // instead of one at a time. Each worker holds its own copy of the document,
+    // so this trades memory for throughput — 3 is a desktop-browser-friendly
+    // default; lower it for memory-constrained targets.
+    pdfRenderWorkerPoolSize = 3;
   }
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,

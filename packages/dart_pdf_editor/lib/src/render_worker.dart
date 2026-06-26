@@ -17,6 +17,23 @@ import 'render_worker_stub.dart'
 /// unaffected. Ignored on native, where the isolate backend needs no script.
 String? pdfRenderWorkerScriptUrl;
 
+/// How many platform workers [PdfRenderWorker.start] fans page records across.
+///
+/// One worker decodes pages strictly serially: a raster-heavy CAD document
+/// whose every sheet is a multi-second image decode fills in one page at a
+/// time, so the tail of a scrolled-through document takes a long time to finish
+/// warming even though each page is already off the UI thread. A pool of N
+/// workers decodes up to N pages at once (page `i` is always handled by worker
+/// `i % N`, so [PdfRenderWorker.cancel] routes to the same worker), so the
+/// visible burst on load and the background prefetch both drain ~N× faster.
+///
+/// The cost is memory: each worker opens its own copy of the document, so the
+/// pool holds N copies of the bytes plus N decode working sets. Default 1 (the
+/// historical single-worker behavior, no extra memory). The host sets this once
+/// before opening a viewer, sized to the platform — a few workers on a desktop
+/// browser, fewer on a memory-constrained device. Values below 1 mean 1.
+int pdfRenderWorkerPoolSize = 1;
+
 /// Records a PDF page's interpreter callbacks into a portable command buffer
 /// OFF the UI thread, so the dominant render cost — the content-stream parse
 /// and interpreter walk — stops blocking frames while scrolling.
@@ -44,12 +61,24 @@ abstract class PdfRenderWorker {
   /// worker). Platforms without either: a null worker whose [record] always
   /// defers to local rendering.
   ///
-  /// The platform worker is wrapped in a [PdfCachingRenderWorker] so a page
-  /// the lazy list recycles and rebuilds is served from cache instead of being
-  /// re-decoded from scratch (see that class). The cache is per-worker, so it
-  /// is fresh for each document.
+  /// With [pdfRenderWorkerPoolSize] > 1 the backend is a [PdfPooledRenderWorker]
+  /// that fans page records across that many platform workers, so a raster-heavy
+  /// document warms ~N× faster (see that class). Default 1 is a single worker.
+  ///
+  /// The backend is wrapped in a [PdfCachingRenderWorker] so a page the lazy
+  /// list recycles and rebuilds is served from cache instead of being re-decoded
+  /// from scratch (see that class), and concurrent requests for one page share a
+  /// single decode. The cache wraps the whole pool, so it is shared across every
+  /// worker and is fresh for each document.
   static PdfRenderWorker start(Uint8List bytes) =>
-      PdfCachingRenderWorker(startRenderWorker(bytes));
+      PdfCachingRenderWorker(_backend(bytes));
+
+  /// Builds the uncached backend: a single platform worker, or — when
+  /// [pdfRenderWorkerPoolSize] asks for more than one — a pool of them.
+  static PdfRenderWorker _backend(Uint8List bytes) =>
+      pdfRenderWorkerPoolSize > 1
+          ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize)
+          : startRenderWorker(bytes);
 
   /// The raw platform worker, NOT wrapped in [PdfCachingRenderWorker]. Test-
   /// only: for exercising the inner queue/cancel/priority contract, which the
@@ -119,6 +148,82 @@ abstract class PdfRenderWorker {
   /// Tears the worker down (kills the isolate, fails pending requests with
   /// null). Idempotent.
   void dispose();
+}
+
+/// Fans [record] calls across a fixed set of platform workers so up to N pages
+/// decode at once instead of one at a time. A single worker serializes every
+/// page; on a document whose sheets are each a multi-second image decode that
+/// makes the tail crawl. Spreading the work across a pool drains it ~N× faster —
+/// the visible burst on load and the background prefetch alike.
+///
+/// Page `i` is always handled by worker `i % N`. That fixed mapping is what
+/// keeps the contract intact without any bookkeeping: a [record] for a page and
+/// the later [cancel] for it land on the same worker, so cancellation and the
+/// worker's own in-flight preemption keep working exactly as they do for one
+/// worker. The mapping also spreads a run of consecutive heavy pages (16, 17,
+/// 18, …) evenly across the pool rather than piling them on one worker.
+///
+/// Each worker opens its own copy of the document. The bytes are copied per
+/// worker ([Uint8List.fromList]) because a platform worker may transfer (and so
+/// detach) the buffer it is handed — sharing one buffer would leave later
+/// workers with an empty document. The cost is N copies of the bytes plus N
+/// decode working sets; size the pool to the platform via
+/// [pdfRenderWorkerPoolSize].
+///
+/// Normally wrapped in a [PdfCachingRenderWorker] (see [PdfRenderWorker.start]),
+/// which dedups concurrent requests for one page — so the cache, not the pool,
+/// prevents the same page being decoded by its worker twice at once.
+class PdfPooledRenderWorker implements PdfRenderWorker {
+  /// Starts [size] platform workers over copies of [bytes]. [size] is clamped to
+  /// at least 1; a pool of 1 is just a single worker with this routing wrapper.
+  PdfPooledRenderWorker(Uint8List bytes, int size)
+      : _workers = List.generate(
+          size < 1 ? 1 : size,
+          (_) => startRenderWorker(Uint8List.fromList(bytes)),
+          growable: false,
+        );
+
+  /// Test seam: a pool over already-constructed [workers], so the routing and
+  /// teardown can be exercised with fakes instead of real platform workers.
+  PdfPooledRenderWorker.fromWorkers(List<PdfRenderWorker> workers)
+      : assert(workers.isNotEmpty),
+        _workers = List.of(workers, growable: false);
+
+  final List<PdfRenderWorker> _workers;
+
+  /// The worker that owns [pageIndex]. Negative indices (none are expected) map
+  /// through [int.abs] so routing never throws.
+  PdfRenderWorker _workerFor(int pageIndex) =>
+      _workers[pageIndex.abs() % _workers.length];
+
+  /// The pool can offload while any worker is still alive; a worker that dies
+  /// (e.g. its watchdog gave up) only takes its own share of pages down to local
+  /// rendering, the rest keep offloading.
+  @override
+  bool get isActive => _workers.any((w) => w.isActive);
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+          {bool annotations = true,
+          int priority = 0,
+          double? imagePixelRatio,
+          bool decodeImages = true}) =>
+      _workerFor(pageIndex).record(pageIndex,
+          annotations: annotations,
+          priority: priority,
+          imagePixelRatio: imagePixelRatio,
+          decodeImages: decodeImages);
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      _workerFor(pageIndex).cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() {
+    for (final worker in _workers) {
+      worker.dispose();
+    }
+  }
 }
 
 /// Wraps a [PdfRenderWorker] with an LRU cache of completed [record] results,

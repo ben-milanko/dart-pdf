@@ -545,6 +545,73 @@ void main() {
       expect(inner.disposed, isTrue);
     });
   });
+
+  group('PdfPooledRenderWorker', () {
+    test('routes each page to worker (page % poolSize)', () async {
+      final workers = [_CountingWorker(), _CountingWorker(), _CountingWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      for (var page = 0; page < 7; page++) {
+        await pool.record(page, imagePixelRatio: 2.0);
+      }
+      // pages 0,3,6 -> w0 ; 1,4 -> w1 ; 2,5 -> w2
+      expect(workers[0].calls.map((c) => c.$1), [0, 3, 6]);
+      expect(workers[1].calls.map((c) => c.$1), [1, 4]);
+      expect(workers[2].calls.map((c) => c.$1), [2, 5]);
+    });
+
+    test('cancel routes to the same worker that holds the page', () {
+      final workers = [_CountingWorker(), _CountingWorker(), _CountingWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      pool.cancel(4, priority: 1); // 4 % 3 == 1
+      pool.cancel(2); // 2 % 3 == 2
+      expect(workers[0].cancels, isEmpty);
+      expect(workers[1].cancels, [(4, 1)]);
+      expect(workers[2].cancels, [(2, 0)]);
+    });
+
+    test('a run of consecutive heavy pages spreads across the pool', () async {
+      final workers = [_CountingWorker(), _CountingWorker(), _CountingWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      for (final page in [16, 17, 18, 19, 20, 21]) {
+        await pool.record(page);
+      }
+      // No worker gets more than its even share of the heavy cluster.
+      expect(workers.map((w) => w.calls.length), everyElement(2));
+    });
+
+    test('stays active while any worker is alive', () {
+      final workers = [_CountingWorker(), _CountingWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      expect(pool.isActive, isTrue);
+      workers[0].active = false;
+      expect(pool.isActive, isTrue, reason: 'one live worker keeps the pool up');
+      workers[1].active = false;
+      expect(pool.isActive, isFalse);
+    });
+
+    test('a dead worker only fails its own share, not the pool', () async {
+      final live = _CountingWorker(decodedPixels: 16);
+      final dead = _CountingWorker()..active = false; // returns null
+      final pool = PdfPooledRenderWorker.fromWorkers([live, dead]);
+      expect(await pool.record(0), isNotNull, reason: 'page 0 -> live worker');
+      expect(await pool.record(1), isNull, reason: 'page 1 -> dead worker');
+    });
+
+    test('dispose tears down every worker', () {
+      final workers = [_CountingWorker(), _CountingWorker(), _CountingWorker()];
+      PdfPooledRenderWorker.fromWorkers(workers).dispose();
+      expect(workers.every((w) => w.disposed), isTrue);
+    });
+
+    test('a pool of one is just a single worker with routing', () async {
+      final only = _CountingWorker();
+      final pool = PdfPooledRenderWorker.fromWorkers([only]);
+      await pool.record(5, imagePixelRatio: 2.0);
+      pool.cancel(5);
+      expect(only.calls.single.$1, 5);
+      expect(only.cancels.single, (5, 0));
+    });
+  });
 }
 
 /// A [PdfRenderWorker] that records each [record] call and returns a synthetic
@@ -558,6 +625,7 @@ class _CountingWorker implements PdfRenderWorker {
   final int decodedPixels;
   final bool returnNull;
   final calls = <(int, bool, bool, double?)>[];
+  final cancels = <(int, int)>[];
   bool active = true;
   bool disposed = false;
 
@@ -589,7 +657,8 @@ class _CountingWorker implements PdfRenderWorker {
   }
 
   @override
-  void cancel(int pageIndex, {int priority = 0}) {}
+  void cancel(int pageIndex, {int priority = 0}) =>
+      cancels.add((pageIndex, priority));
 
   @override
   void dispose() {
