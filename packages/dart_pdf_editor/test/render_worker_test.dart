@@ -503,6 +503,24 @@ void main() {
       expect(inner.calls.length, 3);
     });
 
+    test('weight-0 buffers survive eviction of heavy pages', () async {
+      // Budget holds one heavy (256-byte) page. The vector-first pass
+      // (decodeImages: false) weighs nothing, so blowing the budget with heavy
+      // full-image pages must not discard it — it would only be re-decoded.
+      final inner = _CountingWorker(decodedPixels: 64);
+      final worker = PdfCachingRenderWorker(inner, budgetBytes: 300);
+      await worker.record(0, imagePixelRatio: 2.0, decodeImages: false); // 0 B
+      await worker.record(1, imagePixelRatio: 2.0); // heavy, _bytes=256
+      await worker.record(2, imagePixelRatio: 2.0); // heavy, evicts page 1 only
+      expect(inner.calls.length, 3);
+      // The costless vector-first buffer is still cached: a hit, not a re-ask.
+      await worker.record(0, imagePixelRatio: 2.0, decodeImages: false);
+      expect(inner.calls.length, 3, reason: 'weight-0 buffer must be kept');
+      // The heavy page evicted to make room does have to re-decode.
+      await worker.record(1, imagePixelRatio: 2.0);
+      expect(inner.calls.length, 4, reason: 'page 1 was evicted');
+    });
+
     test('null results are not cached', () async {
       final inner = _CountingWorker(returnNull: true);
       final worker = PdfCachingRenderWorker(inner);
@@ -554,7 +572,10 @@ class _CountingWorker implements PdfRenderWorker {
       bool decodeImages = true}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     if (returnNull || !active) return null;
-    if (decodedPixels == 0) {
+    // A vector-first pass (decodeImages: false) ships no decoded pixels, so its
+    // cached buffer weighs nothing — mirror that so the cache's weight-aware
+    // eviction can be exercised.
+    if (decodedPixels == 0 || !decodeImages) {
       return const [PdfSaveCommand(), PdfRestoreCommand()];
     }
     final side = math.sqrt(decodedPixels).round();

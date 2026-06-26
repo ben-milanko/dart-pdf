@@ -236,10 +236,30 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
     if (weight > _budgetBytes) return; // one page bigger than the cache itself
     _cache[key] = _CachedRecord(commands, weight);
     _bytes += weight;
-    while (_bytes > _budgetBytes && _cache.length > 1) {
-      final oldest = _cache.keys.first;
-      _bytes -= _cache.remove(oldest)!.weight;
+    // Evict the least-recently-used entries that actually hold bytes until
+    // under budget. The budget bounds DECODED image memory, so evicting a
+    // weight-0 buffer (a vector-first pass or an image-free page) frees
+    // nothing — yet it would have to be re-decoded on the next revisit. On a
+    // heavy CAD sheet the full-image buffers (tens of MB each) are exactly
+    // what blows the budget while the cheap vector-first buffers are the ones
+    // re-requested every scroll settle, so a blind oldest-first eviction
+    // discarded the very entries the cache exists to keep. Skip the costless
+    // ones and never evict the entry we just inserted.
+    while (_bytes > _budgetBytes) {
+      final victim = _oldestHeavyKey(except: key);
+      if (victim == null) break; // nothing left worth evicting
+      _bytes -= _cache.remove(victim)!.weight;
     }
+  }
+
+  /// The least-recently-used key whose buffer holds decoded bytes (weight > 0),
+  /// other than [except] (the entry just inserted, which we keep). Null when no
+  /// such entry exists — every remaining buffer is costless, so eviction stops.
+  (int, bool, bool, int)? _oldestHeavyKey({required (int, bool, bool, int) except}) {
+    for (final entry in _cache.entries) {
+      if (entry.value.weight > 0 && entry.key != except) return entry.key;
+    }
+    return null;
   }
 
   /// Quantises the image-pixel ratio so tiny per-frame jitter (a 1px layout

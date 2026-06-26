@@ -24,10 +24,20 @@ void _wlog(String m) => PdfPerfLog.log('webworker $m');
 /// this only fires when the worker is genuinely wedged.
 Duration pdfRenderWorkerReadyTimeout = const Duration(seconds: 12);
 
-/// How long to wait for a single [PdfRenderWorker.record] reply before treating
-/// the worker as unresponsive and falling back to local rendering. The worst
-/// real page records in well under a second, so this only fires on a hang.
-Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 20);
+/// How long to wait for a single [PdfRenderWorker.record] reply before giving up
+/// on that one in-flight page. A heavy large-format CAD sheet's image decode can
+/// genuinely take tens of seconds in the web worker (pure-Dart zlib inflate of a
+/// multi-megapixel raster, compiled to JS/WASM), so this is generous — it exists
+/// to free a wedged in-flight slot, not to police slow-but-progressing decodes.
+/// A single miss drops only its own page (see [_WebRenderWorker]); the worker
+/// keeps serving every other page. Only [pdfRenderWorkerTimeoutsBeforeFail]
+/// consecutive misses — the signature of a genuinely dead worker — tear it down.
+Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
+
+/// Consecutive record timeouts that mark the worker dead (so the viewer stops
+/// round-tripping and renders locally). One slow page is not a dead worker;
+/// several misses in a row with no successful reply in between is.
+int pdfRenderWorkerTimeoutsBeforeFail = 3;
 
 /// Web backend: a dedicated [web.Worker] that opens its own [PdfDocument] from
 /// the bytes once and records pages on request, posting the serialized command
@@ -104,6 +114,11 @@ class _WebRenderWorker implements PdfRenderWorker {
   // record's reply. See pdfRenderWorkerReadyTimeout / pdfRenderWorkerRecordTimeout.
   Timer? _readyWatchdog;
   Timer? _recordWatchdog;
+  // Consecutive record watchdog misses with no reply in between. A healthy
+  // worker chewing through one heavy page resets this the moment any reply
+  // lands; only a run of misses ([pdfRenderWorkerTimeoutsBeforeFail]) condemns
+  // the worker as dead.
+  int _consecutiveTimeouts = 0;
 
   @override
   bool get isActive => !_disposed && !_failed;
@@ -127,6 +142,7 @@ class _WebRenderWorker implements PdfRenderWorker {
     _inFlight = null;
     _recordWatchdog?.cancel();
     _recordWatchdog = null;
+    _consecutiveTimeouts = 0; // a reply landed: the worker is alive
     final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
     final bytes = buffer?.toDart.asUint8List();
     final err = (data.getProperty('error'.toJS) as JSString?)?.toDart;
@@ -212,18 +228,33 @@ class _WebRenderWorker implements PdfRenderWorker {
     worker.postMessage(message);
 
     // Watchdog: a record that never comes back wedges the single in-flight slot
-    // (and so every queued page) forever. Bound it — on a miss, treat the
-    // worker as unresponsive and degrade to local rendering for this and all
-    // subsequent pages.
+    // (and so every queued page) forever. Bound it — but a miss frees only THIS
+    // page (the worker keeps serving the rest), because a heavy sheet that is
+    // merely slow is not a dead worker. Killing the whole worker on one slow
+    // page is what dumped the entire document onto the UI thread. Only a run of
+    // misses with no reply in between condemns the worker.
     _recordWatchdog?.cancel();
     final inFlightId = request.id;
     _recordWatchdog = Timer(pdfRenderWorkerRecordTimeout, () {
       if (_disposed || _failed) return;
       if (_inFlight?.id != inFlightId) return; // already answered
-      _wlog('record watchdog fired for page=${request.pageIndex} after '
-          '${pdfRenderWorkerRecordTimeout.inSeconds}s — worker unresponsive; '
-          'falling back to local');
-      _fail();
+      _inFlight = null;
+      _recordWatchdog = null;
+      _consecutiveTimeouts++;
+      if (_consecutiveTimeouts >= pdfRenderWorkerTimeoutsBeforeFail) {
+        _wlog('record watchdog: page=${request.pageIndex} timed out after '
+            '${pdfRenderWorkerRecordTimeout.inSeconds}s — '
+            '$_consecutiveTimeouts misses in a row; worker is dead, '
+            'falling back to local for all pages');
+        _fail();
+        return;
+      }
+      _wlog('record watchdog: page=${request.pageIndex} timed out after '
+          '${pdfRenderWorkerRecordTimeout.inSeconds}s — dropping this page to '
+          'local; worker stays up ($_consecutiveTimeouts/'
+          '$pdfRenderWorkerTimeoutsBeforeFail before giving up)');
+      if (!request.completer.isCompleted) request.completer.complete(null);
+      _pump(); // serve the next queued page
     });
   }
 

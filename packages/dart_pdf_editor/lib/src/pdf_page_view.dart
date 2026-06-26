@@ -174,6 +174,13 @@ class _PdfPageViewState extends State<PdfPageView> {
   // the detail patch takes over for the visible region.
   static const _maxPixels = 1 << 24;
   static const _maxDimension = 8192.0;
+  // Pixel budget for the progressive vector-first preview raster — a fraction
+  // of [_maxPixels]. The preview is transient (the full pass re-rasterizes at
+  // [_effectiveRatio] on settle), so bounding it keeps rasterizing a dense
+  // large-format CAD sheet's linework (~8000px wide, tens of thousands of
+  // vector ops) off the ~300ms GPU-raster spike that stutters a mid-scroll
+  // page-in. Normal-sized pages fit well under this, so they are unaffected.
+  static const _previewMaxPixels = 1 << 21;
 
   @override
   void initState() {
@@ -357,6 +364,20 @@ class _PdfPageViewState extends State<PdfPageView> {
     return math.max(ratio, 0.05);
   }
 
+  /// Resolution for the progressive vector-first preview raster: [_effectiveRatio]
+  /// further bounded by [_previewMaxPixels] so a dense large-format sheet paints
+  /// its linework quickly instead of spiking the GPU raster thread. The full
+  /// pass re-rasterizes at [_effectiveRatio] once the page settles, so the only
+  /// visible effect is a briefly softer preview while actively scrolling.
+  double _vectorFirstRatio() {
+    final size = PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final width = math.max(1.0, size.width);
+    final height = math.max(1.0, size.height);
+    final ratio =
+        math.min(_effectiveRatio(), math.sqrt(_previewMaxPixels / (width * height)));
+    return math.max(ratio, 0.05);
+  }
+
   Future<void> _render() async {
     final scheduler = widget.renderScheduler;
     if (scheduler != null) {
@@ -460,7 +481,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
     final image = await PdfPageRenderer.rasterize(picture,
         PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
-        _effectiveRatio());
+        _vectorFirstRatio());
     picture.dispose();
     // Adopt the vector raster only if the full pass hasn't already landed (a
     // landed full raster has a non-null _rasteredRatio). Deliberately leave
