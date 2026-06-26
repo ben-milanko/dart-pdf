@@ -150,6 +150,10 @@ void main() {
           document: document,
           controller: controller,
           initialFit: PdfViewerFit.width,
+          // Warm the whole 8-page doc so the far pages (6, 7) pre-render from
+          // idle; the default window is deliberately small (it bounds the
+          // worker-decode flood) and would not reach distance 7.
+          previewWindow: 8,
         ),
       ),
     ));

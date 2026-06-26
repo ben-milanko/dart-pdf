@@ -43,7 +43,22 @@ abstract class PdfRenderWorker {
   /// script at [pdfRenderWorkerScriptUrl] when one is configured (else a null
   /// worker). Platforms without either: a null worker whose [record] always
   /// defers to local rendering.
-  static PdfRenderWorker start(Uint8List bytes) => startRenderWorker(bytes);
+  ///
+  /// The platform worker is wrapped in a [PdfCachingRenderWorker] so a page
+  /// the lazy list recycles and rebuilds is served from cache instead of being
+  /// re-decoded from scratch (see that class). The cache is per-worker, so it
+  /// is fresh for each document.
+  static PdfRenderWorker start(Uint8List bytes) =>
+      PdfCachingRenderWorker(startRenderWorker(bytes));
+
+  /// The raw platform worker, NOT wrapped in [PdfCachingRenderWorker]. Test-
+  /// only: for exercising the inner queue/cancel/priority contract, which the
+  /// cache is designed to short-circuit (a cached page never re-enters the
+  /// queue). Production code uses [start]. (No `@visibleForTesting` annotation
+  /// because this library stays Flutter-free so the web worker can compile via
+  /// `dart compile js` without pulling in Flutter.)
+  static PdfRenderWorker startUncached(Uint8List bytes) =>
+      startRenderWorker(bytes);
 
   /// Records page [pageIndex] off-thread and returns its replayable command
   /// buffer (image XObjects decoded off-thread and attached), or null when the
@@ -104,4 +119,158 @@ abstract class PdfRenderWorker {
   /// Tears the worker down (kills the isolate, fails pending requests with
   /// null). Idempotent.
   void dispose();
+}
+
+/// Wraps a [PdfRenderWorker] with an LRU cache of completed [record] results,
+/// keyed by (page, annotations, decodeImages, image-ratio bucket). The lazy
+/// page list recycles a [PdfPageView]'s State when it scrolls out of view and
+/// re-creates it on the way back, dropping the State's cached picture — so
+/// without this every scroll-back re-asks the worker to decode the page from
+/// scratch (a multi-second inflate + colour-convert on a raster-heavy CAD
+/// sheet, observed re-running ~7× for one page during a single scroll). A
+/// page's bytes don't change under the worker (it holds a fixed snapshot), so
+/// a completed buffer stays valid for the worker's whole life — caching it
+/// makes a revisit a map lookup instead of a re-decode. The cache lives on the
+/// worker, so it is shared across every recycled page widget and dies with the
+/// worker (a new document opens a new worker, hence a fresh cache).
+///
+/// Bounded by total decoded image bytes ([budgetBytes]); the least-recently
+/// used entries evict first. A single buffer larger than the whole budget (a
+/// huge large-format sheet) is not cached at all rather than evicting
+/// everything else for one page.
+///
+/// In-flight requests are also deduplicated: a second record for a key whose
+/// decode is still running shares that pending future instead of starting a
+/// new decode. This is the dominant win on a fast scroll — the render
+/// scheduler re-grants the same window of pages every ~2s while the worker is
+/// still chewing through the first batch (each heavy page is a multi-second
+/// decode), so a completion-only cache never gets the chance to intercept; the
+/// requests pile up before any finishes. Sharing the in-flight future collapses
+/// those repeats into one decode per page. A scrolled-away page is cancelled
+/// for every sharer at once, which is correct — none of them want it any more.
+class PdfCachingRenderWorker implements PdfRenderWorker {
+  PdfCachingRenderWorker(this._inner, {int budgetBytes = 96 << 20})
+      : _budgetBytes = budgetBytes;
+
+  final PdfRenderWorker _inner;
+  final int _budgetBytes;
+
+  // LinkedHashMap iteration order doubles as LRU order: a hit re-inserts to
+  // the end, eviction takes the oldest (first) key.
+  final _cache = <(int, bool, bool, int), _CachedRecord>{};
+  // Keys whose decode is running now, so concurrent requests share one decode.
+  final _inflight = <(int, bool, bool, int), Future<List<PdfRenderCommand>?>>{};
+  int _bytes = 0;
+
+  @override
+  bool get isActive => _inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true}) {
+    if (!_inner.isActive) {
+      return _inner.record(pageIndex,
+          annotations: annotations,
+          priority: priority,
+          imagePixelRatio: imagePixelRatio,
+          decodeImages: decodeImages);
+    }
+    final key = (
+      pageIndex,
+      annotations,
+      decodeImages,
+      _ratioBucket(imagePixelRatio),
+    );
+    final hit = _cache.remove(key);
+    if (hit != null) {
+      _cache[key] = hit; // re-insert: now most-recently used
+      return Future.value(hit.commands);
+    }
+    final pending = _inflight[key];
+    if (pending != null) return pending; // a decode for this key is running
+    final future = _recordAndStore(key, pageIndex,
+        annotations: annotations,
+        priority: priority,
+        imagePixelRatio: imagePixelRatio,
+        decodeImages: decodeImages);
+    _inflight[key] = future;
+    return future;
+  }
+
+  Future<List<PdfRenderCommand>?> _recordAndStore(
+      (int, bool, bool, int) key, int pageIndex,
+      {required bool annotations,
+      required int priority,
+      required double? imagePixelRatio,
+      required bool decodeImages}) async {
+    try {
+      final commands = await _inner.record(pageIndex,
+          annotations: annotations,
+          priority: priority,
+          imagePixelRatio: imagePixelRatio,
+          decodeImages: decodeImages);
+      if (commands != null) _store(key, commands);
+      return commands;
+    } finally {
+      _inflight.remove(key);
+    }
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() {
+    _cache.clear();
+    _inflight.clear();
+    _bytes = 0;
+    _inner.dispose();
+  }
+
+  void _store((int, bool, bool, int) key, List<PdfRenderCommand> commands) {
+    final weight = _weigh(commands);
+    if (weight > _budgetBytes) return; // one page bigger than the cache itself
+    _cache[key] = _CachedRecord(commands, weight);
+    _bytes += weight;
+    while (_bytes > _budgetBytes && _cache.length > 1) {
+      final oldest = _cache.keys.first;
+      _bytes -= _cache.remove(oldest)!.weight;
+    }
+  }
+
+  /// Quantises the image-pixel ratio so tiny per-frame jitter (a 1px layout
+  /// wobble) still hits the cache, while a real zoom step lands in a new
+  /// bucket. Null (vector-first pass, no decode) gets its own bucket.
+  static int _ratioBucket(double? ratio) =>
+      ratio == null ? -1 : (ratio * 8).round();
+
+  /// A buffer's weight ≈ its decoded image bytes (premultiplied RGBA), which
+  /// dominate; command objects themselves are negligible. Recurses soft-mask
+  /// groups, matching what the worker actually decoded.
+  static int _weigh(List<PdfRenderCommand> commands) {
+    var bytes = 0;
+    void walk(List<PdfRenderCommand> cmds) {
+      for (final c in cmds) {
+        if (c is PdfDrawImageCommand) {
+          final d = c.request.decoded;
+          if (d != null) bytes += d.width * d.height * 4;
+        } else if (c is PdfEndSoftMaskedCommand) {
+          walk(c.maskCommands);
+        }
+      }
+    }
+
+    walk(commands);
+    return bytes;
+  }
+}
+
+class _CachedRecord {
+  _CachedRecord(this.commands, this.weight);
+  final List<PdfRenderCommand> commands;
+  final int weight;
 }

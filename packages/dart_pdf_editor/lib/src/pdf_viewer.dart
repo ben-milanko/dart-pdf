@@ -487,7 +487,7 @@ class PdfViewer extends StatefulWidget {
     this.highlightFormFields = true,
     this.interactiveForms = true,
     this.pagePreviews = true,
-    this.previewWindow = 20,
+    this.previewWindow = 6,
     this.predictStrokes = true,
     this.renderWorker,
     this.rasterCache,
@@ -675,15 +675,19 @@ class PdfViewer extends StatefulWidget {
   final bool pagePreviews;
 
   /// How many pages on each side of the current page the background
-  /// prerender ([pagePreviews]) warms. Each preview is a full synchronous
-  /// interpreter walk, so on a heavy document warming every page stutters
-  /// the UI thread for seconds after open; bounding the proactive warm to
-  /// a window around the viewport keeps it focused on pages the user might
-  /// fast-scroll to. The window recenters automatically as the user
-  /// navigates. Pages outside the window still get a preview for free when
-  /// they're scrolled onto screen (their on-screen render feeds the cache).
-  /// `<= 0` warms every page (the historical behavior — fine for short
-  /// documents where warming everything is cheap).
+  /// prerender ([pagePreviews]) warms. Each preview drives a worker record
+  /// (or a synchronous interpreter walk without a worker), and on a
+  /// raster-heavy page that record pays the full image decode — seconds of
+  /// inflate + colour-convert — even though the preview only rasterizes a
+  /// ~200px thumbnail (the decode happens at native resolution, then
+  /// downsamples). A wide window therefore floods the single worker with
+  /// dozens of multi-second decodes, starving the on-screen page the user is
+  /// waiting on. Keeping the window small bounds that flood; revisits are
+  /// cheap anyway now that the worker caches completed records
+  /// ([PdfCachingRenderWorker]). The window recenters as the user navigates,
+  /// and pages outside it still get a preview for free when scrolled onto
+  /// screen (their on-screen render feeds the cache). `<= 0` warms every page
+  /// (historical behavior — fine for short, light documents).
   final int previewWindow;
 
   /// Draws a short speculative "lead" ahead of the pen while an ink stroke
