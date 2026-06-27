@@ -475,7 +475,8 @@ class _PreviewWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     calls.add((pageIndex, decodeImages, imagePixelRatio));
     final request = PdfImageRequest(
       stream: CosStream(CosDictionary(), Uint8List(0)),
@@ -506,7 +507,8 @@ class _DecliningWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     calls.add((pageIndex, decodeImages, imagePixelRatio));
     return null;
   }
@@ -530,7 +532,8 @@ class _VectorOnlyWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     commandLimits.add(commandLimit);
     return const [PdfSaveCommand(), PdfRestoreCommand()];
   }

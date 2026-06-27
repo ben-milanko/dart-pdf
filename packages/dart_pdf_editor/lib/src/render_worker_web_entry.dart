@@ -85,6 +85,20 @@ void runPdfRenderWorker() {
         (data.getProperty('decodeImages'.toJS) as JSBoolean?)?.toDart ?? true;
     final commandLimit =
         (data.getProperty('commandLimit'.toJS) as JSNumber?)?.toDartInt;
+    final regionLeft =
+        (data.getProperty('regionLeft'.toJS) as JSNumber?)?.toDartDouble;
+    final regionBottom =
+        (data.getProperty('regionBottom'.toJS) as JSNumber?)?.toDartDouble;
+    final regionRight =
+        (data.getProperty('regionRight'.toJS) as JSNumber?)?.toDartDouble;
+    final regionTop =
+        (data.getProperty('regionTop'.toJS) as JSNumber?)?.toDartDouble;
+    final imageDecodeRegion = regionLeft != null &&
+            regionBottom != null &&
+            regionRight != null &&
+            regionTop != null
+        ? PdfRect(regionLeft, regionBottom, regionRight, regionTop)
+        : null;
 
     final token = PdfCancellationToken();
     activeToken = token;
@@ -98,7 +112,7 @@ void runPdfRenderWorker() {
       try {
         if (doc != null) {
           out = await _recordPageAsync(doc, page, annotations, imagePixelRatio,
-              decodeImages, commandLimit, token);
+              decodeImages, commandLimit, imageDecodeRegion, token);
         }
       } on PdfCancelledException {
         out = null;
@@ -145,6 +159,7 @@ Future<Uint8List?> _recordPageAsync(
     double? imagePixelRatio,
     bool decodeImages,
     int? commandLimit,
+    PdfRect? imageDecodeRegion,
     PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
@@ -172,6 +187,7 @@ Future<Uint8List?> _recordPageAsync(
       cos: document.cos,
       decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
+      imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
       commandLimit: commandLimit);
 }

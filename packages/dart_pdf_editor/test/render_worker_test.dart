@@ -47,7 +47,8 @@ class _SyncWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     final page = _doc.page(pageIndex);
     final previewOperationLimit = decodeImages ? null : commandLimit;
@@ -61,6 +62,7 @@ class _SyncWorker implements PdfRenderWorker {
         cos: _doc.cos,
         decodeImages: decodeImages,
         maxImagePixelRatio: imagePixelRatio,
+        imageDecodeRegion: imageDecodeRegion,
         imagePlaceholders: !decodeImages,
         commandLimit: commandLimit);
     return bytes == null ? null : deserializeCommands(bytes);
@@ -543,6 +545,46 @@ void main() {
       expect(inner.calls.length, 4);
     });
 
+    test('image decode region is part of the full-image cache key', () async {
+      final inner = _CountingWorker(decodedPixels: 64);
+      final worker = PdfCachingRenderWorker(inner);
+      const top = PdfRect(0, 400, 200, 600);
+      const sameBucket = PdfRect(0.01, 400, 200, 600);
+      const bottom = PdfRect(0, 0, 200, 200);
+
+      await worker.record(0, imagePixelRatio: 2.0, imageDecodeRegion: top);
+      await worker.record(0, imagePixelRatio: 2.0, imageDecodeRegion: top);
+      await worker.record(0,
+          imagePixelRatio: 2.0, imageDecodeRegion: sameBucket);
+      expect(inner.calls.length, 1,
+          reason: 'minor region jitter stays in the same cache bucket');
+
+      await worker.record(0, imagePixelRatio: 2.0, imageDecodeRegion: bottom);
+      expect(inner.calls.length, 2,
+          reason: 'a different viewport slice needs its own cropped buffer');
+
+      await worker.record(0,
+          imagePixelRatio: 2.0, decodeImages: false, imageDecodeRegion: bottom);
+      await worker.record(0,
+          imagePixelRatio: 2.0, decodeImages: false, imageDecodeRegion: top);
+      expect(inner.calls.length, 3,
+          reason: 'vector-only buffers ignore region because no images decode');
+    });
+
+    test('weight-0 region buffers reuse the page-wide cache key', () async {
+      final inner = _CountingWorker();
+      final worker = PdfCachingRenderWorker(inner);
+      const top = PdfRect(0, 400, 200, 600);
+      const bottom = PdfRect(0, 0, 200, 200);
+
+      await worker.record(0, imagePixelRatio: 2.0, imageDecodeRegion: top);
+      await worker.record(0, imagePixelRatio: 2.0, imageDecodeRegion: bottom);
+      await worker.record(0, imagePixelRatio: 2.0);
+
+      expect(inner.calls.length, 1,
+          reason: 'vector-only pages must not cache duplicate region slices');
+    });
+
     test('a tiny ratio wobble stays in the same bucket', () async {
       final inner = _CountingWorker();
       final worker = PdfCachingRenderWorker(inner);
@@ -771,7 +813,8 @@ class _CountingWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     commandLimits.add(commandLimit);
     if (returnNull || !active) return null;
@@ -819,7 +862,8 @@ class _ManualWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     priorities.add(priority);
     final completer = Completer<List<PdfRenderCommand>?>();

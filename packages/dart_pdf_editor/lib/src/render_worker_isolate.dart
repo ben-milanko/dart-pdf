@@ -98,10 +98,11 @@ class _IsolateRenderWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     if (_disposed || _spawnFailed) return null;
     final request = _PendingRequest(priority, _seq++, pageIndex, annotations,
-        imagePixelRatio, decodeImages, commandLimit);
+        imagePixelRatio, decodeImages, commandLimit, imageDecodeRegion);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -160,6 +161,10 @@ class _IsolateRenderWorker implements PdfRenderWorker {
       request.imagePixelRatio,
       request.decodeImages,
       request.commandLimit,
+      request.imageDecodeRegion?.left,
+      request.imageDecodeRegion?.bottom,
+      request.imageDecodeRegion?.right,
+      request.imageDecodeRegion?.top,
     ]);
   }
 
@@ -203,8 +208,15 @@ class _IsolateRenderWorker implements PdfRenderWorker {
 
 /// One queued record request and its pending result.
 class _PendingRequest {
-  _PendingRequest(this.priority, this.seq, this.pageIndex, this.annotations,
-      this.imagePixelRatio, this.decodeImages, this.commandLimit);
+  _PendingRequest(
+      this.priority,
+      this.seq,
+      this.pageIndex,
+      this.annotations,
+      this.imagePixelRatio,
+      this.decodeImages,
+      this.commandLimit,
+      this.imageDecodeRegion);
 
   final int priority;
   final int seq;
@@ -213,6 +225,7 @@ class _PendingRequest {
   final double? imagePixelRatio;
   final bool decodeImages;
   final int? commandLimit;
+  final PdfRect? imageDecodeRegion;
   final completer = Completer<Uint8List?>();
   int id = -1;
 }
@@ -255,14 +268,29 @@ void _workerMain(_WorkerInit init) {
     final imagePixelRatio = request[3] as double?;
     final decodeImages = request[4] as bool;
     final commandLimit = request.length > 5 ? request[5] as int? : null;
+    final imageDecodeRegion = request.length > 9 &&
+            request[6] != null &&
+            request[7] != null &&
+            request[8] != null &&
+            request[9] != null
+        ? PdfRect(request[6] as double, request[7] as double,
+            request[8] as double, request[9] as double)
+        : null;
 
     final token = PdfCancellationToken();
     activeToken = token;
     Uint8List? buffer;
     try {
       if (document != null) {
-        buffer = await _recordPageAsync(document, pageIndex, annotations,
-            imagePixelRatio, decodeImages, commandLimit, token);
+        buffer = await _recordPageAsync(
+            document,
+            pageIndex,
+            annotations,
+            imagePixelRatio,
+            decodeImages,
+            commandLimit,
+            imageDecodeRegion,
+            token);
       }
     } on PdfCancelledException {
       buffer = null;
@@ -286,6 +314,7 @@ Future<Uint8List?> _recordPageAsync(
     double? imagePixelRatio,
     bool decodeImages,
     int? commandLimit,
+    PdfRect? imageDecodeRegion,
     PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
@@ -301,6 +330,7 @@ Future<Uint8List?> _recordPageAsync(
       cos: document.cos,
       decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
+      imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
       commandLimit: commandLimit);
 }

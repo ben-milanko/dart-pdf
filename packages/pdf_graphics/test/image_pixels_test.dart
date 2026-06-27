@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -15,6 +16,9 @@ void main() {
 
   CosStream image(Map<String, CosObject> dict, List<int> data) =>
       CosStream(CosDictionary(dict), Uint8List.fromList(data));
+
+  CosStream flateImage(Map<String, CosObject> dict, List<int> data) => image(
+      {...dict, 'Filter': const CosName('FlateDecode')}, zlib.encode(data));
 
   test('DeviceRGB 8-bit decodes opaque, straight through', () {
     final stream = image({
@@ -190,6 +194,80 @@ void main() {
       255,
       255,
       255,
+      255,
+    ]);
+  });
+
+  test('region-scaled DeviceRGB Flate decodes only the requested crop', () {
+    final raw = <int>[];
+    for (var y = 0; y < 4; y++) {
+      for (var x = 0; x < 4; x++) {
+        raw.addAll([x * 40, y * 50, 7]);
+      }
+    }
+    final stream = flateImage({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(4),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+    }, raw);
+
+    final pixels =
+        decodePdfImagePixelsRegionScaled(cos, stream, 1, 1, 2, 2, 2, 2)!;
+    expect(pixels.width, 2);
+    expect(pixels.height, 2);
+    expect(pixels.rgba, [
+      40,
+      50,
+      7,
+      255,
+      80,
+      50,
+      7,
+      255,
+      40,
+      100,
+      7,
+      255,
+      80,
+      100,
+      7,
+      255,
+    ]);
+  });
+
+  test('region-scaled DeviceGray Flate preserves top-down source rows', () {
+    final stream = flateImage({
+      'Width': const CosInteger(3),
+      'Height': const CosInteger(3),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+    }, [
+      10,
+      11,
+      12,
+      20,
+      21,
+      22,
+      30,
+      31,
+      32,
+    ]);
+
+    final pixels =
+        decodePdfImagePixelsRegionScaled(cos, stream, 1, 0, 1, 3, 1, 3)!;
+    expect(pixels.rgba, [
+      11,
+      11,
+      11,
+      255,
+      21,
+      21,
+      21,
+      255,
+      31,
+      31,
+      31,
       255,
     ]);
   });

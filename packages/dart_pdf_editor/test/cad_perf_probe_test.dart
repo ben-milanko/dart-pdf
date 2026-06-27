@@ -16,6 +16,8 @@
 //   CAD_PAGE    0-based page to deep-probe (default: heaviest found by scan)
 //   CAD_RATIO   screen px per point for the cap (default 2.0; ~typical view)
 //   CAD_SCAN    '0' to skip the per-page heavy-page scan (default on)
+//   CAD_REGION  optional PDF-space decode region: left,bottom,right,top.
+//               Defaults to the middle half of the target page.
 //
 // Reports, for the target page: native vs capped decoded megapixels, the
 // shipped command-buffer size (the bytes the worker hands the UI thread),
@@ -115,6 +117,23 @@ void main() {
       _line('capped  decode: ${capSw.elapsedMilliseconds} ms, '
           '${capStats.$1} img, ${_mpStr(capStats.$2)} MP, '
           'buffer ${_mb(capBuf.length)}');
+
+      final decodeRegion = _decodeRegion(page);
+      final regionSw = Stopwatch()..start();
+      final regionBuf = serializeCommands(commands,
+          cos: doc.cos,
+          decodeImages: true,
+          maxImagePixelRatio: ratio,
+          imageDecodeRegion: decodeRegion);
+      regionSw.stop();
+      final regionCmds = deserializeCommands(regionBuf!);
+      final regionStats = PdfPageRenderer.decodedImageStats(regionCmds);
+      final regionShare = capStats.$2 == 0 ? 1.0 : regionStats.$2 / capStats.$2;
+      _line('region  decode: ${regionSw.elapsedMilliseconds} ms, '
+          '${regionStats.$1} img, ${_mpStr(regionStats.$2)} MP, '
+          'buffer ${_mb(regionBuf.length)}, '
+          'region=$decodeRegion '
+          '(${(regionShare * 100).toStringAsFixed(1)}% of capped pixels)');
 
       final shrink = nativeStats.$2 == 0 ? 1.0 : capStats.$2 / nativeStats.$2;
       _line('cap shrank decoded pixels to '
@@ -263,6 +282,23 @@ double _renderRatio(PdfPage page, double desired) {
   final byDim = 8192.0 / (w > h ? w : h);
   if (byDim < r) r = byDim;
   return r < 0.05 ? 0.05 : r;
+}
+
+PdfRect _decodeRegion(PdfPage page) {
+  final raw = Platform.environment['CAD_REGION'];
+  if (raw != null && raw.trim().isNotEmpty) {
+    final parts = raw.split(',').map((s) => double.tryParse(s.trim())).toList();
+    if (parts.length == 4 && parts.every((v) => v != null)) {
+      return PdfRect.normalized(parts[0]!, parts[1]!, parts[2]!, parts[3]!);
+    }
+  }
+  final box = page.cropBox;
+  return PdfRect(
+    box.left + box.width * 0.25,
+    box.bottom + box.height * 0.25,
+    box.left + box.width * 0.75,
+    box.bottom + box.height * 0.75,
+  );
 }
 
 String _mpStr(int pixels) => (pixels / 1e6).toStringAsFixed(1);

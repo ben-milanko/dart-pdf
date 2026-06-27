@@ -3,6 +3,7 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:web/web.dart' as web;
 
@@ -184,14 +185,15 @@ class _WebRenderWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     if (_disposed || _failed) {
       _wlog('record page=$pageIndex skipped (disposed=$_disposed '
           'failed=$_failed) → local');
       return null;
     }
     final request = _WebPending(priority, _seq++, pageIndex, annotations,
-        imagePixelRatio, decodeImages, commandLimit);
+        imagePixelRatio, decodeImages, commandLimit, imageDecodeRegion);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -252,6 +254,14 @@ class _WebRenderWorker implements PdfRenderWorker {
     if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
     final limit = request.commandLimit;
     if (limit != null) message.setProperty('commandLimit'.toJS, limit.toJS);
+    final region = request.imageDecodeRegion;
+    if (region != null) {
+      message
+        ..setProperty('regionLeft'.toJS, region.left.toJS)
+        ..setProperty('regionBottom'.toJS, region.bottom.toJS)
+        ..setProperty('regionRight'.toJS, region.right.toJS)
+        ..setProperty('regionTop'.toJS, region.top.toJS);
+    }
     worker.postMessage(message);
 
     // Watchdog: a record that never comes back wedges the single in-flight slot
@@ -346,8 +356,15 @@ class _WebRenderWorker implements PdfRenderWorker {
 /// One queued record request and its pending result (mirrors the isolate
 /// backend's `_PendingRequest`).
 class _WebPending {
-  _WebPending(this.priority, this.seq, this.pageIndex, this.annotations,
-      this.imagePixelRatio, this.decodeImages, this.commandLimit);
+  _WebPending(
+      this.priority,
+      this.seq,
+      this.pageIndex,
+      this.annotations,
+      this.imagePixelRatio,
+      this.decodeImages,
+      this.commandLimit,
+      this.imageDecodeRegion);
 
   final int priority;
   final int seq;
@@ -356,6 +373,7 @@ class _WebPending {
   final double? imagePixelRatio;
   final bool decodeImages;
   final int? commandLimit;
+  final PdfRect? imageDecodeRegion;
   final completer = Completer<Uint8List?>();
   int id = -1;
 }

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'render_worker_stub.dart'
@@ -137,12 +138,20 @@ abstract class PdfRenderWorker {
   /// `PdfPageRenderer.pictureFromCommands(includeImages: false)` to paint the
   /// linework immediately, then records again with [decodeImages] true for the
   /// images. Default true (decode in the worker, the normal full render).
+  ///
+  /// [imageDecodeRegion] is a PDF page-space rectangle for a transient
+  /// deep-zoom/detail render. When set with [decodeImages] true, the worker
+  /// may decode only the intersecting source pixels of axis-aligned image
+  /// draws and retarget their transforms to that crop. Full-page cached
+  /// renders must leave this null; a region-specific buffer is only correct
+  /// for rasterizing that same visible slice.
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit});
+      int? commandLimit,
+      PdfRect? imageDecodeRegion});
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
   /// [priority], completing its future with null — as if the page had declined
@@ -302,7 +311,8 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) async {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     final urgent = _urgentWorkerFor(priority);
     if (urgent != null) {
       return urgent.record(pageIndex,
@@ -310,7 +320,8 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
           priority: priority,
           imagePixelRatio: imagePixelRatio,
           decodeImages: decodeImages,
-          commandLimit: commandLimit);
+          commandLimit: commandLimit,
+          imageDecodeRegion: imageDecodeRegion);
     }
     final worker = _lease(pageIndex, priority);
     try {
@@ -319,7 +330,8 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
           priority: priority,
           imagePixelRatio: imagePixelRatio,
           decodeImages: decodeImages,
-          commandLimit: commandLimit);
+          commandLimit: commandLimit,
+          imageDecodeRegion: imageDecodeRegion);
     } finally {
       _release(pageIndex, priority, worker);
     }
@@ -369,9 +381,12 @@ class _PoolRoute {
   int count = 1;
 }
 
+typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
+
 /// Wraps a [PdfRenderWorker] with an LRU cache of completed [record] results,
 /// keyed by (page, annotations, decodeImages, image-ratio bucket,
-/// command-limit). The lazy
+/// command-limit, image-decode-region when decoded image bytes are present).
+/// The lazy
 /// page list recycles a [PdfPageView]'s State when it scrolls out of view and
 /// re-creates it on the way back, dropping the State's cached picture — so
 /// without this every scroll-back re-asks the worker to decode the page from
@@ -406,10 +421,9 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
 
   // LinkedHashMap iteration order doubles as LRU order: a hit re-inserts to
   // the end, eviction takes the oldest (first) key.
-  final _cache = <(int, bool, bool, int, int?), _CachedRecord>{};
+  final _cache = <_RecordCacheKey, _CachedRecord>{};
   // Keys whose decode is running now, so concurrent requests share one decode.
-  final _inflight =
-      <(int, bool, bool, int, int?), Future<List<PdfRenderCommand>?>>{};
+  final _inflight = <_RecordCacheKey, Future<List<PdfRenderCommand>?>>{};
   int _bytes = 0;
 
   @override
@@ -437,27 +451,34 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
-      int? commandLimit}) {
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) {
     if (!_inner.isActive) {
       return _inner.record(pageIndex,
           annotations: annotations,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
           decodeImages: decodeImages,
-          commandLimit: commandLimit);
+          commandLimit: commandLimit,
+          imageDecodeRegion: imageDecodeRegion);
     }
     final effectiveCommandLimit = decodeImages ? null : commandLimit;
+    final effectiveRegion = decodeImages ? imageDecodeRegion : null;
     final key = (
       pageIndex,
       annotations,
       decodeImages,
       _ratioBucket(imagePixelRatio),
       effectiveCommandLimit,
+      _regionBucket(effectiveRegion),
     );
-    final hit = _cache.remove(key);
+    final hit = _takeCached(key);
     if (hit != null) {
-      _cache[key] = hit; // re-insert: now most-recently used
       return Future.value(hit.commands);
+    }
+    if (key.$6 != null) {
+      final reusable = _takeCachedWeightless(_withoutRegion(key));
+      if (reusable != null) return Future.value(reusable.commands);
     }
     final pending = _inflight[key];
     if (pending != null) return pending; // a decode for this key is running
@@ -465,25 +486,33 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
         annotations: annotations,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
-        decodeImages: decodeImages);
+        decodeImages: decodeImages,
+        imageDecodeRegion: effectiveRegion);
     _inflight[key] = future;
     return future;
   }
 
   Future<List<PdfRenderCommand>?> _recordAndStore(
-      (int, bool, bool, int, int?) key, int pageIndex,
+      _RecordCacheKey key, int pageIndex,
       {required bool annotations,
       required int priority,
       required double? imagePixelRatio,
-      required bool decodeImages}) async {
+      required bool decodeImages,
+      required PdfRect? imageDecodeRegion}) async {
     try {
       final commands = await _inner.record(pageIndex,
           annotations: annotations,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
           decodeImages: decodeImages,
-          commandLimit: key.$5);
-      if (commands != null) _store(key, commands);
+          commandLimit: key.$5,
+          imageDecodeRegion: imageDecodeRegion);
+      if (commands != null) {
+        final weight = _weigh(commands);
+        final storeKey =
+            key.$6 != null && weight == 0 ? _withoutRegion(key) : key;
+        _store(storeKey, commands, weight);
+      }
       return commands;
     } finally {
       _inflight.remove(key);
@@ -502,10 +531,27 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
     _inner.dispose();
   }
 
+  _CachedRecord? _takeCached(_RecordCacheKey key) {
+    final hit = _cache.remove(key);
+    if (hit != null) {
+      _cache[key] = hit; // re-insert: now most-recently used
+    }
+    return hit;
+  }
+
+  _CachedRecord? _takeCachedWeightless(_RecordCacheKey key) {
+    final hit = _cache[key];
+    if (hit == null || hit.weight != 0) return null;
+    _cache.remove(key);
+    _cache[key] = hit; // re-insert: now most-recently used
+    return hit;
+  }
+
   void _store(
-      (int, bool, bool, int, int?) key, List<PdfRenderCommand> commands) {
-    final weight = _weigh(commands);
+      _RecordCacheKey key, List<PdfRenderCommand> commands, int weight) {
     if (weight > _budgetBytes) return; // one page bigger than the cache itself
+    final previous = _cache.remove(key);
+    if (previous != null) _bytes -= previous.weight;
     _cache[key] = _CachedRecord(commands, weight);
     _bytes += weight;
     // Evict the least-recently-used entries that actually hold bytes until
@@ -527,8 +573,7 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
   /// The least-recently-used key whose buffer holds decoded bytes (weight > 0),
   /// other than [except] (the entry just inserted, which we keep). Null when no
   /// such entry exists — every remaining buffer is costless, so eviction stops.
-  (int, bool, bool, int, int?)? _oldestHeavyKey(
-      {required (int, bool, bool, int, int?) except}) {
+  _RecordCacheKey? _oldestHeavyKey({required _RecordCacheKey except}) {
     for (final entry in _cache.entries) {
       if (entry.value.weight > 0 && entry.key != except) return entry.key;
     }
@@ -540,6 +585,12 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
   /// bucket. Null (vector-first pass, no decode) gets its own bucket.
   static int _ratioBucket(double? ratio) =>
       ratio == null ? -1 : (ratio * 8).round();
+
+  static _RegionBucket? _regionBucket(PdfRect? region) =>
+      region == null ? null : _RegionBucket(region);
+
+  static _RecordCacheKey _withoutRegion(_RecordCacheKey key) =>
+      (key.$1, key.$2, key.$3, key.$4, key.$5, null);
 
   /// A buffer's weight ≈ its decoded image bytes (premultiplied RGBA), which
   /// dominate; command objects themselves are negligible. Recurses soft-mask
@@ -566,4 +617,30 @@ class _CachedRecord {
   _CachedRecord(this.commands, this.weight);
   final List<PdfRenderCommand> commands;
   final int weight;
+}
+
+class _RegionBucket {
+  _RegionBucket(PdfRect region)
+      : left = _bucket(region.left),
+        bottom = _bucket(region.bottom),
+        right = _bucket(region.right),
+        top = _bucket(region.top);
+
+  final int left;
+  final int bottom;
+  final int right;
+  final int top;
+
+  static int _bucket(double value) => (value * 4).round();
+
+  @override
+  bool operator ==(Object other) =>
+      other is _RegionBucket &&
+      other.left == left &&
+      other.bottom == bottom &&
+      other.right == right &&
+      other.top == top;
+
+  @override
+  int get hashCode => Object.hash(left, bottom, right, top);
 }

@@ -680,6 +680,28 @@ class _PdfPageViewState extends State<PdfPageView> {
     ratio =
         math.min(ratio, _maxDimension / math.max(region.width, region.height));
 
+    final workerPicture =
+        await _detailPictureFromWorker(region, ratio, widget.previewIndex);
+    if (!mounted || generation != _detailGeneration) {
+      workerPicture?.dispose();
+      return;
+    }
+    if (workerPicture != null) {
+      final image =
+          await PdfPageRenderer.rasterizeRegion(workerPicture, region, ratio);
+      workerPicture.dispose();
+      if (!mounted || generation != _detailGeneration) {
+        image.dispose();
+        return;
+      }
+      setState(() {
+        _detailImage?.dispose();
+        _detailImage = image;
+        _detailFraction = fraction;
+      });
+      return;
+    }
+
     // never interpret the page for the first time inline here — that is
     // the scheduler's job (or, bare, the hold's); the next settle
     // refreshes the patch once the base picture lands
@@ -707,6 +729,58 @@ class _PdfPageViewState extends State<PdfPageView> {
       _detailImage = image;
       _detailFraction = fraction;
     });
+  }
+
+  Future<ui.Picture?> _detailPictureFromWorker(
+      Rect rasterRegion, double ratio, int pageIndex) async {
+    final worker = widget.renderWorker;
+    if (worker == null || !worker.isActive) return null;
+    final decodeRegion = _pdfRegionForRasterRegion(rasterRegion);
+    final commands = await worker.record(pageIndex,
+        annotations: widget.showAnnotations,
+        priority: widget.renderPriority,
+        imagePixelRatio: ratio,
+        imageDecodeRegion: decodeRegion);
+    if (_abandoned(pageIndex) || commands == null) return null;
+    _logImageStats(pageIndex, commands);
+    return PdfPageRenderer.pictureFromCommands(widget.page, commands,
+        pageColor: widget.pageColor, rotation: widget.rotation);
+  }
+
+  PdfRect _pdfRegionForRasterRegion(Rect region) {
+    final box = widget.page.cropBox;
+    final rotation =
+        ((widget.rotation ?? widget.page.rotation) % 360 + 360) % 360;
+    final points = <(double, double)>[
+      _pdfPointForRasterPoint(region.left, region.top, box, rotation),
+      _pdfPointForRasterPoint(region.right, region.top, box, rotation),
+      _pdfPointForRasterPoint(region.right, region.bottom, box, rotation),
+      _pdfPointForRasterPoint(region.left, region.bottom, box, rotation),
+    ];
+    var left = points.first.$1;
+    var right = points.first.$1;
+    var bottom = points.first.$2;
+    var top = points.first.$2;
+    for (final p in points.skip(1)) {
+      left = math.min(left, p.$1);
+      right = math.max(right, p.$1);
+      bottom = math.min(bottom, p.$2);
+      top = math.max(top, p.$2);
+    }
+    return PdfRect(left, bottom, right, top);
+  }
+
+  (double, double) _pdfPointForRasterPoint(
+      double x, double y, PdfRect box, int rotation) {
+    final w = box.width;
+    final h = box.height;
+    final (u, v) = switch (rotation) {
+      90 => (y, h - x),
+      180 => (w - x, h - y),
+      270 => (w - y, x),
+      _ => (x, y),
+    };
+    return (box.left + u, box.top - v);
   }
 
   @override

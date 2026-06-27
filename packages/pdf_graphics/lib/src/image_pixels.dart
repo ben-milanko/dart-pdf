@@ -184,12 +184,48 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   final dict = stream.dictionary;
   final width = _intOf(cos.resolve(dict['Width']));
   final height = _intOf(cos.resolve(dict['Height']));
+  return decodePdfImagePixelsRegionScaled(
+      cos, stream, 0, 0, width, height, targetWidth, targetHeight,
+      wholeImageOnlyIfDownscaled: true);
+}
+
+/// Decodes a rectangular source-region of a simple Flate/raw image directly to
+/// [targetWidth]×[targetHeight], or returns null when the stream needs the full
+/// general decoder.
+///
+/// [sourceX], [sourceY], [sourceWidth], and [sourceHeight] are native image
+/// pixels in the same top-left origin as decoded image samples. Unlike
+/// [decodePdfImagePixelsScaled], this may return a result even when
+/// [targetWidth]×[targetHeight] is the same size as the requested region: the
+/// crop itself is the saving. Used by deep-zoom worker detail renders, where a
+/// visible page slice should not ship the whole raster underlay.
+PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
+  CosDocument cos,
+  CosStream stream,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight, {
+  bool wholeImageOnlyIfDownscaled = false,
+}) {
+  final dict = stream.dictionary;
+  final width = _intOf(cos.resolve(dict['Width']));
+  final height = _intOf(cos.resolve(dict['Height']));
   if (width <= 0 || height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
     return null;
   }
-  var tw = targetWidth.clamp(1, width);
-  var th = targetHeight.clamp(1, height);
-  if (tw >= width && th >= height) return null;
+  final sx = sourceX.clamp(0, width - 1);
+  final sy = sourceY.clamp(0, height - 1);
+  final sw = sourceWidth.clamp(1, width - sx);
+  final sh = sourceHeight.clamp(1, height - sy);
+  var tw = targetWidth.clamp(1, sw);
+  var th = targetHeight.clamp(1, sh);
+  final wholeImage = sx == 0 && sy == 0 && sw == width && sh == height;
+  if (wholeImage && wholeImageOnlyIfDownscaled && tw >= width && th >= height) {
+    return null;
+  }
 
   final filters = pdfImageFilters(cos, dict);
   if (filters.length != 1 ||
@@ -202,14 +238,17 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   if (!isMask && dict.containsKey('SMask')) return null;
 
   final data = cos.decodeStreamData(stream);
-  if (isMask) return _scaledImageMask(cos, dict, data, width, height, tw, th);
+  if (isMask) {
+    return _scaledImageMaskRegion(
+        cos, dict, data, width, height, sx, sy, sw, sh, tw, th);
+  }
 
   final bits = _intOf(cos.resolve(dict['BitsPerComponent']), fallback: 8);
   final space = pdfImageColorFamily(cos, dict);
   if (space == 'Indexed' && bits == 1) {
     if (mask is! CosNull && mask is! CosStream) return null;
-    return _scaledIndexed1(cos, dict, data, width, height, tw, th,
-        mask is CosStream ? mask : null);
+    return _scaledIndexed1Region(cos, dict, data, width, height, sx, sy, sw, sh,
+        tw, th, mask is CosStream ? mask : null);
   }
   if (mask is! CosNull) return null;
   if (bits != 8) return null;
@@ -223,8 +262,8 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   if (pdfImageDecodeRanges(cos, dict, components) != null) return null;
 
   return switch (components) {
-    3 => _scaledRgb8(data, width, height, tw, th),
-    1 => _scaledGray8(data, width, height, tw, th),
+    3 => _scaledRgb8Region(data, width, height, sx, sy, sw, sh, tw, th),
+    1 => _scaledGray8Region(data, width, height, sx, sy, sw, sh, tw, th),
     _ => null,
   };
 }
@@ -305,18 +344,29 @@ PdfDecodedPixels downsamplePdfDecodedPixels(
   return PdfDecodedPixels(dst, tw, th);
 }
 
-PdfDecodedPixels? _scaledRgb8(
-    Uint8List data, int width, int height, int targetWidth, int targetHeight) {
+PdfDecodedPixels? _scaledRgb8Region(
+  Uint8List data,
+  int width,
+  int height,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
   if (data.length < width * height * 3) return null;
   final out = Uint8List(targetWidth * targetHeight * 4);
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
-    final sy = _sourceCoord(y, height, targetHeight);
+    final sy =
+        _sourceCoordInRegion(y, sourceY, sourceHeight, height, targetHeight);
     final y0 = sy.$1;
     final y1 = sy.$2;
     final wy = sy.$3;
     for (var x = 0; x < targetWidth; x++) {
-      final sx = _sourceCoord(x, width, targetWidth);
+      final sx =
+          _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
       final x0 = sx.$1;
       final x1 = sx.$2;
       final wx = sx.$3;
@@ -337,18 +387,29 @@ PdfDecodedPixels? _scaledRgb8(
   return PdfDecodedPixels(out, targetWidth, targetHeight);
 }
 
-PdfDecodedPixels? _scaledGray8(
-    Uint8List data, int width, int height, int targetWidth, int targetHeight) {
+PdfDecodedPixels? _scaledGray8Region(
+  Uint8List data,
+  int width,
+  int height,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
   if (data.length < width * height) return null;
   final out = Uint8List(targetWidth * targetHeight * 4);
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
-    final sy = _sourceCoord(y, height, targetHeight);
+    final sy =
+        _sourceCoordInRegion(y, sourceY, sourceHeight, height, targetHeight);
     final y0 = sy.$1;
     final y1 = sy.$2;
     final wy = sy.$3;
     for (var x = 0; x < targetWidth; x++) {
-      final sx = _sourceCoord(x, width, targetWidth);
+      final sx =
+          _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
       final x0 = sx.$1;
       final x1 = sx.$2;
       final wx = sx.$3;
@@ -362,12 +423,16 @@ PdfDecodedPixels? _scaledGray8(
   return PdfDecodedPixels(out, targetWidth, targetHeight);
 }
 
-PdfDecodedPixels? _scaledIndexed1(
+PdfDecodedPixels? _scaledIndexed1Region(
   CosDocument cos,
   CosDictionary dict,
   Uint8List data,
   int width,
   int height,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
   int targetWidth,
   int targetHeight,
   CosStream? mask,
@@ -403,10 +468,14 @@ PdfDecodedPixels? _scaledIndexed1(
   final out = Uint8List(targetWidth * targetHeight * 4);
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
-    final sy = ((y + 0.5) * height / targetHeight).floor().clamp(0, height - 1);
+    final sy = (sourceY + (y + 0.5) * sourceHeight / targetHeight)
+        .floor()
+        .clamp(0, height - 1);
     final row = sy * rowBytes;
     for (var x = 0; x < targetWidth; x++) {
-      final sx = ((x + 0.5) * width / targetWidth).floor().clamp(0, width - 1);
+      final sx = (sourceX + (x + 0.5) * sourceWidth / targetWidth)
+          .floor()
+          .clamp(0, width - 1);
       final bit = (data[row + (sx >> 3)] >> (7 - (sx & 7))) & 1;
       final index = bit >= paletteCount ? 0 : bit;
 
@@ -428,8 +497,19 @@ PdfDecodedPixels? _scaledIndexed1(
   return PdfDecodedPixels(out, targetWidth, targetHeight);
 }
 
-PdfDecodedPixels? _scaledImageMask(CosDocument cos, CosDictionary dict,
-    Uint8List data, int width, int height, int targetWidth, int targetHeight) {
+PdfDecodedPixels? _scaledImageMaskRegion(
+  CosDocument cos,
+  CosDictionary dict,
+  Uint8List data,
+  int width,
+  int height,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
   final rowBytes = (width + 7) ~/ 8;
   if (data.length < rowBytes * height) return null;
   final decode = cos.resolve(dict['Decode']);
@@ -439,9 +519,13 @@ PdfDecodedPixels? _scaledImageMask(CosDocument cos, CosDictionary dict,
   final out = Uint8List(targetWidth * targetHeight * 4);
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
-    final sy = ((y + 0.5) * height / targetHeight).floor().clamp(0, height - 1);
+    final sy = (sourceY + (y + 0.5) * sourceHeight / targetHeight)
+        .floor()
+        .clamp(0, height - 1);
     for (var x = 0; x < targetWidth; x++) {
-      final sx = ((x + 0.5) * width / targetWidth).floor().clamp(0, width - 1);
+      final sx = (sourceX + (x + 0.5) * sourceWidth / targetWidth)
+          .floor()
+          .clamp(0, width - 1);
       final bit = (data[sy * rowBytes + (sx >> 3)] >> (7 - (sx & 7))) & 1;
       final paint = inverted ? bit == 1 : bit == 0;
       final v = paint ? 255 : 0;
@@ -453,10 +537,16 @@ PdfDecodedPixels? _scaledImageMask(CosDocument cos, CosDictionary dict,
   return PdfDecodedPixels(out, targetWidth, targetHeight);
 }
 
-(int, int, double) _sourceCoord(int dst, int srcSize, int dstSize) {
-  final p = (dst + 0.5) * srcSize / dstSize - 0.5;
-  final i0 = p.floor().clamp(0, srcSize - 1);
-  final i1 = (i0 + 1).clamp(0, srcSize - 1);
+(int, int, double) _sourceCoordInRegion(
+  int dst,
+  int sourceStart,
+  int sourceSize,
+  int fullSize,
+  int dstSize,
+) {
+  final p = sourceStart + (dst + 0.5) * sourceSize / dstSize - 0.5;
+  final i0 = p.floor().clamp(0, fullSize - 1);
+  final i1 = (i0 + 1).clamp(0, fullSize - 1);
   return (i0, i1, p - i0);
 }
 

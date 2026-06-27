@@ -308,6 +308,84 @@ void main() {
       expect(restored.request.decoded!.rgba, decoded.rgba);
     });
 
+    test('imageDecodeRegion crops pixels and retargets the image transform',
+        () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final raw = <int>[];
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          raw.addAll([x * 40, y * 50, 7]);
+        }
+      }
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(raw)),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(400, 0, 0, 400, 100, 200),
+      ));
+
+      final bytes = serializeCommands([command],
+          cos: cos,
+          decodeImages: true,
+          maxImagePixelRatio: 100,
+          imageDecodeRegion: const PdfRect(200, 300, 300, 400));
+
+      expect(bytes, isNotNull);
+      final restored = _imageCommands(deserializeCommands(bytes!)).single;
+      final transform = restored.request.transform;
+      expect(transform.a, 100);
+      expect(transform.b, 0);
+      expect(transform.c, 0);
+      expect(transform.d, 100);
+      expect(transform.e, 200);
+      expect(transform.f, 300);
+
+      final decoded = restored.request.decoded!;
+      expect(decoded.width, 1);
+      expect(decoded.height, 1);
+      expect(decoded.rgba, [40, 100, 7, 255]);
+    });
+
+    test('imageDecodeRegion skips off-region images with transparent pixels',
+        () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode([255, 0, 0])),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(10, 0, 0, 10, 0, 0),
+      ));
+
+      final bytes = serializeCommands([command],
+          cos: cos,
+          decodeImages: true,
+          maxImagePixelRatio: 1,
+          imageDecodeRegion: const PdfRect(100, 100, 110, 110));
+
+      expect(bytes, isNotNull);
+      final decoded =
+          _imageCommands(deserializeCommands(bytes!)).single.request.decoded!;
+      expect(decoded.width, 1);
+      expect(decoded.height, 1);
+      expect(decoded.rgba, [0, 0, 0, 0]);
+    });
+
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/'
           'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',

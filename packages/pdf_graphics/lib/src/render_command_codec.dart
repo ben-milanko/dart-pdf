@@ -97,10 +97,14 @@ class _UnserializableImage implements Exception {
 /// 100+ megapixels, which is what otherwise blocks the (single-threaded, on
 /// web) raster thread for hundreds of milliseconds every time a settled scroll
 /// re-rasters the page. Null leaves images at native resolution (the historic
-/// behavior). Only consulted when [decodeImages] is true. The deep-zoom detail
-/// patch re-rasters the visible region from the same picture, so under deep
-/// zoom an image softens at this cap rather than re-decoding sharper — the
-/// accepted trade for smooth panning of image-heavy sheets.
+/// behavior). Only consulted when [decodeImages] is true.
+///
+/// [imageDecodeRegion], when supplied, is a PDF page-space rectangle for the
+/// visible detail patch. Axis-aligned image draws are decoded only for the
+/// intersecting source pixels and their image transform is retargeted to the
+/// cropped page area; unsupported transforms fall back to the full scaled
+/// decode. The total decoded-image budget is also reduced to the region's own
+/// raster footprint, rather than the full-page raster budget.
 /// The page raster never exceeds this many pixels (the viewer's full-page
 /// raster cap), so it is also the natural unit for the page image budget.
 const int _maxImagePixels = 1 << 24;
@@ -116,10 +120,28 @@ const int _maxImagePixels = 1 << 24;
 /// cost of a bigger payload.
 const double _imageBudgetFactor = 1.0;
 
+int _imageBudgetPixels(double ratio, double factor,
+    {PdfRect? imageDecodeRegion}) {
+  var budget = (factor * _maxImagePixels).round();
+  if (imageDecodeRegion != null &&
+      imageDecodeRegion.width > 0 &&
+      imageDecodeRegion.height > 0 &&
+      ratio > 0) {
+    final regionPixels =
+        (imageDecodeRegion.width * imageDecodeRegion.height * ratio * ratio)
+            .round();
+    if (regionPixels > 0 && regionPixels < budget) {
+      budget = (factor * regionPixels).round().clamp(1, budget);
+    }
+  }
+  return budget;
+}
+
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     {CosDocument? cos,
     bool decodeImages = false,
     double? maxImagePixelRatio,
+    PdfRect? imageDecodeRegion,
     double imageBudgetFactor = _imageBudgetFactor,
     bool imagePlaceholders = false,
     int? commandLimit}) {
@@ -131,13 +153,19 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
   // overflow the budget.
   var budgetScale = 1.0;
   if (decodeImages && maxImagePixelRatio != null && cos != null) {
-    budgetScale = _imageBudgetScale(commands, cos, maxImagePixelRatio,
-        (imageBudgetFactor * _maxImagePixels).round());
+    budgetScale = _imageBudgetScale(
+        commands,
+        cos,
+        maxImagePixelRatio,
+        _imageBudgetPixels(maxImagePixelRatio, imageBudgetFactor,
+            imageDecodeRegion: imageDecodeRegion),
+        imageDecodeRegion: imageDecodeRegion);
   }
   try {
     _writeCommands(w, commands, cos,
         decode: decodeImages,
         maxImageRatio: maxImagePixelRatio,
+        imageDecodeRegion: imageDecodeRegion,
         budgetScale: budgetScale,
         imagePlaceholders: imagePlaceholders && !decodeImages,
         commandLimit: commandLimit);
@@ -155,19 +183,27 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
 /// conservative when those are mixed in — acceptable, and they are rare on the
 /// raster-tiled sheets this targets.
 double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
-    double ratio, int budgetPixels) {
+    double ratio, int budgetPixels,
+    {PdfRect? imageDecodeRegion}) {
   var total = 0;
   void walk(List<PdfRenderCommand> cmds) {
     for (final c in cmds) {
       if (c is PdfDrawImageCommand) {
-        final size = _declaredImageSize(cos, c.request.stream);
-        if (size == null) continue;
-        final t = c.request.transform;
-        final wPts = math.sqrt(t.a * t.a + t.b * t.b);
-        final hPts = math.sqrt(t.c * t.c + t.d * t.d);
-        final (tw, th) =
-            cappedImagePixelSize(size.$1, size.$2, wPts, hPts, ratio);
-        total += tw * th;
+        final regionPlan = imageDecodeRegion == null
+            ? null
+            : _imageRegionPlan(cos, c.request, imageDecodeRegion, ratio, 1);
+        if (regionPlan != null) {
+          total += regionPlan.targetWidth * regionPlan.targetHeight;
+        } else {
+          final size = _declaredImageSize(cos, c.request.stream);
+          if (size == null) continue;
+          final t = c.request.transform;
+          final wPts = math.sqrt(t.a * t.a + t.b * t.b);
+          final hPts = math.sqrt(t.c * t.c + t.d * t.d);
+          final (tw, th) =
+              cappedImagePixelSize(size.$1, size.$2, wPts, hPts, ratio);
+          total += tw * th;
+        }
       } else if (c is PdfEndSoftMaskedCommand) {
         walk(c.maskCommands);
       }
@@ -233,6 +269,7 @@ void _writeCommands(
     _Writer w, List<PdfRenderCommand> commands, CosDocument? cos,
     {bool decode = false,
     double? maxImageRatio,
+    PdfRect? imageDecodeRegion,
     double budgetScale = 1.0,
     bool imagePlaceholders = false,
     int? commandLimit}) {
@@ -245,6 +282,7 @@ void _writeCommands(
     _writeCommand(w, command, cos,
         decode: decode,
         maxImageRatio: maxImageRatio,
+        imageDecodeRegion: imageDecodeRegion,
         budgetScale: budgetScale,
         imagePlaceholders: imagePlaceholders);
   }
@@ -262,6 +300,7 @@ List<PdfRenderCommand> _readCommands(_Reader r) {
 void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
     {bool decode = false,
     double? maxImageRatio,
+    PdfRect? imageDecodeRegion,
     double budgetScale = 1.0,
     bool imagePlaceholders = false}) {
   switch (command) {
@@ -324,21 +363,21 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
         _writeImageCommand(w, request, _imagePlaceholderStream, null);
       } else {
         final document = cos;
+        _CommandImage? decodedImage;
+        if (decode) {
+          decodedImage = _decodeImageForCommand(
+              document, request, maxImageRatio, budgetScale, imageDecodeRegion);
+        }
         CosObject inlined;
         try {
-          inlined = _inlineCos(document, request.stream, 0);
+          inlined = decodedImage?.streamForKey ??
+              _inlineCos(document, request.stream, 0);
         } catch (_) {
           if (!imagePlaceholders) throw const _UnserializableImage();
           inlined = _imagePlaceholderStream;
         }
-        _writeImageCommand(
-            w,
-            request,
-            inlined,
-            decode
-                ? _decodeImageForCommand(
-                    document, request, maxImageRatio, budgetScale)
-                : null);
+        _writeImageCommand(w, decodedImage?.request ?? request, inlined,
+            decodedImage?.decoded);
       }
     case PdfSetBlendModeCommand(:final mode):
       w.u8(_tSetBlendMode);
@@ -368,23 +407,60 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       _writeCommands(w, maskCommands, cos,
           decode: decode,
           maxImageRatio: maxImageRatio,
+          imageDecodeRegion: imageDecodeRegion,
           budgetScale: budgetScale,
           imagePlaceholders: imagePlaceholders); // nested
   }
 }
 
-PdfDecodedPixels? _decodeImageForCommand(
+_CommandImage? _decodeImageForCommand(
   CosDocument document,
   PdfImageRequest request,
   double? maxImageRatio,
   double budgetScale,
+  PdfRect? imageDecodeRegion,
 ) {
   final predecoded = request.decoded;
+  final regionPlan = imageDecodeRegion == null
+      ? null
+      : _imageRegionPlan(
+          document, request, imageDecodeRegion, maxImageRatio, budgetScale);
+  if (regionPlan != null) {
+    final decoded = regionPlan.outside
+        ? _transparentPixel
+        : predecoded == null
+            ? decodePdfImagePixelsRegionScaled(
+                document,
+                request.stream,
+                regionPlan.sourceX,
+                regionPlan.sourceY,
+                regionPlan.sourceWidth,
+                regionPlan.sourceHeight,
+                regionPlan.targetWidth,
+                regionPlan.targetHeight,
+              )
+            : _cropDownsampleDecodedPixels(
+                predecoded,
+                regionPlan.sourceX,
+                regionPlan.sourceY,
+                regionPlan.sourceWidth,
+                regionPlan.sourceHeight,
+                regionPlan.targetWidth,
+                regionPlan.targetHeight,
+              );
+    if (decoded != null) {
+      final croppedRequest = _copyImageRequest(request,
+          transform: regionPlan.transform, decoded: decoded);
+      return _CommandImage(croppedRequest, decoded,
+          _regionKeyStream(request, regionPlan, decoded));
+    }
+  }
   if (predecoded != null) {
-    return maxImageRatio == null
+    final decoded = maxImageRatio == null
         ? predecoded
         : _capImageResolution(
             predecoded, request.transform, maxImageRatio, budgetScale);
+    return _CommandImage(_copyImageRequest(request, decoded: decoded), decoded);
   }
   if (maxImageRatio != null) {
     final target =
@@ -392,13 +468,19 @@ PdfDecodedPixels? _decodeImageForCommand(
     if (target != null) {
       final scaled = decodePdfImagePixelsScaled(
           document, request.stream, target.$1, target.$2);
-      if (scaled != null) return scaled;
+      if (scaled != null) {
+        return _CommandImage(
+            _copyImageRequest(request, decoded: scaled), scaled);
+      }
     }
   }
   final decoded = decodePdfImagePixels(document, request.stream);
-  if (decoded == null || maxImageRatio == null) return decoded;
-  return _capImageResolution(
-      decoded, request.transform, maxImageRatio, budgetScale);
+  if (decoded == null) return null;
+  final capped = maxImageRatio == null
+      ? decoded
+      : _capImageResolution(
+          decoded, request.transform, maxImageRatio, budgetScale);
+  return _CommandImage(_copyImageRequest(request, decoded: capped), capped);
 }
 
 (int, int)? _targetDecodedSize(
@@ -424,6 +506,214 @@ PdfDecodedPixels? _decodeImageForCommand(
   }
   if (tw == size.$1 && th == size.$2) return null;
   return (tw, th);
+}
+
+class _CommandImage {
+  const _CommandImage(this.request, this.decoded, [this.streamForKey]);
+
+  final PdfImageRequest request;
+  final PdfDecodedPixels decoded;
+  final CosStream? streamForKey;
+}
+
+class _ImageRegionPlan {
+  const _ImageRegionPlan({
+    required this.transform,
+    required this.sourceX,
+    required this.sourceY,
+    required this.sourceWidth,
+    required this.sourceHeight,
+    required this.targetWidth,
+    required this.targetHeight,
+    this.outside = false,
+  });
+
+  final PdfMatrix transform;
+  final int sourceX;
+  final int sourceY;
+  final int sourceWidth;
+  final int sourceHeight;
+  final int targetWidth;
+  final int targetHeight;
+  final bool outside;
+}
+
+final PdfDecodedPixels _transparentPixel =
+    PdfDecodedPixels(Uint8List.fromList([0, 0, 0, 0]), 1, 1);
+
+_ImageRegionPlan? _imageRegionPlan(
+  CosDocument document,
+  PdfImageRequest request,
+  PdfRect region,
+  double? ratio,
+  double budgetScale,
+) {
+  final size = _declaredImageSize(document, request.stream);
+  if (size == null) return null;
+  final imageWidth = size.$1;
+  final imageHeight = size.$2;
+  final t = request.transform;
+  const eps = 1e-9;
+  if (t.a.abs() <= eps ||
+      t.d.abs() <= eps ||
+      t.b.abs() > eps ||
+      t.c.abs() > eps) {
+    return null;
+  }
+
+  final imageLeft = math.min(t.e, t.e + t.a);
+  final imageRight = math.max(t.e, t.e + t.a);
+  final imageBottom = math.min(t.f, t.f + t.d);
+  final imageTop = math.max(t.f, t.f + t.d);
+  final visible =
+      PdfRect(imageLeft, imageBottom, imageRight, imageTop).intersect(region);
+  if (visible.width <= eps || visible.height <= eps) {
+    return _ImageRegionPlan(
+      transform: t,
+      sourceX: 0,
+      sourceY: 0,
+      sourceWidth: 1,
+      sourceHeight: 1,
+      targetWidth: 1,
+      targetHeight: 1,
+      outside: true,
+    );
+  }
+
+  final u0 = ((visible.left - t.e) / t.a).clamp(0.0, 1.0);
+  final u1 = ((visible.right - t.e) / t.a).clamp(0.0, 1.0);
+  final v0 = ((visible.bottom - t.f) / t.d).clamp(0.0, 1.0);
+  final v1 = ((visible.top - t.f) / t.d).clamp(0.0, 1.0);
+  final uMin = math.min(u0, u1);
+  final uMax = math.max(u0, u1);
+  final vMin = math.min(v0, v1);
+  final vMax = math.max(v0, v1);
+  if (uMax <= uMin || vMax <= vMin) return null;
+
+  final sx0 = (uMin * imageWidth).floor().clamp(0, imageWidth - 1);
+  final sx1 = (uMax * imageWidth).ceil().clamp(sx0 + 1, imageWidth);
+  // PDF image space is y-up; decoded samples are top-down. The visible v-range
+  // therefore maps to source rows [1-vMax, 1-vMin).
+  final sy0 = ((1 - vMax) * imageHeight).floor().clamp(0, imageHeight - 1);
+  final sy1 = ((1 - vMin) * imageHeight).ceil().clamp(sy0 + 1, imageHeight);
+  final sourceWidth = sx1 - sx0;
+  final sourceHeight = sy1 - sy0;
+  final unitX = sx0 / imageWidth;
+  final unitY = 1 - sy1 / imageHeight;
+  final unitWidth = sourceWidth / imageWidth;
+  final unitHeight = sourceHeight / imageHeight;
+  final croppedTransform =
+      PdfMatrix(unitWidth, 0, 0, unitHeight, unitX, unitY).concat(t);
+
+  var targetWidth = sourceWidth;
+  var targetHeight = sourceHeight;
+  if (ratio != null) {
+    final widthPts = math.sqrt(croppedTransform.a * croppedTransform.a +
+        croppedTransform.b * croppedTransform.b);
+    final heightPts = math.sqrt(croppedTransform.c * croppedTransform.c +
+        croppedTransform.d * croppedTransform.d);
+    final capped = cappedImagePixelSize(
+        sourceWidth, sourceHeight, widthPts, heightPts, ratio);
+    targetWidth = capped.$1;
+    targetHeight = capped.$2;
+    if (budgetScale < 1.0) {
+      targetWidth = (targetWidth * budgetScale).ceil().clamp(1, sourceWidth);
+      targetHeight = (targetHeight * budgetScale).ceil().clamp(1, sourceHeight);
+    }
+  }
+  return _ImageRegionPlan(
+    transform: croppedTransform,
+    sourceX: sx0,
+    sourceY: sy0,
+    sourceWidth: sourceWidth,
+    sourceHeight: sourceHeight,
+    targetWidth: targetWidth,
+    targetHeight: targetHeight,
+  );
+}
+
+PdfImageRequest _copyImageRequest(
+  PdfImageRequest request, {
+  PdfMatrix? transform,
+  PdfDecodedPixels? decoded,
+}) =>
+    PdfImageRequest(
+      stream: request.stream,
+      transform: transform ?? request.transform,
+      alpha: request.alpha,
+      isStencil: request.isStencil,
+      stencilColor: request.stencilColor,
+      isInline: request.isInline,
+      decoded: decoded ?? request.decoded,
+    );
+
+PdfDecodedPixels? _cropDownsampleDecodedPixels(
+  PdfDecodedPixels decoded,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
+  if (sourceX < 0 ||
+      sourceY < 0 ||
+      sourceWidth <= 0 ||
+      sourceHeight <= 0 ||
+      sourceX + sourceWidth > decoded.width ||
+      sourceY + sourceHeight > decoded.height) {
+    return null;
+  }
+  final cropped = Uint8List(sourceWidth * sourceHeight * 4);
+  for (var y = 0; y < sourceHeight; y++) {
+    final srcOffset = ((sourceY + y) * decoded.width + sourceX) * 4;
+    final dstOffset = y * sourceWidth * 4;
+    cropped.setRange(
+        dstOffset, dstOffset + sourceWidth * 4, decoded.rgba, srcOffset);
+  }
+  final pixels = PdfDecodedPixels(cropped, sourceWidth, sourceHeight);
+  return downsamplePdfDecodedPixels(pixels, targetWidth, targetHeight);
+}
+
+CosStream _regionKeyStream(
+  PdfImageRequest request,
+  _ImageRegionPlan plan,
+  PdfDecodedPixels decoded,
+) {
+  final key = [
+    'region-v1',
+    _streamFingerprint(request.stream),
+    plan.sourceX,
+    plan.sourceY,
+    plan.sourceWidth,
+    plan.sourceHeight,
+    decoded.width,
+    decoded.height,
+    plan.transform.a,
+    plan.transform.b,
+    plan.transform.c,
+    plan.transform.d,
+    plan.transform.e,
+    plan.transform.f,
+    plan.outside,
+  ].join('|');
+  return CosStream(
+    CosDictionary({
+      'DartPdfRegionKey': CosString(Uint8List.fromList(utf8.encode(key))),
+    }),
+    Uint8List(0),
+  );
+}
+
+String _streamFingerprint(CosStream stream) {
+  var hash = 0x811c9dc5;
+  const prime = 0x01000193;
+  final bytes = stream.rawBytes;
+  for (final b in bytes) {
+    hash ^= b;
+    hash = (hash * prime) & 0xffffffff;
+  }
+  return '${stream.dictionary}|${bytes.length}|$hash';
 }
 
 void _writeImageCommand(_Writer w, PdfImageRequest request, CosObject inlined,

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'render_worker.dart';
@@ -21,7 +22,8 @@ class _NullRenderWorker implements PdfRenderWorker {
           int priority = 0,
           double? imagePixelRatio,
           bool decodeImages = true,
-          int? commandLimit}) async =>
+          int? commandLimit,
+          PdfRect? imageDecodeRegion}) async =>
       null;
 
   @override
