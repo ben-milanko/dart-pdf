@@ -33,6 +33,7 @@ class PdfPageView extends StatefulWidget {
     this.onRasterReady,
     this.renderHold,
     this.renderScheduler,
+    this.renderPriority = 0,
     this.previewCache,
     this.previewIndex = 0,
     this.pageEpoch = 0,
@@ -117,6 +118,11 @@ class PdfPageView extends StatefulWidget {
   /// [PdfPageRenderScheduler]). Re-rasters of an already-interpreted page
   /// bypass it. Null falls back to [renderHold].
   final PdfPageRenderScheduler? renderScheduler;
+
+  /// Worker queue priority for this page's on-screen record requests. Lower
+  /// values win. The viewer ranks the page nearest the viewport above cache-
+  /// window neighbours so a long jump paints the destination first.
+  final int renderPriority;
 
   /// Called whenever a full-page raster for the current [page] object
   /// lands on screen. Lets the editing overlay hold its just-committed
@@ -211,6 +217,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (next == null) return; // keep whatever we already hold
     _preview?.dispose();
     _preview = next;
+    PdfPerfLog.log('preview-paint page=${widget.previewIndex}');
   }
 
   @override
@@ -256,7 +263,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       // this slot): cancel the old page's queued worker request — the user
       // scrolled past it, so decoding it now would only delay the page now on
       // screen. The in-flight one can't be preempted; this clears the backlog.
-      oldWidget.renderWorker?.cancel(oldWidget.previewIndex, priority: 0);
+      oldWidget.renderWorker
+          ?.cancel(oldWidget.previewIndex, priority: oldWidget.renderPriority);
     }
     if (!identical(oldWidget.previewCache, widget.previewCache) ||
         oldWidget.previewIndex != widget.previewIndex) {
@@ -318,7 +326,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     // so the worker's next slot serves a page still on screen (the abandoned
     // result is ignored — _interpretPicture's !mounted guard skips the local
     // fallback). No-op if nothing is queued for it.
-    widget.renderWorker?.cancel(widget.previewIndex, priority: 0);
+    widget.renderWorker
+        ?.cancel(widget.previewIndex, priority: widget.renderPriority);
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _dropPicture();
     _image?.dispose();
@@ -421,7 +430,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       // visible region for sharper zoom).
       final commands = await worker.record(pageIndex,
           annotations: widget.showAnnotations,
-          priority: 0,
+          priority: widget.renderPriority,
           imagePixelRatio: _effectiveRatio());
       // Abandoned while the worker ran — the State was disposed or the lazy
       // list recycled it onto another page (this is the cancel() path: a
@@ -460,7 +469,9 @@ class _PdfPageViewState extends State<PdfPageView> {
     final worker = widget.renderWorker;
     if (worker == null || !worker.isActive) return;
     final commands = await worker.record(pageIndex,
-        annotations: widget.showAnnotations, priority: 0, decodeImages: false);
+        annotations: widget.showAnnotations,
+        priority: widget.renderPriority,
+        decodeImages: false);
     if (_superseded(generation, pageIndex) || commands == null) return;
 
     if (!PdfPageRenderer.hasImageDraws(commands)) {

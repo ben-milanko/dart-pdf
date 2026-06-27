@@ -122,7 +122,8 @@ abstract class PdfRenderWorker {
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true});
+      bool decodeImages = true,
+      int? commandLimit});
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
   /// [priority], completing its future with null — as if the page had declined
@@ -175,11 +176,17 @@ abstract class PdfRenderWorker {
 /// Normally wrapped in a [PdfCachingRenderWorker] (see [PdfRenderWorker.start]),
 /// which dedups concurrent requests for one page — so the cache, not the pool,
 /// prevents the same page being decoded by its worker twice at once.
+///
+/// Ultra-urgent records (currently the long-jump preview, priority -2000)
+/// bypass the ordinary pool through a lazily-created one-off worker. A page
+/// jump should not wait behind several already-started background records that
+/// cannot receive cancellation until their synchronous parse step yields.
 class PdfPooledRenderWorker implements PdfRenderWorker {
   /// Starts [size] platform workers over copies of [bytes]. [size] is clamped to
   /// at least 1; a pool of 1 is just a single worker with this routing wrapper.
   PdfPooledRenderWorker(Uint8List bytes, int size)
-      : _workers = List.generate(
+      : _urgentBytes = Uint8List.fromList(bytes),
+        _workers = List.generate(
           size < 1 ? 1 : size,
           (_) => startRenderWorker(Uint8List.fromList(bytes)),
           growable: false,
@@ -191,13 +198,18 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
   /// teardown can be exercised with fakes instead of real platform workers.
   PdfPooledRenderWorker.fromWorkers(List<PdfRenderWorker> workers)
       : assert(workers.isNotEmpty),
+        _urgentBytes = null,
         _workers = List.of(workers, growable: false) {
     _loads = List.filled(_workers.length, 0);
   }
 
+  static const int _urgentPriority = -2000;
+
+  final Uint8List? _urgentBytes;
   final List<PdfRenderWorker> _workers;
   late final List<int> _loads;
   final _routes = <(int, int), _PoolRoute>{};
+  PdfRenderWorker? _urgentWorker;
 
   /// The static mapping used for a tie/fallback. Negative indices (none are
   /// expected) map through [int.abs] so routing never throws.
@@ -262,30 +274,47 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
   /// (e.g. its watchdog gave up) only takes its own share of pages down to local
   /// rendering, the rest keep offloading.
   @override
-  bool get isActive => _workers.any((w) => w.isActive);
+  bool get isActive =>
+      _workers.any((w) => w.isActive) || (_urgentWorker?.isActive ?? false);
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) async {
+      bool decodeImages = true,
+      int? commandLimit}) async {
+    final urgent = _urgentWorkerFor(priority);
+    if (urgent != null) {
+      return urgent.record(pageIndex,
+          annotations: annotations,
+          priority: priority,
+          imagePixelRatio: imagePixelRatio,
+          decodeImages: decodeImages,
+          commandLimit: commandLimit);
+    }
     final worker = _lease(pageIndex, priority);
     try {
       return await _workers[worker].record(pageIndex,
           annotations: annotations,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
-          decodeImages: decodeImages);
+          decodeImages: decodeImages,
+          commandLimit: commandLimit);
     } finally {
       _release(pageIndex, priority, worker);
     }
   }
 
   @override
-  void cancel(int pageIndex, {int priority = 0}) =>
-      _cancelWorkerFor(pageIndex, priority)
-          .cancel(pageIndex, priority: priority);
+  void cancel(int pageIndex, {int priority = 0}) {
+    final urgent = _urgentWorkerFor(priority, start: false);
+    if (urgent != null) {
+      urgent.cancel(pageIndex, priority: priority);
+      return;
+    }
+    _cancelWorkerFor(pageIndex, priority).cancel(pageIndex, priority: priority);
+  }
 
   @override
   void dispose() {
@@ -296,6 +325,21 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
     for (final worker in _workers) {
       worker.dispose();
     }
+    _urgentWorker?.dispose();
+    _urgentWorker = null;
+  }
+
+  PdfRenderWorker? _urgentWorkerFor(int priority, {bool start = true}) {
+    if (priority > _urgentPriority) return null;
+    final existing = _urgentWorker;
+    if (existing != null) {
+      if (existing.isActive) return existing;
+      existing.dispose();
+      _urgentWorker = null;
+    }
+    final bytes = _urgentBytes;
+    if (!start || bytes == null) return null;
+    return _urgentWorker = startRenderWorker(Uint8List.fromList(bytes));
   }
 }
 
@@ -307,7 +351,8 @@ class _PoolRoute {
 }
 
 /// Wraps a [PdfRenderWorker] with an LRU cache of completed [record] results,
-/// keyed by (page, annotations, decodeImages, image-ratio bucket). The lazy
+/// keyed by (page, annotations, decodeImages, image-ratio bucket,
+/// command-limit). The lazy
 /// page list recycles a [PdfPageView]'s State when it scrolls out of view and
 /// re-creates it on the way back, dropping the State's cached picture — so
 /// without this every scroll-back re-asks the worker to decode the page from
@@ -342,32 +387,53 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
 
   // LinkedHashMap iteration order doubles as LRU order: a hit re-inserts to
   // the end, eviction takes the oldest (first) key.
-  final _cache = <(int, bool, bool, int), _CachedRecord>{};
+  final _cache = <(int, bool, bool, int, int?), _CachedRecord>{};
   // Keys whose decode is running now, so concurrent requests share one decode.
-  final _inflight = <(int, bool, bool, int), Future<List<PdfRenderCommand>?>>{};
+  final _inflight =
+      <(int, bool, bool, int, int?), Future<List<PdfRenderCommand>?>>{};
   int _bytes = 0;
 
   @override
   bool get isActive => _inner.isActive;
+
+  /// Decoded image bytes currently retained by completed cached records.
+  ///
+  /// This is intentionally the same weight used for eviction, not a full heap
+  /// estimate. It gives callers a cheap signal for whether speculative warming
+  /// is likely to evict useful full-image records before they are reused.
+  int get cachedBytes => _bytes;
+
+  /// Maximum decoded image bytes this cache tries to retain.
+  int get cacheBudgetBytes => _budgetBytes;
+
+  /// Fraction of [cacheBudgetBytes] currently occupied by decoded image data.
+  double get cachePressure {
+    if (_budgetBytes <= 0) return 1;
+    return (_bytes / _budgetBytes).clamp(0.0, 1.0).toDouble();
+  }
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) {
+      bool decodeImages = true,
+      int? commandLimit}) {
     if (!_inner.isActive) {
       return _inner.record(pageIndex,
           annotations: annotations,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
-          decodeImages: decodeImages);
+          decodeImages: decodeImages,
+          commandLimit: commandLimit);
     }
+    final effectiveCommandLimit = decodeImages ? null : commandLimit;
     final key = (
       pageIndex,
       annotations,
       decodeImages,
       _ratioBucket(imagePixelRatio),
+      effectiveCommandLimit,
     );
     final hit = _cache.remove(key);
     if (hit != null) {
@@ -386,7 +452,7 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
   }
 
   Future<List<PdfRenderCommand>?> _recordAndStore(
-      (int, bool, bool, int) key, int pageIndex,
+      (int, bool, bool, int, int?) key, int pageIndex,
       {required bool annotations,
       required int priority,
       required double? imagePixelRatio,
@@ -396,7 +462,8 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
           annotations: annotations,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
-          decodeImages: decodeImages);
+          decodeImages: decodeImages,
+          commandLimit: key.$5);
       if (commands != null) _store(key, commands);
       return commands;
     } finally {
@@ -416,7 +483,8 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
     _inner.dispose();
   }
 
-  void _store((int, bool, bool, int) key, List<PdfRenderCommand> commands) {
+  void _store(
+      (int, bool, bool, int, int?) key, List<PdfRenderCommand> commands) {
     final weight = _weigh(commands);
     if (weight > _budgetBytes) return; // one page bigger than the cache itself
     _cache[key] = _CachedRecord(commands, weight);
@@ -440,8 +508,8 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
   /// The least-recently-used key whose buffer holds decoded bytes (weight > 0),
   /// other than [except] (the entry just inserted, which we keep). Null when no
   /// such entry exists — every remaining buffer is costless, so eviction stops.
-  (int, bool, bool, int)? _oldestHeavyKey(
-      {required (int, bool, bool, int) except}) {
+  (int, bool, bool, int, int?)? _oldestHeavyKey(
+      {required (int, bool, bool, int, int?) except}) {
     for (final entry in _cache.entries) {
       if (entry.value.weight > 0 && entry.key != except) return entry.key;
     }

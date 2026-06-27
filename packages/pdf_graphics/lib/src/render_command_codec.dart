@@ -121,7 +121,8 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     bool decodeImages = false,
     double? maxImagePixelRatio,
     double imageBudgetFactor = _imageBudgetFactor,
-    bool imagePlaceholders = false}) {
+    bool imagePlaceholders = false,
+    int? commandLimit}) {
   final w = _Writer();
   w.u8(_formatVersion);
   // Page-pixel budget: a global downscale applied on top of the per-image
@@ -138,7 +139,8 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
         decode: decodeImages,
         maxImageRatio: maxImagePixelRatio,
         budgetScale: budgetScale,
-        imagePlaceholders: imagePlaceholders && !decodeImages);
+        imagePlaceholders: imagePlaceholders && !decodeImages,
+        commandLimit: commandLimit);
   } on _UnserializableImage {
     return null;
   }
@@ -232,9 +234,14 @@ void _writeCommands(
     {bool decode = false,
     double? maxImageRatio,
     double budgetScale = 1.0,
-    bool imagePlaceholders = false}) {
-  w.u32(commands.length);
-  for (final command in commands) {
+    bool imagePlaceholders = false,
+    int? commandLimit}) {
+  final length = commandLimit == null
+      ? commands.length
+      : math.min(commands.length, math.max(0, commandLimit));
+  w.u32(length);
+  for (var i = 0; i < length; i++) {
+    final command = commands[i];
     _writeCommand(w, command, cos,
         decode: decode,
         maxImageRatio: maxImageRatio,

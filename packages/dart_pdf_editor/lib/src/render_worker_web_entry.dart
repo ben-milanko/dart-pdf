@@ -74,6 +74,8 @@ void runPdfRenderWorker() {
     // Default true so an older client that doesn't send the flag still decodes.
     final decodeImages =
         (data.getProperty('decodeImages'.toJS) as JSBoolean?)?.toDart ?? true;
+    final commandLimit =
+        (data.getProperty('commandLimit'.toJS) as JSNumber?)?.toDartInt;
 
     final token = PdfCancellationToken();
     activeToken = token;
@@ -86,8 +88,8 @@ void runPdfRenderWorker() {
       final doc = document;
       try {
         if (doc != null) {
-          out = await _recordPageAsync(
-              doc, page, annotations, imagePixelRatio, decodeImages, token);
+          out = await _recordPageAsync(doc, page, annotations, imagePixelRatio,
+              decodeImages, commandLimit, token);
         }
       } on PdfCancelledException {
         out = null;
@@ -127,10 +129,13 @@ Future<Uint8List?> _recordPageAsync(
     bool annotations,
     double? imagePixelRatio,
     bool decodeImages,
+    int? commandLimit,
     PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
-  final ops = ContentStreamParser.parse(page.contentBytes());
+  final previewOperationLimit = decodeImages ? null : commandLimit;
+  final ops = ContentStreamParser.parse(page.contentBytes(),
+      operationLimit: previewOperationLimit);
   final recorder = RecordingPdfDevice();
   final interpreter =
       PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
@@ -148,5 +153,6 @@ Future<Uint8List?> _recordPageAsync(
       cos: document.cos,
       decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
-      imagePlaceholders: !decodeImages);
+      imagePlaceholders: !decodeImages,
+      commandLimit: commandLimit);
 }

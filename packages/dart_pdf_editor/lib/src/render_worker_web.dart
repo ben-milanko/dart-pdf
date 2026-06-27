@@ -91,7 +91,8 @@ class _WebRenderWorker implements PdfRenderWorker {
     // rather than spin forever. Cancelled the moment 'ready' lands.
     _readyWatchdog = Timer(pdfRenderWorkerReadyTimeout, () {
       if (_ready || _disposed || _failed) return;
-      _wlog('ready watchdog fired after ${pdfRenderWorkerReadyTimeout.inSeconds}'
+      _wlog(
+          'ready watchdog fired after ${pdfRenderWorkerReadyTimeout.inSeconds}'
           's — worker never opened the document; falling back to local');
       _fail();
     });
@@ -158,14 +159,15 @@ class _WebRenderWorker implements PdfRenderWorker {
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) async {
+      bool decodeImages = true,
+      int? commandLimit}) async {
     if (_disposed || _failed) {
       _wlog('record page=$pageIndex skipped (disposed=$_disposed '
           'failed=$_failed) → local');
       return null;
     }
-    final request = _WebPending(
-        priority, _seq++, pageIndex, annotations, imagePixelRatio, decodeImages);
+    final request = _WebPending(priority, _seq++, pageIndex, annotations,
+        imagePixelRatio, decodeImages, commandLimit);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -201,8 +203,7 @@ class _WebRenderWorker implements PdfRenderWorker {
         }
       }
       if (_queue[bestQueued].priority < _inFlight!.priority) {
-        worker.postMessage(
-            JSObject()..setProperty('kind'.toJS, 'cancel'.toJS));
+        worker.postMessage(JSObject()..setProperty('kind'.toJS, 'cancel'.toJS));
       }
       return;
     }
@@ -225,6 +226,8 @@ class _WebRenderWorker implements PdfRenderWorker {
       ..setProperty('decodeImages'.toJS, request.decodeImages.toJS);
     final ratio = request.imagePixelRatio;
     if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
+    final limit = request.commandLimit;
+    if (limit != null) message.setProperty('commandLimit'.toJS, limit.toJS);
     worker.postMessage(message);
 
     // Watchdog: a record that never comes back wedges the single in-flight slot
@@ -275,7 +278,8 @@ class _WebRenderWorker implements PdfRenderWorker {
       return true;
     });
     if (dropped > 0) {
-      _wlog('cancel page=$pageIndex priority=$priority dropped=$dropped queued');
+      _wlog(
+          'cancel page=$pageIndex priority=$priority dropped=$dropped queued');
     }
   }
 
@@ -319,7 +323,7 @@ class _WebRenderWorker implements PdfRenderWorker {
 /// backend's `_PendingRequest`).
 class _WebPending {
   _WebPending(this.priority, this.seq, this.pageIndex, this.annotations,
-      this.imagePixelRatio, this.decodeImages);
+      this.imagePixelRatio, this.decodeImages, this.commandLimit);
 
   final int priority;
   final int seq;
@@ -327,6 +331,7 @@ class _WebPending {
   final bool annotations;
   final double? imagePixelRatio;
   final bool decodeImages;
+  final int? commandLimit;
   final completer = Completer<Uint8List?>();
   int id = -1;
 }

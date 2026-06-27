@@ -20,7 +20,8 @@ class _NullRenderWorker implements PdfRenderWorker {
           {bool annotations = true,
           int priority = 0,
           double? imagePixelRatio,
-          bool decodeImages = true}) async =>
+          bool decodeImages = true,
+          int? commandLimit}) async =>
       null;
 
   @override

@@ -58,6 +58,7 @@ final int _passes =
     _qInt('passes', const int.fromEnvironment('PERF_PASSES', defaultValue: 1));
 final bool _fastPass = _qBool(
     'fast', const bool.fromEnvironment('PERF_FAST_PASS', defaultValue: true));
+final int _targetPage = _qInt('targetPage', -1);
 
 // ---------------------------------------------------------------------------
 // Capture: every debugPrint line + every frame's timing.
@@ -186,6 +187,10 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       _setGlobal('__perfDone', true.toJS);
       return;
     }
+    if (_targetPage >= 0) {
+      await _driveTarget(count);
+      return;
+    }
 
     // Let the first visible page interpret before we start moving.
     await Future<void>.delayed(const Duration(milliseconds: 1500));
@@ -216,6 +221,31 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     }
 
     // Settle so trailing prerenders/decodes land in the trace.
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    _record(
+        '[perf] HARNESS DONE frames=${_frames.length} lines=${_lines.length}');
+    _setGlobal('__perfDone', true.toJS);
+  }
+
+  Future<void> _driveTarget(int count) async {
+    final target = _targetPage.clamp(0, count - 1);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    _record('[perf] HARNESS TARGET start page=$target');
+    PdfPerfLog.log('HARNESS TARGET start page=$target');
+    unawaited(_viewer.jumpToPage(target));
+
+    final vector = 'vector-first page=$target';
+    final full = 'interpret page=$target ';
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (DateTime.now().isBefore(deadline)) {
+      if (_lines.any((line) => line.contains(vector) || line.contains(full))) {
+        _record('[perf] HARNESS TARGET firstContent page=$target');
+        PdfPerfLog.log('HARNESS TARGET firstContent page=$target');
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
     await Future<void>.delayed(const Duration(milliseconds: 1500));
     _record(
         '[perf] HARNESS DONE frames=${_frames.length} lines=${_lines.length}');

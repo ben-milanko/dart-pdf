@@ -115,7 +115,9 @@ class PdfPagePreviewCache extends ChangeNotifier {
       bool annotations = true,
       PdfRenderWorker? worker,
       int? rotation,
-      bool decodeImages = true}) async {
+      bool decodeImages = true,
+      int priority = 1,
+      int? commandLimit}) async {
     if (_disposed || isFresh(index, page, requireImages: decodeImages)) return;
     if (!decodeImages && (worker == null || !worker.isActive)) {
       // A vector-first preview is only cheap through the worker. The local
@@ -134,9 +136,10 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final commands = worker != null && worker.isActive
           ? await worker.record(index,
               annotations: annotations,
-              priority: 1,
+              priority: priority,
               imagePixelRatio: decodeImages ? ratio : null,
-              decodeImages: decodeImages)
+              decodeImages: decodeImages,
+              commandLimit: commandLimit)
           : null;
       if (!decodeImages && commands == null) {
         // Worker-declined vector warms must stay cheap. Falling back to
@@ -150,8 +153,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final ui.Image image;
       var includesImages = decodeImages;
       if (commands != null) {
-        includesImages =
-            decodeImages || !PdfPageRenderer.hasImageDraws(commands);
+        includesImages = commandLimit == null &&
+            (decodeImages || !PdfPageRenderer.hasImageDraws(commands));
         final picture = await PdfPageRenderer.pictureFromCommands(
             page, commands,
             pageColor: pageColor,

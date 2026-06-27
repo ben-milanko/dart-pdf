@@ -46,10 +46,13 @@ class _SyncWorker implements PdfRenderWorker {
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) async {
+      bool decodeImages = true,
+      int? commandLimit}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     final page = _doc.page(pageIndex);
-    final ops = ContentStreamParser.parse(page.contentBytes());
+    final previewOperationLimit = decodeImages ? null : commandLimit;
+    final ops = ContentStreamParser.parse(page.contentBytes(),
+        operationLimit: previewOperationLimit);
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(cos: _doc.cos, device: recorder)
       ..drawPageOperations(page, ops);
@@ -58,7 +61,8 @@ class _SyncWorker implements PdfRenderWorker {
         cos: _doc.cos,
         decodeImages: decodeImages,
         maxImagePixelRatio: imagePixelRatio,
-        imagePlaceholders: !decodeImages);
+        imagePlaceholders: !decodeImages,
+        commandLimit: commandLimit);
     return bytes == null ? null : deserializeCommands(bytes);
   }
 
@@ -280,6 +284,42 @@ void main() {
       expect(rastered, isNotNull,
           reason: 'the page rasterized through the worker render path');
     });
+  });
+
+  testWidgets('PdfPageView cancels recycled worker requests by renderPriority',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final worker = _ManualWorker();
+    addTearDown(worker.dispose);
+
+    Widget view(int index, int priority) => MediaQuery(
+          data: const MediaQueryData(),
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: SizedBox(
+                width: 120,
+                height: 120,
+                child: PdfPageView(
+                  page: document.page(index),
+                  previewIndex: index,
+                  renderWorker: worker,
+                  renderPriority: priority,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(view(0, -997));
+    for (var i = 0; i < 10 && worker.calls.isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(worker.calls.single.$1, 0);
+
+    await tester.pumpWidget(view(1, -996));
+    expect(worker.cancels, contains((0, -997)),
+        reason: 'lazy-list reuse must cancel the old queued priority');
   });
 
   testWidgets('an inline image still declines (null → local render)',
@@ -524,6 +564,40 @@ void main() {
       expect(inner.calls.length, 3);
     });
 
+    test('reports decoded-byte cache pressure', () async {
+      final inner = _CountingWorker(decodedPixels: 64);
+      final worker = PdfCachingRenderWorker(inner, budgetBytes: 512);
+
+      expect(worker.cacheBudgetBytes, 512);
+      expect(worker.cachedBytes, 0);
+      expect(worker.cachePressure, 0);
+
+      await worker.record(0, imagePixelRatio: 2.0);
+      expect(worker.cachedBytes, 256);
+      expect(worker.cachePressure, 0.5);
+
+      await worker.record(1, imagePixelRatio: 2.0);
+      expect(worker.cachedBytes, 512);
+      expect(worker.cachePressure, 1);
+    });
+
+    test('commandLimit is part of the vector-only cache key', () async {
+      final inner = _CountingWorker();
+      final worker = PdfCachingRenderWorker(inner);
+
+      await worker.record(0, decodeImages: false, commandLimit: 500);
+      await worker.record(0, decodeImages: false, commandLimit: 500);
+      expect(inner.commandLimits, [500]);
+
+      await worker.record(0, decodeImages: false, commandLimit: 2000);
+      expect(inner.commandLimits, [500, 2000]);
+
+      await worker.record(0, decodeImages: true, commandLimit: 500);
+      await worker.record(0, decodeImages: true, commandLimit: 2000);
+      expect(inner.commandLimits, [500, 2000, null],
+          reason: 'full-image renders ignore preview command limits');
+    });
+
     test('weight-0 buffers survive eviction of heavy pages', () async {
       // Budget holds one heavy (256-byte) page. The vector-first pass
       // (decodeImages: false) weighs nothing, so blowing the budget with heavy
@@ -683,6 +757,7 @@ class _CountingWorker implements PdfRenderWorker {
   final int decodedPixels;
   final bool returnNull;
   final calls = <(int, bool, bool, double?)>[];
+  final commandLimits = <int?>[];
   final cancels = <(int, int)>[];
   bool active = true;
   bool disposed = false;
@@ -695,8 +770,10 @@ class _CountingWorker implements PdfRenderWorker {
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) async {
+      bool decodeImages = true,
+      int? commandLimit}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
+    commandLimits.add(commandLimit);
     if (returnNull || !active) return null;
     // A vector-first pass (decodeImages: false) ships no decoded pixels, so its
     // cached buffer weighs nothing — mirror that so the cache's weight-aware
@@ -727,6 +804,7 @@ class _CountingWorker implements PdfRenderWorker {
 
 class _ManualWorker implements PdfRenderWorker {
   final calls = <(int, bool, bool, double?)>[];
+  final priorities = <int>[];
   final cancels = <(int, int)>[];
   final _pending = <Completer<List<PdfRenderCommand>?>>[];
   bool active = true;
@@ -740,8 +818,10 @@ class _ManualWorker implements PdfRenderWorker {
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) {
+      bool decodeImages = true,
+      int? commandLimit}) {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
+    priorities.add(priority);
     final completer = Completer<List<PdfRenderCommand>?>();
     _pending.add(completer);
     return completer.future;

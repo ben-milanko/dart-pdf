@@ -116,17 +116,36 @@ function parse(lines, frames) {
     workerResultMax: 0,
     workerWarmMax: 0,
     prerender: { vector: 0, full: 0 },
+    target: {},
     jankCount: 0,
     errorLines: [],
     declines: 0,
     harness: {},
   };
   for (const line of lines) {
+    const stamp = line.match(/^\[perf ([\d.]+)\]/);
+    const atMs = stamp ? Number(stamp[1]) : null;
+    const targetStart = line.match(/HARNESS TARGET start page=(\d+)/);
+    if (targetStart && atMs != null) {
+      r.target.page = Number(targetStart[1]);
+      r.target.startMs = atMs;
+    }
+    const targetFirst = line.match(/HARNESS TARGET firstContent page=(\d+)/);
+    if (targetFirst && atMs != null && r.target.startMs != null) {
+      r.target.detectedMs = atMs - r.target.startMs;
+    }
     const m = line.match(/interpret page=(\d+) path=(\w+)/);
     if (m) {
       r.pages.add(Number(m[1]));
       const path = m[2];
       if (path in r.interpret) r.interpret[path]++; else r.interpret.other++;
+      if (atMs != null &&
+          r.target.startMs != null &&
+          r.target.firstContentMs == null &&
+          Number(m[1]) === r.target.page) {
+        r.target.firstContentMs = atMs - r.target.startMs;
+        r.target.kind = `interpret/${path}`;
+      }
     }
     const wr = line.match(/webworker result page=\d+ (\d+)B/);
     if (wr) {
@@ -138,6 +157,24 @@ function parse(lines, frames) {
     if (warm) r.workerWarmMax = Math.max(r.workerWarmMax, Number(warm[1]));
     const pre = line.match(/prerender page=\d+ (?:worker )?(vector|full) /);
     if (pre) r.prerender[pre[1]]++;
+    const vector = line.match(/vector-first page=(\d+)/);
+    if (vector &&
+        atMs != null &&
+        r.target.startMs != null &&
+        r.target.firstContentMs == null &&
+        Number(vector[1]) === r.target.page) {
+      r.target.firstContentMs = atMs - r.target.startMs;
+      r.target.kind = 'vector-first';
+    }
+    const preview = line.match(/preview-paint page=(\d+)/);
+    if (preview &&
+        atMs != null &&
+        r.target.startMs != null &&
+        r.target.firstContentMs == null &&
+        Number(preview[1]) === r.target.page) {
+      r.target.firstContentMs = atMs - r.target.startMs;
+      r.target.kind = 'preview';
+    }
     if (/JANK /.test(line)) r.jankCount++;
     if (/declin/i.test(line)) r.declines++;
     if (/error|exception|unsupported|cannot|failed/i.test(line) && /\[perf|webworker/.test(line)) {
@@ -185,6 +222,7 @@ async function main() {
   if (process.env.PERF_DWELL_MS) qp.set('dwell', process.env.PERF_DWELL_MS);
   if (process.env.PERF_PASSES) qp.set('passes', process.env.PERF_PASSES);
   if (process.env.PERF_FAST_PASS) qp.set('fast', process.env.PERF_FAST_PASS);
+  if (process.env.PERF_TARGET_PAGE) qp.set('targetPage', process.env.PERF_TARGET_PAGE);
   const qs = qp.toString();
   const url = `http://127.0.0.1:${PORT}/${qs ? '?' + qs : ''}`;
   console.log(`▶ serving ${WEB_DIR} + /perf.pdf at ${url} (headless=${HEADLESS})`);
@@ -237,7 +275,7 @@ async function main() {
     try { frames = JSON.parse(framesJson); } catch { /* ignore */ }
 
     result = { ...(result ?? {}), harnessError, lines: lines.length, ...parse(lines, frames) };
-    result.rawLineSample = lines.filter((l) => /interpret|webworker|HARNESS|JANK|error/i.test(l)).slice(0, 40);
+    result.rawLineSample = lines.filter((l) => /interpret|webworker|vector-first|preview-paint|HARNESS|JANK|error/i.test(l)).slice(0, 60);
   } catch (e) {
     fatal = String(e?.stack ?? e);
   } finally {
@@ -268,6 +306,9 @@ async function main() {
     console.log(`  interpret paths    worker=${i.worker} recorded=${i.recorded} plain=${i.plain} other=${i.other} declines=${result.declines}`);
     console.log(`  worker decode      max=${(result.workerResultMax / 1e6).toFixed(2)}MB total=${(result.workerResultBytes / 1e6).toFixed(1)}MB warmMax=${fmt(result.workerWarmMax)}ms`);
     console.log(`  prerender warms    vector=${result.prerender.vector} full=${result.prerender.full}`);
+    if (result.target?.firstContentMs != null) {
+      console.log(`  target first paint page=${result.target.page} ${fmt(result.target.firstContentMs)}ms via ${result.target.kind}`);
+    }
     console.log(`  frames             ${f.count}  buildP50=${fmt(f.buildP50)}ms p95=${fmt(f.buildP95)}ms max=${fmt(f.buildMax)}ms`);
     console.log(`  build over budget  >16ms=${f.buildOver16}  >32ms=${f.buildOver32}  >50ms=${f.buildOver50}   (PdfPerfLog JANK lines=${result.jankCount})`);
     if (result.errorLines?.length) {

@@ -116,6 +116,23 @@ void main() {
     expect(cache.isFresh(0, page, requireImages: true), isTrue);
   });
 
+  testWidgets('command-limited previews stay partial without image draws',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _VectorOnlyWorker();
+    addTearDown(cache.dispose);
+
+    await tester.runAsync(() => cache.renderPreview(0, page,
+        worker: worker, decodeImages: false, commandLimit: 2000));
+
+    expect(worker.commandLimits, [2000]);
+    expect(cache.isFresh(0, page), isTrue);
+    expect(cache.isFresh(0, page, requireImages: true), isFalse,
+        reason: 'a capped command prefix must not masquerade as complete');
+  });
+
   testWidgets('full page renders upgrade vector-only previews', (tester) async {
     final document = PdfDocument.open(buildClassicPdf());
     final page = document.page(0);
@@ -207,7 +224,7 @@ void main() {
     expect(cache.isFresh(0, page), isTrue);
   });
 
-  testWidgets('fast scroll shows previews of pages never seen on screen',
+  testWidgets('prerender warms previews of pages never seen on screen',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(8));
     final controller = PdfViewerController();
@@ -236,19 +253,10 @@ void main() {
     expect(cache.has(6), isTrue);
     expect(cache.has(7), isTrue);
 
-    // a long fast jump: full renders stay held, but the destination
-    // pages paint their previews instead of blank paper
+    // A long jump now lands directly on the destination and may render it
+    // fully right away. The contract this test pins is the background warm:
+    // far pages received previews before they were ever built on screen.
     unawaited(controller.jumpToPage(6));
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(milliseconds: 60));
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)));
-    }
-    expect(fullRaster, findsNothing);
-    expect(previewRaster, findsWidgets);
-
-    // settled: the destination renders fully
-    await tester.pump(const Duration(milliseconds: 300));
     for (var i = 0; i < 50 && fullRaster.evaluate().isEmpty; i++) {
       await settle(tester);
     }
@@ -322,6 +330,38 @@ void main() {
     expect(cache.has(8), isTrue, reason: 'within ±3 of page 11 now');
   });
 
+  testWidgets('large documents shrink the full-image preview window',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(80));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 8,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // Large documents cap full-image background warming to ±3 pages even when
+    // the configured window is wider. Vector-only passes still use the wider
+    // window during fast scrolling, but they do not count as image-fresh.
+    final cache = controller.debugPreviewCache!;
+    for (var i = 0; i < 100 && !cache.has(3); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(3), isTrue, reason: 'inside the adaptive ±3 window');
+    for (var i = 0; i < 30; i++) {
+      await settle(tester);
+    }
+    expect(cache.isFresh(8, document.page(8), requireImages: true), isFalse,
+        reason: 'outside the adaptive full-image window');
+  });
+
   testWidgets('previewWindow <= 0 warms every page (short-doc behavior)',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(12));
@@ -389,8 +429,7 @@ void main() {
     expect(cache.has(11), isTrue);
   });
 
-  testWidgets('pagePreviews: false keeps the blank-paper behavior',
-      (tester) async {
+  testWidgets('pagePreviews: false disables preview warming', (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(8));
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
@@ -415,9 +454,12 @@ void main() {
       await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)));
     }
-    // no previews anywhere: flown-past and destination pages are blank
-    expect(find.byType(RawImage), findsNothing);
-    await tester.pump(const Duration(milliseconds: 300));
+    expect(controller.debugPreviewCache!.has(6), isFalse);
+    expect(previewRaster, findsNothing);
+    for (var i = 0; i < 50 && fullRaster.evaluate().isEmpty; i++) {
+      await settle(tester);
+    }
+    expect(fullRaster, findsWidgets);
   });
 }
 
@@ -432,7 +474,8 @@ class _PreviewWorker implements PdfRenderWorker {
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) async {
+      bool decodeImages = true,
+      int? commandLimit}) async {
     calls.add((pageIndex, decodeImages, imagePixelRatio));
     final request = PdfImageRequest(
       stream: CosStream(CosDictionary(), Uint8List(0)),
@@ -462,9 +505,34 @@ class _DecliningWorker implements PdfRenderWorker {
       {bool annotations = true,
       int priority = 0,
       double? imagePixelRatio,
-      bool decodeImages = true}) async {
+      bool decodeImages = true,
+      int? commandLimit}) async {
     calls.add((pageIndex, decodeImages, imagePixelRatio));
     return null;
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
+}
+
+class _VectorOnlyWorker implements PdfRenderWorker {
+  final commandLimits = <int?>[];
+
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit}) async {
+    commandLimits.add(commandLimit);
+    return const [PdfSaveCommand(), PdfRestoreCommand()];
   }
 
   @override
