@@ -217,6 +217,9 @@ jobs:
       - name: Build macOS
         working-directory: app
         run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Normalize macOS code signatures
+        working-directory: app
+        run: bash macos/resign_embedded_code.sh build/macos/Build/Products/Release/DartPDF.app
       - name: Package DMG (unsigned)
         working-directory: app
         run: |
