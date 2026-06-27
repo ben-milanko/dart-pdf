@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -11,9 +13,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   final swatch = find.byKey(const ValueKey('pdf-mobile-swatch-0'));
 
-  Future<PdfEditingController> pumpToolbar(WidgetTester tester) async {
+  Future<PdfEditingController> pumpToolbar(WidgetTester tester,
+      {Uint8List? bytes}) async {
     SharedPreferences.setMockInitialValues({});
-    final editing = PdfEditingController(buildAppearanceAnnotationsPdf());
+    final editing =
+        PdfEditingController(bytes ?? buildAppearanceAnnotationsPdf());
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
     addTearDown(viewer.dispose);
@@ -103,5 +107,27 @@ void main() {
     await tester.pump();
     expect(editing.hasAnnotationSelection, isFalse);
     expect(editing.isModified, isTrue, reason: 'the annotation was removed');
+  });
+
+  testWidgets('a selected content element surfaces mobile edit actions',
+      (tester) async {
+    final editing = await pumpToolbar(tester, bytes: buildMultiPagePdf(1));
+    editing.tool = PdfEditTool.content;
+    expect(editing.selectElementAt(0, 80, 725), isTrue);
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('pdf-mobile-delete-element')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-replace-element-text')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-reflow-element-text')), findsOneWidget);
+    expect(swatch, findsNothing,
+        reason: 'content element actions take precedence over swatches');
+
+    await tester.tap(find.byKey(const ValueKey('pdf-mobile-delete-element')));
+    await tester.pump();
+    expect(editing.selectedElement, isNull);
+    expect(editing.elementsOn(0).elements, isEmpty);
   });
 }

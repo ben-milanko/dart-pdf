@@ -1519,6 +1519,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _buildMobile(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tool = controller.tool;
+    final compactToolLabel = controller.selectedElement != null;
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
@@ -1547,17 +1548,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: Row(children: [
               const SizedBox(width: 4),
               Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  _activeToolLabel(tool),
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+              if (!compactToolLabel) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _activeToolLabel(tool),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ]),
           ),
           ..._mobileTrailing(context),
@@ -1597,6 +1602,49 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             tooltip: 'Edit annotation text',
             visualDensity: VisualDensity.compact,
             onPressed: () => _editSelectedText(context),
+          ),
+      ];
+    }
+    if (controller.selectedElement != null) {
+      return [
+        IconButton(
+          key: const ValueKey('pdf-mobile-delete-element'),
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Delete element',
+          visualDensity: VisualDensity.compact,
+          onPressed: controller.deleteSelectedElement,
+        ),
+        if (controller.canEditSelectedElementText) ...[
+          IconButton(
+            key: const ValueKey('pdf-replace-element-text'),
+            icon: const Icon(Icons.edit),
+            tooltip: 'Replace text',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _editElementText(context),
+          ),
+          IconButton(
+            key: const ValueKey('pdf-reflow-element-text'),
+            icon: const Icon(Icons.wrap_text),
+            tooltip: 'Reflow paragraph',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _reflowElementText(context),
+          ),
+        ],
+        if (controller.canReplaceSelectedElementImage &&
+            widget.imagePicker != null)
+          IconButton(
+            key: const ValueKey('pdf-replace-element-image'),
+            icon: _replacingElementImage
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.image_outlined),
+            tooltip: 'Replace image',
+            visualDensity: VisualDensity.compact,
+            onPressed: _replacingElementImage
+                ? null
+                : () => _replaceElementImage(context),
           ),
       ];
     }
@@ -1649,6 +1697,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   String _activeToolLabel(PdfEditTool? tool) {
     if (tool == null) return 'Select';
+    switch (tool) {
+      case PdfEditTool.content:
+        return 'Content';
+      case PdfEditTool.form:
+        return 'Form';
+      case PdfEditTool.redact:
+        return 'Redact';
+      case PdfEditTool.snapshot:
+        return 'Snapshot';
+      default:
+        break;
+    }
     for (final group in _groups) {
       for (final entry in group.tools) {
         if (entry.tool == tool) {
