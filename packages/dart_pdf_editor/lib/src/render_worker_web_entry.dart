@@ -2,6 +2,7 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:web/web.dart' as web;
@@ -21,8 +22,8 @@ import 'package:web/web.dart' as web;
 /// a viewer. See `doc/render_worker_web.md` for the full wiring.
 ///
 /// Protocol (mirrors the native isolate backend):
-/// - `{kind:'init', bytes:ArrayBuffer}` → opens the document, replies
-///   `{kind:'ready'}`.
+/// - `{kind:'init', bytes:ArrayBuffer|SharedArrayBuffer, shared}` → opens the
+///   document, replies `{kind:'ready', shared}`.
 /// - `{kind:'record', id, page, annotations}` → replies `{kind:'result', id,
 ///   buffer:ArrayBuffer|null}` (null = the page can't be offloaded; the main
 ///   thread renders it locally).
@@ -48,14 +49,22 @@ void runPdfRenderWorker() {
       // ArrayBuffer view can throw on some hosts) must NOT skip the 'ready'
       // reply below, or the main thread waits on it forever. A null document
       // simply declines every page to a local render.
+      var shared = false;
       try {
-        final buffer = data.getProperty('bytes'.toJS) as JSArrayBuffer;
-        document = PdfDocument.open(buffer.toDart.asUint8List());
+        shared =
+            (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
+        final buffer = data.getProperty('bytes'.toJS) as JSObject;
+        final bytes = shared
+            ? _jsUint8View(buffer).toDart
+            : (buffer as JSArrayBuffer).toDart.asUint8List();
+        document = PdfDocument.open(bytes);
       } catch (_) {
         document = null; // bad transfer / broken document → local renders
       }
       // ALWAYS reply ready, even on failure, so the client never hangs.
-      scope.postMessage(JSObject()..setProperty('kind'.toJS, 'ready'.toJS));
+      scope.postMessage(JSObject()
+        ..setProperty('kind'.toJS, 'ready'.toJS)
+        ..setProperty('shared'.toJS, shared.toJS));
       return;
     }
 
@@ -118,6 +127,12 @@ void runPdfRenderWorker() {
   }).toJS;
 }
 
+JSUint8Array _jsUint8View(JSObject buffer) {
+  final constructor = globalContext['Uint8Array'] as JSFunction?;
+  if (constructor == null) throw StateError('Uint8Array is not available');
+  return constructor.callAsConstructor<JSUint8Array>(buffer);
+}
+
 /// Records one page into a serialized command buffer, yielding periodically
 /// so the cancel message handler can fire and set [token.cancelled].
 ///
@@ -141,6 +156,10 @@ Future<Uint8List?> _recordPageAsync(
       PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
   await interpreter.drawPageOperationsAsync(page, ops);
   if (annotations) interpreter.drawAnnotations(page);
+  var commands = recorder.commands;
+  if (decodeImages) {
+    commands = await _withBrowserDecodedImages(document.cos, commands, token);
+  }
   // Decode the page's images in the worker too: the buffer carries
   // premultiplied RGBA so the main thread only runs the engine codec. On web
   // this matters more than on native — there is no separate raster thread, so
@@ -149,10 +168,211 @@ Future<Uint8List?> _recordPageAsync(
   // postMessage boundary, so a sheet-sized raster underlay ships at a few MB
   // instead of hundreds. decodeImages false skips the decode entirely for the
   // fast vector-first pass of progressive rendering.
-  return serializeCommands(recorder.commands,
+  return serializeCommands(commands,
       cos: document.cos,
       decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
       imagePlaceholders: !decodeImages,
       commandLimit: commandLimit);
+}
+
+Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
+  CosDocument cos,
+  List<PdfRenderCommand> commands,
+  PdfCancellationToken token,
+) async {
+  var changed = false;
+  final out = <PdfRenderCommand>[];
+  for (final command in commands) {
+    if (token.cancelled) throw PdfCancelledException();
+    switch (command) {
+      case PdfDrawImageCommand(:final request):
+        if (request.isInline || request.decoded != null) {
+          out.add(command);
+          continue;
+        }
+        final decoded = await _decodeWithBrowserCodec(cos, request.stream);
+        if (decoded == null) {
+          out.add(command);
+        } else {
+          changed = true;
+          out.add(PdfDrawImageCommand(_withDecodedPixels(request, decoded)));
+        }
+      case PdfEndSoftMaskedCommand(
+          :final luminosity,
+          :final backdrop,
+          :final maskCommands,
+          :final backdropLuminance,
+          :final transferScale,
+          :final transferOffset
+        ):
+        final decodedMaskCommands =
+            await _withBrowserDecodedImages(cos, maskCommands, token);
+        if (!identical(decodedMaskCommands, maskCommands)) changed = true;
+        out.add(PdfEndSoftMaskedCommand(
+          luminosity: luminosity,
+          backdrop: backdrop,
+          maskCommands: decodedMaskCommands,
+          backdropLuminance: backdropLuminance,
+          transferScale: transferScale,
+          transferOffset: transferOffset,
+        ));
+      default:
+        out.add(command);
+    }
+  }
+  return changed ? out : commands;
+}
+
+PdfImageRequest _withDecodedPixels(
+  PdfImageRequest request,
+  PdfDecodedPixels decoded,
+) =>
+    PdfImageRequest(
+      stream: request.stream,
+      transform: request.transform,
+      alpha: request.alpha,
+      isStencil: request.isStencil,
+      stencilColor: request.stencilColor,
+      isInline: request.isInline,
+      decoded: decoded,
+    );
+
+Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
+    CosDocument cos, CosStream stream) async {
+  if (!_browserImageDecodeAvailable) return null;
+  final dict = stream.dictionary;
+  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) return null;
+
+  final filters = pdfImageFilters(cos, dict);
+  final dctName = filters.contains('DCTDecode')
+      ? 'DCTDecode'
+      : filters.contains('DCT')
+          ? 'DCT'
+          : null;
+  final dctMaskBytes = pdfImageDctSoftMaskBytes(cos, dict);
+  if (dctName == null && dctMaskBytes == null) return null;
+
+  final PdfImageBase? base;
+  if (dctName != null) {
+    final family = pdfImageColorFamily(cos, dict);
+    if (family == 'DeviceCMYK') {
+      // CMYK JPEG bases already decode in pure Dart. Only intervene when the
+      // soft mask is DCT-encoded and therefore needs the browser codec.
+      if (dctMaskBytes == null) return null;
+      base = decodePdfImageBase(cos, stream);
+    } else {
+      final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
+      base = await _decodeBrowserJpegBase(cos, dict, jpeg);
+    }
+  } else {
+    // Pure base + DCT /SMask: reuse the pure base decoder and only lift the
+    // mask through the browser codec.
+    base = decodePdfImageBase(cos, stream);
+  }
+  if (base == null) return null;
+
+  PdfImageSoftMask? mask;
+  if (dctMaskBytes != null) {
+    mask = await _decodeBrowserJpegMask(dctMaskBytes);
+  }
+  mask ??= pdfImageSoftMask(cos, dict) ?? pdfImageStencilMask(cos, dict);
+  if (mask == null) {
+    return _finishBrowserDecoded(
+      base.rgba,
+      base.width,
+      base.height,
+      hasAlpha: !base.opaque,
+    );
+  }
+  final masked = pdfApplyImageAlpha(base.rgba, base.width, base.height, mask);
+  return _finishBrowserDecoded(
+    masked.$1,
+    masked.$2,
+    masked.$3,
+    hasAlpha: true,
+  );
+}
+
+Future<PdfImageBase?> _decodeBrowserJpegBase(
+  CosDocument cos,
+  CosDictionary dict,
+  Uint8List jpeg,
+) async {
+  final decoded = await _decodeBrowserJpegRgba(jpeg);
+  if (decoded == null) return null;
+  final components = switch (pdfImageColorFamily(cos, dict)) {
+    'DeviceGray' => 1,
+    'DeviceRGB' => 3,
+    _ => 0,
+  };
+  final ranges =
+      components > 0 ? pdfImageDecodeRanges(cos, dict, components) : null;
+  final colorKey =
+      components > 0 ? pdfImageColorKeyRanges(cos, dict, components) : null;
+  if (ranges != null || colorKey != null) {
+    pdfApplyImageDecodeAndColorKey(decoded.rgba, components, ranges, colorKey);
+  }
+  return PdfImageBase(decoded.rgba, decoded.width, decoded.height,
+      opaque: colorKey == null);
+}
+
+Future<PdfImageSoftMask?> _decodeBrowserJpegMask(Uint8List jpeg) async {
+  final decoded = await _decodeBrowserJpegRgba(jpeg);
+  if (decoded == null) return null;
+  final alpha = Uint8List(decoded.width * decoded.height);
+  for (var i = 0; i < alpha.length; i++) {
+    alpha[i] = decoded.rgba[i * 4];
+  }
+  return PdfImageSoftMask(alpha, decoded.width, decoded.height);
+}
+
+PdfDecodedPixels _finishBrowserDecoded(Uint8List rgba, int width, int height,
+    {required bool hasAlpha}) {
+  if (hasAlpha) pdfPremultiplyRgba(rgba);
+  return PdfDecodedPixels(rgba, width, height);
+}
+
+Future<_BrowserDecodedImage?> _decodeBrowserJpegRgba(Uint8List jpeg) async {
+  if (!_browserImageDecodeAvailable) return null;
+  web.ImageBitmap? bitmap;
+  try {
+    final blob = web.Blob(
+      <JSAny>[jpeg.toJS].toJS,
+      web.BlobPropertyBag(type: 'image/jpeg'),
+    );
+    final scope = globalContext as web.WorkerGlobalScope;
+    bitmap = await scope.createImageBitmap(blob).toDart;
+    final width = bitmap.width;
+    final height = bitmap.height;
+    if (width <= 0 || height <= 0) return null;
+    final canvas = web.OffscreenCanvas(width, height);
+    final context =
+        canvas.getContext('2d') as web.OffscreenCanvasRenderingContext2D?;
+    if (context == null) return null;
+    context.drawImage(bitmap, 0, 0);
+    final imageData = context.getImageData(0, 0, width, height);
+    return _BrowserDecodedImage(
+      Uint8List.fromList(imageData.data.toDart),
+      width,
+      height,
+    );
+  } catch (_) {
+    return null;
+  } finally {
+    bitmap?.close();
+  }
+}
+
+bool get _browserImageDecodeAvailable =>
+    globalContext.has('Blob') &&
+    globalContext.has('createImageBitmap') &&
+    globalContext.has('OffscreenCanvas');
+
+class _BrowserDecodedImage {
+  const _BrowserDecodedImage(this.rgba, this.width, this.height);
+
+  final Uint8List rgba;
+  final int width;
+  final int height;
 }

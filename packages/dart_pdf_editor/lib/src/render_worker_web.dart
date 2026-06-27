@@ -39,12 +39,23 @@ Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 /// several misses in a row with no successful reply in between is.
 int pdfRenderWorkerTimeoutsBeforeFail = 3;
 
+/// Whether web render workers may share the document bytes through
+/// `SharedArrayBuffer` when the host page is cross-origin isolated.
+///
+/// When unavailable, disabled, or rejected by the browser, the worker falls
+/// back to the older transferable `ArrayBuffer` path. This is web-only and has
+/// no effect on the native isolate backend.
+bool pdfRenderWorkerUseSharedArrayBuffer = true;
+
 /// Web backend: a dedicated [web.Worker] that opens its own [PdfDocument] from
 /// the bytes once and records pages on request, posting the serialized command
-/// buffer back over `postMessage` (the document and result buffers travel as
-/// transferred `ArrayBuffer`s — zero-copy, not structured-cloned). The heavy
-/// content-stream parse and interpreter walk happen entirely off the main
-/// thread, mirroring the native isolate backend.
+/// buffer back over `postMessage` (result buffers travel as transferred
+/// `ArrayBuffer`s — zero-copy, not structured-cloned). On cross-origin isolated
+/// pages, the document bytes are copied once into a `SharedArrayBuffer` and
+/// shared by all workers instead of cloned per worker; otherwise startup falls
+/// back to a transferable `ArrayBuffer`. The heavy content-stream parse and
+/// interpreter walk happen entirely off the main thread, mirroring the native
+/// isolate backend.
 ///
 /// The worker only runs when [pdfRenderWorkerScriptUrl] names a compiled
 /// worker script (whose `main()` calls `runPdfRenderWorker`). With no URL — or
@@ -77,14 +88,25 @@ class _WebRenderWorker implements PdfRenderWorker {
     }).toJS;
     _wlog('worker constructed from $scriptUrl');
 
-    // Transfer the whole document to the worker once at start (copy first so
-    // the transferred buffer is exactly the document, not a view into a larger
-    // backing store the caller still holds).
-    final jsBuffer = Uint8List.fromList(bytes).buffer.toJS;
-    final init = JSObject()
-      ..setProperty('kind'.toJS, 'init'.toJS)
-      ..setProperty('bytes'.toJS, jsBuffer);
-    worker.postMessage(init, <JSAny>[jsBuffer].toJS);
+    final init = JSObject()..setProperty('kind'.toJS, 'init'.toJS);
+    final sharedBuffer = _sharedDocumentBuffer(bytes);
+    if (sharedBuffer != null) {
+      init
+        ..setProperty('bytes'.toJS, sharedBuffer)
+        ..setProperty('shared'.toJS, true.toJS);
+      worker.postMessage(init);
+      _wlog('init posted via SharedArrayBuffer bytes=${bytes.length}');
+    } else {
+      // Transfer the whole document to the worker once at start (copy first so
+      // the transferred buffer is exactly the document, not a view into a
+      // larger backing store the caller still holds).
+      final jsBuffer = Uint8List.fromList(bytes).buffer.toJS;
+      init
+        ..setProperty('bytes'.toJS, jsBuffer)
+        ..setProperty('shared'.toJS, false.toJS);
+      worker.postMessage(init, <JSAny>[jsBuffer].toJS);
+      _wlog('init posted via transferred ArrayBuffer bytes=${bytes.length}');
+    }
 
     // Watchdog: if the worker never reports 'ready' (e.g. the transferred
     // document never arrived/opened on this host), give up and render locally
@@ -129,7 +151,9 @@ class _WebRenderWorker implements PdfRenderWorker {
     if (data == null) return;
     final kind = (data.getProperty('kind'.toJS) as JSString?)?.toDart;
     if (kind == 'ready') {
-      _wlog('ready (worker opened the document)');
+      final shared =
+          (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
+      _wlog('ready (worker opened the document, sharedBytes=$shared)');
       _readyWatchdog?.cancel();
       _readyWatchdog = null;
       _ready = true;
@@ -334,4 +358,31 @@ class _WebPending {
   final int? commandLimit;
   final completer = Completer<Uint8List?>();
   int id = -1;
+}
+
+JSObject? _sharedDocumentBuffer(Uint8List bytes) {
+  if (!_canUseSharedDocumentBytes) return null;
+  try {
+    final buffer = _constructJsObject('SharedArrayBuffer', bytes.length.toJS);
+    final view = _constructJsObject('Uint8Array', buffer) as JSUint8Array;
+    view.toDart.setAll(0, bytes);
+    return buffer;
+  } catch (e) {
+    _wlog('SharedArrayBuffer unavailable at runtime: $e');
+    return null;
+  }
+}
+
+bool get _canUseSharedDocumentBytes {
+  if (!pdfRenderWorkerUseSharedArrayBuffer) return false;
+  if (!globalContext.has('SharedArrayBuffer')) return false;
+  return (globalContext['crossOriginIsolated'] as JSBoolean?)?.toDart ?? false;
+}
+
+JSObject _constructJsObject(String constructorName, JSAny arg) {
+  final constructor = globalContext[constructorName] as JSFunction?;
+  if (constructor == null) {
+    throw StateError('$constructorName is not available');
+  }
+  return constructor.callAsConstructor<JSObject>(arg);
 }

@@ -165,6 +165,81 @@ PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
   return _finish(m.$1, m.$2, m.$3, hasAlpha: true);
 }
 
+/// Decodes a simple Flate/raw image directly to [targetWidth]×[targetHeight],
+/// or returns null when the stream needs the full general decoder.
+///
+/// This is the first region/tile-decode fast path for CAD sheets split into
+/// many large Flate tiles: the worker already knows the capped display size,
+/// so expanding a 2048×2048 tile to native RGBA and then downsampling it wastes
+/// both CPU and memory. The implementation is deliberately narrow and
+/// correctness-first: RGB/gray 8-bit streams with identity decode and no masks,
+/// plus 1-bit /ImageMask stencils. Everything else falls back to
+/// [decodePdfImagePixels].
+PdfDecodedPixels? decodePdfImagePixelsScaled(
+  CosDocument cos,
+  CosStream stream,
+  int targetWidth,
+  int targetHeight,
+) {
+  final dict = stream.dictionary;
+  final width = _intOf(cos.resolve(dict['Width']));
+  final height = _intOf(cos.resolve(dict['Height']));
+  if (width <= 0 || height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return null;
+  }
+  var tw = targetWidth.clamp(1, width);
+  var th = targetHeight.clamp(1, height);
+  if (tw >= width && th >= height) return null;
+
+  final filters = pdfImageFilters(cos, dict);
+  if (filters.length != 1 ||
+      (filters.single != 'FlateDecode' && filters.single != 'Fl')) {
+    return null;
+  }
+
+  final isMask = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
+  final mask = cos.resolve(dict['Mask']);
+  if (!isMask && dict.containsKey('SMask')) return null;
+
+  final data = cos.decodeStreamData(stream);
+  if (isMask) return _scaledImageMask(cos, dict, data, width, height, tw, th);
+
+  final bits = _intOf(cos.resolve(dict['BitsPerComponent']), fallback: 8);
+  final space = pdfImageColorFamily(cos, dict);
+  if (space == 'Indexed' && bits == 1) {
+    if (mask is! CosNull && mask is! CosStream) return null;
+    return _scaledIndexed1(cos, dict, data, width, height, tw, th,
+        mask is CosStream ? mask : null);
+  }
+  if (mask is! CosNull) return null;
+  if (bits != 8) return null;
+  final components = switch (space) {
+    'DeviceRGB' => 3,
+    'DeviceGray' => 1,
+    _ => 0,
+  };
+  if (components == 0) return null;
+  if (!_isDirectDeviceColorSpace(cos, dict, space)) return null;
+  if (pdfImageDecodeRanges(cos, dict, components) != null) return null;
+
+  return switch (components) {
+    3 => _scaledRgb8(data, width, height, tw, th),
+    1 => _scaledGray8(data, width, height, tw, th),
+    _ => null,
+  };
+}
+
+bool _isDirectDeviceColorSpace(
+    CosDocument cos, CosDictionary dict, String family) {
+  final space = cos.resolve(dict['ColorSpace']);
+  if (space is! CosName) return false;
+  return switch ((family, space.value)) {
+    ('DeviceRGB', 'DeviceRGB') || ('DeviceRGB', 'RGB') => true,
+    ('DeviceGray', 'DeviceGray') || ('DeviceGray', 'G') => true,
+    _ => false,
+  };
+}
+
 /// Wraps decoded straight-alpha [rgba] as a codec-ready result: premultiplies
 /// when the pixels can carry transparency, skips the scan when they're opaque
 /// (premultiplying by alpha 255 is the identity).
@@ -230,6 +305,174 @@ PdfDecodedPixels downsamplePdfDecodedPixels(
   return PdfDecodedPixels(dst, tw, th);
 }
 
+PdfDecodedPixels? _scaledRgb8(
+    Uint8List data, int width, int height, int targetWidth, int targetHeight) {
+  if (data.length < width * height * 3) return null;
+  final out = Uint8List(targetWidth * targetHeight * 4);
+  var di = 0;
+  for (var y = 0; y < targetHeight; y++) {
+    final sy = _sourceCoord(y, height, targetHeight);
+    final y0 = sy.$1;
+    final y1 = sy.$2;
+    final wy = sy.$3;
+    for (var x = 0; x < targetWidth; x++) {
+      final sx = _sourceCoord(x, width, targetWidth);
+      final x0 = sx.$1;
+      final x1 = sx.$2;
+      final wx = sx.$3;
+      final i00 = (y0 * width + x0) * 3;
+      final i01 = (y0 * width + x1) * 3;
+      final i10 = (y1 * width + x0) * 3;
+      final i11 = (y1 * width + x1) * 3;
+      out[di] =
+          _bilinearByte(data[i00], data[i01], data[i10], data[i11], wx, wy);
+      out[di + 1] = _bilinearByte(
+          data[i00 + 1], data[i01 + 1], data[i10 + 1], data[i11 + 1], wx, wy);
+      out[di + 2] = _bilinearByte(
+          data[i00 + 2], data[i01 + 2], data[i10 + 2], data[i11 + 2], wx, wy);
+      out[di + 3] = 255;
+      di += 4;
+    }
+  }
+  return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+PdfDecodedPixels? _scaledGray8(
+    Uint8List data, int width, int height, int targetWidth, int targetHeight) {
+  if (data.length < width * height) return null;
+  final out = Uint8List(targetWidth * targetHeight * 4);
+  var di = 0;
+  for (var y = 0; y < targetHeight; y++) {
+    final sy = _sourceCoord(y, height, targetHeight);
+    final y0 = sy.$1;
+    final y1 = sy.$2;
+    final wy = sy.$3;
+    for (var x = 0; x < targetWidth; x++) {
+      final sx = _sourceCoord(x, width, targetWidth);
+      final x0 = sx.$1;
+      final x1 = sx.$2;
+      final wx = sx.$3;
+      final v = _bilinearByte(data[y0 * width + x0], data[y0 * width + x1],
+          data[y1 * width + x0], data[y1 * width + x1], wx, wy);
+      out[di] = out[di + 1] = out[di + 2] = v;
+      out[di + 3] = 255;
+      di += 4;
+    }
+  }
+  return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+PdfDecodedPixels? _scaledIndexed1(
+  CosDocument cos,
+  CosDictionary dict,
+  Uint8List data,
+  int width,
+  int height,
+  int targetWidth,
+  int targetHeight,
+  CosStream? mask,
+) {
+  final paletteInfo = _indexedPalette(cos, dict);
+  if (paletteInfo == null) return null;
+  final palette = paletteInfo.$1;
+  final paletteCount = paletteInfo.$2;
+  final rowBytes = (width + 7) ~/ 8;
+  if (data.length < rowBytes * height) return null;
+
+  Uint8List? maskData;
+  var maskInverted = false;
+  if (mask != null) {
+    final filters = pdfImageFilters(cos, mask.dictionary);
+    if (filters.length != 1 ||
+        (filters.single != 'FlateDecode' && filters.single != 'Fl')) {
+      return null;
+    }
+    final mw = _intOf(cos.resolve(mask.dictionary['Width']));
+    final mh = _intOf(cos.resolve(mask.dictionary['Height']));
+    final mbits =
+        _intOf(cos.resolve(mask.dictionary['BitsPerComponent']), fallback: 1);
+    if (mw != width || mh != height || mbits != 1) return null;
+    final decode = cos.resolve(mask.dictionary['Decode']);
+    maskInverted = decode is CosArray &&
+        decode.length > 0 &&
+        _numOf(cos.resolve(decode[0])) == 1;
+    maskData = cos.decodeStreamData(mask);
+    if (maskData.length < rowBytes * height) return null;
+  }
+
+  final out = Uint8List(targetWidth * targetHeight * 4);
+  var di = 0;
+  for (var y = 0; y < targetHeight; y++) {
+    final sy = ((y + 0.5) * height / targetHeight).floor().clamp(0, height - 1);
+    final row = sy * rowBytes;
+    for (var x = 0; x < targetWidth; x++) {
+      final sx = ((x + 0.5) * width / targetWidth).floor().clamp(0, width - 1);
+      final bit = (data[row + (sx >> 3)] >> (7 - (sx & 7))) & 1;
+      final index = bit >= paletteCount ? 0 : bit;
+
+      var alpha = 255;
+      if (maskData != null) {
+        final maskBit = (maskData[row + (sx >> 3)] >> (7 - (sx & 7))) & 1;
+        final masked = maskInverted ? maskBit == 0 : maskBit == 1;
+        alpha = masked ? 0 : 255;
+      }
+
+      final pi = index * 3;
+      out[di] = alpha == 0 ? 0 : palette[pi];
+      out[di + 1] = alpha == 0 ? 0 : palette[pi + 1];
+      out[di + 2] = alpha == 0 ? 0 : palette[pi + 2];
+      out[di + 3] = alpha;
+      di += 4;
+    }
+  }
+  return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+PdfDecodedPixels? _scaledImageMask(CosDocument cos, CosDictionary dict,
+    Uint8List data, int width, int height, int targetWidth, int targetHeight) {
+  final rowBytes = (width + 7) ~/ 8;
+  if (data.length < rowBytes * height) return null;
+  final decode = cos.resolve(dict['Decode']);
+  final inverted = decode is CosArray &&
+      decode.length > 0 &&
+      _numOf(cos.resolve(decode[0])) == 1;
+  final out = Uint8List(targetWidth * targetHeight * 4);
+  var di = 0;
+  for (var y = 0; y < targetHeight; y++) {
+    final sy = ((y + 0.5) * height / targetHeight).floor().clamp(0, height - 1);
+    for (var x = 0; x < targetWidth; x++) {
+      final sx = ((x + 0.5) * width / targetWidth).floor().clamp(0, width - 1);
+      final bit = (data[sy * rowBytes + (sx >> 3)] >> (7 - (sx & 7))) & 1;
+      final paint = inverted ? bit == 1 : bit == 0;
+      final v = paint ? 255 : 0;
+      out[di] = out[di + 1] = out[di + 2] = v;
+      out[di + 3] = v;
+      di += 4;
+    }
+  }
+  return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+(int, int, double) _sourceCoord(int dst, int srcSize, int dstSize) {
+  final p = (dst + 0.5) * srcSize / dstSize - 0.5;
+  final i0 = p.floor().clamp(0, srcSize - 1);
+  final i1 = (i0 + 1).clamp(0, srcSize - 1);
+  return (i0, i1, p - i0);
+}
+
+int _bilinearByte(
+  int v00,
+  int v01,
+  int v10,
+  int v11,
+  double wx,
+  double wy,
+) {
+  final top = v00 * (1 - wx) + v01 * wx;
+  final bottom = v10 * (1 - wx) + v11 * wx;
+  return (top * (1 - wy) + bottom * wy).round().clamp(0, 255);
+}
+
 /// The pixel size an image should be decoded/stored at so it is no sharper than
 /// [headroom]× its on-screen footprint — the cap behind `serializeCommands`'s
 /// `maxImagePixelRatio` (see render_command_codec.dart), extracted as a pure
@@ -244,8 +487,8 @@ PdfDecodedPixels downsamplePdfDecodedPixels(
 /// cache. Returns `(srcWidth, srcHeight)` unchanged when no worthwhile
 /// reduction applies (already small enough, a degenerate transform, or a
 /// non-positive ratio) — the caller then ships the native pixels as-is.
-(int, int) cappedImagePixelSize(
-    int srcWidth, int srcHeight, double widthPts, double heightPts, double ratio,
+(int, int) cappedImagePixelSize(int srcWidth, int srcHeight, double widthPts,
+    double heightPts, double ratio,
     {double headroom = 2.0,
     int maxPixels = 1 << 24,
     double maxDimension = 8192}) {
@@ -437,7 +680,9 @@ bool _softMaskIsDct(CosDocument cos, CosDictionary dict) {
 Uint8List? pdfImageDctSoftMaskBytes(CosDocument cos, CosDictionary dict) {
   final smask = cos.resolve(dict['SMask']);
   if (smask is! CosStream) return null;
-  if (!pdfImageFilters(cos, smask.dictionary).contains('DCTDecode')) return null;
+  if (!pdfImageFilters(cos, smask.dictionary).contains('DCTDecode')) {
+    return null;
+  }
   try {
     return cos.decodeStreamData(smask, stopBeforeFilter: 'DCTDecode');
   } on Exception {
@@ -730,7 +975,8 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         final on = (byte >> (7 - (x & 7))) & 1;
         final i = (y * width + x) * 4;
         out[i] = out[i + 1] = out[i + 2] = values[on];
-        out[i + 3] = key != null && on >= key[0].$1 && on <= key[0].$2 ? 0 : 255;
+        out[i + 3] =
+            key != null && on >= key[0].$1 && on <= key[0].$2 ? 0 : 255;
       }
     }
     return out;
@@ -850,8 +1096,12 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
             s2 = data[base + 2],
             s3 = data[base + 3];
         final color = cmykIcc != null
-            ? cmykIcc.toSrgb(
-                [lut0[s0] / 255, lut1[s1] / 255, lut2[s2] / 255, lut3[s3] / 255])
+            ? cmykIcc.toSrgb([
+                lut0[s0] / 255,
+                lut1[s1] / 255,
+                lut2[s2] / 255,
+                lut3[s3] / 255
+              ])
             : PdfColor.cmyk(
                 lut0[s0] / 255, lut1[s1] / 255, lut2[s2] / 255, lut3[s3] / 255);
         out[base] = (color.red * 255).round();
@@ -925,6 +1175,37 @@ Uint8List _lutFor(List<(double, double)>? ranges, int component) =>
 Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     int width, int height, int bits, Uint8List out,
     {List<(int, int)>? colorKey}) {
+  final paletteInfo = _indexedPalette(cos, dict);
+  if (paletteInfo == null) return null;
+  final palette = paletteInfo.$1;
+  final paletteCount = paletteInfo.$2;
+  if (bits != 1 && bits != 2 && bits != 4 && bits != 8) return null;
+
+  final rowBytes = (width * bits + 7) ~/ 8;
+  if (data.length < rowBytes * height) return null;
+  final perByte = 8 ~/ bits;
+  final mask = (1 << bits) - 1;
+  for (var y = 0; y < height; y++) {
+    for (var x = 0; x < width; x++) {
+      final byte = data[y * rowBytes + x ~/ perByte];
+      final shift = 8 - bits * (x % perByte + 1);
+      final raw = (byte >> shift) & mask;
+      final index = raw >= paletteCount ? 0 : raw;
+      final i = (y * width + x) * 4;
+      out[i] = palette[index * 3];
+      out[i + 1] = palette[index * 3 + 1];
+      out[i + 2] = palette[index * 3 + 2];
+      // color-key ranges compare the raw index sample (§8.9.6.4)
+      out[i + 3] =
+          colorKey != null && raw >= colorKey[0].$1 && raw <= colorKey[0].$2
+              ? 0
+              : 255;
+    }
+  }
+  return out;
+}
+
+(Uint8List, int)? _indexedPalette(CosDocument cos, CosDictionary dict) {
   final space = cos.resolve(dict['ColorSpace']);
   if (space is! CosArray || space.length < 4) return null;
   // A Lab base palette is decoded through the CIE machinery — without this it
@@ -932,8 +1213,9 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   // separate gray samples, banding a smooth gradient into diagonal stripes.
   // (CalRGB/CalGray keep their existing device decode to avoid baseline churn.)
   final baseObj = cos.resolve(space[1]);
-  final baseFamily =
-      baseObj is CosArray && baseObj.length > 0 ? cos.resolve(baseObj[0]) : null;
+  final baseFamily = baseObj is CosArray && baseObj.length > 0
+      ? cos.resolve(baseObj[0])
+      : null;
   final labBase = baseFamily is CosName && baseFamily.value == 'Lab'
       ? PdfCalibratedColorSpace.parse(cos, baseObj)
       : null;
@@ -945,7 +1227,6 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         _ => 0,
       };
   if (components == 0) return null;
-  if (bits != 1 && bits != 2 && bits != 4 && bits != 8) return null;
 
   final lookupObj = cos.resolve(space[3]);
   final Uint8List lookup;
@@ -984,29 +1265,7 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         palette[p * 3 + 2] = (color.blue * 255).round();
     }
   }
-
-  final rowBytes = (width * bits + 7) ~/ 8;
-  if (data.length < rowBytes * height) return null;
-  final perByte = 8 ~/ bits;
-  final mask = (1 << bits) - 1;
-  for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      final byte = data[y * rowBytes + x ~/ perByte];
-      final shift = 8 - bits * (x % perByte + 1);
-      final raw = (byte >> shift) & mask;
-      final index = raw >= paletteCount ? 0 : raw;
-      final i = (y * width + x) * 4;
-      out[i] = palette[index * 3];
-      out[i + 1] = palette[index * 3 + 1];
-      out[i + 2] = palette[index * 3 + 2];
-      // color-key ranges compare the raw index sample (§8.9.6.4)
-      out[i + 3] =
-          colorKey != null && raw >= colorKey[0].$1 && raw <= colorKey[0].$2
-              ? 0
-              : 255;
-    }
-  }
-  return out;
+  return (palette, paletteCount);
 }
 
 /// Maps the image's /ColorSpace to the device family used for decoding.

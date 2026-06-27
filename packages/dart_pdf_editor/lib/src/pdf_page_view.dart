@@ -565,7 +565,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     // vector/text immediately (images skipped) so a heavy raster underlay —
     // which can take seconds to decode — doesn't leave the page blank
     // meanwhile. The full pass below then re-rasters with the images in.
-    if (firstInterpret) {
+    if (firstInterpret &&
+        !(widget.previewCache?.isFresh(pageIndex, widget.page) ?? false)) {
       await _paintVectorFirst(generation, pageIndex);
       if (_superseded(generation, pageIndex)) return;
     }

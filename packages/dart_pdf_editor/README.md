@@ -273,10 +273,10 @@ void main() {
 missing it degrades to main-thread rendering. It is a pure opt-in upgrade.
 You can commit `web/pdf_render_worker.dart.js` and rebuild it only when you
 upgrade `dart_pdf_editor`, or generate it in CI before `flutter build web`.
-The worker itself does not require COOP/COEP headers; only Flutter's
-multithreaded Wasm renderer (`flutter build web --wasm`) needs
-cross-origin isolation. Full setup, dart2wasm-host notes, and the worker
-protocol are in
+The worker does not require COOP/COEP headers, but a cross-origin isolated
+host lets pooled workers share the document bytes through `SharedArrayBuffer`
+instead of cloning them per worker. Full setup, dart2wasm-host notes, and the
+worker protocol are in
 [doc/render_worker_web.md](https://github.com/ben-milanko/dart-pdf/blob/main/doc/render_worker_web.md).
 
 ## Under the hood

@@ -120,6 +120,9 @@ void main() {
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };
+  final isolated =
+      (globalContext['crossOriginIsolated'] as JSBoolean?)?.toDart ?? false;
+  _record('[perf] HARNESS crossOriginIsolated=$isolated');
 
   // Expose the driver's read surface up front (so a poll never races startup).
   _setGlobal('__perfDone', false.toJS);

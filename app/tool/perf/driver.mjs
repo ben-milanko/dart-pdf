@@ -37,6 +37,7 @@ const VERBOSE = (process.env.PERF_VERBOSE ?? 'false') === 'true';
 const RESULTS = process.env.PERF_RESULTS ?? join(HERE, 'results.ndjson');
 const CHROME = process.env.PERF_CHROME ??
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const ISOLATED = (process.env.PERF_CROSS_ORIGIN_ISOLATED ?? 'true') !== 'false';
 // Negative control: serve a 404 for the worker script to force UI-thread
 // fallback, so we can confirm the loop actually catches a regression.
 const NO_WORKER = (process.env.PERF_NO_WORKER ?? 'false') === 'true';
@@ -62,6 +63,15 @@ const MIME = {
   '.pdf': 'application/pdf',
 };
 
+function headers(type, length) {
+  const h = { 'content-type': type, 'content-length': length };
+  if (ISOLATED) {
+    h['cross-origin-opener-policy'] = 'same-origin';
+    h['cross-origin-embedder-policy'] = 'credentialless';
+  }
+  return h;
+}
+
 function startServer() {
   return new Promise((resolve, reject) => {
     const server = createServer(async (req, res) => {
@@ -69,7 +79,7 @@ function startServer() {
         let path = decodeURIComponent(req.url.split('?')[0]);
         if (path === '/perf.pdf') {
           const buf = await readFile(PDF);
-          res.writeHead(200, { 'content-type': 'application/pdf', 'content-length': buf.length });
+          res.writeHead(200, headers('application/pdf', buf.length));
           res.end(buf);
           return;
         }
@@ -86,8 +96,7 @@ function startServer() {
         if (!info || !info.isFile()) { res.writeHead(404); res.end('not found'); return; }
         const buf = await readFile(file);
         const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
-        // The render worker is a same-origin classic worker; no COOP/COEP needed.
-        res.writeHead(200, { 'content-type': type, 'content-length': buf.length });
+        res.writeHead(200, headers(type, buf.length));
         res.end(buf);
       } catch (e) {
         res.writeHead(500);
@@ -225,7 +234,7 @@ async function main() {
   if (process.env.PERF_TARGET_PAGE) qp.set('targetPage', process.env.PERF_TARGET_PAGE);
   const qs = qp.toString();
   const url = `http://127.0.0.1:${PORT}/${qs ? '?' + qs : ''}`;
-  console.log(`▶ serving ${WEB_DIR} + /perf.pdf at ${url} (headless=${HEADLESS})`);
+  console.log(`▶ serving ${WEB_DIR} + /perf.pdf at ${url} (headless=${HEADLESS}, isolated=${ISOLATED})`);
 
   const browser = await puppeteer.launch({
     executablePath: CHROME,

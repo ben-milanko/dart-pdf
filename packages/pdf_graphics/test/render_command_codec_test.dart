@@ -276,6 +276,38 @@ void main() {
   // carries pixels that match the pure-Dart decode — and the replay transcript
   // is unchanged (the decode never alters the command shape).
   group('image decode offload', () {
+    test('uses predecoded image request pixels', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(1),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+      );
+      final decoded = PdfDecodedPixels(
+        Uint8List.fromList([11, 22, 33, 255]),
+        1,
+        1,
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: PdfMatrix.identity,
+        decoded: decoded,
+      ));
+
+      final bytes = serializeCommands([command], cos: cos, decodeImages: true);
+      expect(bytes, isNotNull);
+      final restored = _imageCommands(deserializeCommands(bytes!)).single;
+      expect(restored.request.decoded, isNotNull);
+      expect(restored.request.decoded!.width, 1);
+      expect(restored.request.decoded!.height, 1);
+      expect(restored.request.decoded!.rgba, decoded.rgba);
+    });
+
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/'
           'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',

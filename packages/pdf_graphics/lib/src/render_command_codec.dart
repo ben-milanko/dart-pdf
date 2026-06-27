@@ -331,9 +331,14 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
           if (!imagePlaceholders) throw const _UnserializableImage();
           inlined = _imagePlaceholderStream;
         }
-        _writeImageCommand(w, request, inlined,
-            decode ? decodePdfImagePixels(document, request.stream) : null,
-            maxImageRatio: maxImageRatio, budgetScale: budgetScale);
+        _writeImageCommand(
+            w,
+            request,
+            inlined,
+            decode
+                ? _decodeImageForCommand(
+                    document, request, maxImageRatio, budgetScale)
+                : null);
       }
     case PdfSetBlendModeCommand(:final mode):
       w.u8(_tSetBlendMode);
@@ -368,9 +373,61 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
   }
 }
 
+PdfDecodedPixels? _decodeImageForCommand(
+  CosDocument document,
+  PdfImageRequest request,
+  double? maxImageRatio,
+  double budgetScale,
+) {
+  final predecoded = request.decoded;
+  if (predecoded != null) {
+    return maxImageRatio == null
+        ? predecoded
+        : _capImageResolution(
+            predecoded, request.transform, maxImageRatio, budgetScale);
+  }
+  if (maxImageRatio != null) {
+    final target =
+        _targetDecodedSize(document, request, maxImageRatio, budgetScale);
+    if (target != null) {
+      final scaled = decodePdfImagePixelsScaled(
+          document, request.stream, target.$1, target.$2);
+      if (scaled != null) return scaled;
+    }
+  }
+  final decoded = decodePdfImagePixels(document, request.stream);
+  if (decoded == null || maxImageRatio == null) return decoded;
+  return _capImageResolution(
+      decoded, request.transform, maxImageRatio, budgetScale);
+}
+
+(int, int)? _targetDecodedSize(
+  CosDocument document,
+  PdfImageRequest request,
+  double ratio,
+  double budgetScale,
+) {
+  final size = _declaredImageSize(document, request.stream);
+  if (size == null) return null;
+  final transform = request.transform;
+  final widthPts =
+      math.sqrt(transform.a * transform.a + transform.b * transform.b);
+  final heightPts =
+      math.sqrt(transform.c * transform.c + transform.d * transform.d);
+  final capped =
+      cappedImagePixelSize(size.$1, size.$2, widthPts, heightPts, ratio);
+  var tw = capped.$1;
+  var th = capped.$2;
+  if (budgetScale < 1.0) {
+    tw = (tw * budgetScale).ceil().clamp(1, size.$1);
+    th = (th * budgetScale).ceil().clamp(1, size.$2);
+  }
+  if (tw == size.$1 && th == size.$2) return null;
+  return (tw, th);
+}
+
 void _writeImageCommand(_Writer w, PdfImageRequest request, CosObject inlined,
-    PdfDecodedPixels? decoded,
-    {double? maxImageRatio, double budgetScale = 1.0}) {
+    PdfDecodedPixels? decoded) {
   w.u8(_tDrawImage);
   _writeMatrix(w, request.transform);
   w.f64(request.alpha);
@@ -380,12 +437,6 @@ void _writeImageCommand(_Writer w, PdfImageRequest request, CosObject inlined,
   // Optional off-thread decode: the premultiplied pixels ride beside the
   // stream so the consumer skips the pure-Dart decode. The stream above is
   // still written, so the pixels cache by content like a local render.
-  if (decoded != null && maxImageRatio != null) {
-    // Cap to display resolution before it crosses the thread boundary — this
-    // is what shrinks the multi-hundred-MB payload of a CAD raster underlay.
-    decoded = _capImageResolution(
-        decoded, request.transform, maxImageRatio, budgetScale);
-  }
   w.boolean(decoded != null);
   if (decoded != null) {
     w.u32(decoded.width);
