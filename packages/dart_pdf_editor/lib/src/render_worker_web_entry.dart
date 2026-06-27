@@ -147,5 +147,6 @@ Future<Uint8List?> _recordPageAsync(
   return serializeCommands(recorder.commands,
       cos: document.cos,
       decodeImages: decodeImages,
-      maxImagePixelRatio: imagePixelRatio);
+      maxImagePixelRatio: imagePixelRatio,
+      imagePlaceholders: !decodeImages);
 }

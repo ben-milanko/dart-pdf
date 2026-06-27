@@ -1,8 +1,8 @@
 // Automated real-world web-performance harness for the render worker.
 //
 // A standalone Flutter web entrypoint (NOT the shipping app) that loads a big
-// PDF over HTTP, mounts the real [PdfEditorView] with the web render worker
-// enabled, and then auto-scrolls every page while recording perf data — so an
+// PDF over HTTP, mounts the real [PdfViewer] with the web render worker enabled,
+// and then auto-scrolls every page while recording perf data — so an
 // off-browser driver (tool/perf/driver.mjs) can run it headless in real Chrome
 // and assert the decode/interpret offload keeps the UI thread smooth, exactly
 // the manual `flutter run -d chrome` check but repeatable and unattended.
@@ -32,6 +32,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 // ---------------------------------------------------------------------------
 // Tunables — read from the URL query string at runtime (so the driver can vary
@@ -49,14 +50,14 @@ bool _qBool(String key, bool fallback) {
 
 final String _pdfUrl = _q['url'] ??
     const String.fromEnvironment('PERF_PDF_URL', defaultValue: '/perf.pdf');
-final int _dwellMs =
-    _qInt('dwell', const int.fromEnvironment('PERF_DWELL_MS', defaultValue: 220));
-final int _maxPages =
-    _qInt('maxPages', const int.fromEnvironment('PERF_MAX_PAGES', defaultValue: 0));
+final int _dwellMs = _qInt(
+    'dwell', const int.fromEnvironment('PERF_DWELL_MS', defaultValue: 220));
+final int _maxPages = _qInt(
+    'maxPages', const int.fromEnvironment('PERF_MAX_PAGES', defaultValue: 0));
 final int _passes =
     _qInt('passes', const int.fromEnvironment('PERF_PASSES', defaultValue: 1));
-final bool _fastPass =
-    _qBool('fast', const bool.fromEnvironment('PERF_FAST_PASS', defaultValue: true));
+final bool _fastPass = _qBool(
+    'fast', const bool.fromEnvironment('PERF_FAST_PASS', defaultValue: true));
 
 // ---------------------------------------------------------------------------
 // Capture: every debugPrint line + every frame's timing.
@@ -114,6 +115,7 @@ void main() {
   // PdfPerfLog line without the console throttle dropping any under load.
   PdfPerfLog.enabled = true;
   pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+  pdfRenderWorkerPoolSize = 4;
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };
@@ -140,7 +142,8 @@ class _PerfHarnessApp extends StatefulWidget {
 
 class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   final PdfViewerController _viewer = PdfViewerController();
-  Uint8List? _bytes;
+  PdfDocument? _document;
+  PdfRenderWorker? _worker;
   String? _error;
 
   @override
@@ -154,7 +157,12 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       _record('[perf] HARNESS load url=$_pdfUrl');
       final bytes = await _loadPdf(_pdfUrl);
       _record('[perf] HARNESS loaded bytes=${bytes.length}');
-      setState(() => _bytes = bytes);
+      final document = PdfDocument.open(bytes);
+      final worker = PdfRenderWorker.start(bytes);
+      setState(() {
+        _document = document;
+        _worker = worker;
+      });
       // Let the first frame + the viewer's first page settle, then drive.
       unawaited(_drive());
     } catch (e, st) {
@@ -209,12 +217,14 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
 
     // Settle so trailing prerenders/decodes land in the trace.
     await Future<void>.delayed(const Duration(milliseconds: 1500));
-    _record('[perf] HARNESS DONE frames=${_frames.length} lines=${_lines.length}');
+    _record(
+        '[perf] HARNESS DONE frames=${_frames.length} lines=${_lines.length}');
     _setGlobal('__perfDone', true.toJS);
   }
 
   @override
   void dispose() {
+    _worker?.dispose();
     _viewer.dispose();
     super.dispose();
   }
@@ -227,13 +237,13 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       home: Scaffold(
         body: _error != null
             ? Center(child: Text('harness error: $_error'))
-            : _bytes == null
+            : _document == null
                 ? const Center(child: Text('loading…'))
-                : PdfEditorView(
-                    bytes: _bytes,
-                    documentId: 'perf-harness',
-                    viewerController: _viewer,
+                : PdfViewer(
+                    document: _document!,
+                    controller: _viewer,
                     initialFit: PdfViewerFit.width,
+                    renderWorker: _worker,
                   ),
       ),
     );

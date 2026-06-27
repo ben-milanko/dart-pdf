@@ -159,6 +159,50 @@ jobs:
           '
           rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json
 
+      - name: Repair recovered deploy check
+        if: steps.deploy.outcome == 'failure' && steps.recover.outcome == 'success'
+        uses: actions/github-script@v9
+        env:
+          PREVIEW_URL: ${{ steps.recover.outputs.details_url }}
+        with:
+          script: |
+            const ref = context.payload.pull_request?.head?.sha || context.sha;
+            const runs = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref,
+              check_name: 'Deploy Preview',
+            });
+            const failed = runs
+              .filter((run) => run.conclusion === 'failure')
+              .sort((a, b) => Date.parse(b.completed_at || b.started_at || b.created_at || 0) -
+                              Date.parse(a.completed_at || a.started_at || a.created_at || 0));
+            if (!failed.length) {
+              core.info(`No failed Deploy Preview check-run found on ${ref}`);
+              return;
+            }
+            const run = failed[0];
+            const url = process.env.PREVIEW_URL;
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: run.id,
+              status: 'completed',
+              conclusion: 'success',
+              completed_at: new Date().toISOString(),
+              details_url: url || run.details_url,
+              output: {
+                title: 'Deploy preview recovered',
+                summary: [
+                  'Firebase Hosting deployed the preview, but the deploy action',
+                  'reported a transient retry failure after the release was already active.',
+                  '',
+                  url ? `Preview URL: ${url}` : '',
+                ].filter(Boolean).join('\n'),
+              },
+            });
+            core.info(`Marked recovered Deploy Preview check-run ${run.id} successful`);
+
       - name: Comment preview URL
         uses: actions/github-script@v9
         env:

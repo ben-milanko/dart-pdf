@@ -345,7 +345,8 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   /// The resolution the current zoom actually wants, uncapped.
   double _desiredRatio() {
-    final size = PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final size =
+        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
     final width = math.max(1.0, size.width);
     // pages display fit-width, so the raster must match the on-screen
     // width — a 612pt page across a wide window needs far more pixels
@@ -355,7 +356,8 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   double _effectiveRatio() {
-    final size = PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final size =
+        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
     final width = math.max(1.0, size.width);
     final height = math.max(1.0, size.height);
     var ratio = _desiredRatio();
@@ -370,11 +372,12 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// pass re-rasterizes at [_effectiveRatio] once the page settles, so the only
   /// visible effect is a briefly softer preview while actively scrolling.
   double _vectorFirstRatio() {
-    final size = PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final size =
+        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
     final width = math.max(1.0, size.width);
     final height = math.max(1.0, size.height);
-    final ratio =
-        math.min(_effectiveRatio(), math.sqrt(_previewMaxPixels / (width * height)));
+    final ratio = math.min(
+        _effectiveRatio(), math.sqrt(_previewMaxPixels / (width * height)));
     return math.max(ratio, 0.05);
   }
 
@@ -440,7 +443,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     // which case the interpret runs here — the log must say so, not 'worker'.
     _lastInterpretPath = 'recorded';
     return PdfPageRenderer.renderPictureRecorded(widget.page,
-        pageColor: widget.pageColor, annotations: widget.showAnnotations,
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
         rotation: widget.rotation);
   }
 
@@ -456,15 +460,14 @@ class _PdfPageViewState extends State<PdfPageView> {
     final worker = widget.renderWorker;
     if (worker == null || !worker.isActive) return;
     final commands = await worker.record(pageIndex,
-        annotations: widget.showAnnotations,
-        priority: 0,
-        decodeImages: false);
+        annotations: widget.showAnnotations, priority: 0, decodeImages: false);
     if (_superseded(generation, pageIndex) || commands == null) return;
 
     if (!PdfPageRenderer.hasImageDraws(commands)) {
       // Image-free page: this fast buffer already is the complete page. Cache
       // it so the full pass reuses it instead of recording a second time; the
       // normal raster path below paints it.
+      _lastInterpretPath = 'worker';
       _picture = PdfPageRenderer.pictureFromCommands(widget.page, commands,
           pageColor: widget.pageColor, rotation: widget.rotation);
       return;
@@ -479,7 +482,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       picture.dispose();
       return;
     }
-    final image = await PdfPageRenderer.rasterize(picture,
+    final image = await PdfPageRenderer.rasterize(
+        picture,
         PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
         _vectorFirstRatio());
     picture.dispose();
@@ -520,7 +524,8 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// the lazy list recycled this State onto a different page. Picture
   /// production stops here (no wasted local interpret); painting is gated
   /// separately by [_superseded], which also rejects a stale generation.
-  bool _abandoned(int pageIndex) => !mounted || widget.previewIndex != pageIndex;
+  bool _abandoned(int pageIndex) =>
+      !mounted || widget.previewIndex != pageIndex;
 
   /// Whether a render started at ([generation], [pageIndex]) must not paint —
   /// [_abandoned], or a newer render bumped the generation past this one.
@@ -577,7 +582,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         (effective - _rasteredRatio!).abs() > _rasteredRatio! * 0.01;
     if (stale) {
       final image = await PdfPageRenderer.rasterize(
-          picture, PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation), effective);
+          picture,
+          PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
+          effective);
       if (_superseded(generation, pageIndex)) {
         image.dispose();
         return;
@@ -596,10 +603,12 @@ class _PdfPageViewState extends State<PdfPageView> {
       // interpret — this is how previews appear for pages the background
       // prerender hasn't reached (and refresh after edits)
       final cache = widget.previewCache;
-      if (cache != null && !cache.isFresh(widget.previewIndex, widget.page)) {
-        unawaited(
-            cache.putFromPicture(widget.previewIndex, widget.page, picture,
-                rotation: widget.rotation));
+      if (cache != null &&
+          !cache.isFresh(widget.previewIndex, widget.page,
+              requireImages: true)) {
+        unawaited(cache.putFromPicture(
+            widget.previewIndex, widget.page, picture,
+            rotation: widget.rotation));
       }
     }
     await _updateDetail();
@@ -640,7 +649,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       ((visible.bottom - pageRect.top + visible.height / 2) / pageRect.height)
           .clamp(0.0, 1.0),
     );
-    final size = PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final size =
+        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
     final region = Rect.fromLTRB(
       fraction.left * size.width,
       fraction.top * size.height,
@@ -689,7 +699,8 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   @override
   Widget build(BuildContext context) {
-    final size = PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final size =
+        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
     final hasArea = size.width > 0 && size.height > 0;
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;

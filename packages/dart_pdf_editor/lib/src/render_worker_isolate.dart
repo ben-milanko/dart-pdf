@@ -73,7 +73,8 @@ class _IsolateRenderWorker implements PdfRenderWorker {
     });
     final isolate = await Isolate.spawn(
       _workerMain,
-      _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes])),
+      _WorkerInit(
+          _fromWorker.sendPort, TransferableTypedData.fromList([bytes])),
       debugName: 'pdf-render-worker',
       errorsAreFatal: false,
     );
@@ -98,8 +99,8 @@ class _IsolateRenderWorker implements PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true}) async {
     if (_disposed || _spawnFailed) return null;
-    final request = _PendingRequest(
-        priority, _seq++, pageIndex, annotations, imagePixelRatio, decodeImages);
+    final request = _PendingRequest(priority, _seq++, pageIndex, annotations,
+        imagePixelRatio, decodeImages);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -292,5 +293,6 @@ Future<Uint8List?> _recordPageAsync(
   return serializeCommands(recorder.commands,
       cos: document.cos,
       decodeImages: decodeImages,
-      maxImagePixelRatio: imagePixelRatio);
+      maxImagePixelRatio: imagePixelRatio,
+      imagePlaceholders: !decodeImages);
 }

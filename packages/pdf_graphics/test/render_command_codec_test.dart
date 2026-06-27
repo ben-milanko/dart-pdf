@@ -47,7 +47,14 @@ class _TranscriptDevice implements PdfDevice {
           b.write('M${_f32(x)},${_f32(y)};');
         case PdfLineTo(:final x, :final y):
           b.write('L${_f32(x)},${_f32(y)};');
-        case PdfCubicTo(:final x1, :final y1, :final x2, :final y2, :final x3, :final y3):
+        case PdfCubicTo(
+            :final x1,
+            :final y1,
+            :final x2,
+            :final y2,
+            :final x3,
+            :final y3
+          ):
           b.write('C${_f32(x1)},${_f32(y1)},${_f32(x2)},${_f32(y2)},'
               '${_f32(x3)},${_f32(y3)};');
         case PdfClosePath():
@@ -75,7 +82,8 @@ class _TranscriptDevice implements PdfDevice {
   @override
   void fillPathGradient(
           PdfPath path, PdfFillRule rule, PdfGradient gradient, double alpha) =>
-      log.add('gradient ${_path(path)} ${rule.name} radial=${gradient.isRadial} '
+      log.add(
+          'gradient ${_path(path)} ${rule.name} radial=${gradient.isRadial} '
           'coords=${gradient.coords} stops=${gradient.stops} '
           'colors=${gradient.colors.length} '
           'ext=${gradient.extendStart},${gradient.extendEnd} '
@@ -239,6 +247,28 @@ void main() {
         }
       });
     }
+  });
+
+  test('inline images can be placeholders in vector-only buffers', () {
+    final doc = PdfDocument.open(_inlineImagePdf());
+    final page = doc.page(0);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder)
+        .drawPageOperations(page, ops);
+    expect(recorder.imageRequests.single.isInline, isTrue);
+
+    expect(serializeCommands(recorder.commands, cos: doc.cos), isNull,
+        reason: 'full/default serialization still declines inline images');
+
+    final bytes = serializeCommands(recorder.commands,
+        cos: doc.cos, imagePlaceholders: true);
+    expect(bytes, isNotNull,
+        reason: 'vector-only buffers preserve an image placeholder');
+
+    final restored = deserializeCommands(bytes!);
+    expect(_transcript(restored), equals(_transcript(recorder.commands)));
+    expect(_imageCommands(restored).single.request.decoded, isNull);
   });
 
   // The worker path: serializeCommands(decodeImages: true) decodes each image
@@ -436,11 +466,14 @@ void main() {
           final nativePixels = _decodedPixelSum(deserializeCommands(native));
           final budgetedPixels =
               _decodedPixelSum(deserializeCommands(budgeted));
-          if (nativePixels == 0) continue; // platform-codec only: nothing decoded
+          if (nativePixels == 0) {
+            continue; // platform-codec only: nothing decoded
+          }
           final budgetPixels = (factor * (1 << 24)).round();
           // Total decoded pixels sit under the budget, plus a per-image ceil
           // slop (each image rounds its target edges up).
-          final imageCount = _imageCommands(deserializeCommands(budgeted)).length;
+          final imageCount =
+              _imageCommands(deserializeCommands(budgeted)).length;
           expect(budgetedPixels,
               lessThanOrEqualTo(budgetPixels + imageCount * 16 + 64),
               reason: '$name page $i total decoded pixels ($budgetedPixels) '
@@ -482,4 +515,35 @@ List<PdfDrawImageCommand> _imageCommands(List<PdfRenderCommand> commands) {
 
   walk(commands);
   return out;
+}
+
+/// A one-page PDF whose only content is a 4x4 inline image (BI .. ID .. EI).
+Uint8List _inlineImagePdf() {
+  const content = 'q 100 0 0 100 50 50 cm '
+      'BI /W 4 /H 4 /CS /RGB /BPC 8 /F /AHx ID\n'
+      'e63030 ffffff e63030 ffffff\n'
+      'ffffff e63030 ffffff e63030\n'
+      'e63030 ffffff e63030 ffffff\n'
+      'ffffff e63030 ffffff e63030 >\nEI Q\n';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = buffer.length;
+  buffer.write('xref\n0 ${objects.length + 1}\n');
+  buffer.write('0000000000 65535 f \n');
+  for (final off in offsets) {
+    buffer.write('${off.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer.write('trailer << /Size ${objects.length + 1} /Root 1 0 R >>\n');
+  buffer.write('startxref\n$xref\n%%EOF\n');
+  return Uint8List.fromList(buffer.toString().codeUnits);
 }

@@ -34,7 +34,8 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'render_smoke_test.dart' show loadSystemFonts;
 
 void main() {
-  final path = Platform.environment['CAD_PDF'] ?? '../../corpus/ly9-far-cad.pdf';
+  final path =
+      Platform.environment['CAD_PDF'] ?? '../../corpus/ly9-far-cad.pdf';
   final ratio = double.tryParse(Platform.environment['CAD_RATIO'] ?? '') ?? 2.0;
   final pageOverride = int.tryParse(Platform.environment['CAD_PAGE'] ?? '');
   final doScan = (Platform.environment['CAD_SCAN'] ?? '1') != '0';
@@ -115,9 +116,7 @@ void main() {
           '${capStats.$1} img, ${_mpStr(capStats.$2)} MP, '
           'buffer ${_mb(capBuf.length)}');
 
-      final shrink = nativeStats.$2 == 0
-          ? 1.0
-          : capStats.$2 / nativeStats.$2;
+      final shrink = nativeStats.$2 == 0 ? 1.0 : capStats.$2 / nativeStats.$2;
       _line('cap shrank decoded pixels to '
           '${(shrink * 100).toStringAsFixed(1)}% of native');
 
@@ -177,10 +176,11 @@ void main() {
               capStats.$1 * 16 +
               (1 << 20);
       // 3. The page-pixel budget bounds the TOTAL decoded pixels to
-      //    ~budgetFactor (2.5) x the 16.78 MP page raster cap, regardless of
+      //    ~budgetFactor (1.0) x the 16.78 MP page raster cap, regardless of
       //    overlap. Decoded pixels must sit under whichever ceiling binds.
-      const pageBudget = (2.5 * (1 << 24)) + (4 << 20); // + downsample slop
-      final ceiling = perImageCeiling < pageBudget ? perImageCeiling : pageBudget;
+      const pageBudget = (1.0 * (1 << 24)) + (4 << 20); // + downsample slop
+      final ceiling =
+          perImageCeiling < pageBudget ? perImageCeiling : pageBudget;
       expect(capStats.$2.toDouble(), lessThanOrEqualTo(ceiling.toDouble()),
           reason: 'capped pixels (${_mpStr(capStats.$2)} MP) exceed the '
               'binding cap ceiling (${(ceiling / 1e6).toStringAsFixed(1)} MP) '

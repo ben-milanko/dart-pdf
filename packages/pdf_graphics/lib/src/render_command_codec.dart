@@ -84,6 +84,11 @@ class _UnserializableImage implements Exception {
 /// premultiplied RGBA beside the command, so the consumer skips the decode and
 /// only runs the engine codec — issue #73's image-decode offload. Images that
 /// need the platform JPEG codec carry no pixels and decode locally as before.
+/// When [imagePlaceholders] is true and [decodeImages] is false, images that
+/// cannot be serialized as self-contained streams are kept as draw-image
+/// placeholders. Replaying the buffer with images disabled then preserves the
+/// page's vector/text command stream without forcing the caller to render the
+/// whole page locally.
 ///
 /// [maxImagePixelRatio] (screen pixels per page point, including the device
 /// pixel ratio) caps the resolution of each decoded image to ~2× the pixels it
@@ -105,17 +110,18 @@ const int _maxImagePixels = 1 << 24;
 /// on-screen footprint, but a sheet layered from dozens of overlapping raster
 /// tiles can still sum to many times the page raster — only the topmost layer
 /// per pixel is ever shown, so the rest is decoded, shipped, and cached for
-/// nothing. This ceiling (~42 MP at the default) scales every image down to
+/// nothing. This ceiling (~17 MP at the default) scales every image down to
 /// fit, bounding the command buffer and the decoded-image cache no matter how
 /// the sheet is layered. Larger keeps more sharpness on heavy overlap at the
 /// cost of a bigger payload.
-const double _imageBudgetFactor = 2.5;
+const double _imageBudgetFactor = 1.0;
 
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     {CosDocument? cos,
     bool decodeImages = false,
     double? maxImagePixelRatio,
-    double imageBudgetFactor = _imageBudgetFactor}) {
+    double imageBudgetFactor = _imageBudgetFactor,
+    bool imagePlaceholders = false}) {
   final w = _Writer();
   w.u8(_formatVersion);
   // Page-pixel budget: a global downscale applied on top of the per-image
@@ -131,7 +137,8 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     _writeCommands(w, commands, cos,
         decode: decodeImages,
         maxImageRatio: maxImagePixelRatio,
-        budgetScale: budgetScale);
+        budgetScale: budgetScale,
+        imagePlaceholders: imagePlaceholders && !decodeImages);
   } on _UnserializableImage {
     return null;
   }
@@ -220,12 +227,19 @@ List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   return _readCommands(r);
 }
 
-void _writeCommands(_Writer w, List<PdfRenderCommand> commands, CosDocument? cos,
-    {bool decode = false, double? maxImageRatio, double budgetScale = 1.0}) {
+void _writeCommands(
+    _Writer w, List<PdfRenderCommand> commands, CosDocument? cos,
+    {bool decode = false,
+    double? maxImageRatio,
+    double budgetScale = 1.0,
+    bool imagePlaceholders = false}) {
   w.u32(commands.length);
   for (final command in commands) {
     _writeCommand(w, command, cos,
-        decode: decode, maxImageRatio: maxImageRatio, budgetScale: budgetScale);
+        decode: decode,
+        maxImageRatio: maxImageRatio,
+        budgetScale: budgetScale,
+        imagePlaceholders: imagePlaceholders);
   }
 }
 
@@ -239,13 +253,21 @@ List<PdfRenderCommand> _readCommands(_Reader r) {
 }
 
 void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
-    {bool decode = false, double? maxImageRatio, double budgetScale = 1.0}) {
+    {bool decode = false,
+    double? maxImageRatio,
+    double budgetScale = 1.0,
+    bool imagePlaceholders = false}) {
   switch (command) {
     case PdfSaveCommand():
       w.u8(_tSave);
     case PdfRestoreCommand():
       w.u8(_tRestore);
-    case PdfFillPathCommand(:final path, :final color, :final rule, :final alpha):
+    case PdfFillPathCommand(
+        :final path,
+        :final color,
+        :final rule,
+        :final alpha
+      ):
       w.u8(_tFillPath);
       _writePath(w, path);
       _writeColor(w, color);
@@ -291,35 +313,20 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       // decrypting it declines too, so the page falls back to a local render
       // rather than shipping a broken image.
       if (request.isInline || cos == null) {
-        throw const _UnserializableImage();
-      }
-      final CosObject inlined;
-      try {
-        inlined = _inlineCos(cos, request.stream, 0);
-      } catch (_) {
-        throw const _UnserializableImage();
-      }
-      w.u8(_tDrawImage);
-      _writeMatrix(w, request.transform);
-      w.f64(request.alpha);
-      w.boolean(request.isStencil);
-      _writeColor(w, request.stencilColor);
-      _writeCos(w, inlined);
-      // Optional off-thread decode: the premultiplied pixels ride beside the
-      // stream so the consumer skips the pure-Dart decode. The stream above is
-      // still written, so the pixels cache by content like a local render.
-      var decoded = decode ? decodePdfImagePixels(cos, request.stream) : null;
-      // Cap to display resolution before it crosses the thread boundary — this
-      // is what shrinks the multi-hundred-MB payload of a CAD raster underlay.
-      if (decoded != null && maxImageRatio != null) {
-        decoded = _capImageResolution(
-            decoded, request.transform, maxImageRatio, budgetScale);
-      }
-      w.boolean(decoded != null);
-      if (decoded != null) {
-        w.u32(decoded.width);
-        w.u32(decoded.height);
-        w.bytes(decoded.rgba);
+        if (!imagePlaceholders) throw const _UnserializableImage();
+        _writeImageCommand(w, request, _imagePlaceholderStream, null);
+      } else {
+        final document = cos;
+        CosObject inlined;
+        try {
+          inlined = _inlineCos(document, request.stream, 0);
+        } catch (_) {
+          if (!imagePlaceholders) throw const _UnserializableImage();
+          inlined = _imagePlaceholderStream;
+        }
+        _writeImageCommand(w, request, inlined,
+            decode ? decodePdfImagePixels(document, request.stream) : null,
+            maxImageRatio: maxImageRatio, budgetScale: budgetScale);
       }
     case PdfSetBlendModeCommand(:final mode):
       w.u8(_tSetBlendMode);
@@ -349,9 +356,39 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       _writeCommands(w, maskCommands, cos,
           decode: decode,
           maxImageRatio: maxImageRatio,
-          budgetScale: budgetScale); // nested
+          budgetScale: budgetScale,
+          imagePlaceholders: imagePlaceholders); // nested
   }
 }
+
+void _writeImageCommand(_Writer w, PdfImageRequest request, CosObject inlined,
+    PdfDecodedPixels? decoded,
+    {double? maxImageRatio, double budgetScale = 1.0}) {
+  w.u8(_tDrawImage);
+  _writeMatrix(w, request.transform);
+  w.f64(request.alpha);
+  w.boolean(request.isStencil);
+  _writeColor(w, request.stencilColor);
+  _writeCos(w, inlined);
+  // Optional off-thread decode: the premultiplied pixels ride beside the
+  // stream so the consumer skips the pure-Dart decode. The stream above is
+  // still written, so the pixels cache by content like a local render.
+  if (decoded != null && maxImageRatio != null) {
+    // Cap to display resolution before it crosses the thread boundary — this
+    // is what shrinks the multi-hundred-MB payload of a CAD raster underlay.
+    decoded = _capImageResolution(
+        decoded, request.transform, maxImageRatio, budgetScale);
+  }
+  w.boolean(decoded != null);
+  if (decoded != null) {
+    w.u32(decoded.width);
+    w.u32(decoded.height);
+    w.bytes(decoded.rgba);
+  }
+}
+
+final CosStream _imagePlaceholderStream =
+    CosStream(CosDictionary(), Uint8List(0));
 
 PdfRenderCommand _readCommand(_Reader r) {
   final tag = r.u8();
@@ -465,7 +502,14 @@ void _writePath(_Writer w, PdfPath path) {
         w.u8(1);
         w.f32(x);
         w.f32(y);
-      case PdfCubicTo(:final x1, :final y1, :final x2, :final y2, :final x3, :final y3):
+      case PdfCubicTo(
+          :final x1,
+          :final y1,
+          :final x2,
+          :final y2,
+          :final x3,
+          :final y3
+        ):
         w.u8(2);
         w.f32(x1);
         w.f32(y1);
@@ -591,8 +635,7 @@ void _writeMesh(_Writer w, PdfMesh mesh) {
 PdfMesh _readMesh(_Reader r) {
   final n = r.u32();
   final vertices = <PdfMeshVertex>[
-    for (var i = 0; i < n; i++)
-      PdfMeshVertex(r.f64(), r.f64(), _readColor(r)),
+    for (var i = 0; i < n; i++) PdfMeshVertex(r.f64(), r.f64(), _readColor(r)),
   ];
   final triangles = r.i32List();
   return PdfMesh(vertices, triangles);
@@ -657,8 +700,8 @@ PdfTextRun _readTextRun(_Reader r) {
       final offset = r.f64();
       final offsetY = r.f64();
       final outline = r.boolean() ? _readPath(r) : null;
-      glyphs.add(
-          PdfGlyphPlacement(offset: offset, offsetY: offsetY, outline: outline));
+      glyphs.add(PdfGlyphPlacement(
+          offset: offset, offsetY: offsetY, outline: outline));
     }
   }
   final invisible = r.boolean();
@@ -925,7 +968,8 @@ class _Writer {
 
   /// The written bytes as a tight copy (the backing buffer is over-allocated by
   /// up to 2x and would otherwise pin that slack across the isolate transfer).
-  Uint8List takeBytes() => Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
+  Uint8List takeBytes() =>
+      Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
 }
 
 class _Reader {

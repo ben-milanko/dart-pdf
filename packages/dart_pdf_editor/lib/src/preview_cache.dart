@@ -66,7 +66,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
         continue;
       }
       // adopt without writing back — these bytes just came from disk
-      _entries[i] = _PreviewEntry(pages[i], image);
+      _entries[i] = _PreviewEntry(pages[i], image, includesImages: true);
       while (_entries.length > capacity) {
         final oldest = _entries.keys.first;
         if (oldest == i) break;
@@ -91,8 +91,11 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// Whether the cached preview for [index] was rendered from exactly
   /// this [page] object — the staleness test both fill paths use to
   /// skip redundant work.
-  bool isFresh(int index, PdfPage page) =>
-      identical(_entries[index]?.page, page);
+  bool isFresh(int index, PdfPage page, {bool requireImages = false}) {
+    final entry = _entries[index];
+    if (!identical(entry?.page, page)) return false;
+    return !requireImages || entry!.includesImages;
+  }
 
   double _ratioFor(Size size) {
     final longest = math.max(size.width, size.height);
@@ -111,8 +114,15 @@ class PdfPagePreviewCache extends ChangeNotifier {
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
       PdfRenderWorker? worker,
-      int? rotation}) async {
-    if (_disposed || isFresh(index, page)) return;
+      int? rotation,
+      bool decodeImages = true}) async {
+    if (_disposed || isFresh(index, page, requireImages: decodeImages)) return;
+    if (!decodeImages && (worker == null || !worker.isActive)) {
+      // A vector-first preview is only cheap through the worker. The local
+      // fallback would run a full UI-thread render and decode the images, which
+      // is exactly what fast-scroll prefetch is trying to avoid.
+      return;
+    }
     try {
       final sw = Stopwatch()..start();
       final size = PdfPageRenderer.pageSize(page, rotation: rotation);
@@ -123,13 +133,30 @@ class PdfPagePreviewCache extends ChangeNotifier {
       // resolution just to be downscaled into a thumbnail.
       final commands = worker != null && worker.isActive
           ? await worker.record(index,
-              annotations: annotations, priority: 1, imagePixelRatio: ratio)
+              annotations: annotations,
+              priority: 1,
+              imagePixelRatio: decodeImages ? ratio : null,
+              decodeImages: decodeImages)
           : null;
-      if (_disposed || isFresh(index, page)) return;
+      if (!decodeImages && commands == null) {
+        // Worker-declined vector warms must stay cheap. Falling back to
+        // renderImage here would synchronously interpret/decode images on the
+        // UI thread during the fast-scroll path.
+        return;
+      }
+      if (_disposed || isFresh(index, page, requireImages: decodeImages)) {
+        return;
+      }
       final ui.Image image;
+      var includesImages = decodeImages;
       if (commands != null) {
-        final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
-            pageColor: pageColor, rotation: rotation);
+        includesImages =
+            decodeImages || !PdfPageRenderer.hasImageDraws(commands);
+        final picture = await PdfPageRenderer.pictureFromCommands(
+            page, commands,
+            pageColor: pageColor,
+            rotation: rotation,
+            includeImages: decodeImages);
         try {
           image = await PdfPageRenderer.rasterize(picture, size, ratio);
         } finally {
@@ -146,8 +173,13 @@ class PdfPagePreviewCache extends ChangeNotifier {
       sw.stop();
       PdfPerfLog.log('prerender page=$index '
           '${commands != null ? 'worker ' : ''}'
+          '${includesImages ? 'full' : 'vector'} '
           'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
-      _store(index, page, image);
+      if (_disposed || isFresh(index, page, requireImages: decodeImages)) {
+        image.dispose();
+        return;
+      }
+      _store(index, page, image, includesImages: includesImages);
     } catch (_) {
       // no preview is strictly better than a crash mid-scroll
     }
@@ -156,33 +188,35 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// Downscales an already-interpreted [picture] into the cache — free
   /// population as pages render on screen (raster-thread work only, no
   /// second interpreter walk). The picture stays owned by the caller.
-  Future<void> putFromPicture(int index, PdfPage page,
-      ui.Picture picture, {int? rotation}) async {
-    if (_disposed || isFresh(index, page)) return;
+  Future<void> putFromPicture(int index, PdfPage page, ui.Picture picture,
+      {int? rotation}) async {
+    if (_disposed || isFresh(index, page, requireImages: true)) return;
     try {
       final size = PdfPageRenderer.pageSize(page, rotation: rotation);
       final image =
           await PdfPageRenderer.rasterize(picture, size, _ratioFor(size));
-      _store(index, page, image);
+      _store(index, page, image, includesImages: true);
     } catch (_) {
       // the caller can dispose the picture mid-rasterize (page swap)
     }
   }
 
-  void _store(int index, PdfPage page, ui.Image image) {
+  void _store(int index, PdfPage page, ui.Image image,
+      {required bool includesImages}) {
     if (_disposed) {
       image.dispose();
       return;
     }
     _entries.remove(index)?.image.dispose();
-    _entries[index] = _PreviewEntry(page, image);
+    _entries[index] =
+        _PreviewEntry(page, image, includesImages: includesImages);
     while (_entries.length > capacity) {
       _entries.remove(_entries.keys.first)!.image.dispose();
     }
     // Write through to disk so the next session opens with this preview
     // already on screen. Fire-and-forget: the encode is a raster-thread
     // readback and a slow/failed store must never stall rendering.
-    disk?.storePreview(index, image);
+    if (includesImages) disk?.storePreview(index, image);
     notifyListeners();
   }
 
@@ -233,8 +267,9 @@ class PdfPagePreviewCache extends ChangeNotifier {
 }
 
 class _PreviewEntry {
-  _PreviewEntry(this.page, this.image);
+  _PreviewEntry(this.page, this.image, {required this.includesImages});
 
   PdfPage page;
   final ui.Image image;
+  final bool includesImages;
 }

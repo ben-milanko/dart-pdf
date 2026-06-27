@@ -115,6 +115,7 @@ function parse(lines, frames) {
     workerResultBytes: 0,
     workerResultMax: 0,
     workerWarmMax: 0,
+    prerender: { vector: 0, full: 0 },
     jankCount: 0,
     errorLines: [],
     declines: 0,
@@ -135,6 +136,8 @@ function parse(lines, frames) {
     }
     const warm = line.match(/worker warm=([\d.]+)ms/);
     if (warm) r.workerWarmMax = Math.max(r.workerWarmMax, Number(warm[1]));
+    const pre = line.match(/prerender page=\d+ (?:worker )?(vector|full) /);
+    if (pre) r.prerender[pre[1]]++;
     if (/JANK /.test(line)) r.jankCount++;
     if (/declin/i.test(line)) r.declines++;
     if (/error|exception|unsupported|cannot|failed/i.test(line) && /\[perf|webworker/.test(line)) {
@@ -197,8 +200,13 @@ async function main() {
   let fatal = null;
   try {
     const pageErrors = [];
+    const consoleLines = [];
     const page = await browser.newPage();
-    page.on('console', (msg) => { if (VERBOSE) console.log('  ‹console›', msg.text()); });
+    page.on('console', (msg) => {
+      const text = msg.text();
+      consoleLines.push(text);
+      if (VERBOSE) console.log('  ‹console›', text);
+    });
     page.on('pageerror', (e) => { pageErrors.push(String(e)); console.error('  ‹pageerror›', String(e)); });
 
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
@@ -224,6 +232,7 @@ async function main() {
     const dump = await page.evaluate('window.__perfDump ? window.__perfDump() : ""').catch(() => '');
     const framesJson = await page.evaluate('window.__perfFrames ? window.__perfFrames() : "[]"').catch(() => '[]');
     const lines = dump ? dump.split('\n') : [];
+    lines.push(...consoleLines.filter((line) => line.startsWith('[perf ')));
     let frames = [];
     try { frames = JSON.parse(framesJson); } catch { /* ignore */ }
 
@@ -258,6 +267,7 @@ async function main() {
     console.log(`  pages visited      ${pagesVisited}`);
     console.log(`  interpret paths    worker=${i.worker} recorded=${i.recorded} plain=${i.plain} other=${i.other} declines=${result.declines}`);
     console.log(`  worker decode      max=${(result.workerResultMax / 1e6).toFixed(2)}MB total=${(result.workerResultBytes / 1e6).toFixed(1)}MB warmMax=${fmt(result.workerWarmMax)}ms`);
+    console.log(`  prerender warms    vector=${result.prerender.vector} full=${result.prerender.full}`);
     console.log(`  frames             ${f.count}  buildP50=${fmt(f.buildP50)}ms p95=${fmt(f.buildP95)}ms max=${fmt(f.buildMax)}ms`);
     console.log(`  build over budget  >16ms=${f.buildOver16}  >32ms=${f.buildOver32}  >50ms=${f.buildOver50}   (PdfPerfLog JANK lines=${result.jankCount})`);
     if (result.errorLines?.length) {

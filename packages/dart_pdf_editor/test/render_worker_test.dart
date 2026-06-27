@@ -4,6 +4,7 @@
 // (active, dispose, out-of-range) must behave. Runs on the Dart VM under
 // flutter_test, which supports isolates; every body uses tester.runAsync so
 // the isolate spawn and the GPU readback actually complete.
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -56,7 +57,8 @@ class _SyncWorker implements PdfRenderWorker {
     final bytes = serializeCommands(recorder.commands,
         cos: _doc.cos,
         decodeImages: decodeImages,
-        maxImagePixelRatio: imagePixelRatio);
+        maxImagePixelRatio: imagePixelRatio,
+        imagePlaceholders: !decodeImages);
     return bytes == null ? null : deserializeCommands(bytes);
   }
 
@@ -205,7 +207,8 @@ void main() {
 
       final native = _firstImage((await worker.record(0))!)?.decoded;
       final capped =
-          _firstImage((await worker.record(0, imagePixelRatio: 0.01))!)?.decoded;
+          _firstImage((await worker.record(0, imagePixelRatio: 0.01))!)
+              ?.decoded;
       expect(native, isNotNull);
       expect(capped, isNotNull);
       expect(capped!.width * capped.height,
@@ -290,7 +293,23 @@ void main() {
 
       final commands = await worker.record(0);
       expect(commands, isNull,
-          reason: 'an inline image is not serialized; the page renders locally');
+          reason:
+              'an inline image is not serialized; the page renders locally');
+    });
+  });
+
+  testWidgets('an inline image records vector-only placeholders',
+      (tester) async {
+    await tester.runAsync(() async {
+      final worker = PdfRenderWorker.start(_inlineImagePdf());
+      addTearDown(worker.dispose);
+
+      final commands = await worker.record(0, decodeImages: false);
+      expect(commands, isNotNull);
+      expect(PdfPageRenderer.hasImageDraws(commands!), isTrue,
+          reason: 'the placeholder keeps the full-pass image signal');
+      expect(_firstImage(commands)!.decoded, isNull,
+          reason: 'vector-only records must not decode image pixels');
     });
   });
 
@@ -398,7 +417,8 @@ void main() {
     });
   });
 
-  testWidgets('cancel only matches the given page and priority', (tester) async {
+  testWidgets('cancel only matches the given page and priority',
+      (tester) async {
     await tester.runAsync(() async {
       final worker = PdfRenderWorker.startUncached(buildMultiPagePdf(3));
       addTearDown(worker.dispose);
@@ -487,7 +507,8 @@ void main() {
       final inner = _CountingWorker();
       final worker = PdfCachingRenderWorker(inner);
       await worker.record(0, imagePixelRatio: 2.50);
-      await worker.record(0, imagePixelRatio: 2.55); // 2.50*8=20, 2.55*8≈20.4→20
+      await worker.record(0,
+          imagePixelRatio: 2.55); // 2.50*8=20, 2.55*8≈20.4→20
       expect(inner.calls.length, 1);
     });
 
@@ -547,36 +568,70 @@ void main() {
   });
 
   group('PdfPooledRenderWorker', () {
-    test('routes each page to worker (page % poolSize)', () async {
-      final workers = [_CountingWorker(), _CountingWorker(), _CountingWorker()];
+    test('routes new records to the least-loaded worker', () async {
+      final workers = [_ManualWorker(), _ManualWorker(), _ManualWorker()];
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
-      for (var page = 0; page < 7; page++) {
-        await pool.record(page, imagePixelRatio: 2.0);
+      // All three pages hash to worker 1 under page % 3. Keeping the futures
+      // outstanding makes the second and third records see worker 1 as loaded,
+      // so they spill to the idle siblings.
+      final futures = [
+        pool.record(1, priority: 1),
+        pool.record(4, priority: 1),
+        pool.record(7, priority: 1),
+      ];
+      expect(workers[0].calls.map((c) => c.$1), [4]);
+      expect(workers[1].calls.map((c) => c.$1), [1]);
+      expect(workers[2].calls.map((c) => c.$1), [7]);
+      for (final worker in workers) {
+        worker.completeAll();
       }
-      // pages 0,3,6 -> w0 ; 1,4 -> w1 ; 2,5 -> w2
-      expect(workers[0].calls.map((c) => c.$1), [0, 3, 6]);
-      expect(workers[1].calls.map((c) => c.$1), [1, 4]);
-      expect(workers[2].calls.map((c) => c.$1), [2, 5]);
+      await Future.wait(futures);
     });
 
-    test('cancel routes to the same worker that holds the page', () {
-      final workers = [_CountingWorker(), _CountingWorker(), _CountingWorker()];
+    test('cancel routes to the worker chosen by load routing', () async {
+      final workers = [_ManualWorker(), _ManualWorker(), _ManualWorker()];
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
-      pool.cancel(4, priority: 1); // 4 % 3 == 1
-      pool.cancel(2); // 2 % 3 == 2
-      expect(workers[0].cancels, isEmpty);
-      expect(workers[1].cancels, [(4, 1)]);
-      expect(workers[2].cancels, [(2, 0)]);
+      final hot = pool.record(1, priority: 1); // static target worker 1
+      final rerouted = pool.record(4, priority: 1); // spills to worker 0
+      pool.cancel(4, priority: 1);
+      expect(workers[0].cancels, [(4, 1)]);
+      expect(workers[1].cancels, isEmpty);
+      expect(workers[2].cancels, isEmpty);
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([hot, rerouted]);
+    });
+
+    test('same page and priority reuse one worker until completion', () async {
+      final workers = [_ManualWorker(), _ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      final first = pool.record(1, priority: 1);
+      final second = pool.record(1, priority: 1, decodeImages: false);
+      expect(workers[1].calls.map((c) => c.$1), [1, 1]);
+      expect(workers[0].calls, isEmpty);
+      expect(workers[2].calls, isEmpty);
+
+      pool.cancel(1, priority: 1);
+      expect(workers[1].cancels, [(1, 1)]);
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([first, second]);
     });
 
     test('a run of consecutive heavy pages spreads across the pool', () async {
-      final workers = [_CountingWorker(), _CountingWorker(), _CountingWorker()];
+      final workers = [_ManualWorker(), _ManualWorker(), _ManualWorker()];
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
-      for (final page in [16, 17, 18, 19, 20, 21]) {
-        await pool.record(page);
-      }
+      final futures = [
+        for (final page in [16, 17, 18, 19, 20, 21]) pool.record(page),
+      ];
       // No worker gets more than its even share of the heavy cluster.
       expect(workers.map((w) => w.calls.length), everyElement(2));
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait(futures);
     });
 
     test('stays active while any worker is alive', () {
@@ -584,17 +639,20 @@ void main() {
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
       expect(pool.isActive, isTrue);
       workers[0].active = false;
-      expect(pool.isActive, isTrue, reason: 'one live worker keeps the pool up');
+      expect(pool.isActive, isTrue,
+          reason: 'one live worker keeps the pool up');
       workers[1].active = false;
       expect(pool.isActive, isFalse);
     });
 
-    test('a dead worker only fails its own share, not the pool', () async {
+    test('inactive workers are skipped while any sibling is active', () async {
       final live = _CountingWorker(decodedPixels: 16);
       final dead = _CountingWorker()..active = false; // returns null
       final pool = PdfPooledRenderWorker.fromWorkers([live, dead]);
       expect(await pool.record(0), isNotNull, reason: 'page 0 -> live worker');
-      expect(await pool.record(1), isNull, reason: 'page 1 -> dead worker');
+      expect(await pool.record(1), isNotNull,
+          reason: 'page 1 would hash to the dead worker, but routes to live');
+      expect(dead.calls, isEmpty);
     });
 
     test('dispose tears down every worker', () {
@@ -664,6 +722,52 @@ class _CountingWorker implements PdfRenderWorker {
   void dispose() {
     active = false;
     disposed = true;
+  }
+}
+
+class _ManualWorker implements PdfRenderWorker {
+  final calls = <(int, bool, bool, double?)>[];
+  final cancels = <(int, int)>[];
+  final _pending = <Completer<List<PdfRenderCommand>?>>[];
+  bool active = true;
+  bool disposed = false;
+
+  @override
+  bool get isActive => active;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true}) {
+    calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
+    final completer = Completer<List<PdfRenderCommand>?>();
+    _pending.add(completer);
+    return completer.future;
+  }
+
+  void completeAll() {
+    for (final completer in _pending.toList()) {
+      if (!completer.isCompleted) {
+        completer.complete(const [PdfSaveCommand(), PdfRestoreCommand()]);
+      }
+    }
+    _pending.clear();
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      cancels.add((pageIndex, priority));
+
+  @override
+  void dispose() {
+    active = false;
+    disposed = true;
+    for (final completer in _pending.toList()) {
+      if (!completer.isCompleted) completer.complete(null);
+    }
+    _pending.clear();
   }
 }
 

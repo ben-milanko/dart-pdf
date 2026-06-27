@@ -3,11 +3,14 @@
 // raster instead of blank paper — Bluebeam-style. The cache is fed for
 // free from on-screen renders and by the viewer's background prerender.
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
@@ -87,6 +90,71 @@ void main() {
     // a dropped page is no longer fresh, so its next on-screen render refills
     // it (in the buggy rebind path it stayed "fresh" and could never refresh)
     expect(cache.isFresh(1, pages[1]), isFalse);
+  });
+
+  testWidgets('vector-first prerender upgrades to a full preview',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _PreviewWorker();
+    addTearDown(cache.dispose);
+
+    await tester.runAsync(() =>
+        cache.renderPreview(0, page, worker: worker, decodeImages: false));
+    expect(worker.calls.single, (0, false, null));
+    expect(cache.isFresh(0, page), isTrue,
+        reason: 'a vector preview is good enough to paint while held');
+    expect(cache.isFresh(0, page, requireImages: true), isFalse,
+        reason: 'it must not suppress the later full-image warm');
+
+    await tester.runAsync(
+        () => cache.renderPreview(0, page, worker: worker, decodeImages: true));
+    expect(worker.calls.last.$2, isTrue);
+    expect(worker.calls.last.$3, isNotNull,
+        reason: 'full preview decodes at the low preview ratio');
+    expect(cache.isFresh(0, page, requireImages: true), isTrue);
+  });
+
+  testWidgets('full page renders upgrade vector-only previews', (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _PreviewWorker();
+    addTearDown(cache.dispose);
+
+    await tester.runAsync(() =>
+        cache.renderPreview(0, page, worker: worker, decodeImages: false));
+    expect(cache.isFresh(0, page), isTrue);
+    expect(cache.isFresh(0, page, requireImages: true), isFalse);
+
+    await tester.runAsync(() async {
+      final picture = await PdfPageRenderer.renderPicture(page);
+      try {
+        await cache.putFromPicture(0, page, picture);
+      } finally {
+        picture.dispose();
+      }
+    });
+
+    expect(cache.isFresh(0, page, requireImages: true), isTrue,
+        reason: 'the completed on-screen render must replace vector previews');
+  });
+
+  testWidgets('worker-declined vector prefetch does not render locally',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _DecliningWorker();
+    addTearDown(cache.dispose);
+
+    await tester.runAsync(() =>
+        cache.renderPreview(0, page, worker: worker, decodeImages: false));
+
+    expect(worker.calls, [(0, false, null)]);
+    expect(cache.has(0), isFalse,
+        reason: 'vector prefetch must skip pages the worker declines');
   });
 
   testWidgets('a held page paints the cached preview, then the full render',
@@ -351,4 +419,57 @@ void main() {
     expect(find.byType(RawImage), findsNothing);
     await tester.pump(const Duration(milliseconds: 300));
   });
+}
+
+class _PreviewWorker implements PdfRenderWorker {
+  final calls = <(int, bool, double?)>[];
+
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true}) async {
+    calls.add((pageIndex, decodeImages, imagePixelRatio));
+    final request = PdfImageRequest(
+      stream: CosStream(CosDictionary(), Uint8List(0)),
+      transform: PdfMatrix.identity,
+      decoded: decodeImages
+          ? PdfDecodedPixels(Uint8List.fromList([0, 0, 0, 255]), 1, 1)
+          : null,
+    );
+    return [PdfDrawImageCommand(request)];
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
+}
+
+class _DecliningWorker implements PdfRenderWorker {
+  final calls = <(int, bool, double?)>[];
+
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true}) async {
+    calls.add((pageIndex, decodeImages, imagePixelRatio));
+    return null;
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
 }

@@ -23,9 +23,9 @@ String? pdfRenderWorkerScriptUrl;
 /// whose every sheet is a multi-second image decode fills in one page at a
 /// time, so the tail of a scrolled-through document takes a long time to finish
 /// warming even though each page is already off the UI thread. A pool of N
-/// workers decodes up to N pages at once (page `i` is always handled by worker
-/// `i % N`, so [PdfRenderWorker.cancel] routes to the same worker), so the
-/// visible burst on load and the background prefetch both drain ~N× faster.
+/// workers decodes up to N pages at once. The pool routes new pages to the
+/// least-loaded active worker and remembers the route while the request is
+/// outstanding, so [PdfRenderWorker.cancel] still reaches the right queue.
 ///
 /// The cost is memory: each worker opens its own copy of the document, so the
 /// pool holds N copies of the bytes plus N decode working sets. Default 1 (the
@@ -111,7 +111,8 @@ abstract class PdfRenderWorker {
   /// leaves images at native resolution.
   ///
   /// [decodeImages] false records the page's vector/text but ships its images
-  /// un-decoded (just their streams), so the buffer comes back fast even on a
+  /// un-decoded (just their streams), or as placeholders when an image is not
+  /// self-contained enough to serialize. The buffer comes back fast even on a
   /// page whose raster underlay takes seconds to decode — the fast first pass
   /// of progressive rendering. The caller replays it with
   /// `PdfPageRenderer.pictureFromCommands(includeImages: false)` to paint the
@@ -156,12 +157,13 @@ abstract class PdfRenderWorker {
 /// makes the tail crawl. Spreading the work across a pool drains it ~N× faster —
 /// the visible burst on load and the background prefetch alike.
 ///
-/// Page `i` is always handled by worker `i % N`. That fixed mapping is what
-/// keeps the contract intact without any bookkeeping: a [record] for a page and
-/// the later [cancel] for it land on the same worker, so cancellation and the
-/// worker's own in-flight preemption keep working exactly as they do for one
-/// worker. The mapping also spreads a run of consecutive heavy pages (16, 17,
-/// 18, …) evenly across the pool rather than piling them on one worker.
+/// New records are dispatched to the least-loaded active worker, where load is
+/// the number of queued or in-flight records this pool has handed that worker.
+/// A static `page % N` mapping is used only as the tie-break/fallback, so a
+/// cluster of heavy pages that would all hash to one worker can spill onto idle
+/// siblings. While a `(page, priority)` record is outstanding, later records for
+/// the same pair reuse its worker; [cancel] routes through that lease table so
+/// it still reaches the worker holding the queued request.
 ///
 /// Each worker opens its own copy of the document. The bytes are copied per
 /// worker ([Uint8List.fromList]) because a platform worker may transfer (and so
@@ -181,20 +183,80 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
           size < 1 ? 1 : size,
           (_) => startRenderWorker(Uint8List.fromList(bytes)),
           growable: false,
-        );
+        ) {
+    _loads = List.filled(_workers.length, 0);
+  }
 
   /// Test seam: a pool over already-constructed [workers], so the routing and
   /// teardown can be exercised with fakes instead of real platform workers.
   PdfPooledRenderWorker.fromWorkers(List<PdfRenderWorker> workers)
       : assert(workers.isNotEmpty),
-        _workers = List.of(workers, growable: false);
+        _workers = List.of(workers, growable: false) {
+    _loads = List.filled(_workers.length, 0);
+  }
 
   final List<PdfRenderWorker> _workers;
+  late final List<int> _loads;
+  final _routes = <(int, int), _PoolRoute>{};
 
-  /// The worker that owns [pageIndex]. Negative indices (none are expected) map
-  /// through [int.abs] so routing never throws.
-  PdfRenderWorker _workerFor(int pageIndex) =>
-      _workers[pageIndex.abs() % _workers.length];
+  /// The static mapping used for a tie/fallback. Negative indices (none are
+  /// expected) map through [int.abs] so routing never throws.
+  int _staticWorkerIndex(int pageIndex) => pageIndex.abs() % _workers.length;
+
+  int _leastLoadedWorker(int pageIndex) {
+    if (_workers.length == 1) return 0;
+    final anyActive = _workers.any((worker) => worker.isActive);
+    final fallback = _staticWorkerIndex(pageIndex);
+
+    var best = -1;
+    var bestLoad = 1 << 62;
+    for (var i = 0; i < _workers.length; i++) {
+      if (anyActive && !_workers[i].isActive) continue;
+      final load = _loads[i];
+      if (load < bestLoad) {
+        best = i;
+        bestLoad = load;
+      }
+    }
+    if (best < 0) return fallback;
+
+    // When the preferred static worker is tied for least-loaded, keep using it.
+    // That preserves the old distribution in balanced cases while still spilling
+    // away from a hot modulo class.
+    if ((!anyActive || _workers[fallback].isActive) &&
+        _loads[fallback] == bestLoad) {
+      return fallback;
+    }
+    return best;
+  }
+
+  int _lease(int pageIndex, int priority) {
+    final key = (pageIndex, priority);
+    final existing = _routes[key];
+    final worker = existing?.worker ?? _leastLoadedWorker(pageIndex);
+    _loads[worker]++;
+    if (existing != null) {
+      existing.count++;
+    } else {
+      _routes[key] = _PoolRoute(worker);
+    }
+    return worker;
+  }
+
+  void _release(int pageIndex, int priority, int worker) {
+    if (_loads[worker] > 0) _loads[worker]--;
+    final key = (pageIndex, priority);
+    final route = _routes[key];
+    if (route == null || route.worker != worker) return;
+    route.count--;
+    if (route.count <= 0) _routes.remove(key);
+  }
+
+  PdfRenderWorker _cancelWorkerFor(int pageIndex, int priority) {
+    final route = _routes[(pageIndex, priority)];
+    if (route != null) return _workers[route.worker];
+    return _workers[_staticWorkerIndex(pageIndex)];
+  }
 
   /// The pool can offload while any worker is still alive; a worker that dies
   /// (e.g. its watchdog gave up) only takes its own share of pages down to local
@@ -204,26 +266,44 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-          {bool annotations = true,
-          int priority = 0,
-          double? imagePixelRatio,
-          bool decodeImages = true}) =>
-      _workerFor(pageIndex).record(pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true}) async {
+    final worker = _lease(pageIndex, priority);
+    try {
+      return await _workers[worker].record(pageIndex,
           annotations: annotations,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
           decodeImages: decodeImages);
+    } finally {
+      _release(pageIndex, priority, worker);
+    }
+  }
 
   @override
   void cancel(int pageIndex, {int priority = 0}) =>
-      _workerFor(pageIndex).cancel(pageIndex, priority: priority);
+      _cancelWorkerFor(pageIndex, priority)
+          .cancel(pageIndex, priority: priority);
 
   @override
   void dispose() {
+    _routes.clear();
+    for (var i = 0; i < _loads.length; i++) {
+      _loads[i] = 0;
+    }
     for (final worker in _workers) {
       worker.dispose();
     }
   }
+}
+
+class _PoolRoute {
+  _PoolRoute(this.worker);
+
+  final int worker;
+  int count = 1;
 }
 
 /// Wraps a [PdfRenderWorker] with an LRU cache of completed [record] results,
@@ -360,7 +440,8 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
   /// The least-recently-used key whose buffer holds decoded bytes (weight > 0),
   /// other than [except] (the entry just inserted, which we keep). Null when no
   /// such entry exists — every remaining buffer is costless, so eviction stops.
-  (int, bool, bool, int)? _oldestHeavyKey({required (int, bool, bool, int) except}) {
+  (int, bool, bool, int)? _oldestHeavyKey(
+      {required (int, bool, bool, int) except}) {
     for (final entry in _cache.entries) {
       if (entry.value.weight > 0 && entry.key != except) return entry.key;
     }
