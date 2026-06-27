@@ -13,6 +13,7 @@
 /// page goes crisp.
 library;
 
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -171,6 +172,109 @@ PdfDecodedPixels _finish(Uint8List rgba, int width, int height,
     {required bool hasAlpha}) {
   if (hasAlpha) pdfPremultiplyRgba(rgba);
   return PdfDecodedPixels(rgba, width, height);
+}
+
+/// Area-average (box filter) downsample of premultiplied RGBA [pixels] to
+/// [targetWidth]×[targetHeight]. Each destination pixel is the mean of the
+/// source pixels in its cell, so a large raster underlay shrinks to the
+/// resolution it is actually displayed at — the whole point on heavy CAD
+/// sheets, where a 160-megapixel scan blocks the raster thread (and blows the
+/// decoded-image cache) when drawn into a page only a few thousand pixels wide.
+///
+/// Averaging premultiplied samples directly is correct: alpha rides along with
+/// the colour it weights. Never upscales — returns [pixels] unchanged when the
+/// target is at least as large on both axes. The caller passes target
+/// dimensions that already preserve the aspect it wants; this only resamples.
+PdfDecodedPixels downsamplePdfDecodedPixels(
+    PdfDecodedPixels pixels, int targetWidth, int targetHeight) {
+  final sw = pixels.width;
+  final sh = pixels.height;
+  var tw = targetWidth < 1 ? 1 : targetWidth;
+  var th = targetHeight < 1 ? 1 : targetHeight;
+  if (tw >= sw && th >= sh) return pixels; // already small enough; no upscale
+  if (tw > sw) tw = sw;
+  if (th > sh) th = sh;
+  final src = pixels.rgba;
+  final dst = Uint8List(tw * th * 4);
+  var di = 0;
+  for (var ty = 0; ty < th; ty++) {
+    final sy0 = ty * sh ~/ th;
+    var sy1 = (ty + 1) * sh ~/ th;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    for (var tx = 0; tx < tw; tx++) {
+      final sx0 = tx * sw ~/ tw;
+      var sx1 = (tx + 1) * sw ~/ tw;
+      if (sx1 <= sx0) sx1 = sx0 + 1;
+      // Local int accumulators: a cell spans (sw/tw)·(sh/th) source pixels, so
+      // the worst sum is bounded by the source pixel count × 255 — well within
+      // a 64-bit int (native) and float64's 2^53 (web).
+      var r = 0, g = 0, b = 0, a = 0, n = 0;
+      for (var sy = sy0; sy < sy1; sy++) {
+        var si = (sy * sw + sx0) * 4;
+        for (var sx = sx0; sx < sx1; sx++) {
+          r += src[si];
+          g += src[si + 1];
+          b += src[si + 2];
+          a += src[si + 3];
+          si += 4;
+          n++;
+        }
+      }
+      dst[di] = r ~/ n;
+      dst[di + 1] = g ~/ n;
+      dst[di + 2] = b ~/ n;
+      dst[di + 3] = a ~/ n;
+      di += 4;
+    }
+  }
+  return PdfDecodedPixels(dst, tw, th);
+}
+
+/// The pixel size an image should be decoded/stored at so it is no sharper than
+/// [headroom]× its on-screen footprint — the cap behind `serializeCommands`'s
+/// `maxImagePixelRatio` (see render_command_codec.dart), extracted as a pure
+/// function so every branch is unit-testable without a giant fixture image.
+///
+/// [srcWidth]/[srcHeight] are the image's native pixels; [widthPts]/[heightPts]
+/// are its drawn size on the page in points (the column lengths of its CTM);
+/// [ratio] is screen pixels per point (device pixel ratio included). The target
+/// is `headroom × drawnPixels`, never upscaled past the source, and never past
+/// the hard ceilings ([maxDimension] per edge, [maxPixels] total) that keep a
+/// sheet-sized raster underlay within a GPU texture limit and the decoded-image
+/// cache. Returns `(srcWidth, srcHeight)` unchanged when no worthwhile
+/// reduction applies (already small enough, a degenerate transform, or a
+/// non-positive ratio) — the caller then ships the native pixels as-is.
+(int, int) cappedImagePixelSize(
+    int srcWidth, int srcHeight, double widthPts, double heightPts, double ratio,
+    {double headroom = 2.0,
+    int maxPixels = 1 << 24,
+    double maxDimension = 8192}) {
+  if (srcWidth < 1 || srcHeight < 1) return (srcWidth, srcHeight);
+  if (!(ratio > 0) || !(widthPts > 0) || !(heightPts > 0)) {
+    return (srcWidth, srcHeight);
+  }
+  // ceil() of a positive double is >= 1, so tw/th never under-run 1px.
+  var tw = (widthPts * ratio * headroom).ceil();
+  var th = (heightPts * ratio * headroom).ceil();
+  if (tw >= srcWidth && th >= srcHeight) return (srcWidth, srcHeight); // no up
+  if (tw > srcWidth) tw = srcWidth;
+  if (th > srcHeight) th = srcHeight;
+
+  final maxEdge = math.max(tw, th);
+  if (maxEdge > maxDimension) {
+    final s = maxDimension / maxEdge;
+    tw = (tw * s).floor().clamp(1, srcWidth);
+    th = (th * s).floor().clamp(1, srcHeight);
+  }
+  if (tw * th > maxPixels) {
+    final s = math.sqrt(maxPixels / (tw * th));
+    tw = (tw * s).floor().clamp(1, srcWidth);
+    th = (th * s).floor().clamp(1, srcHeight);
+  }
+
+  // Not worth a full-buffer resample for a sliver — keep the native pixels.
+  if (tw * th >= srcWidth * srcHeight * 0.9) return (srcWidth, srcHeight);
+  return (tw, th);
 }
 
 /// Premultiplies straight-alpha RGBA in place. `decodeImageFromPixels` treats

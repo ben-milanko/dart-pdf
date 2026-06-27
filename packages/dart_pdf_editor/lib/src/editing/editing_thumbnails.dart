@@ -280,8 +280,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// focus, so the tiles nearest the visible band render before the rest.
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    _cache.focus =
-        _thumbnailFocusFromScroll(_scroll, widget.controller.document.pageCount);
+    _cache.focus = _thumbnailFocusFromScroll(
+        _scroll, widget.controller.document.pageCount);
   }
 
   void _onViewerChanged() {
@@ -303,9 +303,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final controller = widget.controller;
     if (index >= controller.document.pageCount) return;
     final cache = _cache;
-    final key = thumbnailKey(
-        controller, index, widget.pageColor, widget.showAnnotations,
-        pixelWidth);
+    final key = thumbnailKey(controller, index, widget.pageColor,
+        widget.showAnnotations, pixelWidth);
     if (cache.contains(key)) return;
     final image = await rasterizeThumbnail(
       controller: controller,
@@ -941,8 +940,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
   /// scrolling re-prioritizes toward what just came into view.
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    _cache.focus =
-        _thumbnailFocusFromScroll(_scroll, widget.controller.document.pageCount);
+    _cache.focus = _thumbnailFocusFromScroll(
+        _scroll, widget.controller.document.pageCount);
   }
 
   /// Renders one page's thumbnail straight into the shared cache — the idle
@@ -952,9 +951,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     final controller = widget.controller;
     if (index >= controller.document.pageCount) return;
     final cache = _cache;
-    final key = thumbnailKey(
-        controller, index, widget.pageColor, widget.showAnnotations,
-        pixelWidth);
+    final key = thumbnailKey(controller, index, widget.pageColor,
+        widget.showAnnotations, pixelWidth);
     if (cache.contains(key)) return;
     final image = await rasterizeThumbnail(
       controller: controller,
@@ -1994,7 +1992,8 @@ Future<ui.Image?> rasterizeThumbnail({
   if (disk != null) {
     final stored = await disk.loadThumbnail(pageIndex, pixelWidth);
     if (stored != null) {
-      PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth disk-hit');
+      PdfPerfLog.log(
+          'thumbnail page=$pageIndex $reason px=$pixelWidth disk-hit');
       return stored;
     }
   }
@@ -2017,7 +2016,9 @@ Future<ui.Image?> rasterizeThumbnail({
     final usingWorker = worker != null && worker.isActive;
     final commands = usingWorker
         ? await worker.record(pageIndex,
-            annotations: annotations, priority: priority)
+            annotations: annotations,
+            priority: priority,
+            imagePixelRatio: ratio)
         : null;
     final recordMs = sw.elapsedMicroseconds / 1000.0;
     if (commands != null) {
@@ -2032,7 +2033,8 @@ Future<ui.Image?> rasterizeThumbnail({
         final image = await PdfPageRenderer.rasterize(picture, size, ratio);
         final rasterMs = sw.elapsedMicroseconds / 1000.0;
         trace.instant('rasterize', arguments: {'ms': rasterMs});
-        PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth worker '
+        PdfPerfLog.log(
+            'thumbnail page=$pageIndex $reason px=$pixelWidth worker '
             'record=${_traceMs(recordMs)} replay=${_traceMs(replayMs)} '
             'raster=${_traceMs(rasterMs)}');
         // write through so this page opens straight from disk next session

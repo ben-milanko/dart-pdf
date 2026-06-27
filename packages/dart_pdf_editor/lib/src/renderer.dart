@@ -140,12 +140,19 @@ class PdfPageRenderer {
   /// every other render path — the reconstructed streams key by content, so a
   /// page redrawn while scrolling reuses its decoded pixels instead of re-
   /// running the codec. An image-free buffer decodes nothing.
+  ///
+  /// [includeImages] false skips image decoding entirely and replays with an
+  /// empty image map, so the device draws the page's vector/text and skips
+  /// every image. This is the fast first pass of progressive rendering: a heavy
+  /// raster underlay can take many seconds to decode, so the page paints its
+  /// linework immediately and the images drop in on a later full pass.
   static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
       {Color pageColor = const Color(0xFFFFFFFF),
-      int? rotation}) async {
+      int? rotation,
+      bool includeImages = true}) async {
     final requests = <PdfImageRequest>[];
-    _collectImageRequests(commands, requests);
+    if (includeImages) _collectImageRequests(commands, requests);
     final images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
@@ -163,6 +170,36 @@ class PdfPageRenderer {
       image.dispose();
     }
     return picture;
+  }
+
+  /// Counts the decoded images a worker [commands] buffer carries and their
+  /// total pixels (recursing soft-mask groups). The deciding diagnostic for why
+  /// a raster-heavy page is slow: one oversized image escaping the resolution
+  /// cap looks very different from many tiles each capped but summing large.
+  /// Images shipped un-decoded (the platform-codec path) don't count.
+  static (int count, int pixels) decodedImageStats(
+      List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    var count = 0;
+    var pixels = 0;
+    for (final request in requests) {
+      final decoded = request.decoded;
+      if (decoded != null) {
+        count++;
+        pixels += decoded.width * decoded.height;
+      }
+    }
+    return (count, pixels);
+  }
+
+  /// Whether [commands] draws any image at all (decoded or not, including
+  /// inside soft-mask groups) — the cue the progressive vector-first pass uses
+  /// to decide whether a slower full (image-decoding) pass needs to follow it.
+  static bool hasImageDraws(List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    return requests.isNotEmpty;
   }
 
   /// Gathers every image draw request in [commands], descending into soft-mask

@@ -76,6 +76,16 @@ void main() {
     expect(data.bytes, [0x00, 0xFF]);
   });
 
+  test('operationLimit returns a prefix on operation boundaries', () {
+    final ops = ContentStreamParser.parse(
+        ascii('q 1 0 0 1 50 50 cm BI /W 1 /H 1 /CS /G /BPC 8 ID \x7f EI Q'),
+        operationLimit: 3);
+
+    expect(ops.map((op) => op.operator), ['q', 'cm', 'BI']);
+    final data = ops[2].operands[1] as CosString;
+    expect(data.bytes, [0x7F]);
+  });
+
   test('DCT inline image ignores EI-like bytes before JPEG EOI', () {
     final bytes = BytesBuilder()
       ..add(ascii('q BI /W 1 /H 1 /CS /RGB /BPC 8 /F /DCT ID\r\n'))

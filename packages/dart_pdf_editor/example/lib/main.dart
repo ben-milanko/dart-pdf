@@ -88,6 +88,12 @@ void main() {
   if (kIsWeb) {
     pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
   }
+  // Fan page decoding across a few workers so a raster-heavy document (every
+  // CAD sheet a multi-second image decode) warms several pages at once instead
+  // of one at a time. Each worker holds its own copy of the document, so this
+  // trades memory for throughput. The example exposes this in the AppBar so
+  // users can switch between the pooled and single-worker paths.
+  pdfRenderWorkerPoolSize = 3;
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
   // streamed to the browser console) without a rebuild by opening the demo
@@ -210,6 +216,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
 
+  bool _workerPoolEnabled = pdfRenderWorkerPoolSize > 1;
+  int _workerPoolSize =
+      pdfRenderWorkerPoolSize > 1 ? pdfRenderWorkerPoolSize : 3;
+  int _workerConfigEpoch = 0;
+
+  int get _effectiveWorkerPoolSize => _workerPoolEnabled ? _workerPoolSize : 1;
+
+  String get _workerPoolTooltip => _workerPoolEnabled
+      ? 'Worker pool: $_workerPoolSize workers'
+      : 'Worker pool off: single worker';
+
   /// OCR connection settings, supplied through the credentials dialog and
   /// remembered for the app's lifetime (the API key is deliberately kept in
   /// memory only — the example never writes a secret to disk). Defaults to a
@@ -279,6 +296,27 @@ class _ViewerScreenState extends State<ViewerScreen> {
       ThemeMode.dark => ThemeMode.system,
     };
   }
+
+  void _setWorkerPoolSize(int value) {
+    final nextSize = value <= 1 ? 1 : value;
+    if (nextSize == _effectiveWorkerPoolSize) return;
+    setState(() {
+      if (nextSize == 1) {
+        _workerPoolEnabled = false;
+      } else {
+        _workerPoolEnabled = true;
+        _workerPoolSize = nextSize;
+      }
+      pdfRenderWorkerPoolSize = _effectiveWorkerPoolSize;
+      _workerConfigEpoch++;
+    });
+    _toast(_workerPoolEnabled
+        ? 'Worker pool: $_workerPoolSize workers'
+        : 'Worker pool off: single worker');
+  }
+
+  Key _pdfShellKey(_DocumentTab tab, String mode) =>
+      ValueKey<Object>((tab, mode, _workerConfigEpoch));
 
   String get _nextThemeLabel => switch (_prefs.themeMode) {
         ThemeMode.system => 'Theme: system — switch to light',
@@ -377,7 +415,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// plus a clear action. Files already open in a tab are left out — there's
   /// no point offering a shortcut to reopen them — so the row is hidden
   /// entirely until there's at least one closed file to show.
-  List<PopupMenuEntry<VoidCallback>> _recentMenuItems(BuildContext menuContext) {
+  List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
+      BuildContext menuContext) {
     final openTitles = {for (final tab in _tabs) tab.title};
     final recents = [
       for (final entry in _recents.entries)
@@ -1044,6 +1083,30 @@ class _ViewerScreenState extends State<ViewerScreen> {
               tooltip: 'Takeoff totals',
               onPressed: () => _showTakeoffPanel(tab.session!),
             ),
+          if (tab?.session != null && !tab!.isComparison)
+            PopupMenuButton<int>(
+              key: const ValueKey('dartpdf-worker-pool-menu'),
+              tooltip: _workerPoolTooltip,
+              icon: Icon(
+                  _workerPoolEnabled ? Icons.memory : Icons.memory_outlined),
+              onSelected: _setWorkerPoolSize,
+              itemBuilder: (context) => [
+                CheckedPopupMenuItem<int>(
+                  key: const ValueKey('dartpdf-worker-pool-off'),
+                  value: 1,
+                  checked: !_workerPoolEnabled,
+                  child: const Text('Worker pool off'),
+                ),
+                const PopupMenuDivider(),
+                for (final size in const [2, 3, 4, 6])
+                  CheckedPopupMenuItem<int>(
+                    key: ValueKey('dartpdf-worker-pool-$size'),
+                    value: size,
+                    checked: _workerPoolEnabled && _workerPoolSize == size,
+                    child: Text('$size workers'),
+                  ),
+              ],
+            ),
           if (tab?.viewer != null)
             ListenableBuilder(
               listenable: tab!.viewer!,
@@ -1098,7 +1161,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                       // session, its file handling, and the demo's app-side wiring
                       : _readOnly
                           ? PdfReader(
-                              key: ValueKey(tab),
+                              key: _pdfShellKey(tab, 'reader'),
                               bytes: tab.session!.bytes,
                               // a stable id per document so reopening it (across
                               // app restarts) restores its scroll position and zoom
@@ -1112,7 +1175,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                   tab.isDemo ? _demoOverlays : null,
                             )
                           : PdfEditorView(
-                              key: ValueKey(tab),
+                              key: _pdfShellKey(tab, 'editor'),
                               documentId: tab.title,
                               controller: tab.session,
                               viewerController: tab.viewer,

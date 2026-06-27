@@ -34,7 +34,8 @@ class ContentStreamParser {
   static CosObject _intObject(int value) =>
       (value >= -1 && value <= 256) ? _smallInts[value + 1] : CosInteger(value);
 
-  static List<ContentOperation> parse(Uint8List content) {
+  static List<ContentOperation> parse(Uint8List content,
+      {int? operationLimit}) {
     // Drive the lexer directly rather than through [CosParser]: a content
     // stream is a flat token stream (no indirect references, so none of
     // parseObject's `N G R` lookahead applies), and on a 10 MB CAD page the
@@ -43,8 +44,14 @@ class ContentStreamParser {
     // finished operation its own operand list (no copy, no clear) roughly
     // halves the parse.
     final operations = <ContentOperation>[];
+    if (operationLimit != null && operationLimit <= 0) return operations;
     final lexer = CosLexer(content);
     var operands = <CosObject>[];
+    bool addOperation(ContentOperation operation) {
+      operations.add(operation);
+      return operationLimit != null && operations.length >= operationLimit;
+    }
+
     while (true) {
       final t = lexer.nextToken();
       switch (t.type) {
@@ -67,13 +74,15 @@ class ContentStreamParser {
             case 'null':
               operands.add(CosNull.instance);
             case 'BI':
-              operations.add(_parseInlineImage(lexer));
+              if (addOperation(_parseInlineImage(lexer))) return operations;
               operands = <CosObject>[];
             default:
               // Hand the operation ownership of the operand list and start a
               // fresh one — equivalent to `List.of(operands)` then clear,
               // minus the element copy.
-              operations.add(ContentOperation(keyword, operands));
+              if (addOperation(ContentOperation(keyword, operands))) {
+                return operations;
+              }
               operands = <CosObject>[];
           }
         default:
@@ -143,7 +152,7 @@ class ContentStreamParser {
               t.textValue == 'null') {
             items.add(_parseObject(lexer, t));
           }
-          // else: stray operator — drop it
+        // else: stray operator — drop it
         default:
           items.add(_parseObject(lexer, t));
       }

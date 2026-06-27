@@ -150,8 +150,7 @@ class PdfViewerController extends ChangeNotifier {
   /// The logical label for zero-based [index] (e.g. "iv", "A-3"), or its
   /// 1-based physical number when the document carries no `/PageLabels` (or
   /// no viewer is attached). See [PdfPageLabels].
-  String pageLabel(int index) =>
-      _state?._pageLabelFor(index) ?? '${index + 1}';
+  String pageLabel(int index) => _state?._pageLabelFor(index) ?? '${index + 1}';
 
   /// The zero-based page index whose logical [pageLabel] equals [label]
   /// (case-sensitive), or null when none matches. Lets a page field accept
@@ -502,7 +501,7 @@ class PdfViewer extends StatefulWidget {
     this.highlightFormFields = true,
     this.interactiveForms = true,
     this.pagePreviews = true,
-    this.previewWindow = 20,
+    this.previewWindow = 6,
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.renderWorker,
@@ -726,15 +725,19 @@ class PdfViewer extends StatefulWidget {
   final bool active;
 
   /// How many pages on each side of the current page the background
-  /// prerender ([pagePreviews]) warms. Each preview is a full synchronous
-  /// interpreter walk, so on a heavy document warming every page stutters
-  /// the UI thread for seconds after open; bounding the proactive warm to
-  /// a window around the viewport keeps it focused on pages the user might
-  /// fast-scroll to. The window recenters automatically as the user
-  /// navigates. Pages outside the window still get a preview for free when
-  /// they're scrolled onto screen (their on-screen render feeds the cache).
-  /// `<= 0` warms every page (the historical behavior — fine for short
-  /// documents where warming everything is cheap).
+  /// prerender ([pagePreviews]) warms. Each preview drives a worker record
+  /// (or a synchronous interpreter walk without a worker), and on a
+  /// raster-heavy page that record pays the full image decode — seconds of
+  /// inflate + colour-convert — even though the preview only rasterizes a
+  /// ~200px thumbnail (the decode happens at native resolution, then
+  /// downsamples). A wide window therefore floods the single worker with
+  /// dozens of multi-second decodes, starving the on-screen page the user is
+  /// waiting on. Keeping the window small bounds that flood; revisits are
+  /// cheap anyway now that the worker caches completed records
+  /// ([PdfCachingRenderWorker]). The window recenters as the user navigates,
+  /// and pages outside it still get a preview for free when scrolled onto
+  /// screen (their on-screen render feeds the cache). `<= 0` warms every page
+  /// (historical behavior — fine for short, light documents).
   final int previewWindow;
 
   /// Draws a short speculative "lead" ahead of the pen while an ink stroke
@@ -753,6 +756,8 @@ class PdfViewer extends StatefulWidget {
 }
 
 class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
+  static const int _jumpPreviewOperationLimit = 2000;
+
   late PdfViewerController _controller;
   bool _ownsController = false;
 
@@ -775,6 +780,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   Timer? _settleTimer;
   Timer? _scrollSettleTimer;
   int _settleGeneration = 0;
+  int? _jumpFocusPage;
 
   /// Bumped whenever the document is swapped for a revision whose page
   /// structure differs (insert/remove/reorder — the non-same-geometry path
@@ -816,7 +822,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Pages the background prerender already tried (by page object
   /// identity), so a page whose render throws can't be retried forever.
   final _previewAttempts = Set<PdfPage>.identity();
+  final _previewVectorAttempts = Set<PdfPage>.identity();
   bool _prerendering = false;
+
+  /// True while the scroll velocity is high enough that background preview
+  /// warming should record vector/text only and skip image decodes.
+  bool _vectorFirstPrefetch = false;
 
   /// The editing controller's [PdfEditingController.pageRenderStamp] for
   /// each page as of the displayed revision — the content the cached
@@ -1239,16 +1250,24 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _onScrollForDetail() {
     _trackScrollVelocity();
     // the scheduler drains held pages nearest the viewport first
-    _renderScheduler.focus = _controller.currentPage;
+    _renderScheduler.focus = _jumpFocusPage ?? _controller.currentPage;
     _scrollSettleTimer?.cancel();
     _scrollSettleTimer = Timer(const Duration(milliseconds: 250), () {
       _scrollSamples.clear();
+      _vectorFirstPrefetch = false;
+      _jumpFocusPage = null;
       // stay held while the viewer is paused (a view overlays it)
       _renderScheduler.holding = !widget.active;
       if (mounted) setState(() => _settleGeneration++);
       // the prerender pauses while the user scrolls; pick it back up
       _prerenderPreviews();
     });
+    if (_vectorFirstPrefetch) {
+      // A high-velocity scroll can hold on-screen renders long enough that
+      // newly-visible pages would otherwise stay blank. Let the worker warm a
+      // cheap vector-only preview while the scroll is still in flight.
+      _prerenderPreviews();
+    }
   }
 
   /// Fills [_previews] for pages that have never rendered on screen, one
@@ -1264,11 +1283,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _prerendering = true;
     try {
       while (mounted && widget.pagePreviews && widget.active) {
-        if (_renderScheduler.holding ||
-            (_scrollSettleTimer?.isActive ?? false)) {
+        final vectorOnly =
+            _vectorFirstPrefetch && (widget.renderWorker?.isActive ?? false);
+        if (!vectorOnly &&
+            (_renderScheduler.holding ||
+                (_scrollSettleTimer?.isActive ?? false))) {
           return; // restarted by the settle timer
         }
-        if (_renderScheduler.hasPending) {
+        if (!vectorOnly && _renderScheduler.hasPending) {
           // near pages are still draining their full render through the
           // scheduler; don't compete for the UI thread this frame
           await SchedulerBinding.instance.endOfFrame;
@@ -1276,15 +1298,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           continue;
         }
         final pages = _pages;
-        final index = _nextPreviewIndex(pages);
+        final index = _nextPreviewIndex(pages,
+            requireImages: !vectorOnly, allowNearViewport: vectorOnly);
         if (index == null) return; // every page covered (or attempted)
         final page = pages[index];
-        _previewAttempts.add(page);
+        if (vectorOnly) {
+          _previewVectorAttempts.add(page);
+        } else {
+          _previewAttempts.add(page);
+        }
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
             annotations: widget.showAnnotations,
             worker: widget.renderWorker,
-            rotation: _effectiveRotation(index));
+            rotation: _effectiveRotation(index),
+            decodeImages: !vectorOnly);
         if (!mounted) return;
         // breathe between interpreter walks — each is a synchronous
         // UI-thread chunk, so give the engine a frame for input and
@@ -1301,7 +1329,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// attempted, and not near the viewport (pages in or around the build
   /// window render fully on their own — their full picture feeds the
   /// cache, so prerendering them too would interpret twice).
-  int? _nextPreviewIndex(List<PdfPage> pages) {
+  int? _nextPreviewIndex(List<PdfPage> pages,
+      {required bool requireImages, required bool allowNearViewport}) {
     final current =
         pages.isEmpty ? 0 : _controller.currentPage.clamp(0, pages.length - 1);
     final hasMetrics = _scroll.hasClients && _viewWidth > 0;
@@ -1321,21 +1350,62 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final height = _pageHeight(i) + widget.pageSpacing;
       final top = offset;
       offset += height;
-      if (top + height >= nearTop && top <= nearBottom) continue;
+      if (!allowNearViewport && top + height >= nearTop && top <= nearBottom) {
+        continue;
+      }
       final distance = (i - current).abs();
       // bound the proactive warm to a window around the viewport — far
       // pages render on demand on arrival (render hold) and feed the
       // cache for free when scrolled through (putFromPicture)
-      final window = widget.previewWindow;
+      final window = _effectivePreviewWindow(requireImages: requireImages);
       if (window > 0 && distance > window) continue;
-      if (_previewAttempts.contains(pages[i])) continue;
-      if (_previews.isFresh(i, pages[i])) continue;
+      if (requireImages) {
+        if (_previewAttempts.contains(pages[i])) continue;
+      } else if (_previewVectorAttempts.contains(pages[i])) {
+        continue;
+      }
+      if (_previews.isFresh(i, pages[i], requireImages: requireImages)) {
+        continue;
+      }
       if (distance < bestDistance) {
         bestDistance = distance;
         best = i;
       }
     }
     return best;
+  }
+
+  /// Full-image preview warming should stay inside the worker cache's useful
+  /// horizon. Large documents and nearly-full decoded-image caches otherwise
+  /// spend worker time warming pages whose records are evicted before reuse.
+  /// Vector-only warming stays at the configured window because it is cheap
+  /// and weighs zero in [PdfCachingRenderWorker].
+  int _effectivePreviewWindow({required bool requireImages}) {
+    final base = widget.previewWindow;
+    if (base <= 0 || !requireImages) return base;
+
+    var window = base;
+    final pageCount = _pages.length;
+    if (pageCount >= 100) {
+      window = math.min(window, 2);
+    } else if (pageCount >= 50) {
+      window = math.min(window, 3);
+    } else if (pageCount >= 25) {
+      window = math.min(window, 4);
+    }
+
+    final worker = widget.renderWorker;
+    if (worker is PdfCachingRenderWorker) {
+      final pressure = worker.cachePressure;
+      if (pressure >= 0.85) {
+        window = math.min(window, 1);
+      } else if (pressure >= 0.65) {
+        window = math.min(window, 2);
+      } else if (pressure >= 0.45) {
+        window = math.min(window, 3);
+      }
+    }
+    return math.max(1, window);
   }
 
   /// Estimates the scroll velocity over a ~200ms window of per-frame
@@ -1356,6 +1426,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _scrollBurstStart = now;
       _scrollSamples.add((now, pixels));
       _renderScheduler.holding = true;
+      _vectorFirstPrefetch = widget.renderWorker?.isActive ?? false;
       return;
     }
     if (_scrollSamples.last.$1 == now) {
@@ -1384,9 +1455,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // lapses and the page sharpens; the settle timer clears the burst.
     final opening = now - _scrollBurstStart < const Duration(milliseconds: 150);
     final hold = opening || velocity > math.max(800, 2 * viewport);
+    _vectorFirstPrefetch = hold && (widget.renderWorker?.isActive ?? false);
     PdfPerfLog.log('scroll page=${_controller.currentPage} '
         'v=${velocity.toStringAsFixed(0)}px/s '
         'threshold=${math.max(800, 2 * viewport).toStringAsFixed(0)} '
+        'prefetch=${_vectorFirstPrefetch ? 'vector' : 'full'} '
         'opening=$opening hold=${hold ? 'ON' : 'off'}');
     // a paused viewer (overlaid by another view) holds unconditionally
     _renderScheduler.holding = hold || !widget.active;
@@ -1413,8 +1486,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         // redaction burn removes glyphs/images): drop its stale preview so
         // a fast scroll can't flash the deleted content, instead of
         // rebinding it. Untouched pages rebind in place as before.
-        _previews.rebind(_pages,
-            changed: (i) {
+        _previews.rebind(_pages, changed: (i) {
           final prev = _contentStamps[i];
           return prev != null && prev != _contentStamp(i);
         });
@@ -1433,6 +1505,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // prime is a no-op there
       _bindRasterCache(prime: !sameGeometry);
       _previewAttempts.clear();
+      _previewVectorAttempts.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
       if (!sameGeometry) {
         // didUpdateWidget runs mid-build, and jumpTo synchronously
@@ -1456,6 +1529,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _previews.clear();
       _bindRasterCache();
       _previewAttempts.clear();
+      _previewVectorAttempts.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
     } else if (!identical(oldWidget.rasterCache, widget.rasterCache) ||
         oldWidget.documentId != widget.documentId ||
@@ -1548,7 +1622,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       for (var i = 0; i < _pages.length; i++)
         _isEffectivelySideways(i)
             ? _pages[i].cropBox.width / math.max(1e-6, _pages[i].cropBox.height)
-            : _pages[i].cropBox.height / math.max(1e-6, _pages[i].cropBox.width),
+            : _pages[i].cropBox.height /
+                math.max(1e-6, _pages[i].cropBox.width),
     ];
     _pointWidths = [
       for (var i = 0; i < _pages.length; i++)
@@ -1564,6 +1639,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _previews.clear();
     _bindRasterCache();
     _previewAttempts.clear();
+    _previewVectorAttempts.clear();
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _prerenderPreviews();
@@ -1615,7 +1691,6 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     return r == 90 || r == 270;
   }
 
-
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
@@ -1648,8 +1723,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// == 1, transform identity): the widest page exactly fills the viewport.
   /// The public zoom is expressed against actual size (1 px/pt), so it is
   /// this scale times the fit-width multiplier ([_currentZoom]).
-  double get _fitWidthScale =>
-      (_maxPointWidth <= 0 || _viewWidth <= 0) ? 1 : _viewWidth / _maxPointWidth;
+  double get _fitWidthScale => (_maxPointWidth <= 0 || _viewWidth <= 0)
+      ? 1
+      : _viewWidth / _maxPointWidth;
 
   /// The on-screen scale the user sees, in logical pixels per PDF point,
   /// where 1.0 is actual size (100%) — independent of the viewport. This is
@@ -1782,10 +1858,19 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   Future<void> _jumpToPage(int index) async {
     if (!_scroll.hasClients) return;
-    final target =
-        _pageOffset(index.clamp(0, _pages.length - 1)) + _zoomWindowDy;
+    final targetIndex = index.clamp(0, _pages.length - 1);
+    _jumpFocusPage = targetIndex;
+    _renderScheduler.focus = targetIndex;
+    final target = _pageOffset(targetIndex) + _zoomWindowDy;
+    final clamped = target.clamp(0.0, _scroll.position.maxScrollExtent);
+    final distance = (clamped - _scroll.position.pixels).abs();
+    if (distance > math.max(_viewHeight * 2, 2400.0)) {
+      _warmJumpTargetPreview(targetIndex);
+      _scroll.jumpTo(clamped);
+      return;
+    }
     await _scroll.animateTo(
-      target.clamp(0.0, _scroll.position.maxScrollExtent),
+      clamped,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeInOut,
     );
@@ -1874,8 +1959,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // _pageLeft and the stored fraction is into the page's own width
       final pageView = _pageLeft(page) + viewport.left * _pageWidth(page);
       final tx = (-scale * pageView).clamp(_viewWidth * (1 - scale), 0.0);
-      final ty = (scale * (scroll - listTop))
-          .clamp(_viewHeight * (1 - scale), 0.0);
+      final ty =
+          (scale * (scroll - listTop)).clamp(_viewHeight * (1 - scale), 0.0);
       _transform.value = Matrix4.identity()
         ..translateByDouble(tx, ty, 0, 1)
         ..scaleByDouble(scale, scale, scale, 1);
@@ -1910,8 +1995,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     );
     final target = geometry.toViewRect(rect);
     // list space: pages are centered horizontally and stacked vertically
-    final center =
-        target.center + Offset(_pageLeft(index), _pageOffset(index));
+    final center = target.center + Offset(_pageLeft(index), _pageOffset(index));
     final fit = 0.4 *
         math.min(_viewWidth / math.max(target.width, 8),
             _viewHeight / math.max(target.height, 8));
@@ -3545,8 +3629,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final scale = _transform.value.getMaxScaleOnAxis();
     final min = _viewWidth * (1 - scale);
     final target = tx > 0 ? 0.0 : min;
-    _hBounceController.animateWith(
-        SpringSimulation(_hBounceSpring, tx, target, 0));
+    _hBounceController
+        .animateWith(SpringSimulation(_hBounceSpring, tx, target, 0));
   }
 
   static const SpringDescription _hBounceSpring =
@@ -3714,6 +3798,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 pageEpoch: _pageEpoch,
                 contentStamp: _contentStamp(index),
                 destructiveStamp: _destructiveStamp(index),
+                renderPriority: _renderPriority(index),
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -4048,6 +4133,31 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       );
     });
   }
+
+  int _renderPriority(int pageIndex) =>
+      -1000 + (pageIndex - (_jumpFocusPage ?? _controller.currentPage)).abs();
+
+  void _warmJumpTargetPreview(int index) {
+    if (!widget.pagePreviews) return;
+    final worker = widget.renderWorker;
+    if (worker == null ||
+        !worker.isActive ||
+        index < 0 ||
+        index >= _pages.length) {
+      return;
+    }
+    final page = _pages[index];
+    if (_previews.isFresh(index, page)) return;
+    _previewVectorAttempts.add(page);
+    unawaited(_previews.renderPreview(index, page,
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+        worker: worker,
+        rotation: _effectiveRotation(index),
+        decodeImages: false,
+        priority: -2000,
+        commandLimit: _jumpPreviewOperationLimit));
+  }
 }
 
 /// Paints the Shift+drag rubber-band marquee (a translucent fill with a
@@ -4108,6 +4218,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.pageEpoch,
     required this.contentStamp,
     required this.destructiveStamp,
+    required this.renderPriority,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -4172,6 +4283,7 @@ class _PdfViewerPage extends StatefulWidget {
   /// State drops its raster immediately on a change so the deleted content
   /// can't linger on screen. 0 outside an editing session.
   final int destructiveStamp;
+  final int renderPriority;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -4282,6 +4394,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         pageEpoch: widget.pageEpoch,
         contentStamp: widget.contentStamp,
         destructiveStamp: widget.destructiveStamp,
+        renderPriority: widget.renderPriority,
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
         onRasterReady: _onRasterReady,

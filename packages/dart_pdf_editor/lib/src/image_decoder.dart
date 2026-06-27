@@ -11,8 +11,41 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 /// the xref cache hands back the same [CosStream] on every interpretation
 /// pass. Inline images are re-synthesized each pass, so they key by value
 /// ([PdfInlineImageKey]) or the paint-time lookup could never hit.
-Object pdfImageKey(PdfImageRequest request) =>
-    request.isInline ? PdfInlineImageKey(request.stream) : request.stream;
+///
+/// A request carrying worker-decoded pixels ([PdfImageRequest.decoded]) folds
+/// those pixels' dimensions into the key: the worker caps each image to display
+/// resolution (see `serializeCommands`'s `maxImagePixelRatio`), so the *same*
+/// source image can be decoded at two sizes — sharp for the on-screen page,
+/// tiny for its 200px preview. Keying by content alone would let one resolution
+/// evict and stand in for the other (a blurry page, or a needlessly huge
+/// preview); the dimensions disambiguate them so each caches on its own.
+Object pdfImageKey(PdfImageRequest request) {
+  if (!request.isInline) return request.stream;
+  final content = PdfInlineImageKey(request.stream);
+  final decoded = request.decoded;
+  return decoded == null
+      ? content
+      : PdfSizedImageKey(content, decoded.width, decoded.height);
+}
+
+/// An [PdfInlineImageKey] qualified by a decoded resolution — see [pdfImageKey].
+class PdfSizedImageKey {
+  PdfSizedImageKey(this.content, this.width, this.height);
+
+  final PdfInlineImageKey content;
+  final int width;
+  final int height;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfSizedImageKey &&
+      other.width == width &&
+      other.height == height &&
+      other.content == content;
+
+  @override
+  int get hashCode => Object.hash(content, width, height);
+}
 
 /// Value identity for an inline image: its parameter dictionary plus the
 /// raw data bytes.
