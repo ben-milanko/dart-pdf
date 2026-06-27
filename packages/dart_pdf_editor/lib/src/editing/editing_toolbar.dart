@@ -84,6 +84,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.imagePicker,
     this.fontPicker,
     this.palette = defaultPalette,
     this.tools,
@@ -110,6 +111,9 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How selected page-content images are replaced from the element strip.
+  final PdfImagePicker? imagePicker;
 
   /// How the font menu's "Load font…" entry obtains a custom `.ttf`/`.otf`
   /// file. When null, only the standard families and bundled fonts are
@@ -524,6 +528,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           content: const Text(
               "Couldn't reflow — this isn't a single-column paragraph this "
               'tool can re-wrap. Try Replace text instead.'),
+          behavior: SnackBarBehavior.floating,
+          margin: pdfFloatingToastMargin(context),
+        ));
+    }
+  }
+
+  Future<void> _replaceElementImage(BuildContext context) async {
+    final picker = widget.imagePicker;
+    if (picker == null) return;
+    final bytes = await picker(context);
+    if (bytes == null) return;
+    final replaced = controller.replaceSelectedElementImage(bytes);
+    if (!replaced && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: const Text("Couldn't replace image"),
           behavior: SnackBarBehavior.floating,
           margin: pdfFloatingToastMargin(context),
         ));
@@ -1180,6 +1201,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onPressed: () => _reflowElementText(context),
         ),
       ],
+      if (controller.canReplaceSelectedElementImage &&
+          widget.imagePicker != null)
+        IconButton(
+          key: const ValueKey('pdf-replace-element-image'),
+          icon: const Icon(Icons.image_outlined),
+          tooltip: 'Replace image',
+          onPressed: () => _replaceElementImage(context),
+        ),
     ]);
     return _centeredCard(
       context,

@@ -11,6 +11,10 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
+// 2x2 RGBA PNG fixture used by image-content replacement tests.
+final _tinyPng = base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
+    'AAAAGUlEQVR4nGP4z8DwHwgbWBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==');
+
 void main() {
   dynamic editingOverlayPainter(WidgetTester tester) {
     for (final paint
@@ -310,6 +314,35 @@ void main() {
 
       editing.undo();
       expect(editing.elementsOn(0).elements.single.text, 'Page 1');
+    });
+
+    test('replaceSelectedElementImage removes page content and inserts a stamp',
+        () {
+      final editing = PdfEditingController(PdfImageDocument.fromImageBytes(
+        [_tinyPng],
+        pageSize: const PdfPageSize(100, 100),
+        fit: PdfImageFit.fill,
+      ));
+      final elements = editing.elementsOn(0).elements;
+      expect(elements, hasLength(1));
+      expect(elements.single.kind, PdfElementKind.image);
+      expect(editing.selectElementAt(0, 50, 50), isTrue);
+      expect(editing.canReplaceSelectedElementImage, isTrue);
+
+      expect(editing.replaceSelectedElementImage(_tinyPng), isTrue);
+      expect(editing.selectedElement, isNull);
+      expect(editing.elementsOn(0).elements, isEmpty,
+          reason: 'the old baked-in image draw was removed');
+      final stamp = editing.document.page(0).annotations.single;
+      expect(stamp.subtype, 'Stamp');
+      expect(stamp.rect.left, closeTo(0, 0.01));
+      expect(stamp.rect.bottom, closeTo(0, 0.01));
+      expect(stamp.rect.right, closeTo(100, 0.01));
+      expect(stamp.rect.top, closeTo(100, 0.01));
+
+      editing.undo();
+      expect(editing.document.page(0).annotations, isEmpty);
+      expect(editing.elementsOn(0).elements.single.kind, PdfElementKind.image);
     });
 
     test('replaceSelectedElementText rewrites the run in place', () {
@@ -960,6 +993,45 @@ void main() {
       expect(editing.document.page(0).annotations, isEmpty);
       expect(editing.document.page(1).annotations, hasLength(1));
       expect(find.text('first note'), findsNothing);
+    });
+
+    testWidgets('the element toolbar replaces a selected page image',
+        (tester) async {
+      final editing = PdfEditingController(PdfImageDocument.fromImageBytes(
+        [_tinyPng],
+        pageSize: const PdfPageSize(100, 100),
+        fit: PdfImageFit.fill,
+      ));
+      final viewer = PdfViewerController();
+      var picks = 0;
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      expect(editing.selectElementAt(0, 50, 50), isTrue);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+            imagePicker: (_) async {
+              picks++;
+              return _tinyPng;
+            },
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final replace = find.byKey(const ValueKey('pdf-replace-element-image'));
+      expect(replace, findsOneWidget);
+      await tester.tap(replace);
+      await tester.pump();
+      await tester.pump();
+
+      expect(picks, 1);
+      expect(editing.elementsOn(0).elements, isEmpty);
+      expect(editing.document.page(0).annotations.single.subtype, 'Stamp');
     });
 
     testWidgets('the style menu drives stroke width and opacity',

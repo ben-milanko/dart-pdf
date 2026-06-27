@@ -120,8 +120,9 @@ enum PdfEditTool {
   image,
 
   /// Tap to select a page content element (text run, path, image); the
-  /// selection can be deleted or, for text, rewritten. Edits the page's
-  /// content stream itself, not annotations.
+  /// selection can be deleted, text can be rewritten, and images can be
+  /// replaced. Edits remove from the page's content stream itself; replacement
+  /// images are inserted as movable image stamps.
   content,
 
   /// Interactive forms: tap a field widget to fill it (text fields open
@@ -3726,6 +3727,16 @@ class PdfEditingController extends ChangeNotifier {
       selectedElement?.kind == PdfElementKind.text &&
       (selectedElement?.text?.isNotEmpty ?? false);
 
+  /// Whether the selected element is an image-like content draw that can be
+  /// removed from the page stream and replaced by an image stamp in the same
+  /// bounds.
+  bool get canReplaceSelectedElementImage {
+    final element = selectedElement;
+    return element?.bounds != null &&
+        (element?.kind == PdfElementKind.image ||
+            element?.kind == PdfElementKind.inlineImage);
+  }
+
   /// Selects the topmost content element whose bounds contain ([x], [y])
   /// on [pageIndex]; clears the selection when nothing is hit. Bounds are
   /// approximate (see [PdfContentElement.bounds]).
@@ -3780,6 +3791,50 @@ class PdfEditingController extends ChangeNotifier {
             fallbackFonts: fallbackFonts),
         pages: [selected.$1]);
     return count;
+  }
+
+  /// Replaces the selected page-content image with [imageBytes] (PNG or JPEG).
+  ///
+  /// The original image draw is removed from the content stream and the new
+  /// image is inserted as a stamp annotation fitted into the same page-space
+  /// bounds. This keeps the replacement movable/resizable while ensuring the
+  /// old baked-in image is not left underneath it. Returns false when the
+  /// selection is not a replaceable image or [imageBytes] cannot be decoded.
+  bool replaceSelectedElementImage(Uint8List imageBytes) {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    final bounds = element?.bounds;
+    if (selected == null ||
+        element == null ||
+        bounds == null ||
+        !canReplaceSelectedElementImage ||
+        bounds.width <= 0 ||
+        bounds.height <= 0) {
+      return false;
+    }
+    final PdfEmbeddableImage image;
+    try {
+      image = PdfEmbeddableImage.decode(imageBytes);
+    } catch (_) {
+      return false;
+    }
+    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+    var w = bounds.width, h = bounds.height;
+    if (w / h > aspect) {
+      w = h * aspect;
+    } else {
+      h = w / aspect;
+    }
+    final cx = (bounds.left + bounds.right) / 2;
+    final cy = (bounds.bottom + bounds.top) / 2;
+    final elements = elementsOn(selected.$1);
+    return apply(
+        (e) => e
+          ..deleteElements(elements, [element.id])
+          ..addImageStamp(selected.$1,
+              PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
+              opacity: preferences.opacity, author: author),
+        pages: [selected.$1]);
   }
 
   /// Edits the selected text element and re-flows its whole paragraph via
