@@ -3116,7 +3116,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final bytes = await picker(context);
         if (bytes == null) return;
-        _controller.addImageInRect(widget.pageIndex, rect, bytes);
+        await _controller.addImageInRectAsync(widget.pageIndex, rect, bytes);
       case PdfEditTool.form:
         _controller.addFormField(
             _controller.newFormFieldKind, widget.pageIndex, rect);
@@ -3175,7 +3175,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final name = field.name;
         final bytes = await picker(context, field);
-        if (bytes != null) _controller.setFormButtonImage(name, bytes);
+        if (bytes != null) {
+          await _controller.setFormButtonImageAsync(name, bytes);
+        }
       case PdfFieldType.signature || PdfFieldType.unknown:
         break;
     }
@@ -3221,7 +3223,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerAnnotations = annotations;
       _sampler = null;
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
-              pageColor: pageColor, annotations: annotations,
+              pageColor: pageColor,
+              annotations: annotations,
               rotation: widget.geometry.rotation)
           .then((s) {
         // resolve the preview that was waiting on the raster
@@ -3348,7 +3351,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final bytes = await picker(context);
         if (bytes == null) return;
-        _controller.placeImage(widget.pageIndex, x, y, bytes);
+        await _controller.placeImageAsync(widget.pageIndex, x, y, bytes);
       case PdfEditTool.form:
         // single tap selects the field for move/resize/menu; double-tap
         // fills it (read mode is the no-tool path to just fill)
@@ -3598,7 +3601,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final family = 'pdfedit-$key';
     // copy the bytes: loadFontFromList wants an owned, immutable list
     ui
-        .loadFontFromList(Uint8List.fromList(font.fontBytes), fontFamily: family)
+        .loadFontFromList(Uint8List.fromList(font.fontBytes),
+            fontFamily: family)
         .then((_) {
       _embeddedPreviewFamilies[key] = family;
       _embeddedFontsLoading.remove(key);
@@ -4308,9 +4312,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     resizeClean: wrapResize != null
                         ? _resizeCleanPicture
                         : _afterTextClean,
-                    resizeHideRect: wrapResize != null
-                        ? _resizeFrom
-                        : _afterTextHideRect,
+                    resizeHideRect:
+                        wrapResize != null ? _resizeFrom : _afterTextHideRect,
                     resizeHideAngle:
                         wrapResize != null ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
@@ -4427,22 +4430,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             meta: true): _commitTextEdit,
                         const SingleActivator(LogicalKeyboardKey.enter,
                             control: true): _commitTextEdit,
-                        const SingleActivator(LogicalKeyboardKey.keyB,
-                            meta: true): () => _toggleInlineTextStyle(
-                              italic: false,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyB,
-                            control: true): () => _toggleInlineTextStyle(
-                              italic: false,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyI,
-                            meta: true): () => _toggleInlineTextStyle(
-                              italic: true,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyI,
-                            control: true): () => _toggleInlineTextStyle(
-                              italic: true,
-                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyB, meta: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: false,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyB, control: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: false,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyI, meta: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: true,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyI, control: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: true,
+                                ),
                       },
                       child: Container(
                         // the chrome border lives in the inflate(2) gutter
@@ -4457,8 +4460,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         // so the old rendering doesn't ghost through and read
                         // as a misaligned shadow behind the live text
                         color: _textEditFill ??
-                            widget.pageColor.withValues(
-                                alpha: _textEditExisting ? 1 : 0.3),
+                            widget.pageColor
+                                .withValues(alpha: _textEditExisting ? 1 : 0.3),
                         foregroundDecoration: BoxDecoration(
                           border: Border.all(
                               color: PdfViewerTheme.of(context)

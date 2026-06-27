@@ -244,6 +244,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// gesture), so the thumb needs its own state meanwhile.
   double? _dragOpacity;
 
+  bool _replacingElementImage = false;
+
   /// The seven dock groups, in order. Filtered by [PdfEditingToolbar.tools]
   /// and [PdfEditingToolbar.showMarkup] before display.
   static const _groups = <_ToolGroup>[
@@ -536,18 +538,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   Future<void> _replaceElementImage(BuildContext context) async {
     final picker = widget.imagePicker;
-    if (picker == null) return;
-    final bytes = await picker(context);
-    if (bytes == null) return;
-    final replaced = controller.replaceSelectedElementImage(bytes);
-    if (!replaced && context.mounted) {
-      ScaffoldMessenger.maybeOf(context)
-        ?..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: const Text("Couldn't replace image"),
-          behavior: SnackBarBehavior.floating,
-          margin: pdfFloatingToastMargin(context),
-        ));
+    if (picker == null || _replacingElementImage) return;
+    setState(() => _replacingElementImage = true);
+    try {
+      final bytes = await picker(context);
+      if (bytes == null) return;
+      final replaced = await controller.replaceSelectedElementImageAsync(bytes);
+      if (!replaced && context.mounted) {
+        ScaffoldMessenger.maybeOf(context)
+          ?..clearSnackBars()
+          ..showSnackBar(SnackBar(
+            content: const Text("Couldn't replace image"),
+            behavior: SnackBarBehavior.floating,
+            margin: pdfFloatingToastMargin(context),
+          ));
+      }
+    } finally {
+      if (mounted) setState(() => _replacingElementImage = false);
     }
   }
 
@@ -1145,16 +1152,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       _alignButton(
           PdfAlignment.left, Icons.align_horizontal_left, 'Align left'),
-      _alignButton(PdfAlignment.horizontalCenter,
-          Icons.align_horizontal_center, 'Align horizontal centers'),
+      _alignButton(PdfAlignment.horizontalCenter, Icons.align_horizontal_center,
+          'Align horizontal centers'),
       _alignButton(
           PdfAlignment.right, Icons.align_horizontal_right, 'Align right'),
       const _MiniDivider(),
       _alignButton(PdfAlignment.top, Icons.align_vertical_top, 'Align top'),
       _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
           'Align vertical centers'),
-      _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
-          'Align bottom'),
+      _alignButton(
+          PdfAlignment.bottom, Icons.align_vertical_bottom, 'Align bottom'),
       const _MiniDivider(),
       _alignButton(PdfAlignment.distributeHorizontal,
           Icons.horizontal_distribute, 'Distribute horizontally',
@@ -1205,9 +1212,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           widget.imagePicker != null)
         IconButton(
           key: const ValueKey('pdf-replace-element-image'),
-          icon: const Icon(Icons.image_outlined),
+          icon: _replacingElementImage
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.image_outlined),
           tooltip: 'Replace image',
-          onPressed: () => _replaceElementImage(context),
+          onPressed: _replacingElementImage
+              ? null
+              : () => _replaceElementImage(context),
         ),
     ]);
     return _centeredCard(

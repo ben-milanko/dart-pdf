@@ -109,14 +109,16 @@ void main() {
       expect(moved.bottom, closeTo(before.bottom - 10, 1e-6));
 
       // resize regenerates the appearance at the new size
-      final target =
-          PdfRect(moved.left, moved.bottom, moved.left + 240, moved.bottom + 40);
+      final target = PdfRect(
+          moved.left, moved.bottom, moved.left + 240, moved.bottom + 40);
       editing.resizeSelected(target);
       final resized = editing.acroForm!.fieldNamed('name')!.widgetRect(0)!;
       expect(resized.width, closeTo(240, 1e-6));
       expect(resized.height, closeTo(40, 1e-6));
       // the value is re-laid into the new box, not stretched
-      expect(widgetAppearance(editing.document, editing.acroForm!.fieldNamed('name')!),
+      expect(
+          widgetAppearance(
+              editing.document, editing.acroForm!.fieldNamed('name')!),
           contains('prefilled'));
 
       // delete drops the whole field, not just the /Annots entry
@@ -147,6 +149,15 @@ void main() {
       expect(widgetAppearance(editing.document, field), contains('/Img0 Do'));
       expect(editing.setFormButtonImage(name, buildClassicPdf()), isFalse,
           reason: 'not an image');
+    });
+
+    test('setFormButtonImageAsync fills a push button', () async {
+      final editing = controller();
+      final name = editing.addFormField(
+          PdfFormFieldKind.pushButton, 0, const PdfRect(400, 600, 500, 640))!;
+      expect(await editing.setFormButtonImageAsync(name, _png), isTrue);
+      final field = editing.acroForm!.fieldNamed(name)!;
+      expect(widgetAppearance(editing.document, field), contains('/Img0 Do'));
     });
 
     test('addFormField generates unique names and creates the form', () {
@@ -231,6 +242,21 @@ void main() {
 
     Future<void> settle(WidgetTester tester) =>
         tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    Future<void> waitForFieldImage(
+        WidgetTester tester, PdfEditingController editing, String name) async {
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50; i++) {
+          final field = editing.acroForm!.fieldNamed(name);
+          if (field != null &&
+              widgetAppearance(editing.document, field).contains('/Img0 Do')) {
+            return;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
+      await tester.pump();
+    }
 
     Future<PdfEditingController> pumpEditor(WidgetTester tester,
         {PdfFormImagePicker? imagePicker, bool toolbar = false}) async {
@@ -404,7 +430,7 @@ void main() {
 
       await doubleTap(tester, view(430, 340));
       expect(picked?.name, 'Field 1');
-      await tester.pump();
+      await waitForFieldImage(tester, editing, 'Field 1');
       final field = editing.acroForm!.fieldNamed('Field 1')!;
       expect(widgetAppearance(editing.document, field), contains('/Img0 Do'));
       await settle(tester);
@@ -474,8 +500,7 @@ void main() {
 
       final flatten =
           find.byTooltip('Flatten form — bake values into the pages');
-      await tester.scrollUntilVisible(flatten, 80,
-          scrollable: stripScrollable);
+      await tester.scrollUntilVisible(flatten, 80, scrollable: stripScrollable);
       await tester.tap(flatten);
       await tester.pump();
       expect(editing.acroForm!.fields, isEmpty);

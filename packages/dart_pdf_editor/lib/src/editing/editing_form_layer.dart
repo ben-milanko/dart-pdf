@@ -254,7 +254,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         if (picker == null) return;
         final name = field.name;
         final bytes = await picker(context, field);
-        if (bytes != null) _controller.setFormButtonImage(name, bytes);
+        if (bytes != null) {
+          await _controller.setFormButtonImageAsync(name, bytes);
+        }
       case PdfFieldType.signature || PdfFieldType.unknown:
         break;
     }

@@ -345,6 +345,21 @@ void main() {
       expect(editing.elementsOn(0).elements.single.kind, PdfElementKind.image);
     });
 
+    test('replaceSelectedElementImageAsync uses the worker-backed path',
+        () async {
+      final editing = PdfEditingController(PdfImageDocument.fromImageBytes(
+        [_tinyPng],
+        pageSize: const PdfPageSize(100, 100),
+        fit: PdfImageFit.fill,
+      ));
+      addTearDown(editing.dispose);
+
+      expect(editing.selectElementAt(0, 50, 50), isTrue);
+      expect(await editing.replaceSelectedElementImageAsync(_tinyPng), isTrue);
+      expect(editing.elementsOn(0).elements, isEmpty);
+      expect(editing.document.page(0).annotations.single.subtype, 'Stamp');
+    });
+
     test('replaceSelectedElementText rewrites the run in place', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       editing.selectElementAt(0, 80, 725);
@@ -1027,6 +1042,12 @@ void main() {
       expect(replace, findsOneWidget);
       await tester.tap(replace);
       await tester.pump();
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50; i++) {
+          if (editing.document.page(0).annotations.isNotEmpty) return;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
       await tester.pump();
 
       expect(picks, 1);
