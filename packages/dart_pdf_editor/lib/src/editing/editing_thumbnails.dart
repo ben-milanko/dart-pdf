@@ -1990,7 +1990,8 @@ Future<ui.Image?> rasterizeThumbnail({
   // key is content-derived, and render stamps reset per session), so loading
   // it back is always for the right pixels.
   if (disk != null) {
-    final stored = await disk.loadThumbnail(pageIndex, pixelWidth);
+    final stored = await disk.loadThumbnail(pageIndex, pixelWidth,
+        pageColor: pageColor.toARGB32(), annotations: annotations);
     if (stored != null) {
       PdfPerfLog.log(
           'thumbnail page=$pageIndex $reason px=$pixelWidth disk-hit');
@@ -2038,19 +2039,22 @@ Future<ui.Image?> rasterizeThumbnail({
             'record=${_traceMs(recordMs)} replay=${_traceMs(replayMs)} '
             'raster=${_traceMs(rasterMs)}');
         // write through so this page opens straight from disk next session
-        disk?.storeThumbnail(pageIndex, pixelWidth, image);
+        disk?.storeThumbnail(pageIndex, pixelWidth, image,
+            pageColor: pageColor.toARGB32(), annotations: annotations);
         return image;
       } finally {
         picture.dispose();
       }
     }
-    // the worker declined (inline-image page) or preempted this render for a
-    // higher-priority tile; the warm pass skips rather than burning the UI
-    // thread, on-screen tiles fall back to a local interpret as before
-    if (usingWorker && skipIfWorkerDeclines) {
-      trace.instant('worker declined → skip', arguments: {'ms': recordMs});
+    // The warm pass skips whenever it cannot get a worker result: the worker
+    // may have declined/preempted the page, or there may be no active worker
+    // (web worker script missing, or a caller omitted renderWorker). On-screen
+    // tiles still fall back to a local interpret as before.
+    if (skipIfWorkerDeclines) {
+      trace.instant('skip local fallback', arguments: {'ms': recordMs});
       PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
-          'worker-declined skip record=${_traceMs(recordMs)}');
+          'skip local fallback record=${_traceMs(recordMs)} '
+          '${usingWorker ? '(worker declined)' : '(no worker)'}');
       return null;
     }
     sw.reset();
@@ -2061,7 +2065,8 @@ Future<ui.Image?> rasterizeThumbnail({
     PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
         'local interpret+raster=${_traceMs(localMs)} '
         '${usingWorker ? '(worker declined)' : '(no worker)'}');
-    disk?.storeThumbnail(pageIndex, pixelWidth, image);
+    disk?.storeThumbnail(pageIndex, pixelWidth, image,
+        pageColor: pageColor.toARGB32(), annotations: annotations);
     return image;
   } finally {
     trace.finish();

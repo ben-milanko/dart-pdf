@@ -10,7 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   // let the serialized async render queue flush its microtasks
-  Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 50));
+  Future<void> settle() =>
+      Future<void>.delayed(const Duration(milliseconds: 50));
 
   group('PdfThumbnailCache scheduler', () {
     test('serves the pending task nearest the focus first', () async {
@@ -62,17 +63,22 @@ void main() {
         (tester) async {
       // a tall document in a short viewport: the lazy strip builds only the
       // first few tiles, so the rest can rasterize only via the warm pass
-      final editing = PdfEditingController(buildMultiPagePdf(12));
+      final bytes = buildMultiPagePdf(12);
+      final editing = PdfEditingController(bytes);
       final viewer = PdfViewerController();
+      final worker = PdfRenderWorker.startUncached(bytes);
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
+      addTearDown(worker.dispose);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: SizedBox(
             height: 240,
             child: Row(children: [
               PdfThumbnailSidebar(
-                  controller: editing, viewerController: viewer),
+                  controller: editing,
+                  viewerController: viewer,
+                  renderWorker: worker),
               const Expanded(child: SizedBox()),
             ]),
           ),
@@ -83,7 +89,8 @@ void main() {
       // raster count would plateau well below the page count
       expect(
         tester
-            .widgetList(find.byKey(const ValueKey('pdf-thumbnail-tile-chip-11')))
+            .widgetList(
+                find.byKey(const ValueKey('pdf-thumbnail-tile-chip-11')))
             .isEmpty,
         isTrue,
         reason: 'page 12 should be off-screen / unbuilt',
@@ -151,6 +158,28 @@ void main() {
   });
 
   group('thumbnail disk persistence', () {
+    testWidgets('warm render skips local fallback without an active worker',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          skipIfWorkerDeclines: true,
+          reason: 'warm',
+        );
+      });
+
+      expect(rendered, isNull);
+    });
+
     testWidgets('a rendered thumbnail writes through to disk and reloads',
         (tester) async {
       final store = PdfMemoryCacheStore();
@@ -158,6 +187,7 @@ void main() {
       final controller = PdfEditingController(buildMultiPagePdf(2));
       addTearDown(controller.dispose);
       const white = Color(0xFFFFFFFF);
+      const blue = Color(0xFFBBD7FF);
 
       // render page 0 with a disk cache → writes the raster through
       ui.Image? rendered;
@@ -184,6 +214,11 @@ void main() {
         loaded!.dispose();
         expect(await disk.loadThumbnail(0, 256), isNull); // different size
         expect(await disk.loadThumbnail(1, 128), isNull); // never rendered
+        expect(await disk.loadThumbnail(0, 128, pageColor: blue.toARGB32()),
+            isNull,
+            reason: 'paper color is part of the persisted thumbnail key');
+        expect(await disk.loadThumbnail(0, 128, annotations: false), isNull,
+            reason: 'annotation visibility is part of the persisted key');
       });
       expect(store.debugBytes, greaterThan(0));
 
