@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0
+
+- PAdES signatures: B-B/B-T/B-LT/B-LTA support, RFC 3161 timestamps,
+  LTV `/DSS`, and Certify/DocMDP permission handling.
+- Accessibility and archival authoring: Tagged PDF, PDF/UA, and PDF/A
+  support.
+- Structural editing: outlines, attachments, headers/footers, page labels,
+  richer AcroForm reconciliation, and document/image conversion helpers.
+- Editing APIs for threaded comments, annotation sync, alignment, takeoff
+  measurement tools, paragraph reflow, and page-content image replacement.
+
 ## 1.2.3
 
 - Free-text annotations carry a horizontal alignment (left/center/right)

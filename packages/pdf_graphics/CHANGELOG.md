@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- Heavy-PDF rendering performance work: faster first paint, CAD prefetch
+  improvements, pooled render workers, capped embedded-image resolution, and
+  optimized deep-zoom image-region decoding.
+- Support for the new Tagged PDF/PDF/UA/PDF/A and annotation-sync document
+  surfaces.
+
 ## 1.2.3
 
 - Version bump to keep the dart-pdf package suite aligned at 1.2.3. No

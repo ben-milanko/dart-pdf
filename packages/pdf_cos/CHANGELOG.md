@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+
+- Add low-level signature and validation primitives used by PAdES B-B/B-T/
+  B-LT/B-LTA, RFC 3161 timestamps, LTV `/DSS`, and DocMDP certification.
+- Parser/renderer support work for heavy-page first paint and deep-zoom
+  image-region decoding.
+
 ## 1.2.3
 
 - Version bump to keep the dart-pdf package suite aligned at 1.2.3. No COS

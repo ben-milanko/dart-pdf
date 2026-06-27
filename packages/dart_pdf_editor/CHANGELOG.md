@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 - Font menu: offer the host platform's installed fonts as embeddable choices
   alongside the base-14 families and bundled fonts. A host fills the new
@@ -9,6 +9,20 @@
   them up by default. Picking one embeds its outlines into the document so
   the text renders and prints everywhere. New `PdfPlatformFont` type and an
   optional `platformFonts` argument on `PdfFontMenuButton`/`showPdfFontMenu`.
+- Page-content image replacement workflow: selecting an image element now
+  offers a Replace action that removes the original page element and inserts
+  the chosen image in the same bounds. PNG/JPEG processing runs through the
+  async image pipeline so large images no longer freeze the UI while swapping.
+- Mobile/narrow editing chrome now exposes selected-content actions for page
+  elements, including delete, edit text, reflow, and image replacement, with
+  compact labels that fit the toolbar.
+- Heavy-document rendering improvements: pooled/preemptible render workers,
+  capped embedded-image resolution during normal page rendering, optimized
+  deep-zoom image-region decoding, and shared preview/thumbnail caching keep
+  large CAD-style PDFs responsive while scrolling and zooming.
+- Viewer polish: hyperlink launches, configurable single-key editing
+  shortcuts, smoother page-content editing/reflow surfaces, and continued
+  annotation-sync and snapshot/vector paste refinements.
 
 ## 1.2.3
 

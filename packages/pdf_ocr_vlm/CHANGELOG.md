@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0
+
+- Version bump to align with `dart_pdf_editor` 1.3.0. No API changes since
+  1.2.3.
+
 ## 1.2.3
 
 - Version bump to align with `dart_pdf_editor` 1.2.3. No API changes since
