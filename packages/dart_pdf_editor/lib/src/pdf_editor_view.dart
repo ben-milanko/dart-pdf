@@ -23,6 +23,19 @@ import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'theme.dart';
 
+/// Builds the editing toolbar for [PdfEditorView].
+///
+/// Hosts can return [PdfEditingToolbar] with their own configuration, wrap it,
+/// or replace it entirely with custom Material chrome that drives the supplied
+/// [PdfEditingController] and [PdfViewerController]. Returning null hides the
+/// toolbar for this build while leaving editing gestures and keyboard shortcuts
+/// active.
+typedef PdfEditorToolbarBuilder = Widget? Function(
+  BuildContext context,
+  PdfEditingController controller,
+  PdfViewerController viewerController,
+);
+
 /// Which pieces of chrome a [PdfEditorView] shows. Everything defaults
 /// on; turn features off rather than rebuilding the layout by hand.
 class PdfEditorFeatures {
@@ -201,6 +214,7 @@ class PdfEditorView extends StatefulWidget {
     this.toolShortcuts = pdfEditToolShortcuts,
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
+    this.toolbarBuilder,
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
     this.pageColor,
@@ -327,6 +341,20 @@ class PdfEditorView extends StatefulWidget {
 
   /// Custom widgets shown after the stock editing toolbar controls.
   final List<PdfEditingToolbarWidgetBuilder> toolbarTrailing;
+
+  /// Builds or replaces the bottom editing toolbar.
+  ///
+  /// This is the escape hatch for apps that need fully custom editor
+  /// components. The stock toolbar already supports hiding tool groups,
+  /// filtering individual tools, and adding [toolbarLeading] /
+  /// [toolbarTrailing] actions; use [toolbarBuilder] when the whole toolbar
+  /// should be host-owned instead. The builder receives the active edit session
+  /// and viewer controller, including internally owned instances when [bytes]
+  /// is used.
+  ///
+  /// [PdfEditorFeatures.toolbar] still gates this builder. Set that feature to
+  /// false to disable all toolbar chrome regardless of this value.
+  final PdfEditorToolbarBuilder? toolbarBuilder;
 
   /// See [PdfViewer.initialFit].
   final PdfViewerFit initialFit;
@@ -697,25 +725,26 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
           final toolbar = !showToolbar
               ? null
-              : PdfEditingToolbar(
-                  controller: session,
-                  viewerController: _viewer,
-                  // save lives in the header now, not the dock
-                  textPrompt: widget.textPrompt ?? showPdfTextPrompt,
-                  imagePicker: widget.imagePicker,
-                  fontPicker: widget.fontPicker,
-                  palette: widget.palette,
-                  tools: features.tools,
-                  groups: features.toolGroups,
-                  toolShortcuts: _toolShortcuts,
-                  showMarkup: features.markup,
-                  showUndoRedo: features.undoRedo,
-                  showColor: features.colorControls,
-                  showStyle: features.styleControls,
-                  showFlatten: features.flatten,
-                  leading: widget.toolbarLeading,
-                  trailing: widget.toolbarTrailing,
-                );
+              : widget.toolbarBuilder?.call(context, session, _viewer) ??
+                  PdfEditingToolbar(
+                    controller: session,
+                    viewerController: _viewer,
+                    // save lives in the header now, not the dock
+                    textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                    imagePicker: widget.imagePicker,
+                    fontPicker: widget.fontPicker,
+                    palette: widget.palette,
+                    tools: features.tools,
+                    groups: features.toolGroups,
+                    toolShortcuts: _toolShortcuts,
+                    showMarkup: features.markup,
+                    showUndoRedo: features.undoRedo,
+                    showColor: features.colorControls,
+                    showStyle: features.styleControls,
+                    showFlatten: features.flatten,
+                    leading: widget.toolbarLeading,
+                    trailing: widget.toolbarTrailing,
+                  );
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
             icon: Icons.display_settings_outlined,

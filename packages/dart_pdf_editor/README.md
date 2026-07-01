@@ -58,6 +58,22 @@ PdfEditorView(
 )
 ```
 
+For fully custom editor chrome, replace the stock toolbar and drive the
+controller directly:
+
+```dart
+PdfEditorView(
+  bytes: pdfBytes,
+  toolbarBuilder: (context, editing, viewer) => BottomAppBar(
+    child: IconButton(
+      icon: const Icon(Icons.crop_square),
+      tooltip: 'Rectangle',
+      onPressed: () => editing.tool = PdfEditTool.rectangle,
+    ),
+  ),
+)
+```
+
 Try the [live demo](https://dart-pdf-demo.web.app) of the example app
 on Flutter web, with a built-in feature showcase document.
 

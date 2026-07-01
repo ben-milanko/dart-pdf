@@ -685,6 +685,39 @@ void main() {
       expect(changed, 1);
     });
 
+    testWidgets('custom toolbar builder can replace the stock toolbar',
+        (tester) async {
+      var changed = 0;
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          toolbarBuilder: (context, editing, viewer) => Material(
+            child: IconButton(
+              key: const ValueKey('custom-toolbar-builder-rectangle'),
+              icon: const Icon(Icons.crop_square),
+              tooltip: 'Add host rectangle',
+              onPressed: () => editing.addRectangle(
+                0,
+                const PdfRect(100, 550, 180, 610),
+              ),
+            ),
+          ),
+          onDocumentChanged: (_) => changed++,
+        ),
+      );
+
+      expect(find.byType(PdfEditingToolbar), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('custom-toolbar-builder-rectangle')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+
+      expect(changed, 1);
+    });
+
     testWidgets('external controller: edits flow through onDocumentChanged',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
