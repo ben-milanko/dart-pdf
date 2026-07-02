@@ -128,7 +128,8 @@ extension PdfRedactionApply on PdfEditor {
 
     final builder = CosDocumentBuilder();
     for (final number in order) {
-      builder.add(remap(cos.resolve(CosReference(number, generation[number]!))));
+      builder
+          .add(remap(cos.resolve(CosReference(number, generation[number]!))));
     }
     return builder.build(
       root: CosReference(newNumber[rootRef.objectNumber]!, 0),
@@ -175,19 +176,13 @@ extension PdfRedactionApply on PdfEditor {
     // 3. Drop the /Redact annotations and scrub any annotation whose
     //    appearance is fully under a redaction region (it would leak the
     //    content the rect is meant to hide).
-    final kept = <CosObject>[];
-    for (final item in annots.items) {
-      final d = cos.resolve(item);
-      if (d is CosDictionary) {
-        final subtype = cos.resolve(d['Subtype']);
-        if (subtype is CosName && subtype.value == 'Redact') continue;
-        final r = pdfRectFrom(cos, d['Rect']);
-        if (r != null && _rectFullyCovered(r, regions)) continue;
-      }
-      kept.add(item);
-    }
-    page.dict['Annots'] = CosArray(kept);
-    _updater.markChanged(page.dict);
+    _PdfPageAnnotationList(this, pageIndex).removeWhere((_, resolved) {
+      if (resolved is! CosDictionary) return false;
+      final subtype = cos.resolve(resolved['Subtype']);
+      if (subtype is CosName && subtype.value == 'Redact') return true;
+      final r = pdfRectFrom(cos, resolved['Rect']);
+      return r != null && _rectFullyCovered(r, regions);
+    });
     return true;
   }
 
@@ -229,8 +224,7 @@ extension PdfRedactionApply on PdfEditor {
       if (r != null) rects.add(r);
     }
     return [
-      for (final r in rects)
-        _Redaction(r, fillColor, overlayText, daText),
+      for (final r in rects) _Redaction(r, fillColor, overlayText, daText),
     ];
   }
 
@@ -296,7 +290,10 @@ extension PdfRedactionApply on PdfEditor {
     final resolved = cos.resolve(direct);
     if (resolved is CosDictionary && direct is! CosReference) return resolved;
     final copy = CosDictionary({
-      if (resolved is CosDictionary) ...resolved.entries else ...page.resources.entries,
+      if (resolved is CosDictionary)
+        ...resolved.entries
+      else
+        ...page.resources.entries,
     });
     page.dict['Resources'] = copy;
     _updater.markChanged(page.dict);
@@ -442,10 +439,14 @@ class _RedactionBurn {
         return;
       case 'cm':
         if (operands.length >= 6) {
-          _ctm = _redMul(
-              (_n(operands[0]), _n(operands[1]), _n(operands[2]),
-                  _n(operands[3]), _n(operands[4]), _n(operands[5])),
-              _ctm);
+          _ctm = _redMul((
+            _n(operands[0]),
+            _n(operands[1]),
+            _n(operands[2]),
+            _n(operands[3]),
+            _n(operands[4]),
+            _n(operands[5])
+          ), _ctm);
         }
         _writeOp(op, out);
         return;
@@ -456,9 +457,8 @@ class _RedactionBurn {
         return;
       case 'Tf':
         if (operands.length >= 2) {
-          _fontName = operands[0] is CosName
-              ? (operands[0] as CosName).value
-              : null;
+          _fontName =
+              operands[0] is CosName ? (operands[0] as CosName).value : null;
           _tfs = _n(operands[1]);
         }
         _writeOp(op, out);
@@ -663,8 +663,7 @@ class _RedactionBurn {
       for (final code in string.bytes) {
         final w0 = font?.widthOf(code) ?? 500; // glyph units
         final glyphWidth = w0 / 1000 * _tfs * _th;
-        final advance =
-            (w0 / 1000 * _tfs + _tc + (code == 32 ? _tw : 0)) * _th;
+        final advance = (w0 / 1000 * _tfs + _tc + (code == 32 ? _tw : 0)) * _th;
 
         final covered = _glyphCovered(glyphWidth);
         if (covered) {
@@ -799,8 +798,7 @@ class _RedactionBurn {
     return false;
   }
 
-  PdfRect _unitSquareBounds(_RedMatrix ctm) =>
-      _hullBounds([
+  PdfRect _unitSquareBounds(_RedMatrix ctm) => _hullBounds([
         _redApply(ctm, 0, 0),
         _redApply(ctm, 1, 0),
         _redApply(ctm, 0, 1),
@@ -809,30 +807,7 @@ class _RedactionBurn {
 
   /// Re-serializes [op] verbatim (mirrors [PdfPageElements.serialize]).
   void _writeOp(ContentOperation op, BytesBuilder out) {
-    if (op.operator == 'BI') {
-      out.add(_inlineImageBytes(op));
-      return;
-    }
-    for (final operand in op.operands) {
-      out
-        ..add(CosSerializer.serialize(operand))
-        ..addByte(0x20);
-    }
-    out.add(latin1.encode('${op.operator}\n'));
-  }
-
-  static Uint8List _inlineImageBytes(ContentOperation op) {
-    final out = BytesBuilder()..add(latin1.encode('BI'));
-    final dict = op.operands[0] as CosDictionary;
-    dict.entries.forEach((key, value) {
-      out
-        ..add(latin1.encode(' /$key '))
-        ..add(CosSerializer.serialize(value));
-    });
-    out.add(latin1.encode(' ID\n'));
-    out.add((op.operands[1] as CosString).bytes);
-    out.add(latin1.encode('\nEI\n'));
-    return out.takeBytes();
+    ContentStreamSerializer.writeOperation(op, out);
   }
 }
 

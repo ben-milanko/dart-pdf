@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 
@@ -7,6 +6,7 @@ import 'content_writer.dart';
 import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
+import 'takeoff.dart';
 
 /// An entry in a page's /Annots array (§12.5).
 ///
@@ -123,6 +123,77 @@ class PdfAnnotation {
   /// Bluebeam-style.
   bool get isCheckMark => subtype == 'Stamp' && iconName == 'Check';
 
+  /// The /NM of the annotation this one is in reply to (§12.5.6.x): /IRT
+  /// is an indirect reference to the parent markup annotation, which this
+  /// resolves to its [name]. Null when the annotation is not a reply (or
+  /// the parent carries no /NM). Used to assemble comment threads
+  /// ([PdfCommentThread]) and to relink replies across documents on sync.
+  String? get inReplyTo {
+    final irt = document.cos.resolve(dict['IRT']);
+    if (irt is! CosDictionary) return null;
+    final nm = document.cos.resolve(irt['NM']);
+    return nm is CosString ? nm.text : null;
+  }
+
+  /// The /RT reply type (§12.5.6.x): `R` (a reply in a thread, the default
+  /// when /IRT is present) or `Group` (this annotation is grouped with the
+  /// /IRT one, sharing its properties). Null when absent.
+  String? get replyType {
+    final rt = document.cos.resolve(dict['RT']);
+    return rt is CosName ? rt.value : null;
+  }
+
+  /// The review/marked /State (§12.5.6.2): `Accepted`, `Rejected`,
+  /// `Cancelled`, `Completed`, `None` (the Review model) or `Marked` /
+  /// `Unmarked` (the Marked model). Carried by a dedicated reply
+  /// annotation, never on the comment it annotates.
+  String? get reviewState {
+    final s = document.cos.resolve(dict['State']);
+    return s is CosString ? s.text : null;
+  }
+
+  /// The /StateModel naming which family [reviewState] belongs to —
+  /// `Review` or `Marked` (§12.5.6.2). Its presence is what marks an
+  /// annotation as a *state* annotation rather than a content reply.
+  String? get stateModel {
+    final s = document.cos.resolve(dict['StateModel']);
+    return s is CosString ? s.text : null;
+  }
+
+  /// The /Subj short subject/heading of a markup annotation (§12.5.6.2).
+  String? get subject {
+    final s = document.cos.resolve(dict['Subj']);
+    return s is CosString ? s.text : null;
+  }
+
+  /// The /CreationDate parsed from its PDF date string (§7.9.4), if any.
+  DateTime? get creationDate => _parsePdfDate(
+      document.cos.resolve(dict['CreationDate']) is CosString
+          ? (document.cos.resolve(dict['CreationDate']) as CosString).text
+          : null);
+
+  /// The /M modification date parsed from its PDF date string, if any.
+  DateTime? get modificationDate {
+    final m = document.cos.resolve(dict['M']);
+    return m is CosString ? _parsePdfDate(m.text) : null;
+  }
+
+  /// Whether this is a *state* annotation (§12.5.6.2): a reply that records
+  /// a review/marked state ([reviewState] + [stateModel]) rather than text.
+  /// Such annotations carry the thread's status, not page graphics, so the
+  /// renderer treats them like popups and does not paint them.
+  bool get isStateAnnotation => stateModel != null;
+
+  /// Whether this is a thread reply (§12.5.6.x): it carries /IRT and its
+  /// /RT is `R` (or absent, which defaults to a reply). Group annotations
+  /// (/RT `Group`) are not replies. Replies are thread content, shown by a
+  /// viewer in the comment pane, not painted as a second icon on the page.
+  bool get isReply {
+    if (dict['IRT'] == null) return false;
+    final rt = replyType;
+    return rt == null || rt == 'R';
+  }
+
   /// The /C color as 0xRRGGBB, if present. Gray and CMYK component
   /// counts are converted; an empty array (explicit "no color") and
   /// malformed entries resolve to null.
@@ -192,38 +263,136 @@ class PdfAnnotation {
   /// the annotation has no /Measure.
   PdfMeasure? get measure => PdfMeasure.fromDict(document, dict['Measure']);
 
+  /// The takeoff metadata (/Takeoff) carried by a count/volume/angle/arc/
+  /// slope/area-cutout measurement, or null for a plain annotation. See
+  /// [PdfTakeoffData].
+  PdfTakeoffData? get takeoff => PdfTakeoffData.read(this);
+
+  /// The measurement kind this annotation represents: the explicit
+  /// /Takeoff /K when present, else inferred from the subtype (Line →
+  /// distance, PolyLine → perimeter, Polygon → area). Null when the
+  /// annotation isn't a measurement.
+  PdfMeasurementKind? get measurementKind {
+    final t = takeoff;
+    if (t != null) return t.kind;
+    // the Bluebeam-style count tool drops /Stamp check-marks (no /Measure);
+    // surface them as count measurements so a takeoff total tallies them.
+    if (isCheckMark) return PdfMeasurementKind.count;
+    if (measure == null) return null;
+    return switch (subtype) {
+      'Line' => PdfMeasurementKind.distance,
+      'PolyLine' => PdfMeasurementKind.perimeter,
+      'Polygon' => PdfMeasurementKind.area,
+      _ => null,
+    };
+  }
+
+  /// The vertices a measurement reads its geometry from: a /Line's two
+  /// endpoints, a /PolyLine or /Polygon's [vertices], or a single-point
+  /// marker (a count) at the /Rect centre.
+  List<(double, double)>? get _measurementPoints {
+    final l = line;
+    if (l != null) return [l.$1, l.$2];
+    final v = vertices;
+    if (v != null) return v;
+    if (measurementKind == PdfMeasurementKind.count) {
+      return [((rect.left + rect.right) / 2, (rect.bottom + rect.top) / 2)];
+    }
+    return null;
+  }
+
+  /// The fully computed takeoff measurement — kind, real-world value, unit,
+  /// formatted text — or null when the annotation isn't a measurement (no
+  /// /Measure and not a count marker).
+  PdfMeasurementResult? get measurementResult {
+    final kind = measurementKind;
+    if (kind == null) return null;
+    final m = measure;
+    final t = takeoff;
+    final pts = _measurementPoints;
+
+    switch (kind) {
+      case PdfMeasurementKind.count:
+        return PdfMeasurementResult(
+            kind: kind, value: 1, unit: '', text: '1', count: 1);
+      case PdfMeasurementKind.distance:
+        if (m == null || pts == null || pts.length < 2) return null;
+        final len = pdfPolylineLength(pts);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: m.realDistance(len),
+            unit: m.distance.first.unit,
+            text: m.formatDistance(len));
+      case PdfMeasurementKind.perimeter:
+        if (m == null || pts == null || pts.length < 2) return null;
+        final len = pdfPolylineLength(pts);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: m.realDistance(len),
+            unit: m.distance.first.unit,
+            text: m.formatDistance(len));
+      case PdfMeasurementKind.arc:
+        if (m == null || pts == null || pts.length < 3) return null;
+        final metrics = pdfArcMetrics(pts[0], pts[1], pts[2]);
+        final len = metrics?.length ?? pdfPolylineLength(pts);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: m.realDistance(len),
+            unit: m.distance.first.unit,
+            text: m.formatDistance(len));
+      case PdfMeasurementKind.area:
+        if (m == null || pts == null || pts.length < 3) return null;
+        final pointArea = pdfShoelaceArea(pts);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: m.realArea(pointArea),
+            unit: m.area.first.unit,
+            text: m.formatArea(pointArea));
+      case PdfMeasurementKind.areaCutout:
+        if (m == null || pts == null || pts.length < 3) return null;
+        final pointArea = pdfNetPolygonArea(pts, t?.holes ?? const []);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: m.realArea(pointArea),
+            unit: m.area.first.unit,
+            text: m.formatArea(pointArea));
+      case PdfMeasurementKind.volume:
+        if (m == null || pts == null || pts.length < 3) return null;
+        final depth = t?.depth ?? 0;
+        final pointArea = pdfShoelaceArea(pts);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: m.realArea(pointArea) * depth,
+            unit: (m.volume?.first ?? m.area.first).unit,
+            text: m.formatVolume(pointArea, depth));
+      case PdfMeasurementKind.angle:
+        if (pts == null || pts.length < 3) return null;
+        final deg = pdfMeasurementAngle(pts);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: deg,
+            unit: '°',
+            text: m?.formatAngle(deg) ??
+                const PdfNumberFormat(unit: '°', precision: 10).format(deg));
+      case PdfMeasurementKind.slope:
+        if (pts == null || pts.length < 2) return null;
+        final deg = pdfSlopeDegrees(pts.first, pts.last);
+        return PdfMeasurementResult(
+            kind: kind,
+            value: deg,
+            unit: '°',
+            text: m?.formatAngle(deg) ??
+                const PdfNumberFormat(unit: '°', precision: 10).format(deg));
+    }
+  }
+
   /// The real-world measurement this annotation represents, formatted
   /// through its /Measure: a distance for /Line, a perimeter (the sum of
   /// the segment lengths) for /PolyLine, and a shoelace area for
-  /// /Polygon. Null without a /Measure or for other subtypes.
-  String? get measurementText {
-    final m = measure;
-    if (m == null) return null;
-    switch (subtype) {
-      case 'Line':
-        final l = line;
-        if (l == null) return null;
-        final dx = l.$2.$1 - l.$1.$1;
-        final dy = l.$2.$2 - l.$1.$2;
-        return m.formatDistance(math.sqrt(dx * dx + dy * dy));
-      case 'PolyLine':
-        final v = vertices;
-        if (v == null || v.length < 2) return null;
-        var total = 0.0;
-        for (var i = 0; i + 1 < v.length; i++) {
-          final dx = v[i + 1].$1 - v[i].$1;
-          final dy = v[i + 1].$2 - v[i].$2;
-          total += math.sqrt(dx * dx + dy * dy);
-        }
-        return m.formatDistance(total);
-      case 'Polygon':
-        final v = vertices;
-        if (v == null || v.length < 3) return null;
-        return m.formatArea(pdfShoelaceArea(v));
-      default:
-        return null;
-    }
-  }
+  /// /Polygon — plus the takeoff kinds (count/volume/angle/arc/slope/net
+  /// area) when a /Takeoff is present. Null without a /Measure or for
+  /// other subtypes.
+  String? get measurementText => measurementResult?.text;
 
   static double? _number(CosObject? value) => switch (value) {
         CosInteger(:final value) => value.toDouble(),
@@ -464,6 +633,37 @@ class PdfAnnotation {
     final destination = PdfDestination.parse(document, raw);
     return destination == null ? null : PdfGoToAction(destination);
   }
+}
+
+/// Parses a PDF date string (§7.9.4, `D:YYYYMMDDHHmmSSOHH'mm'`) to a
+/// [DateTime] in UTC, leniently: every field past the year is optional and
+/// a missing or malformed string returns null. Shared by the annotation
+/// timestamp getters; the same shape is produced by [pdfFormatDate].
+DateTime? _parsePdfDate(String? value) {
+  if (value == null) return null;
+  final match = RegExp(
+          r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?")
+      .firstMatch(value);
+  if (match == null) return null;
+  int part(int i, [int fallback = 0]) =>
+      match.group(i) == null ? fallback : int.parse(match.group(i)!);
+  var time = DateTime.utc(
+      part(1), part(2, 1), part(3, 1), part(4), part(5), part(6));
+  if (match.group(7) == '+' || match.group(7) == '-') {
+    final offset = Duration(hours: part(8), minutes: part(9));
+    time = match.group(7) == '+' ? time.subtract(offset) : time.add(offset);
+  }
+  return time;
+}
+
+/// Formats [time] as a PDF date string (§7.9.4) in UTC — the form the
+/// comment editor stamps on /CreationDate and /M, round-tripping through
+/// [_parsePdfDate] and parsing in other readers (Acrobat).
+String pdfFormatDate(DateTime time) {
+  final t = time.toUtc();
+  String two(int v) => v.toString().padLeft(2, '0');
+  return "D:${t.year.toString().padLeft(4, '0')}${two(t.month)}${two(t.day)}"
+      "${two(t.hour)}${two(t.minute)}${two(t.second)}Z00'00'";
 }
 
 /// A free-text annotation's text and box styling, as recoverable from

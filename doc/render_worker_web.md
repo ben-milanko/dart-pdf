@@ -97,7 +97,7 @@ priority queue and protocol, and the app is wired up:
   web. The live web deploys (the demo at `dart-pdf-demo.web.app` and the app at
   `dartpdf-app.web.app`) build the worker and ship the `--wasm` renderer with
   COOP/COEP headers. See `deploy-demo-web.yml` and the firebase configs.
-- `dart compile js` of the worker entry **succeeds** (~720 KB bundle), so the
+- `dart compile js` of the worker entry **succeeds** (~857 KB bundle), so the
   `dart:js_interop` / `package:web` usage is valid on the web toolchain.
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
   CAD test doc: every page round-tripped through the worker (`path=worker`),
@@ -135,10 +135,12 @@ Still open:
 
 ## Caveats
 
-- **Not** cross-origin isolation / `SharedArrayBuffer`. This uses an ordinary
-  dedicated worker with transferable `ArrayBuffer`s, so it needs no COOP/COEP
-  headers. (skwasm's multithreading, which *does* need those headers,
-  parallelizes raster, not interpretation, and is unrelated.)
+- Cross-origin isolation is optional, but useful. On an isolated page with
+  `SharedArrayBuffer` available, each render worker receives a shared view of
+  the document bytes instead of its own cloned `ArrayBuffer`. Hosts without
+  COOP/COEP, Safari, or apps that set `pdfRenderWorkerUseSharedArrayBuffer =
+  false` fall back to the older transferable `ArrayBuffer` startup path. Result
+  buffers are still transferred `ArrayBuffer`s either way.
 - The worker holds a fixed snapshot of the document bytes, like the isolate; an
   editing session must restart the worker when the bytes change (the shells
   already do this on every revision).
@@ -156,15 +158,15 @@ No special handling is needed when the main app is compiled to Wasm
   **both** dart2js and dart2wasm. The backend is selected on
   `dart.library.js_interop` (provided on Wasm), deliberately **not**
   `dart.library.html`, which is unavailable on Wasm and would break the build.
-- The boundary carries **transferred `ArrayBuffer`s** (raw bytes), not Dart
-  objects, so neither side depends on the other's compilation. The host pays one
-  buffer copy from Wasm linear memory into a JS `ArrayBuffer` per document and
-  per result (via `.toJS`), which is negligible.
+- The boundary carries raw bytes, not Dart objects, so neither side depends on
+  the other's compilation. On cross-origin isolated pages the document bytes use
+  `SharedArrayBuffer`; otherwise the host pays one buffer copy from Wasm linear
+  memory into a JS `ArrayBuffer` per worker at startup. Results remain
+  transferred `ArrayBuffer`s.
 
 The worker itself stays JS (`dart compile js`) even under a Wasm host. Compiling
 *the worker* to Wasm (`dart compile wasm`) is possible but needs a different
 in-worker bootstrap (its `.mjs` loader instantiating the module) and buys little
-because the worker is already off the main thread. A skwasm host that sets COOP/COEP
-for its own raster threads keeps working unchanged: this is an ordinary
-same-origin dedicated worker with no `SharedArrayBuffer`, so those headers
-neither help nor hinder it.
+because the worker is already off the main thread. A skwasm host that sets
+COOP/COEP for its own raster threads now also lets the render worker share the
+opened document bytes across the worker pool.

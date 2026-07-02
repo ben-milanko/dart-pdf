@@ -25,11 +25,11 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.2
+          flutter-version: 3.44.4
           channel: stable
           cache: true
 
@@ -99,8 +99,18 @@ jobs:
 
       # No channelId -> the action creates an ephemeral preview channel keyed
       # to this PR and comments the URL on it. The channel expires on its own.
+      #
+      # continue-on-error: the channel `releases` POST is the one
+      # non-idempotent Hosting call, and on GitHub runners the API
+      # intermittently drops the keep-alive socket ("premature close").
+      # firebase-tools retries, the first attempt already created the release,
+      # and the retry fails with FAILED_PRECONDITION "supplied version ... is
+      # the current active version" — so the deploy succeeded but the action
+      # exits 1. The recover step below confirms the freshly finalized release
+      # and reuses its URL; a genuine failure (no recent release) still fails.
       - id: deploy
         uses: FirebaseExtended/action-hosting-deploy@v0
+        continue-on-error: true
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           disableComment: true
@@ -109,13 +119,97 @@ jobs:
           expires: 7d
           entryPoint: packages/dart_pdf_editor/example
 
+      - id: recover
+        name: Recover the preview URL after a transient release retry error
+        if: steps.deploy.outcome == 'failure'
+        working-directory: packages/dart_pdf_editor/example
+        env:
+          FIREBASE_SITE: dart-pdf-demo
+          FIREBASE_PROJECT: dart-pdf-demo
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
+        run: |
+          printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx -y firebase-tools@latest hosting:channel:list \
+            --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
+            > channels.json
+          node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync("channels.json", "utf8"));
+            const r = data.result;
+            const chans = Array.isArray(r) ? r : ((r && r.channels) || []);
+            const re = new RegExp("^pr" + process.env.PR_NUMBER + "(-|$)");
+            const ch = chans.find(c => re.test(String(c.name || "").split("/").pop()));
+            if (!ch || !ch.release) {
+              console.error("No channel/release for PR " + process.env.PR_NUMBER + "; deploy genuinely failed.");
+              process.exit(1);
+            }
+            // Only treat the failure as benign if the release was finalized in
+            // this run; a stale release means the deploy really did fail.
+            const age = Date.now() - (Date.parse(ch.updateTime || ch.release.releaseTime || 0) || 0);
+            if (!(age >= 0 && age < 30 * 60 * 1000)) {
+              console.error("Channel release is " + Math.round(age / 1000) + "s old; deploy genuinely failed.");
+              process.exit(1);
+            }
+            const out = process.env.GITHUB_OUTPUT;
+            fs.appendFileSync(out, "details_url=" + ch.url + "\n");
+            fs.appendFileSync(out, "expire_time_formatted=" + (ch.expireTime || "") + "\n");
+            console.log("Recovered preview URL " + ch.url + " (release " + Math.round(age / 1000) + "s old).");
+          '
+          rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json
+
+      - name: Repair recovered deploy check
+        if: steps.deploy.outcome == 'failure' && steps.recover.outcome == 'success'
+        uses: actions/github-script@v9
+        env:
+          PREVIEW_URL: ${{ steps.recover.outputs.details_url }}
+        with:
+          script: |
+            const ref = context.payload.pull_request?.head?.sha || context.sha;
+            const runs = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref,
+              check_name: 'Deploy Preview',
+            });
+            const failed = runs
+              .filter((run) => run.conclusion === 'failure')
+              .sort((a, b) => Date.parse(b.completed_at || b.started_at || b.created_at || 0) -
+                              Date.parse(a.completed_at || a.started_at || a.created_at || 0));
+            if (!failed.length) {
+              core.info(`No failed Deploy Preview check-run found on ${ref}`);
+              return;
+            }
+            const run = failed[0];
+            const url = process.env.PREVIEW_URL;
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: run.id,
+              status: 'completed',
+              conclusion: 'success',
+              completed_at: new Date().toISOString(),
+              details_url: url || run.details_url,
+              output: {
+                title: 'Deploy preview recovered',
+                summary: [
+                  'Firebase Hosting deployed the preview, but the deploy action',
+                  'reported a transient retry failure after the release was already active.',
+                  '',
+                  url ? `Preview URL: ${url}` : '',
+                ].filter(Boolean).join('\n'),
+              },
+            });
+            core.info(`Marked recovered Deploy Preview check-run ${run.id} successful`);
+
       - name: Comment preview URL
         uses: actions/github-script@v9
         env:
           PREVIEW_LABEL: Example demo preview
           PREVIEW_MARKER: dart-pdf-demo-preview
-          PREVIEW_URL: ${{ steps.deploy.outputs.details_url }}
-          PREVIEW_EXPIRES: ${{ steps.deploy.outputs.expire_time_formatted }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.details_url || steps.recover.outputs.details_url }}
+          PREVIEW_EXPIRES: ${{ steps.deploy.outputs.expire_time_formatted || steps.recover.outputs.expire_time_formatted }}
         with:
           script: |
             const marker = `<!-- ${{ env.PREVIEW_MARKER }} -->`;

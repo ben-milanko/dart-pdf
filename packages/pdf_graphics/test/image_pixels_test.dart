@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -16,13 +17,23 @@ void main() {
   CosStream image(Map<String, CosObject> dict, List<int> data) =>
       CosStream(CosDictionary(dict), Uint8List.fromList(data));
 
+  CosStream flateImage(Map<String, CosObject> dict, List<int> data) => image(
+      {...dict, 'Filter': const CosName('FlateDecode')}, zlib.encode(data));
+
   test('DeviceRGB 8-bit decodes opaque, straight through', () {
     final stream = image({
       'Width': const CosInteger(2),
       'Height': const CosInteger(1),
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': const CosName('DeviceRGB'),
-    }, [10, 20, 30, 40, 50, 60]);
+    }, [
+      10,
+      20,
+      30,
+      40,
+      50,
+      60
+    ]);
 
     final pixels = decodePdfImagePixels(cos, stream)!;
     expect(pixels.width, 2);
@@ -36,7 +47,10 @@ void main() {
       'Height': const CosInteger(1),
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': const CosName('DeviceGray'),
-    }, [100, 200]);
+    }, [
+      100,
+      200
+    ]);
 
     final pixels = decodePdfImagePixels(cos, stream)!;
     expect(pixels.rgba, [100, 100, 100, 255, 200, 200, 200, 255]);
@@ -48,7 +62,9 @@ void main() {
       'Width': const CosInteger(2),
       'Height': const CosInteger(1),
       'BitsPerComponent': const CosInteger(1),
-    }, [0x40]); // bit 0 paints, bit 1 skips
+    }, [
+      0x40
+    ]); // bit 0 paints, bit 1 skips
     final pixels = decodePdfImagePixels(cos, stream)!;
     expect(pixels.rgba[3], 255); // painted
     expect(pixels.rgba[7], 0); // skipped
@@ -60,14 +76,24 @@ void main() {
       'Height': const CosInteger(1),
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': const CosName('DeviceGray'),
-    }, [128, 0]);
+    }, [
+      128,
+      0
+    ]);
     final stream = image({
       'Width': const CosInteger(2),
       'Height': const CosInteger(1),
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': const CosName('DeviceRGB'),
       'SMask': smask,
-    }, [255, 255, 255, 255, 255, 255]);
+    }, [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ]);
 
     final pixels = decodePdfImagePixels(cos, stream)!;
     // first pixel: white at alpha 128 → premultiplied 128 in each channel.
@@ -90,7 +116,14 @@ void main() {
         const CosInteger(0),
         const CosInteger(0),
       ]),
-    }, [0, 0, 0, 9, 9, 9]);
+    }, [
+      0,
+      0,
+      0,
+      9,
+      9,
+      9
+    ]);
 
     final pixels = decodePdfImagePixels(cos, stream)!;
     expect(pixels.rgba[3], 0); // (0,0,0) keyed out
@@ -109,20 +142,286 @@ void main() {
     expect(decodePdfImageBase(cos, stream), isNull);
   });
 
+  test('scaled DeviceRGB Flate decodes directly to target size', () {
+    final stream = image({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(4),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Filter': const CosName('FlateDecode'),
+    }, [
+      120,
+      156,
+      251,
+      207,
+      192,
+      240,
+      159,
+      1,
+      140,
+      255,
+      67,
+      8,
+      6,
+      100,
+      10,
+      2,
+      144,
+      217,
+      0,
+      210,
+      107,
+      23,
+      233,
+    ]);
+
+    final pixels = decodePdfImagePixelsScaled(cos, stream, 2, 2)!;
+    expect(pixels.width, 2);
+    expect(pixels.height, 2);
+    expect(pixels.rgba, [
+      255,
+      0,
+      0,
+      255,
+      0,
+      255,
+      0,
+      255,
+      0,
+      0,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+    ]);
+  });
+
+  test('region-scaled DeviceRGB Flate decodes only the requested crop', () {
+    final raw = <int>[];
+    for (var y = 0; y < 4; y++) {
+      for (var x = 0; x < 4; x++) {
+        raw.addAll([x * 40, y * 50, 7]);
+      }
+    }
+    final stream = flateImage({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(4),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+    }, raw);
+
+    final pixels =
+        decodePdfImagePixelsRegionScaled(cos, stream, 1, 1, 2, 2, 2, 2)!;
+    expect(pixels.width, 2);
+    expect(pixels.height, 2);
+    expect(pixels.rgba, [
+      40,
+      50,
+      7,
+      255,
+      80,
+      50,
+      7,
+      255,
+      40,
+      100,
+      7,
+      255,
+      80,
+      100,
+      7,
+      255,
+    ]);
+  });
+
+  test('region-scaled DeviceGray Flate preserves top-down source rows', () {
+    final stream = flateImage({
+      'Width': const CosInteger(3),
+      'Height': const CosInteger(3),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+    }, [
+      10,
+      11,
+      12,
+      20,
+      21,
+      22,
+      30,
+      31,
+      32,
+    ]);
+
+    final pixels =
+        decodePdfImagePixelsRegionScaled(cos, stream, 1, 0, 1, 3, 1, 3)!;
+    expect(pixels.rgba, [
+      11,
+      11,
+      11,
+      255,
+      21,
+      21,
+      21,
+      255,
+      31,
+      31,
+      31,
+      255,
+    ]);
+  });
+
+  test('scaled ICCBased Flate falls back to full color conversion', () {
+    final stream = image({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(4),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([
+        const CosName('ICCBased'),
+        image({'N': const CosInteger(3)}, const []),
+      ]),
+      'Filter': const CosName('FlateDecode'),
+    }, [
+      120,
+      156,
+      251,
+      207,
+      192,
+      240,
+      159,
+      1,
+      140,
+      255,
+      67,
+      8,
+      6,
+      100,
+      10,
+      2,
+      144,
+      217,
+      0,
+      210,
+      107,
+      23,
+      233,
+    ]);
+
+    expect(decodePdfImagePixelsScaled(cos, stream, 2, 2), isNull);
+  });
+
+  test('scaled ImageMask Flate decodes premultiplied alpha', () {
+    final stream = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+      'Filter': const CosName('FlateDecode'),
+    }, [
+      120,
+      156,
+      11,
+      0,
+      0,
+      0,
+      81,
+      0,
+      81
+    ]); // bits: 0,1,0,1
+
+    final pixels = decodePdfImagePixelsScaled(cos, stream, 2, 1)!;
+    expect(pixels.width, 2);
+    expect(pixels.height, 1);
+    expect(pixels.rgba, [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    ]);
+  });
+
+  test('scaled Indexed Flate with stencil mask avoids full RGBA expansion', () {
+    final mask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+      'Filter': const CosName('FlateDecode'),
+    }, [
+      120,
+      156,
+      219,
+      0,
+      0,
+      0,
+      177,
+      0,
+      177
+    ]); // bits: 1,0,1,1; default stencil mask makes 1 transparent
+    final stream = image({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+      'ColorSpace': CosArray([
+        const CosName('Indexed'),
+        const CosName('DeviceRGB'),
+        const CosInteger(1),
+        CosString(Uint8List.fromList([0, 0, 0, 255, 0, 0])),
+      ]),
+      'Filter': const CosName('FlateDecode'),
+      'Mask': mask,
+    }, [
+      120,
+      156,
+      11,
+      0,
+      0,
+      0,
+      81,
+      0,
+      81
+    ]); // indices: 0,1,0,1
+
+    final pixels = decodePdfImagePixelsScaled(cos, stream, 2, 1)!;
+    expect(pixels.width, 2);
+    expect(pixels.height, 1);
+    expect(pixels.rgba, [
+      255,
+      0,
+      0,
+      255,
+      0,
+      0,
+      0,
+      0,
+    ]);
+  });
+
   test('decodePdfImageBase returns straight, unmasked, opaque RGBA', () {
     final smask = image({
       'Width': const CosInteger(1),
       'Height': const CosInteger(1),
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': const CosName('DeviceGray'),
-    }, [0]);
+    }, [
+      0
+    ]);
     final stream = image({
       'Width': const CosInteger(1),
       'Height': const CosInteger(1),
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': const CosName('DeviceRGB'),
       'SMask': smask,
-    }, [10, 20, 30]);
+    }, [
+      10,
+      20,
+      30
+    ]);
 
     // The base ignores the /SMask (alpha stays 255) — the caller bakes it in.
     final base = decodePdfImageBase(cos, stream)!;

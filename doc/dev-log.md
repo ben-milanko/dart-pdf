@@ -1,4 +1,12 @@
-# dart-pdf — development session log
+# dart-pdf — development session log (frozen archive)
+
+> **This file is frozen — do not append to it.** Appending here from
+> feature branches made every concurrent PR conflict on the same trailing
+> lines (GitHub does not honor the `.gitattributes` `merge=union` driver
+> that resolves it locally). New session notes now go in one file per
+> session under [`doc/dev-log/`](dev-log/) — see
+> [`doc/dev-log/README.md`](dev-log/README.md). This archive holds all
+> notes written before 2026-06-22.
 
 Chronological notes moved out of CLAUDE.md to keep that file under the
 context-size limit. This is reference history (gotchas, file pointers,
@@ -3244,3 +3252,48 @@ throws before reaching the composite path. Tests:
 a DejaVu fallback for a glyph Liberation lacks, asserting the run switches
 fonts and the text round-trips through both /ToUnicodes;
 `editing_fonts_test.dart` asserts the trio resolves from assets.
+
+## Orphaned-AcroField reconciliation (macOS 26.5 / Quartz)
+
+Real-world ITF forms saved by a buggy macOS **26.5 (Build 25F71)** Quartz
+PDFContext (15.6.1 and the 25F80 patch are fine) leave the `/AcroForm
+/Fields` tree and the on-page widget annotations as **two disconnected
+copies of the same form**: the `/Fields` entries (merged field+widget
+dicts) appear on no page, while the visible page widgets carry the same
+fully-qualified `/T` but are absent from `/Fields` and have no `/Parent`.
+Read straight, `PdfAcroForm.fields` enumerated the invisible copies and
+missed everything the page actually shows, so filling silently updated the
+wrong dicts.
+
+Fix is a non-destructive model-level reconciliation in `form.dart`
+(`PdfAcroForm._reconcileOrphanWidgets`, run at the end of the cached
+`fields` getter — auto, lazy, no byte rewrite on open):
+
+- `_fieldTreeDicts()` = everything reachable from `/Fields` by descending
+  `/Kids`. `_orphanWidgetsByName()` = page `Widget` annots **not** in that
+  set, grouped by `_widgetFieldName` (own `/T` joined up any `/Parent`
+  chain). Both empty for well-formed forms → zero behavior change.
+- A `/Fields` terminal whose own widgets show on no page **adopts** the
+  matching orphan group (`PdfFormField._reconciled`); `widgets`, `value`,
+  and `isChecked` consult it first. Orphan groups with no `/Fields` entry
+  become **synthesized** terminal fields (`dict` = the page widget).
+- Value rule (user pick): the visible page widget's `/V` wins when set,
+  falling back to the `/Fields` copy — the producer split data across both,
+  page side is what the user sees. `reconciledWidgets` is public so
+  `form_editor`'s `_finishFieldEdit` strips the adopted widgets' stale `/V`
+  after a fill (skipping the dict itself for synthesized fields) so the
+  canonical value and regenerated appearance stay consistent.
+
+Filling needs no special-casing: `field.widgets` already returns the page
+copies, so `_regenerateVariableText` repaints the visible annotation and
+`_stageFormDict` stages it (page annots are indirect). The `/Fields` copy
+stays off-page so renderers walking page `/Annots` never double-draw.
+
+Tests: `pdf_test_fixtures.buildOrphanedAcroFormPdf()` reproduces the
+pattern (off-page `name`/`town` in `/Fields`; on-page `name`/`town`/`extra`
+orphans); `pdf_document/test/form_reconcile_test.dart` covers adoption,
+synthesis, `describeFields`, the well-formed no-op, and round-trip fills.
+`form_admin_test.dart`'s "widget no page lists" case now asserts on the
+in-memory editor doc — its old save/reopen relied on an *unstaged* page
+mutation, so the saved bytes actually retained an orphan widget that
+reconciliation (correctly) re-surfaced.

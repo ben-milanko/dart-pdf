@@ -53,6 +53,11 @@ class PdfAcroForm {
   List<PdfFormField>? _fields;
 
   /// All terminal (fillable) fields, depth-first across the field tree.
+  ///
+  /// After collecting the /Fields tree this reconciles the on-page widget
+  /// annotations that a broken producer left out of /Fields (see
+  /// [_reconcileOrphanWidgets]), so the list reflects what actually shows
+  /// on the page rather than the registered-but-invisible copies.
   List<PdfFormField> get fields => _fields ??= () {
         final out = <PdfFormField>[];
         final roots = document.cos.resolve(dict['Fields']);
@@ -64,6 +69,7 @@ class PdfAcroForm {
             }
           }
         }
+        _reconcileOrphanWidgets(out);
         return out;
       }();
 
@@ -145,6 +151,111 @@ class PdfAcroForm {
       out.add(PdfFormField._(this, node, name));
     }
   }
+
+  /// Some producers (notably the macOS 26.5 / Quartz build that re-saves
+  /// filled forms) leave the /AcroForm /Fields tree and the on-page widget
+  /// annotations as two disconnected copies of the same form: the /Fields
+  /// entries display on no page, while the visible page widgets carry the
+  /// same fully-qualified /T but are absent from /Fields (and have no
+  /// /Parent linking them in). Read straight, the form API would enumerate
+  /// the invisible copies and miss everything the user actually sees.
+  ///
+  /// This matches the unreferenced page widgets back to their /Fields entry
+  /// by name and adopts them as that field's widgets, so reading,
+  /// hit-testing, and filling all target the visible annotation. Page
+  /// widgets whose name has no /Fields entry at all become synthesized
+  /// terminal fields. A no-op for well-formed forms (no orphan widgets).
+  void _reconcileOrphanWidgets(List<PdfFormField> out) {
+    final orphans = _orphanWidgetsByName();
+    if (orphans.isEmpty) return;
+    final knownNames = {for (final f in out) f.name};
+    final consumed = <String>{};
+    for (final field in out) {
+      final group = orphans[field.name];
+      if (group == null) continue;
+      // only adopt when the field's own widgets show on no page — i.e. the
+      // /Fields copy is the invisible one; a field already on the page keeps
+      // its real widgets.
+      final onPage = field.widgets.any((w) => _pageIndexOf(w) >= 0);
+      if (onPage) continue;
+      field._reconciled = group;
+      consumed.add(field.name);
+    }
+    for (final entry in orphans.entries) {
+      if (consumed.contains(entry.key) || knownNames.contains(entry.key)) {
+        continue;
+      }
+      out.add(PdfFormField._(this, entry.value.first, entry.key)
+        .._reconciled = entry.value);
+    }
+  }
+
+  /// Page widget annotations not reachable from /Fields, grouped by their
+  /// fully-qualified name. These are the orphans [_reconcileOrphanWidgets]
+  /// adopts.
+  Map<String, List<CosDictionary>> _orphanWidgetsByName() {
+    final reachable = _fieldTreeDicts();
+    final out = <String, List<CosDictionary>>{};
+    final cos = document.cos;
+    for (final page in _pages) {
+      final annots = cos.resolve(page['Annots']);
+      if (annots is! CosArray) continue;
+      for (final item in annots.items) {
+        final w = cos.resolve(item);
+        if (w is! CosDictionary) continue;
+        final subtype = cos.resolve(w['Subtype']);
+        if (!(subtype is CosName && subtype.value == 'Widget')) continue;
+        if (reachable.contains(w)) continue;
+        final name = _widgetFieldName(w);
+        if (name == null) continue;
+        out.putIfAbsent(name, () => []).add(w);
+      }
+    }
+    return out;
+  }
+
+  /// Every dictionary reachable from /Fields by descending /Kids — field
+  /// nodes and the widget annotations properly linked under them.
+  Set<CosDictionary> _fieldTreeDicts() {
+    final cos = document.cos;
+    final out = <CosDictionary>{};
+    void mark(CosDictionary node) {
+      if (!out.add(node)) return;
+      final kids = cos.resolve(node['Kids']);
+      if (kids is CosArray) {
+        for (final item in kids.items) {
+          final kid = cos.resolve(item);
+          if (kid is CosDictionary) mark(kid);
+        }
+      }
+    }
+
+    final roots = cos.resolve(dict['Fields']);
+    if (roots is CosArray) {
+      for (final item in roots.items) {
+        final node = cos.resolve(item);
+        if (node is CosDictionary) mark(node);
+      }
+    }
+    return out;
+  }
+
+  /// The fully-qualified field name a stray widget claims: its own /T
+  /// joined with any /Parent /T parts (§12.7.3.2). Null when it carries no
+  /// /T anywhere up the chain.
+  String? _widgetFieldName(CosDictionary widget) {
+    final cos = document.cos;
+    final parts = <String>[];
+    CosDictionary? node = widget;
+    final visited = <CosDictionary>{};
+    while (node != null && visited.add(node)) {
+      final t = cos.resolve(node['T']);
+      if (t is CosString && t.text.isNotEmpty) parts.insert(0, t.text);
+      final parent = cos.resolve(node['Parent']);
+      node = parent is CosDictionary ? parent : null;
+    }
+    return parts.isEmpty ? null : parts.join('.');
+  }
 }
 
 /// Persistable metadata for one terminal field — what a template editor
@@ -184,6 +295,18 @@ class PdfFormField {
 
   /// Fully qualified name: partial /T names joined with dots.
   final String name;
+
+  /// On-page widget annotations adopted from outside /Fields by
+  /// [PdfAcroForm._reconcileOrphanWidgets], or null for a normally
+  /// structured field. When set, [widgets] returns these (they are what
+  /// the page actually shows) and [value]/[isChecked] consult them first.
+  List<CosDictionary>? _reconciled;
+
+  /// The widgets this field adopted from outside /Fields during
+  /// reconciliation (empty for well-formed fields). The field dictionary
+  /// drives their appearance; a filler clears their stale /V so the
+  /// canonical field value wins.
+  List<CosDictionary> get reconciledWidgets => _reconciled ?? const [];
 
   CosDocument get _cos => form.document.cos;
 
@@ -296,8 +419,21 @@ class PdfFormField {
   /// The current value as text: /V strings come back verbatim, button
   /// state names without the slash, multi-select arrays as their first
   /// string. Null when the field is empty.
+  ///
+  /// For a reconciled field the visible page widget's /V wins when set —
+  /// the producer split the form's data across both copies, and the page
+  /// side is what the user sees — falling back to the field's own /V.
   String? get value {
-    final v = inherited('V');
+    if (_reconciled != null) {
+      for (final widget in _reconciled!) {
+        final v = _valueText(_cos.resolve(widget['V']));
+        if (v != null && v.isNotEmpty) return v;
+      }
+    }
+    return _valueText(inherited('V'));
+  }
+
+  String? _valueText(CosObject? v) {
     if (v is CosString) return v.text;
     if (v is CosName) return v.value;
     if (v is CosArray && v.length > 0) {
@@ -309,13 +445,23 @@ class PdfFormField {
 
   /// Whether a check box or radio group is on (/V set and not /Off).
   bool get isChecked {
+    if (_reconciled != null) {
+      for (final widget in _reconciled!) {
+        final v = _cos.resolve(widget['V']);
+        if (v is CosName && v.value != 'Off') return true;
+        final as_ = _cos.resolve(widget['AS']);
+        if (as_ is CosName && as_.value != 'Off') return true;
+      }
+    }
     final v = inherited('V');
     return v is CosName && v.value != 'Off';
   }
 
-  /// The widget annotations displaying this field: its /Kids without a
+  /// The widget annotations displaying this field: the on-page copies
+  /// adopted by reconciliation when present, otherwise its /Kids without a
   /// /T of their own, or the field dictionary itself when merged.
   List<CosDictionary> get widgets {
+    if (_reconciled != null) return _reconciled!;
     final kids = _cos.resolve(dict['Kids']);
     if (kids is CosArray) {
       final out = <CosDictionary>[];

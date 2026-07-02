@@ -26,19 +26,45 @@ jobs:
         pdf_ocr_ondevice:packages/pdf_ocr_ondevice
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
+      # Fail in seconds — not after the ~8-minute test suite — if the tag PAT
+      # can't push. A throwaway tag push+delete proves write access without
+      # touching any real ref (the probe name can't match the pdf_*-v* publish
+      # triggers). See doc/RELEASING-packages.md.
+      - name: Verify release tag token can push
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_TAG_TOKEN:-}" ]]; then
+            echo "::error::PUB_RELEASE_TAG_TOKEN is empty. Create a fine-grained PAT with Contents: read & write on ${GITHUB_REPOSITORY} and store it as the PUB_RELEASE_TAG_TOKEN secret (a GITHUB_TOKEN-pushed tag does not trigger publish-pub.yml)."
+            exit 1
+          fi
+          git config user.name "dart-pdf release automation"
+          git config user.email "actions@github.com"
+          remote="https://x-access-token:${RELEASE_TAG_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          probe="refs/tags/_release-token-probe-${GITHUB_RUN_ID}"
+          if ! git push "$remote" "HEAD:${probe}" >/dev/null 2>&1; then
+            echo "::error::PUB_RELEASE_TAG_TOKEN cannot push to ${GITHUB_REPOSITORY} (403). The PAT is likely expired or missing Contents: write. Regenerate it and update the secret — see doc/RELEASING-packages.md."
+            exit 1
+          fi
+          git push "$remote" ":${probe}" >/dev/null 2>&1 || true
+          echo "Release tag token OK."
+
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.2
+          flutter-version: 3.44.4
           channel: stable
           cache: true
 
       - run: flutter pub get
       - run: dart analyze --fatal-infos
+      # Block a release whose inter-package lower bounds are stale (would score
+      # 0/20 on pub.dev downgrade analysis). See tool/check_lockstep_constraints.dart.
+      - run: dart run tool/check_lockstep_constraints.dart
       - run: dart test
         working-directory: packages/pdf_cos
       - run: dart test
@@ -88,7 +114,7 @@ jobs:
               sleep 10
             done
 
-            echo "::error::$package $version was not visible on pub.dev after waiting 10 minutes"
+            echo "::error::$package $version was not visible on pub.dev after waiting 10 minutes. The tag pushed but the publish did not land — check the 'Publish to pub.dev' run for $package-v$version. The most common cause is that automated publishing is not enabled for $package on pub.dev (Admin → Automated publishing → enable GitHub Actions, set repository ${GITHUB_REPOSITORY} and tag pattern '$package-v{{version}}'). See doc/RELEASING-packages.md."
             return 1
           }
 

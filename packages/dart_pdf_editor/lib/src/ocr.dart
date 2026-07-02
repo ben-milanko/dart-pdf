@@ -41,6 +41,9 @@ class PdfOcrPageImage {
   /// The raster's pixel height.
   int get height => image.height;
 
+  /// Releases the raster once OCR has consumed it.
+  void dispose() => image.dispose();
+
   /// Maps a [pixels] rectangle (raster space: top-left origin, y down, the
   /// natural output of an image-based OCR engine) to a PDF user-space
   /// [PdfRect] suitable for [PdfOcrSpan.bounds].
@@ -67,8 +70,7 @@ class PdfOcrPageImage {
 
   /// Inverse of the user→pixel transform built from the same operations
   /// `PdfPageRenderer.renderPicture` applies, so it round-trips exactly.
-  PdfMatrix get _pixelToUser =>
-      _userToPixel.inverted() ?? PdfMatrix.identity;
+  PdfMatrix get _pixelToUser => _userToPixel.inverted() ?? PdfMatrix.identity;
 
   PdfMatrix get _userToPixel {
     final box = page.cropBox;
@@ -119,6 +121,42 @@ abstract class PdfOcrEngine {
   Future<List<PdfOcrSpan>> recognize(PdfOcrPageImage page);
 }
 
+/// Produces the page raster handed to a [PdfOcrEngine].
+///
+/// The default implementation uses [PdfPageRenderer], but tests or hosts can
+/// supply a cloud/native rasterizer without making [PdfOcrEngine] depend on
+/// the renderer package internals.
+abstract class PdfOcrRasterizer {
+  const PdfOcrRasterizer();
+
+  Future<PdfOcrPageImage> rasterize(
+    PdfPage page, {
+    required int pageIndex,
+    required double pixelRatio,
+  });
+}
+
+/// OCR rasterizer backed by [PdfPageRenderer.renderImage].
+class PdfRendererOcrRasterizer extends PdfOcrRasterizer {
+  const PdfRendererOcrRasterizer();
+
+  @override
+  Future<PdfOcrPageImage> rasterize(
+    PdfPage page, {
+    required int pageIndex,
+    required double pixelRatio,
+  }) async {
+    final image =
+        await PdfPageRenderer.renderImage(page, pixelRatio: pixelRatio);
+    return PdfOcrPageImage(
+      image: image,
+      page: page,
+      pageIndex: pageIndex,
+      pixelRatio: pixelRatio,
+    );
+  }
+}
+
 /// Running an [PdfOcrEngine] and writing its result onto a page.
 extension PdfOcrApply on PdfEditor {
   /// Rasterizes page [pageIndex], runs [engine] over it, and injects the
@@ -138,17 +176,16 @@ extension PdfOcrApply on PdfEditor {
     PdfStandardFont font = PdfStandardFont.helvetica,
     double minConfidence = 0,
     bool visible = false,
+    PdfOcrRasterizer rasterizer = const PdfRendererOcrRasterizer(),
   }) async {
     final page = document.page(pageIndex);
-    final image =
-        await PdfPageRenderer.renderImage(page, pixelRatio: pixelRatio);
+    final pageImage = await rasterizer.rasterize(
+      page,
+      pageIndex: pageIndex,
+      pixelRatio: pixelRatio,
+    );
     try {
-      final spans = await engine.recognize(PdfOcrPageImage(
-        image: image,
-        page: page,
-        pageIndex: pageIndex,
-        pixelRatio: pixelRatio,
-      ));
+      final spans = await engine.recognize(pageImage);
       return injectTextLayer(
         pageIndex,
         spans,
@@ -157,7 +194,7 @@ extension PdfOcrApply on PdfEditor {
         visible: visible,
       );
     } finally {
-      image.dispose();
+      pageImage.dispose();
     }
   }
 }

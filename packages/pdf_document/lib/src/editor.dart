@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pdf_cos/pdf_cos.dart';
 
 import 'annotation.dart';
+import 'comments.dart';
 import 'content_elements.dart';
 import 'content_writer.dart';
 import 'document.dart';
@@ -13,22 +15,37 @@ import 'font_embedder.dart';
 import 'form.dart';
 import 'image.dart';
 import 'measure.dart';
+import 'outline.dart';
+import 'pades.dart';
 import 'page.dart';
+import 'page_labels.dart';
 import 'rect.dart';
+import 'struct_tree.dart';
+import 'takeoff.dart';
 import 'type0_metrics.dart';
+import 'xmp.dart';
 
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
 part 'annotation_sync.dart';
+part 'comment_editor.dart';
+part 'attachment_editor.dart';
 part 'content_editor.dart';
 part 'content_editor_type0.dart';
+part 'content_reflow.dart';
+part 'header_footer.dart';
+part 'outline_editor.dart';
+part 'page_labels_editor.dart';
+part 'page_annotation_list.dart';
 part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
 part 'form_styling.dart';
 part 'ocr_editor.dart';
+part 'pades_editor.dart';
 part 'page_editor.dart';
 part 'signature_editor.dart';
+part 'struct_tree_editor.dart';
 part 'vector_snapshot.dart';
 
 /// High-level editing session over a [PdfDocument].
@@ -43,6 +60,12 @@ class PdfEditor {
 
   /// Pages whose original content this session already wrapped in q/Q.
   final Set<CosDictionary> _wrappedPages = {};
+
+  /// Session-time open/closed intent for outline items, keyed by object
+  /// number. Lets a childless item remember the state it was created with
+  /// until it gains children (whose /Count then records the sign). Reopened
+  /// documents fall back to the /Count sign — see [PdfOutlineEditing].
+  final Map<int, bool> _outlineOpenOverride = {};
 
   /// The document-default measurement scale, set by
   /// [PdfAnnotationEditing.setMeasurementScale]; [PdfAnnotationEditing.addMeasurement]
@@ -88,8 +111,7 @@ class PdfEditor {
   /// Adds [degrees] (a multiple of 90) to the page's display rotation.
   void rotatePage(int index, int degrees) {
     if (degrees % 90 != 0) {
-      throw ArgumentError.value(
-          degrees, 'degrees', 'must be a multiple of 90');
+      throw ArgumentError.value(degrees, 'degrees', 'must be a multiple of 90');
     }
     final page = document.page(index);
     final next = (page.rotation + degrees) % 360;

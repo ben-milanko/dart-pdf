@@ -54,7 +54,7 @@ void main() {
     await waitFor(tester, find.byType(RawImage));
   });
 
-  testWidgets('a fast jump holds page rendering until the scroll settles',
+  testWidgets('a long jump lands directly and renders the target',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(8));
     final controller = PdfViewerController();
@@ -72,21 +72,13 @@ void main() {
     // an idle viewer renders normally
     await waitFor(tester, fullRaster);
 
-    // a long jump animates 250ms at far past the velocity threshold
+    // Long programmatic jumps no longer animate through the intermediate
+    // pages. They land directly on the target so the destination can render
+    // immediately instead of staying blank while the old fast-scroll hold
+    // waits for settle.
     unawaited(controller.jumpToPage(6));
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(milliseconds: 60));
-      // give an unheld render every chance to (wrongly) complete
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)));
-    }
-    // mid-flight and just arrived (settle pending): no page got a FULL
-    // render — page 0's raster is long unmounted, the destination is
-    // held. (Low-res previews are allowed: that's the fast-scroll
-    // preview feature, covered in page_preview_test.dart.)
-    expect(fullRaster, findsNothing);
-
-    // the scroll-settle timer releases the hold and the target renders
+    await tester.pump();
+    expect(controller.currentPage, 6);
     await tester.pump(const Duration(milliseconds: 300));
     await waitFor(tester, fullRaster);
   });

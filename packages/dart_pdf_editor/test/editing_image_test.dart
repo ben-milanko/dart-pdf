@@ -55,14 +55,24 @@ void main() {
       addTearDown(editing.dispose);
 
       // a 200x50 box; the square image fits to 50x50, centered
-      expect(
-          editing.addImageInRect(0, const PdfRect(100, 100, 300, 150), _png),
+      expect(editing.addImageInRect(0, const PdfRect(100, 100, 300, 150), _png),
           isTrue);
       final rect = editing.document.page(0).annotations.single.rect;
       expect(rect.width, closeTo(50, 1e-9));
       expect(rect.height, closeTo(50, 1e-9));
       expect((rect.left + rect.right) / 2, closeTo(200, 1e-9));
       expect((rect.bottom + rect.top) / 2, closeTo(125, 1e-9));
+    });
+
+    test('placeImageAsync prepares the image off-thread and inserts', () async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+
+      expect(await editing.placeImageAsync(0, 300, 400, _png), isTrue);
+      final stamp = editing.document.page(0).annotations.single;
+      expect(stamp.subtype, 'Stamp');
+      expect(appearance(editing.document, stamp), contains('/Img0 Do'));
     });
 
     test('junk bytes are rejected without a revision', () {
@@ -72,8 +82,10 @@ void main() {
 
       expect(editing.placeImage(0, 100, 100, Uint8List.fromList([1, 2, 3])),
           isFalse);
-      expect(editing.addImageInRect(0, const PdfRect(0, 0, 100, 100),
-          Uint8List.fromList([1, 2, 3])), isFalse);
+      expect(
+          editing.addImageInRect(
+              0, const PdfRect(0, 0, 100, 100), Uint8List.fromList([1, 2, 3])),
+          isFalse);
       expect(editing.isModified, isFalse);
     });
   });
@@ -85,6 +97,17 @@ void main() {
     Future<void> tap(WidgetTester tester, Offset position) async {
       await tester.tapAt(position);
       await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    Future<void> waitForImageInsert(
+        WidgetTester tester, PdfEditingController editing) async {
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50; i++) {
+          if (editing.document.page(0).annotations.isNotEmpty) return;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
+      await tester.pump();
     }
 
     Future<PdfEditingController> pumpEditor(WidgetTester tester,
@@ -123,7 +146,7 @@ void main() {
       await tester.pump();
 
       await tap(tester, view(300, 400));
-      await tester.pump();
+      await waitForImageInsert(tester, editing);
       expect(calls, 1);
       final stamp = editing.document.page(0).annotations.single;
       expect(stamp.subtype, 'Stamp');

@@ -53,6 +53,28 @@ void main() {
       expect(editing.hasRedactionMarks, isFalse);
     });
 
+    test('only a burn advances the destructive stamp; ink does not', () {
+      final editing = controller(2);
+      addTearDown(editing.dispose);
+      final before = editing.pageDestructiveStamp(0);
+      final otherBefore = editing.pageDestructiveStamp(1);
+
+      // an additive edit (ink) bumps the render stamp but not the
+      // destructive one — the viewer keeps page 0's raster up across it
+      final renderBefore = editing.pageRenderStamp(0);
+      editing.addInkStroke(0, const [(72, 72), (200, 200)]);
+      editing.finishInk();
+      expect(editing.pageRenderStamp(0), greaterThan(renderBefore));
+      expect(editing.pageDestructiveStamp(0), before);
+
+      // a redaction burn removes content — every page's destructive stamp
+      // advances so the viewer drops the (un-redacted) rasters at once
+      editing.addRedaction(0, const PdfRect(60, 715, 200, 748));
+      expect(editing.applyRedactions(), isTrue);
+      expect(editing.pageDestructiveStamp(0), greaterThan(before));
+      expect(editing.pageDestructiveStamp(1), greaterThan(otherBefore));
+    });
+
     test('applyRedactions is a no-op with nothing marked', () {
       final editing = controller();
       addTearDown(editing.dispose);

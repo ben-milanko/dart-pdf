@@ -3,7 +3,11 @@
 library;
 
 export 'src/annotation.dart';
+export 'src/annotation_align.dart';
+export 'src/attachment.dart';
 export 'src/cache_store.dart';
+export 'src/comments.dart';
+export 'src/conformance.dart';
 export 'src/content_elements.dart';
 export 'src/content_writer.dart';
 export 'src/disk_cache.dart';
@@ -15,6 +19,16 @@ export 'src/image.dart';
 export 'src/image_pdf.dart';
 export 'src/import_source.dart';
 export 'src/measure.dart';
+export 'src/office_conversion.dart';
+export 'src/outline.dart';
+export 'src/pades.dart';
 export 'src/page.dart';
+export 'src/page_labels.dart';
+export 'src/pdf_a.dart';
+export 'src/pdf_ua.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';
+export 'src/struct_tree.dart';
+export 'src/takeoff.dart';
+export 'src/sync.dart';
+export 'src/xmp.dart';

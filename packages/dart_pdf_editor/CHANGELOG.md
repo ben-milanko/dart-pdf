@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.1
+
+- Font menu: offer the host platform's installed fonts as embeddable choices
+  alongside the base-14 families and bundled fonts. A host fills the new
+  `pdfPlatformFonts` registry once at startup (the example/app scan the OS
+  font directories on native; web stays empty), and every font menu picks
+  them up by default. Picking one embeds its outlines into the document so
+  the text renders and prints everywhere. New `PdfPlatformFont` type and an
+  optional `platformFonts` argument on `PdfFontMenuButton`/`showPdfFontMenu`.
+- `PdfEditorView` can now replace the stock bottom editing toolbar via
+  `toolbarBuilder`, in addition to the existing leading/trailing toolbar
+  extension points.
+- OCR: `PdfEditor.applyOcr` now accepts a `PdfOcrRasterizer`, so hosts and
+  tests can provide their own rasterization backend while still using the
+  built-in text-layer injection flow.
+- Rendering: `PdfPageRenderPlan` carries page color, annotation visibility,
+  and view rotation through the renderer paths, keeping viewer rasters,
+  color sampling, and worker replay in sync.
+- Shells: shared panel layout keeps the viewer element stable while docking
+  side panels, bottom sheets, and floating or docked toolbars.
+
 ## 1.2.3
 
 - Free text: align a text box left, center, or right. The alignment buttons

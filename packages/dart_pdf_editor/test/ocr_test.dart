@@ -29,6 +29,28 @@ class _FakeOcrEngine implements PdfOcrEngine {
       ];
 }
 
+class _RecordingRasterizer extends PdfOcrRasterizer {
+  int calls = 0;
+  int? pageIndex;
+  double? pixelRatio;
+
+  @override
+  Future<PdfOcrPageImage> rasterize(PdfPage page,
+      {required int pageIndex, required double pixelRatio}) async {
+    calls++;
+    this.pageIndex = pageIndex;
+    this.pixelRatio = pixelRatio;
+    final image =
+        await PdfPageRenderer.renderImage(page, pixelRatio: pixelRatio);
+    return PdfOcrPageImage(
+      image: image,
+      page: page,
+      pageIndex: pageIndex,
+      pixelRatio: pixelRatio,
+    );
+  }
+}
+
 Future<Uint8List> _rasterBytes(PdfDocument doc) async {
   final image = await PdfPageRenderer.renderImage(doc.page(0));
   try {
@@ -42,8 +64,7 @@ Future<Uint8List> _rasterBytes(PdfDocument doc) async {
 void main() {
   test('userSpaceRect maps a top-left raster box to the page top', () async {
     final doc = PdfDocument.open(buildClassicPdf()); // 612 x 792
-    final image =
-        await PdfPageRenderer.renderImage(doc.page(0), pixelRatio: 2);
+    final image = await PdfPageRenderer.renderImage(doc.page(0), pixelRatio: 2);
     try {
       final page = PdfOcrPageImage(
           image: image, page: doc.page(0), pageIndex: 0, pixelRatio: 2);
@@ -58,19 +79,23 @@ void main() {
     }
   });
 
-  testWidgets('applyOcr writes an invisible, selectable layer',
-      (tester) async {
+  testWidgets('applyOcr writes an invisible, selectable layer', (tester) async {
     await tester.runAsync(() async {
       final original = buildClassicPdf();
       final before = await _rasterBytes(PdfDocument.open(original));
 
       final editor = PdfEditor(PdfDocument.open(original));
+      final rasterizer = _RecordingRasterizer();
       final written = await editor.applyOcr(
         0,
         _FakeOcrEngine('Scanned', const Rect.fromLTWH(100, 120, 240, 36)),
         pixelRatio: 2,
+        rasterizer: rasterizer,
       );
       expect(written, 1);
+      expect(rasterizer.calls, 1);
+      expect(rasterizer.pageIndex, 0);
+      expect(rasterizer.pixelRatio, 2);
 
       final reopened = PdfDocument.open(editor.save());
 

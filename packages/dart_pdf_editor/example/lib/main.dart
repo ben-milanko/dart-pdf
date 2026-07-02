@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'demo_brand_assets.dart';
 import 'demo_document.dart';
 import 'persistent_cache.dart';
+import 'platform_fonts.dart';
 import 'recent_files.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
@@ -87,6 +88,12 @@ void main() {
   if (kIsWeb) {
     pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
   }
+  // Fan page decoding across a few workers so a raster-heavy document (every
+  // CAD sheet a multi-second image decode) warms several pages at once instead
+  // of one at a time. Each worker holds its own copy of the document, so this
+  // trades memory for throughput. The example exposes this in the AppBar so
+  // users can switch between the pooled and single-worker paths.
+  pdfRenderWorkerPoolSize = 3;
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
   // streamed to the browser console) without a rebuild by opening the demo
@@ -117,6 +124,24 @@ class _ViewerAppState extends State<ViewerApp> {
   /// follow the persisted light/dark choice; the screen below shares
   /// the same instance with every editing session.
   final _prefs = PdfEditingPreferences();
+
+  @override
+  void initState() {
+    super.initState();
+    // Offer the host's installed fonts in the editor's font menu by default.
+    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // empty result (web, or a locked-down platform) just leaves the base-14,
+    // bundled and "Load font…" choices.
+    unawaited(_loadPlatformFonts());
+  }
+
+  Future<void> _loadPlatformFonts() async {
+    try {
+      pdfPlatformFonts = await loadPlatformFonts();
+    } catch (_) {
+      // Font discovery is best-effort; the menu degrades to its other choices.
+    }
+  }
 
   @override
   void dispose() {
@@ -191,6 +216,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
 
+  bool _workerPoolEnabled = pdfRenderWorkerPoolSize > 1;
+  int _workerPoolSize =
+      pdfRenderWorkerPoolSize > 1 ? pdfRenderWorkerPoolSize : 3;
+  int _workerConfigEpoch = 0;
+
+  int get _effectiveWorkerPoolSize => _workerPoolEnabled ? _workerPoolSize : 1;
+
+  String get _workerPoolTooltip => _workerPoolEnabled
+      ? 'Worker pool: $_workerPoolSize workers'
+      : 'Worker pool off: single worker';
+
   /// OCR connection settings, supplied through the credentials dialog and
   /// remembered for the app's lifetime (the API key is deliberately kept in
   /// memory only — the example never writes a secret to disk). Defaults to a
@@ -199,10 +235,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
   String _ocrModel = 'model';
   String? _ocrApiKey;
 
-  /// GoTo and the standard named page actions never get here (the viewer
-  /// follows them itself). Custom-scheme URIs are dispatched as app
-  /// commands — the conventional way a PDF drives its host app — and
-  /// anything else just gets described in a snackbar.
+  /// GoTo, the standard named page actions, and real web links (the
+  /// page's https pub.dev link) never get here — the viewer follows them
+  /// itself. Custom-scheme URIs are dispatched as app commands — the
+  /// conventional way a PDF drives its host app — and anything else just
+  /// gets described in a snackbar.
   void _onAction(PdfAction action, PdfAnnotation annotation) {
     final tab = _active;
     if (action is PdfUriAction) {
@@ -260,6 +297,27 @@ class _ViewerScreenState extends State<ViewerScreen> {
     };
   }
 
+  void _setWorkerPoolSize(int value) {
+    final nextSize = value <= 1 ? 1 : value;
+    if (nextSize == _effectiveWorkerPoolSize) return;
+    setState(() {
+      if (nextSize == 1) {
+        _workerPoolEnabled = false;
+      } else {
+        _workerPoolEnabled = true;
+        _workerPoolSize = nextSize;
+      }
+      pdfRenderWorkerPoolSize = _effectiveWorkerPoolSize;
+      _workerConfigEpoch++;
+    });
+    _toast(_workerPoolEnabled
+        ? 'Worker pool: $_workerPoolSize workers'
+        : 'Worker pool off: single worker');
+  }
+
+  Key _pdfShellKey(_DocumentTab tab, String mode) =>
+      ValueKey<Object>((tab, mode, _workerConfigEpoch));
+
   String get _nextThemeLabel => switch (_prefs.themeMode) {
         ThemeMode.system => 'Theme: system — switch to light',
         ThemeMode.light => 'Theme: light — switch to dark',
@@ -315,6 +373,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
+        PopupMenuItem(
+          value: () => unawaited(_exportImage()),
+          enabled: tab?.session != null,
+          child: const ListTile(
+            leading: Icon(Icons.image_outlined),
+            title: Text('Export page as image…'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: _cycleTheme,
@@ -348,7 +415,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// plus a clear action. Files already open in a tab are left out — there's
   /// no point offering a shortcut to reopen them — so the row is hidden
   /// entirely until there's at least one closed file to show.
-  List<PopupMenuEntry<VoidCallback>> _recentMenuItems(BuildContext menuContext) {
+  List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
+      BuildContext menuContext) {
     final openTitles = {for (final tab in _tabs) tab.title};
     final recents = [
       for (final entry in _recents.entries)
@@ -797,6 +865,135 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Renders the page the viewer is currently on to a raster image
+  /// ([PdfPageExport]) and saves it as PNG/JPEG, after prompting for the
+  /// format and resolution. The current edit revision is exported, so unsaved
+  /// changes are included.
+  Future<void> _exportImage() async {
+    final tab = _active;
+    final session = tab?.session;
+    final viewer = tab?.viewer;
+    if (tab == null || session == null || viewer == null) {
+      _toast('Open a document first');
+      return;
+    }
+    final choice = await _showImageExportDialog();
+    if (choice == null || !mounted) return;
+    final (format, dpi) = choice;
+
+    final pageIndex =
+        viewer.currentPage.clamp(0, session.document.pageCount - 1);
+    final isPng = format == PdfRasterFormat.png;
+    try {
+      final bytes = await PdfPageExport.exportPage(
+        session.document.page(pageIndex),
+        format: format,
+        dpi: dpi,
+      );
+      if (!mounted) return;
+      var stem = tab.title.trim();
+      if (stem.toLowerCase().endsWith('.pdf')) {
+        stem = stem.substring(0, stem.length - 4).trim();
+      }
+      if (stem.isEmpty) stem = 'page';
+      final name = '$stem-p${pageIndex + 1}.${isPng ? 'png' : 'jpg'}';
+      await _saveImageBytes(bytes, name, isPng ? 'image/png' : 'image/jpeg');
+    } catch (e) {
+      if (mounted) _toast('Export failed: $e');
+    }
+  }
+
+  /// Saves a page-image [bytes] as [name] ([mimeType] PNG/JPEG): a save dialog
+  /// on desktop, a download on the web, the share sheet on phones.
+  Future<void> _saveImageBytes(
+      Uint8List bytes, String name, String mimeType) async {
+    final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
+    if (kIsWeb) {
+      await file.saveTo(name);
+      _toast('Downloaded $name');
+      return;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android || TargetPlatform.iOS:
+        final box = context.findRenderObject() as RenderBox?;
+        final origin =
+            box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+        await SharePlus.instance.share(ShareParams(
+          files: [file],
+          fileNameOverrides: [name],
+          sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+        ));
+      default:
+        final location = await getSaveLocation(
+          suggestedName: name,
+          acceptedTypeGroups: const [_imageTypeGroup],
+        );
+        if (location == null) return;
+        try {
+          await file.saveTo(location.path);
+          _toast('Saved $name');
+        } catch (e) {
+          _toast('Save failed: $e');
+        }
+    }
+  }
+
+  /// Prompts for the export format (PNG/JPEG) and resolution (dpi). Returns
+  /// null when cancelled.
+  Future<(PdfRasterFormat, double)?> _showImageExportDialog() {
+    var format = PdfRasterFormat.png;
+    var dpi = 150.0;
+    return showDialog<(PdfRasterFormat, double)>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Export page as image'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Format'),
+              const SizedBox(height: 8),
+              SegmentedButton<PdfRasterFormat>(
+                segments: const [
+                  ButtonSegment(value: PdfRasterFormat.png, label: Text('PNG')),
+                  ButtonSegment(
+                      value: PdfRasterFormat.jpeg, label: Text('JPEG')),
+                ],
+                selected: {format},
+                onSelectionChanged: (s) => setState(() => format = s.first),
+              ),
+              const SizedBox(height: 16),
+              const Text('Resolution'),
+              const SizedBox(height: 8),
+              DropdownButton<double>(
+                value: dpi,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(value: 72, child: Text('72 dpi')),
+                  DropdownMenuItem(value: 150, child: Text('150 dpi')),
+                  DropdownMenuItem(value: 300, child: Text('300 dpi')),
+                  DropdownMenuItem(value: 600, child: Text('600 dpi')),
+                ],
+                onChanged: (d) => setState(() => dpi = d ?? dpi),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop((format, dpi)),
+              child: const Text('Export'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Adds an invisible, selectable/searchable OCR text layer over the
   /// active document using a self-hosted vision-language OCR model
   /// (pdf_ocr_vlm). Prompts for the service endpoint and an optional API
@@ -879,6 +1076,37 @@ class _ViewerScreenState extends State<ViewerScreen> {
         title: _tabs.isEmpty ? const Text('dart-pdf viewer') : _buildTabStrip(),
         titleSpacing: _tabs.isEmpty ? null : 8,
         actions: [
+          if (tab?.session != null && !_readOnly && !tab!.isComparison)
+            IconButton(
+              key: const ValueKey('dartpdf-takeoff-button'),
+              icon: const Icon(Icons.functions),
+              tooltip: 'Takeoff totals',
+              onPressed: () => _showTakeoffPanel(tab.session!),
+            ),
+          if (tab?.session != null && !tab!.isComparison)
+            PopupMenuButton<int>(
+              key: const ValueKey('dartpdf-worker-pool-menu'),
+              tooltip: _workerPoolTooltip,
+              icon: Icon(
+                  _workerPoolEnabled ? Icons.memory : Icons.memory_outlined),
+              onSelected: _setWorkerPoolSize,
+              itemBuilder: (context) => [
+                CheckedPopupMenuItem<int>(
+                  key: const ValueKey('dartpdf-worker-pool-off'),
+                  value: 1,
+                  checked: !_workerPoolEnabled,
+                  child: const Text('Worker pool off'),
+                ),
+                const PopupMenuDivider(),
+                for (final size in const [2, 3, 4, 6])
+                  CheckedPopupMenuItem<int>(
+                    key: ValueKey('dartpdf-worker-pool-$size'),
+                    value: size,
+                    checked: _workerPoolEnabled && _workerPoolSize == size,
+                    child: Text('$size workers'),
+                  ),
+              ],
+            ),
           if (tab?.viewer != null)
             ListenableBuilder(
               listenable: tab!.viewer!,
@@ -933,7 +1161,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                       // session, its file handling, and the demo's app-side wiring
                       : _readOnly
                           ? PdfReader(
-                              key: ValueKey(tab),
+                              key: _pdfShellKey(tab, 'reader'),
                               bytes: tab.session!.bytes,
                               // a stable id per document so reopening it (across
                               // app restarts) restores its scroll position and zoom
@@ -947,7 +1175,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                   tab.isDemo ? _demoOverlays : null,
                             )
                           : PdfEditorView(
-                              key: ValueKey(tab),
+                              key: _pdfShellKey(tab, 'editor'),
                               documentId: tab.title,
                               controller: tab.session,
                               viewerController: tab.viewer,
@@ -966,6 +1194,22 @@ class _ViewerScreenState extends State<ViewerScreen> {
                               fontPicker: _pickFont,
                               onSnapshot: _saveSnapshot,
                             ),
+    );
+  }
+
+  /// Shows the construction-takeoff register — per-tool running totals over
+  /// the live document (length, area, count, volume, …) — in a bottom
+  /// sheet. The panel rebuilds with the edit session, so totals update as
+  /// measurements are added, edited, or undone.
+  void _showTakeoffPanel(PdfEditingController session) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: PdfTakeoffPanel(controller: session),
+        ),
+      ),
     );
   }
 

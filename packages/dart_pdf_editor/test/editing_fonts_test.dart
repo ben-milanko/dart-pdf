@@ -15,6 +15,9 @@ final _fontBytes =
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  // The platform-font registry is module-global (a host fills it once at
+  // startup); reset it so a test that populates it can't leak into others.
+  tearDown(() => pdfPlatformFonts = const []);
 
   String daOf(PdfEditingController c, PdfAnnotation a) =>
       (c.document.cos.resolve(a.dict['DA']) as CosString).text;
@@ -180,6 +183,48 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-font-load')), findsNothing);
+    });
+
+    testWidgets('platform fonts from the registry appear and embed on pick',
+        (tester) async {
+      // The host populates pdfPlatformFonts at startup; the menu picks it up
+      // by default (no per-widget plumbing). Selecting one loads its bytes
+      // lazily and embeds the outlines.
+      pdfPlatformFonts = [
+        PdfPlatformFont(
+          label: 'Test Platform Sans',
+          loadBytes: () async => _fontBytes,
+        ),
+      ];
+      final c = PdfEditingController(buildMultiPagePdf(1));
+      await pumpButton(tester, c);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('Test Platform Sans'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-font-platform-0')));
+      await tester.pumpAndSettle();
+      expect(c.activeFont, isNotNull);
+      expect(c.activeFontLabel, contains('DejaVu'));
+
+      c.addFreeText(0, const PdfRect(72, 600, 300, 660), 'Hi');
+      final a = c.document.page(0).annotations.last;
+      expect(daOf(c, a), contains('/F0'));
+      expect(isType0(c, a), isTrue);
+    });
+
+    testWidgets('an unreadable platform font leaves the font unchanged',
+        (tester) async {
+      pdfPlatformFonts = [
+        PdfPlatformFont(label: 'Broken', loadBytes: () async => null),
+      ];
+      final c = PdfEditingController(buildMultiPagePdf(1));
+      await pumpButton(tester, c);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-font-platform-0')));
+      await tester.pumpAndSettle();
+      expect(c.activeFont, isNull);
     });
   });
 }

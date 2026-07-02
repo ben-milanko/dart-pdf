@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+- Interpreter color-space handling now uses a shared resolved color-space
+  path for fill and stroke colors, keeping calibrated, ICC, Indexed,
+  Separation, and single-colorant DeviceN `sc`/`SC` resolution consistent.
+
 ## 1.2.3
 
 - Version bump to keep the dart-pdf package suite aligned at 1.2.3. No

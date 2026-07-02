@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'editor_screen.dart';
+import 'platform_fonts.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
 /// the MaterialApp can follow the persisted light/dark choice and every
@@ -31,6 +34,29 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     // degrades to local rendering, so this is safe even before a worker build.
     if (kIsWeb) {
       pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+    }
+    // A small pool gives heavy CAD/image pages real overlap without multiplying
+    // document memory too far. Mobile-class targets get a lower default; the
+    // perf harness is allowed to be more aggressive.
+    pdfRenderWorkerPoolSize = switch (defaultTargetPlatform) {
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.fuchsia =>
+        2,
+      _ => 3,
+    };
+    // Offer the host's installed fonts in the editor's font menu by default.
+    // Fire-and-forget: the registry is read when a font menu opens, and an
+    // empty result (web, or a locked-down platform) just leaves the base-14,
+    // bundled and "Load font…" choices.
+    unawaited(_loadPlatformFonts());
+  }
+
+  Future<void> _loadPlatformFonts() async {
+    try {
+      pdfPlatformFonts = await loadPlatformFonts();
+    } catch (_) {
+      // Font discovery is best-effort; the menu degrades to its other choices.
     }
   }
 

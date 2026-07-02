@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1
+
+- Add `ContentStreamSerializer` for writing parsed content-stream operations
+  back to PDF syntax, including inline-image (`BI`/`ID`/`EI`) operations.
+
 ## 1.2.3
 
 - Version bump to keep the dart-pdf package suite aligned at 1.2.3. No COS

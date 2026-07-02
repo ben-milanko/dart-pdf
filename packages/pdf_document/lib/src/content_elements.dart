@@ -164,16 +164,14 @@ class PdfPageElements {
           if (stack.isNotEmpty) ctm = stack.removeLast();
         case 'cm':
           if (operands.length >= 6) {
-            ctm = _multiply(
-                (
-                  number(operands[0]),
-                  number(operands[1]),
-                  number(operands[2]),
-                  number(operands[3]),
-                  number(operands[4]),
-                  number(operands[5]),
-                ),
-                ctm);
+            ctm = _multiply((
+              number(operands[0]),
+              number(operands[1]),
+              number(operands[2]),
+              number(operands[3]),
+              number(operands[4]),
+              number(operands[5]),
+            ), ctm);
           }
 
         // path construction
@@ -308,10 +306,9 @@ class PdfPageElements {
 
         // XObjects, inline images, shading
         case 'Do':
-          final name =
-              operands.isNotEmpty && operands[0] is CosName
-                  ? (operands[0] as CosName).value
-                  : null;
+          final name = operands.isNotEmpty && operands[0] is CosName
+              ? (operands[0] as CosName).value
+              : null;
           final xobjects = cos.resolve(resources['XObject']);
           final xobject = name != null && xobjects is CosDictionary
               ? cos.resolve(xobjects[name])
@@ -370,32 +367,8 @@ class PdfPageElements {
         if (replacement != null) out.add(latin1.encode('$replacement\n'));
         continue;
       }
-      final op = operations[i];
-      if (op.operator == 'BI') {
-        out.add(_inlineImage(op));
-        continue;
-      }
-      for (final operand in op.operands) {
-        out
-          ..add(CosSerializer.serialize(operand))
-          ..add(const [0x20]);
-      }
-      out.add(latin1.encode('${op.operator}\n'));
+      ContentStreamSerializer.writeOperation(operations[i], out);
     }
-    return out.takeBytes();
-  }
-
-  static Uint8List _inlineImage(ContentOperation op) {
-    final out = BytesBuilder()..add(latin1.encode('BI'));
-    final dict = op.operands[0] as CosDictionary;
-    dict.entries.forEach((key, value) {
-      out
-        ..add(latin1.encode(' /$key '))
-        ..add(CosSerializer.serialize(value));
-    });
-    out.add(latin1.encode(' ID\n'));
-    out.add((op.operands[1] as CosString).bytes);
-    out.add(latin1.encode('\nEI\n'));
     return out.takeBytes();
   }
 }
