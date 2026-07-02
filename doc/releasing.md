@@ -17,6 +17,8 @@ The release tag format is:
 | `pdf_document` | `pdf_document-v{{version}}` |
 | `pdf_graphics` | `pdf_graphics-v{{version}}` |
 | `dart_pdf_editor` | `dart_pdf_editor-v{{version}}` |
+| `pdf_ocr_vlm` | `pdf_ocr_vlm-v{{version}}` |
+| `pdf_ocr_ondevice` | `pdf_ocr_ondevice-v{{version}}` |
 
 Configure each package's pub.dev Admin page with repository
 `ben-milanko/dart-pdf`, its package-specific tag pattern above, and the
@@ -27,3 +29,13 @@ The `Tag pub.dev releases` workflow needs a repository secret named
 push tags to this repository. The built-in `GITHUB_TOKEN` is intentionally not
 used for tag creation because GitHub does not trigger a second workflow from
 pushes made with `GITHUB_TOKEN`.
+
+To validate the GitHub-side setup without running the release tests or pushing
+tags, run **Tag pub.dev releases** manually with `setup_check_only=true`. That
+mode still probes `PUB_RELEASE_TAG_TOKEN` by pushing and deleting a throwaway
+non-release tag.
+
+The tag-triggered publish workflow first checks whether the tagged version is
+already on pub.dev. If it is, the workflow exits successfully without calling
+`dart pub publish`, so record tags can be pushed after a manual recovery
+release without creating failed publish jobs.

@@ -4,6 +4,12 @@ on:
   push:
     branches: [deploy]
   workflow_dispatch:
+    inputs:
+      setup_check_only:
+        description: Validate the tag-push token without running tests or publishing.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: pub-release-tags
@@ -31,11 +37,61 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Plan unpublished package releases
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version_for() {
+            ruby -ryaml -e 'puts YAML.load_file(ARGV.fetch(0)).fetch("version")' "$1/pubspec.yaml"
+          }
+
+          pub_has_version() {
+            local package="$1"
+            local version="$2"
+            ruby -rjson -ropen-uri -e '
+              package = ARGV.fetch(0)
+              version = ARGV.fetch(1)
+              data = URI.open("https://pub.dev/api/packages/#{package}", &:read)
+              versions = JSON.parse(data).fetch("versions").map { |entry| entry.fetch("version") }
+              exit(versions.include?(version) ? 0 : 1)
+            ' "$package" "$version"
+          }
+
+          unpublished=()
+          for spec in $PACKAGE_ORDER; do
+            package="${spec%%:*}"
+            directory="${spec#*:}"
+            version="$(version_for "$directory")"
+
+            if pub_has_version "$package" "$version"; then
+              echo "$package $version is already on pub.dev"
+            else
+              tag="$package-v$version"
+              echo "$package $version needs publishing as $tag"
+              unpublished+=("$package|$directory|$version|$tag")
+            fi
+          done
+
+          if ((${#unpublished[@]} == 0)); then
+            echo "has_unpublished=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_unpublished=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          {
+            echo "unpublished<<EOF"
+            printf '%s\n' "${unpublished[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       # Fail in seconds — not after the ~8-minute test suite — if the tag PAT
       # can't push. A throwaway tag push+delete proves write access without
       # touching any real ref (the probe name can't match the pdf_*-v* publish
       # triggers). See doc/RELEASING-packages.md.
       - name: Verify release tag token can push
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' || (github.event_name == 'workflow_dispatch' && inputs.setup_check_only) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -55,36 +111,41 @@ jobs:
           echo "Release tag token OK."
 
       - uses: subosito/flutter-action@v2
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
         with:
           flutter-version: 3.44.4
           channel: stable
           cache: true
 
       - run: flutter pub get
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
       - run: dart analyze --fatal-infos
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
       # Block a release whose inter-package lower bounds are stale (would score
       # 0/20 on pub.dev downgrade analysis). See tool/check_lockstep_constraints.dart.
       - run: dart run tool/check_lockstep_constraints.dart
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
       - run: dart test
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
         working-directory: packages/pdf_cos
       - run: dart test
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
         working-directory: packages/pdf_document
       - run: dart test
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
         working-directory: packages/pdf_graphics
       - run: flutter test
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
         working-directory: packages/dart_pdf_editor
 
       - name: Create release tags for unpublished versions
+        if: ${{ steps.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
         shell: bash
         run: |
           set -euo pipefail
 
           git config user.name "dart-pdf release automation"
           git config user.email "actions@github.com"
-
-          version_for() {
-            ruby -ryaml -e 'puts YAML.load_file(ARGV.fetch(0)).fetch("version")' "$1/pubspec.yaml"
-          }
 
           pub_has_version() {
             local package="$1"
@@ -118,12 +179,10 @@ jobs:
             return 1
           }
 
-          for spec in $PACKAGE_ORDER; do
-            package="${spec%%:*}"
-            directory="${spec#*:}"
-            version="$(version_for "$directory")"
-            tag="$package-v$version"
-
+          while IFS='|' read -r package directory version tag; do
+            if [[ -z "${package:-}" ]]; then
+              continue
+            fi
             if pub_has_version "$package" "$version"; then
               echo "$package $version is already on pub.dev; skipping $tag"
               continue
@@ -142,4 +201,6 @@ jobs:
             git tag -a "$tag" -m "Release $package $version"
             git push "https://x-access-token:${RELEASE_TAG_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$tag"
             wait_for_pub "$package" "$version"
-          done
+          done <<'EOF'
+          ${{ steps.plan.outputs.unpublished }}
+          EOF

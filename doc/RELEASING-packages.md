@@ -29,6 +29,8 @@ Push the version bumps to `main`, then merge `main` into `deploy` and push it.
 `release-pub-tags.yml` runs the test suite, then for each package whose version
 isn't yet on pub.dev it pushes a `<pkg>-v<version>` tag. Each tag triggers
 `publish-pub.yml`, which publishes that package via pub.dev OIDC (tokenless).
+If a deploy push contains no unpublished package versions, the workflow exits
+without probing the tag token or running the release suite.
 
 This needs **two one-time configurations**. Both are maintainer-only; CI cannot
 self-configure them.
@@ -64,6 +66,9 @@ github is not enabled`.
 - Re-create it before it expires. The workflow now preflights the token and
   fails in seconds with a clear message if it's empty or can't push (403),
   instead of after the full test suite.
+- To test only the GitHub-side token setup, run **Tag pub.dev releases** from
+  GitHub Actions with `setup_check_only=true`. That pushes and deletes a
+  throwaway non-release tag and then exits before analysis, tests, or publish.
 
 > Note: GitHub does **not** trigger `push` workflows when more than three tags
 > are pushed at once. `release-pub-tags.yml` pushes one tag at a time (waiting
@@ -91,6 +96,10 @@ for p in pdf_cos pdf_test_fixtures pdf_document pdf_graphics \
 done
 git push origin --tags        # or in batches of <=3 if any are unpushed
 ```
+
+`publish-pub.yml` checks pub.dev before calling the reusable publish workflow.
+If a tag points at a version that is already hosted, the workflow exits
+successfully as a no-op instead of trying to republish the immutable version.
 
 ## Lockstep invariant
 
