@@ -70,6 +70,15 @@ github is not enabled`.
   GitHub Actions with `setup_check_only=true`. That pushes and deletes a
   throwaway non-release tag and then exits before analysis, tests, or publish.
 
+The tag token is intentionally isolated from repository code. The release
+workflow plans and tests in jobs without `PUB_RELEASE_TAG_TOKEN`, then creates
+tags in a separate job that does not check out or execute the repo.
+
+The repository also has an active **release tags** ruleset covering every
+`<pkg>-v*` tag and `app-v*`: creation, update, and deletion are restricted to
+ruleset bypass actors. Keep that ruleset in place before adding or rotating
+`PUB_RELEASE_TAG_TOKEN`.
+
 > Note: GitHub does **not** trigger `push` workflows when more than three tags
 > are pushed at once. `release-pub-tags.yml` pushes one tag at a time (waiting
 > for each to appear on pub.dev), so it's unaffected — but if you ever tag by

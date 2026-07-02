@@ -35,6 +35,10 @@ tags, run **Tag pub.dev releases** manually with `setup_check_only=true`. That
 mode still probes `PUB_RELEASE_TAG_TOKEN` by pushing and deleting a throwaway
 non-release tag.
 
+Keep the repository's **release tags** ruleset active for every package
+`<pkg>-v*` tag and `app-v*`. The tag token is only exposed in jobs that do not
+check out or execute repository code.
+
 The tag-triggered publish workflow first checks whether the tagged version is
 already on pub.dev. If it is, the workflow exits successfully without calling
 `dart pub publish`, so record tags can be pushed after a manual recovery

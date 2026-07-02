@@ -35,6 +35,19 @@ jobs:
       publish_needed: ${{ steps.meta.outputs.publish_needed }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag points at deploy history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/deploy:refs/remotes/origin/deploy
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/deploy; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on the deploy branch history."
+            exit 1
+          fi
 
       - name: Resolve package and hosted version
         id: meta
@@ -115,7 +128,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_cos
@@ -126,7 +139,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_test_fixtures
@@ -137,7 +150,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_document
@@ -148,7 +161,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_graphics
@@ -159,7 +172,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_editor
@@ -170,7 +183,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_vlm
@@ -181,7 +194,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_ondevice
