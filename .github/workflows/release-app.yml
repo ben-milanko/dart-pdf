@@ -53,12 +53,18 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: Patch onnxruntime Android compile SDK
+      - name: Patch Android plugin build files
         run: |
           set -euo pipefail
-          gradle_file="$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
-          test -n "$gradle_file"
-          sed -i 's/compileSdkVersion 33/compileSdkVersion 36/' "$gradle_file"
+          onnx_gradle="$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
+          test -n "$onnx_gradle"
+          sed -i 's/compileSdkVersion 33/compileSdkVersion 36/' "$onnx_gradle"
+
+          irondash_gradle="$(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle' -print -quit)"
+          test -n "$irondash_gradle"
+          if ! grep -q 'namespace ' "$irondash_gradle"; then
+            sed -i '/android {/a\    namespace "dev.irondash.engine_context"' "$irondash_gradle"
+          fi
       - name: Build APK + AAB
         working-directory: app
         run: |
