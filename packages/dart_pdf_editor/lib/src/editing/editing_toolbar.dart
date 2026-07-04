@@ -2,8 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -83,10 +84,12 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.imagePicker,
     this.fontPicker,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
+    this.toolShortcuts = pdfEditToolShortcuts,
     this.showMarkup = true,
     this.showUndoRedo = true,
     this.showColor = true,
@@ -109,6 +112,9 @@ class PdfEditingToolbar extends StatefulWidget {
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
 
+  /// How selected page-content images are replaced from the element strip.
+  final PdfImagePicker? imagePicker;
+
   /// How the font menu's "Load font…" entry obtains a custom `.ttf`/`.otf`
   /// file. When null, only the standard families and bundled fonts are
   /// offered (no custom loading).
@@ -116,6 +122,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// The colors offered for new annotations.
   final List<Color> palette;
+
+  /// Shortcut labels to show in tooltips. Keep this in sync with
+  /// [PdfViewer.toolShortcuts] when rebinding keys in the stock editor UI.
+  /// Tools omitted from the map show no shortcut label.
+  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
 
   /// The tools to expose, null meaning all of them. A group disappears
   /// from the dock when none of its tools are in the set. Sub-controls
@@ -233,6 +244,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// gesture), so the thumb needs its own state meanwhile.
   double? _dragOpacity;
 
+  bool _replacingElementImage = false;
+
   /// The seven dock groups, in order. Filtered by [PdfEditingToolbar.tools]
   /// and [PdfEditingToolbar.showMarkup] before display.
   static const _groups = <_ToolGroup>[
@@ -302,6 +315,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       _GroupTool.tool(
           PdfEditTool.measurePerimeter, Icons.timeline, 'Measure perimeter'),
       _GroupTool.tool(PdfEditTool.measureArea, Icons.crop_din, 'Measure area'),
+      _GroupTool.tool(PdfEditTool.measureVolume, Icons.view_in_ar,
+          'Measure volume (area × depth)'),
+      _GroupTool.tool(PdfEditTool.measureSlope, Icons.trending_up,
+          'Measure slope (rise/run)'),
+      _GroupTool.tool(PdfEditTool.measureAngle, Icons.architecture,
+          'Measure angle — click three points'),
+      _GroupTool.tool(PdfEditTool.measureArc, Icons.gesture,
+          'Measure arc length — click three points'),
     ]),
     _ToolGroup('edit', 'Edit', Icons.design_services, [
       _GroupTool.tool(
@@ -415,6 +436,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case PdfEditTool.measureDistance:
       case PdfEditTool.measurePerimeter:
       case PdfEditTool.measureArea:
+      case PdfEditTool.measureVolume:
+      case PdfEditTool.measureSlope:
+      case PdfEditTool.measureAngle:
+      case PdfEditTool.measureArc:
         await _armMeasureTool(context, tool);
       case PdfEditTool.signature:
         await _toggleSignatureTool(context);
@@ -485,6 +510,52 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     // document's own (possibly subsetted) font lacks
     final fallbacks = await loadFallbackFonts();
     controller.replaceSelectedElementText(text, fallbackFonts: fallbacks);
+  }
+
+  Future<void> _reflowElementText(BuildContext context) async {
+    final element = controller.selectedElement;
+    if (element == null) return;
+    final text = await widget.textPrompt(
+      context,
+      title: 'Reflow paragraph',
+      initial: element.text ?? '',
+      multiline: true,
+    );
+    if (text == null || text == element.text) return;
+    final reflowed = controller.reflowSelectedElementText(text);
+    if (!reflowed && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: const Text(
+              "Couldn't reflow — this isn't a single-column paragraph this "
+              'tool can re-wrap. Try Replace text instead.'),
+          behavior: SnackBarBehavior.floating,
+          margin: pdfFloatingToastMargin(context),
+        ));
+    }
+  }
+
+  Future<void> _replaceElementImage(BuildContext context) async {
+    final picker = widget.imagePicker;
+    if (picker == null || _replacingElementImage) return;
+    setState(() => _replacingElementImage = true);
+    try {
+      final bytes = await picker(context);
+      if (bytes == null) return;
+      final replaced = await controller.replaceSelectedElementImageAsync(bytes);
+      if (!replaced && context.mounted) {
+        ScaffoldMessenger.maybeOf(context)
+          ?..clearSnackBars()
+          ..showSnackBar(SnackBar(
+            content: const Text("Couldn't replace image"),
+            behavior: SnackBarBehavior.floating,
+            margin: pdfFloatingToastMargin(context),
+          ));
+      }
+    } finally {
+      if (mounted) setState(() => _replacingElementImage = false);
+    }
   }
 
   void _flatten(BuildContext context) {
@@ -1052,6 +1123,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
             ]),
           ),
+          if (controller.canAlignSelected) ...[
+            const _StripDivider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+              child: _alignmentCluster(context),
+            ),
+          ],
           if (settings.isNotEmpty) ...[
             const _StripDivider(),
             Padding(
@@ -1065,6 +1143,48 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return _centeredCard(context, padding: EdgeInsets.zero, child: row);
   }
 
+  /// The align/distribute buttons shown while two or more annotations are
+  /// selected: edge + centre alignment, then even-spacing distribution
+  /// (which needs three, so those disable below that). Each button defers
+  /// to [PdfEditingController.alignSelected].
+  Widget _alignmentCluster(BuildContext context) {
+    final canDistribute = controller.canDistributeSelected;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      _alignButton(
+          PdfAlignment.left, Icons.align_horizontal_left, 'Align left'),
+      _alignButton(PdfAlignment.horizontalCenter, Icons.align_horizontal_center,
+          'Align horizontal centers'),
+      _alignButton(
+          PdfAlignment.right, Icons.align_horizontal_right, 'Align right'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.top, Icons.align_vertical_top, 'Align top'),
+      _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
+          'Align vertical centers'),
+      _alignButton(
+          PdfAlignment.bottom, Icons.align_vertical_bottom, 'Align bottom'),
+      const _MiniDivider(),
+      _alignButton(PdfAlignment.distributeHorizontal,
+          Icons.horizontal_distribute, 'Distribute horizontally',
+          enabled: canDistribute),
+      _alignButton(PdfAlignment.distributeVertical, Icons.vertical_distribute,
+          'Distribute vertically',
+          enabled: canDistribute),
+    ]);
+  }
+
+  /// One alignment button. Disabled buttons (distribution with too few
+  /// annotations) still render so the cluster's layout stays stable.
+  Widget _alignButton(PdfAlignment alignment, IconData icon, String tooltip,
+      {bool enabled = true}) {
+    return IconButton(
+      key: ValueKey('pdf-align-${alignment.name}'),
+      icon: Icon(icon),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      onPressed: enabled ? () => controller.alignSelected(alignment) : null,
+    );
+  }
+
   /// The strip shown while a page-content element is selected.
   Widget _elementStrip(BuildContext context) {
     final row = Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1074,11 +1194,34 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         tooltip: 'Delete element',
         onPressed: controller.deleteSelectedElement,
       ),
-      if (controller.canEditSelectedElementText)
+      if (controller.canEditSelectedElementText) ...[
         IconButton(
+          key: const ValueKey('pdf-replace-element-text'),
           icon: const Icon(Icons.edit),
           tooltip: 'Replace text',
           onPressed: () => _editElementText(context),
+        ),
+        IconButton(
+          key: const ValueKey('pdf-reflow-element-text'),
+          icon: const Icon(Icons.wrap_text),
+          tooltip: 'Reflow paragraph',
+          onPressed: () => _reflowElementText(context),
+        ),
+      ],
+      if (controller.canReplaceSelectedElementImage &&
+          widget.imagePicker != null)
+        IconButton(
+          key: const ValueKey('pdf-replace-element-image'),
+          icon: _replacingElementImage
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.image_outlined),
+          tooltip: 'Replace image',
+          onPressed: _replacingElementImage
+              ? null
+              : () => _replaceElementImage(context),
         ),
     ]);
     return _centeredCard(
@@ -1316,10 +1459,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           stroke: true,
           opacity: true,
           font: true,
-          // a distance line and a perimeter polyline carry endings; a
-          // closed area polygon does not
+          // open measurements (distance/slope lines, perimeter/angle/arc
+          // polylines) carry endings; closed area/volume polygons don't
           lineEndings: tool == PdfEditTool.measureDistance ||
-              tool == PdfEditTool.measurePerimeter,
+              tool == PdfEditTool.measureSlope ||
+              tool == PdfEditTool.measurePerimeter ||
+              tool == PdfEditTool.measureAngle ||
+              tool == PdfEditTool.measureArc,
         );
       case 'markup':
         return const _StyleFields(opacity: true);
@@ -1373,6 +1519,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _buildMobile(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tool = controller.tool;
+    final compactToolLabel = controller.selectedElement != null;
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
@@ -1401,17 +1548,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: Row(children: [
               const SizedBox(width: 4),
               Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  _activeToolLabel(tool),
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+              if (!compactToolLabel) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _activeToolLabel(tool),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ]),
           ),
           ..._mobileTrailing(context),
@@ -1451,6 +1602,49 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             tooltip: 'Edit annotation text',
             visualDensity: VisualDensity.compact,
             onPressed: () => _editSelectedText(context),
+          ),
+      ];
+    }
+    if (controller.selectedElement != null) {
+      return [
+        IconButton(
+          key: const ValueKey('pdf-mobile-delete-element'),
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Delete element',
+          visualDensity: VisualDensity.compact,
+          onPressed: controller.deleteSelectedElement,
+        ),
+        if (controller.canEditSelectedElementText) ...[
+          IconButton(
+            key: const ValueKey('pdf-replace-element-text'),
+            icon: const Icon(Icons.edit),
+            tooltip: 'Replace text',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _editElementText(context),
+          ),
+          IconButton(
+            key: const ValueKey('pdf-reflow-element-text'),
+            icon: const Icon(Icons.wrap_text),
+            tooltip: 'Reflow paragraph',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _reflowElementText(context),
+          ),
+        ],
+        if (controller.canReplaceSelectedElementImage &&
+            widget.imagePicker != null)
+          IconButton(
+            key: const ValueKey('pdf-replace-element-image'),
+            icon: _replacingElementImage
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.image_outlined),
+            tooltip: 'Replace image',
+            visualDensity: VisualDensity.compact,
+            onPressed: _replacingElementImage
+                ? null
+                : () => _replaceElementImage(context),
           ),
       ];
     }
@@ -1503,6 +1697,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   String _activeToolLabel(PdfEditTool? tool) {
     if (tool == null) return 'Select';
+    switch (tool) {
+      case PdfEditTool.content:
+        return 'Content';
+      case PdfEditTool.form:
+        return 'Form';
+      case PdfEditTool.redact:
+        return 'Redact';
+      case PdfEditTool.snapshot:
+        return 'Snapshot';
+      default:
+        break;
+    }
     for (final group in _groups) {
       for (final entry in group.tools) {
         if (entry.tool == tool) {
@@ -1624,9 +1830,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// A tool's tooltip with its keyboard shortcut appended (e.g.
   /// "Rectangle (R)"), so the bindings in [pdfEditToolShortcuts] are
   /// discoverable on hover. Markups and unbound tools keep the plain tip.
-  static String _entryTip(_GroupTool entry) {
+  String _entryTip(_GroupTool entry) {
     final tool = entry.tool;
-    final key = tool == null ? null : pdfEditToolShortcutLabel(tool);
+    final key = tool == null
+        ? null
+        : pdfEditToolShortcutLabel(tool, shortcuts: widget.toolShortcuts);
     return key == null ? entry.tip : '${entry.tip} ($key)';
   }
 

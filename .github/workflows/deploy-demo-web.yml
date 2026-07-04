@@ -23,11 +23,11 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.2
+          flutter-version: 3.44.4
           channel: stable
           cache: true
 
@@ -48,7 +48,7 @@ jobs:
       - run: flutter build web --release
         working-directory: packages/dart_pdf_editor/example
 
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb
         with:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
           projectId: dart-pdf-demo

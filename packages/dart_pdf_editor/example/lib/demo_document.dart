@@ -169,6 +169,18 @@ Uint8List buildDemoPdf() {
     tocLinks.add(_link(PdfRect(88, y - 6, 320, y + 14),
         '<< /S /GoTo /D [@PG$page@ 0 R /Fit] >>'));
   }
+  // A real web hyperlink (https): the viewer opens it itself via
+  // PdfViewer.onLaunchUrl, no app wiring needed — unlike the app:// links
+  // above, which the app dispatches through onAction.
+  const webLinkY = 166.0;
+  const webLinkLabel = 'Open dart-pdf on pub.dev (a real web link)';
+  page1
+    ..write('q 0.15 0.25 0.65 rg ')
+    ..write(_text(90, webLinkY, 12, webLinkLabel))
+    ..write('Q q 0.15 0.25 0.65 RG 0.5 w 90 ${_n(webLinkY - 2.5)} m '
+        '${_n(90 + webLinkLabel.length * 6.2)} ${_n(webLinkY - 2.5)} l S Q\n');
+  tocLinks.add(_link(PdfRect(88, webLinkY - 6, 380, webLinkY + 14),
+      '<< /S /URI /URI (https://pub.dev/packages/dart_pdf_editor) >>'));
 
   final page2 = StringBuffer()
     ..write(_text(72, 730, 22, 'Flutter widgets pinned to the page'))

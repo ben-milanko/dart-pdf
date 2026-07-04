@@ -26,16 +26,10 @@ class _GraphicsState {
         fillAlpha = 1,
         strokeAlpha = 1,
         stroke = const PdfStroke(),
-        fillComponents = 1,
-        strokeComponents = 1,
+        fillSpace = const _PdfResolvedColorSpace(components: 1),
+        strokeSpace = const _PdfResolvedColorSpace(components: 1),
         fillPattern = null,
         fillPatternComponents = const [],
-        fillTintTransform = null,
-        strokeTintTransform = null,
-        fillCalibrated = null,
-        strokeCalibrated = null,
-        fillIcc = null,
-        strokeIcc = null,
         font = null,
         fontDict = null,
         fontSize = 0,
@@ -53,16 +47,10 @@ class _GraphicsState {
         fillAlpha = other.fillAlpha,
         strokeAlpha = other.strokeAlpha,
         stroke = other.stroke,
-        fillComponents = other.fillComponents,
-        strokeComponents = other.strokeComponents,
+        fillSpace = other.fillSpace,
+        strokeSpace = other.strokeSpace,
         fillPattern = other.fillPattern,
         fillPatternComponents = other.fillPatternComponents,
-        fillTintTransform = other.fillTintTransform,
-        strokeTintTransform = other.strokeTintTransform,
-        fillCalibrated = other.fillCalibrated,
-        strokeCalibrated = other.strokeCalibrated,
-        fillIcc = other.fillIcc,
-        strokeIcc = other.strokeIcc,
         softMask = other.softMask,
         blendMode = other.blendMode,
         font = other.font,
@@ -82,24 +70,9 @@ class _GraphicsState {
   double strokeAlpha;
   PdfStroke stroke;
 
-  /// Component counts of the active /Fill and /Stroke color spaces, used to
-  /// interpret bare `sc`/`scn` operands.
-  int fillComponents;
-
-  /// Active Separation/DeviceN tint transforms (§8.6.6.4); null when the
-  /// current space carries raw device components.
-  PdfColor Function(double)? fillTintTransform;
-  PdfColor Function(double)? strokeTintTransform;
-
-  /// CIE-based CalGray/CalRGB conversions for fill/stroke spaces.
-  PdfCalibratedColorSpace? fillCalibrated;
-  PdfCalibratedColorSpace? strokeCalibrated;
-
-  /// Real ICC conversions for ICCBased fill/stroke spaces; null falls
-  /// back to component-count heuristics.
-  IccProfile? fillIcc;
-  IccProfile? strokeIcc;
-  int strokeComponents;
+  /// Active fill/stroke color spaces for bare `sc`/`scn` operands.
+  _PdfResolvedColorSpace fillSpace;
+  _PdfResolvedColorSpace strokeSpace;
 
   /// The active fill pattern (stream for tiling, dictionary for shading)
   /// when the fill space is /Pattern, plus the underlying color components
@@ -121,6 +94,230 @@ class _GraphicsState {
   double leading;
   double rise;
   int renderMode;
+}
+
+class _PdfResolvedColorSpace {
+  const _PdfResolvedColorSpace({
+    required this.components,
+    this.tintTransform,
+    this.calibrated,
+    this.icc,
+  });
+
+  /// Nominal component count for the selected space. Pattern spaces use 0.
+  final int components;
+
+  /// Active Separation/DeviceN/Indexed tint transform, when present.
+  final PdfColor Function(double)? tintTransform;
+
+  /// CIE-based CalGray/CalRGB/Lab conversion, when present.
+  final PdfCalibratedColorSpace? calibrated;
+
+  /// Parsed ICC profile, when supported.
+  final IccProfile? icc;
+
+  /// Resolves `sc`/`scn` or `SC`/`SCN` operands through the selected space.
+  PdfColor resolve(List<CosObject> operands, PdfColor current) {
+    final values = [
+      for (final item in operands)
+        if (item is CosInteger || item is CosReal) PdfInterpreter._numOf(item),
+    ];
+    if (tintTransform != null && values.length == 1) {
+      return tintTransform!(values[0]);
+    }
+    if (calibrated != null && values.length == calibrated!.components) {
+      return calibrated!.toSrgb(values);
+    }
+    if (icc != null && values.length == icc!.channels) {
+      return icc!.toSrgb(values);
+    }
+    return _colorFromValues(values, current);
+  }
+
+  static PdfColor _colorFromValues(List<double> values, PdfColor current) {
+    switch (values.length) {
+      case 1:
+        return PdfColor.gray(values[0]);
+      case 3:
+        return PdfColor(values[0], values[1], values[2]);
+      case 4:
+        return PdfColor.cmyk(values[0], values[1], values[2], values[3]);
+    }
+    // pattern or unsupported: keep something visible
+    return current;
+  }
+}
+
+class _PdfColorSpaceResolver {
+  _PdfColorSpaceResolver(this.cos);
+
+  final CosDocument cos;
+  final Map<CosStream, IccProfile?> _iccCache = {};
+
+  _PdfResolvedColorSpace select(
+      CosDictionary resources, List<CosObject> operands) {
+    return _PdfResolvedColorSpace(
+      components: _componentsOf(resources, operands),
+      tintTransform: _tintTransformOf(resources, operands),
+      calibrated: _calibratedColorSpaceOf(resources, operands),
+      icc: _iccProfileOf(resources, operands),
+    );
+  }
+
+  int _componentsOf(CosDictionary resources, List<CosObject> operands) {
+    if (operands.isEmpty || operands[0] is! CosName) return 1;
+    final name = (operands[0] as CosName).value;
+    switch (name) {
+      case 'DeviceGray' || 'CalGray' || 'G':
+        return 1;
+      case 'DeviceRGB' || 'CalRGB' || 'Lab' || 'RGB':
+        return 3;
+      case 'DeviceCMYK' || 'CMYK':
+        return 4;
+      case 'Pattern':
+        return 0;
+    }
+    // named space in resources: ICCBased /N, or fall back to 3
+    final spaces = cos.resolve(resources['ColorSpace']);
+    if (spaces is CosDictionary) {
+      final space = cos.resolve(spaces[name]);
+      if (space is CosArray && space.length > 0) {
+        final family = cos.resolve(space[0]);
+        if (family is CosName &&
+            family.value == 'ICCBased' &&
+            space.length > 1) {
+          final profile = cos.resolve(space[1]);
+          if (profile is CosStream) {
+            final n = cos.resolve(profile.dictionary['N']);
+            if (n is CosInteger) return n.value;
+          }
+        }
+        if (family is CosName && family.value == 'Indexed') return 1;
+        if (family is CosName && family.value == 'Separation') return 1;
+      }
+    }
+    return 3;
+  }
+
+  PdfCalibratedColorSpace? _calibratedColorSpaceOf(
+      CosDictionary resources, List<CosObject> operands) {
+    if (operands.isEmpty || operands[0] is! CosName) return null;
+    final name = (operands[0] as CosName).value;
+    if (name == 'CalGray' || name == 'CalRGB') return null;
+    final spaces = cos.resolve(resources['ColorSpace']);
+    if (spaces is! CosDictionary) return null;
+    return PdfCalibratedColorSpace.parse(cos, spaces[name]);
+  }
+
+  /// Parses and caches the ICC profile of a named ICCBased space.
+  IccProfile? _iccProfileOf(CosDictionary resources, List<CosObject> operands) {
+    if (operands.isEmpty || operands[0] is! CosName) return null;
+    final spaces = cos.resolve(resources['ColorSpace']);
+    if (spaces is! CosDictionary) return null;
+    final space = cos.resolve(spaces[(operands[0] as CosName).value]);
+    if (space is! CosArray || space.length < 2) return null;
+    final family = cos.resolve(space[0]);
+    if (family is! CosName || family.value != 'ICCBased') return null;
+    final stream = cos.resolve(space[1]);
+    if (stream is! CosStream) return null;
+    return _iccCache.putIfAbsent(stream, () {
+      try {
+        return IccProfile.parse(cos.decodeStreamData(stream));
+      } on Exception {
+        return null;
+      }
+    });
+  }
+
+  /// A converter for Separation, Indexed, or single-colorant DeviceN spaces.
+  PdfColor Function(double)? _tintTransformOf(
+      CosDictionary resources, List<CosObject> operands) {
+    if (operands.isEmpty || operands[0] is! CosName) return null;
+    final spaces = cos.resolve(resources['ColorSpace']);
+    if (spaces is! CosDictionary) return null;
+    final space = cos.resolve(spaces[(operands[0] as CosName).value]);
+    if (space is! CosArray || space.length < 4) return null;
+    final family = cos.resolve(space[0]);
+    if (family is CosName && family.value == 'Indexed') {
+      return _indexedTransform(space);
+    }
+    if (family is! CosName ||
+        (family.value != 'Separation' && family.value != 'DeviceN')) {
+      return null;
+    }
+    if (family.value == 'DeviceN') {
+      final names = cos.resolve(space[1]);
+      if (names is! CosArray || names.length != 1) return null;
+    }
+    final fn = PdfFunction.parse(cos, space[3]);
+    if (fn == null) return null;
+    final alternate = _alternateColorConverter(cos.resolve(space[2]));
+    return (tint) => alternate(fn.evaluate(tint));
+  }
+
+  /// An /Indexed (palette) space `[/Indexed base hival lookup]`.
+  PdfColor Function(double)? _indexedTransform(CosArray space) {
+    if (space.length < 4) return null;
+    final base = cos.resolve(space[1]);
+    final hivalObj = cos.resolve(space[2]);
+    if (hivalObj is! CosInteger && hivalObj is! CosReal) return null;
+    final hival = PdfInterpreter._numOf(hivalObj).round();
+    if (hival < 0) return null;
+
+    final lookupObj = cos.resolve(space[3]);
+    final List<int> table;
+    if (lookupObj is CosString) {
+      table = lookupObj.bytes;
+    } else if (lookupObj is CosStream) {
+      try {
+        table = cos.decodeStreamData(lookupObj);
+      } on Exception {
+        return null;
+      }
+    } else {
+      return null;
+    }
+
+    final n = _alternateComponents(base);
+    if (n <= 0) return null;
+    final convert = _alternateColorConverter(base);
+    return (rawIndex) {
+      var index = rawIndex.round();
+      if (index < 0) index = 0;
+      if (index > hival) index = hival;
+      final offset = index * n;
+      if (offset + n > table.length) return PdfColor.black;
+      return convert([for (var i = 0; i < n; i++) table[offset + i] / 255.0]);
+    };
+  }
+
+  PdfColor Function(List<double>) _alternateColorConverter(CosObject space) {
+    final calibrated = PdfCalibratedColorSpace.parse(cos, space);
+    if (calibrated != null) return calibrated.toSrgb;
+    final components = _alternateComponents(space);
+    return (values) => colorFromComponents(values, components);
+  }
+
+  int _alternateComponents(CosObject space) {
+    if (space is CosName) {
+      return switch (space.value) {
+        'DeviceGray' || 'CalGray' || 'G' => 1,
+        'DeviceCMYK' || 'CMYK' => 4,
+        _ => 3,
+      };
+    }
+    if (space is CosArray && space.length > 1) {
+      final family = cos.resolve(space[0]);
+      if (family is CosName && family.value == 'ICCBased') {
+        final profile = cos.resolve(space[1]);
+        if (profile is CosStream) {
+          final n = cos.resolve(profile.dictionary['N']);
+          if (n is CosInteger) return n.value;
+        }
+      }
+    }
+    return 3;
+  }
 }
 
 class _ActiveSoftMask {
@@ -181,7 +378,8 @@ class PdfInterpreter {
       required this.device,
       bool scanImagesOnly = false,
       this.cancellation})
-      : _scanImages = scanImagesOnly;
+      : _scanImages = scanImagesOnly,
+        _colorSpaces = _PdfColorSpaceResolver(cos);
 
   final CosDocument cos;
   final PdfDevice device;
@@ -249,7 +447,7 @@ class PdfInterpreter {
   var _state = _GraphicsState();
   final List<_GraphicsState> _stateStack = [];
   final Map<CosStream, List<ContentOperation>> _patternOpsCache = {};
-  final Map<CosStream, IccProfile?> _iccCache = {};
+  final _PdfColorSpaceResolver _colorSpaces;
   final List<bool> _visibilityStack = [];
   // Marked-content id stack, kept in lockstep with [_visibilityStack]: one
   // entry per BDC/BMC, holding that sequence's /MCID (null when it declares
@@ -277,7 +475,8 @@ class PdfInterpreter {
   // needs to bound its tile loop (over-estimating the box only runs extra
   // tiles, never misses an image). Reset after each paint, like _segments.
   double _scanMinX = double.infinity, _scanMinY = double.infinity;
-  double _scanMaxX = double.negativeInfinity, _scanMaxY = double.negativeInfinity;
+  double _scanMaxX = double.negativeInfinity,
+      _scanMaxY = double.negativeInfinity;
 
   // text matrices
   PdfMatrix _textMatrix = PdfMatrix.identity;
@@ -803,8 +1002,8 @@ class PdfInterpreter {
     }
   }
 
-  Future<void> _runAsync(
-      List<ContentOperation> ops, CosDictionary resources, int formDepth) async {
+  Future<void> _runAsync(List<ContentOperation> ops, CosDictionary resources,
+      int formDepth) async {
     final previousDepth = _currentFormDepth;
     final previousVisibilityDepth = _visibilityStack.length;
     _currentFormDepth = formDepth;
@@ -821,8 +1020,8 @@ class PdfInterpreter {
     }
   }
 
-  Future<void> _runOpsAsync(
-      List<ContentOperation> ops, CosDictionary resources, int formDepth) async {
+  Future<void> _runOpsAsync(List<ContentOperation> ops, CosDictionary resources,
+      int formDepth) async {
     final token = cancellation;
     var opCount = 0;
     for (final op in ops) {
@@ -852,8 +1051,7 @@ class PdfInterpreter {
     }
   }
 
-  void _execOp(
-      ContentOperation op, CosDictionary resources, int formDepth) {
+  void _execOp(ContentOperation op, CosDictionary resources, int formDepth) {
     final o = op.operands;
     switch (op.operator) {
       // --- graphics state ---
@@ -971,16 +1169,10 @@ class PdfInterpreter {
         // which scanning skips.
         _state.fillPattern = null;
         if (_scanImages) break;
-        _state.fillComponents = _componentsOf(resources, o);
-        _state.fillTintTransform = _tintTransformOf(resources, o);
-        _state.fillCalibrated = _calibratedColorSpaceOf(resources, o);
-        _state.fillIcc = _iccProfileOf(resources, o);
+        _state.fillSpace = _colorSpaces.select(resources, o);
       case 'CS':
         if (_scanImages) break;
-        _state.strokeComponents = _componentsOf(resources, o);
-        _state.strokeTintTransform = _tintTransformOf(resources, o);
-        _state.strokeCalibrated = _calibratedColorSpaceOf(resources, o);
-        _state.strokeIcc = _iccProfileOf(resources, o);
+        _state.strokeSpace = _colorSpaces.select(resources, o);
       case 'sc' || 'scn':
         // The fill pattern is tracked even while scanning — a tiling pattern
         // fill runs the cell content (which can draw images). The resolved
@@ -994,8 +1186,7 @@ class PdfInterpreter {
               if (v is CosInteger || v is CosReal) _numOf(v),
           ];
         } else if (!_scanImages) {
-          _state.fillColor = _tintedColor(_state.fillTintTransform,
-              _state.fillCalibrated, _state.fillIcc, o, _state.fillColor);
+          _state.fillColor = _state.fillSpace.resolve(o, _state.fillColor);
         }
       case 'SC' || 'SCN':
         // Stroke colour never affects which images are drawn.
@@ -1006,12 +1197,8 @@ class PdfInterpreter {
               _resource(resources, 'Pattern', o.last as CosName));
           if (color != null) _state.strokeColor = color;
         } else {
-          _state.strokeColor = _tintedColor(
-              _state.strokeTintTransform,
-              _state.strokeCalibrated,
-              _state.strokeIcc,
-              o,
-              _state.strokeColor);
+          _state.strokeColor =
+              _state.strokeSpace.resolve(o, _state.strokeColor);
         }
 
       // --- text ---
@@ -1078,15 +1265,13 @@ class PdfInterpreter {
             } else if (_state.font?.isVertical ?? false) {
               // Vertical writing: the adjustment moves the pen along y.
               final shift = -_numOf(item) / 1000 * _state.fontSize;
-              _textMatrix =
-                  PdfMatrix.translation(0, shift).concat(_textMatrix);
+              _textMatrix = PdfMatrix.translation(0, shift).concat(_textMatrix);
             } else {
               final shift = -_numOf(item) /
                   1000 *
                   _state.fontSize *
                   _state.horizontalScale;
-              _textMatrix =
-                  PdfMatrix.translation(shift, 0).concat(_textMatrix);
+              _textMatrix = PdfMatrix.translation(shift, 0).concat(_textMatrix);
             }
           }
         }
@@ -1411,207 +1596,6 @@ class PdfInterpreter {
 
   // ---------- color ----------
 
-  int _componentsOf(CosDictionary resources, List<CosObject> o) {
-    if (o.isEmpty || o[0] is! CosName) return 1;
-    final name = (o[0] as CosName).value;
-    switch (name) {
-      case 'DeviceGray' || 'CalGray' || 'G':
-        return 1;
-      case 'DeviceRGB' || 'CalRGB' || 'Lab' || 'RGB':
-        return 3;
-      case 'DeviceCMYK' || 'CMYK':
-        return 4;
-      case 'Pattern':
-        return 0;
-    }
-    // named space in resources: ICCBased /N, or fall back to 3
-    final spaces = cos.resolve(resources['ColorSpace']);
-    if (spaces is CosDictionary) {
-      final space = cos.resolve(spaces[name]);
-      if (space is CosArray && space.length > 0) {
-        final family = cos.resolve(space[0]);
-        if (family is CosName &&
-            family.value == 'ICCBased' &&
-            space.length > 1) {
-          final profile = cos.resolve(space[1]);
-          if (profile is CosStream) {
-            final n = cos.resolve(profile.dictionary['N']);
-            if (n is CosInteger) return n.value;
-          }
-        }
-        if (family is CosName && family.value == 'Indexed') return 1;
-        if (family is CosName && family.value == 'Separation') return 1;
-      }
-    }
-    return 3;
-  }
-
-  /// sc/scn through the active tint transform or ICC profile when one
-  /// is set, else by raw component count.
-  PdfColor _tintedColor(
-      PdfColor Function(double)? transform,
-      PdfCalibratedColorSpace? calibrated,
-      IccProfile? icc,
-      List<CosObject> o,
-      PdfColor current) {
-    final values = [
-      for (final item in o)
-        if (item is CosInteger || item is CosReal) _numOf(item),
-    ];
-    if (transform != null && values.length == 1) return transform(values[0]);
-    if (calibrated != null && values.length == calibrated.components) {
-      return calibrated.toSrgb(values);
-    }
-    if (icc != null && values.length == icc.channels) {
-      return icc.toSrgb(values);
-    }
-    return _colorFromComponents(o, current);
-  }
-
-  PdfCalibratedColorSpace? _calibratedColorSpaceOf(
-      CosDictionary resources, List<CosObject> o) {
-    if (o.isEmpty || o[0] is! CosName) return null;
-    final name = (o[0] as CosName).value;
-    if (name == 'CalGray' || name == 'CalRGB') return null;
-    final spaces = cos.resolve(resources['ColorSpace']);
-    if (spaces is! CosDictionary) return null;
-    return PdfCalibratedColorSpace.parse(cos, spaces[name]);
-  }
-
-  /// Parses (and caches) the ICC profile of a named ICCBased space.
-  /// Null for other spaces and for profile shapes the engine cannot
-  /// handle — those keep the component-count fallback.
-  IccProfile? _iccProfileOf(CosDictionary resources, List<CosObject> o) {
-    if (o.isEmpty || o[0] is! CosName) return null;
-    final spaces = cos.resolve(resources['ColorSpace']);
-    if (spaces is! CosDictionary) return null;
-    final space = cos.resolve(spaces[(o[0] as CosName).value]);
-    if (space is! CosArray || space.length < 2) return null;
-    final family = cos.resolve(space[0]);
-    if (family is! CosName || family.value != 'ICCBased') return null;
-    final stream = cos.resolve(space[1]);
-    if (stream is! CosStream) return null;
-    return _iccCache.putIfAbsent(stream, () {
-      try {
-        return IccProfile.parse(cos.decodeStreamData(stream));
-      } on Exception {
-        return null;
-      }
-    });
-  }
-
-  /// A converter for Separation (or single-colorant DeviceN) spaces: the
-  /// tint runs through the transform function into the alternate space
-  /// (§8.6.6.4). Null for every other space.
-  PdfColor Function(double)? _tintTransformOf(
-      CosDictionary resources, List<CosObject> o) {
-    if (o.isEmpty || o[0] is! CosName) return null;
-    final spaces = cos.resolve(resources['ColorSpace']);
-    if (spaces is! CosDictionary) return null;
-    final space = cos.resolve(spaces[(o[0] as CosName).value]);
-    if (space is! CosArray || space.length < 4) return null;
-    final family = cos.resolve(space[0]);
-    if (family is CosName && family.value == 'Indexed') {
-      return _indexedTransform(space);
-    }
-    if (family is! CosName ||
-        (family.value != 'Separation' && family.value != 'DeviceN')) {
-      return null;
-    }
-    if (family.value == 'DeviceN') {
-      final names = cos.resolve(space[1]);
-      if (names is! CosArray || names.length != 1) return null;
-    }
-    final fn = PdfFunction.parse(cos, space[3]);
-    if (fn == null) return null;
-    final alternate = _alternateColorConverter(cos.resolve(space[2]));
-    return (tint) => alternate(fn.evaluate(tint));
-  }
-
-  /// An /Indexed (palette) space `[/Indexed base hival lookup]` (§8.6.6.3):
-  /// `sc <index>` rounds to the nearest integer, clamps to `[0, hival]`, and
-  /// reads `n` bytes from the lookup table (n = base component count), each a
-  /// raw 0–255 sample of the base space, then converts through the base.
-  PdfColor Function(double)? _indexedTransform(CosArray space) {
-    if (space.length < 4) return null;
-    final base = cos.resolve(space[1]);
-    final hivalObj = cos.resolve(space[2]);
-    if (hivalObj is! CosInteger && hivalObj is! CosReal) return null;
-    final hival = _numOf(hivalObj).round();
-    if (hival < 0) return null;
-
-    final lookupObj = cos.resolve(space[3]);
-    final List<int> table;
-    if (lookupObj is CosString) {
-      table = lookupObj.bytes;
-    } else if (lookupObj is CosStream) {
-      try {
-        table = cos.decodeStreamData(lookupObj);
-      } on Exception {
-        return null;
-      }
-    } else {
-      return null;
-    }
-
-    final n = _alternateComponents(base);
-    if (n <= 0) return null;
-    final convert = _alternateColorConverter(base);
-    return (rawIndex) {
-      var index = rawIndex.round();
-      if (index < 0) index = 0;
-      if (index > hival) index = hival;
-      final offset = index * n;
-      if (offset + n > table.length) return PdfColor.black;
-      return convert([for (var i = 0; i < n; i++) table[offset + i] / 255.0]);
-    };
-  }
-
-  PdfColor Function(List<double>) _alternateColorConverter(CosObject space) {
-    final calibrated = PdfCalibratedColorSpace.parse(cos, space);
-    if (calibrated != null) return calibrated.toSrgb;
-    final components = _alternateComponents(space);
-    return (values) => colorFromComponents(values, components);
-  }
-
-  int _alternateComponents(CosObject space) {
-    if (space is CosName) {
-      return switch (space.value) {
-        'DeviceGray' || 'CalGray' || 'G' => 1,
-        'DeviceCMYK' || 'CMYK' => 4,
-        _ => 3,
-      };
-    }
-    if (space is CosArray && space.length > 1) {
-      final family = cos.resolve(space[0]);
-      if (family is CosName && family.value == 'ICCBased') {
-        final profile = cos.resolve(space[1]);
-        if (profile is CosStream) {
-          final n = cos.resolve(profile.dictionary['N']);
-          if (n is CosInteger) return n.value;
-        }
-      }
-    }
-    return 3;
-  }
-
-  PdfColor _colorFromComponents(List<CosObject> o, PdfColor current) {
-    final values = [
-      for (final item in o)
-        if (item is CosInteger || item is CosReal) _numOf(item),
-    ];
-    switch (values.length) {
-      case 1:
-        return PdfColor.gray(values[0]);
-      case 3:
-        return PdfColor(values[0], values[1], values[2]);
-      case 4:
-        return PdfColor.cmyk(values[0], values[1], values[2], values[3]);
-    }
-    // pattern or unsupported: keep something visible
-    return current;
-  }
-
   void _applyExtGState(CosDictionary? gs) {
     if (gs == null) return;
     final ca = cos.resolve(gs['ca']);
@@ -1816,11 +1800,10 @@ class PdfInterpreter {
     // is embedded, so they must not substitute. In image-scan mode we never
     // emit the run, so skip building outlines — but the Type3 loop below still
     // runs each glyph's CharProc (a content stream that can draw images).
-    final glyphs = !_scanImages &&
-            (font.hasOutlines || font.isType3) &&
-            emScale != 0
-        ? <PdfGlyphPlacement>[]
-        : null;
+    final glyphs =
+        !_scanImages && (font.hasOutlines || font.isType3) && emScale != 0
+            ? <PdfGlyphPlacement>[]
+            : null;
     // Vertical writing mode (§9.7.4.3): glyphs stack downward. The pen advances
     // along y by the vertical displacement, and each glyph is shifted by its
     // position vector so the column centres on the baseline.
@@ -1892,10 +1875,8 @@ class PdfInterpreter {
       }
 
       if (text.trim().isNotEmpty || glyphs != null) {
-        final fillText =
-            mode == 0 || mode == 2 || mode == 4 || mode == 6;
-        final strokeText =
-            mode == 1 || mode == 2 || mode == 5 || mode == 6;
+        final fillText = mode == 0 || mode == 2 || mode == 4 || mode == 6;
+        final strokeText = mode == 1 || mode == 2 || mode == 5 || mode == 6;
         final pattern = fillText ? _state.fillPattern : null;
         // A tiling pattern can't be flattened to a gradient (shading patterns
         // can — see _gradientOfPattern). Paint it through the glyph outlines as
@@ -2426,8 +2407,14 @@ class PdfInterpreter {
           PdfMoveTo(m.transformX(x, y), m.transformY(x, y)),
         PdfLineTo(:final x, :final y) =>
           PdfLineTo(m.transformX(x, y), m.transformY(x, y)),
-        PdfCubicTo(:final x1, :final y1, :final x2, :final y2, :final x3,
-                :final y3) =>
+        PdfCubicTo(
+          :final x1,
+          :final y1,
+          :final x2,
+          :final y2,
+          :final x3,
+          :final y3
+        ) =>
           PdfCubicTo(
               m.transformX(x1, y1),
               m.transformY(x1, y1),

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -414,6 +415,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.showAnnotations = true,
     this.onPanViewport,
     this.onPanViewportEnd,
+    this.edgeAutoScroll,
     this.rasterCurrent = true,
     this.zoom = 1,
     this.predictStrokes = true,
@@ -462,6 +464,14 @@ class EditingPageOverlay extends StatefulWidget {
   /// viewer so a finger fling keeps its momentum (the overlay's pan path
   /// bypasses the list's scroll physics, which would otherwise carry it).
   final void Function(Velocity velocity)? onPanViewportEnd;
+
+  /// Per-frame edge auto-scroll for a region/selection drag. Given the drag
+  /// pointer's global position, returns the viewport scroll delta (this
+  /// overlay's local space, same as [onPanViewport]) to apply this frame so
+  /// the document keeps moving while the pointer rests against a viewport
+  /// edge — [Offset.zero] when the pointer is clear of every edge. With none,
+  /// dragging to the edge does not scroll the viewer.
+  final Offset Function(Offset globalPosition)? edgeAutoScroll;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -582,8 +592,36 @@ const double _rotateHandleDistance = 22;
 /// Rotation drags snap to 45° multiples when within this margin.
 const double _rotateSnapRadians = 3 * math.pi / 180;
 
+class _PointerInteractionSession {
+  int? rawPointer;
+  bool rawErasing = false;
+
+  int? panPointer;
+  Offset? panLast;
+  VelocityTracker? panVelocity;
+
+  final Set<int> touchPointers = {};
+  bool gestureBailed = false;
+
+  void clearRaw() {
+    rawPointer = null;
+    rawErasing = false;
+  }
+
+  void clearPan() {
+    panPointer = null;
+    panLast = null;
+    panVelocity = null;
+  }
+
+  void clearTouches() {
+    touchPointers.clear();
+    gestureBailed = false;
+  }
+}
+
 class _EditingPageOverlayState extends State<EditingPageOverlay>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // shape/text/stamp drag
   Offset? _dragStart;
   Offset? _dragCurrent;
@@ -628,30 +666,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // pan recognizer only wins after ~36px of motion, which swallowed the
   // start of every pencil stroke and dropped quick dots as taps. The
   // pointer id claims the gesture; moves append, up commits.
-  int? _rawPointer;
-  bool _rawErasing = false;
+  final _PointerInteractionSession _pointers = _PointerInteractionSession();
 
   // raw-driven finger pan: with the ink/eraser tool armed and finger
   // drawing OFF (Apple Pencil mode), a finger must still scroll the
   // document. The list's physics are NeverScrollable while a tool is
   // armed and touch is excluded from the overlay's gesture arena, so a
   // single finger reaches neither — it would do nothing. This raw path
-  // pans the viewer instead (the pen keeps drawing via [_rawPointer], so
-  // the two never collide). A touch landing during an active pen stroke
-  // is a palm and is ignored (gated on `_rawPointer == null`); a second
-  // finger bails to the viewer's pinch-zoom recognizer.
-  int? _panPointer;
-  Offset? _panLast;
-  VelocityTracker? _panVelocity;
-
-  /// Concurrent touch pointers on this page. A second finger landing
-  /// mid-gesture aborts it (see [_bailActiveGesture]) instead of feeding
-  /// both fingers' positions into one stroke.
-  final Set<int> _touchPointers = {};
-
-  /// True from a multi-touch bail until every touch pointer lifts —
-  /// the remainder of the gesture is dead air.
-  bool _gestureBailed = false;
+  // pans the viewer instead (the pen keeps drawing through [_pointers], so the
+  // two never collide). A touch landing during an active pen stroke is a palm
+  // and is ignored; a second finger bails to the viewer's pinch-zoom
+  // recognizer.
+  /// Raw-pointer, touch-bail, and finger-pan bookkeeping lives in
+  /// [_pointers]; the overlay keeps the actual preview/commit state.
 
   /// The device kind of the latest pointer down on this page — the
   /// selection action chip only shows for touch and stylus input.
@@ -736,6 +763,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// so a drop over another page can be resolved to a page point (drag-end
   /// details carry no position).
   Offset? _moveCurrentGlobal;
+
+  // Edge auto-scroll: while a region/selection drag is in flight the ticker
+  // runs every frame, scrolling the viewer when the pointer rests against a
+  // viewport edge and re-tracking the held pointer onto the content scrolled
+  // under it (so the drag keeps growing during auto-scroll or a manual
+  // shift-scroll). [_autoScrollGlobal] is the latest pointer global position;
+  // [_autoScrollLastLocal] guards against redundant re-tracks.
+  late final Ticker _autoScrollTicker = createTicker(_onAutoScrollTick);
+  Offset? _autoScrollGlobal;
+  Offset? _autoScrollLastLocal;
+
   _Handle? _resizeHandle;
   Rect? _resizeFrom;
   Rect? _resizeRect;
@@ -916,14 +954,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _tool == PdfEditTool.polyline ||
       _tool == PdfEditTool.polygon ||
       _tool == PdfEditTool.measurePerimeter ||
-      _tool == PdfEditTool.measureArea;
+      _tool == PdfEditTool.measureArea ||
+      _tool == PdfEditTool.measureAngle ||
+      _tool == PdfEditTool.measureArc ||
+      _tool == PdfEditTool.measureVolume;
+
+  /// The number of clicks a fixed-arity poly tool takes before it
+  /// auto-finishes — three for the angle and arc takeoffs — or null for an
+  /// open-ended poly tool (finished by a double-tap).
+  int? get _fixedPolyCount => switch (_tool) {
+        PdfEditTool.measureAngle || PdfEditTool.measureArc => 3,
+        _ => null,
+      };
 
   /// A tool placed by dragging a single straight segment (a /Line or a
-  /// distance measurement).
+  /// distance/slope measurement).
   bool get _lineDragTool =>
       _tool == PdfEditTool.line ||
       _tool == PdfEditTool.arrow ||
       _tool == PdfEditTool.measureDistance ||
+      _tool == PdfEditTool.measureSlope ||
       _tool == PdfEditTool.calibrate;
 
   /// The measurement kind the armed tool creates, or null for a
@@ -932,6 +982,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         PdfEditTool.measureDistance => PdfMeasurementKind.distance,
         PdfEditTool.measurePerimeter => PdfMeasurementKind.perimeter,
         PdfEditTool.measureArea => PdfMeasurementKind.area,
+        PdfEditTool.measureSlope => PdfMeasurementKind.slope,
+        PdfEditTool.measureAngle => PdfMeasurementKind.angle,
+        PdfEditTool.measureArc => PdfMeasurementKind.arc,
+        PdfEditTool.measureVolume => PdfMeasurementKind.volume,
         _ => null,
       };
 
@@ -961,11 +1015,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       setState(() => _lastPointerKind = event.kind);
     }
     if (event.kind == PointerDeviceKind.touch) {
-      _touchPointers.add(event.pointer);
-      if (_touchPointers.length >= 2) {
+      _pointers.touchPointers.add(event.pointer);
+      if (_pointers.touchPointers.length >= 2) {
         // a stylus stroke survives stray touches — that second contact
         // is the palm resting on the screen, not a gesture
-        if (_rawPointer != null && !_touchPointers.contains(_rawPointer)) {
+        if (_pointers.rawPointer != null &&
+            !_pointers.touchPointers.contains(_pointers.rawPointer)) {
           return;
         }
         _bailActiveGesture();
@@ -976,7 +1031,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _updatePickPreview(event.localPosition);
       return;
     }
-    if (_gestureBailed) return;
+    if (_pointers.gestureBailed) return;
     if (_polyTool) {
       _addPolyPoint(event.localPosition);
       return;
@@ -989,13 +1044,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // pen draws and fingers scroll, until the user toggles it back
       _controller.fingerDrawsInk = false;
     }
-    if (_rawPointer == null && _rawDrives(event.kind)) {
-      _rawPointer = event.pointer;
+    if (_pointers.rawPointer == null && _rawDrives(event.kind)) {
+      _pointers.rawPointer = event.pointer;
       // a flipped pencil erases even while the ink tool is armed —
       // that's what the flip is for
-      _rawErasing = _tool == PdfEditTool.eraser ||
+      _pointers.rawErasing = _tool == PdfEditTool.eraser ||
           event.kind == PointerDeviceKind.invertedStylus;
-      if (_rawErasing) {
+      if (_pointers.rawErasing) {
         _eraseAt(event.localPosition);
       } else {
         // hold the auto-commit while this stroke is on the page
@@ -1007,17 +1062,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
       }
-    } else if (_panPointer == null &&
-        _rawPointer == null &&
+    } else if (_pointers.panPointer == null &&
+        _pointers.rawPointer == null &&
         event.kind == PointerDeviceKind.touch &&
         _fingerPansViewport) {
       // pencil mode, single finger, no pen stroke in flight: pan the
       // viewer. A move drives [onPanViewport]; lift hands the velocity
       // to [onPanViewportEnd] for a fling, exactly like a select-mode
       // empty-area touch drag.
-      _panPointer = event.pointer;
-      _panLast = event.localPosition;
-      _panVelocity = VelocityTracker.withKind(event.kind)
+      _pointers.panPointer = event.pointer;
+      _pointers.panLast = event.localPosition;
+      _pointers.panVelocity = VelocityTracker.withKind(event.kind)
         ..addPosition(event.timeStamp, event.localPosition);
     }
   }
@@ -1029,17 +1084,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _updatePickPreview(event.localPosition);
       return;
     }
-    if (event.pointer == _panPointer) {
-      final last = _panLast;
+    if (event.pointer == _pointers.panPointer) {
+      final last = _pointers.panLast;
       if (last != null) {
         widget.onPanViewport?.call(event.localPosition - last);
       }
-      _panLast = event.localPosition;
-      _panVelocity?.addPosition(event.timeStamp, event.localPosition);
+      _pointers.panLast = event.localPosition;
+      _pointers.panVelocity?.addPosition(event.timeStamp, event.localPosition);
       return;
     }
-    if (event.pointer != _rawPointer) return;
-    if (_rawErasing) {
+    if (event.pointer != _pointers.rawPointer) return;
+    if (_pointers.rawErasing) {
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
@@ -1056,14 +1111,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// or just a clumsy grip). Nothing commits; the rest of the gesture
   /// is dead air until every touch pointer lifts.
   void _bailActiveGesture() {
-    _gestureBailed = true;
-    _rawPointer = null;
-    _rawErasing = false;
+    _pointers.gestureBailed = true;
+    _pointers.clearRaw();
     // a second finger landed: stop panning so the viewer's pinch-zoom
     // recognizer takes both touches (no fling — the gesture isn't a pan)
-    _panPointer = null;
-    _panLast = null;
-    _panVelocity = null;
+    _pointers.clearPan();
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -1089,6 +1141,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _signatureDrag = false;
       _signaturePreview = null;
     });
+    _stopAutoScroll();
     _clearResizeClean();
     widget.onMoveDragPreview?.call(null);
     _bumpActiveStroke();
@@ -1100,23 +1153,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// pointer-up and pointer-cancel.
   void _endRawPointer(PointerEvent event, {required bool canceled}) {
     if (event.kind == PointerDeviceKind.touch) {
-      _touchPointers.remove(event.pointer);
-      if (_touchPointers.isEmpty) _gestureBailed = false;
+      _pointers.touchPointers.remove(event.pointer);
+      if (_pointers.touchPointers.isEmpty) _pointers.gestureBailed = false;
     }
-    if (event.pointer == _panPointer) {
+    if (event.pointer == _pointers.panPointer) {
       final velocity = canceled
           ? Velocity.zero
-          : (_panVelocity?.getVelocity() ?? Velocity.zero);
-      _panPointer = null;
-      _panLast = null;
-      _panVelocity = null;
+          : (_pointers.panVelocity?.getVelocity() ?? Velocity.zero);
+      _pointers.clearPan();
       if (!canceled) widget.onPanViewportEnd?.call(velocity);
       return;
     }
-    if (event.pointer != _rawPointer) return;
-    _rawPointer = null;
-    final erasing = _rawErasing;
-    _rawErasing = false;
+    if (event.pointer != _pointers.rawPointer) return;
+    final erasing = _pointers.rawErasing;
+    _pointers.clearRaw();
     if (erasing) {
       if (canceled) {
         setState(_resetErase);
@@ -1704,6 +1754,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _clearSourceClean();
     _flashController.dispose();
     _activeStrokeRepaint.dispose();
+    _autoScrollTicker.dispose();
     super.dispose();
   }
 
@@ -2227,7 +2278,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // raw-driven pointers own their gesture: the pan recognizer still
     // claims the arena (keeping the viewer's pan/zoom from fighting the
     // stroke) but its callbacks must not double-drive it
-    if (_gestureBailed || _rawDrives(details.kind)) return;
+    if (_pointers.gestureBailed || _rawDrives(details.kind)) return;
     final position = details.localPosition;
     if (_textEditRect != null) {
       // a drag outside the open editor commits it, like a tap
@@ -2266,6 +2317,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.line ||
             PdfEditTool.arrow ||
             PdfEditTool.measureDistance ||
+            PdfEditTool.measureSlope ||
             PdfEditTool.calibrate ||
             PdfEditTool.freeText ||
             PdfEditTool.stamp ||
@@ -2318,7 +2370,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfEditTool.polyline ||
             PdfEditTool.polygon ||
             PdfEditTool.measurePerimeter ||
-            PdfEditTool.measureArea:
+            PdfEditTool.measureArea ||
+            PdfEditTool.measureAngle ||
+            PdfEditTool.measureArc ||
+            PdfEditTool.measureVolume:
         break; // taps add vertices; double-tap finishes
       case PdfEditTool.note || PdfEditTool.content || PdfEditTool.count:
         break; // driven by taps
@@ -2430,7 +2485,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// the arena when this is true), so a long-press that has nothing to
   /// offer never steals the gesture from text selection or the viewer.
   bool _menuLongPressClaims(Offset position) {
-    if (_gestureBailed) return false;
+    if (_pointers.gestureBailed) return false;
     final (x, y) = _geometry.toPagePoint(position);
     if (_tool == PdfEditTool.form) {
       return _controller.formFieldAt(widget.pageIndex, x, y) != null &&
@@ -2469,7 +2524,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panUpdate(DragUpdateDetails details) {
-    if (_gestureBailed || _rawPointer != null) return;
+    if (_pointers.gestureBailed || _pointers.rawPointer != null) return;
     final position = details.localPosition;
     if (_panErasing) {
       _eraseAt(position);
@@ -2479,15 +2534,36 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       widget.onPanViewport?.call(details.delta);
       return;
     }
-    if (_marqueeStart != null) {
-      setState(() => _marqueeCurrent = position);
-      return;
-    }
     if (_signatureDrag) {
       setState(() => _signaturePreview = position);
       return;
     }
-    if (_rotateStartAngle != null) {
+    if (_activeStroke != null) {
+      // hot path: append + repaint the stroke layer only, no rebuild
+      _penCursor = position;
+      _activeStroke!.add(_geometry.toPagePoint(position));
+      _activeStrokePressures
+          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
+      _bumpActiveStroke();
+      return;
+    }
+    // region/selection drags (marquee, move, resize, vertex, shape/snapshot
+    // rect, rotate) track their current point in view space. Record the
+    // pointer's global position too: an edge auto-scroll tick re-derives the
+    // view-space point from it as the page scrolls under a held pointer.
+    _autoScrollGlobal = details.globalPosition;
+    _autoScrollLastLocal = position;
+    _applyDragPosition(position);
+    _maybeAutoScroll();
+  }
+
+  /// Applies a region drag's current pointer (view space) to whichever drag
+  /// is in flight — shared by [_panUpdate] and the edge auto-scroll tick so a
+  /// held pointer keeps tracking the page as it scrolls underneath.
+  void _applyDragPosition(Offset position) {
+    if (_marqueeStart != null) {
+      setState(() => _marqueeCurrent = position);
+    } else if (_rotateStartAngle != null) {
       final selected = _selectedViewRect;
       if (selected == null) return;
       setState(() {
@@ -2523,26 +2599,66 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _resizeRect = _anchorResized(resized);
       });
     } else if (_moveStart != null) {
-      _moveCurrentGlobal = details.globalPosition;
+      _moveCurrentGlobal = _autoScrollGlobal;
       setState(() => _moveCurrent = position);
       // float the artwork above every page so a move dragged onto the
       // page below isn't clipped behind it (this overlay can't paint
       // over a sibling list item)
       _reportMovePreview();
-    } else if (_activeStroke != null) {
-      // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = position;
-      _activeStroke!.add(_geometry.toPagePoint(position));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
     } else if (_dragStart != null) {
       setState(() => _dragCurrent = position);
     }
   }
 
+  /// Drags whose region keeps growing while the pointer sits against the
+  /// viewport edge (and the viewer auto-scrolls under it).
+  bool get _autoScrollDragActive =>
+      _marqueeStart != null ||
+      _moveStart != null ||
+      _resizeHandle != null ||
+      _vertexHandle != null ||
+      _dragStart != null;
+
+  /// Runs the edge auto-scroll ticker for an in-flight region drag. The
+  /// ticker runs for the whole drag (not only at the edge) so a manual
+  /// shift-scroll mid-drag also re-tracks the held pointer onto the
+  /// newly revealed content.
+  void _maybeAutoScroll() {
+    if (widget.edgeAutoScroll == null || widget.onPanViewport == null) return;
+    if (!_autoScrollDragActive) return;
+    if (!_autoScrollTicker.isActive) _autoScrollTicker.start();
+  }
+
+  void _stopAutoScroll() {
+    if (_autoScrollTicker.isActive) _autoScrollTicker.stop();
+    _autoScrollGlobal = null;
+    _autoScrollLastLocal = null;
+  }
+
+  void _onAutoScrollTick(Duration _) {
+    final global = _autoScrollGlobal;
+    if (global == null || !_autoScrollDragActive) {
+      _stopAutoScroll();
+      return;
+    }
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    // Re-derive the view-space pointer: the page may have scrolled under a
+    // held pointer (the edge auto-scroll below, or a manual shift-scroll), so
+    // the same global point now lands on different content — grow the drag to
+    // it. The guard skips redundant rebuilds when nothing moved.
+    final local = box.globalToLocal(global);
+    if (local != _autoScrollLastLocal) {
+      _autoScrollLastLocal = local;
+      _applyDragPosition(local);
+    }
+    // Keep scrolling while the pointer rests in the viewport's edge band.
+    final delta = widget.edgeAutoScroll!(global);
+    if (delta != Offset.zero) widget.onPanViewport!(delta);
+  }
+
   void _panEnd(DragEndDetails details) {
-    if (_rawPointer != null) return; // the raw pointer-up commits
+    if (_pointers.rawPointer != null) return; // the raw pointer-up commits
     if (_panErasing) {
       _panErasing = false;
       _commitErase();
@@ -2608,6 +2724,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // drop any drag cursor; the next hover recomputes it
       _cursor = MouseCursor.defer;
     });
+    _stopAutoScroll();
     // the in-flight lift is done; the afterimage covers the commit gap
     _clearResizeClean();
     // the floating move preview hands off to the commit's afterimage (or
@@ -2771,8 +2888,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     final before = _controller.document;
-    if (_tool == PdfEditTool.measureDistance) {
-      _controller.addMeasurement(widget.pageIndex, PdfMeasurementKind.distance,
+    final lineKind = _measureKind; // distance or slope for a measure tool
+    if (lineKind != null) {
+      _controller.addMeasurement(widget.pageIndex, lineKind,
           [_geometry.toPagePoint(start), _geometry.toPagePoint(end)]);
     } else {
       _controller.addLine(widget.pageIndex, _geometry.toPagePoint(start),
@@ -2812,6 +2930,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       pageUnitLabel: existing?.pageUnitLabel ?? pdfDefaultPageUnit(),
     );
     _controller.tool = PdfEditTool.select;
+  }
+
+  /// Finishes a volume measurement: asks for the extrusion depth (in the
+  /// scale's unit), then stamps a /Polygon takeoff carrying it. Cancelling
+  /// the dialog drops the in-progress polygon without stamping anything.
+  Future<void> _commitVolume(List<(double, double)> pagePoints) async {
+    final depth = await showPdfDepthDialog(
+      context,
+      unitLabel: _controller.measurementScale?.unitLabel,
+    );
+    if (!mounted || depth == null) return;
+    _controller.addMeasurement(
+        widget.pageIndex, PdfMeasurementKind.volume, pagePoints,
+        depth: depth);
   }
 
   void _commitVertexDrag(List<Offset> points) {
@@ -2868,13 +3000,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _addPolyPoint(Offset point) {
+    var reachedFixed = false;
     setState(() {
       final points = _polyPoints ?? <Offset>[];
       if (points.isEmpty || (point - points.last).distance >= 2) {
         _polyPoints = [...points, point];
       }
       _polyHover = null;
+      final fixed = _fixedPolyCount;
+      reachedFixed = fixed != null && (_polyPoints?.length ?? 0) >= fixed;
     });
+    // angle/arc take exactly three clicks, then commit themselves.
+    if (reachedFixed) _finishPolyPath();
   }
 
   void _finishPolyPath([Offset? finalPoint]) {
@@ -2885,9 +3022,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         (points.isEmpty || (finalPoint - points.last).distance >= 2)) {
       points.add(finalPoint);
     }
-    final closed =
-        _tool == PdfEditTool.polygon || _tool == PdfEditTool.measureArea;
-    final minPoints = closed ? 3 : 2;
+    final closed = _tool == PdfEditTool.polygon ||
+        _tool == PdfEditTool.measureArea ||
+        _tool == PdfEditTool.measureVolume;
+    final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
     if (points.length < minPoints) return;
     final simplified = <Offset>[];
     for (final point in points) {
@@ -2905,8 +3043,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfMeasurementKind.area:
         _controller.addMeasurement(
             widget.pageIndex, PdfMeasurementKind.area, pagePoints);
-      case PdfMeasurementKind.distance:
-      case null:
+      case PdfMeasurementKind.angle:
+        _controller.addMeasurement(
+            widget.pageIndex, PdfMeasurementKind.angle, pagePoints);
+      case PdfMeasurementKind.arc:
+        _controller.addMeasurement(
+            widget.pageIndex, PdfMeasurementKind.arc, pagePoints);
+      case PdfMeasurementKind.volume:
+        // volume needs a depth: prompt for it, then commit asynchronously.
+        unawaited(_commitVolume(pagePoints));
+        _clearAfterimage();
+        setState(() {
+          _polyPoints = null;
+          _polyHover = null;
+        });
+        return;
+      default:
+        // distance/slope are drag tools (handled elsewhere); a poly gesture
+        // with no measure kind active is a plain poly annotation.
         if (_tool == PdfEditTool.polygon) {
           _controller.addPolygon(widget.pageIndex, pagePoints);
         } else {
@@ -2974,7 +3128,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final bytes = await picker(context);
         if (bytes == null) return;
-        _controller.addImageInRect(widget.pageIndex, rect, bytes);
+        await _controller.addImageInRectAsync(widget.pageIndex, rect, bytes);
       case PdfEditTool.form:
         _controller.addFormField(
             _controller.newFormFieldKind, widget.pageIndex, rect);
@@ -3033,7 +3187,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final name = field.name;
         final bytes = await picker(context, field);
-        if (bytes != null) _controller.setFormButtonImage(name, bytes);
+        if (bytes != null) {
+          await _controller.setFormButtonImageAsync(name, bytes);
+        }
       case PdfFieldType.signature || PdfFieldType.unknown:
         break;
     }
@@ -3079,7 +3235,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerAnnotations = annotations;
       _sampler = null;
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
-              pageColor: pageColor, annotations: annotations,
+              pageColor: pageColor,
+              annotations: annotations,
               rotation: widget.geometry.rotation)
           .then((s) {
         // resolve the preview that was waiting on the raster
@@ -3133,7 +3290,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Future<void> _onTapUp(TapUpDetails details) async {
     // the eyedropper commits from the raw pointer-up instead
     if (_controller.isPickingColor) return;
-    if (_gestureBailed) return;
+    if (_pointers.gestureBailed) return;
     if (_tool == PdfEditTool.eraser) {
       // a mouse/trackpad click erases what's under it; raw-driven
       // pointers already handled theirs on the way down
@@ -3206,7 +3363,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final bytes = await picker(context);
         if (bytes == null) return;
-        _controller.placeImage(widget.pageIndex, x, y, bytes);
+        await _controller.placeImageAsync(widget.pageIndex, x, y, bytes);
       case PdfEditTool.form:
         // single tap selects the field for move/resize/menu; double-tap
         // fills it (read mode is the no-tool path to just fill)
@@ -3456,7 +3613,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final family = 'pdfedit-$key';
     // copy the bytes: loadFontFromList wants an owned, immutable list
     ui
-        .loadFontFromList(Uint8List.fromList(font.fontBytes), fontFamily: family)
+        .loadFontFromList(Uint8List.fromList(font.fontBytes),
+            fontFamily: family)
         .then((_) {
       _embeddedPreviewFamilies[key] = family;
       _embeddedFontsLoading.remove(key);
@@ -3685,14 +3843,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final kind = _measureKind;
     if (kind == null) return null;
     switch (kind) {
-      case PdfMeasurementKind.distance:
+      case PdfMeasurementKind.distance || PdfMeasurementKind.slope:
         final start = _dragStart, current = _dragCurrent;
         if (start == null || current == null) return null;
         if ((current - start).distance < 1) return null;
-        final text = _controller.measuredDistance(
-            _geometry.toPagePoint(start), _geometry.toPagePoint(current));
+        final a = _geometry.toPagePoint(start);
+        final b = _geometry.toPagePoint(current);
+        final text = kind == PdfMeasurementKind.slope
+            ? _controller.measuredSlope(a, b)
+            : _controller.measuredDistance(a, b);
         return text == null ? null : (text, current);
-      case PdfMeasurementKind.perimeter || PdfMeasurementKind.area:
+      case PdfMeasurementKind.perimeter ||
+            PdfMeasurementKind.area ||
+            PdfMeasurementKind.angle ||
+            PdfMeasurementKind.arc ||
+            PdfMeasurementKind.volume:
         final points = _polyPoints;
         if (points == null || points.isEmpty) return null;
         final view = [
@@ -3701,10 +3866,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _polyHover!,
         ];
         final pagePoints = [for (final p in view) _geometry.toPagePoint(p)];
-        final text = kind == PdfMeasurementKind.area
-            ? _controller.measuredArea(pagePoints)
-            : _controller.measuredPerimeter(pagePoints);
+        // volume's depth isn't known until placement finishes, so the live
+        // readout shows the enclosed footprint area.
+        final text = switch (kind) {
+          PdfMeasurementKind.area ||
+          PdfMeasurementKind.volume =>
+            _controller.measuredArea(pagePoints),
+          PdfMeasurementKind.angle => _controller.measuredAngle(pagePoints),
+          PdfMeasurementKind.arc => _controller.measuredArc(pagePoints),
+          _ => _controller.measuredPerimeter(pagePoints),
+        };
         return text == null ? null : (text, view.last);
+      default:
+        // count/areaCutout have no in-overlay live readout.
+        return null;
     }
   }
 
@@ -4017,7 +4192,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _moveStart == null &&
         _marqueeStart == null &&
         _textEditRect == null &&
-        _rawPointer == null;
+        _pointers.rawPointer == null;
     return Listener(
       // raw events carry what pan callbacks drop: pressure and the
       // device kind (for Apple Pencil palm rejection); pointer-up is
@@ -4149,9 +4324,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     resizeClean: wrapResize != null
                         ? _resizeCleanPicture
                         : _afterTextClean,
-                    resizeHideRect: wrapResize != null
-                        ? _resizeFrom
-                        : _afterTextHideRect,
+                    resizeHideRect:
+                        wrapResize != null ? _resizeFrom : _afterTextHideRect,
                     resizeHideAngle:
                         wrapResize != null ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
@@ -4166,9 +4340,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       ...?_afterEraseFade,
                     ],
                     fadeColor: widget.pageColor.withValues(alpha: 0.72),
-                    eraserCursor: _tool == PdfEditTool.eraser || _rawErasing
-                        ? _eraserCursor
-                        : null,
+                    eraserCursor:
+                        _tool == PdfEditTool.eraser || _pointers.rawErasing
+                            ? _eraserCursor
+                            : null,
                     eraserRadius: _controller.eraserRadius * _geometry.scale,
                     // the pen-preview dot (ink tool) and the rotation glyph
                     // (rotate knob): painted in place of the system cursor
@@ -4268,22 +4443,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             meta: true): _commitTextEdit,
                         const SingleActivator(LogicalKeyboardKey.enter,
                             control: true): _commitTextEdit,
-                        const SingleActivator(LogicalKeyboardKey.keyB,
-                            meta: true): () => _toggleInlineTextStyle(
-                              italic: false,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyB,
-                            control: true): () => _toggleInlineTextStyle(
-                              italic: false,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyI,
-                            meta: true): () => _toggleInlineTextStyle(
-                              italic: true,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyI,
-                            control: true): () => _toggleInlineTextStyle(
-                              italic: true,
-                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyB, meta: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: false,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyB, control: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: false,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyI, meta: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: true,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyI, control: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: true,
+                                ),
                       },
                       child: Container(
                         // the chrome border lives in the inflate(2) gutter
@@ -4298,8 +4473,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         // so the old rendering doesn't ghost through and read
                         // as a misaligned shadow behind the live text
                         color: _textEditFill ??
-                            widget.pageColor.withValues(
-                                alpha: _textEditExisting ? 1 : 0.3),
+                            widget.pageColor
+                                .withValues(alpha: _textEditExisting ? 1 : 0.3),
                         foregroundDecoration: BoxDecoration(
                           border: Border.all(
                               color: PdfViewerTheme.of(context)

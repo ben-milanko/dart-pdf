@@ -85,23 +85,12 @@ extension PdfAttachmentEditing on PdfEditor {
       'Name': CosName(iconName),
       'F': const CosInteger(4), // Print
     });
-    if (description != null) annot['Contents'] = CosString.fromText(description);
+    if (description != null) {
+      annot['Contents'] = CosString.fromText(description);
+    }
     final annotRef = _updater.addObject(annot);
 
-    final page = document.page(pageIndex);
-    final raw = page.dict['Annots'];
-    final resolved = document.cos.resolve(raw);
-    if (resolved is CosArray) {
-      resolved.items.add(annotRef);
-      if (raw is CosReference) {
-        _updater.replaceObject(raw.objectNumber, resolved);
-      } else {
-        _updater.markChanged(page.dict);
-      }
-    } else {
-      page.dict['Annots'] = CosArray([annotRef]);
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, pageIndex).append(annotRef);
     return annotRef;
   }
 

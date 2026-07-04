@@ -103,7 +103,7 @@ class PdfPageRenderScheduler {
         PdfPerfLog.log('scheduler grant page=${next.priority} '
             'focus=$_focus remaining=${_pending.length}');
         try {
-          next.render(); // one synchronous interpret this frame
+          next.render(); // starts one page render this frame
         } catch (_) {
           // a page that throws mid-walk must not strand the rest of the
           // queue — it simply keeps its preview/placeholder

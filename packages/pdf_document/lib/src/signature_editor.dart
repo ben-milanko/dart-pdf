@@ -128,7 +128,8 @@ extension PdfSigning on PdfEditor {
     if (docMdpPermissions != null) {
       _applyDocMdp(sigRef);
     }
-    _attachSignatureField(sigRef, fieldName, certify: docMdpPermissions != null);
+    _attachSignatureField(sigRef, fieldName,
+        certify: docMdpPermissions != null);
 
     final saved = _updater.save();
 
@@ -266,19 +267,7 @@ extension PdfSigning on PdfEditor {
     final fieldRef = _updater.addObject(fieldDict);
 
     // page /Annots
-    final annots = cos.resolve(page.dict['Annots']);
-    if (annots is CosArray) {
-      annots.items.add(fieldRef);
-      final annotsRef = page.dict['Annots'];
-      if (annotsRef is CosReference) {
-        _updater.replaceObject(annotsRef.objectNumber, annots);
-      } else {
-        _updater.markChanged(page.dict);
-      }
-    } else {
-      page.dict['Annots'] = CosArray([fieldRef]);
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, 0).append(fieldRef);
 
     // AcroForm /Fields
     final acroForm = cos.resolve(document.catalog['AcroForm']);

@@ -249,6 +249,91 @@ void main() {
           find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
     });
 
+    testWidgets('settings opens keyboard shortcuts submenu', (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Keyboard shortcuts'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.text('R'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcuts-reset')),
+          findsOneWidget);
+    });
+
+    // Opens the keyboard-shortcuts sheet from the settings menu.
+    Future<void> openShortcutsSheet(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('rebinding a shortcut updates the label and persists on Done',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // Capture a new key for the rectangle tool.
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
+      await tester.pumpAndSettle();
+      expect(find.text('Press a key'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.pumpAndSettle();
+
+      // The capture dialog closed and the new binding is shown.
+      expect(find.text('Press a key'), findsNothing);
+      expect(find.text('B'), findsOneWidget);
+      expect(find.text('R'), findsNothing);
+
+      // Done commits the draft; reopening shows the persisted binding.
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-done')));
+      await tester.pumpAndSettle();
+      await openShortcutsSheet(tester);
+      expect(find.text('B'), findsOneWidget);
+    });
+
+    testWidgets('Delete clears a binding and Reset restores the defaults',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pumpAndSettle();
+      expect(find.text('R'), findsNothing);
+      expect(find.text('Unbound'), findsWidgets);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-reset')));
+      await tester.pumpAndSettle();
+      expect(find.text('R'), findsOneWidget);
+    });
+
+    testWidgets('Escape cancels key capture and leaves the binding intact',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
+      await tester.pumpAndSettle();
+      expect(find.text('Press a key'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Press a key'), findsNothing);
+      expect(find.text('R'), findsOneWidget);
+    });
+
     testWidgets('view options can switch the editor to reflow text',
         (tester) async {
       final prefs = PdfEditingPreferences();
@@ -595,6 +680,39 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('custom-toolbar-rectangle')),
           kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      expect(changed, 1);
+    });
+
+    testWidgets('custom toolbar builder can replace the stock toolbar',
+        (tester) async {
+      var changed = 0;
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          toolbarBuilder: (context, editing, viewer) => Material(
+            child: IconButton(
+              key: const ValueKey('custom-toolbar-builder-rectangle'),
+              icon: const Icon(Icons.crop_square),
+              tooltip: 'Add host rectangle',
+              onPressed: () => editing.addRectangle(
+                0,
+                const PdfRect(100, 550, 180, 610),
+              ),
+            ),
+          ),
+          onDocumentChanged: (_) => changed++,
+        ),
+      );
+
+      expect(find.byType(PdfEditingToolbar), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('custom-toolbar-builder-rectangle')),
+        kind: PointerDeviceKind.mouse,
+      );
       await tester.pump();
 
       expect(changed, 1);
@@ -1087,6 +1205,90 @@ void main() {
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-annotations-sheet-close')),
           findsNothing);
+    });
+
+    testWidgets('wide: every docked panel\'s close button hides it',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      // the default 800x600 test surface is above the compact width, so
+      // panels dock to the side and carry their own little × (the sheet
+      // variants — and their close buttons — are not mounted here)
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
+
+      // each panel: (toggle key, close key, panel type, "now closed" check).
+      // The thumbnails strip is shown by default; the rest start hidden, so
+      // their toggles open them first.
+      final cases = <({
+        String? toggle,
+        String close,
+        Type type,
+        bool Function() closed,
+      })>[
+        (
+          toggle: null,
+          close: 'pdf-thumbnail-panel-close',
+          type: PdfThumbnailSidebar,
+          closed: () => !prefs.showThumbnailSidebar,
+        ),
+        (
+          toggle: 'pdf-shell-search-results-toggle',
+          close: 'pdf-search-panel-close',
+          type: PdfSearchResultsPanel,
+          closed: () => !prefs.showSearchResultsPanel,
+        ),
+        (
+          toggle: 'pdf-shell-annotations-toggle',
+          close: 'pdf-annotation-panel-close',
+          type: PdfAnnotationSidebar,
+          closed: () => !prefs.showAnnotationSidebar,
+        ),
+        (
+          toggle: 'pdf-shell-properties-toggle',
+          close: 'pdf-properties-panel-close',
+          type: PdfAnnotationPropertiesPanel,
+          closed: () => !prefs.showPropertiesPanel,
+        ),
+      ];
+
+      for (final c in cases) {
+        if (c.toggle != null) {
+          await tester.tap(find.byKey(ValueKey(c.toggle!)),
+              kind: PointerDeviceKind.mouse);
+          await tester.pump();
+        }
+        expect(find.byType(c.type), findsOneWidget,
+            reason: 'panel ${c.type} should be docked open');
+        final close = find.byKey(ValueKey(c.close));
+        expect(close, findsOneWidget,
+            reason: '${c.type} should carry a docked close button');
+        await tester.tap(close, kind: PointerDeviceKind.mouse);
+        await tester.pump();
+        expect(find.byType(c.type), findsNothing,
+            reason: 'closing should hide ${c.type}');
+        expect(c.closed(), isTrue,
+            reason: 'closing should turn ${c.type}\'s preference off');
+      }
+    });
+
+    testWidgets('wide reader: the docked thumbnail strip has a close button',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      await prefs.ready;
+      addTearDown(prefs.dispose);
+      // wide surface: the strip docks (shown by default) rather than
+      // floating up as a sheet
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(3), preferences: prefs));
+      expect(find.byType(PdfThumbnailSidebar), findsOneWidget);
+
+      final close = find.byKey(const ValueKey('pdf-thumbnail-panel-close'));
+      expect(close, findsOneWidget);
+      await tester.tap(close, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(find.byType(PdfThumbnailSidebar), findsNothing);
+      expect(prefs.showThumbnailSidebar, isFalse);
     });
 
     testWidgets('compact reader: the thumbnail strip is a bottom sheet',

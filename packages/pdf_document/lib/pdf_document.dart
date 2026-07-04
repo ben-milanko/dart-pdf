@@ -3,6 +3,7 @@
 library;
 
 export 'src/annotation.dart';
+export 'src/annotation_align.dart';
 export 'src/attachment.dart';
 export 'src/cache_store.dart';
 export 'src/comments.dart';
@@ -28,5 +29,6 @@ export 'src/pdf_ua.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';
 export 'src/struct_tree.dart';
+export 'src/takeoff.dart';
 export 'src/sync.dart';
 export 'src/xmp.dart';

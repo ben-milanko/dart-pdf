@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.1
+
+- Annotation editing now handles malformed or indirect page `/Annots` entries
+  consistently when adding, removing, reordering, flattening, signing, form
+  editing, redacting, and pasting annotations. Invalid indirect `/Annots`
+  values are left untouched and replaced by a valid page-owned array.
+- Content rewriting, redaction, and structure-tagging paths now share the COS
+  content-stream serializer, including inline-image round-tripping.
+
 ## 1.2.3
 
 - Free-text annotations carry a horizontal alignment (left/center/right)

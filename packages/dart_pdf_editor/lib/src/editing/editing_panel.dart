@@ -4,6 +4,29 @@ import 'package:flutter/material.dart';
 /// grip rides the opposite (inner) edge — the one facing the viewer.
 enum PdfSidebarSide { left, right }
 
+/// A compact close (×) button for a docked sidebar panel's header — the
+/// desktop counterpart of the bottom sheet's close button (which the
+/// sheet chrome supplies on its own). A panel renders this in its header
+/// only when the host wires an `onClose` and the panel is docked, not a
+/// sheet.
+class PdfSidebarCloseButton extends StatelessWidget {
+  const PdfSidebarCloseButton({
+    super.key,
+    required this.onPressed,
+  });
+
+  /// Dismisses the panel — the shells turn its visibility preference off.
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        icon: const Icon(Icons.close, size: 18),
+        tooltip: 'Close',
+        visualDensity: VisualDensity.compact,
+        onPressed: onPressed,
+      );
+}
+
 /// The draggable divider on a sidebar's inner edge: an invisible 8px
 /// hit strip with a hairline down the middle that thickens and tints on
 /// hover and while dragging. Reports width deltas already signed toward

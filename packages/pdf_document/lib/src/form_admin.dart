@@ -38,9 +38,8 @@ extension PdfFormAdmin on PdfEditor {
     // a blank normal appearance so viewers (and flattening) treat the
     // empty button as drawable rather than missing
     final rectangle = field.widgetRect(0)!;
-    _setNormalAppearance(
-        field.dict, _widgetForm(rectangle.width, rectangle.height,
-            ContentWriter()));
+    _setNormalAppearance(field.dict,
+        _widgetForm(rectangle.width, rectangle.height, ContentWriter()));
     _stageFormDict(field, field.dict);
     return field;
   }
@@ -80,24 +79,11 @@ extension PdfFormAdmin on PdfEditor {
     final cos = document.cos;
     final widgets = field.widgets;
 
-    // detach widgets from every page that lists them. The filtered
-    // array is reassigned directly into the page dict (never mutated in
-    // place) so it persists even when /Annots was an indirect array.
+    // detach widgets from every page that lists them.
     for (var i = 0; i < document.pageCount; i++) {
-      final page = document.page(i);
-      final annots = cos.resolve(page.dict['Annots']);
-      if (annots is! CosArray) continue;
-      final remaining = [
-        for (final item in annots.items)
-          if (!_isFieldWidget(cos.resolve(item), field, widgets)) item,
-      ];
-      if (remaining.length == annots.items.length) continue;
-      if (remaining.isEmpty) {
-        page.dict.entries.remove('Annots');
-      } else {
-        page.dict['Annots'] = CosArray(remaining);
-      }
-      _updater.markChanged(page.dict);
+      _PdfPageAnnotationList(this, i).removeWhere(
+          (_, resolved) => _isFieldWidget(resolved, field, widgets),
+          removeIfEmpty: true);
     }
 
     // pull the field node out of its parent /Kids or the form /Fields
@@ -156,8 +142,7 @@ extension PdfFormAdmin on PdfEditor {
     final pageIndex = field.widgetPageIndex(0);
     final rect = field.widgetRect(0);
     if (pageIndex < 0 || rect == null) {
-      throw StateError(
-          'field "${field.name}" has no widget bound to a page — '
+      throw StateError('field "${field.name}" has no widget bound to a page — '
           'cannot rebuild');
     }
     final name = field.name;
@@ -248,10 +233,7 @@ extension PdfFormAdmin on PdfEditor {
 
     final pageRef = cos.referenceTo(page.dict);
     if (pageRef != null) dict['P'] = pageRef;
-    final annots = cos.resolve(page.dict['Annots']);
-    page.dict['Annots'] =
-        CosArray([if (annots is CosArray) ...annots.items, ref]);
-    _updater.markChanged(page.dict);
+    _PdfPageAnnotationList(this, pageIndex).append(ref);
 
     final formRef = cos.referenceTo(formDict);
     if (formRef != null) {

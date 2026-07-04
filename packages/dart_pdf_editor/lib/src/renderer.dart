@@ -9,6 +9,41 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'canvas_device.dart';
 import 'image_decoder.dart';
 
+/// Immutable display inputs for rendering a page.
+///
+/// The same trio travels through the viewer, thumbnails, color sampler,
+/// previews, and export paths. Grouping it keeps those paths from growing
+/// parallel parameter lists as rendering options expand.
+class PdfPageRenderPlan {
+  const PdfPageRenderPlan({
+    this.pageColor = const Color(0xFFFFFFFF),
+    this.annotations = true,
+    this.rotation,
+  });
+
+  /// The paper color painted behind page contents.
+  final Color pageColor;
+
+  /// Whether page annotations are included in the render.
+  final bool annotations;
+
+  /// Display rotation override. Null uses the page's own /Rotate.
+  final int? rotation;
+
+  Size pageSize(PdfPage page) =>
+      PdfPageRenderer.pageSize(page, rotation: rotation);
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageRenderPlan &&
+      pageColor == other.pageColor &&
+      annotations == other.annotations &&
+      rotation == other.rotation;
+
+  @override
+  int get hashCode => Object.hash(pageColor.toARGB32(), annotations, rotation);
+}
+
 /// Rasterizes PDF pages.
 ///
 /// Two passes: first an [ImageCollector] walk finds image XObjects so they
@@ -37,6 +72,21 @@ class PdfPageRenderer {
       bool annotations = true,
       bool Function(PdfAnnotation)? skipAnnotation,
       int? rotation}) async {
+    return renderPictureWithPlan(
+      page,
+      PdfPageRenderPlan(
+        pageColor: pageColor,
+        annotations: annotations,
+        rotation: rotation,
+      ),
+      skipAnnotation: skipAnnotation,
+    );
+  }
+
+  /// Renders [page] using a pre-computed display [plan].
+  static Future<ui.Picture> renderPictureWithPlan(
+      PdfPage page, PdfPageRenderPlan plan,
+      {bool Function(PdfAnnotation)? skipAnnotation}) async {
     final cos = page.document.cos;
 
     // Parsing the content stream (and decompressing it) dominates rendering on
@@ -52,22 +102,24 @@ class PdfPageRenderer {
     final collecting =
         PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
           ..drawPageOperations(page, pageOps);
-    if (annotations) collecting.drawAnnotations(page, skip: skipAnnotation);
-    final images =
-        await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
+    if (plan.annotations) {
+      collecting.drawAnnotations(page, skip: skipAnnotation);
+    }
+    final images = await decodeImages(cos, collector.streams,
+        cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page, rotation: rotation);
+    final size = plan.pageSize(page);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    _paintBackground(canvas, size, pageColor);
-    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: plan.rotation);
 
     final painting = PdfInterpreter(
         cos: cos, device: CanvasPdfDevice(canvas, images: images))
       ..drawPageOperations(page, pageOps);
-    if (annotations) painting.drawAnnotations(page, skip: skipAnnotation);
+    if (plan.annotations) painting.drawAnnotations(page, skip: skipAnnotation);
     final picture = recorder.endRecording();
     // The picture retains its own reference to every drawn image, so the
     // decode handles (clones from the cache, or fresh decodes) can be freed
@@ -98,6 +150,21 @@ class PdfPageRenderer {
       bool annotations = true,
       bool Function(PdfAnnotation)? skipAnnotation,
       int? rotation}) async {
+    return renderPictureRecordedWithPlan(
+      page,
+      PdfPageRenderPlan(
+        pageColor: pageColor,
+        annotations: annotations,
+        rotation: rotation,
+      ),
+      skipAnnotation: skipAnnotation,
+    );
+  }
+
+  /// Renders [page] through the record/replay path using [plan].
+  static Future<ui.Picture> renderPictureRecordedWithPlan(
+      PdfPage page, PdfPageRenderPlan plan,
+      {bool Function(PdfAnnotation)? skipAnnotation}) async {
     final cos = page.document.cos;
     final pageOps = ContentStreamParser.parse(page.contentBytes());
 
@@ -107,18 +174,18 @@ class PdfPageRenderer {
     final recorder = RecordingPdfDevice();
     final recording = PdfInterpreter(cos: cos, device: recorder)
       ..drawPageOperations(page, pageOps);
-    if (annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
 
     final images = await decodeImages(cos, recorder.imageRequests,
         cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page, rotation: rotation);
+    final size = plan.pageSize(page);
     final uiRecorder = ui.PictureRecorder();
     final canvas = Canvas(uiRecorder);
 
-    _paintBackground(canvas, size, pageColor);
-    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: plan.rotation);
 
     replayCommands(recorder.commands, CanvasPdfDevice(canvas, images: images));
     final picture = uiRecorder.endRecording();
@@ -140,29 +207,78 @@ class PdfPageRenderer {
   /// every other render path — the reconstructed streams key by content, so a
   /// page redrawn while scrolling reuses its decoded pixels instead of re-
   /// running the codec. An image-free buffer decodes nothing.
+  ///
+  /// [includeImages] false skips image decoding entirely and replays with an
+  /// empty image map, so the device draws the page's vector/text and skips
+  /// every image. This is the fast first pass of progressive rendering: a heavy
+  /// raster underlay can take many seconds to decode, so the page paints its
+  /// linework immediately and the images drop in on a later full pass.
   static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
       {Color pageColor = const Color(0xFFFFFFFF),
-      int? rotation}) async {
+      int? rotation,
+      bool includeImages = true}) async {
+    return pictureFromCommandsWithPlan(
+      page,
+      commands,
+      PdfPageRenderPlan(pageColor: pageColor, rotation: rotation),
+      includeImages: includeImages,
+    );
+  }
+
+  /// Replays recorded [commands] for [page] using [plan].
+  static Future<ui.Picture> pictureFromCommandsWithPlan(
+      PdfPage page, List<PdfRenderCommand> commands, PdfPageRenderPlan plan,
+      {bool includeImages = true}) async {
     final requests = <PdfImageRequest>[];
-    _collectImageRequests(commands, requests);
+    if (includeImages) _collectImageRequests(commands, requests);
     final images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
             cache: PdfImageCache.instance);
 
     final box = page.cropBox;
-    final size = pageSize(page, rotation: rotation);
+    final size = plan.pageSize(page);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    _paintBackground(canvas, size, pageColor);
-    _applyPageTransform(canvas, page, size, box, rotation: rotation);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: plan.rotation);
     replayCommands(commands, CanvasPdfDevice(canvas, images: images));
     final picture = recorder.endRecording();
     for (final image in images.values) {
       image.dispose();
     }
     return picture;
+  }
+
+  /// Counts the decoded images a worker [commands] buffer carries and their
+  /// total pixels (recursing soft-mask groups). The deciding diagnostic for why
+  /// a raster-heavy page is slow: one oversized image escaping the resolution
+  /// cap looks very different from many tiles each capped but summing large.
+  /// Images shipped un-decoded (the platform-codec path) don't count.
+  static (int count, int pixels) decodedImageStats(
+      List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    var count = 0;
+    var pixels = 0;
+    for (final request in requests) {
+      final decoded = request.decoded;
+      if (decoded != null) {
+        count++;
+        pixels += decoded.width * decoded.height;
+      }
+    }
+    return (count, pixels);
+  }
+
+  /// Whether [commands] draws any image at all (decoded or not, including
+  /// inside soft-mask groups) — the cue the progressive vector-first pass uses
+  /// to decide whether a slower full (image-decoding) pass needs to follow it.
+  static bool hasImageDraws(List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    _collectImageRequests(commands, requests);
+    return requests.isNotEmpty;
   }
 
   /// Gathers every image draw request in [commands], descending into soft-mask
@@ -222,15 +338,16 @@ class PdfPageRenderer {
   /// 1 point) but with a transparent background — for live drag/resize
   /// previews. Null when the annotation has no appearance stream.
   static Future<ui.Picture?> renderAnnotationPicture(
-      PdfPage page, PdfAnnotation annotation, {int? rotation}) async {
+      PdfPage page, PdfAnnotation annotation,
+      {int? rotation}) async {
     if (annotation.normalAppearance == null) return null;
     final cos = page.document.cos;
 
     final collector = ImageCollector();
     PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
         .drawAnnotation(page, annotation);
-    final images =
-        await decodeImages(cos, collector.streams, cache: PdfImageCache.instance);
+    final images = await decodeImages(cos, collector.streams,
+        cache: PdfImageCache.instance);
 
     final box = page.cropBox;
     final size = pageSize(page, rotation: rotation);
@@ -254,16 +371,28 @@ class PdfPageRenderer {
       bool annotations = true,
       bool recorded = false,
       int? rotation}) async {
+    return renderImageWithPlan(
+      page,
+      plan: PdfPageRenderPlan(
+        pageColor: pageColor,
+        annotations: annotations,
+        rotation: rotation,
+      ),
+      pixelRatio: pixelRatio,
+      recorded: recorded,
+    );
+  }
+
+  /// Renders [page] to a bitmap using a pre-computed display [plan].
+  static Future<ui.Image> renderImageWithPlan(PdfPage page,
+      {required PdfPageRenderPlan plan,
+      double pixelRatio = 1,
+      bool recorded = false}) async {
     final picture = recorded
-        ? await renderPictureRecorded(page,
-            pageColor: pageColor, annotations: annotations,
-            rotation: rotation)
-        : await renderPicture(page,
-            pageColor: pageColor, annotations: annotations,
-            rotation: rotation);
+        ? await renderPictureRecordedWithPlan(page, plan)
+        : await renderPictureWithPlan(page, plan);
     try {
-      return await rasterize(picture, pageSize(page, rotation: rotation),
-          pixelRatio);
+      return await rasterize(picture, plan.pageSize(page), pixelRatio);
     } finally {
       picture.dispose();
     }
@@ -318,8 +447,10 @@ class PdfPageRenderer {
           bool annotations = true,
           int? rotation}) async =>
       (await PdfPageColorSampler.of(page,
-              pageColor: pageColor, annotations: annotations,
-              rotation: rotation))
+              plan: PdfPageRenderPlan(
+                  pageColor: pageColor,
+                  annotations: annotations,
+                  rotation: rotation)))
           .colorAt(point);
 
   /// Page size in points after applying rotation.
@@ -354,12 +485,19 @@ class PdfPageColorSampler {
   static Future<PdfPageColorSampler> of(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      int? rotation}) async {
-    final picture = await PdfPageRenderer.renderPicture(page,
-        pageColor: pageColor, annotations: annotations, rotation: rotation);
+      int? rotation,
+      PdfPageRenderPlan? plan}) async {
+    final renderPlan = plan ??
+        PdfPageRenderPlan(
+          pageColor: pageColor,
+          annotations: annotations,
+          rotation: rotation,
+        );
+    final picture =
+        await PdfPageRenderer.renderPictureWithPlan(page, renderPlan);
     try {
       final image = await PdfPageRenderer.rasterize(
-          picture, PdfPageRenderer.pageSize(page, rotation: rotation), 1);
+          picture, renderPlan.pageSize(page), 1);
       try {
         final data = await image.toByteData();
         if (data == null) {

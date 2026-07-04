@@ -2,7 +2,11 @@ import 'package:flutter/services.dart';
 
 import 'editing_controller.dart';
 
-/// Single-key keyboard shortcuts for arming the common editing tools.
+/// Default single-key keyboard shortcuts for arming the common editing tools.
+///
+/// Pass a replacement map to [PdfViewer.toolShortcuts] (and to
+/// [PdfEditingToolbar.toolShortcuts] when using the stock toolbar) to rebind
+/// or disable individual tool shortcuts.
 ///
 /// These are bound by [PdfViewer] while an editing session is active and
 /// no in-place text editor is open (typing into a free-text box or form
@@ -38,5 +42,8 @@ const Map<PdfEditTool, LogicalKeyboardKey> pdfEditToolShortcuts = {
 
 /// The display label for [tool]'s shortcut key (e.g. `'V'`), or null when
 /// the tool has no bound key.
-String? pdfEditToolShortcutLabel(PdfEditTool tool) =>
-    pdfEditToolShortcuts[tool]?.keyLabel;
+String? pdfEditToolShortcutLabel(
+  PdfEditTool tool, {
+  Map<PdfEditTool, LogicalKeyboardKey> shortcuts = pdfEditToolShortcuts,
+}) =>
+    shortcuts[tool]?.keyLabel;

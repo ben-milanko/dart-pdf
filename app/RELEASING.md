@@ -44,7 +44,7 @@ The web build is always served fresh, so it skips the check.
 |---|---|---|
 | Android | `app-release.apk`, `app-release.aab` | Debug keys unless a release keystore is configured (below) |
 | iOS | `…-ios-unsigned.zip` (`.app`) | **No**, not installable; needs your Apple signing |
-| macOS | `…-macos.dmg` | **No**, needs Developer ID signing + notarization |
+| macOS | `…-macos.dmg` | Ad-hoc signed for internal consistency; needs Developer ID signing + notarization for public distribution |
 | Windows | `…-windows-x64.zip` | **No**, needs an Authenticode cert / MSIX |
 | Linux | `…-linux-x64.tar.gz` | n/a |
 | Web | `…-web.zip` | n/a |
@@ -106,7 +106,11 @@ membership needed). What that means concretely:
   Store Connect to create the DartPDF app record and upload builds.
 - **iOS:** open `app/ios/Runner.xcworkspace`, pick the RES team, archive in Xcode
   (or add Fastlane), then upload to App Store Connect / TestFlight.
-- **macOS:** for the **App Store**, archive with the RES team and submit via
+- **macOS:** the build re-signs the `.app` and embedded native libraries
+  consistently, and Release carries a library-validation exception so the
+  ad-hoc hardened app can load the bundled ONNX Runtime dylib. This is only a
+  local consistency signature, not Developer ID signing. For the
+  **App Store**, archive with the RES team and submit via
   Xcode/Transporter. For a **notarized DMG** distributed outside the store, sign
   with RES's *Developer ID Application* cert
   (`codesign --deep --options runtime`), then `xcrun notarytool submit` with a

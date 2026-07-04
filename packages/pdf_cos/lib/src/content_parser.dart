@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -12,6 +13,60 @@ class ContentOperation {
   @override
   String toString() =>
       operands.isEmpty ? operator : '${operands.join(' ')} $operator';
+}
+
+/// Serializes parsed content-stream operations back to PDF content syntax.
+///
+/// This is intentionally narrower than [CosSerializer]: a content stream is a
+/// flat sequence of operands followed by an operator, with inline images
+/// encoded by the special `BI ... ID ... EI` form instead of ordinary COS
+/// object syntax.
+class ContentStreamSerializer {
+  ContentStreamSerializer._();
+
+  /// Serializes [operations], one operation per line.
+  static Uint8List serialize(Iterable<ContentOperation> operations) {
+    final out = BytesBuilder();
+    for (final operation in operations) {
+      writeOperation(operation, out);
+    }
+    return out.takeBytes();
+  }
+
+  /// Serializes one [operation] into [out].
+  static void writeOperation(ContentOperation operation, BytesBuilder out) {
+    if (operation.operator == 'BI') {
+      _writeInlineImage(operation, out);
+      return;
+    }
+
+    for (final operand in operation.operands) {
+      out
+        ..add(CosSerializer.serialize(operand))
+        ..addByte(0x20);
+    }
+    out.add(latin1.encode('${operation.operator}\n'));
+  }
+
+  static void _writeInlineImage(ContentOperation operation, BytesBuilder out) {
+    if (operation.operands.length < 2 ||
+        operation.operands[0] is! CosDictionary ||
+        operation.operands[1] is! CosString) {
+      throw ArgumentError.value(operation, 'operation',
+          'BI operation must contain a dictionary and raw image data');
+    }
+
+    out.add(latin1.encode('BI'));
+    final dict = operation.operands[0] as CosDictionary;
+    dict.entries.forEach((key, value) {
+      out
+        ..add(latin1.encode(' /$key '))
+        ..add(CosSerializer.serialize(value));
+    });
+    out.add(latin1.encode(' ID\n'));
+    out.add((operation.operands[1] as CosString).bytes);
+    out.add(latin1.encode('\nEI\n'));
+  }
 }
 
 /// Parses a page content stream into a flat list of operations.
@@ -34,7 +89,8 @@ class ContentStreamParser {
   static CosObject _intObject(int value) =>
       (value >= -1 && value <= 256) ? _smallInts[value + 1] : CosInteger(value);
 
-  static List<ContentOperation> parse(Uint8List content) {
+  static List<ContentOperation> parse(Uint8List content,
+      {int? operationLimit}) {
     // Drive the lexer directly rather than through [CosParser]: a content
     // stream is a flat token stream (no indirect references, so none of
     // parseObject's `N G R` lookahead applies), and on a 10 MB CAD page the
@@ -43,8 +99,14 @@ class ContentStreamParser {
     // finished operation its own operand list (no copy, no clear) roughly
     // halves the parse.
     final operations = <ContentOperation>[];
+    if (operationLimit != null && operationLimit <= 0) return operations;
     final lexer = CosLexer(content);
     var operands = <CosObject>[];
+    bool addOperation(ContentOperation operation) {
+      operations.add(operation);
+      return operationLimit != null && operations.length >= operationLimit;
+    }
+
     while (true) {
       final t = lexer.nextToken();
       switch (t.type) {
@@ -67,13 +129,15 @@ class ContentStreamParser {
             case 'null':
               operands.add(CosNull.instance);
             case 'BI':
-              operations.add(_parseInlineImage(lexer));
+              if (addOperation(_parseInlineImage(lexer))) return operations;
               operands = <CosObject>[];
             default:
               // Hand the operation ownership of the operand list and start a
               // fresh one — equivalent to `List.of(operands)` then clear,
               // minus the element copy.
-              operations.add(ContentOperation(keyword, operands));
+              if (addOperation(ContentOperation(keyword, operands))) {
+                return operations;
+              }
               operands = <CosObject>[];
           }
         default:
@@ -143,7 +207,7 @@ class ContentStreamParser {
               t.textValue == 'null') {
             items.add(_parseObject(lexer, t));
           }
-          // else: stray operator — drop it
+        // else: stray operator — drop it
         default:
           items.add(_parseObject(lexer, t));
       }
