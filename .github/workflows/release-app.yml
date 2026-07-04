@@ -56,14 +56,22 @@ jobs:
       - name: Patch Android plugin build files
         run: |
           set -euo pipefail
-          onnx_gradle="$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
+          onnx_gradle="$(find "$HOME/.pub-cache/hosted" -path '*/onnxruntime-*/android/build.gradle' ! -path '*/example/*' -print -quit)"
           test -n "$onnx_gradle"
-          sed -i 's/compileSdkVersion 33/compileSdkVersion 36/' "$onnx_gradle"
+          perl -0pi -e 's/compileSdkVersion \d+/compileSdkVersion 36/' "$onnx_gradle"
 
-          irondash_gradle="$(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle' -print -quit)"
-          test -n "$irondash_gradle"
-          if ! grep -q 'namespace ' "$irondash_gradle"; then
-            sed -i '/android {/a\    namespace "dev.irondash.engine_context"' "$irondash_gradle"
+          irondash_gradle="$(find "$HOME/.pub-cache/hosted" -path '*/irondash_engine_context-*/android/build.gradle' ! -path '*/example/*' -print -quit)"
+          if [[ -n "$irondash_gradle" ]]; then
+            perl -0pi -e 's/android \{\n(?!\s*namespace)/android {\n    namespace "dev.irondash.engine_context"\n/' "$irondash_gradle"
+            perl -0pi -e 's/compileSdkVersion \d+/compileSdkVersion 36/' "$irondash_gradle"
+          fi
+
+          super_gradle="$(find "$HOME/.pub-cache/hosted" -path '*/super_native_extensions-*/android/build.gradle' ! -path '*/example/*' -print -quit)"
+          if [[ -n "$super_gradle" ]]; then
+            perl -0pi -e 's/android \{\n(?!\s*namespace)/android {\n    namespace "com.superlist.super_native_extensions"\n/' "$super_gradle"
+            perl -0pi -e 's/compileSdkVersion \d+/compileSdkVersion 36/' "$super_gradle"
+            cargo_gradle="$(cd "$(dirname "$super_gradle")/.." && pwd)/cargokit/gradle/plugin.gradle"
+            perl -0pi -e 's/return _findFlutterPlugin\(project\.childProjects\);/return _findFlutterPlugin(project.value.childProjects);/' "$cargo_gradle"
           fi
       - name: Build APK + AAB
         working-directory: app
@@ -222,7 +230,7 @@ jobs:
 
   macos:
     needs: setup
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -256,7 +264,7 @@ jobs:
 
   ios:
     needs: setup
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
         with:
