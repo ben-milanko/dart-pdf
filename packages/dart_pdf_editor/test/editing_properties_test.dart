@@ -379,7 +379,7 @@ void main() {
           closeTo(annotations[1].appearanceOpacity, 1e-6));
     });
 
-    testWidgets('a line shows stroke, opacity, line type and end controls',
+    testWidgets('a line shows stroke, opacity, line type and ending controls',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addLine(0, (100, 100), (220, 160));
@@ -404,6 +404,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(pdfLineEndings(editing.selectedAnnotation!)!.$2,
           PdfLineEnding.openArrow);
+
+      // and the start ending is independently settable, leaving the end as-is
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-line-start-ending')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Circle').last);
+      await tester.pumpAndSettle();
+      final endings = pdfLineEndings(editing.selectedAnnotation!)!;
+      expect(endings.$1, PdfLineEnding.circle);
+      expect(endings.$2, PdfLineEnding.openArrow);
 
       // the stroke slider drives the line's pen width
       await tester.drag(
