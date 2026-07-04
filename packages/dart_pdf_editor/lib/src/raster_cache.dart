@@ -37,6 +37,57 @@ class PdfRasterCache {
 
   String _key(int pageIndex) => '$documentKey/$pageIndex';
 
+  // Page thumbnails persist under a resolution-tagged namespace, distinct
+  // from the low-res previews above: the page grid and strip render sharper,
+  // size-bucketed rasters, and several sizes can coexist for one page.
+  String _thumbKey(int pageIndex, int pixelWidth,
+      {int pageColor = 0xFFFFFFFF, bool annotations = true}) {
+    final color = pageColor.toUnsigned(32).toRadixString(16).padLeft(8, '0');
+    return '$documentKey/t$pixelWidth/$color/${annotations ? 'annots' : 'noannots'}/$pageIndex';
+  }
+
+  /// The stored thumbnail for [pageIndex] at the [pixelWidth] bucket, decoded
+  /// to a [ui.Image] the caller owns (and must dispose), or null on a miss /
+  /// decode failure. Lets the page grid open onto already-rendered thumbnails
+  /// in a later session instead of re-interpreting every page.
+  Future<ui.Image?> loadThumbnail(int pageIndex, int pixelWidth,
+      {int pageColor = 0xFFFFFFFF, bool annotations = true}) async {
+    if (documentKey.isEmpty) return null;
+    final bytes = await cache.read(_thumbKey(pageIndex, pixelWidth,
+        pageColor: pageColor, annotations: annotations));
+    if (bytes == null) return null;
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      try {
+        final frame = await codec.getNextFrame();
+        return frame.image;
+      } finally {
+        codec.dispose();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Encodes [image] as PNG and writes it as [pageIndex]'s thumbnail at the
+  /// [pixelWidth] bucket. Best-effort and fire-and-forget at the call sites;
+  /// [image] stays owned by the caller.
+  Future<void> storeThumbnail(int pageIndex, int pixelWidth, ui.Image image,
+      {int pageColor = 0xFFFFFFFF, bool annotations = true}) async {
+    if (documentKey.isEmpty) return;
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) return;
+      await cache.write(
+          _thumbKey(pageIndex, pixelWidth,
+              pageColor: pageColor, annotations: annotations),
+          data.buffer.asUint8List());
+    } catch (_) {
+      // a readback can fail mid page-swap; a missing thumbnail just renders
+      // fresh as it did before this cache
+    }
+  }
+
   /// The stored preview for [pageIndex] decoded to a [ui.Image] the caller
   /// owns (and must dispose), or null on a miss / decode failure.
   Future<ui.Image?> loadPreview(int pageIndex) async {

@@ -73,7 +73,8 @@ class _IsolateRenderWorker implements PdfRenderWorker {
     });
     final isolate = await Isolate.spawn(
       _workerMain,
-      _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes])),
+      _WorkerInit(
+          _fromWorker.sendPort, TransferableTypedData.fromList([bytes])),
       debugName: 'pdf-render-worker',
       errorsAreFatal: false,
     );
@@ -93,9 +94,15 @@ class _IsolateRenderWorker implements PdfRenderWorker {
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-      {bool annotations = true, int priority = 0}) async {
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
     if (_disposed || _spawnFailed) return null;
-    final request = _PendingRequest(priority, _seq++, pageIndex, annotations);
+    final request = _PendingRequest(priority, _seq++, pageIndex, annotations,
+        imagePixelRatio, decodeImages, commandLimit, imageDecodeRegion);
     _queue.add(request);
     _pump();
     final bytes = await request.completer.future;
@@ -147,7 +154,18 @@ class _IsolateRenderWorker implements PdfRenderWorker {
     }
     final request = _queue.removeAt(best)..id = _nextId++;
     _inFlight = request;
-    port.send([request.id, request.pageIndex, request.annotations]);
+    port.send([
+      request.id,
+      request.pageIndex,
+      request.annotations,
+      request.imagePixelRatio,
+      request.decodeImages,
+      request.commandLimit,
+      request.imageDecodeRegion?.left,
+      request.imageDecodeRegion?.bottom,
+      request.imageDecodeRegion?.right,
+      request.imageDecodeRegion?.top,
+    ]);
   }
 
   @override
@@ -190,12 +208,24 @@ class _IsolateRenderWorker implements PdfRenderWorker {
 
 /// One queued record request and its pending result.
 class _PendingRequest {
-  _PendingRequest(this.priority, this.seq, this.pageIndex, this.annotations);
+  _PendingRequest(
+      this.priority,
+      this.seq,
+      this.pageIndex,
+      this.annotations,
+      this.imagePixelRatio,
+      this.decodeImages,
+      this.commandLimit,
+      this.imageDecodeRegion);
 
   final int priority;
   final int seq;
   final int pageIndex;
   final bool annotations;
+  final double? imagePixelRatio;
+  final bool decodeImages;
+  final int? commandLimit;
+  final PdfRect? imageDecodeRegion;
   final completer = Completer<Uint8List?>();
   int id = -1;
 }
@@ -235,13 +265,32 @@ void _workerMain(_WorkerInit init) {
     final id = request[0] as int;
     final pageIndex = request[1] as int;
     final annotations = request[2] as bool;
+    final imagePixelRatio = request[3] as double?;
+    final decodeImages = request[4] as bool;
+    final commandLimit = request.length > 5 ? request[5] as int? : null;
+    final imageDecodeRegion = request.length > 9 &&
+            request[6] != null &&
+            request[7] != null &&
+            request[8] != null &&
+            request[9] != null
+        ? PdfRect(request[6] as double, request[7] as double,
+            request[8] as double, request[9] as double)
+        : null;
 
     final token = PdfCancellationToken();
     activeToken = token;
     Uint8List? buffer;
     try {
       if (document != null) {
-        buffer = await _recordPageAsync(document, pageIndex, annotations, token);
+        buffer = await _recordPageAsync(
+            document,
+            pageIndex,
+            annotations,
+            imagePixelRatio,
+            decodeImages,
+            commandLimit,
+            imageDecodeRegion,
+            token);
       }
     } on PdfCancelledException {
       buffer = null;
@@ -258,16 +307,30 @@ void _workerMain(_WorkerInit init) {
 
 /// Records one page into a serialized command buffer, yielding periodically
 /// so the cancel port's listener can fire and set [token.cancelled].
-Future<Uint8List?> _recordPageAsync(PdfDocument document, int pageIndex,
-    bool annotations, PdfCancellationToken token) async {
+Future<Uint8List?> _recordPageAsync(
+    PdfDocument document,
+    int pageIndex,
+    bool annotations,
+    double? imagePixelRatio,
+    bool decodeImages,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
-  final ops = ContentStreamParser.parse(page.contentBytes());
+  final previewOperationLimit = decodeImages ? null : commandLimit;
+  final ops = ContentStreamParser.parse(page.contentBytes(),
+      operationLimit: previewOperationLimit);
   final recorder = RecordingPdfDevice();
   final interpreter =
       PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
   await interpreter.drawPageOperationsAsync(page, ops);
   if (annotations) interpreter.drawAnnotations(page);
   return serializeCommands(recorder.commands,
-      cos: document.cos, decodeImages: true);
+      cos: document.cos,
+      decodeImages: decodeImages,
+      maxImagePixelRatio: imagePixelRatio,
+      imageDecodeRegion: imageDecodeRegion,
+      imagePlaceholders: !decodeImages,
+      commandLimit: commandLimit);
 }

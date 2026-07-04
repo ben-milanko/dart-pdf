@@ -85,6 +85,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.imagePicker,
     this.fontPicker,
     this.palette = defaultPalette,
     this.tools,
@@ -111,6 +112,9 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How selected page-content images are replaced from the element strip.
+  final PdfImagePicker? imagePicker;
 
   /// How the font menu's "Load font…" entry obtains a custom `.ttf`/`.otf`
   /// file. When null, only the standard families and bundled fonts are
@@ -240,6 +244,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// selected annotation — it only restyles on release (one revision per
   /// gesture), so the thumb needs its own state meanwhile.
   double? _dragOpacity;
+
+  bool _replacingElementImage = false;
 
   /// The seven dock groups, in order. Filtered by [PdfEditingToolbar.tools]
   /// and [PdfEditingToolbar.showMarkup] before display.
@@ -528,6 +534,28 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           behavior: SnackBarBehavior.floating,
           margin: pdfFloatingToastMargin(context),
         ));
+    }
+  }
+
+  Future<void> _replaceElementImage(BuildContext context) async {
+    final picker = widget.imagePicker;
+    if (picker == null || _replacingElementImage) return;
+    setState(() => _replacingElementImage = true);
+    try {
+      final bytes = await picker(context);
+      if (bytes == null) return;
+      final replaced = await controller.replaceSelectedElementImageAsync(bytes);
+      if (!replaced && context.mounted) {
+        ScaffoldMessenger.maybeOf(context)
+          ?..clearSnackBars()
+          ..showSnackBar(SnackBar(
+            content: const Text("Couldn't replace image"),
+            behavior: SnackBarBehavior.floating,
+            margin: pdfFloatingToastMargin(context),
+          ));
+      }
+    } finally {
+      if (mounted) setState(() => _replacingElementImage = false);
     }
   }
 
@@ -1125,16 +1153,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       _alignButton(
           PdfAlignment.left, Icons.align_horizontal_left, 'Align left'),
-      _alignButton(PdfAlignment.horizontalCenter,
-          Icons.align_horizontal_center, 'Align horizontal centers'),
+      _alignButton(PdfAlignment.horizontalCenter, Icons.align_horizontal_center,
+          'Align horizontal centers'),
       _alignButton(
           PdfAlignment.right, Icons.align_horizontal_right, 'Align right'),
       const _MiniDivider(),
       _alignButton(PdfAlignment.top, Icons.align_vertical_top, 'Align top'),
       _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
           'Align vertical centers'),
-      _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
-          'Align bottom'),
+      _alignButton(
+          PdfAlignment.bottom, Icons.align_vertical_bottom, 'Align bottom'),
       const _MiniDivider(),
       _alignButton(PdfAlignment.distributeHorizontal,
           Icons.horizontal_distribute, 'Distribute horizontally',
@@ -1181,6 +1209,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onPressed: () => _reflowElementText(context),
         ),
       ],
+      if (controller.canReplaceSelectedElementImage &&
+          widget.imagePicker != null)
+        IconButton(
+          key: const ValueKey('pdf-replace-element-image'),
+          icon: _replacingElementImage
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.image_outlined),
+          tooltip: 'Replace image',
+          onPressed: _replacingElementImage
+              ? null
+              : () => _replaceElementImage(context),
+        ),
     ]);
     return _centeredCard(
       context,
@@ -1477,6 +1520,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _buildMobile(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tool = controller.tool;
+    final compactToolLabel = controller.selectedElement != null;
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
@@ -1505,17 +1549,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: Row(children: [
               const SizedBox(width: 4),
               Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  _activeToolLabel(tool),
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+              if (!compactToolLabel) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _activeToolLabel(tool),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ]),
           ),
           ..._mobileTrailing(context),
@@ -1555,6 +1603,49 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             tooltip: 'Edit annotation text',
             visualDensity: VisualDensity.compact,
             onPressed: () => _editSelectedText(context),
+          ),
+      ];
+    }
+    if (controller.selectedElement != null) {
+      return [
+        IconButton(
+          key: const ValueKey('pdf-mobile-delete-element'),
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Delete element',
+          visualDensity: VisualDensity.compact,
+          onPressed: controller.deleteSelectedElement,
+        ),
+        if (controller.canEditSelectedElementText) ...[
+          IconButton(
+            key: const ValueKey('pdf-replace-element-text'),
+            icon: const Icon(Icons.edit),
+            tooltip: 'Replace text',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _editElementText(context),
+          ),
+          IconButton(
+            key: const ValueKey('pdf-reflow-element-text'),
+            icon: const Icon(Icons.wrap_text),
+            tooltip: 'Reflow paragraph',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _reflowElementText(context),
+          ),
+        ],
+        if (controller.canReplaceSelectedElementImage &&
+            widget.imagePicker != null)
+          IconButton(
+            key: const ValueKey('pdf-replace-element-image'),
+            icon: _replacingElementImage
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.image_outlined),
+            tooltip: 'Replace image',
+            visualDensity: VisualDensity.compact,
+            onPressed: _replacingElementImage
+                ? null
+                : () => _replaceElementImage(context),
           ),
       ];
     }
@@ -1607,6 +1698,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   String _activeToolLabel(PdfEditTool? tool) {
     if (tool == null) return 'Select';
+    switch (tool) {
+      case PdfEditTool.content:
+        return 'Content';
+      case PdfEditTool.form:
+        return 'Form';
+      case PdfEditTool.redact:
+        return 'Redact';
+      case PdfEditTool.snapshot:
+        return 'Snapshot';
+      default:
+        break;
+    }
     for (final group in _groups) {
       for (final entry in group.tools) {
         if (entry.tool == tool) {

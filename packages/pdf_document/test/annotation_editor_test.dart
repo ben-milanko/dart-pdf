@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -7,6 +8,32 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
 void main() {
+  Uint8List buildMalformedAnnotsPdf() {
+    final builder = CosDocumentBuilder();
+    final badAnnotsRef = builder.add(CosString.fromText('not an array'));
+    final pageDict = CosDictionary({
+      'Type': const CosName('Page'),
+      'MediaBox': CosArray(const [
+        CosInteger(0),
+        CosInteger(0),
+        CosInteger(612),
+        CosInteger(792),
+      ]),
+      'Resources': CosDictionary(),
+      'Annots': badAnnotsRef,
+    });
+    final pageRef = builder.add(pageDict);
+    final pagesRef = builder.add(CosDictionary({
+      'Type': const CosName('Pages'),
+      'Kids': CosArray([pageRef]),
+      'Count': const CosInteger(1),
+    }));
+    pageDict['Parent'] = pagesRef;
+    final catalogRef = builder.add(
+        CosDictionary({'Type': const CosName('Catalog'), 'Pages': pagesRef}));
+    return builder.build(root: catalogRef);
+  }
+
   PdfDocument roundTrip(void Function(PdfEditor) edit) {
     final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
     edit(editor);
@@ -266,8 +293,7 @@ void main() {
     expect(content, contains('Tj'));
     // the font resource should be a Type0 font with Identity-H encoding
     final form = ft.normalAppearance!;
-    final res =
-        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final res = doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
     final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
     final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
     expect((f1['Subtype'] as CosName).value, 'Type0');
@@ -289,9 +315,8 @@ void main() {
     // is needed because the ToUnicode CMap already maps to logical Unicode.
     expect(content, isNot(contains('ActualText')));
     // hex-encoded logical-order text
-    final hex = text.runes
-        .map((r) => r.toRadixString(16).padLeft(4, '0'))
-        .join();
+    final hex =
+        text.runes.map((r) => r.toRadixString(16).padLeft(4, '0')).join();
     expect(content, contains(hex));
   });
 
@@ -326,8 +351,7 @@ void main() {
     expect(content, contains('Tj'));
     // the font resource dict should contain F1 (Type0 for Arabic run)
     final form = ft.normalAppearance!;
-    final res =
-        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final res = doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
     final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
     final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
     expect((f1['Subtype'] as CosName).value, 'Type0');
@@ -354,8 +378,7 @@ void main() {
           [
             const PdfFreeTextRun('Bold ',
                 font: PdfStandardFont.helveticaBold, fontSize: 14),
-            const PdfFreeTextRun('red',
-                color: 0xFF0000, fontSize: 14),
+            const PdfFreeTextRun('red', color: 0xFF0000, fontSize: 14),
             const PdfFreeTextRun(' italic',
                 font: PdfStandardFont.timesItalic, fontSize: 18),
           ],
@@ -431,8 +454,7 @@ void main() {
     expect(content, isNot(contains('?')));
     expect(content, contains('Tj'));
     final form = ft.normalAppearance!;
-    final res =
-        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final res = doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
     final fonts = doc.cos.resolve(res['Font']) as CosDictionary;
     final f1 = doc.cos.resolve(fonts['F1']) as CosDictionary;
     expect((f1['Subtype'] as CosName).value, 'Type0');
@@ -698,6 +720,22 @@ void main() {
     expect(annots.last.subtype, 'Text');
     // existing annotations are untouched
     expect(annots.first.subtype, 'Link');
+  });
+
+  test('adding an annotation abandons a malformed indirect /Annots value', () {
+    final doc = PdfDocument.open(buildMalformedAnnotsPdf());
+    final badRef = doc.page(0).dict['Annots'] as CosReference;
+    expect(doc.cos.resolve(badRef), isA<CosString>());
+
+    final editor = PdfEditor(doc)
+      ..addSquare(0, const PdfRect(100, 100, 200, 150));
+    final reopened = PdfDocument.open(editor.save());
+
+    final raw = reopened.page(0).dict['Annots'];
+    expect(raw, isA<CosArray>());
+    expect(reopened.cos.resolve(badRef), isA<CosString>(),
+        reason: 'the invalid referenced object is not overwritten');
+    expect(reopened.page(0).annotations.single.subtype, 'Square');
   });
 
   test('appearance BBox equals the annotation rect (identity mapping)', () {

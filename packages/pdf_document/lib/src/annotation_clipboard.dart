@@ -241,8 +241,7 @@ class _SnapshotCopier {
       case CosArray array:
         return CosArray([for (final item in array.items) copy(item)]);
       case CosString string:
-        return CosString(Uint8List.fromList(string.bytes),
-            isHex: string.isHex);
+        return CosString(Uint8List.fromList(string.bytes), isHex: string.isHex);
       default:
         return value;
     }
@@ -317,21 +316,8 @@ extension PdfAnnotationClipboard on PdfEditor {
     }
     _hoistStreams(dict);
 
-    final page = document.page(pageIndex);
     final annotRef = _updater.addObject(dict);
-    final raw = page.dict['Annots'];
-    final resolved = document.cos.resolve(raw);
-    if (resolved is CosArray) {
-      resolved.items.add(annotRef);
-      if (raw is CosReference) {
-        _updater.replaceObject(raw.objectNumber, resolved);
-      } else {
-        _updater.markChanged(page.dict);
-      }
-    } else {
-      page.dict['Annots'] = CosArray([annotRef]);
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, pageIndex).append(annotRef);
   }
 
   /// Replaces every inline [CosStream] in the tree with a reference to a

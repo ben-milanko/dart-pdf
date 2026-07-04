@@ -36,6 +36,7 @@ part 'content_reflow.dart';
 part 'header_footer.dart';
 part 'outline_editor.dart';
 part 'page_labels_editor.dart';
+part 'page_annotation_list.dart';
 part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
@@ -110,8 +111,7 @@ class PdfEditor {
   /// Adds [degrees] (a multiple of 90) to the page's display rotation.
   void rotatePage(int index, int degrees) {
     if (degrees % 90 != 0) {
-      throw ArgumentError.value(
-          degrees, 'degrees', 'must be a multiple of 90');
+      throw ArgumentError.value(degrees, 'degrees', 'must be a multiple of 90');
     }
     final page = document.page(index);
     final next = (page.rotation + degrees) % 360;

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// One-page Helvetica PDF whose content stream is [content].
 Uint8List buildParagraphPdf(String content) {
@@ -61,6 +62,12 @@ List<({String text, double bottom})> textRuns(PdfDocument doc) => [
     ];
 
 void main() {
+  // PdfEditingController loads PdfEditingPreferences (shared_preferences) from
+  // its constructor, fire-and-forget. Without the mock plugin that async load
+  // throws MissingPluginException *after* the test completes, failing it — so
+  // register the in-memory mock like the other editing tests do.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   group('reflowSelectedElementText (controller)', () {
     test('grows the paragraph and cascades the following line', () {
       final editing = PdfEditingController(buildParagraphPdf(paragraphContent));

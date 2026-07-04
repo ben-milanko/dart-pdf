@@ -592,6 +592,34 @@ const double _rotateHandleDistance = 22;
 /// Rotation drags snap to 45° multiples when within this margin.
 const double _rotateSnapRadians = 3 * math.pi / 180;
 
+class _PointerInteractionSession {
+  int? rawPointer;
+  bool rawErasing = false;
+
+  int? panPointer;
+  Offset? panLast;
+  VelocityTracker? panVelocity;
+
+  final Set<int> touchPointers = {};
+  bool gestureBailed = false;
+
+  void clearRaw() {
+    rawPointer = null;
+    rawErasing = false;
+  }
+
+  void clearPan() {
+    panPointer = null;
+    panLast = null;
+    panVelocity = null;
+  }
+
+  void clearTouches() {
+    touchPointers.clear();
+    gestureBailed = false;
+  }
+}
+
 class _EditingPageOverlayState extends State<EditingPageOverlay>
     with TickerProviderStateMixin {
   // shape/text/stamp drag
@@ -638,30 +666,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // pan recognizer only wins after ~36px of motion, which swallowed the
   // start of every pencil stroke and dropped quick dots as taps. The
   // pointer id claims the gesture; moves append, up commits.
-  int? _rawPointer;
-  bool _rawErasing = false;
+  final _PointerInteractionSession _pointers = _PointerInteractionSession();
 
   // raw-driven finger pan: with the ink/eraser tool armed and finger
   // drawing OFF (Apple Pencil mode), a finger must still scroll the
   // document. The list's physics are NeverScrollable while a tool is
   // armed and touch is excluded from the overlay's gesture arena, so a
   // single finger reaches neither — it would do nothing. This raw path
-  // pans the viewer instead (the pen keeps drawing via [_rawPointer], so
-  // the two never collide). A touch landing during an active pen stroke
-  // is a palm and is ignored (gated on `_rawPointer == null`); a second
-  // finger bails to the viewer's pinch-zoom recognizer.
-  int? _panPointer;
-  Offset? _panLast;
-  VelocityTracker? _panVelocity;
-
-  /// Concurrent touch pointers on this page. A second finger landing
-  /// mid-gesture aborts it (see [_bailActiveGesture]) instead of feeding
-  /// both fingers' positions into one stroke.
-  final Set<int> _touchPointers = {};
-
-  /// True from a multi-touch bail until every touch pointer lifts —
-  /// the remainder of the gesture is dead air.
-  bool _gestureBailed = false;
+  // pans the viewer instead (the pen keeps drawing through [_pointers], so the
+  // two never collide). A touch landing during an active pen stroke is a palm
+  // and is ignored; a second finger bails to the viewer's pinch-zoom
+  // recognizer.
+  /// Raw-pointer, touch-bail, and finger-pan bookkeeping lives in
+  /// [_pointers]; the overlay keeps the actual preview/commit state.
 
   /// The device kind of the latest pointer down on this page — the
   /// selection action chip only shows for touch and stylus input.
@@ -998,11 +1015,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       setState(() => _lastPointerKind = event.kind);
     }
     if (event.kind == PointerDeviceKind.touch) {
-      _touchPointers.add(event.pointer);
-      if (_touchPointers.length >= 2) {
+      _pointers.touchPointers.add(event.pointer);
+      if (_pointers.touchPointers.length >= 2) {
         // a stylus stroke survives stray touches — that second contact
         // is the palm resting on the screen, not a gesture
-        if (_rawPointer != null && !_touchPointers.contains(_rawPointer)) {
+        if (_pointers.rawPointer != null &&
+            !_pointers.touchPointers.contains(_pointers.rawPointer)) {
           return;
         }
         _bailActiveGesture();
@@ -1013,7 +1031,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _updatePickPreview(event.localPosition);
       return;
     }
-    if (_gestureBailed) return;
+    if (_pointers.gestureBailed) return;
     if (_polyTool) {
       _addPolyPoint(event.localPosition);
       return;
@@ -1026,13 +1044,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // pen draws and fingers scroll, until the user toggles it back
       _controller.fingerDrawsInk = false;
     }
-    if (_rawPointer == null && _rawDrives(event.kind)) {
-      _rawPointer = event.pointer;
+    if (_pointers.rawPointer == null && _rawDrives(event.kind)) {
+      _pointers.rawPointer = event.pointer;
       // a flipped pencil erases even while the ink tool is armed —
       // that's what the flip is for
-      _rawErasing = _tool == PdfEditTool.eraser ||
+      _pointers.rawErasing = _tool == PdfEditTool.eraser ||
           event.kind == PointerDeviceKind.invertedStylus;
-      if (_rawErasing) {
+      if (_pointers.rawErasing) {
         _eraseAt(event.localPosition);
       } else {
         // hold the auto-commit while this stroke is on the page
@@ -1044,17 +1062,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
       }
-    } else if (_panPointer == null &&
-        _rawPointer == null &&
+    } else if (_pointers.panPointer == null &&
+        _pointers.rawPointer == null &&
         event.kind == PointerDeviceKind.touch &&
         _fingerPansViewport) {
       // pencil mode, single finger, no pen stroke in flight: pan the
       // viewer. A move drives [onPanViewport]; lift hands the velocity
       // to [onPanViewportEnd] for a fling, exactly like a select-mode
       // empty-area touch drag.
-      _panPointer = event.pointer;
-      _panLast = event.localPosition;
-      _panVelocity = VelocityTracker.withKind(event.kind)
+      _pointers.panPointer = event.pointer;
+      _pointers.panLast = event.localPosition;
+      _pointers.panVelocity = VelocityTracker.withKind(event.kind)
         ..addPosition(event.timeStamp, event.localPosition);
     }
   }
@@ -1066,17 +1084,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _updatePickPreview(event.localPosition);
       return;
     }
-    if (event.pointer == _panPointer) {
-      final last = _panLast;
+    if (event.pointer == _pointers.panPointer) {
+      final last = _pointers.panLast;
       if (last != null) {
         widget.onPanViewport?.call(event.localPosition - last);
       }
-      _panLast = event.localPosition;
-      _panVelocity?.addPosition(event.timeStamp, event.localPosition);
+      _pointers.panLast = event.localPosition;
+      _pointers.panVelocity?.addPosition(event.timeStamp, event.localPosition);
       return;
     }
-    if (event.pointer != _rawPointer) return;
-    if (_rawErasing) {
+    if (event.pointer != _pointers.rawPointer) return;
+    if (_pointers.rawErasing) {
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
@@ -1093,14 +1111,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// or just a clumsy grip). Nothing commits; the rest of the gesture
   /// is dead air until every touch pointer lifts.
   void _bailActiveGesture() {
-    _gestureBailed = true;
-    _rawPointer = null;
-    _rawErasing = false;
+    _pointers.gestureBailed = true;
+    _pointers.clearRaw();
     // a second finger landed: stop panning so the viewer's pinch-zoom
     // recognizer takes both touches (no fling — the gesture isn't a pan)
-    _panPointer = null;
-    _panLast = null;
-    _panVelocity = null;
+    _pointers.clearPan();
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
@@ -1138,23 +1153,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// pointer-up and pointer-cancel.
   void _endRawPointer(PointerEvent event, {required bool canceled}) {
     if (event.kind == PointerDeviceKind.touch) {
-      _touchPointers.remove(event.pointer);
-      if (_touchPointers.isEmpty) _gestureBailed = false;
+      _pointers.touchPointers.remove(event.pointer);
+      if (_pointers.touchPointers.isEmpty) _pointers.gestureBailed = false;
     }
-    if (event.pointer == _panPointer) {
+    if (event.pointer == _pointers.panPointer) {
       final velocity = canceled
           ? Velocity.zero
-          : (_panVelocity?.getVelocity() ?? Velocity.zero);
-      _panPointer = null;
-      _panLast = null;
-      _panVelocity = null;
+          : (_pointers.panVelocity?.getVelocity() ?? Velocity.zero);
+      _pointers.clearPan();
       if (!canceled) widget.onPanViewportEnd?.call(velocity);
       return;
     }
-    if (event.pointer != _rawPointer) return;
-    _rawPointer = null;
-    final erasing = _rawErasing;
-    _rawErasing = false;
+    if (event.pointer != _pointers.rawPointer) return;
+    final erasing = _pointers.rawErasing;
+    _pointers.clearRaw();
     if (erasing) {
       if (canceled) {
         setState(_resetErase);
@@ -2266,7 +2278,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // raw-driven pointers own their gesture: the pan recognizer still
     // claims the arena (keeping the viewer's pan/zoom from fighting the
     // stroke) but its callbacks must not double-drive it
-    if (_gestureBailed || _rawDrives(details.kind)) return;
+    if (_pointers.gestureBailed || _rawDrives(details.kind)) return;
     final position = details.localPosition;
     if (_textEditRect != null) {
       // a drag outside the open editor commits it, like a tap
@@ -2473,7 +2485,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// the arena when this is true), so a long-press that has nothing to
   /// offer never steals the gesture from text selection or the viewer.
   bool _menuLongPressClaims(Offset position) {
-    if (_gestureBailed) return false;
+    if (_pointers.gestureBailed) return false;
     final (x, y) = _geometry.toPagePoint(position);
     if (_tool == PdfEditTool.form) {
       return _controller.formFieldAt(widget.pageIndex, x, y) != null &&
@@ -2512,7 +2524,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panUpdate(DragUpdateDetails details) {
-    if (_gestureBailed || _rawPointer != null) return;
+    if (_pointers.gestureBailed || _pointers.rawPointer != null) return;
     final position = details.localPosition;
     if (_panErasing) {
       _eraseAt(position);
@@ -2646,7 +2658,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panEnd(DragEndDetails details) {
-    if (_rawPointer != null) return; // the raw pointer-up commits
+    if (_pointers.rawPointer != null) return; // the raw pointer-up commits
     if (_panErasing) {
       _panErasing = false;
       _commitErase();
@@ -3116,7 +3128,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final bytes = await picker(context);
         if (bytes == null) return;
-        _controller.addImageInRect(widget.pageIndex, rect, bytes);
+        await _controller.addImageInRectAsync(widget.pageIndex, rect, bytes);
       case PdfEditTool.form:
         _controller.addFormField(
             _controller.newFormFieldKind, widget.pageIndex, rect);
@@ -3175,7 +3187,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final name = field.name;
         final bytes = await picker(context, field);
-        if (bytes != null) _controller.setFormButtonImage(name, bytes);
+        if (bytes != null) {
+          await _controller.setFormButtonImageAsync(name, bytes);
+        }
       case PdfFieldType.signature || PdfFieldType.unknown:
         break;
     }
@@ -3221,7 +3235,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerAnnotations = annotations;
       _sampler = null;
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
-              pageColor: pageColor, annotations: annotations,
+              pageColor: pageColor,
+              annotations: annotations,
               rotation: widget.geometry.rotation)
           .then((s) {
         // resolve the preview that was waiting on the raster
@@ -3275,7 +3290,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Future<void> _onTapUp(TapUpDetails details) async {
     // the eyedropper commits from the raw pointer-up instead
     if (_controller.isPickingColor) return;
-    if (_gestureBailed) return;
+    if (_pointers.gestureBailed) return;
     if (_tool == PdfEditTool.eraser) {
       // a mouse/trackpad click erases what's under it; raw-driven
       // pointers already handled theirs on the way down
@@ -3348,7 +3363,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (picker == null) return;
         final bytes = await picker(context);
         if (bytes == null) return;
-        _controller.placeImage(widget.pageIndex, x, y, bytes);
+        await _controller.placeImageAsync(widget.pageIndex, x, y, bytes);
       case PdfEditTool.form:
         // single tap selects the field for move/resize/menu; double-tap
         // fills it (read mode is the no-tool path to just fill)
@@ -3598,7 +3613,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final family = 'pdfedit-$key';
     // copy the bytes: loadFontFromList wants an owned, immutable list
     ui
-        .loadFontFromList(Uint8List.fromList(font.fontBytes), fontFamily: family)
+        .loadFontFromList(Uint8List.fromList(font.fontBytes),
+            fontFamily: family)
         .then((_) {
       _embeddedPreviewFamilies[key] = family;
       _embeddedFontsLoading.remove(key);
@@ -4176,7 +4192,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _moveStart == null &&
         _marqueeStart == null &&
         _textEditRect == null &&
-        _rawPointer == null;
+        _pointers.rawPointer == null;
     return Listener(
       // raw events carry what pan callbacks drop: pressure and the
       // device kind (for Apple Pencil palm rejection); pointer-up is
@@ -4308,9 +4324,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     resizeClean: wrapResize != null
                         ? _resizeCleanPicture
                         : _afterTextClean,
-                    resizeHideRect: wrapResize != null
-                        ? _resizeFrom
-                        : _afterTextHideRect,
+                    resizeHideRect:
+                        wrapResize != null ? _resizeFrom : _afterTextHideRect,
                     resizeHideAngle:
                         wrapResize != null ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
@@ -4325,9 +4340,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       ...?_afterEraseFade,
                     ],
                     fadeColor: widget.pageColor.withValues(alpha: 0.72),
-                    eraserCursor: _tool == PdfEditTool.eraser || _rawErasing
-                        ? _eraserCursor
-                        : null,
+                    eraserCursor:
+                        _tool == PdfEditTool.eraser || _pointers.rawErasing
+                            ? _eraserCursor
+                            : null,
                     eraserRadius: _controller.eraserRadius * _geometry.scale,
                     // the pen-preview dot (ink tool) and the rotation glyph
                     // (rotate knob): painted in place of the system cursor
@@ -4427,22 +4443,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             meta: true): _commitTextEdit,
                         const SingleActivator(LogicalKeyboardKey.enter,
                             control: true): _commitTextEdit,
-                        const SingleActivator(LogicalKeyboardKey.keyB,
-                            meta: true): () => _toggleInlineTextStyle(
-                              italic: false,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyB,
-                            control: true): () => _toggleInlineTextStyle(
-                              italic: false,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyI,
-                            meta: true): () => _toggleInlineTextStyle(
-                              italic: true,
-                            ),
-                        const SingleActivator(LogicalKeyboardKey.keyI,
-                            control: true): () => _toggleInlineTextStyle(
-                              italic: true,
-                            ),
+                        const SingleActivator(LogicalKeyboardKey.keyB, meta: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: false,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyB, control: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: false,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyI, meta: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: true,
+                                ),
+                        const SingleActivator(LogicalKeyboardKey.keyI, control: true):
+                            () => _toggleInlineTextStyle(
+                                  italic: true,
+                                ),
                       },
                       child: Container(
                         // the chrome border lives in the inflate(2) gutter
@@ -4457,8 +4473,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         // so the old rendering doesn't ghost through and read
                         // as a misaligned shadow behind the live text
                         color: _textEditFill ??
-                            widget.pageColor.withValues(
-                                alpha: _textEditExisting ? 1 : 0.3),
+                            widget.pageColor
+                                .withValues(alpha: _textEditExisting ? 1 : 0.3),
                         foregroundDecoration: BoxDecoration(
                           border: Border.all(
                               color: PdfViewerTheme.of(context)

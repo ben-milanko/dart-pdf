@@ -2,7 +2,9 @@ name: Publish to pub.dev
 
 # Tag-triggered OIDC publishing. Each `<pkg>-v<version>` tag publishes that
 # package's working directory to pub.dev with no stored token — pub.dev trusts
-# the GitHub Actions identity.
+# the GitHub Actions identity. Tags for versions that are already on pub.dev
+# are treated as successful no-ops, which keeps manually recovered releases
+# from creating failed publish runs when their record tags are pushed later.
 #
 # REQUIRED ONE-TIME SETUP per package (pub.dev → package → Admin → Automated
 # publishing): enable "Publishing from GitHub Actions", set Repository to
@@ -22,72 +24,177 @@ on:
       - 'pdf_ocr_ondevice-v*'
 
 jobs:
+  check-publish-needed:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      package: ${{ steps.meta.outputs.package }}
+      directory: ${{ steps.meta.outputs.directory }}
+      version: ${{ steps.meta.outputs.version }}
+      publish_needed: ${{ steps.meta.outputs.publish_needed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag points at deploy history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/deploy:refs/remotes/origin/deploy
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/deploy; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on the deploy branch history."
+            exit 1
+          fi
+
+      - name: Resolve package and hosted version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            pdf_cos-v*)
+              package="pdf_cos"
+              directory="packages/pdf_cos"
+              version="${tag#pdf_cos-v}"
+              ;;
+            pdf_test_fixtures-v*)
+              package="pdf_test_fixtures"
+              directory="packages/pdf_test_fixtures"
+              version="${tag#pdf_test_fixtures-v}"
+              ;;
+            pdf_document-v*)
+              package="pdf_document"
+              directory="packages/pdf_document"
+              version="${tag#pdf_document-v}"
+              ;;
+            pdf_graphics-v*)
+              package="pdf_graphics"
+              directory="packages/pdf_graphics"
+              version="${tag#pdf_graphics-v}"
+              ;;
+            dart_pdf_editor-v*)
+              package="dart_pdf_editor"
+              directory="packages/dart_pdf_editor"
+              version="${tag#dart_pdf_editor-v}"
+              ;;
+            pdf_ocr_vlm-v*)
+              package="pdf_ocr_vlm"
+              directory="packages/pdf_ocr_vlm"
+              version="${tag#pdf_ocr_vlm-v}"
+              ;;
+            pdf_ocr_ondevice-v*)
+              package="pdf_ocr_ondevice"
+              directory="packages/pdf_ocr_ondevice"
+              version="${tag#pdf_ocr_ondevice-v}"
+              ;;
+            *)
+              echo "::error::Unsupported release tag: $tag"
+              exit 1
+              ;;
+          esac
+
+          pubspec_version="$(ruby -ryaml -e 'puts YAML.load_file(ARGV.fetch(0)).fetch("version")' "$directory/pubspec.yaml")"
+          if [[ "$pubspec_version" != "$version" ]]; then
+            echo "::error::$tag points at $directory version $pubspec_version"
+            exit 1
+          fi
+
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "directory=$directory" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if ruby -rjson -ropen-uri -e '
+            package = ARGV.fetch(0)
+            version = ARGV.fetch(1)
+            data = URI.open("https://pub.dev/api/packages/#{package}", &:read)
+            versions = JSON.parse(data).fetch("versions").map { |entry| entry.fetch("version") }
+            exit(versions.include?(version) ? 0 : 1)
+          ' "$package" "$version"; then
+            echo "$package $version is already on pub.dev; skipping publish."
+            echo "publish_needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$package $version is not on pub.dev; publishing."
+            echo "publish_needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   publish-pdf-cos:
-    if: startsWith(github.ref_name, 'pdf_cos-v')
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'pdf_cos' && needs.check-publish-needed.outputs.publish_needed == 'true'
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_cos
 
   publish-pdf-test-fixtures:
-    if: startsWith(github.ref_name, 'pdf_test_fixtures-v')
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'pdf_test_fixtures' && needs.check-publish-needed.outputs.publish_needed == 'true'
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_test_fixtures
 
   publish-pdf-document:
-    if: startsWith(github.ref_name, 'pdf_document-v')
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'pdf_document' && needs.check-publish-needed.outputs.publish_needed == 'true'
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_document
 
   publish-pdf-graphics:
-    if: startsWith(github.ref_name, 'pdf_graphics-v')
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'pdf_graphics' && needs.check-publish-needed.outputs.publish_needed == 'true'
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_graphics
 
   publish-dart-pdf-editor:
-    if: startsWith(github.ref_name, 'dart_pdf_editor-v')
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'dart_pdf_editor' && needs.check-publish-needed.outputs.publish_needed == 'true'
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_editor
 
   publish-pdf-ocr-vlm:
-    if: startsWith(github.ref_name, 'pdf_ocr_vlm-v')
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'pdf_ocr_vlm' && needs.check-publish-needed.outputs.publish_needed == 'true'
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_vlm
 
   publish-pdf-ocr-ondevice:
-    if: startsWith(github.ref_name, 'pdf_ocr_ondevice-v')
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'pdf_ocr_ondevice' && needs.check-publish-needed.outputs.publish_needed == 'true'
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_ondevice

@@ -64,7 +64,8 @@ extension PdfTaggingAndArchival on PdfEditor {
       final ref = _updater.addObject(dict);
 
       final pageRef = _pageReference(spec.pageIndex);
-      if (pageRef != null && (spec.mcids.isNotEmpty || spec.objects.isNotEmpty)) {
+      if (pageRef != null &&
+          (spec.mcids.isNotEmpty || spec.objects.isNotEmpty)) {
         dict['Pg'] = pageRef;
       }
       if (spec.alt != null) dict['Alt'] = CosString.fromText(spec.alt!);
@@ -194,8 +195,7 @@ extension PdfTaggingAndArchival on PdfEditor {
     documentRoot.children.addAll(roots);
     writeStructTree([documentRoot], lang: lang);
     if (writeUaMetadata) {
-      setXmpMetadata(
-          title: title ?? document.info['Title'], pdfUaPart: 1);
+      setXmpMetadata(title: title ?? document.info['Title'], pdfUaPart: 1);
     }
     var count = 1;
     void countNode(PdfStructSpec s) {
@@ -295,8 +295,9 @@ extension PdfTaggingAndArchival on PdfEditor {
       'S': CosName('GTS_PDFA1'),
       'OutputConditionIdentifier':
           CosString.fromText(outputConditionIdentifier),
-      'Info': CosString.fromText(
-          outputCondition.isEmpty ? outputConditionIdentifier : outputCondition),
+      'Info': CosString.fromText(outputCondition.isEmpty
+          ? outputConditionIdentifier
+          : outputCondition),
       'DestOutputProfile': iccRef,
     });
     if (outputCondition.isNotEmpty) {
@@ -427,32 +428,9 @@ extension PdfTaggingAndArchival on PdfEditor {
     _updater.markChanged(page.dict);
   }
 
-  /// Re-serialises one content operator (handling BI inline images), the same
-  /// shape the redaction writer uses. Kept local because that one is private
-  /// to its own extension.
+  /// Re-serialises one content operator (handling BI inline images).
   static void _writeContentOp(ContentOperation op, BytesBuilder out) {
-    if (op.operator == 'BI' && op.operands.length >= 2) {
-      out.add(latin1.encode('BI'));
-      final dict = op.operands[0];
-      if (dict is CosDictionary) {
-        dict.entries.forEach((key, value) {
-          out
-            ..add(latin1.encode(' /$key '))
-            ..add(CosSerializer.serialize(value));
-        });
-      }
-      out.add(latin1.encode(' ID\n'));
-      final data = op.operands[1];
-      if (data is CosString) out.add(data.bytes);
-      out.add(latin1.encode('\nEI\n'));
-      return;
-    }
-    for (final operand in op.operands) {
-      out
-        ..add(CosSerializer.serialize(operand))
-        ..addByte(0x20);
-    }
-    out.add(latin1.encode('${op.operator}\n'));
+    ContentStreamSerializer.writeOperation(op, out);
   }
 
   /// Painting operators whose output is not tagged text — wrapped as
@@ -514,18 +492,21 @@ extension PdfTaggingAndArchival on PdfEditor {
           tlm = _stMul([1, 0, 0, 1, 0, -leading], tlm);
           tm = tlm;
         case 'Tj':
-          _emitShow(out, i, o.isNotEmpty ? o[0] : null, tm, ctm, fontSize, hScale);
+          _emitShow(
+              out, i, o.isNotEmpty ? o[0] : null, tm, ctm, fontSize, hScale);
         case 'TJ':
-          _emitShow(out, i, o.isNotEmpty ? o[0] : null, tm, ctm, fontSize, hScale);
+          _emitShow(
+              out, i, o.isNotEmpty ? o[0] : null, tm, ctm, fontSize, hScale);
         case "'":
           tlm = _stMul([1, 0, 0, 1, 0, -leading], tlm);
           tm = tlm;
-          _emitShow(out, i, o.isNotEmpty ? o[0] : null, tm, ctm, fontSize, hScale);
+          _emitShow(
+              out, i, o.isNotEmpty ? o[0] : null, tm, ctm, fontSize, hScale);
         case '"':
           tlm = _stMul([1, 0, 0, 1, 0, -leading], tlm);
           tm = tlm;
-          _emitShow(out, i, o.length >= 3 ? o[2] : null, tm, ctm, fontSize,
-              hScale);
+          _emitShow(
+              out, i, o.length >= 3 ? o[2] : null, tm, ctm, fontSize, hScale);
       }
     }
   }
@@ -537,14 +518,20 @@ extension PdfTaggingAndArchival on PdfEditor {
     final det = (m[0] * m[3] - m[1] * m[2]).abs();
     final size = fontSize * (det <= 0 ? 1 : math.sqrt(det));
     out.add(_ShowOp(
-        opIndex: opIndex, x: x, y: y, size: size, text: _showOperandText(operand)));
+        opIndex: opIndex,
+        x: x,
+        y: y,
+        size: size,
+        text: _showOperandText(operand)));
   }
 
   /// Best-effort text of a show operand for list-marker detection. Bytes are
   /// decoded as Latin-1 (covers the base-14 / WinAnsi case); good enough to
   /// spot a leading bullet or number — a miss only loses list grouping.
   String _showOperandText(CosObject? operand) {
-    if (operand is CosString) return latin1.decode(operand.bytes, allowInvalid: true);
+    if (operand is CosString) {
+      return latin1.decode(operand.bytes, allowInvalid: true);
+    }
     if (operand is CosArray) {
       final b = StringBuffer();
       for (final item in operand.items) {
@@ -641,8 +628,14 @@ extension PdfTaggingAndArchival on PdfEditor {
 
   static const List<double> _stIdentity = [1, 0, 0, 1, 0, 0];
 
-  static List<double> _stMatrixOf(List<CosObject> o) =>
-      [_stNum(o[0]), _stNum(o[1]), _stNum(o[2]), _stNum(o[3]), _stNum(o[4]), _stNum(o[5])];
+  static List<double> _stMatrixOf(List<CosObject> o) => [
+        _stNum(o[0]),
+        _stNum(o[1]),
+        _stNum(o[2]),
+        _stNum(o[3]),
+        _stNum(o[4]),
+        _stNum(o[5])
+      ];
 
   /// a·b in PDF row-vector convention (a applied first).
   static List<double> _stMul(List<double> a, List<double> b) => [

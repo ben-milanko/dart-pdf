@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1
+
+- Text boxes can use installed platform fonts through the editor font menu;
+  selected fonts are embedded so documents render and print consistently.
+- Includes the 1.3.1 package-suite updates for custom editor toolbar chrome,
+  OCR rasterization, rendering, annotation editing robustness, and interpreter
+  color handling.
+
 ## 1.2.3
 
 - Print the open document through the OS print dialog on every platform

@@ -223,7 +223,8 @@ class _PdfReaderState extends State<PdfReader> {
   void _syncWorker() {
     if (identical(_session.document, _workerDoc)) return;
     _worker?.dispose();
-    _worker = PdfRenderWorker.start(_session.bytes);
+    _worker = startPdfRenderWorker(_session.bytes,
+        pageCount: _session.document.pageCount);
     _workerDoc = _session.document;
   }
 
@@ -379,49 +380,41 @@ class _PdfReaderState extends State<PdfReader> {
                 ],
               ),
             Expanded(
-              // keyed so a panel appearing never recreates the viewer
-              // element (which would reset the reading position)
-              child: Stack(children: [
-                Positioned.fill(
-                  child: Row(children: [
-                    if (showThumbnailsPanel && !useSheets)
-                      thumbnails(bottomSheet: false),
-                    Expanded(
-                      key: const ValueKey('pdf-shell-viewer'),
-                      // rebuilds on session changes too: filling a form
-                      // produces a revision, so the viewer must track
-                      // _session.document, not the build-time snapshot
-                      child: ListenableBuilder(
-                        listenable: _session,
-                        builder: (context, _) => prefs.showReflowView
-                            ? PdfReflowView(
-                                document: _session.document,
-                                backgroundColor: widget.backgroundColor,
-                              )
-                            : PdfViewer(
-                                document: _session.document,
-                                controller: _viewer,
-                                formController:
-                                    features.fillForms ? _session : null,
-                                onAction: widget.onAction,
-                                onLaunchUrl: widget.onLaunchUrl,
-                                pageOverlayBuilder: widget.pageOverlayBuilder,
-                                initialFit: widget.initialFit,
-                                backgroundColor: widget.backgroundColor,
-                                pageColor: pageColor,
-                                showAnnotations: prefs.showAnnotations,
-                                highlightFormFields: prefs.highlightFormFields,
-                                renderWorker: _worker,
-                                rasterCache: widget.rasterCache,
-                                textCache: widget.textCache,
-                                documentId: _documentKey,
-                              ),
-                      ),
-                    ),
-                  ]),
+              child: PdfShellPanelLayout(
+                leadingPanels: [
+                  if (showThumbnailsPanel && !useSheets)
+                    thumbnails(bottomSheet: false),
+                ],
+                // rebuilds on session changes too: filling a form produces a
+                // revision, so the viewer must track _session.document, not
+                // the build-time snapshot
+                viewer: ListenableBuilder(
+                  listenable: _session,
+                  builder: (context, _) => prefs.showReflowView
+                      ? PdfReflowView(
+                          document: _session.document,
+                          backgroundColor: widget.backgroundColor,
+                        )
+                      : PdfViewer(
+                          document: _session.document,
+                          controller: _viewer,
+                          formController: features.fillForms ? _session : null,
+                          onAction: widget.onAction,
+                          onLaunchUrl: widget.onLaunchUrl,
+                          pageOverlayBuilder: widget.pageOverlayBuilder,
+                          initialFit: widget.initialFit,
+                          backgroundColor: widget.backgroundColor,
+                          pageColor: pageColor,
+                          showAnnotations: prefs.showAnnotations,
+                          highlightFormFields: prefs.highlightFormFields,
+                          renderWorker: _worker,
+                          rasterCache: widget.rasterCache,
+                          textCache: widget.textCache,
+                          documentId: _documentKey,
+                        ),
                 ),
-                if (useSheets && showThumbnailsPanel)
-                  pdfShellBottomSheets([
+                bottomSheets: [
+                  if (useSheets && showThumbnailsPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-thumbnails-sheet'),
                       title: 'Pages',
@@ -430,8 +423,8 @@ class _PdfReaderState extends State<PdfReader> {
                       onClose: () => prefs.showThumbnailSidebar = false,
                       child: thumbnails(bottomSheet: true),
                     ),
-                  ]),
-              ]),
+                ],
+              ),
             ),
           ]);
         },

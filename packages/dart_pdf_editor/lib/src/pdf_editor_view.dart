@@ -23,6 +23,19 @@ import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'theme.dart';
 
+/// Builds the editing toolbar for [PdfEditorView].
+///
+/// Hosts can return [PdfEditingToolbar] with their own configuration, wrap it,
+/// or replace it entirely with custom Material chrome that drives the supplied
+/// [PdfEditingController] and [PdfViewerController]. Returning null hides the
+/// toolbar for this build while leaving editing gestures and keyboard shortcuts
+/// active.
+typedef PdfEditorToolbarBuilder = Widget? Function(
+  BuildContext context,
+  PdfEditingController controller,
+  PdfViewerController viewerController,
+);
+
 /// Which pieces of chrome a [PdfEditorView] shows. Everything defaults
 /// on; turn features off rather than rebuilding the layout by hand.
 class PdfEditorFeatures {
@@ -201,6 +214,7 @@ class PdfEditorView extends StatefulWidget {
     this.toolShortcuts = pdfEditToolShortcuts,
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
+    this.toolbarBuilder,
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
     this.pageColor,
@@ -328,6 +342,20 @@ class PdfEditorView extends StatefulWidget {
   /// Custom widgets shown after the stock editing toolbar controls.
   final List<PdfEditingToolbarWidgetBuilder> toolbarTrailing;
 
+  /// Builds or replaces the bottom editing toolbar.
+  ///
+  /// This is the escape hatch for apps that need fully custom editor
+  /// components. The stock toolbar already supports hiding tool groups,
+  /// filtering individual tools, and adding [toolbarLeading] /
+  /// [toolbarTrailing] actions; use [toolbarBuilder] when the whole toolbar
+  /// should be host-owned instead. The builder receives the active edit session
+  /// and viewer controller, including internally owned instances when [bytes]
+  /// is used.
+  ///
+  /// [PdfEditorFeatures.toolbar] still gates this builder. Set that feature to
+  /// false to disable all toolbar chrome regardless of this value.
+  final PdfEditorToolbarBuilder? toolbarBuilder;
+
   /// See [PdfViewer.initialFit].
   final PdfViewerFit initialFit;
 
@@ -450,7 +478,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   void _syncWorker() {
     if (identical(_session.document, _workerDoc)) return;
     _worker?.dispose();
-    _worker = PdfRenderWorker.start(_session.bytes);
+    _worker = startPdfRenderWorker(_session.bytes,
+        pageCount: _session.document.pageCount);
     _workerDoc = _session.document;
   }
 
@@ -531,6 +560,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final session = _session;
           final prefs = _prefs;
           final pageColor = widget.pageColor ?? prefs.pageColor;
+          // the persistent thumbnail cache, bound to this document, so the
+          // page grid/strip persist their rasters and reopen onto them
+          final key = _documentKey;
+          final thumbnailDisk = (widget.rasterCache != null && key != null)
+              ? widget.rasterCache!.forDocument(key)
+              : null;
           final showThumbnails =
               pdfShellShowThumbnailSidebar(prefs, constraints);
           // on a narrow screen the panels float up from the bottom as
@@ -564,6 +599,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
                 renderWorker: _worker,
+                rasterCache: thumbnailDisk,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
               PdfSearchResultsPanel(
@@ -615,6 +651,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onExportPages: widget.onExportPages,
                 onOpenPage: (_) => prefs.showThumbnailView = false,
                 renderWorker: _worker,
+                rasterCache: thumbnailDisk,
               );
 
           // the full-area page grid replaces the page viewer; it wins over
@@ -688,24 +725,26 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
           final toolbar = !showToolbar
               ? null
-              : PdfEditingToolbar(
-                  controller: session,
-                  viewerController: _viewer,
-                  // save lives in the header now, not the dock
-                  textPrompt: widget.textPrompt ?? showPdfTextPrompt,
-                  fontPicker: widget.fontPicker,
-                  palette: widget.palette,
-                  tools: features.tools,
-                  groups: features.toolGroups,
-                  toolShortcuts: _toolShortcuts,
-                  showMarkup: features.markup,
-                  showUndoRedo: features.undoRedo,
-                  showColor: features.colorControls,
-                  showStyle: features.styleControls,
-                  showFlatten: features.flatten,
-                  leading: widget.toolbarLeading,
-                  trailing: widget.toolbarTrailing,
-                );
+              : widget.toolbarBuilder?.call(context, session, _viewer) ??
+                  PdfEditingToolbar(
+                    controller: session,
+                    viewerController: _viewer,
+                    // save lives in the header now, not the dock
+                    textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                    imagePicker: widget.imagePicker,
+                    fontPicker: widget.fontPicker,
+                    palette: widget.palette,
+                    tools: features.tools,
+                    groups: features.toolGroups,
+                    toolShortcuts: _toolShortcuts,
+                    showMarkup: features.markup,
+                    showUndoRedo: features.undoRedo,
+                    showColor: features.colorControls,
+                    showStyle: features.styleControls,
+                    showFlatten: features.flatten,
+                    leading: widget.toolbarLeading,
+                    trailing: widget.toolbarTrailing,
+                  );
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
             icon: Icons.display_settings_outlined,
@@ -857,73 +896,69 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 ],
               ),
             Expanded(
-              // on wide screens the toolbar floats over the bottom of the
-              // content, Acrobat/Bluebeam-style; on phones it docks below
-              // (see dockToolbar) so its solid bar never hides the page
-              child: Stack(children: [
-                Positioned.fill(
-                  // keyed so a panel appearing never recreates the viewer
-                  // element (which would reset the reading position)
-                  child: Row(children: [
-                    if (showThumbnailsPanel && !useSheets)
-                      thumbnails(bottomSheet: false),
-                    if (showSearchPanel && !useSheets)
-                      searchResults(bottomSheet: false),
-                    Expanded(
-                      key: const ValueKey('pdf-shell-viewer'),
-                      child: reflowActive
-                          ? PdfReflowView(
-                              document: session.document,
-                              backgroundColor: widget.backgroundColor,
-                            )
-                          : PdfViewer(
-                              document: session.document,
-                              controller: _viewer,
-                              editing: session,
-                              onAction: widget.onAction,
-                              pageOverlayBuilder: widget.pageOverlayBuilder,
-                              annotationMenuBuilder:
-                                  widget.annotationMenuBuilder,
-                              formImagePicker: widget.formImagePicker,
-                              imagePicker: widget.imagePicker,
-                              onSnapshot: widget.onSnapshot,
-                              editingTextPrompt: widget.textPrompt,
-                              initialFit: widget.initialFit,
-                              toolShortcuts: _toolShortcuts,
-                              backgroundColor: widget.backgroundColor,
-                              pageColor: pageColor,
-                              showAnnotations: prefs.showAnnotations,
-                              highlightFormFields: prefs.highlightFormFields,
-                              renderWorker: _worker,
-                              rasterCache: widget.rasterCache,
-                              textCache: widget.textCache,
-                              documentId: _documentKey,
-                            ),
-                    ),
-                    if (showAnnotationsPanel && !useSheets)
-                      annotations(bottomSheet: false),
-                    if (showPropertiesPanel && !useSheets)
-                      properties(bottomSheet: false),
-                  ]),
-                ),
-                // the page grid covers the (still-mounted) viewer: a tap can
-                // scroll the live viewer underneath, then the grid closes to
-                // reveal the chosen page. Opaque, so the viewer takes no taps
-                // while it shows.
-                if (gridActive) Positioned.fill(child: pageGrid()),
-                if (toolbar != null && !dockToolbar)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: toolbar,
-                  ),
-                if (sheets.isNotEmpty) pdfShellBottomSheets(sheets),
-              ]),
+              child: PdfShellPanelLayout(
+                leadingPanels: [
+                  if (showThumbnailsPanel && !useSheets)
+                    thumbnails(bottomSheet: false),
+                  if (showSearchPanel && !useSheets)
+                    searchResults(bottomSheet: false),
+                ],
+                viewer: reflowActive
+                    ? PdfReflowView(
+                        document: session.document,
+                        backgroundColor: widget.backgroundColor,
+                      )
+                    : PdfViewer(
+                        document: session.document,
+                        controller: _viewer,
+                        editing: session,
+                        onAction: widget.onAction,
+                        pageOverlayBuilder: widget.pageOverlayBuilder,
+                        annotationMenuBuilder: widget.annotationMenuBuilder,
+                        formImagePicker: widget.formImagePicker,
+                        imagePicker: widget.imagePicker,
+                        onSnapshot: widget.onSnapshot,
+                        editingTextPrompt: widget.textPrompt,
+                        initialFit: widget.initialFit,
+                        toolShortcuts: _toolShortcuts,
+                        backgroundColor: widget.backgroundColor,
+                        pageColor: pageColor,
+                        showAnnotations: prefs.showAnnotations,
+                        highlightFormFields: prefs.highlightFormFields,
+                        renderWorker: _worker,
+                        rasterCache: widget.rasterCache,
+                        textCache: widget.textCache,
+                        documentId: _documentKey,
+                        // while the full-area page grid overlays the viewer,
+                        // pause the viewer entirely: its (invisible) page
+                        // renders and preview prerender both compete for the
+                        // single render worker and would starve the grid's own
+                        // thumbnails. It stays laid out, so tapping a grid
+                        // page still scrolls it before the grid closes.
+                        active: !gridActive,
+                      ),
+                trailingPanels: [
+                  if (showAnnotationsPanel && !useSheets)
+                    annotations(bottomSheet: false),
+                  if (showPropertiesPanel && !useSheets)
+                    properties(bottomSheet: false),
+                ],
+                bottomSheets: sheets,
+                overlays: [
+                  // the page grid covers the (still-mounted) viewer: a tap can
+                  // scroll the live viewer underneath, then the grid closes to
+                  // reveal the chosen page. Opaque, so the viewer takes no
+                  // taps while it shows.
+                  if (gridActive) Positioned.fill(child: pageGrid()),
+                ],
+                // on wide screens the toolbar floats over the bottom of the
+                // content, Acrobat/Bluebeam-style; on phones it docks below
+                // (see dockToolbar) so its solid bar never hides the page
+                floatingToolbar:
+                    toolbar != null && !dockToolbar ? toolbar : null,
+                dockedToolbar: toolbar != null && dockToolbar ? toolbar : null,
+              ),
             ),
-            // the mobile (solid-bar) toolbar docks below the content so it
-            // never covers the page; the floating variant stays in the Stack
-            if (toolbar != null && dockToolbar) toolbar,
           ]);
         },
       );

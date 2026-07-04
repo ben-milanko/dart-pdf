@@ -12,6 +12,10 @@ import 'editing_preferences.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
+import 'thumbnail_cache.dart';
+
+PdfEmbeddableImage _decodeEmbeddableImage(Uint8List bytes) =>
+    PdfEmbeddableImage.decode(bytes);
 
 /// The annotation tools a [PdfEditingController] can arm.
 ///
@@ -119,8 +123,9 @@ enum PdfEditTool {
   image,
 
   /// Tap to select a page content element (text run, path, image); the
-  /// selection can be deleted or, for text, rewritten. Edits the page's
-  /// content stream itself, not annotations.
+  /// selection can be deleted, text can be rewritten, and images can be
+  /// replaced. Edits remove from the page's content stream itself; replacement
+  /// images are inserted as movable image stamps.
   content,
 
   /// Interactive forms: tap a field widget to fill it (text fields open
@@ -235,11 +240,21 @@ class PdfEditingController extends ChangeNotifier {
   /// live there too).
   final PdfEditingPreferences preferences;
 
+  /// The session's shared page-thumbnail cache (and its viewport-ordered
+  /// render queue). Every thumbnail surface — the docked strip, the
+  /// full-area page grid — draws from this one cache, so a page rendered for
+  /// one is reused by the other and survives a tile scrolling out of view
+  /// and back. Lives as long as the session; a new session brings a fresh,
+  /// empty cache (render stamps restart at zero, so stale keys can't collide
+  /// across sessions). See [PdfThumbnailCache].
+  final PdfThumbnailCache thumbnailCache = PdfThumbnailCache();
+
   @override
   void dispose() {
     _inkTimer?.cancel();
     _flashTimer?.cancel();
     _changeFeed?.close();
+    thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
     super.dispose();
   }
@@ -631,7 +646,13 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.rectangle ||
         PdfEditTool.ellipse ||
         PdfEditTool.polygon =>
-          const {'color', 'strokeWidth', 'opacity', 'lineStyle', 'shapeFillColor'},
+          const {
+            'color',
+            'strokeWidth',
+            'opacity',
+            'lineStyle',
+            'shapeFillColor'
+          },
         PdfEditTool.line || PdfEditTool.polyline => const {
             'color',
             'strokeWidth',
@@ -640,8 +661,12 @@ class PdfEditingController extends ChangeNotifier {
             'lineStartEnding',
             'lineEndEnding',
           },
-        PdfEditTool.arrow =>
-          const {'color', 'strokeWidth', 'opacity', 'lineStyle'},
+        PdfEditTool.arrow => const {
+            'color',
+            'strokeWidth',
+            'opacity',
+            'lineStyle'
+          },
         PdfEditTool.measureDistance ||
         PdfEditTool.measurePerimeter ||
         PdfEditTool.measureArea ||
@@ -1174,9 +1199,9 @@ class PdfEditingController extends ChangeNotifier {
   /// Marks a single rectangular region for redaction (a /Redact
   /// annotation, fill black). This is the MARK phase — nothing is removed
   /// until [applyRedactions]. Undoable like any other edit until burned.
-  void addRedaction(int pageIndex, PdfRect rect) => apply(
-      (e) => e.addRedaction(pageIndex, [rect], author: author),
-      pages: [pageIndex]);
+  void addRedaction(int pageIndex, PdfRect rect) =>
+      apply((e) => e.addRedaction(pageIndex, [rect], author: author),
+          pages: [pageIndex]);
 
   /// Marks the text runs in [quadsByPage] for redaction (one /Redact
   /// annotation per page, fill black), e.g. from a text selection. Mirrors
@@ -1262,9 +1287,8 @@ class PdfEditingController extends ChangeNotifier {
               dashPattern: _lineDashPattern,
               startEnding:
                   arrow ? PdfLineEnding.none : preferences.lineStartEnding,
-              endEnding: arrow
-                  ? PdfLineEnding.closedArrow
-                  : preferences.lineEndEnding,
+              endEnding:
+                  arrow ? PdfLineEnding.closedArrow : preferences.lineEndEnding,
               author: author),
           pages: [pageIndex]);
 
@@ -1576,20 +1600,17 @@ class PdfEditingController extends ChangeNotifier {
     } catch (_) {
       return false;
     }
-    final box = _page(pageIndex).cropBox;
-    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
-    var w = aspect >= 1 ? maxSize : maxSize * aspect;
-    var h = aspect >= 1 ? maxSize / aspect : maxSize;
-    final maxW = box.width * 0.9, maxH = box.height * 0.9;
-    if (w > maxW) (w, h) = (maxW, h * maxW / w);
-    if (h > maxH) (w, h) = (w * maxH / h, maxH);
-    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
-    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
-    return apply(
-        (e) => e.addImageStamp(pageIndex,
-            PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
-            opacity: preferences.opacity, author: author),
-        pages: [pageIndex]);
+    return _placeDecodedImage(pageIndex, x, y, image, maxSize: maxSize);
+  }
+
+  /// Async counterpart to [placeImage]. PNG preparation can be CPU-heavy for
+  /// large images, so the built-in UI uses this worker-backed path.
+  Future<bool> placeImageAsync(
+      int pageIndex, double x, double y, Uint8List imageBytes,
+      {double maxSize = 200}) async {
+    final image = await _decodeEmbeddableImageAsync(imageBytes);
+    if (image == null) return false;
+    return _placeDecodedImage(pageIndex, x, y, image, maxSize: maxSize);
   }
 
   /// Inserts [imageBytes] (PNG or JPEG) fitted within [box] (page space),
@@ -1604,6 +1625,47 @@ class PdfEditingController extends ChangeNotifier {
     } catch (_) {
       return false;
     }
+    return _addDecodedImageInRect(pageIndex, box, image);
+  }
+
+  /// Async counterpart to [addImageInRect]. See [placeImageAsync].
+  Future<bool> addImageInRectAsync(
+      int pageIndex, PdfRect box, Uint8List imageBytes) async {
+    if (box.width <= 0 || box.height <= 0) return false;
+    final image = await _decodeEmbeddableImageAsync(imageBytes);
+    if (image == null) return false;
+    return _addDecodedImageInRect(pageIndex, box, image);
+  }
+
+  Future<PdfEmbeddableImage?> _decodeEmbeddableImageAsync(
+      Uint8List imageBytes) async {
+    try {
+      return await compute(_decodeEmbeddableImage, imageBytes,
+          debugLabel: 'pdf-image-embed');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _placeDecodedImage(
+      int pageIndex, double x, double y, PdfEmbeddableImage image,
+      {required double maxSize}) {
+    final box = _page(pageIndex).cropBox;
+    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+    var w = aspect >= 1 ? maxSize : maxSize * aspect;
+    var h = aspect >= 1 ? maxSize / aspect : maxSize;
+    final maxW = box.width * 0.9, maxH = box.height * 0.9;
+    if (w > maxW) (w, h) = (maxW, h * maxW / w);
+    if (h > maxH) (w, h) = (w * maxH / h, maxH);
+    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
+    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
+    return _addImageStamp(pageIndex,
+        PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image);
+  }
+
+  bool _addDecodedImageInRect(
+      int pageIndex, PdfRect box, PdfEmbeddableImage image) {
+    if (box.width <= 0 || box.height <= 0) return false;
     final aspect = image.height == 0 ? 1.0 : image.width / image.height;
     var w = box.width, h = box.height;
     if (w / h > aspect) {
@@ -1612,9 +1674,13 @@ class PdfEditingController extends ChangeNotifier {
       h = w / aspect;
     }
     final cx = (box.left + box.right) / 2, cy = (box.bottom + box.top) / 2;
+    return _addImageStamp(pageIndex,
+        PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image);
+  }
+
+  bool _addImageStamp(int pageIndex, PdfRect rect, PdfEmbeddableImage image) {
     return apply(
-        (e) => e.addImageStamp(pageIndex,
-            PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
+        (e) => e.addImageStamp(pageIndex, rect, image,
             opacity: preferences.opacity, author: author),
         pages: [pageIndex]);
   }
@@ -1787,8 +1853,8 @@ class PdfEditingController extends ChangeNotifier {
     final cx = x.clamp(box.left + s / 2, box.right - s / 2);
     final cy = y.clamp(box.bottom + s / 2, box.top - s / 2);
     return apply(
-        (e) => e.addCheckMark(pageIndex,
-            PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
+        (e) => e.addCheckMark(
+            pageIndex, PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
             color: _colorValue, opacity: preferences.opacity, author: author),
         pages: [pageIndex]);
   }
@@ -2016,9 +2082,8 @@ class PdfEditingController extends ChangeNotifier {
   /// returns false) when nothing is selected or the selection would empty
   /// the document — at least one page must remain. Clears the selection.
   bool removeSelectedPages() {
-    final doomed = _selectedPages
-        .where((i) => i >= 0 && i < _document.pageCount)
-        .toList();
+    final doomed =
+        _selectedPages.where((i) => i >= 0 && i < _document.pageCount).toList();
     if (doomed.isEmpty || doomed.length >= _document.pageCount) return false;
     _selected.clear();
     _selectedPages.clear();
@@ -3222,8 +3287,7 @@ class PdfEditingController extends ChangeNotifier {
   /// /PolyLine in place — one revision, one undo, and the annotation
   /// keeps its /Annots slot and object number. Pass null for an axis to
   /// leave it unchanged.
-  void setSelectedLineEndings(
-      {PdfLineEnding? start, PdfLineEnding? end}) {
+  void setSelectedLineEndings({PdfLineEnding? start, PdfLineEnding? end}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canSetLineEndings) return;
     apply(
@@ -3255,8 +3319,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Restyles the selected measurement's caption font and/or size in
   /// place — one revision, one undo, and the annotation keeps its /Annots
   /// slot and object number. Pass null for an axis to leave it unchanged.
-  void setSelectedMeasurementCaption(
-      {PdfStandardFont? font, double? size}) {
+  void setSelectedMeasurementCaption({PdfStandardFont? font, double? size}) {
     final annotation = selectedAnnotation;
     if (annotation == null || !canRestyleMeasurementCaption) return;
     apply(
@@ -3715,6 +3778,19 @@ class PdfEditingController extends ChangeNotifier {
       selectedElement?.kind == PdfElementKind.text &&
       (selectedElement?.text?.isNotEmpty ?? false);
 
+  /// Whether the selected element is an image-like content draw that can be
+  /// removed from the page stream and replaced by an image stamp in the same
+  /// bounds.
+  bool get canReplaceSelectedElementImage {
+    return _isReplaceableImageElement(selectedElement);
+  }
+
+  bool _isReplaceableImageElement(PdfContentElement? element) {
+    return element?.bounds != null &&
+        (element?.kind == PdfElementKind.image ||
+            element?.kind == PdfElementKind.inlineImage);
+  }
+
   /// Selects the topmost content element whose bounds contain ([x], [y])
   /// on [pageIndex]; clears the selection when nothing is hit. Bounds are
   /// approximate (see [PdfContentElement.bounds]).
@@ -3771,6 +3847,85 @@ class PdfEditingController extends ChangeNotifier {
     return count;
   }
 
+  /// Replaces the selected page-content image with [imageBytes] (PNG or JPEG).
+  ///
+  /// The original image draw is removed from the content stream and the new
+  /// image is inserted as a stamp annotation fitted into the same page-space
+  /// bounds. This keeps the replacement movable/resizable while ensuring the
+  /// old baked-in image is not left underneath it. Returns false when the
+  /// selection is not a replaceable image or [imageBytes] cannot be decoded.
+  bool replaceSelectedElementImage(Uint8List imageBytes) {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    final bounds = element?.bounds;
+    if (selected == null ||
+        element == null ||
+        bounds == null ||
+        !_isReplaceableImageElement(element) ||
+        bounds.width <= 0 ||
+        bounds.height <= 0) {
+      return false;
+    }
+    final PdfEmbeddableImage image;
+    try {
+      image = PdfEmbeddableImage.decode(imageBytes);
+    } catch (_) {
+      return false;
+    }
+    return _replaceElementImage(selected, element, bounds, image);
+  }
+
+  /// Async counterpart to [replaceSelectedElementImage]. The built-in toolbar
+  /// uses this so large PNG replacement does its decode/compress work off the
+  /// UI isolate before the PDF revision is committed.
+  Future<bool> replaceSelectedElementImageAsync(Uint8List imageBytes) async {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    final bounds = element?.bounds;
+    if (selected == null ||
+        element == null ||
+        bounds == null ||
+        !_isReplaceableImageElement(element) ||
+        bounds.width <= 0 ||
+        bounds.height <= 0) {
+      return false;
+    }
+    final image = await _decodeEmbeddableImageAsync(imageBytes);
+    if (image == null || _selectedElement != selected) return false;
+    final current = selectedElement;
+    final currentBounds = current?.bounds;
+    if (current == null ||
+        currentBounds == null ||
+        current.id != element.id ||
+        !_isReplaceableImageElement(current) ||
+        currentBounds.width <= 0 ||
+        currentBounds.height <= 0) {
+      return false;
+    }
+    return _replaceElementImage(selected, current, currentBounds, image);
+  }
+
+  bool _replaceElementImage((int page, int id) selected,
+      PdfContentElement element, PdfRect bounds, PdfEmbeddableImage image) {
+    final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+    var w = bounds.width, h = bounds.height;
+    if (w / h > aspect) {
+      w = h * aspect;
+    } else {
+      h = w / aspect;
+    }
+    final cx = (bounds.left + bounds.right) / 2;
+    final cy = (bounds.bottom + bounds.top) / 2;
+    final elements = elementsOn(selected.$1);
+    return apply(
+        (e) => e
+          ..deleteElements(elements, [element.id])
+          ..addImageStamp(selected.$1,
+              PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
+              opacity: preferences.opacity, author: author),
+        pages: [selected.$1]);
+  }
+
   /// Edits the selected text element and re-flows its whole paragraph via
   /// [PdfEditor.reflowText]: when the replacement changes the paragraph's
   /// line count, the paragraph re-wraps at its right margin and the lines
@@ -3788,12 +3943,10 @@ class PdfEditingController extends ChangeNotifier {
       return false;
     }
     var reflowed = false;
-    apply(
-        (e) => reflowed = e.reflowText(selected.$1, element.text!, text),
+    apply((e) => reflowed = e.reflowText(selected.$1, element.text!, text),
         pages: [selected.$1]);
     return reflowed;
   }
-
 
   // ---------------------------------------------------------------------
   // forms
@@ -3851,8 +4004,7 @@ class PdfEditingController extends ChangeNotifier {
     final form = acroForm;
     if (form == null) return const [];
     final annotations = _page(pageIndex).annotations;
-    final result =
-        <(PdfFormField, int, PdfAnnotation)>[];
+    final result = <(PdfFormField, int, PdfAnnotation)>[];
     for (final annotation in annotations) {
       if (annotation.subtype != 'Widget' ||
           annotation.isHidden ||
@@ -3948,6 +4100,15 @@ class PdfEditingController extends ChangeNotifier {
     } catch (_) {
       return false;
     }
+    return _fillField(name, const {PdfFieldType.pushButton},
+        (e, f) => e.setButtonImage(f, image));
+  }
+
+  /// Async counterpart to [setFormButtonImage]. See [placeImageAsync].
+  Future<bool> setFormButtonImageAsync(
+      String name, Uint8List imageBytes) async {
+    final image = await _decodeEmbeddableImageAsync(imageBytes);
+    if (image == null) return false;
     return _fillField(name, const {PdfFieldType.pushButton},
         (e, f) => e.setButtonImage(f, image));
   }
@@ -4100,8 +4261,7 @@ class PdfEditingController extends ChangeNotifier {
       size: size == 0 ? 12 : size,
       autoSize: size == 0,
       color: Color(0xFF000000 | (field.appearanceColor ?? 0)),
-      align: PdfTextAlign.values.firstWhere(
-          (a) => a.quadding == field.quadding,
+      align: PdfTextAlign.values.firstWhere((a) => a.quadding == field.quadding,
           orElse: () => PdfTextAlign.left),
       multiline: field.isMultiline,
     );

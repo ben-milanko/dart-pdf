@@ -1201,8 +1201,8 @@ extension PdfAnnotationEditing on PdfEditor {
     final isPolygon = kind == PdfMeasurementKind.area ||
         kind == PdfMeasurementKind.areaCutout ||
         kind == PdfMeasurementKind.volume;
-    final isLine = kind == PdfMeasurementKind.distance ||
-        kind == PdfMeasurementKind.slope;
+    final isLine =
+        kind == PdfMeasurementKind.distance || kind == PdfMeasurementKind.slope;
     final isCount = kind == PdfMeasurementKind.count;
     // the classic three are recognised by subtype; the rest need /Takeoff.
     final classic = kind == PdfMeasurementKind.distance ||
@@ -1216,7 +1216,9 @@ extension PdfAnnotationEditing on PdfEditor {
     final ContentWriter content;
     if (isCount) {
       content = _countMarker(points.first,
-          radius: markerR, strokeColor: strokeColor, strokeWidth: strokeWidth,
+          radius: markerR,
+          strokeColor: strokeColor,
+          strokeWidth: strokeWidth,
           hasAlpha: gs != null);
     } else {
       final drawPoints =
@@ -1279,7 +1281,8 @@ extension PdfAnnotationEditing on PdfEditor {
                 ? 'Square'
                 : 'PolyLine';
     final intent = switch (kind) {
-      PdfMeasurementKind.distance || PdfMeasurementKind.slope =>
+      PdfMeasurementKind.distance ||
+      PdfMeasurementKind.slope =>
         'LineDimension',
       PdfMeasurementKind.perimeter ||
       PdfMeasurementKind.angle ||
@@ -1301,9 +1304,9 @@ extension PdfAnnotationEditing on PdfEditor {
           '/${captionFont.resourceName} ${ContentWriter.fmt(captionSize)} Tf');
     if (m != null) dict['Measure'] = m.toCosDictionary();
     if (!classic || label != null) {
-      dict['Takeoff'] = PdfTakeoffData(
-              kind: kind, depth: depth, holes: holes, label: label)
-          .toCosDictionary();
+      dict['Takeoff'] =
+          PdfTakeoffData(kind: kind, depth: depth, holes: holes, label: label)
+              .toCosDictionary();
     }
     final leArray =
         CosArray([CosName(startEnding.pdfName), CosName(endEnding.pdfName)]);
@@ -1319,13 +1322,16 @@ extension PdfAnnotationEditing on PdfEditor {
       dict['Vertices'] = _pointArray(points);
       if (!isPolygon) dict['LE'] = leArray; // endings ride first/last vertex
     }
-    if (isPolygon && fillColor != null) dict['IC'] = _colorComponents(fillColor);
+    if (isPolygon && fillColor != null) {
+      dict['IC'] = _colorComponents(fillColor);
+    }
 
     _addAnnotation(
       pageIndex,
       dict,
       _form(rect, content,
-          resources: _resources(extGState: gs, font: _standardFont(captionFont))),
+          resources:
+              _resources(extGState: gs, font: _standardFont(captionFont))),
       name: name,
     );
   }
@@ -1368,7 +1374,9 @@ extension PdfAnnotationEditing on PdfEditor {
     final bx = mid.$1, by = mid.$2;
     final cx = end.$1, cy = end.$2;
     final d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-    final a2 = ax * ax + ay * ay, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+    final a2 = ax * ax + ay * ay,
+        b2 = bx * bx + by * by,
+        c2 = cx * cx + cy * cy;
     final ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
     final uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
     double ang((double, double) p) => math.atan2(p.$2 - uy, p.$1 - ux);
@@ -1381,6 +1389,7 @@ extension PdfAnnotationEditing on PdfEditor {
       }
       return v;
     }
+
     final a0 = ang(start);
     final leg1 = wrap(ang(mid) - a0);
     final leg2 = wrap(ang(end) - ang(mid));
@@ -1430,7 +1439,10 @@ extension PdfAnnotationEditing on PdfEditor {
           ((a.$1 + b.$1) / 2, (a.$2 + b.$2) / 2)
         );
       case PdfMeasurementKind.perimeter:
-        return (m!.formatDistance(pdfPolylineLength(points)), _centroid(points));
+        return (
+          m!.formatDistance(pdfPolylineLength(points)),
+          _centroid(points)
+        );
       case PdfMeasurementKind.angle:
         return (
           angle(pdfAngleDegrees(points[1], points[0], points[2])),
@@ -1502,7 +1514,8 @@ extension PdfAnnotationEditing on PdfEditor {
     final size = double.tryParse(tf?.group(2) ?? '') ?? 10;
     final font = tf == null
         ? PdfStandardFont.helvetica
-        : (PdfStandardFont.tryFromName(tf.group(1)!) ?? PdfStandardFont.helvetica);
+        : (PdfStandardFont.tryFromName(tf.group(1)!) ??
+            PdfStandardFont.helvetica);
     final rg = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg\b')
         .allMatches(da)
         .lastOrNull;
@@ -1587,8 +1600,7 @@ extension PdfAnnotationEditing on PdfEditor {
     // characters as 2-byte Unicode code points. The renderer substitutes a
     // system font that covers the full Unicode range.
     PdfUnicodeFont? unicodeFont;
-    if (font is PdfStandardFont &&
-        text.codeUnits.any((c) => c > 0xFF)) {
+    if (font is PdfStandardFont && text.codeUnits.any((c) => c > 0xFF)) {
       unicodeFont = PdfUnicodeFont(font);
       unicodeFont.resetUsage();
     }
@@ -1667,8 +1679,7 @@ extension PdfAnnotationEditing on PdfEditor {
         if (run.font is PdfStandardFont &&
             run.text.codeUnits.any((c) => c > 0xFF))
           PdfFreeTextRun(run.text,
-              font: PdfUnicodeFont(run.font as PdfStandardFont)
-                ..resetUsage(),
+              font: PdfUnicodeFont(run.font as PdfStandardFont)..resetUsage(),
               fontSize: run.fontSize,
               color: run.color)
         else
@@ -1740,8 +1751,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// weight/slant so the styling reads even if a viewer ignores the family.
   static String _richSpanStyle(PdfFreeTextRun run) {
     final font = run.font;
-    final family =
-        font is PdfStandardFont ? font.baseFont : font.resourceName;
+    final family = font is PdfStandardFont ? font.baseFont : font.resourceName;
     final parts = [
       'font-family:$family',
       'font-size:${ContentWriter.fmt(run.fontSize)}pt',
@@ -1768,8 +1778,8 @@ extension PdfAnnotationEditing on PdfEditor {
     int fallbackColor = 0x000000,
   }) {
     final runs = <PdfFreeTextRun>[];
-    for (final span
-        in RegExp(r'<span\b([^>]*)>(.*?)</span>', dotAll: true).allMatches(rc)) {
+    for (final span in RegExp(r'<span\b([^>]*)>(.*?)</span>', dotAll: true)
+        .allMatches(rc)) {
       final attrs = span.group(1) ?? '';
       final style =
           RegExp(r'style\s*=\s*"([^"]*)"').firstMatch(attrs)?.group(1) ?? '';
@@ -2305,10 +2315,6 @@ extension PdfAnnotationEditing on PdfEditor {
   /// identity scan plus one staged replacement per removed item.
   void removeAnnotations(int pageIndex, Iterable<PdfAnnotation> annotations) {
     final cos = document.cos;
-    final page = document.page(pageIndex);
-    final raw = page.dict['Annots'];
-    final array = cos.resolve(raw);
-    if (array is! CosArray) return;
     final targets = Set<CosDictionary>.identity();
     for (final annotation in annotations) {
       targets.add(annotation.dict);
@@ -2316,17 +2322,8 @@ extension PdfAnnotationEditing on PdfEditor {
       if (popup is CosDictionary) targets.add(popup);
     }
     if (targets.isEmpty) return;
-    final before = array.items.length;
-    array.items.removeWhere((item) {
-      final resolved = cos.resolve(item);
-      return resolved is CosDictionary && targets.contains(resolved);
-    });
-    if (array.items.length == before) return;
-    if (raw is CosReference) {
-      _updater.replaceObject(raw.objectNumber, array);
-    } else {
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, pageIndex).removeWhere((_, resolved) =>
+        resolved is CosDictionary && targets.contains(resolved));
   }
 
   /// Moves [annotations] to the end of the page's /Annots array,
@@ -2344,35 +2341,10 @@ extension PdfAnnotationEditing on PdfEditor {
 
   void _reorderAnnotations(int pageIndex, Iterable<PdfAnnotation> annotations,
       {required bool toFront}) {
-    final cos = document.cos;
-    final page = document.page(pageIndex);
-    final raw = page.dict['Annots'];
-    final array = cos.resolve(raw);
-    if (array is! CosArray) return;
     final targets = Set<CosDictionary>.identity()
       ..addAll([for (final annotation in annotations) annotation.dict]);
-    final moved = <CosObject>[];
-    final rest = <CosObject>[];
-    for (final item in array.items) {
-      final resolved = cos.resolve(item);
-      (resolved is CosDictionary && targets.contains(resolved) ? moved : rest)
-          .add(item);
-    }
-    if (moved.isEmpty) return;
-    final reordered = toFront ? [...rest, ...moved] : [...moved, ...rest];
-    var same = true;
-    for (var i = 0; i < array.items.length && same; i++) {
-      same = identical(array.items[i], reordered[i]);
-    }
-    if (same) return;
-    array.items
-      ..clear()
-      ..addAll(reordered);
-    if (raw is CosReference) {
-      _updater.replaceObject(raw.objectNumber, array);
-    } else {
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, pageIndex)
+        .reorderResolvedDictionaries(targets, toFront: toFront);
   }
 
   /// Translates [annotation] by ([dx], [dy]) in page space.
@@ -2667,8 +2639,8 @@ extension PdfAnnotationEditing on PdfEditor {
         to.height <= 0) {
       throw ArgumentError('resizeAnnotation needs non-degenerate rects');
     }
-    final regenerated =
-        _regenerateResizedAppearance(annotation, to, pageRotation: pageRotation);
+    final regenerated = _regenerateResizedAppearance(annotation, to,
+        pageRotation: pageRotation);
     if (!regenerated && (flipX || flipY)) {
       final form = annotation.normalAppearance;
       if (form != null) _flipFormArtwork(form, flipX: flipX, flipY: flipY);
@@ -3180,8 +3152,7 @@ extension PdfAnnotationEditing on PdfEditor {
         // /C is the background — or mirrors the text color when there is
         // none, the legacy form freeTextStyle reads back as "no fill"
         dict['C'] = _colorComponents(fill ?? textColor);
-        return _restyleRegenerate(pageIndex, dict,
-            pageRotation: pageRotation);
+        return _restyleRegenerate(pageIndex, dict, pageRotation: pageRotation);
       case 'Text':
         dict['C'] = _colorComponents(color ?? annotation.color ?? 0xFFD100);
         return _restyleRegenerate(pageIndex, dict);
@@ -3405,20 +3376,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// Stages whatever object owns [dict]'s bytes: the annotation itself
   /// when indirect, otherwise its containing /Annots array or page.
   void _markAnnotationChanged(int pageIndex, CosDictionary dict) {
-    final cos = document.cos;
-    final ref = cos.referenceTo(dict);
-    if (ref != null) {
-      _updater.replaceObject(ref.objectNumber, dict);
-      return;
-    }
-    final page = document.page(pageIndex);
-    final raw = page.dict['Annots'];
-    final array = cos.resolve(raw);
-    if (raw is CosReference && array is CosArray) {
-      _updater.replaceObject(raw.objectNumber, array);
-    } else {
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, pageIndex).markOwnerChangedFor(dict);
   }
 
   /// Bakes the page's annotation appearances into its content streams and
@@ -3523,18 +3481,10 @@ extension PdfAnnotationEditing on PdfEditor {
         CosDictionary({'Length': CosInteger(suffix.length)}), suffix)));
     page.dict['Contents'] = CosArray(items);
 
-    final annotsArray = cos.resolve(page.dict['Annots']);
-    if (annotsArray is CosArray) {
-      final remaining = [
-        for (final item in annotsArray.items)
-          if (!flattened.contains(cos.resolve(item))) item,
-      ];
-      if (remaining.isEmpty) {
-        page.dict.entries.remove('Annots');
-      } else {
-        page.dict['Annots'] = CosArray(remaining);
-      }
-    }
+    _PdfPageAnnotationList(this, pageIndex).removeWhere(
+        (_, resolved) =>
+            resolved is CosDictionary && flattened.contains(resolved),
+        removeIfEmpty: true);
     _updater.markChanged(page.dict);
   }
 
@@ -3918,20 +3868,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// appearance-bearing [_addAnnotation] and the appearance-less
   /// [_addThreadAnnotation].
   void _linkAnnotation(int pageIndex, CosReference annotRef) {
-    final page = document.page(pageIndex);
-    final raw = page.dict['Annots'];
-    final resolved = document.cos.resolve(raw);
-    if (resolved is CosArray) {
-      resolved.items.add(annotRef);
-      if (raw is CosReference) {
-        _updater.replaceObject(raw.objectNumber, resolved);
-      } else {
-        _updater.markChanged(page.dict);
-      }
-    } else {
-      page.dict['Annots'] = CosArray([annotRef]);
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, pageIndex).append(annotRef);
   }
 
   CosDictionary? _alphaState(double opacity, {bool multiply = false}) {

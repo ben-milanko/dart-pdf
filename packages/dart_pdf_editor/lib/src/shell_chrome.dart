@@ -38,6 +38,72 @@ const double _pdfShellSheetMaxFactor = 0.9;
 Widget pdfShellBottomSheets(List<Widget> sheets) =>
     _PdfShellBottomSheetArea(sheets: sheets);
 
+/// Shared shell topology: side panels dock around a stable viewer element on
+/// wide layouts, while compact layouts pass panel widgets as [bottomSheets].
+class PdfShellPanelLayout extends StatelessWidget {
+  const PdfShellPanelLayout({
+    super.key,
+    required this.viewer,
+    this.leadingPanels = const [],
+    this.trailingPanels = const [],
+    this.bottomSheets = const [],
+    this.overlays = const [],
+    this.floatingToolbar,
+    this.dockedToolbar,
+  });
+
+  /// The page viewer, reflow view, or other primary document surface.
+  final Widget viewer;
+
+  /// Docked panels before the viewer in the horizontal row.
+  final List<Widget> leadingPanels;
+
+  /// Docked panels after the viewer in the horizontal row.
+  final List<Widget> trailingPanels;
+
+  /// Compact panels presented through [pdfShellBottomSheets].
+  final List<Widget> bottomSheets;
+
+  /// Full-area overlays above the viewer row, such as the page grid.
+  final List<Widget> overlays;
+
+  /// A toolbar that floats over the content area.
+  final Widget? floatingToolbar;
+
+  /// A toolbar that consumes layout space below the content area.
+  final Widget? dockedToolbar;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Stack(children: [
+      Positioned.fill(
+        child: Row(children: [
+          ...leadingPanels,
+          Expanded(
+            key: const ValueKey('pdf-shell-viewer'),
+            child: viewer,
+          ),
+          ...trailingPanels,
+        ]),
+      ),
+      ...overlays,
+      if (floatingToolbar != null)
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: floatingToolbar!,
+        ),
+      if (bottomSheets.isNotEmpty) pdfShellBottomSheets(bottomSheets),
+    ]);
+
+    return Column(children: [
+      Expanded(child: content),
+      if (dockedToolbar != null) dockedToolbar!,
+    ]);
+  }
+}
+
 /// Owns the resizable height of the bottom-sheet stack and exposes the
 /// resize callback to the sheets' drag handles via [_BottomSheetResizeScope].
 class _PdfShellBottomSheetArea extends StatefulWidget {
