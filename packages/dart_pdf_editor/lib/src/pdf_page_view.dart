@@ -417,12 +417,15 @@ class _PdfPageViewState extends State<PdfPageView> {
     await _renderNow();
   }
 
+  bool get _renderPaused =>
+      widget.renderScheduler?.holding ?? (widget.renderHold?.value ?? false);
+
   /// Interprets the page into a picture, off the UI thread when a worker is
   /// available and the page is serializable, else locally. The worker path
   /// records the page on a background isolate and replays the returned
   /// command buffer here (cheap); image-bearing pages come back null and
   /// fall through to the local recorded render.
-  Future<ui.Picture> _interpretPicture() async {
+  Future<ui.Picture?> _interpretPicture() async {
     final pageIndex = widget.previewIndex;
     final worker = widget.renderWorker;
     if (worker != null && worker.isActive) {
@@ -444,6 +447,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       // reuses this very future, so the picture must still be produced for it.
       if (_abandoned(pageIndex)) return _emptyPicture();
       if (commands != null) {
+        if (_renderPaused) return null;
         _lastInterpretPath = 'worker';
         _logImageStats(pageIndex, commands);
         return PdfPageRenderer.pictureFromCommandsWithPlan(
@@ -451,6 +455,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       }
     }
     if (_abandoned(pageIndex)) return _emptyPicture();
+    if (_renderPaused) return null;
     // The worker may be active yet decline this page (it returns null), in
     // which case the interpret runs here — the log must say so, not 'worker'.
     _lastInterpretPath = 'recorded';
@@ -473,7 +478,11 @@ class _PdfPageViewState extends State<PdfPageView> {
         annotations: widget.showAnnotations,
         priority: widget.renderPriority,
         decodeImages: false);
-    if (_superseded(generation, pageIndex) || commands == null) return;
+    if (_superseded(generation, pageIndex) ||
+        _renderPaused ||
+        commands == null) {
+      return;
+    }
 
     if (!PdfPageRenderer.hasImageDraws(commands)) {
       // Image-free page: this fast buffer already is the complete page. Cache
@@ -488,7 +497,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
         widget.page, commands, _renderPlan,
         includeImages: false);
-    if (_superseded(generation, pageIndex)) {
+    if (_superseded(generation, pageIndex) || _renderPaused) {
       picture.dispose();
       return;
     }
@@ -560,6 +569,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     final generation = ++_renderGeneration;
     final pageIndex = widget.previewIndex;
     final firstInterpret = _picture == null;
+    if (_renderPaused) {
+      _render();
+      return;
+    }
     // Progressive first paint: on a page's first interpret, paint its
     // vector/text immediately (images skipped) so a heavy raster underlay —
     // which can take seconds to decode — doesn't leave the page blank
@@ -570,7 +583,23 @@ class _PdfPageViewState extends State<PdfPageView> {
       if (_superseded(generation, pageIndex)) return;
     }
     final sw = Stopwatch()..start();
-    final picture = await (_picture ??= _interpretPicture());
+    final cached = _picture;
+    final ui.Picture picture;
+    if (cached != null) {
+      picture = await cached;
+    } else {
+      final interpreted = await _interpretPicture();
+      if (interpreted == null) {
+        if (!_superseded(generation, pageIndex)) _render();
+        return;
+      }
+      if (_superseded(generation, pageIndex)) {
+        interpreted.dispose();
+        return;
+      }
+      _picture = Future.value(interpreted);
+      picture = interpreted;
+    }
     sw.stop();
     // Bail before logging when superseded — an abandoned interpret (page
     // recycled, disposed, or cancelled prefetch) never paints, so logging it
@@ -592,6 +621,10 @@ class _PdfPageViewState extends State<PdfPageView> {
         _rasteredRatio == null ||
         (effective - _rasteredRatio!).abs() > _rasteredRatio! * 0.01;
     if (stale) {
+      if (_renderPaused) {
+        _render();
+        return;
+      }
       final image = await PdfPageRenderer.rasterize(
           picture, _renderPlan.pageSize(widget.page), effective);
       if (_superseded(generation, pageIndex)) {
@@ -628,6 +661,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// the zoom actually asks for.
   Future<void> _updateDetail() async {
     final generation = ++_detailGeneration;
+    if (_renderPaused) return;
     final desired = _desiredRatio();
     final effective = _effectiveRatio();
     if (desired <= effective * 1.05) {
@@ -678,7 +712,7 @@ class _PdfPageViewState extends State<PdfPageView> {
 
     final workerPicture =
         await _detailPictureFromWorker(region, ratio, widget.previewIndex);
-    if (!mounted || generation != _detailGeneration) {
+    if (!mounted || generation != _detailGeneration || _renderPaused) {
       workerPicture?.dispose();
       return;
     }
@@ -686,7 +720,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       final image =
           await PdfPageRenderer.rasterizeRegion(workerPicture, region, ratio);
       workerPicture.dispose();
-      if (!mounted || generation != _detailGeneration) {
+      if (!mounted || generation != _detailGeneration || _renderPaused) {
         image.dispose();
         return;
       }
@@ -711,9 +745,9 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
     final picture = await (_picture ??=
         PdfPageRenderer.renderPictureWithPlan(widget.page, _renderPlan));
-    if (!mounted || generation != _detailGeneration) return;
+    if (!mounted || generation != _detailGeneration || _renderPaused) return;
     final image = await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
-    if (!mounted || generation != _detailGeneration) {
+    if (!mounted || generation != _detailGeneration || _renderPaused) {
       image.dispose();
       return;
     }
@@ -735,6 +769,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         imagePixelRatio: ratio,
         imageDecodeRegion: decodeRegion);
     if (_abandoned(pageIndex) || commands == null) return null;
+    if (_renderPaused) return null;
     _logImageStats(pageIndex, commands);
     return PdfPageRenderer.pictureFromCommandsWithPlan(
         widget.page, commands, _renderPlan);

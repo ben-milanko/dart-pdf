@@ -4,55 +4,145 @@ on:
   push:
     branches: [deploy]
   workflow_dispatch:
+    inputs:
+      setup_check_only:
+        description: Validate the tag-push token without running tests or publishing.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: pub-release-tags
   cancel-in-progress: false
 
+env:
+  PACKAGE_ORDER: >-
+    pdf_cos:packages/pdf_cos
+    pdf_test_fixtures:packages/pdf_test_fixtures
+    pdf_document:packages/pdf_document
+    pdf_graphics:packages/pdf_graphics
+    dart_pdf_editor:packages/dart_pdf_editor
+    pdf_ocr_vlm:packages/pdf_ocr_vlm
+    pdf_ocr_ondevice:packages/pdf_ocr_ondevice
+
 jobs:
-  validate-and-tag:
+  plan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
-      RELEASE_TAG_TOKEN: ${{ secrets.PUB_RELEASE_TAG_TOKEN }}
-      PACKAGE_ORDER: >-
-        pdf_cos:packages/pdf_cos
-        pdf_test_fixtures:packages/pdf_test_fixtures
-        pdf_document:packages/pdf_document
-        pdf_graphics:packages/pdf_graphics
-        dart_pdf_editor:packages/dart_pdf_editor
-        pdf_ocr_vlm:packages/pdf_ocr_vlm
-        pdf_ocr_ondevice:packages/pdf_ocr_ondevice
-
+    outputs:
+      has_unpublished: ${{ steps.plan.outputs.has_unpublished }}
+      unpublished: ${{ steps.plan.outputs.unpublished }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      # Fail in seconds — not after the ~8-minute test suite — if the tag PAT
-      # can't push. A throwaway tag push+delete proves write access without
-      # touching any real ref (the probe name can't match the pdf_*-v* publish
-      # triggers). See doc/RELEASING-packages.md.
+      - name: Guard release branch
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_check_only != true && github.ref != 'refs/heads/deploy' }}
+        run: |
+          echo "::error::Full pub releases must run from the deploy branch."
+          exit 1
+
+      - name: Plan unpublished package releases
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version_for() {
+            ruby -ryaml -e 'puts YAML.load_file(ARGV.fetch(0)).fetch("version")' "$1/pubspec.yaml"
+          }
+
+          pub_has_version() {
+            local package="$1"
+            local version="$2"
+            ruby -rjson -ropen-uri -e '
+              package = ARGV.fetch(0)
+              version = ARGV.fetch(1)
+              data = URI.open("https://pub.dev/api/packages/#{package}", &:read)
+              versions = JSON.parse(data).fetch("versions").map { |entry| entry.fetch("version") }
+              exit(versions.include?(version) ? 0 : 1)
+            ' "$package" "$version"
+          }
+
+          unpublished=()
+          for spec in $PACKAGE_ORDER; do
+            package="${spec%%:*}"
+            directory="${spec#*:}"
+            version="$(version_for "$directory")"
+
+            if pub_has_version "$package" "$version"; then
+              echo "$package $version is already on pub.dev"
+            else
+              tag="$package-v$version"
+              echo "$package $version needs publishing as $tag"
+              unpublished+=("$package|$directory|$version|$tag")
+            fi
+          done
+
+          if ((${#unpublished[@]} == 0)); then
+            echo "has_unpublished=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_unpublished=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          {
+            echo "unpublished<<EOF"
+            printf '%s\n' "${unpublished[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  verify-tag-token:
+    needs: plan
+    if: ${{ needs.plan.outputs.has_unpublished == 'true' || (github.event_name == 'workflow_dispatch' && inputs.setup_check_only) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Fail in seconds - not after the release suite - if the tag PAT cannot
+      # push. This job never checks out or executes repository code with the
+      # secret available.
       - name: Verify release tag token can push
         shell: bash
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.PUB_RELEASE_TAG_TOKEN }}
         run: |
           set -euo pipefail
           if [[ -z "${RELEASE_TAG_TOKEN:-}" ]]; then
             echo "::error::PUB_RELEASE_TAG_TOKEN is empty. Create a fine-grained PAT with Contents: read & write on ${GITHUB_REPOSITORY} and store it as the PUB_RELEASE_TAG_TOKEN secret (a GITHUB_TOKEN-pushed tag does not trigger publish-pub.yml)."
             exit 1
           fi
+
+          git init .
           git config user.name "dart-pdf release automation"
           git config user.email "actions@github.com"
-          remote="https://x-access-token:${RELEASE_TAG_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          probe="refs/tags/_release-token-probe-${GITHUB_RUN_ID}"
-          if ! git push "$remote" "HEAD:${probe}" >/dev/null 2>&1; then
-            echo "::error::PUB_RELEASE_TAG_TOKEN cannot push to ${GITHUB_REPOSITORY} (403). The PAT is likely expired or missing Contents: write. Regenerate it and update the secret — see doc/RELEASING-packages.md."
+          git remote add origin "https://x-access-token:${RELEASE_TAG_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_REF"
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "::error::Fetched $GITHUB_REF but it did not resolve to this workflow run's commit."
             exit 1
           fi
-          git push "$remote" ":${probe}" >/dev/null 2>&1 || true
+
+          probe="refs/tags/_release-token-probe-${GITHUB_RUN_ID}"
+          git update-ref refs/heads/release-token-probe FETCH_HEAD
+          if ! git push origin "refs/heads/release-token-probe:${probe}" >/dev/null 2>&1; then
+            echo "::error::PUB_RELEASE_TAG_TOKEN cannot push to ${GITHUB_REPOSITORY} (403). The PAT is likely expired or missing Contents: write. Regenerate it and update the secret - see doc/RELEASING-packages.md."
+            exit 1
+          fi
+          git push origin ":${probe}" >/dev/null 2>&1 || true
           echo "Release tag token OK."
+
+  validate:
+    needs: [plan, verify-tag-token]
+    if: ${{ needs.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: subosito/flutter-action@v2
         with:
@@ -74,17 +164,36 @@ jobs:
       - run: flutter test
         working-directory: packages/dart_pdf_editor
 
+  create-tags:
+    needs: [plan, verify-tag-token, validate]
+    if: ${{ needs.plan.outputs.has_unpublished == 'true' && (github.event_name != 'workflow_dispatch' || inputs.setup_check_only != true) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Do not check out repository code in the job that holds the tag-push PAT.
       - name: Create release tags for unpublished versions
         shell: bash
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.PUB_RELEASE_TAG_TOKEN }}
+          UNPUBLISHED: ${{ needs.plan.outputs.unpublished }}
         run: |
           set -euo pipefail
 
+          if [[ -z "${RELEASE_TAG_TOKEN:-}" ]]; then
+            echo "::error::PUB_RELEASE_TAG_TOKEN is required to push release tags."
+            exit 1
+          fi
+
+          git init .
           git config user.name "dart-pdf release automation"
           git config user.email "actions@github.com"
-
-          version_for() {
-            ruby -ryaml -e 'puts YAML.load_file(ARGV.fetch(0)).fetch("version")' "$1/pubspec.yaml"
-          }
+          git remote add origin "https://x-access-token:${RELEASE_TAG_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_REF"
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "::error::Fetched $GITHUB_REF but it did not resolve to this workflow run's commit."
+            exit 1
+          fi
 
           pub_has_version() {
             local package="$1"
@@ -114,16 +223,14 @@ jobs:
               sleep 10
             done
 
-            echo "::error::$package $version was not visible on pub.dev after waiting 10 minutes. The tag pushed but the publish did not land — check the 'Publish to pub.dev' run for $package-v$version. The most common cause is that automated publishing is not enabled for $package on pub.dev (Admin → Automated publishing → enable GitHub Actions, set repository ${GITHUB_REPOSITORY} and tag pattern '$package-v{{version}}'). See doc/RELEASING-packages.md."
+            echo "::error::$package $version was not visible on pub.dev after waiting 10 minutes. The tag pushed but the publish did not land - check the 'Publish to pub.dev' run for $package-v$version. The most common cause is that automated publishing is not enabled for $package on pub.dev (Admin -> Automated publishing -> enable GitHub Actions, set repository ${GITHUB_REPOSITORY} and tag pattern '$package-v{{version}}'). See doc/RELEASING-packages.md."
             return 1
           }
 
-          for spec in $PACKAGE_ORDER; do
-            package="${spec%%:*}"
-            directory="${spec#*:}"
-            version="$(version_for "$directory")"
-            tag="$package-v$version"
-
+          while IFS='|' read -r package directory version tag; do
+            if [[ -z "${package:-}" ]]; then
+              continue
+            fi
             if pub_has_version "$package" "$version"; then
               echo "$package $version is already on pub.dev; skipping $tag"
               continue
@@ -134,12 +241,7 @@ jobs:
               exit 1
             fi
 
-            if [[ -z "${RELEASE_TAG_TOKEN:-}" ]]; then
-              echo "::error::PUB_RELEASE_TAG_TOKEN is required to push $tag. GITHUB_TOKEN-created tags do not trigger the tag publishing workflow."
-              exit 1
-            fi
-
-            git tag -a "$tag" -m "Release $package $version"
-            git push "https://x-access-token:${RELEASE_TAG_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$tag"
+            git tag -a "$tag" FETCH_HEAD -m "Release $package $version"
+            git push origin "refs/tags/$tag"
             wait_for_pub "$package" "$version"
-          done
+          done <<< "$UNPUBLISHED"

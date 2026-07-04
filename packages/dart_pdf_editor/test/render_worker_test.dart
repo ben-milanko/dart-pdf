@@ -288,6 +288,69 @@ void main() {
     });
   });
 
+  testWidgets('PdfPageView defers worker replay when render hold resumes',
+      (tester) async {
+    final bytes = buildClassicPdf();
+    final document = PdfDocument.open(bytes);
+    final page = document.page(0);
+    final scheduler = PdfPageRenderScheduler();
+    final previewCache = PdfPagePreviewCache();
+    final worker = _ManualWorker();
+    addTearDown(scheduler.dispose);
+    addTearDown(previewCache.dispose);
+    addTearDown(worker.dispose);
+
+    await tester.runAsync(() => previewCache.renderPreview(0, page));
+
+    var rasters = 0;
+    await tester.pumpWidget(MediaQuery(
+      data: const MediaQueryData(devicePixelRatio: 1),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox(
+            width: 400,
+            child: PdfPageView(
+              page: page,
+              previewIndex: 0,
+              renderWorker: worker,
+              renderScheduler: scheduler,
+              previewCache: previewCache,
+              onRasterReady: () => rasters++,
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    for (var i = 0; i < 20 && worker.calls.isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(worker.calls.single.$3, isTrue,
+        reason: 'the fresh preview skips the vector-first pass');
+
+    scheduler.holding = true;
+    worker.completeAll();
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(rasters, 0,
+        reason: 'a worker result that arrives after motion restarts must not '
+            'replay/rasterize on the UI side');
+
+    scheduler.holding = false;
+    for (var i = 0; i < 20 && worker.calls.length < 2; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(worker.calls.length, 2,
+        reason: 'the render is queued again and drains after the hold drops');
+    worker.completeAll();
+    for (var i = 0; i < 40 && rasters == 0; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(rasters, 1);
+  });
+
   testWidgets('PdfPageView cancels recycled worker requests by renderPriority',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(2));

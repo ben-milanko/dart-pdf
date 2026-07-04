@@ -18,15 +18,22 @@
 //   CAD_SCAN    '0' to skip the per-page heavy-page scan (default on)
 //   CAD_REGION  optional PDF-space decode region: left,bottom,right,top.
 //               Defaults to the middle half of the target page.
+//   CAD_PAN_ZOOM   public viewer zoom for the pan loop (default 1.0)
+//   CAD_PAN_LOOPS  back-and-forth pan/zoom loop count (default 3)
+//   CAD_PAN_STEPS  trackpad pan updates per loop (default 48)
 //
 // Reports, for the target page: native vs capped decoded megapixels, the
 // shipped command-buffer size (the bytes the worker hands the UI thread),
-// decode+serialize time, full render time, and the progressive vector-first
-// first-paint time. Asserts the cap actually shrinks an oversized underlay.
+// decode+serialize time, full render time, the progressive vector-first
+// first-paint time, and a viewer pan/zoom timing summary. Asserts the cap
+// actually shrinks an oversized underlay.
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -41,6 +48,12 @@ void main() {
   final ratio = double.tryParse(Platform.environment['CAD_RATIO'] ?? '') ?? 2.0;
   final pageOverride = int.tryParse(Platform.environment['CAD_PAGE'] ?? '');
   final doScan = (Platform.environment['CAD_SCAN'] ?? '1') != '0';
+  final panLoops =
+      int.tryParse(Platform.environment['CAD_PAN_LOOPS'] ?? '') ?? 3;
+  final panSteps =
+      int.tryParse(Platform.environment['CAD_PAN_STEPS'] ?? '') ?? 48;
+  final panZoom =
+      double.tryParse(Platform.environment['CAD_PAN_ZOOM'] ?? '') ?? 1.0;
 
   testWidgets('CAD heavy-raster render probe', (tester) async {
     final file = File(path);
@@ -207,6 +220,108 @@ void main() {
               'per-image or page-budget cap regressed, or worker is stale');
     });
   }, timeout: const Timeout(Duration(minutes: 20)));
+
+  testWidgets('CAD viewer pan/zoom loop', (tester) async {
+    final file = File(path);
+    if (!file.existsSync()) {
+      markTestSkipped('set CAD_PDF to a real file (missing: $path)');
+      return;
+    }
+    if (panLoops <= 0 || panSteps <= 0) {
+      markTestSkipped('CAD_PAN_LOOPS and CAD_PAN_STEPS must be > 0');
+      return;
+    }
+
+    final bytes = file.readAsBytesSync();
+    final document = PdfDocument.open(bytes);
+    final target = pageOverride ??
+        (doScan ? _heaviestImagePage(document, ratio) : 0)
+            .clamp(0, document.pageCount - 1)
+            .toInt();
+    final controller = PdfViewerController();
+    final worker = startPdfRenderWorker(bytes, pageCount: document.pageCount);
+    addTearDown(controller.dispose);
+    addTearDown(worker.dispose);
+
+    final timings = <FrameTiming>[];
+    void onTimings(List<FrameTiming> batch) => timings.addAll(batch);
+    SchedulerBinding.instance.addTimingsCallback(onTimings);
+    addTearDown(
+        () => SchedulerBinding.instance.removeTimingsCallback(onTimings));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 1200,
+          height: 800,
+          child: PdfViewer(
+            document: document,
+            controller: controller,
+            initialFit: PdfViewerFit.width,
+            renderWorker: worker,
+            pagePreviews: true,
+            previewWindow: 2,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await controller.jumpToPage(target);
+    await tester.pump(const Duration(milliseconds: 100));
+    controller.setZoom(panZoom);
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+
+    timings.clear();
+    final pumpUs = <(String, int)>[];
+    final center = tester.getCenter(find.byType(PdfViewer));
+
+    for (var loop = 0; loop < panLoops; loop++) {
+      final pinch = await tester.createGesture(
+          kind: PointerDeviceKind.trackpad, pointer: 500 + loop * 2);
+      await pinch.panZoomStart(center);
+      for (var i = 1; i <= panSteps ~/ 3; i++) {
+        await _timedPump(tester, pumpUs, 'pinch $loop/$i', () async {
+          await pinch.panZoomUpdate(center, scale: 1 + 0.004 * i);
+        });
+      }
+      await pinch.panZoomEnd();
+
+      final pan = await tester.createGesture(
+          kind: PointerDeviceKind.trackpad, pointer: 501 + loop * 2);
+      await pan.panZoomStart(center);
+      for (var i = 1; i <= panSteps; i++) {
+        final direction = loop.isEven ? -1.0 : 1.0;
+        await _timedPump(tester, pumpUs, 'pan $loop/$i', () async {
+          await pan.panZoomUpdate(center,
+              pan: Offset(direction * 18 * i, -8.0 * i),
+              timeStamp: Duration(milliseconds: 16 * i));
+        });
+        if (i % 12 == 0) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 1)));
+        }
+      }
+      await pan.panZoomEnd(
+          timeStamp: Duration(milliseconds: 16 * (panSteps + 1)));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester.pump();
+
+    _printPanSummary(
+      target: target,
+      loops: panLoops,
+      steps: panSteps,
+      zoom: panZoom,
+      timings: timings,
+      pumpUs: pumpUs,
+    );
+  }, timeout: const Timeout(Duration(minutes: 20)));
 }
 
 /// Interprets [pageIndex] to a raw command buffer (no decode), exactly as
@@ -228,6 +343,24 @@ List<PdfImageRequest> _imageRequests(PdfDocument doc, int pageIndex) {
     _walk(c, requests);
   }
   return requests;
+}
+
+int _heaviestImagePage(PdfDocument doc, double ratio) {
+  var bestPage = 0;
+  var bestMp = -1.0;
+  for (var i = 0; i < doc.pageCount; i++) {
+    final requests = _imageRequests(doc, i);
+    if (requests.isEmpty) continue;
+    var declaredMp = 0.0;
+    for (final r in requests) {
+      declaredMp += _declaredPixels(doc, r) / 1e6;
+    }
+    if (declaredMp > bestMp) {
+      bestMp = declaredMp;
+      bestPage = i;
+    }
+  }
+  return bestPage;
 }
 
 void _walk(PdfRenderCommand c, List<PdfImageRequest> out) {
@@ -307,6 +440,57 @@ String _mb(int bytes) => '${(bytes / (1 << 20)).toStringAsFixed(1)} MB';
 void _line(String s) {
   // ignore: avoid_print
   print('[cad-probe] $s');
+}
+
+Future<void> _timedPump(WidgetTester tester, List<(String, int)> pumpUs,
+    String label, Future<void> Function() body) async {
+  await body();
+  final sw = Stopwatch()..start();
+  await tester.pump(const Duration(milliseconds: 16));
+  sw.stop();
+  pumpUs.add((label, sw.elapsedMicroseconds));
+}
+
+void _printPanSummary({
+  required int target,
+  required int loops,
+  required int steps,
+  required double zoom,
+  required List<FrameTiming> timings,
+  required List<(String, int)> pumpUs,
+}) {
+  double ms(Duration d) => d.inMicroseconds / 1000.0;
+  final build = [for (final t in timings) ms(t.buildDuration)];
+  final raster = [for (final t in timings) ms(t.rasterDuration)];
+  final total = [for (final t in timings) ms(t.totalSpan)];
+  final pump = [for (final entry in pumpUs) entry.$2 / 1000.0];
+  int over(List<double> values, double limit) =>
+      values.where((v) => v > limit).length;
+  _line('--- viewer pan/zoom loop: page $target, loops=$loops, '
+      'steps=$steps, zoom=${zoom}x ---');
+  if (timings.isEmpty) {
+    _line('frame timings unavailable in this test backend');
+  } else {
+    _line('frames=${timings.length}, '
+        'build>16ms=${over(build, 16)}, raster>16ms=${over(raster, 16)}, '
+        'total>16ms=${over(total, 16)}');
+    _line('frame build ${_dist(build)}; raster ${_dist(raster)}; '
+        'total ${_dist(total)}');
+  }
+  _line('pump wall ${_dist(pump)} (${pump.length} interaction pumps)');
+  final slowest = [...pumpUs]..sort((a, b) => b.$2.compareTo(a.$2));
+  _line('slowest pumps: ${slowest.take(5).map((e) {
+    return '${e.$1}=${(e.$2 / 1000.0).toStringAsFixed(1)}ms';
+  }).join(', ')}');
+}
+
+String _dist(List<double> values) {
+  if (values.isEmpty) return 'n/a';
+  final sorted = [...values]..sort();
+  double at(double q) => sorted[(q * (sorted.length - 1)).round()];
+  return 'p50=${at(0.50).toStringAsFixed(1)}ms '
+      'p95=${at(0.95).toStringAsFixed(1)}ms '
+      'max=${sorted.last.toStringAsFixed(1)}ms';
 }
 
 class _PageImages {
