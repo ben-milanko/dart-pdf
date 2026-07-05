@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.2
+
+- Viewer rendering: annotation appearances now paint in a separate overlay
+  from the base page raster, so annotation-only edits no longer invalidate the
+  expensive page image or flicker while a refreshed appearance is rendering.
+- Viewer interaction: motion-based render hold defers expensive UI work during
+  active gestures, chrome stays visually constant while zoomed, and annotation
+  hit handling exposes a new `PdfAnnotationTapHandler` callback.
+- Editing UI: the draw toolbar includes a highlight selection action, active
+  text selections can be styled as markup, count-tool cursor previews are more
+  accurate, and the takeoff panel has improved accessibility labels.
+- Forms: right-click form-field editing and form-style controls are available
+  from the viewer, including font and visual style updates.
+- Stamps: custom stamps can be vector templates with dynamic fields, images,
+  saved signatures, metadata tags/types, host-provided stamp lists, and
+  configurable date/time placeholder formats.
+- Fix rendering artifacts from stale detail patches after visual content
+  changes and keep the current annotation layer visible while updated
+  appearances load.
+
 ## 1.3.1
 
 - Font menu: offer the host platform's installed fonts as embeddable choices

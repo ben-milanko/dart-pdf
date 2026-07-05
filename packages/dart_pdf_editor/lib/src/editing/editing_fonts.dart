@@ -33,8 +33,8 @@ const List<PdfBundledFont> pdfBundledFonts = [
       'DejaVu Serif', 'packages/dart_pdf_editor/assets/fonts/DejaVuSerif.ttf'),
   PdfBundledFont('DejaVu Sans Mono',
       'packages/dart_pdf_editor/assets/fonts/DejaVuSansMono.ttf'),
-  PdfBundledFont(
-      'Fira Sans', 'packages/dart_pdf_editor/assets/fonts/FiraSans-Regular.ttf'),
+  PdfBundledFont('Fira Sans',
+      'packages/dart_pdf_editor/assets/fonts/FiraSans-Regular.ttf'),
   PdfBundledFont(
       'Spectral', 'packages/dart_pdf_editor/assets/fonts/Spectral-Regular.ttf'),
   PdfBundledFont(
@@ -97,9 +97,12 @@ List<PdfEmbeddedFont>? _fallbackFontsCache;
 Future<List<PdfEmbeddedFont>> loadFallbackFonts() async {
   if (_fallbackFontsCache != null) return _fallbackFontsCache!;
   final fonts = <PdfEmbeddedFont>[];
-  for (final label in const ['DejaVu Sans', 'DejaVu Serif', 'DejaVu Sans Mono']) {
-    final bundled =
-        pdfBundledFonts.where((f) => f.label == label).firstOrNull;
+  for (final label in const [
+    'DejaVu Sans',
+    'DejaVu Serif',
+    'DejaVu Sans Mono'
+  ]) {
+    final bundled = pdfBundledFonts.where((f) => f.label == label).firstOrNull;
     if (bundled == null) continue;
     try {
       fonts.add(PdfEmbeddedFont.parse(await loadBundledFont(bundled)));
@@ -135,19 +138,25 @@ void pdfApplyFont(PdfEditingController controller, PdfTextFont font) {
 
 /// A compact button showing the current font that opens [showPdfFontMenu].
 ///
-/// Lives in the toolbar style popup and the properties panel; the standard
-/// families also have their own SegmentedButton there, so this is the
-/// gateway to the bundled and custom (embedded) fonts.
+/// Lives in the toolbar style popup and the properties panel. It is the
+/// single font selector: the menu includes the base-14 families, bundled
+/// fonts, platform fonts, and the optional custom-font loader.
 class PdfFontMenuButton extends StatelessWidget {
   const PdfFontMenuButton({
     super.key,
     required this.controller,
+    this.buttonKey,
     this.fontPicker,
     this.bundled = pdfBundledFonts,
     this.platformFonts,
+    this.currentFont,
   });
 
   final PdfEditingController controller;
+
+  /// Key placed on the actual tappable button. Defaults to
+  /// `ValueKey('pdf-font-menu')`.
+  final Key? buttonKey;
 
   /// How "Load font…" obtains a `.ttf`/`.otf` file; the entry is hidden
   /// when null.
@@ -160,14 +169,19 @@ class PdfFontMenuButton extends StatelessWidget {
   /// [pdfPlatformFonts] registry when null.
   final List<PdfPlatformFont>? platformFonts;
 
+  /// The font whose name should be shown on the button and whose
+  /// bold/italic state should be preserved when switching base-14 family.
+  /// Null means the controller's active/default font.
+  final PdfTextFont? currentFont;
+
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      key: const ValueKey('pdf-font-menu'),
+      key: buttonKey ?? const ValueKey('pdf-font-menu'),
       icon: const Icon(Icons.font_download_outlined, size: 18),
       label: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 120),
-        child: Text(controller.activeFontLabel,
+        child: Text(_fontLabel(currentFont) ?? controller.activeFontLabel,
             overflow: TextOverflow.ellipsis, maxLines: 1),
       ),
       style: OutlinedButton.styleFrom(
@@ -180,6 +194,7 @@ class PdfFontMenuButton extends StatelessWidget {
         fontPicker: fontPicker,
         bundled: bundled,
         platformFonts: platformFonts,
+        currentFont: currentFont,
       ),
     );
   }
@@ -210,105 +225,224 @@ class _LoadChoice extends _FontChoice {
   const _LoadChoice();
 }
 
-Text _fontChoiceText(String label,
-        {String? fontFamily, String? package, FontWeight? weight}) =>
-    Text(label,
-        style: TextStyle(
-          fontFamily: fontFamily,
-          package: package,
-          fontWeight: weight,
-        ));
+String? _fontLabel(PdfTextFont? font) {
+  if (font == null) return null;
+  if (font is PdfStandardFont) return font.family.label;
+  if (font is PdfEmbeddedFont) return font.familyName;
+  return font.resourceName;
+}
+
+class _FontEntry {
+  const _FontEntry({
+    required this.key,
+    required this.label,
+    required this.searchText,
+    required this.choice,
+    this.subtitle,
+    this.fontFamily,
+    this.package,
+  });
+
+  final Key key;
+  final String label;
+  final String? subtitle;
+  final String searchText;
+  final _FontChoice choice;
+  final String? fontFamily;
+  final String? package;
+}
+
+class _PdfFontPickerDialog extends StatefulWidget {
+  const _PdfFontPickerDialog({required this.entries});
+
+  final List<_FontEntry> entries;
+
+  @override
+  State<_PdfFontPickerDialog> createState() => _PdfFontPickerDialogState();
+}
+
+class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
+  late final TextEditingController _search = TextEditingController()
+    ..addListener(() => setState(() {}));
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.text.trim().toLowerCase();
+    final entries = query.isEmpty
+        ? widget.entries
+        : widget.entries
+            .where((entry) => entry.searchText.contains(query))
+            .toList();
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380, maxHeight: 500),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Font', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 10),
+              TextField(
+                key: const ValueKey('pdf-font-search'),
+                controller: _search,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search fonts',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: entries.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text('No fonts found',
+                              key: ValueKey('pdf-font-empty')),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: entries.length,
+                        itemBuilder: (context, index) {
+                          final entry = entries[index];
+                          return ListTile(
+                            key: entry.key,
+                            dense: true,
+                            title: Text(
+                              entry.label,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: entry.fontFamily,
+                                package: entry.package,
+                              ),
+                            ),
+                            subtitle: entry.subtitle == null
+                                ? null
+                                : Text(entry.subtitle!,
+                                    overflow: TextOverflow.ellipsis),
+                            onTap: () =>
+                                Navigator.of(context).pop(entry.choice),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Pops a font menu anchored at [context]'s widget and applies the pick:
 /// the standard families, the [bundled] fonts, the platform fonts
 /// ([platformFonts], defaulting to the host-populated [pdfPlatformFonts]
-/// registry), then "Load font…" (when a [fontPicker] is given). Bundled,
-/// platform and custom fonts embed into the document so the text renders
-/// everywhere.
+/// registry), then "Load font…" (when a [fontPicker] is given). The menu
+/// is searchable. Bundled, platform and custom fonts embed into the
+/// document so the text renders everywhere.
 Future<void> showPdfFontMenu({
   required BuildContext context,
   required PdfEditingController controller,
   PdfFontPicker? fontPicker,
   List<PdfBundledFont> bundled = pdfBundledFonts,
   List<PdfPlatformFont>? platformFonts,
+  PdfTextFont? currentFont,
+  void Function(PdfTextFont font)? onSelected,
 }) async {
   final platform = platformFonts ?? pdfPlatformFonts;
-  final box = context.findRenderObject() as RenderBox?;
-  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
-  if (box == null || overlay == null) return;
-  final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
-  final bottomRight =
-      box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay);
-  final position = RelativeRect.fromRect(
-      Rect.fromPoints(topLeft, bottomRight), Offset.zero & overlay.size);
+  final entries = <_FontEntry>[
+    const _FontEntry(
+      key: ValueKey('pdf-font-std-sans'),
+      label: 'Sans (Helvetica)',
+      subtitle: 'Standard PDF font',
+      searchText: 'sans helvetica standard pdf font',
+      choice: _StandardChoice(PdfStandardFontFamily.sans),
+      fontFamily: 'Helvetica',
+    ),
+    const _FontEntry(
+      key: ValueKey('pdf-font-std-serif'),
+      label: 'Serif (Times)',
+      subtitle: 'Standard PDF font',
+      searchText: 'serif times times-roman standard pdf font',
+      choice: _StandardChoice(PdfStandardFontFamily.serif),
+      fontFamily: 'Times New Roman',
+    ),
+    const _FontEntry(
+      key: ValueKey('pdf-font-std-mono'),
+      label: 'Mono (Courier)',
+      subtitle: 'Standard PDF font',
+      searchText: 'mono monospace courier standard pdf font',
+      choice: _StandardChoice(PdfStandardFontFamily.mono),
+      fontFamily: 'Courier',
+    ),
+    for (var i = 0; i < bundled.length; i++)
+      _FontEntry(
+        key: ValueKey('pdf-font-bundled-$i'),
+        label: bundled[i].label,
+        subtitle: 'Bundled font',
+        searchText: '${bundled[i].label} bundled font'.toLowerCase(),
+        choice: _BundledChoice(bundled[i]),
+        fontFamily: bundled[i].label,
+        package: 'dart_pdf_editor',
+      ),
+    for (var i = 0; i < platform.length; i++)
+      _FontEntry(
+        key: ValueKey('pdf-font-platform-$i'),
+        label: platform[i].label,
+        subtitle: 'System font',
+        searchText: '${platform[i].label} ${platform[i].family ?? ''} '
+                'system platform font'
+            .toLowerCase(),
+        choice: _PlatformChoice(platform[i]),
+        fontFamily: platform[i].family,
+      ),
+    if (fontPicker != null)
+      const _FontEntry(
+        key: ValueKey('pdf-font-load'),
+        label: 'Load font…',
+        subtitle: 'TTF or OTF file',
+        searchText: 'load custom font ttf otf file upload',
+        choice: _LoadChoice(),
+      ),
+  ];
 
-  final choice = await showMenu<_FontChoice>(
+  final choice = await showDialog<_FontChoice>(
     context: context,
-    position: position,
-    items: [
-      const PopupMenuItem(
-        key: ValueKey('pdf-font-std-sans'),
-        value: _StandardChoice(PdfStandardFontFamily.sans),
-        child:
-            Text('Sans (Helvetica)', style: TextStyle(fontFamily: 'Helvetica')),
-      ),
-      const PopupMenuItem(
-        key: ValueKey('pdf-font-std-serif'),
-        value: _StandardChoice(PdfStandardFontFamily.serif),
-        child: Text('Serif (Times)',
-            style: TextStyle(fontFamily: 'Times New Roman')),
-      ),
-      const PopupMenuItem(
-        key: ValueKey('pdf-font-std-mono'),
-        value: _StandardChoice(PdfStandardFontFamily.mono),
-        child: Text('Mono (Courier)', style: TextStyle(fontFamily: 'Courier')),
-      ),
-      if (bundled.isNotEmpty) const PopupMenuDivider(),
-      for (var i = 0; i < bundled.length; i++)
-        PopupMenuItem(
-          key: ValueKey('pdf-font-bundled-$i'),
-          value: _BundledChoice(bundled[i]),
-          child: _fontChoiceText(bundled[i].label,
-              fontFamily: bundled[i].label, package: 'dart_pdf_editor'),
-        ),
-      if (platform.isNotEmpty) const PopupMenuDivider(),
-      for (var i = 0; i < platform.length; i++)
-        PopupMenuItem(
-          key: ValueKey('pdf-font-platform-$i'),
-          value: _PlatformChoice(platform[i]),
-          // A platform family previews in its real face; a null family just
-          // names the font in the menu's default face (still embeds on pick).
-          child: _fontChoiceText(platform[i].label,
-              fontFamily: platform[i].family),
-        ),
-      if (fontPicker != null) ...[
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          key: ValueKey('pdf-font-load'),
-          value: _LoadChoice(),
-          child: Row(children: [
-            Icon(Icons.upload_file_outlined, size: 18),
-            SizedBox(width: 8),
-            Text('Load font…'),
-          ]),
-        ),
-      ],
-    ],
+    builder: (_) => _PdfFontPickerDialog(entries: entries),
   );
   if (choice == null) return;
 
+  void apply(PdfTextFont font) {
+    if (onSelected != null) {
+      onSelected(font);
+    } else {
+      pdfApplyFont(controller, font);
+    }
+  }
+
   switch (choice) {
     case _StandardChoice(:final family):
-      final current =
-          controller.selectedTextStyle?.font ?? controller.fontFamily;
-      pdfApplyFont(
-          controller,
-          PdfStandardFont.styled(family,
-              bold: current.isBold, italic: current.isItalic));
+      final current = currentFont ??
+          controller.selectedTextStyle?.font ??
+          controller.selectedMeasurementCaptionStyle?.font ??
+          controller.fontFamily;
+      apply(PdfStandardFont.styled(family,
+          bold: current is PdfStandardFont && current.isBold,
+          italic: current is PdfStandardFont && current.isItalic));
     case _BundledChoice(:final font):
       try {
         final bytes = await loadBundledFont(font);
-        pdfApplyFont(controller, PdfEmbeddedFont.parse(bytes));
+        apply(PdfEmbeddedFont.parse(bytes));
       } catch (_) {
         // A missing/corrupt bundled asset just leaves the font unchanged.
       }
@@ -316,7 +450,7 @@ Future<void> showPdfFontMenu({
       try {
         final bytes = await font.loadBytes();
         if (bytes != null) {
-          pdfApplyFont(controller, PdfEmbeddedFont.parse(bytes));
+          apply(PdfEmbeddedFont.parse(bytes));
         }
       } catch (_) {
         // An unreadable/unsupported platform font (e.g. .ttc, WOFF, or one
@@ -326,6 +460,15 @@ Future<void> showPdfFontMenu({
       if (fontPicker == null) return;
       if (!context.mounted) return;
       final bytes = await fontPicker(context);
-      if (bytes != null) controller.setCustomFont(bytes);
+      if (bytes == null) return;
+      if (onSelected != null) {
+        try {
+          onSelected(PdfEmbeddedFont.parse(bytes));
+        } catch (_) {
+          // Invalid custom font bytes leave the current font unchanged.
+        }
+      } else {
+        controller.setCustomFont(bytes);
+      }
   }
 }

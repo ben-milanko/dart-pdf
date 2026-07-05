@@ -123,6 +123,34 @@ class PdfAnnotation {
   /// Bluebeam-style.
   bool get isCheckMark => subtype == 'Stamp' && iconName == 'Check';
 
+  /// App-defined workflow type for a custom stamp annotation, e.g.
+  /// `Approval`, `Audit`, or `Tested`.
+  ///
+  /// The editor writes this private metadata when a custom stamp with a type
+  /// is placed. It stays in the annotation dictionary so tap handlers,
+  /// annotation sync, and reopened documents can classify placed stamps
+  /// without relying on their visible caption.
+  String? get stampType {
+    final value = document.cos.resolve(dict['DartPdfStampType']);
+    return value is CosString ? value.text : null;
+  }
+
+  /// App-defined labels attached to a custom stamp annotation.
+  ///
+  /// These are stored as private annotation metadata beside [stampType].
+  List<String> get stampTags {
+    final value = document.cos.resolve(dict['DartPdfStampTags']);
+    if (value is! CosArray) return const [];
+    final tags = <String>[];
+    for (final item in value.items) {
+      final tag = document.cos.resolve(item);
+      if (tag is CosString && tag.text.trim().isNotEmpty) {
+        tags.add(tag.text);
+      }
+    }
+    return List.unmodifiable(tags);
+  }
+
   /// The /NM of the annotation this one is in reply to (§12.5.6.x): /IRT
   /// is an indirect reference to the parent markup annotation, which this
   /// resolves to its [name]. Null when the annotation is not a reply (or
@@ -167,8 +195,8 @@ class PdfAnnotation {
   }
 
   /// The /CreationDate parsed from its PDF date string (§7.9.4), if any.
-  DateTime? get creationDate => _parsePdfDate(
-      document.cos.resolve(dict['CreationDate']) is CosString
+  DateTime? get creationDate =>
+      _parsePdfDate(document.cos.resolve(dict['CreationDate']) is CosString
           ? (document.cos.resolve(dict['CreationDate']) as CosString).text
           : null);
 
@@ -647,8 +675,8 @@ DateTime? _parsePdfDate(String? value) {
   if (match == null) return null;
   int part(int i, [int fallback = 0]) =>
       match.group(i) == null ? fallback : int.parse(match.group(i)!);
-  var time = DateTime.utc(
-      part(1), part(2, 1), part(3, 1), part(4), part(5), part(6));
+  var time =
+      DateTime.utc(part(1), part(2, 1), part(3, 1), part(4), part(5), part(6));
   if (match.group(7) == '+' || match.group(7) == '-') {
     final offset = Duration(hours: part(8), minutes: part(9));
     time = match.group(7) == '+' ? time.subtract(offset) : time.add(offset);

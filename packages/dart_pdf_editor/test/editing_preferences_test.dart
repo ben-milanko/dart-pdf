@@ -29,6 +29,8 @@ void main() {
       a.searchMatchCase = true;
       a.searchWholeWord = true;
       a.searchRegex = true;
+      a.stampDateFormat = PdfStampDateFormat.dayMonthYear;
+      a.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -50,6 +52,8 @@ void main() {
       expect(b.searchMatchCase, isTrue);
       expect(b.searchWholeWord, isTrue);
       expect(b.searchRegex, isTrue);
+      expect(b.stampDateFormat, PdfStampDateFormat.dayMonthYear);
+      expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
     });
 
     test('empty storage leaves the defaults', () async {
@@ -74,6 +78,8 @@ void main() {
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);
       expect(prefs.searchRegex, isFalse);
+      expect(prefs.stampDateFormat, PdfStampDateFormat.iso);
+      expect(prefs.stampTimeFormat, PdfStampTimeFormat.twentyFourHour);
     });
 
     test('textAlign resets to null (follow text direction)', () async {

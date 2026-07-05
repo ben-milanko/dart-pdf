@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.2
+
+- Add vector stamp templates (`PdfStampTemplate` and
+  `PdfStampTemplateComponent`) with text, shapes, images, and saved-signature
+  components. `PdfEditor.addTemplateStamp` writes them as normal stamp
+  annotations with generated appearance streams.
+- Stamp annotations can carry metadata (`stampType` and `stampTags`) and
+  resolve dynamic `{{field}}` placeholders at placement time.
+- Note and stamp appearances now account for page rotation when authored, so
+  oriented pages receive counter-rotated annotation appearances.
+
 ## 1.3.1
 
 - Annotation editing now handles malformed or indirect page `/Annots` entries

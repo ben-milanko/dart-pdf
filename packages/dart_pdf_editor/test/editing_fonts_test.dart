@@ -92,8 +92,7 @@ void main() {
       expect(isType0(c, a), isTrue);
     });
 
-    test('restyleSelectedFont switches a selected box to an embedded font',
-        () {
+    test('restyleSelectedFont switches a selected box to an embedded font', () {
       final c = PdfEditingController(buildMultiPagePdf(1));
       c.addFreeText(0, const PdfRect(72, 600, 300, 660), 'plain');
       final a0 = c.document.page(0).annotations.last;
@@ -149,6 +148,21 @@ void main() {
       expect(c.fontFamily.family, PdfStandardFontFamily.serif);
     });
 
+    testWidgets('font choices can be searched', (tester) async {
+      final c = PdfEditingController(buildMultiPagePdf(1));
+      await pumpButton(tester, c);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-font-search')), findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-font-search')), 'spect');
+      await tester.pump();
+      expect(find.text('Spectral'), findsOneWidget);
+      expect(find.text('DejaVu Sans'), findsNothing);
+    });
+
     testWidgets('the Load font… entry runs the picker and sets the font',
         (tester) async {
       final c = PdfEditingController(buildMultiPagePdf(1));
@@ -156,6 +170,9 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
       await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-font-search')), 'load');
+      await tester.pump();
       expect(find.byKey(const ValueKey('pdf-font-load')), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('pdf-font-load')));
@@ -164,8 +181,7 @@ void main() {
       expect(c.activeFontLabel, contains('DejaVu'));
     });
 
-    testWidgets('selecting a bundled font loads and embeds it',
-        (tester) async {
+    testWidgets('selecting a bundled font loads and embeds it', (tester) async {
       final c = PdfEditingController(buildMultiPagePdf(1));
       await pumpButton(tester, c);
       await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
@@ -200,6 +216,9 @@ void main() {
       await pumpButton(tester, c);
       await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
       await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-font-search')), 'test platform');
+      await tester.pump();
       expect(find.text('Test Platform Sans'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('pdf-font-platform-0')));
@@ -222,6 +241,9 @@ void main() {
       await pumpButton(tester, c);
       await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
       await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-font-search')), 'broken');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('pdf-font-platform-0')));
       await tester.pumpAndSettle();
       expect(c.activeFont, isNull);

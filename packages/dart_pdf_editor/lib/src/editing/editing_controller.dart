@@ -17,6 +17,16 @@ import 'thumbnail_cache.dart';
 PdfEmbeddableImage _decodeEmbeddableImage(Uint8List bytes) =>
     PdfEmbeddableImage.decode(bytes);
 
+Map<String, String> _normalizeStampTemplateValues(Map<String, String> values) {
+  final normalized = <String, String>{};
+  for (final entry in values.entries) {
+    final key = entry.key.trim().toLowerCase();
+    if (key.isEmpty) continue;
+    normalized[key] = entry.value;
+  }
+  return Map.unmodifiable(normalized);
+}
+
 /// The annotation tools a [PdfEditingController] can arm.
 ///
 /// Text markups (highlight, underline, strike-out, squiggly) are not
@@ -223,6 +233,15 @@ class PdfFormFieldStyle {
 /// )
 /// ```
 class PdfEditingController extends ChangeNotifier {
+  /// Field names that the stamp editor offers by default for `{{field}}`
+  /// placeholders. Apps can add more names with [stampTemplateValues].
+  static const stampTemplateBuiltinFields = [
+    'date',
+    'time',
+    'datetime',
+    'username',
+  ];
+
   PdfEditingController(Uint8List bytes,
       {String password = '', PdfEditingPreferences? preferences})
       : _bytes = bytes,
@@ -274,11 +293,19 @@ class PdfEditingController extends ChangeNotifier {
   /// document — is never consulted.
   final List<Set<int>?> _revisionPages = [null];
 
+  /// Parallels [_revisions]: the page indices whose base page content image
+  /// changed (null = unknown, treat as all). Annotation-only revisions still
+  /// change [_revisionPages] so thumbnails refresh, but leave this empty so
+  /// the viewer can keep its expensive page/deep-zoom raster.
+  final List<Set<int>?> _revisionContentPages = [null];
+
   /// Render stamps: how many times each page's rendering has changed.
   /// [_renderStampEpoch] counts the all-pages bumps (structural edits,
   /// unknown-page edits) so they don't iterate a large document.
   final Map<int, int> _renderStamps = {};
   int _renderStampEpoch = 0;
+  final Map<int, int> _contentRenderStamps = {};
+  int _contentRenderStampEpoch = 0;
 
   void _bumpRenderStamps(Set<int>? pages) {
     if (pages == null) {
@@ -290,12 +317,28 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
+  void _bumpContentRenderStamps(Set<int>? pages) {
+    if (pages == null) {
+      _contentRenderStampEpoch++;
+    } else {
+      for (final page in pages) {
+        _contentRenderStamps[page] = (_contentRenderStamps[page] ?? 0) + 1;
+      }
+    }
+  }
+
   /// A value that changes whenever [pageIndex]'s rendering may have
   /// changed — and stays put across edits, undo, and redo that touched
   /// other pages only. Thumbnails key their raster caches on it instead
   /// of re-rendering every page on every revision.
   int pageRenderStamp(int pageIndex) =>
       _renderStampEpoch + (_renderStamps[pageIndex] ?? 0);
+
+  /// A value that changes only when [pageIndex]'s base page content image
+  /// changed. Annotation-only edits leave it stable: the viewer paints those
+  /// appearances in an overlay while thumbnails still use [pageRenderStamp].
+  int pageContentRenderStamp(int pageIndex) =>
+      _contentRenderStampEpoch + (_contentRenderStamps[pageIndex] ?? 0);
 
   /// Destructive-render epoch: bumped only by edits that *remove* existing
   /// page content (a redaction burn), as opposed to the additive ones (ink,
@@ -340,8 +383,10 @@ class PdfEditingController extends ChangeNotifier {
     if (!canUndo) return;
     final beforeLength = _revisions[_cursor];
     final pages = _revisionPages[_cursor];
+    final contentPages = _revisionContentPages[_cursor];
     // reverting revision N un-renders exactly the pages N touched
     _bumpRenderStamps(pages);
+    _bumpContentRenderStamps(contentPages);
     _cursor--;
     _reopen();
     _emitAnnotationChanges(beforeLength, pages);
@@ -352,7 +397,9 @@ class PdfEditingController extends ChangeNotifier {
     final beforeLength = _revisions[_cursor];
     _cursor++;
     final pages = _revisionPages[_cursor];
+    final contentPages = _revisionContentPages[_cursor];
     _bumpRenderStamps(pages);
+    _bumpContentRenderStamps(contentPages);
     _reopen();
     _emitAnnotationChanges(beforeLength, pages);
   }
@@ -374,19 +421,31 @@ class PdfEditingController extends ChangeNotifier {
   /// [pageRenderStamp], which lets page thumbnails skip re-rendering
   /// pages an edit didn't touch. Omit it (null) when the affected pages
   /// are unknown and every page's stamp is bumped.
-  bool apply(void Function(PdfEditor editor) edit, {Iterable<int>? pages}) {
+  ///
+  /// [contentPages] names the pages whose base page content image changed.
+  /// Omit it to conservatively mirror [pages]. Pass an empty iterable for
+  /// annotation-only edits that should update thumbnails/overlays without
+  /// invalidating deep-zoom page rasters.
+  bool apply(void Function(PdfEditor editor) edit,
+      {Iterable<int>? pages, Iterable<int>? contentPages}) {
     final editor = PdfEditor(_document);
     edit(editor);
     if (!editor.hasChanges) return false;
     final saved = editor.save();
     final beforeLength = _revisions[_cursor];
     final touched = pages == null ? null : Set<int>.unmodifiable(pages);
+    final contentTouched =
+        contentPages == null ? touched : Set<int>.unmodifiable(contentPages);
     _revisions.removeRange(_cursor + 1, _revisions.length);
     _revisionPages.removeRange(_cursor + 1, _revisionPages.length);
+    _revisionContentPages.removeRange(
+        _cursor + 1, _revisionContentPages.length);
     _bytes = saved;
     _revisions.add(saved.length);
     _revisionPages.add(touched);
+    _revisionContentPages.add(contentTouched);
     _bumpRenderStamps(touched);
+    _bumpContentRenderStamps(contentTouched);
     _cursor++;
     final selected = List.of(_selected);
     _document = PdfDocument.open(bytes, password: _password);
@@ -473,7 +532,7 @@ class PdfEditingController extends ChangeNotifier {
           // slots on the touched pages shift under the remove + append
           _selected.removeWhere((slot) => touched.contains(slot.$1));
           return apply((e) => e.upsertAnnotation(change.pageIndex, snapshot),
-              pages: touched);
+              pages: touched, contentPages: const <int>[]);
         case PdfAnnotationChangeKind.removed:
           final name = change.name;
           if (name == null) return false;
@@ -482,7 +541,7 @@ class PdfEditingController extends ChangeNotifier {
           _selected.removeWhere((slot) => slot.$1 == existing.$1);
           return apply((e) {
             e.removeAnnotation(existing.$1, existing.$2);
-          }, pages: [existing.$1]);
+          }, pages: [existing.$1], contentPages: const <int>[]);
       }
     } finally {
       _applyingRemote = false;
@@ -709,7 +768,10 @@ class PdfEditingController extends ChangeNotifier {
   /// style properties live in [preferences]).
   Color get color => preferences.color;
 
-  set color(Color value) => preferences.color = value;
+  set color(Color value) {
+    preferences.color = value;
+    if (_tool == PdfEditTool.stamp) _recolorActiveStamp(value);
+  }
 
   /// Stroke width for ink and shape annotations, in PDF points. Persisted.
   double get strokeWidth => preferences.strokeWidth;
@@ -853,6 +915,83 @@ class PdfEditingController extends ChangeNotifier {
 
   set author(String? value) => preferences.author = value;
 
+  Map<String, String> _stampTemplateValues = const {};
+
+  /// App-supplied values for `{{field}}` placeholders in saved stamp
+  /// templates. Keys are normalized to lowercase, matched case-insensitively,
+  /// and are not persisted: they describe the current app/session data rather
+  /// than the saved stamp design.
+  ///
+  /// Built-ins are added at placement time: `date`, `time`, `datetime`, and
+  /// `username` (which defaults to [author]). Entries here override those
+  /// built-ins, so a host can provide its own date formatting or user label.
+  Map<String, String> get stampTemplateValues => _stampTemplateValues;
+
+  set stampTemplateValues(Map<String, String> value) {
+    final normalized = _normalizeStampTemplateValues(value);
+    if (mapEquals(_stampTemplateValues, normalized)) return;
+    _stampTemplateValues = normalized;
+    notifyListeners();
+  }
+
+  /// Clock used for the built-in `date`, `time`, and `datetime` stamp
+  /// placeholders. Override in tests or when a host app needs a fixed clock.
+  DateTime Function() stampTemplateClock = DateTime.now;
+
+  /// Format used for the built-in `{{date}}` stamp field. Persisted.
+  PdfStampDateFormat get stampDateFormat => preferences.stampDateFormat;
+
+  set stampDateFormat(PdfStampDateFormat value) =>
+      preferences.stampDateFormat = value;
+
+  /// Format used for the built-in `{{time}}` stamp field. Persisted.
+  PdfStampTimeFormat get stampTimeFormat => preferences.stampTimeFormat;
+
+  set stampTimeFormat(PdfStampTimeFormat value) =>
+      preferences.stampTimeFormat = value;
+
+  /// Field names the stamp editor should offer for insertion.
+  ///
+  /// This includes the built-ins plus the current custom value keys.
+  List<String> get stampTemplateFieldNames => [
+        ...stampTemplateBuiltinFields,
+        for (final key in _stampTemplateValues.keys)
+          if (!stampTemplateBuiltinFields.contains(key)) key,
+      ];
+
+  /// The actual values used for the next stamp placement.
+  Map<String, String> get resolvedStampTemplateValues =>
+      _resolvedStampTemplateValues();
+
+  /// Sets or removes one custom stamp-template value.
+  void setStampTemplateValue(String name, String? value) {
+    final key = name.trim().toLowerCase();
+    if (key.isEmpty) return;
+    final next = {..._stampTemplateValues};
+    if (value == null) {
+      next.remove(key);
+    } else {
+      next[key] = value;
+    }
+    stampTemplateValues = next;
+  }
+
+  Map<String, String> _resolvedStampTemplateValues() {
+    final now = stampTemplateClock();
+    final date = stampDateFormat.format(now);
+    final time = stampTimeFormat.format(now);
+    return {
+      'date': date,
+      'time': time,
+      'datetime': '$date $time',
+      'username': author ?? '',
+      ..._stampTemplateValues,
+    };
+  }
+
+  String _resolveStampText(String text) =>
+      pdfResolveStampTemplateText(text, _resolvedStampTemplateValues());
+
   // ---------------------------------------------------------------------
   // in-place text editing
 
@@ -965,7 +1104,7 @@ class PdfEditingController extends ChangeNotifier {
   /// [opacity]'s job) as the annotation [color].
   void finishColorPick(Color picked) {
     _pickingColor = false;
-    preferences.color = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF));
+    color = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF));
     notifyListeners();
   }
 
@@ -1124,7 +1263,7 @@ class PdfEditingController extends ChangeNotifier {
               author: author);
         }
       });
-    }, pages: strokes.keys);
+    }, pages: strokes.keys, contentPages: const <int>[]);
     if (committed) {
       _committedInk = (
         document: _document,
@@ -1180,7 +1319,7 @@ class PdfEditingController extends ChangeNotifier {
                 author: author);
         }
       });
-    }, pages: quadsByPage.keys);
+    }, pages: quadsByPage.keys, contentPages: const <int>[]);
   }
 
   void addRectangle(int pageIndex, PdfRect rect) => apply(
@@ -1191,7 +1330,8 @@ class PdfEditingController extends ChangeNotifier {
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
           author: author),
-      pages: [pageIndex]);
+      pages: [pageIndex],
+      contentPages: const <int>[]);
 
   // ---------------------------------------------------------------------
   // redaction
@@ -1201,7 +1341,7 @@ class PdfEditingController extends ChangeNotifier {
   /// until [applyRedactions]. Undoable like any other edit until burned.
   void addRedaction(int pageIndex, PdfRect rect) =>
       apply((e) => e.addRedaction(pageIndex, [rect], author: author),
-          pages: [pageIndex]);
+          pages: [pageIndex], contentPages: const <int>[]);
 
   /// Marks the text runs in [quadsByPage] for redaction (one /Redact
   /// annotation per page, fill black), e.g. from a text selection. Mirrors
@@ -1212,7 +1352,7 @@ class PdfEditingController extends ChangeNotifier {
       quadsByPage.forEach((page, quads) {
         if (quads.isNotEmpty) editor.addRedaction(page, quads, author: author);
       });
-    }, pages: quadsByPage.keys);
+    }, pages: quadsByPage.keys, contentPages: const <int>[]);
   }
 
   /// Whether any page carries a marked (unburned) /Redact annotation.
@@ -1250,10 +1390,14 @@ class PdfEditingController extends ChangeNotifier {
     _revisionPages
       ..clear()
       ..add(null);
+    _revisionContentPages
+      ..clear()
+      ..add(null);
     _cursor = 0;
     _hardModified = true;
     _selected.clear();
     _bumpRenderStamps(null); // every page may have changed
+    _bumpContentRenderStamps(null);
     // a burn removes content irreversibly — mark it destructive so the
     // viewer blanks each page's raster instead of holding the (now
     // un-redacted) one up while the fresh render lands
@@ -1271,7 +1415,8 @@ class PdfEditingController extends ChangeNotifier {
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
           author: author),
-      pages: [pageIndex]);
+      pages: [pageIndex],
+      contentPages: const <int>[]);
 
   /// Adds a line from [start] to [end]. With [arrow] the end carries a
   /// closed arrowhead (the dedicated arrow tool); otherwise the start and
@@ -1290,7 +1435,8 @@ class PdfEditingController extends ChangeNotifier {
               endEnding:
                   arrow ? PdfLineEnding.closedArrow : preferences.lineEndEnding,
               author: author),
-          pages: [pageIndex]);
+          pages: [pageIndex],
+          contentPages: const <int>[]);
 
   void addPolyLine(int pageIndex, List<(double, double)> points) => apply(
       (e) => e.addPolyLine(pageIndex, points,
@@ -1301,7 +1447,8 @@ class PdfEditingController extends ChangeNotifier {
           startEnding: preferences.lineStartEnding,
           endEnding: preferences.lineEndEnding,
           author: author),
-      pages: [pageIndex]);
+      pages: [pageIndex],
+      contentPages: const <int>[]);
 
   void addPolygon(int pageIndex, List<(double, double)> points) => apply(
       (e) => e.addPolygon(pageIndex, points,
@@ -1311,7 +1458,8 @@ class PdfEditingController extends ChangeNotifier {
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
           author: author),
-      pages: [pageIndex]);
+      pages: [pageIndex],
+      contentPages: const <int>[]);
 
   // ---------------------------------------------------------------------
   // measurements (§12.9)
@@ -1465,6 +1613,7 @@ class PdfEditingController extends ChangeNotifier {
           endEnding: preferences.lineEndEnding,
           author: author),
       pages: [pageIndex],
+      contentPages: const <int>[],
     );
   }
 
@@ -1495,7 +1644,7 @@ class PdfEditingController extends ChangeNotifier {
       for (final p in pages) {
         e.setPageMeasurementScale(p, measure);
       }
-    }, pages: pages);
+    }, pages: pages, contentPages: const <int>[]);
   }
 
   /// Adopts the drawing scale the document already carries (a page /VP
@@ -1514,6 +1663,45 @@ class PdfEditingController extends ChangeNotifier {
     return false;
   }
 
+  bool _pageIsSideways(int pageIndex) {
+    final r = _page(pageIndex).rotation % 360;
+    return r == 90 || r == 270;
+  }
+
+  double _visualPageWidth(int pageIndex) {
+    final box = _page(pageIndex).cropBox;
+    return _pageIsSideways(pageIndex) ? box.height : box.width;
+  }
+
+  double _visualPageHeight(int pageIndex) {
+    final box = _page(pageIndex).cropBox;
+    return _pageIsSideways(pageIndex) ? box.width : box.height;
+  }
+
+  ({double width, double height}) _visualSizeOfPageRect(
+      int pageIndex, PdfRect rect) {
+    return _pageIsSideways(pageIndex)
+        ? (width: rect.height, height: rect.width)
+        : (width: rect.width, height: rect.height);
+  }
+
+  PdfRect _pageRectForVisualSize(
+    int pageIndex,
+    double x,
+    double y, {
+    required double width,
+    required double height,
+  }) {
+    final box = _page(pageIndex).cropBox;
+    final sideways = _pageIsSideways(pageIndex);
+    final pageW = sideways ? height : width;
+    final pageH = sideways ? width : height;
+    final cx = x.clamp(box.left + pageW / 2, box.right - pageW / 2);
+    final cy = y.clamp(box.bottom + pageH / 2, box.top - pageH / 2);
+    return PdfRect(
+        cx - pageW / 2, cy - pageH / 2, cx + pageW / 2, cy + pageH / 2);
+  }
+
   void addFreeText(int pageIndex, PdfRect rect, String text) => apply(
       (e) => e.addFreeText(pageIndex, rect, text,
           fontSize: preferences.fontSize,
@@ -1525,7 +1713,8 @@ class PdfEditingController extends ChangeNotifier {
           borderWidth: preferences.strokeWidth,
           pageRotation: _page(pageIndex).rotation,
           author: author),
-      pages: [pageIndex]);
+      pages: [pageIndex],
+      contentPages: const <int>[]);
 
   void addFreeTextRich(
           int pageIndex, PdfRect rect, List<PdfFreeTextRun> runs) =>
@@ -1537,7 +1726,8 @@ class PdfEditingController extends ChangeNotifier {
               borderWidth: preferences.strokeWidth,
               pageRotation: _page(pageIndex).rotation,
               author: author),
-          pages: [pageIndex]);
+          pages: [pageIndex],
+          contentPages: const <int>[]);
 
   /// Places [text] as a default-sized FreeText annotation centered on
   /// ([x], [y]) in page space. This is used by keyboard paste from the
@@ -1549,15 +1739,13 @@ class PdfEditingController extends ChangeNotifier {
     final value = text.trimRight();
     if (value.trim().isEmpty) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
-    final box = _page(pageIndex).cropBox;
     final fontSize = preferences.fontSize;
     final lineHeight = fontSize * 1.2;
     final lines = value.split('\n').length.clamp(1, 12);
-    final w = width.clamp(48.0, box.width * 0.9);
-    final h = (lineHeight * lines + fontSize).clamp(24.0, box.height * 0.9);
-    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
-    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
-    final rect = PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
+    final w = width.clamp(48.0, _visualPageWidth(pageIndex) * 0.9);
+    final h = (lineHeight * lines + fontSize)
+        .clamp(24.0, _visualPageHeight(pageIndex) * 0.9);
+    final rect = _pageRectForVisualSize(pageIndex, x, y, width: w, height: h);
     final pasted = apply(
         (e) => e.addFreeText(pageIndex, rect, value,
             fontSize: fontSize,
@@ -1569,7 +1757,8 @@ class PdfEditingController extends ChangeNotifier {
             borderWidth: preferences.strokeWidth,
             pageRotation: _page(pageIndex).rotation,
             author: author),
-        pages: [pageIndex]);
+        pages: [pageIndex],
+        contentPages: const <int>[]);
     if (!pasted) return false;
     tool = PdfEditTool.select;
     final total = _page(pageIndex).annotations.length;
@@ -1585,8 +1774,36 @@ class PdfEditingController extends ChangeNotifier {
           (e) => e.addStamp(pageIndex, rect, text,
               color: color ?? _colorValue,
               opacity: preferences.opacity,
+              pageRotation: _page(pageIndex).rotation,
               author: author),
-          pages: [pageIndex]);
+          pages: [pageIndex],
+          contentPages: const <int>[]);
+
+  void addCustomStamp(int pageIndex, PdfRect rect, PdfCustomStamp stamp) =>
+      apply((e) {
+        final templateValues = _resolvedStampTemplateValues();
+        final text = pdfResolveStampTemplateText(stamp.text, templateValues);
+        final template = stamp.template;
+        if (template == null) {
+          e.addStamp(pageIndex, rect, text,
+              color: stamp.color,
+              opacity: preferences.opacity,
+              pageRotation: _page(pageIndex).rotation,
+              author: author,
+              stampType: stamp.type,
+              stampTags: stamp.tags);
+        } else {
+          e.addTemplateStamp(pageIndex, rect, template,
+              contents: text,
+              color: stamp.color,
+              opacity: preferences.opacity,
+              pageRotation: _page(pageIndex).rotation,
+              author: author,
+              stampType: stamp.type,
+              stampTags: stamp.tags,
+              templateValues: templateValues);
+        }
+      }, pages: [pageIndex], contentPages: const <int>[]);
 
   /// Places [imageBytes] (PNG or JPEG) centered on ([x], [y]) in page
   /// space, [maxSize] points on its longest side, preserving the image's
@@ -1650,24 +1867,22 @@ class PdfEditingController extends ChangeNotifier {
   bool _placeDecodedImage(
       int pageIndex, double x, double y, PdfEmbeddableImage image,
       {required double maxSize}) {
-    final box = _page(pageIndex).cropBox;
     final aspect = image.height == 0 ? 1.0 : image.width / image.height;
     var w = aspect >= 1 ? maxSize : maxSize * aspect;
     var h = aspect >= 1 ? maxSize / aspect : maxSize;
-    final maxW = box.width * 0.9, maxH = box.height * 0.9;
+    final maxW = _visualPageWidth(pageIndex) * 0.9;
+    final maxH = _visualPageHeight(pageIndex) * 0.9;
     if (w > maxW) (w, h) = (maxW, h * maxW / w);
     if (h > maxH) (w, h) = (w * maxH / h, maxH);
-    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
-    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
     return _addImageStamp(pageIndex,
-        PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image);
+        _pageRectForVisualSize(pageIndex, x, y, width: w, height: h), image);
   }
 
   bool _addDecodedImageInRect(
       int pageIndex, PdfRect box, PdfEmbeddableImage image) {
     if (box.width <= 0 || box.height <= 0) return false;
     final aspect = image.height == 0 ? 1.0 : image.width / image.height;
-    var w = box.width, h = box.height;
+    var (width: w, height: h) = _visualSizeOfPageRect(pageIndex, box);
     if (w / h > aspect) {
       w = h * aspect;
     } else {
@@ -1675,21 +1890,27 @@ class PdfEditingController extends ChangeNotifier {
     }
     final cx = (box.left + box.right) / 2, cy = (box.bottom + box.top) / 2;
     return _addImageStamp(pageIndex,
-        PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image);
+        _pageRectForVisualSize(pageIndex, cx, cy, width: w, height: h), image);
   }
 
   bool _addImageStamp(int pageIndex, PdfRect rect, PdfEmbeddableImage image) {
     return apply(
         (e) => e.addImageStamp(pageIndex, rect, image,
-            opacity: preferences.opacity, author: author),
-        pages: [pageIndex]);
+            opacity: preferences.opacity,
+            pageRotation: _page(pageIndex).rotation,
+            author: author),
+        pages: [pageIndex],
+        contentPages: const <int>[]);
   }
 
   /// Adds a sticky note with its top-left corner at ([x], [y]).
   void addNote(int pageIndex, double x, double y, String text) => apply(
-      (e) =>
-          e.addNote(pageIndex, x, y, text, color: _colorValue, author: author),
-      pages: [pageIndex]);
+      (e) => e.addNote(pageIndex, x, y, text,
+          color: _colorValue,
+          pageRotation: _page(pageIndex).rotation,
+          author: author),
+      pages: [pageIndex],
+      contentPages: const <int>[]);
 
   // ---------------------------------------------------------------------
   // signature
@@ -1756,20 +1977,68 @@ class PdfEditingController extends ChangeNotifier {
             opacity: 1,
             pressures: placement.pressures,
             author: author),
-        pages: [pageIndex]);
+        pages: [pageIndex],
+        contentPages: const <int>[]);
   }
 
   // ---------------------------------------------------------------------
   // custom stamps
 
+  List<PdfCustomStamp> _providedCustomStamps = const [];
+
+  /// Stamps supplied by the host app for this editing session.
+  ///
+  /// They are shown alongside [savedCustomStamps] in the picker but are not
+  /// written to [preferences]. Use this for organization/workflow stamps
+  /// managed by the Flutter app.
+  List<PdfCustomStamp> get providedCustomStamps => _providedCustomStamps;
+
+  set providedCustomStamps(List<PdfCustomStamp> value) {
+    final next = List<PdfCustomStamp>.unmodifiable(value);
+    if (listEquals(next, _providedCustomStamps)) return;
+    _providedCustomStamps = next;
+    final active = _activeStamp;
+    if (active != null &&
+        !next.contains(active) &&
+        !preferences.customStamps.contains(active)) {
+      _activeStamp = null;
+    }
+    notifyListeners();
+  }
+
+  /// User-authored custom stamps persisted on this device.
+  List<PdfCustomStamp> get savedCustomStamps => preferences.customStamps;
+
   /// The user's saved custom stamps. Persisted with the other
   /// [preferences], so they survive app restarts. Created in
   /// [showPdfStampEditor] (usually via the picker, [showPdfStampPicker]).
-  List<PdfCustomStamp> get customStamps => preferences.customStamps;
+  ///
+  /// This combines [providedCustomStamps] and [savedCustomStamps].
+  List<PdfCustomStamp> get customStamps => List.unmodifiable([
+        ..._providedCustomStamps,
+        ...preferences.customStamps,
+      ]);
+
+  /// Whether [stamp] is one of the user's saved, removable stamps.
+  bool isSavedCustomStamp(PdfCustomStamp stamp) =>
+      preferences.customStamps.contains(stamp);
 
   /// Appends [stamp] to the saved list.
   void saveCustomStamp(PdfCustomStamp stamp) =>
       preferences.customStamps = [...preferences.customStamps, stamp];
+
+  /// Replaces a user-saved stamp with [next]. If [stamp] is active, the
+  /// edited stamp remains active. Returns false for app-supplied stamps.
+  bool replaceCustomStamp(PdfCustomStamp stamp, PdfCustomStamp next) {
+    final saved = preferences.customStamps;
+    final index = saved.indexOf(stamp);
+    if (index == -1) return false;
+    if (_activeStamp == stamp) _activeStamp = next;
+    preferences.customStamps = [
+      for (var i = 0; i < saved.length; i++) i == index ? next : saved[i],
+    ];
+    return true;
+  }
 
   /// Removes [stamp] from the saved list. If it was the active stamp,
   /// the stamp tool falls back to prompting for text.
@@ -1797,6 +2066,41 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _recolorActiveStamp(Color color) {
+    final active = _activeStamp;
+    if (active == null) return;
+    final rgb = color.toARGB32() & 0xFFFFFF;
+    final next = PdfCustomStamp(
+      text: active.text,
+      color: rgb,
+      template: active.template == null
+          ? null
+          : PdfStampTemplate(
+              width: active.template!.width,
+              height: active.template!.height,
+              components: [
+                for (final component in active.template!.components)
+                  component.type == PdfStampTemplateComponentType.image
+                      ? component
+                      : component.copyWith(color: rgb),
+              ],
+            ),
+      type: active.type,
+      tags: active.tags,
+    );
+    if (next == active) return;
+    _activeStamp = next;
+    final saved = preferences.customStamps;
+    final savedIndex = saved.indexOf(active);
+    if (savedIndex == -1) {
+      notifyListeners();
+      return;
+    }
+    preferences.customStamps = [
+      for (var i = 0; i < saved.length; i++) i == savedIndex ? next : saved[i],
+    ];
+  }
+
   /// Places [activeStamp] centered on ([x], [y]) in page space,
   /// [height] points tall and auto-sized from its caption (clamped,
   /// with the center, so the whole stamp stays on the page). Returns
@@ -1804,8 +2108,63 @@ class PdfEditingController extends ChangeNotifier {
   bool placeStamp(int pageIndex, double x, double y, {double height = 40}) {
     final stamp = _activeStamp;
     if (stamp == null) return false;
-    return placeTextStamp(pageIndex, x, y, stamp.text,
-        height: height, color: stamp.color);
+    final template = stamp.template;
+    if (template != null) {
+      final rect =
+          _stampTemplatePlacement(pageIndex, x, y, template, height: height);
+      if (rect == null) return false;
+      return apply((e) {
+        final templateValues = _resolvedStampTemplateValues();
+        e.addTemplateStamp(pageIndex, rect, template,
+            contents: pdfResolveStampTemplateText(stamp.text, templateValues),
+            color: stamp.color,
+            opacity: preferences.opacity,
+            pageRotation: _page(pageIndex).rotation,
+            author: author,
+            stampType: stamp.type,
+            stampTags: stamp.tags,
+            templateValues: templateValues);
+      }, pages: [pageIndex], contentPages: const <int>[]);
+    }
+    return placeTextStamp(pageIndex, x, y, _resolveStampText(stamp.text),
+        height: height,
+        color: stamp.color,
+        stampType: stamp.type,
+        stampTags: stamp.tags);
+  }
+
+  /// The page-space rect [placeStamp] would use for the current
+  /// [activeStamp]. Null when no stamp is active or its template is invalid.
+  PdfRect? stampPlacement(int pageIndex, double x, double y,
+      {double height = 40}) {
+    final stamp = _activeStamp;
+    if (stamp == null) return null;
+    final template = stamp.template;
+    return template == null
+        ? textStampPlacement(pageIndex, x, y, _resolveStampText(stamp.text),
+            height: height)
+        : _stampTemplatePlacement(pageIndex, x, y, template, height: height);
+  }
+
+  PdfRect? _stampTemplatePlacement(
+      int pageIndex, double x, double y, PdfStampTemplate template,
+      {required double height}) {
+    if (!template.isValid) return null;
+    final h = height.clamp(8.0, _visualPageHeight(pageIndex) * 0.9);
+    final aspect = template.width / template.height;
+    var w = h * aspect;
+    final maxW = _visualPageWidth(pageIndex) * 0.9;
+    final maxH = _visualPageHeight(pageIndex) * 0.9;
+    var fittedH = h;
+    if (w > maxW) {
+      w = maxW;
+      fittedH = w / aspect;
+    }
+    if (fittedH > maxH) {
+      fittedH = maxH;
+      w = fittedH * aspect;
+    }
+    return _pageRectForVisualSize(pageIndex, x, y, width: w, height: fittedH);
   }
 
   /// Places a default-sized stamp captioned [text], centered on ([x], [y])
@@ -1814,23 +2173,33 @@ class PdfEditingController extends ChangeNotifier {
   /// tapping without dragging out a box drops a stamp at a sensible size.
   /// [color] null uses the selected toolbar colour.
   bool placeTextStamp(int pageIndex, double x, double y, String text,
-      {double height = 40, int? color}) {
-    final box = _page(pageIndex).cropBox;
-    final h = height.clamp(8.0, box.height * 0.9);
+      {double height = 40,
+      int? color,
+      String? stampType,
+      Iterable<String> stampTags = const []}) {
+    final rect = textStampPlacement(pageIndex, x, y, text, height: height);
+    return apply(
+        (e) => e.addStamp(pageIndex, rect, text,
+            color: color ?? _colorValue,
+            opacity: preferences.opacity,
+            pageRotation: _page(pageIndex).rotation,
+            author: author,
+            stampType: stampType,
+            stampTags: stampTags),
+        pages: [pageIndex],
+        contentPages: const <int>[]);
+  }
+
+  /// The page-space rect [placeTextStamp] would use.
+  PdfRect textStampPlacement(int pageIndex, double x, double y, String text,
+      {double height = 40}) {
+    final h = height.clamp(8.0, _visualPageHeight(pageIndex) * 0.9);
     // mirror addStamp's appearance math (6pt padding, text 72% of the
     // height) so the caption fills the box without shrinking
     final fontSize = (h - 12) * 0.72;
     final w = (measureHelvetica(text, fontSize, bold: true) + 24)
-        .clamp(h, box.width * 0.9);
-    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
-    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
-    return apply(
-        (e) => e.addStamp(pageIndex,
-            PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), text,
-            color: color ?? _colorValue,
-            opacity: preferences.opacity,
-            author: author),
-        pages: [pageIndex]);
+        .clamp(h, _visualPageWidth(pageIndex) * 0.9);
+    return _pageRectForVisualSize(pageIndex, x, y, width: w, height: h);
   }
 
   // ---------------------------------------------------------------------
@@ -1855,8 +2224,12 @@ class PdfEditingController extends ChangeNotifier {
     return apply(
         (e) => e.addCheckMark(
             pageIndex, PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
-            color: _colorValue, opacity: preferences.opacity, author: author),
-        pages: [pageIndex]);
+            color: _colorValue,
+            opacity: preferences.opacity,
+            pageRotation: _page(pageIndex).rotation,
+            author: author),
+        pages: [pageIndex],
+        contentPages: const <int>[]);
   }
 
   int? _checkMarkCount;
@@ -2519,7 +2892,8 @@ class PdfEditingController extends ChangeNotifier {
       final (page, slot) = _selected[i];
       if (page == pageIndex && slot > index) _selected[i] = (page, slot - 1);
     }
-    apply((e) => e.removeAnnotation(pageIndex, annotation), pages: [pageIndex]);
+    apply((e) => e.removeAnnotation(pageIndex, annotation),
+        pages: [pageIndex], contentPages: const <int>[]);
   }
 
   /// Removes several annotations — (pageIndex, /Annots slot) pairs — in
@@ -2544,7 +2918,9 @@ class PdfEditingController extends ChangeNotifier {
       for (final entry in byPage.entries) {
         e.removeAnnotations(entry.key, entry.value);
       }
-    }, pages: [for (final (page, _) in targets) page]);
+    },
+        pages: [for (final (page, _) in targets) page],
+        contentPages: const <int>[]);
   }
 
   // ---------------------------------------------------------------------
@@ -2622,7 +2998,7 @@ class PdfEditingController extends ChangeNotifier {
       }
       // slots may shift under the survivors
       if (changed) _selected.clear();
-    }, pages: [pageIndex]);
+    }, pages: [pageIndex], contentPages: const <int>[]);
   }
 
   static bool _pathTouchesRect(
@@ -2711,7 +3087,7 @@ class PdfEditingController extends ChangeNotifier {
             ? e.bringAnnotationsToFront(page, annotations)
             : e.sendAnnotationsToBack(page, annotations);
       }
-    }, pages: byPage.keys);
+    }, pages: byPage.keys, contentPages: const <int>[]);
   }
 
   void clearAnnotationSelection() {
@@ -2807,7 +3183,7 @@ class PdfEditingController extends ChangeNotifier {
       for (final snapshot in _clipboard) {
         e.pasteAnnotation(pageIndex, snapshot, dx: dx, dy: dy);
       }
-    }, pages: [pageIndex]);
+    }, pages: [pageIndex], contentPages: const <int>[]);
     if (!pasted) return false;
     _pasteCount++;
     // pasted entries appended to /Annots — select them, like any editor
@@ -2894,7 +3270,7 @@ class PdfEditingController extends ChangeNotifier {
     final pasted = apply((e) {
       captured = e.pasteVectorSnapshot(pageIndex, target, snapshot,
           author: author, sharedObject: _snapshotCapturedRef);
-    }, pages: [pageIndex]);
+    }, pages: [pageIndex], contentPages: const <int>[]);
     if (!pasted) return false;
     // remember the shared captured form so repeat pastes reuse it
     _snapshotCapturedRef = captured;
@@ -3027,7 +3403,9 @@ class PdfEditingController extends ChangeNotifier {
                 lineStyle == null ? null : (lineStyle.dashArray(width),),
             pageRotation: _page(page).rotation);
       }
-    }, pages: [for (final (page, _) in targets) page]);
+    },
+        pages: [for (final (page, _) in targets) page],
+        contentPages: const <int>[]);
   }
 
   // ---------------------------------------------------------------------
@@ -3092,7 +3470,9 @@ class PdfEditingController extends ChangeNotifier {
       for (final (page, annotation) in targets) {
         e.moveAnnotation(page, annotation, dx, dy);
       }
-    }, pages: [for (final (page, _) in targets) page]);
+    },
+        pages: [for (final (page, _) in targets) page],
+        contentPages: const <int>[]);
   }
 
   /// The selected annotations that share the primary selection's page, in
@@ -3142,7 +3522,7 @@ class PdfEditingController extends ChangeNotifier {
       for (final (annotation, dx, dy) in moves) {
         e.moveAnnotation(page, annotation, dx, dy);
       }
-    }, pages: [page]);
+    }, pages: [page], contentPages: const <int>[]);
   }
 
   /// Re-homes the single selected annotation onto [targetPage], shifted
@@ -3170,7 +3550,7 @@ class PdfEditingController extends ChangeNotifier {
     final moved = apply((e) {
       e.removeAnnotation(source, annotation);
       e.pasteAnnotation(targetPage, snapshot, dx: dx, dy: dy);
-    }, pages: [source, targetPage]);
+    }, pages: [source, targetPage], contentPages: const <int>[]);
     if (!moved) return false;
     final total = _page(targetPage).annotations.length;
     _selected
@@ -3197,7 +3577,8 @@ class PdfEditingController extends ChangeNotifier {
             flipX: flipX,
             flipY: flipY,
             pageRotation: _page(_selected.last.$1).rotation),
-        pages: [_selected.last.$1]);
+        pages: [_selected.last.$1],
+        contentPages: const <int>[]);
   }
 
   /// Resizes the selected form-field [widget] so its /Rect becomes [to],
@@ -3208,7 +3589,8 @@ class PdfEditingController extends ChangeNotifier {
     final field = _widgetFieldForSlot(slot);
     if (field == null) return;
     final (name, widgetIndex) = field;
-    apply((e) => e.resizeFormWidget(name, widgetIndex, to), pages: [slot.$1]);
+    apply((e) => e.resizeFormWidget(name, widgetIndex, to),
+        pages: [slot.$1], contentPages: const <int>[]);
   }
 
   /// The (field name, widget index) for the Widget annotation in [slot],
@@ -3247,7 +3629,8 @@ class PdfEditingController extends ChangeNotifier {
             flipX: flipX,
             flipY: flipY,
             pageRotation: _page(_selected.last.$1).rotation),
-        pages: [_selected.last.$1]);
+        pages: [_selected.last.$1],
+        contentPages: const <int>[]);
   }
 
   /// Replaces the defining vertices of the selected Line, PolyLine, or
@@ -3261,7 +3644,7 @@ class PdfEditingController extends ChangeNotifier {
       return;
     }
     apply((e) => e.reshapeLineAnnotation(_selected.last.$1, annotation, points),
-        pages: [_selected.last.$1]);
+        pages: [_selected.last.$1], contentPages: const <int>[]);
   }
 
   /// Whether the single selected annotation is a /Line or /PolyLine whose
@@ -3293,7 +3676,8 @@ class PdfEditingController extends ChangeNotifier {
     apply(
         (e) => e.setLineEndings(_selected.last.$1, annotation,
             startEnding: start, endEnding: end),
-        pages: [_selected.last.$1]);
+        pages: [_selected.last.$1],
+        contentPages: const <int>[]);
   }
 
   /// Whether the single selected annotation is a measurement (a /Line,
@@ -3325,7 +3709,8 @@ class PdfEditingController extends ChangeNotifier {
     apply(
         (e) => e.setMeasurementCaptionStyle(_selected.last.$1, annotation,
             font: font, size: size),
-        pages: [_selected.last.$1]);
+        pages: [_selected.last.$1],
+        contentPages: const <int>[]);
   }
 
   /// Rotates the selected annotation by [degrees] counterclockwise (page
@@ -3335,7 +3720,7 @@ class PdfEditingController extends ChangeNotifier {
     if (annotation == null || !canRotateSelected) return;
     if (degrees.abs() < 0.01) return;
     apply((e) => e.rotateAnnotation(_selected.last.$1, annotation, degrees),
-        pages: [_selected.last.$1]);
+        pages: [_selected.last.$1], contentPages: const <int>[]);
   }
 
   /// Deletes whatever is selected: the content element when the content
@@ -3363,7 +3748,7 @@ class PdfEditingController extends ChangeNotifier {
             final field = e.acroForm?.fieldNamed(name);
             if (field != null) e.removeField(field);
           }
-        });
+        }, contentPages: const <int>[]);
         return;
       }
     }
@@ -3647,10 +4032,16 @@ class PdfEditingController extends ChangeNotifier {
               name: nm);
         case 'Stamp':
           e.addStamp(page, rect, text,
-              color: color ?? 0xC03030, author: by, name: nm);
+              color: color ?? 0xC03030,
+              pageRotation: _page(page).rotation,
+              author: by,
+              name: nm);
         default: // 'Text'
           e.addNote(page, rect.left, rect.top, text,
-              color: color ?? 0xFFD100, author: by, name: nm);
+              color: color ?? 0xFFD100,
+              pageRotation: _page(page).rotation,
+              author: by,
+              name: nm);
       }
       // spin the freshly horizontal box back onto the resting rotation:
       // the just-added annotation is the last /Annots entry
@@ -3660,7 +4051,7 @@ class PdfEditingController extends ChangeNotifier {
           e.rotateAnnotation(page, added.last, rotation * 180 / math.pi);
         }
       }
-    }, pages: [page]);
+    }, pages: [page], contentPages: const <int>[]);
     // the rewritten annotation lands in the last /Annots slot — keep it
     // selected so consecutive restyles (a settings popup) stay anchored
     final annotations = _page(page).annotations;
@@ -3698,7 +4089,7 @@ class PdfEditingController extends ChangeNotifier {
           e.rotateAnnotation(page, added.last, rotation * 180 / math.pi);
         }
       }
-    }, pages: [page]);
+    }, pages: [page], contentPages: const <int>[]);
     final annotations = _page(page).annotations;
     if (annotations.isNotEmpty) {
       _selected
@@ -3908,7 +4299,7 @@ class PdfEditingController extends ChangeNotifier {
   bool _replaceElementImage((int page, int id) selected,
       PdfContentElement element, PdfRect bounds, PdfEmbeddableImage image) {
     final aspect = image.height == 0 ? 1.0 : image.width / image.height;
-    var w = bounds.width, h = bounds.height;
+    var (width: w, height: h) = _visualSizeOfPageRect(selected.$1, bounds);
     if (w / h > aspect) {
       w = h * aspect;
     } else {
@@ -3920,9 +4311,13 @@ class PdfEditingController extends ChangeNotifier {
     return apply(
         (e) => e
           ..deleteElements(elements, [element.id])
-          ..addImageStamp(selected.$1,
-              PdfRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), image,
-              opacity: preferences.opacity, author: author),
+          ..addImageStamp(
+              selected.$1,
+              _pageRectForVisualSize(selected.$1, cx, cy, width: w, height: h),
+              image,
+              opacity: preferences.opacity,
+              pageRotation: _page(selected.$1).rotation,
+              author: author),
         pages: [selected.$1]);
   }
 
@@ -4052,7 +4447,7 @@ class PdfEditingController extends ChangeNotifier {
       return apply((e) {
         final f = e.acroForm?.fieldNamed(name);
         if (f != null) fill(e, f);
-      }, pages: pages);
+      }, pages: pages, contentPages: const <int>[]);
     } on ArgumentError {
       return false;
     } on StateError {
@@ -4144,7 +4539,7 @@ class PdfEditingController extends ChangeNotifier {
         case PdfFormFieldKind.pushButton:
           e.addPushButtonField(pageIndex, name, rect);
       }
-    }, pages: [pageIndex]);
+    }, pages: [pageIndex], contentPages: const <int>[]);
     return added ? name : null;
   }
 
@@ -4171,7 +4566,7 @@ class PdfEditingController extends ChangeNotifier {
     return apply((e) {
       final f = e.acroForm?.fieldNamed(name);
       if (f != null) e.removeField(f);
-    }, pages: pages);
+    }, pages: pages, contentPages: const <int>[]);
   }
 
   /// Rebuilds the field [name] as [kind] at its first widget's place,
@@ -4189,7 +4584,7 @@ class PdfEditingController extends ChangeNotifier {
       return apply((e) {
         final f = e.acroForm?.fieldNamed(name);
         if (f != null) e.changeFieldType(f, type);
-      }, pages: pages);
+      }, pages: pages, contentPages: const <int>[]);
     } on ArgumentError {
       return false;
     } on StateError {
@@ -4298,7 +4693,7 @@ class PdfEditingController extends ChangeNotifier {
               align: align,
               multiline: multiline);
         }
-      }, pages: pages);
+      }, pages: pages, contentPages: const <int>[]);
     } on ArgumentError {
       return false;
     } on StateError {

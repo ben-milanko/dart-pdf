@@ -259,7 +259,9 @@ void main() {
     }
 
     Future<PdfEditingController> pumpEditor(WidgetTester tester,
-        {PdfFormImagePicker? imagePicker, bool toolbar = false}) async {
+        {PdfFormImagePicker? imagePicker,
+        PdfTextPrompt? textPrompt,
+        bool toolbar = false}) async {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildAcroFormPdf());
       final viewer = PdfViewerController();
@@ -274,6 +276,7 @@ void main() {
               document: editing.document,
               controller: viewer,
               editing: editing,
+              editingTextPrompt: textPrompt,
               formImagePicker: imagePicker,
             ),
           ),
@@ -454,6 +457,28 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-form-menu-delete')));
       await tester.pumpAndSettle();
       expect(editing.acroForm!.fieldNamed('name'), isNull);
+      await settle(tester);
+    });
+
+    testWidgets('right-click edit changes a text field value in select mode',
+        (tester) async {
+      final editing = await pumpEditor(tester,
+          textPrompt: (context,
+                  {required String title,
+                  String initial = '',
+                  bool multiline = false}) async =>
+              'Edited');
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tester.tapAt(view(186, 712),
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-form-menu-edit')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-form-menu-edit')));
+      await tester.pumpAndSettle();
+      expect(editing.acroForm!.fieldNamed('name')!.value, 'Edited');
       await settle(tester);
     });
 

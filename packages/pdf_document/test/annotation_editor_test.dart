@@ -709,6 +709,41 @@ void main() {
         'Helvetica-Bold');
   });
 
+  test('custom stamp metadata is readable from the annotation', () {
+    final doc = roundTrip((e) => e.addStamp(
+          0,
+          const PdfRect(100, 500, 260, 540),
+          'AUDIT',
+          stampType: 'Audit',
+          stampTags: const ['external', 'field'],
+        ));
+    final stamp = doc.page(0).annotations.single;
+    expect(stamp.stampType, 'Audit');
+    expect(stamp.stampTags, ['external', 'field']);
+  });
+
+  test('oriented annotations on rotated pages counter-rotate appearances', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 90);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated)
+      ..addNote(0, 500, 700, 'rotated note')
+      ..addStamp(0, const PdfRect(100, 500, 140, 660), 'APPROVED')
+      ..addCheckMark(0, const PdfRect(200, 500, 220, 520));
+
+    final doc = PdfDocument.open(editor2.save());
+    expect(doc.page(0).rotation, 90);
+    final annotations = doc.page(0).annotations;
+    expect(annotations.map((a) => a.subtype), ['Text', 'Stamp', 'Stamp']);
+    for (final annotation in annotations) {
+      final content = appearanceText(doc, annotation);
+      expect(content, contains('cm'));
+      expect(content, contains('0 1 -1 0'));
+    }
+    expect(appearanceText(doc, annotations[1]), contains('(APPROVED) Tj'));
+    expect(annotations[2].isCheckMark, isTrue);
+  });
+
   test('annotations append to an existing /Annots array', () {
     final first = PdfEditor(PdfDocument.open(buildAnnotatedPdf()));
     final before =

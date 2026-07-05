@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.3.2. No
+  fixture changes since 1.3.1.
+
 ## 1.3.1
 
 - Version bump to keep the dart-pdf package suite aligned at 1.3.1. No

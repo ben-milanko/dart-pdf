@@ -100,7 +100,8 @@ void main() {
 
       editing.setSelectedTextAlign(PdfTextAlign.right);
 
-      expect(editing.document.page(0).annotations.single.freeTextStyle!.alignment,
+      expect(
+          editing.document.page(0).annotations.single.freeTextStyle!.alignment,
           PdfTextAlign.right);
       // the selection survives the rewrite
       expect(editing.selectedTextAlign, PdfTextAlign.right);
@@ -125,8 +126,8 @@ void main() {
     test('addFreeTextRich applies the alignment default', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..textAlign = PdfTextAlign.right;
-      editing.addFreeTextRich(0, const PdfRect(100, 600, 360, 650),
-          [const PdfFreeTextRun('Rich')]);
+      editing.addFreeTextRich(
+          0, const PdfRect(100, 600, 360, 650), [const PdfFreeTextRun('Rich')]);
 
       final style = editing.document.page(0).annotations.single.freeTextStyle!;
       expect(style.alignment, PdfTextAlign.right);
@@ -608,8 +609,7 @@ void main() {
       expect(find.byKey(editorKey), findsNothing);
       expect(editing.document.page(0).annotations, hasLength(1),
           reason: 'Escape cancels the edit, it must not delete the box');
-      expect(
-          editing.document.page(0).annotations.single.contents, 'Original');
+      expect(editing.document.page(0).annotations.single.contents, 'Original');
       await settle(tester);
     });
 
@@ -779,19 +779,16 @@ void main() {
       await tap(tester, view(450, 400)); // outside: commit
       final annotation = editing.document.page(0).annotations.single;
       final res = editing.document.cos
-          .resolve(annotation.normalAppearance!.dictionary['Resources'])
+              .resolve(annotation.normalAppearance!.dictionary['Resources'])
           as CosDictionary;
       final fonts = editing.document.cos.resolve(res['Font']) as CosDictionary;
       // the committed appearance embeds the font (a Type0 face for the run)
-      expect(
-          fonts.entries.values.any((ref) {
-            final f = editing.document.cos.resolve(ref);
-            return f is CosDictionary &&
-                (editing.document.cos.resolve(f['Subtype']) as CosName?)
-                        ?.value ==
-                    'Type0';
-          }),
-          isTrue);
+      expect(fonts.entries.values.any((ref) {
+        final f = editing.document.cos.resolve(ref);
+        return f is CosDictionary &&
+            (editing.document.cos.resolve(f['Subtype']) as CosName?)?.value ==
+                'Type0';
+      }), isTrue);
       await settle(tester);
     });
 
@@ -819,11 +816,11 @@ void main() {
       await tester.pumpAndSettle();
 
       final serifRow = find.descendant(
-          of: find.byKey(const ValueKey('pdf-inline-font-std-serif')),
+          of: find.byKey(const ValueKey('pdf-font-std-serif')),
           matching: find.text('Serif (Times)'));
       expect(
           tester.widget<Text>(serifRow).style?.fontFamily, 'Times New Roman');
-      await tester.tap(find.byKey(const ValueKey('pdf-inline-font-std-serif')));
+      await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
       await tester.pump();
 
       final span = field.controller!.buildTextSpan(
@@ -1184,6 +1181,7 @@ void main() {
       await tester.pump();
 
       final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.cursorWidth, closeTo(1, 0.01));
       final scaled = field.selectionControls!;
       expect(scaled.getHandleSize(20).width, closeTo(18, 0.01));
       expect(field.contextMenuBuilder, isNotNull);

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.2
+
+- Editing polish from the 1.3.2 package suite: no-flicker annotation
+  appearance updates, zoom-stable chrome, improved gesture rendering, right-click
+  form-field editing, and more direct highlight styling.
+- Custom stamps can now be built from vector templates with dynamic fields,
+  saved signatures, image components, metadata, and configurable date/time
+  placeholders.
+- macOS release builds more reliably re-sign embedded native libraries.
+
 ## 1.3.1
 
 - Text boxes can use installed platform fonts through the editor font menu;

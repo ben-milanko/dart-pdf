@@ -100,6 +100,7 @@ class PdfReader extends StatefulWidget {
     this.preferences,
     this.features = const PdfReaderFeatures(),
     this.onAction,
+    this.onAnnotationTap,
     this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.initialFit = PdfViewerFit.page,
@@ -142,6 +143,9 @@ class PdfReader extends StatefulWidget {
 
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
+
+  /// See [PdfViewer.onAnnotationTap].
+  final PdfAnnotationTapHandler? onAnnotationTap;
 
   /// See [PdfViewer.onLaunchUrl].
   final PdfUrlLauncher? onLaunchUrl;
@@ -400,6 +404,7 @@ class _PdfReaderState extends State<PdfReader> {
                           controller: _viewer,
                           formController: features.fillForms ? _session : null,
                           onAction: widget.onAction,
+                          onAnnotationTap: widget.onAnnotationTap,
                           onLaunchUrl: widget.onLaunchUrl,
                           pageOverlayBuilder: widget.pageOverlayBuilder,
                           initialFit: widget.initialFit,

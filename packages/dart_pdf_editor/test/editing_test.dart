@@ -936,6 +936,57 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the Draw group exposes a text highlight action',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(158, 720),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveBy(const Offset(-20, 0));
+      await tester.pump();
+      await gesture.moveTo(view(50, 720));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      expect(viewer.selectedText, 'Page 1');
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-draw')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(viewer.hasSelection, isTrue,
+          reason: 'opening Draw must not clear text before Highlight runs');
+
+      final highlightButton = tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.border_color));
+      expect(highlightButton.onPressed, isNotNull);
+      await tester.tap(find.byTooltip('Highlight selection'));
+      await tester.pump();
+
+      expect(editing.document.page(0).annotations.single.subtype, 'Highlight');
+      await settle(tester);
+    });
+
     testWidgets('the content tool selects a text run; delete removes it',
         (tester) async {
       final (editing, _) = await pumpEditor(tester, pages: 1);

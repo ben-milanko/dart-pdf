@@ -68,11 +68,18 @@ Uint8List buildUriLinkPdf(String url) {
   return ascii(buffer.toString());
 }
 
+Uint8List buildPlainAnnotationPdf() {
+  final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+    ..addNote(0, 100, 700, 'Host action');
+  return editor.save();
+}
+
 void main() {
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
       {int pages = 5,
       Uint8List? bytes,
       PdfActionHandler? onAction,
+      PdfAnnotationTapHandler? onAnnotationTap,
       PdfUrlLauncher? onLaunchUrl}) async {
     final controller = PdfViewerController();
     await tester.pumpWidget(MaterialApp(
@@ -82,6 +89,7 @@ void main() {
           document: PdfDocument.open(bytes ?? buildMultiPagePdf(pages)),
           controller: controller,
           onAction: onAction,
+          onAnnotationTap: onAnnotationTap,
           onLaunchUrl: onLaunchUrl,
         ),
       ),
@@ -863,7 +871,10 @@ void main() {
     // fixture's app:// link falls through to onAction unchanged.
     final actions = <PdfAction>[];
     final annotations = <PdfAnnotation>[];
-    await pumpViewer(tester, bytes: buildAnnotatedPdf(), onAction: (a, an) {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(tester,
+        bytes: buildAnnotatedPdf(),
+        onAnnotationTap: taps.add, onAction: (a, an) {
       actions.add(a);
       annotations.add(an);
     });
@@ -872,9 +883,32 @@ void main() {
     // the tap fires once the competing double-tap recognizer times out
     await tester.pump(const Duration(milliseconds: 400));
 
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation, isA<PdfLinkAnnotation>());
+    expect(taps.single.pageIndex, 0);
+    expect(taps.single.pagePoint.dx, closeTo(136, 0.5));
+    expect(taps.single.pagePoint.dy, closeTo(652, 0.5));
     expect(actions, hasLength(1));
     expect((actions.single as PdfUriAction).uri, 'app://invoice/42');
     expect(annotations.single, isA<PdfLinkAnnotation>());
+  });
+
+  testWidgets('onAnnotationTap fires for a plain annotation', (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(tester,
+        bytes: buildPlainAnnotationPdf(), onAnnotationTap: taps.add);
+
+    await tester.tapAt(annotView(110, 690)); // note icon center
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(taps, hasLength(1));
+    final tap = taps.single;
+    expect(tap.pageIndex, 0);
+    expect(tap.annotation.subtype, 'Text');
+    expect(tap.pagePoint.dx, closeTo(110, 0.5));
+    expect(tap.pagePoint.dy, closeTo(690, 0.5));
+    expect(tap.pageViewPosition.dx, closeTo(annotView(110, 690).dx, 0.5));
+    expect(tap.pageViewPosition.dy, closeTo(annotView(110, 690).dy, 0.5));
   });
 
   testWidgets('tapping an http link opens it via the default launcher',
@@ -996,11 +1030,15 @@ void main() {
   testWidgets('hidden annotations neither fire nor change the cursor',
       (tester) async {
     final actions = <PdfAction>[];
+    final taps = <PdfAnnotationTapDetails>[];
     await pumpViewer(tester,
-        bytes: buildAnnotatedPdf(), onAction: (a, _) => actions.add(a));
+        bytes: buildAnnotatedPdf(),
+        onAnnotationTap: taps.add,
+        onAction: (a, _) => actions.add(a));
 
     await tester.tapAt(annotView(350, 612)); // hidden URI link center
     await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
     expect(actions, isEmpty);
   });
 

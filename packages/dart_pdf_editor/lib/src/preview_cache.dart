@@ -117,7 +117,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
       int? rotation,
       bool decodeImages = true,
       int priority = 1,
-      int? commandLimit}) async {
+      int? commandLimit,
+      bool Function()? deferUiWork}) async {
     if (_disposed || isFresh(index, page, requireImages: decodeImages)) return;
     if (!decodeImages && (worker == null || !worker.isActive)) {
       // A vector-first preview is only cheap through the worker. The local
@@ -147,6 +148,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
         // UI thread during the fast-scroll path.
         return;
       }
+      if (deferUiWork?.call() ?? false) return;
       if (_disposed || isFresh(index, page, requireImages: decodeImages)) {
         return;
       }
@@ -160,18 +162,27 @@ class PdfPagePreviewCache extends ChangeNotifier {
             pageColor: pageColor,
             rotation: rotation,
             includeImages: decodeImages);
+        if (deferUiWork?.call() ?? false) {
+          picture.dispose();
+          return;
+        }
         try {
           image = await PdfPageRenderer.rasterize(picture, size, ratio);
         } finally {
           picture.dispose();
         }
       } else {
+        if (deferUiWork?.call() ?? false) return;
         image = await PdfPageRenderer.renderImage(page,
             pixelRatio: ratio,
             pageColor: pageColor,
             annotations: annotations,
             recorded: true,
             rotation: rotation);
+      }
+      if (deferUiWork?.call() ?? false) {
+        image.dispose();
+        return;
       }
       sw.stop();
       PdfPerfLog.log('prerender page=$index '

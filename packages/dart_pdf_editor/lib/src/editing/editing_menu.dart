@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -56,7 +58,7 @@ class PdfAnnotationMenuItem {
 
   /// Runs when the entry is picked. The request carries the controller
   /// and the selection the menu was opened on.
-  final void Function(PdfAnnotationMenuRequest request) onSelected;
+  final FutureOr<void> Function(PdfAnnotationMenuRequest request) onSelected;
 }
 
 /// Builds the host's extra context-menu entries for the current
@@ -152,7 +154,7 @@ Future<void> showPdfAnnotationMenu({
       for (final item in custom) _menuRow(item),
     ],
   );
-  picked?.onSelected(request);
+  await picked?.onSelected(request);
 }
 
 /// Shows the form tool's field context menu at [position] (global
@@ -164,8 +166,10 @@ Future<void> showPdfFormFieldMenu({
   required Offset position,
   required PdfEditingController controller,
   required String fieldName,
+  int? widgetIndex,
   PdfTextPrompt textPrompt = showPdfTextPrompt,
   PdfFontPicker? fontPicker,
+  PdfFormImagePicker? formImagePicker,
 }) async {
   final field = controller.acroForm?.fieldNamed(fieldName);
   if (field == null) return;
@@ -176,7 +180,94 @@ Future<void> showPdfFormFieldMenu({
         PdfFormFieldKind.pushButton => type != PdfFieldType.pushButton,
       };
 
+  PdfAnnotationMenuItem? editItem() {
+    final enabled = !field.isReadOnly;
+    switch (type) {
+      case PdfFieldType.text:
+        return PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-form-menu-edit'),
+          label: 'Edit value…',
+          icon: Icons.edit_outlined,
+          enabled: enabled,
+          onSelected: (_) async {
+            final value = await textPrompt(context,
+                title: 'Field value', initial: field.value ?? '');
+            if (value != null) controller.setFormFieldText(fieldName, value);
+          },
+        );
+      case PdfFieldType.checkBox:
+        return PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-form-menu-edit'),
+          label: field.isChecked ? 'Clear check' : 'Check',
+          icon: field.isChecked
+              ? Icons.check_box_outline_blank
+              : Icons.check_box_outlined,
+          enabled: enabled,
+          onSelected: (_) => controller.toggleFormCheckBox(fieldName),
+        );
+      case PdfFieldType.radioGroup:
+        final state =
+            widgetIndex == null ? null : field.widgetOnState(widgetIndex);
+        return PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-form-menu-edit'),
+          label: 'Select option',
+          icon: Icons.radio_button_checked,
+          enabled: enabled && state != null && field.value != state,
+          onSelected: (_) {
+            if (state != null) controller.setFormRadioValue(fieldName, state);
+          },
+        );
+      case PdfFieldType.comboBox || PdfFieldType.listBox:
+        return PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-form-menu-edit'),
+          label: 'Choose value…',
+          icon: Icons.list_alt_outlined,
+          enabled: enabled && field.options.isNotEmpty,
+          onSelected: (_) async {
+            final overlay =
+                Overlay.of(context).context.findRenderObject()! as RenderBox;
+            final picked = await showMenu<String>(
+              context: context,
+              position: RelativeRect.fromRect(
+                  position & Size.zero, Offset.zero & overlay.size),
+              items: [
+                for (final (export, display) in field.options)
+                  PopupMenuItem(
+                    key: ValueKey('pdf-form-edit-option-$export'),
+                    value: export,
+                    child: Text(display),
+                  ),
+              ],
+            );
+            if (picked != null) {
+              controller.setFormChoiceValue(fieldName, picked);
+            }
+          },
+        );
+      case PdfFieldType.pushButton:
+        return PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-form-menu-edit'),
+          label: 'Set image…',
+          icon: Icons.image_outlined,
+          enabled: enabled && formImagePicker != null,
+          onSelected: (_) async {
+            final picker = formImagePicker;
+            if (picker == null) return;
+            final fresh = controller.acroForm?.fieldNamed(fieldName);
+            if (fresh == null) return;
+            final bytes = await picker(context, fresh);
+            if (bytes != null) {
+              await controller.setFormButtonImageAsync(fieldName, bytes);
+            }
+          },
+        );
+      case PdfFieldType.signature || PdfFieldType.unknown:
+        return null;
+    }
+  }
+
   final items = <PdfAnnotationMenuItem>[
+    if (editItem() case final item?) item,
     if (type == PdfFieldType.text)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-form-menu-style'),
@@ -253,7 +344,7 @@ Future<void> showPdfFormFieldMenu({
   );
   // the request param is unused by these closures; reuse the row type
   // so the menu plumbing stays shared with the annotation menu
-  picked?.onSelected(PdfAnnotationMenuRequest._(controller, -1));
+  await picked?.onSelected(PdfAnnotationMenuRequest._(controller, -1));
 }
 
 PopupMenuItem<PdfAnnotationMenuItem> _menuRow(PdfAnnotationMenuItem item) =>

@@ -32,6 +32,8 @@ void main() {
     bool asReader = false,
     bool interactiveForms = true,
     PdfEditTool? tool,
+    double? zoom,
+    PdfAnnotationTapHandler? onAnnotationTap,
   }) async {
     SharedPreferences.setMockInitialValues({});
     final session = PdfEditingController(buildAcroFormPdf());
@@ -49,12 +51,17 @@ void main() {
             editing: asReader ? null : session,
             formController: asReader ? session : null,
             interactiveForms: interactiveForms,
+            onAnnotationTap: onAnnotationTap,
           ),
         ),
       ),
     ));
     if (tool != null) session.tool = tool;
     await tester.pump();
+    if (zoom != null) {
+      viewer.setZoom(zoom);
+      await tester.pump();
+    }
     return session;
   }
 
@@ -96,6 +103,22 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('text field cursor counter-scales while zoomed',
+        (tester) async {
+      final session = await pumpViewer(tester, zoom: 2 * scale);
+
+      await tap(tester, view(186, 712));
+      final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
+      expect(editor, findsOneWidget);
+      final field = tester.widget<TextField>(editor);
+      expect(field.cursorWidth, closeTo(1, 0.01));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(session.isEditingText, isFalse);
+      await settle(tester);
+    });
+
     testWidgets('check box and radio toggle on a plain tap', (tester) async {
       final session = await pumpViewer(tester);
 
@@ -106,6 +129,21 @@ void main() {
 
       await tap(tester, view(130, 510)); // the /Blue radio kid
       expect(session.acroForm!.fieldNamed('color')!.value, 'Blue');
+      await settle(tester);
+    });
+
+    testWidgets('onAnnotationTap fires for form field widgets', (tester) async {
+      final taps = <PdfAnnotationTapDetails>[];
+      final session = await pumpViewer(tester, onAnnotationTap: taps.add);
+
+      await tap(tester, view(82, 550)); // the agree check box
+
+      expect(taps, hasLength(1));
+      expect(taps.single.pageIndex, 0);
+      expect(taps.single.annotation.subtype, 'Widget');
+      expect(taps.single.pagePoint.dx, closeTo(82, 0.5));
+      expect(taps.single.pagePoint.dy, closeTo(550, 0.5));
+      expect(session.acroForm!.fieldNamed('agree')!.isChecked, isTrue);
       await settle(tester);
     });
 
@@ -136,7 +174,8 @@ void main() {
         (tester) async {
       final session = await pumpViewer(tester);
       await tap(tester, view(186, 712));
-      expect(find.byKey(const ValueKey('pdf-form-text-editor')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-form-text-editor')), findsOneWidget);
       await tester.enterText(
           find.byKey(const ValueKey('pdf-form-text-editor')), 'discard me');
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);

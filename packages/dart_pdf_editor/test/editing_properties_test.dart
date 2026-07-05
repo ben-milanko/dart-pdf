@@ -265,7 +265,8 @@ void main() {
       await tester.enterText(opacity, '40');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      expect(editing.selectedAnnotation!.appearanceOpacity, closeTo(0.4, 0.001));
+      expect(
+          editing.selectedAnnotation!.appearanceOpacity, closeTo(0.4, 0.001));
     });
 
     testWidgets('the fill clear button removes a shape fill', (tester) async {
@@ -294,7 +295,7 @@ void main() {
       expect(editing.selectedTextStyle?.font, PdfStandardFont.helvetica);
       await tester.tap(find.byKey(const ValueKey('pdf-prop-font')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Serif').last);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
       await tester.pumpAndSettle();
       expect(editing.selectedTextStyle?.font, PdfStandardFont.times);
       expect(editing.selectedAnnotation?.contents, 'Hello'); // text kept
@@ -306,6 +307,28 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-prop-font-italic')));
       await tester.pump();
       expect(editing.selectedTextStyle?.font, PdfStandardFont.timesBoldItalic);
+    });
+
+    testWidgets('line annotations expose start and end options',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addLine(0, (100, 600), (260, 620));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('pdf-prop-line-start-ending')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-line-end-ending')),
+          findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-line-end-ending')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Closed arrow').last);
+      await tester.pumpAndSettle();
+
+      expect(editing.selectedLineEndings?.$2, PdfLineEnding.closedArrow);
     });
 
     testWidgets('free text gets alignment controls', (tester) async {
@@ -321,7 +344,8 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-prop-text-align-center')),
           findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('pdf-prop-text-align-center')));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-prop-text-align-center')));
       await tester.pump();
       expect(editing.selectedTextAlign, PdfTextAlign.center);
       expect(editing.selectedAnnotation?.contents, 'Hello'); // text kept

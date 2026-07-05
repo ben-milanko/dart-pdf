@@ -133,6 +133,36 @@ void main() {
         reason: 'a capped command prefix must not masquerade as complete');
   });
 
+  testWidgets('vector preview defers UI replay while motion is active',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _VectorOnlyWorker();
+    addTearDown(cache.dispose);
+
+    var moving = true;
+    await tester.runAsync(() => cache.renderPreview(0, page,
+        worker: worker,
+        decodeImages: false,
+        commandLimit: 2000,
+        deferUiWork: () => moving));
+
+    expect(worker.commandLimits, [2000]);
+    expect(cache.has(0), isFalse,
+        reason: 'worker results must not replay/rasterize on the UI side '
+            'during a live pan');
+
+    moving = false;
+    await tester.runAsync(() => cache.renderPreview(0, page,
+        worker: worker,
+        decodeImages: false,
+        commandLimit: 2000,
+        deferUiWork: () => moving));
+    expect(worker.commandLimits, [2000, 2000]);
+    expect(cache.isFresh(0, page), isTrue);
+  });
+
   testWidgets('full page renders upgrade vector-only previews', (tester) async {
     final document = PdfDocument.open(buildClassicPdf());
     final page = document.page(0);

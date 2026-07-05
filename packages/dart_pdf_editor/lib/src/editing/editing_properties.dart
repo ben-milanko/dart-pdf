@@ -190,6 +190,52 @@ class _PdfAnnotationPropertiesPanelState
         _ => Icons.bookmark_border,
       };
 
+  static String _endingLabel(PdfLineEnding ending) => switch (ending) {
+        PdfLineEnding.none => 'None',
+        PdfLineEnding.square => 'Square',
+        PdfLineEnding.circle => 'Circle',
+        PdfLineEnding.diamond => 'Diamond',
+        PdfLineEnding.openArrow => 'Open arrow',
+        PdfLineEnding.closedArrow => 'Closed arrow',
+        PdfLineEnding.butt => 'Butt',
+        PdfLineEnding.rOpenArrow => 'Open arrow (rev.)',
+        PdfLineEnding.rClosedArrow => 'Closed arrow (rev.)',
+        PdfLineEnding.slash => 'Slash',
+      };
+
+  Widget _lineEndingRow({
+    required String label,
+    required Key key,
+    required PdfLineEnding value,
+    required ValueChanged<PdfLineEnding> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(children: [
+        SizedBox(width: 92, child: Text(label)),
+        Expanded(
+          child: DropdownButton<PdfLineEnding>(
+            key: key,
+            value: value,
+            isDense: true,
+            isExpanded: true,
+            items: [
+              for (final ending in PdfLineEnding.values)
+                DropdownMenuItem(
+                  value: ending,
+                  child: Text(_endingLabel(ending),
+                      overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (ending) {
+              if (ending != null) onChanged(ending);
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
   /// Page points, shown without a trailing .0.
   static String _fmt(double value) {
     final fixed = value.toStringAsFixed(1);
@@ -492,6 +538,24 @@ class _PdfAnnotationPropertiesPanelState
         ]),
       ));
     }
+    final endings = _controller.selectedLineEndings;
+    if (_controller.canSetLineEndings && endings != null) {
+      children
+        ..add(_lineEndingRow(
+          label: 'Line start',
+          key: const ValueKey('pdf-prop-line-start-ending'),
+          value: endings.$1,
+          onChanged: (ending) =>
+              _controller.setSelectedLineEndings(start: ending),
+        ))
+        ..add(_lineEndingRow(
+          label: 'Line end',
+          key: const ValueKey('pdf-prop-line-end-ending'),
+          value: endings.$2,
+          onChanged: (ending) =>
+              _controller.setSelectedLineEndings(end: ending),
+        ));
+    }
     if (_allSelected(_translucent)) {
       children.add(_sliderRow(
         'Opacity',
@@ -528,25 +592,11 @@ class _PdfAnnotationPropertiesPanelState
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
           const Expanded(child: Text('Font')),
-          DropdownButton<PdfStandardFontFamily>(
-            key: const ValueKey('pdf-prop-font'),
-            value: style.font.family,
-            isDense: true,
-            items: const [
-              DropdownMenuItem(
-                  value: PdfStandardFontFamily.sans, child: Text('Sans')),
-              DropdownMenuItem(
-                  value: PdfStandardFontFamily.serif, child: Text('Serif')),
-              DropdownMenuItem(
-                  value: PdfStandardFontFamily.mono, child: Text('Mono')),
-            ],
-            onChanged: (family) {
-              if (family != null) {
-                _controller.restyleSelectedText(
-                    font: PdfStandardFont.styled(family,
-                        bold: style.font.isBold, italic: style.font.isItalic));
-              }
-            },
+          PdfFontMenuButton(
+            buttonKey: const ValueKey('pdf-prop-font'),
+            controller: _controller,
+            fontPicker: widget.fontPicker,
+            currentFont: style.font,
           ),
         ]),
       ),
@@ -569,16 +619,6 @@ class _PdfAnnotationPropertiesPanelState
             keyPrefix: 'pdf-prop-text-align',
             align: _controller.selectedTextAlign ?? PdfTextAlign.left,
             onChanged: (align) => _controller.restyleSelectedText(align: align),
-          ),
-        ]),
-      ),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(children: [
-          const Expanded(child: Text('More fonts')),
-          PdfFontMenuButton(
-            controller: _controller,
-            fontPicker: widget.fontPicker,
           ),
         ]),
       ),
@@ -616,25 +656,11 @@ class _PdfAnnotationPropertiesPanelState
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
           const Expanded(child: Text('Font')),
-          DropdownButton<PdfStandardFontFamily>(
-            key: const ValueKey('pdf-prop-form-font'),
-            value: style.font.family,
-            isDense: true,
-            items: const [
-              DropdownMenuItem(
-                  value: PdfStandardFontFamily.sans, child: Text('Sans')),
-              DropdownMenuItem(
-                  value: PdfStandardFontFamily.serif, child: Text('Serif')),
-              DropdownMenuItem(
-                  value: PdfStandardFontFamily.mono, child: Text('Mono')),
-            ],
-            onChanged: (family) {
-              if (family != null) {
-                _controller.setFormFieldStyle(name,
-                    font: PdfStandardFont.styled(family,
-                        bold: style.font.isBold, italic: style.font.isItalic));
-              }
-            },
+          PdfFontMenuButton(
+            buttonKey: const ValueKey('pdf-prop-form-font'),
+            controller: _controller,
+            fontPicker: widget.fontPicker,
+            currentFont: style.font,
           ),
         ]),
       ),
@@ -659,16 +685,6 @@ class _PdfAnnotationPropertiesPanelState
             align: style.align,
             onChanged: (align) =>
                 _controller.setFormFieldStyle(name, align: align),
-          ),
-        ]),
-      ),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(children: [
-          const Expanded(child: Text('More fonts')),
-          PdfFontMenuButton(
-            controller: _controller,
-            fontPicker: widget.fontPicker,
           ),
         ]),
       ),

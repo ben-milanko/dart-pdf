@@ -28,6 +28,7 @@ export 'src/pdf_a.dart';
 export 'src/pdf_ua.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';
+export 'src/stamp_template.dart';
 export 'src/struct_tree.dart';
 export 'src/takeoff.dart';
 export 'src/sync.dart';

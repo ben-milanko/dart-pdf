@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart'
     show ValueListenable, kIsWeb, visibleForTesting;
@@ -12,6 +13,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'annotation_tap.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_form_layer.dart';
 import 'editing/editing_menu.dart';
@@ -26,11 +28,14 @@ import 'preview_cache.dart';
 import 'raster_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
+import 'renderer.dart';
 import 'scrollbar.dart';
 import 'theme.dart';
 import 'viewport.dart';
 
 export 'viewport.dart' show PdfViewport, pdfDocumentKey;
+export 'annotation_tap.dart'
+    show PdfAnnotationTapDetails, PdfAnnotationTapHandler;
 
 /// One search hit with the text around it, ready for a results list
 /// like [PdfSearchResultsPanel].
@@ -479,6 +484,7 @@ class PdfViewer extends StatefulWidget {
     required this.document,
     this.controller,
     this.onAction,
+    this.onAnnotationTap,
     this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.editing,
@@ -572,6 +578,15 @@ class PdfViewer extends StatefulWidget {
   /// app is a URI action with a custom scheme, dispatched here.
   final PdfActionHandler? onAction;
 
+  /// Called whenever the user taps or clicks a visible annotation.
+  ///
+  /// This is a notification hook for host Flutter UI and app logic. Built-in
+  /// viewer behavior still runs: followed links still navigate or launch,
+  /// interactive form fields still fill, and editable annotations can still
+  /// enter the editor selection. Use [onLaunchUrl] and [onAction] to control
+  /// PDF link/action dispatch.
+  final PdfAnnotationTapHandler? onAnnotationTap;
+
   /// Opens the hyperlink of a tapped /URI action (and of a push button
   /// whose action is a /URI). Defaults to launching well-known external
   /// schemes — http, https, mailto, tel, sms — in the platform's default
@@ -625,7 +640,7 @@ class PdfViewer extends StatefulWidget {
   final PdfFormImagePicker? formImagePicker;
 
   /// How the form field "Text style…" popup loads a custom `.ttf`/`.otf`
-  /// font (its "More fonts → Load font…" entry) — typically a file picker
+  /// font (its "Font → Load font…" entry) — typically a file picker
   /// returning the font bytes. With none, that popup still offers the
   /// standard and bundled fonts; only the load-custom entry is hidden.
   final PdfFontPicker? fontPicker;
@@ -779,6 +794,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   double _renderScale = 1;
   Timer? _settleTimer;
   Timer? _scrollSettleTimer;
+  Timer? _motionHoldReleaseTimer;
   int _settleGeneration = 0;
   int? _jumpFocusPage;
 
@@ -853,6 +869,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   double _maxPointWidth = 0;
   final Map<int, PdfPageText> _textCache = {};
   final Map<int, List<PdfAnnotation>> _annotCache = {};
+  final Map<int, List<PdfAnnotation>> _visibleAnnotCache = {};
   final Map<int, List<PdfRect>> _fieldRectCache = {};
   double _viewWidth = 0;
   double _viewHeight = 0;
@@ -890,6 +907,44 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// What the gesture turned out to be — see _onTrackpadPanZoomUpdate.
   _TrackpadIntent _trackpadIntent = _TrackpadIntent.undecided;
   Offset _trackpadPendingPan = Offset.zero;
+
+  /// A direct trackpad pan/zoom gesture is in flight. Scroll velocity is a
+  /// useful heuristic for wheel/list motion, but during an active direct pan
+  /// even a slow drift must keep heavyweight page/detail renders held back.
+  bool _trackpadGestureActive = false;
+
+  bool get _motionRenderHoldActive =>
+      _trackpadGestureActive ||
+      _grabPanning ||
+      _touchPanning ||
+      _touchFlinger.isAnimating ||
+      _panFlinger.isAnimating ||
+      _hBounceController.isAnimating ||
+      _zoomAnimator.isAnimating ||
+      (_motionHoldReleaseTimer?.isActive ?? false);
+
+  void _settleRenderHold() {
+    _renderScheduler.holding = _motionRenderHoldActive || !widget.active;
+  }
+
+  void _beginMotionRenderHold() {
+    _motionHoldReleaseTimer?.cancel();
+    _motionHoldReleaseTimer = null;
+    _renderScheduler.holding = true;
+  }
+
+  void _scheduleMotionRenderHoldRelease() {
+    _motionHoldReleaseTimer?.cancel();
+    late final Timer timer;
+    timer = Timer(const Duration(milliseconds: 250), () {
+      if (!identical(_motionHoldReleaseTimer, timer)) return;
+      _motionHoldReleaseTimer = null;
+      if (!mounted) return;
+      _settleRenderHold();
+      if (!_renderScheduler.holding) _prerenderPreviews();
+    });
+    _motionHoldReleaseTimer = timer;
+  }
 
   /// Carries horizontal momentum after a zoomed trackpad pan lifts off:
   /// sideways overflow lives in the zoom window's translation, which the
@@ -1222,12 +1277,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // settle, and on web (single-threaded, uncancellable GPU readback)
     // they piled up and froze the UI. The settle below releases the hold,
     // and the scheduler then drains a single coalesced render per page.
-    _renderScheduler.holding = true;
+    _beginMotionRenderHold();
     _settleTimer?.cancel();
     _settleTimer = Timer(const Duration(milliseconds: 200), () {
       if (!mounted) return;
       // stay held while the viewer is paused (a view overlays it)
-      _renderScheduler.holding = !widget.active;
+      _settleRenderHold();
       final target = math.max(1.0, _transform.value.getMaxScaleOnAxis());
       // wheel zoom never fires onInteractionEnd, so the pan flag also
       // settles here
@@ -1257,7 +1312,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _vectorFirstPrefetch = false;
       _jumpFocusPage = null;
       // stay held while the viewer is paused (a view overlays it)
-      _renderScheduler.holding = !widget.active;
+      _settleRenderHold();
       if (mounted) setState(() => _settleGeneration++);
       // the prerender pauses while the user scrolls; pick it back up
       _prerenderPreviews();
@@ -1299,7 +1354,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         }
         final pages = _pages;
         final index = _nextPreviewIndex(pages,
-            requireImages: !vectorOnly, allowNearViewport: vectorOnly);
+            requireImages: !vectorOnly, allowNearViewport: false);
         if (index == null) return; // every page covered (or attempted)
         final page = pages[index];
         if (vectorOnly) {
@@ -1307,12 +1362,28 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         } else {
           _previewAttempts.add(page);
         }
+        var deferredPreview = false;
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
-            annotations: widget.showAnnotations,
+            annotations: _pageImagesShowAnnotations,
             worker: widget.renderWorker,
             rotation: _effectiveRotation(index),
-            decodeImages: !vectorOnly);
+            decodeImages: !vectorOnly,
+            commandLimit: vectorOnly ? _jumpPreviewOperationLimit : null,
+            deferUiWork: vectorOnly
+                ? () {
+                    final defer = !mounted || _motionRenderHoldActive;
+                    deferredPreview |= defer;
+                    return defer;
+                  }
+                : null);
+        if (deferredPreview && mounted) {
+          // The worker may finish while the gesture is still moving. In that
+          // case renderPreview deliberately skips the UI replay/raster step;
+          // let the page be attempted again after motion settles instead of
+          // marking the vector warm as permanently tried.
+          _previewVectorAttempts.remove(page);
+        }
         if (!mounted) return;
         // breathe between interpreter walks — each is a synchronous
         // UI-thread chunk, so give the engine a frame for input and
@@ -1425,7 +1496,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // hold (see the opening grace below).
       _scrollBurstStart = now;
       _scrollSamples.add((now, pixels));
-      _renderScheduler.holding = true;
+      _beginMotionRenderHold();
       _vectorFirstPrefetch = widget.renderWorker?.isActive ?? false;
       return;
     }
@@ -1454,13 +1525,16 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // a genuinely slow scroll only shows a brief preview before the grace
     // lapses and the page sharpens; the settle timer clears the burst.
     final opening = now - _scrollBurstStart < const Duration(milliseconds: 150);
-    final hold = opening || velocity > math.max(800, 2 * viewport);
+    final activeMotion = _motionRenderHoldActive;
+    final hold =
+        activeMotion || opening || velocity > math.max(800, 2 * viewport);
     _vectorFirstPrefetch = hold && (widget.renderWorker?.isActive ?? false);
     PdfPerfLog.log('scroll page=${_controller.currentPage} '
         'v=${velocity.toStringAsFixed(0)}px/s '
         'threshold=${math.max(800, 2 * viewport).toStringAsFixed(0)} '
         'prefetch=${_vectorFirstPrefetch ? 'vector' : 'full'} '
-        'opening=$opening hold=${hold ? 'ON' : 'off'}');
+        'opening=$opening active=$activeMotion '
+        'hold=${hold ? 'ON' : 'off'}');
     // a paused viewer (overlaid by another view) holds unconditionally
     _renderScheduler.holding = hold || !widget.active;
   }
@@ -1474,6 +1548,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final sameGeometry = _sameGeometryAs(widget.document);
       _textCache.clear();
       _annotCache.clear();
+      _visibleAnnotCache.clear();
       _fieldRectCache.clear();
       _controller.clearSearch();
       _clearSelection();
@@ -1522,8 +1597,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       }
       setState(() {});
     }
+    final oldPageImagesShowAnnotations = oldWidget.showAnnotations &&
+        _pageImagesShowAnnotationsFor(
+          editing: oldWidget.editing,
+          formController: oldWidget.formController,
+          interactiveForms: oldWidget.interactiveForms,
+        );
     if (oldWidget.pageColor != widget.pageColor ||
-        oldWidget.showAnnotations != widget.showAnnotations) {
+        oldPageImagesShowAnnotations != _pageImagesShowAnnotations) {
       // previews bake the paper color and annotation visibility in, so the
       // disk key changes with them too — rebind and re-prime under the new key
       _previews.clear();
@@ -1595,9 +1676,32 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   bool get _hasPageLabels => !_labels.isEmpty;
 
-  /// Page [index]'s current content stamp from the editing controller, or 0
-  /// when not editing (no content can change under the viewer).
-  int _contentStamp(int index) => widget.editing?.pageRenderStamp(index) ?? 0;
+  PdfEditingController? get _annotationLayerController => widget.showAnnotations
+      ? widget.editing ??
+          (widget.interactiveForms ? widget.formController : null)
+      : null;
+
+  bool get _pageImagesShowAnnotations =>
+      widget.showAnnotations &&
+      _pageImagesShowAnnotationsFor(
+        editing: widget.editing,
+        formController: widget.formController,
+        interactiveForms: widget.interactiveForms,
+      );
+
+  bool _pageImagesShowAnnotationsFor({
+    required PdfEditingController? editing,
+    required PdfEditingController? formController,
+    required bool interactiveForms,
+  }) =>
+      editing == null && !(interactiveForms && formController != null);
+
+  /// Page [index]'s current base-content stamp from the editing/form
+  /// controller, or 0 when no controller can change content under the viewer.
+  int _contentStamp(int index) =>
+      (widget.editing ?? widget.formController)
+          ?.pageContentRenderStamp(index) ??
+      0;
 
   /// Page [index]'s current destructive-content stamp (advances only when an
   /// edit removed content — a redaction burn), or 0 when not editing. Lets
@@ -1653,7 +1757,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final id = widget.documentId;
     if (id == null) return null;
     final vr = _controller._viewRotation;
-    return '$id|${widget.pageColor.toARGB32()}|${widget.showAnnotations}|$vr';
+    return '$id|${widget.pageColor.toARGB32()}|$_pageImagesShowAnnotations|$vr';
   }
 
   /// Binds (or unbinds) the preview cache's persistent backing to the open
@@ -1698,6 +1802,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _lifecycle.dispose();
     _settleTimer?.cancel();
     _scrollSettleTimer?.cancel();
+    _motionHoldReleaseTimer?.cancel();
     // when the host recreates the viewer element (e.g. a panel appearing
     // shifts it to a new slot in a Row), the replacement state attaches in
     // initState BEFORE this deferred dispose runs — only detach if the
@@ -2262,26 +2367,68 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           if (!a.isHidden && !a.isNoView && a.action != null) a,
       ];
 
-  /// Visible form-field widget rects on a page, for the field
-  /// highlight. Cached beside [_annotCache] (same lifecycle: pages are
-  /// reloaded on every document swap).
+  /// All visible annotations on a page, cached for hit-testing host tap
+  /// callbacks.
+  List<PdfAnnotation> _visibleAnnots(int index) =>
+      _visibleAnnotCache[index] ??= [
+        for (final a in _pages[index].annotations)
+          if (!a.isHidden && !a.isNoView) a,
+      ];
+
+  /// Visible form-field widget rects on a page, for the field highlight.
+  /// Cached beside the annotation caches (same lifecycle: pages are reloaded
+  /// on every document swap).
   List<PdfRect> _formFieldRects(int index) => _fieldRectCache[index] ??= [
         for (final a in _pages[index].annotations)
           if (a is PdfWidgetAnnotation && !a.isHidden && !a.isNoView) a.rect,
       ];
 
-  PdfAnnotation? _annotationAt(Offset local) {
+  ({
+    int pageIndex,
+    PdfAnnotation annotation,
+    Offset pagePoint,
+    Offset pageViewPosition,
+  })? _annotationHitAt(Offset local, {required bool actionsOnly}) {
     // hidden annotations don't render, so they don't take taps either —
     // an invisible link navigating would be baffling
     if (!widget.showAnnotations) return null;
     final point = _pagePointAt(local);
     if (point == null) return null;
     final (i, x, y) = point;
+    final pageViewPosition = _toPageView(i, local);
+    final annots = actionsOnly ? _interactiveAnnots(i) : _visibleAnnots(i);
     // later /Annots entries paint on top, so they win the hit test
-    for (final annotation in _interactiveAnnots(i).reversed) {
-      if (annotation.rect.contains(x, y)) return annotation;
+    for (final annotation in annots.reversed) {
+      if (annotation.rect.contains(x, y)) {
+        return (
+          pageIndex: i,
+          annotation: annotation,
+          pagePoint: Offset(x, y),
+          pageViewPosition: pageViewPosition,
+        );
+      }
     }
     return null;
+  }
+
+  PdfAnnotation? _annotationAt(Offset local) =>
+      _annotationHitAt(local, actionsOnly: true)?.annotation;
+
+  void _notifyAnnotationTap(
+      ({
+        int pageIndex,
+        PdfAnnotation annotation,
+        Offset pagePoint,
+        Offset pageViewPosition,
+      }) hit,
+      Offset globalPosition) {
+    widget.onAnnotationTap?.call(PdfAnnotationTapDetails(
+      annotation: hit.annotation,
+      pageIndex: hit.pageIndex,
+      pagePoint: hit.pagePoint,
+      pageViewPosition: hit.pageViewPosition,
+      globalPosition: globalPosition,
+    ));
   }
 
   void _onTapUp(TapUpDetails details) {
@@ -2290,9 +2437,16 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       return;
     }
     _clearSelection();
-    final annotation = _annotationAt(details.localPosition);
-    if (annotation != null) {
-      _activate(annotation);
+    final tapHit = widget.onAnnotationTap == null
+        ? null
+        : _annotationHitAt(details.localPosition, actionsOnly: false);
+    if (tapHit != null) {
+      _notifyAnnotationTap(tapHit, details.globalPosition);
+    }
+    final actionHit =
+        _annotationHitAt(details.localPosition, actionsOnly: true);
+    if (actionHit != null) {
+      _activate(actionHit.annotation);
       return;
     }
     // selection is the default mode for mice: clicking an annotation
@@ -2324,15 +2478,19 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final (page, x, y) = point;
     final editing = widget.editing;
     if (editing != null && !editing.isPickingColor) {
-      // form mode: a right-clicked field widget gets the field menu
-      // (rename/convert/delete/flatten) instead of the annotation menu
-      if (editing.tool == PdfEditTool.form) {
+      // existing form widgets get their field menu in normal/select/form
+      // modes. Drawing/content tools own the page, so they do not.
+      if (editing.tool == null ||
+          editing.tool == PdfEditTool.select ||
+          editing.tool == PdfEditTool.form) {
         final field = editing.formFieldAt(page, x, y);
         if (field != null) {
-          await _showFormFieldMenu(details.globalPosition, field.$1.name);
+          await _showFormFieldMenu(details.globalPosition, field.$1.name,
+              widgetIndex: field.$2);
           return;
         }
-      } else {
+      }
+      if (editing.tool != PdfEditTool.form) {
         final hit = editing.selectableAnnotationAt(page, x, y);
         // an annotation, or empty page area with something to paste,
         // gets the annotation menu
@@ -2448,8 +2606,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// The form-field context menu, shared by right-click and the editing
   /// overlay's touch long-press (both with the form tool armed).
-  Future<void> _showFormFieldMenu(
-      Offset globalPosition, String fieldName) async {
+  Future<void> _showFormFieldMenu(Offset globalPosition, String fieldName,
+      {int? widgetIndex}) async {
     final editing = widget.editing;
     if (editing == null) return;
     await showPdfFormFieldMenu(
@@ -2457,8 +2615,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       position: globalPosition,
       controller: editing,
       fieldName: fieldName,
+      widgetIndex: widgetIndex,
       textPrompt: widget.editingTextPrompt ?? showPdfTextPrompt,
       fontPicker: widget.fontPicker,
+      formImagePicker: widget.formImagePicker,
     );
   }
 
@@ -2567,6 +2727,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // Shift held in default editing mode: a drag rubber-bands a marquee
       cursor = SystemMouseCursors.precise;
     } else if (_annotationAt(event.localPosition) != null ||
+        (widget.onAnnotationTap != null &&
+            _annotationHitAt(event.localPosition, actionsOnly: false) !=
+                null) ||
         _selectableAnnotationAt(event.localPosition)) {
       cursor = SystemMouseCursors.click;
     } else if (_textPositionAt(event.localPosition, tolerance: 8) != null) {
@@ -2876,6 +3039,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // nothing to select under the press: the drag grabs the document
       // instead (mouse drags don't reach the list's scrollable)
       _grabPanning = true;
+      _beginMotionRenderHold();
       setState(() => _hoverCursor = SystemMouseCursors.grabbing);
       _controller._setSelection('');
       return;
@@ -2961,6 +3125,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     }
     if (!_grabPanning) return;
     _grabPanning = false;
+    _scheduleMotionRenderHoldRelease();
     setState(() => _hoverCursor = SystemMouseCursors.grab);
   }
 
@@ -3132,6 +3297,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// on the horizontal axis so the edge doesn't snap.
   void _touchGrabPanBy(Offset delta) {
     _touchPanning = true;
+    _beginMotionRenderHold();
     _hBounceController.stop();
     _scrollbarScrollBy(-delta.dy);
     _scrollbarPanBy(-delta.dx);
@@ -3188,6 +3354,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// so the zoom transform is already divided out).
   void _flingViewport(Velocity velocity) {
     _touchPanning = true;
+    _beginMotionRenderHold();
     _hBounceController.stop();
     final v = velocity.pixelsPerSecond;
     if (v.distance < kMinFlingVelocity) {
@@ -3394,6 +3561,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _touchFlinger.stop();
     _hBounceController.stop();
     _touchPanning = true;
+    _beginMotionRenderHold();
     _pinchScale = 1;
   }
 
@@ -3461,6 +3629,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _touchFlinger.stop();
     _hBounceController.stop();
     _touchPanning = false;
+    _trackpadGestureActive = true;
+    _scrollSamples.clear();
+    _scrollBurstStart = WidgetsBinding.instance.currentSystemFrameTimeStamp;
+    _beginMotionRenderHold();
     _trackpadScale = 1;
     _trackpadIntent = _TrackpadIntent.undecided;
     _trackpadPendingPan = Offset.zero;
@@ -3525,11 +3697,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final velocity =
         _trackpadVelocity?.getVelocity().pixelsPerSecond ?? Offset.zero;
     _trackpadVelocity = null;
+    _trackpadGestureActive = false;
     final scale = _transform.value.getMaxScaleOnAxis();
     final zoomed = scale > 1.01;
     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
     // a pinch's lift-off carries no momentum anywhere
-    if (_trackpadIntent != _TrackpadIntent.scroll) return;
+    if (_trackpadIntent != _TrackpadIntent.scroll) {
+      _scheduleMotionRenderHoldRelease();
+      return;
+    }
     // Continue vertical momentum through the same direct path used during
     // the gesture. `goBallistic` is tempting here, but it goes through the
     // list's ScrollPhysics; with an edit tool armed those physics are
@@ -3544,6 +3720,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _panFlinger.animateWith(FrictionSimulation(
           0.0000135, _transform.value.storage[12], velocity.dx));
     }
+    _scheduleMotionRenderHoldRelease();
   }
 
   /// One frame of the horizontal fling: moves the zoom window's
@@ -3623,6 +3800,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       if (overscroll != 0) {
         _transform.value = _clampedTransform(_transform.value.clone());
       }
+      _scheduleMotionRenderHoldRelease();
       return;
     }
     final tx = _transform.value.storage[12];
@@ -3631,6 +3809,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final target = tx > 0 ? 0.0 : min;
     _hBounceController
         .animateWith(SpringSimulation(_hBounceSpring, tx, target, 0));
+    _scheduleMotionRenderHoldRelease();
   }
 
   static const SpringDescription _hBounceSpring =
@@ -3788,6 +3967,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 index: index,
                 pageColor: widget.pageColor,
                 showAnnotations: widget.showAnnotations,
+                pageImagesShowAnnotations: _pageImagesShowAnnotations,
+                trustContentStamp: _annotationLayerController != null ||
+                    widget.editing != null ||
+                    (widget.interactiveForms && widget.formController != null),
                 formFields: widget.highlightFormFields && widget.showAnnotations
                     ? _formFieldRects(index)
                     : const [],
@@ -3813,6 +3996,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 formImagePicker: widget.formImagePicker,
                 imagePicker: widget.imagePicker,
                 onSnapshot: widget.onSnapshot,
+                onAnnotationTap: widget.onAnnotationTap,
                 onPanViewport: _touchGrabPanBy,
                 onPanViewportEnd: _flingViewport,
                 edgeAutoScroll: _edgeAutoScrollDelta,
@@ -4048,17 +4232,25 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                                       child: scrollable,
                                     ),
                                     // the Shift+drag marquee, drawn in this
-                                    // (list) space so it tracks the gesture and
-                                    // scales with the zoom transform
+                                    // (list) space so it tracks the gesture;
+                                    // its chrome counter-scales the zoom
+                                    // transform below.
                                     if (_marqueeStart != null &&
                                         _marqueeCurrent != null)
                                       Positioned.fill(
                                         child: IgnorePointer(
-                                          child: CustomPaint(
-                                            painter: _MarqueePainter(
-                                              Rect.fromPoints(_marqueeStart!,
-                                                  _marqueeCurrent!),
-                                              marqueeColor,
+                                          child: ValueListenableBuilder<double>(
+                                            valueListenable: _transformScale,
+                                            builder: (context, zoom, _) =>
+                                                CustomPaint(
+                                              painter: _MarqueePainter(
+                                                Rect.fromPoints(_marqueeStart!,
+                                                    _marqueeCurrent!),
+                                                marqueeColor,
+                                                zoom.isFinite && zoom > 0
+                                                    ? 1 / zoom
+                                                    : 1.0,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -4151,22 +4343,25 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _previewVectorAttempts.add(page);
     unawaited(_previews.renderPreview(index, page,
         pageColor: widget.pageColor,
-        annotations: widget.showAnnotations,
+        annotations: _pageImagesShowAnnotations,
         worker: worker,
         rotation: _effectiveRotation(index),
         decodeImages: false,
         priority: -2000,
-        commandLimit: _jumpPreviewOperationLimit));
+        commandLimit: _jumpPreviewOperationLimit,
+        deferUiWork: () => !mounted || _motionRenderHoldActive));
   }
 }
 
 /// Paints the Shift+drag rubber-band marquee (a translucent fill with a
-/// hairline border), in list space so the zoom transform scales it.
+/// hairline border), in list space so it tracks the gesture while the
+/// border counter-scales the zoom transform.
 class _MarqueePainter extends CustomPainter {
-  const _MarqueePainter(this.rect, this.color);
+  const _MarqueePainter(this.rect, this.color, this.chromeScale);
 
   final Rect rect;
   final Color color;
+  final double chromeScale;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -4176,13 +4371,15 @@ class _MarqueePainter extends CustomPainter {
       Paint()
         ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
+        ..strokeWidth = 1 * chromeScale,
     );
   }
 
   @override
   bool shouldRepaint(_MarqueePainter oldDelegate) =>
-      oldDelegate.rect != rect || oldDelegate.color != color;
+      oldDelegate.rect != rect ||
+      oldDelegate.color != color ||
+      oldDelegate.chromeScale != chromeScale;
 }
 
 /// Paints the slice of a cross-page move ghost that lands on a page, in
@@ -4204,6 +4401,166 @@ class _MoveDragPreviewPainter extends CustomPainter {
       oldDelegate.preview != preview;
 }
 
+class _AnnotationAppearanceLayer extends StatefulWidget {
+  const _AnnotationAppearanceLayer({
+    required this.page,
+    required this.rotation,
+    required this.pageEpoch,
+    required this.onReady,
+  });
+
+  final PdfPage page;
+  final int rotation;
+  final int pageEpoch;
+  final VoidCallback onReady;
+
+  @override
+  State<_AnnotationAppearanceLayer> createState() =>
+      _AnnotationAppearanceLayerState();
+}
+
+class _AnnotationAppearanceLayerState
+    extends State<_AnnotationAppearanceLayer> {
+  var _generation = 0;
+  List<ui.Picture> _pictures = const [];
+  Size? _picturePageSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _render();
+  }
+
+  @override
+  void didUpdateWidget(_AnnotationAppearanceLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.page, widget.page) ||
+        oldWidget.rotation != widget.rotation ||
+        oldWidget.pageEpoch != widget.pageEpoch) {
+      final oldSize = PdfPageRenderer.pageSize(oldWidget.page,
+          rotation: oldWidget.rotation);
+      final newSize =
+          PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+      final keepCurrent = oldWidget.pageEpoch == widget.pageEpoch &&
+          oldWidget.rotation == widget.rotation &&
+          oldSize == newSize;
+      _render(keepCurrent: keepCurrent);
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _disposePictures();
+    super.dispose();
+  }
+
+  void _disposePictures() {
+    for (final picture in _pictures) {
+      picture.dispose();
+    }
+    _pictures = const [];
+    _picturePageSize = null;
+  }
+
+  void _notifyReady(int generation) {
+    if (!mounted || generation != _generation) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && generation == _generation) widget.onReady();
+    });
+  }
+
+  void _render({bool keepCurrent = false}) {
+    final generation = ++_generation;
+    if (!keepCurrent) _disposePictures();
+    final page = widget.page;
+    final pageSize =
+        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final annotations = [
+      for (final annotation in page.annotations)
+        if (!annotation.isHidden &&
+            !annotation.isNoView &&
+            annotation.normalAppearance != null)
+          annotation,
+    ];
+    if (annotations.isEmpty) {
+      _disposePictures();
+      _notifyReady(generation);
+      return;
+    }
+    unawaited(Future.wait([
+      for (final annotation in annotations)
+        _renderAnnotation(page, annotation, widget.rotation),
+    ]).then((pictures) {
+      final next = [
+        for (final picture in pictures)
+          if (picture != null) picture,
+      ];
+      if (!mounted || generation != _generation) {
+        for (final picture in next) {
+          picture.dispose();
+        }
+        return;
+      }
+      setState(() {
+        _disposePictures();
+        _pictures = next;
+        _picturePageSize = pageSize;
+      });
+      _notifyReady(generation);
+    }));
+  }
+
+  Future<ui.Picture?> _renderAnnotation(
+      PdfPage page, PdfAnnotation annotation, int rotation) async {
+    try {
+      return await PdfPageRenderer.renderAnnotationPicture(page, annotation,
+          rotation: rotation);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_pictures.isEmpty) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _AnnotationAppearancePainter(
+          pictures: _pictures,
+          pageSize: _picturePageSize ??
+              PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnnotationAppearancePainter extends CustomPainter {
+  const _AnnotationAppearancePainter({
+    required this.pictures,
+    required this.pageSize,
+  });
+
+  final List<ui.Picture> pictures;
+  final Size pageSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (pageSize.width <= 0 || pageSize.height <= 0) return;
+    canvas.save();
+    canvas.scale(size.width / pageSize.width, size.height / pageSize.height);
+    for (final picture in pictures) {
+      canvas.drawPicture(picture);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_AnnotationAppearancePainter oldDelegate) =>
+      oldDelegate.pictures != pictures || oldDelegate.pageSize != pageSize;
+}
+
 class _PdfViewerPage extends StatefulWidget {
   const _PdfViewerPage({
     required this.page,
@@ -4211,6 +4568,8 @@ class _PdfViewerPage extends StatefulWidget {
     required this.index,
     required this.pageColor,
     required this.showAnnotations,
+    required this.pageImagesShowAnnotations,
+    required this.trustContentStamp,
     required this.formFields,
     required this.interactiveForms,
     required this.scale,
@@ -4230,6 +4589,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.formImagePicker,
     required this.imagePicker,
     required this.onSnapshot,
+    required this.onAnnotationTap,
     required this.onPanViewport,
     required this.onPanViewportEnd,
     required this.edgeAutoScroll,
@@ -4254,6 +4614,8 @@ class _PdfViewerPage extends StatefulWidget {
   final int index;
   final Color pageColor;
   final bool showAnnotations;
+  final bool pageImagesShowAnnotations;
+  final bool trustContentStamp;
 
   /// Visible form-field widget rects, washed by the field highlight.
   /// Empty when the highlight is off (or annotations are hidden).
@@ -4306,6 +4668,7 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [EditingPageOverlay.onSnapshot].
   final PdfSnapshotHandler? onSnapshot;
+  final PdfAnnotationTapHandler? onAnnotationTap;
   final void Function(Offset delta) onPanViewport;
 
   /// See [EditingPageOverlay.onPanViewportEnd].
@@ -4319,8 +4682,8 @@ class _PdfViewerPage extends StatefulWidget {
       {(double, double)? pagePoint}) onShowAnnotationMenu;
 
   /// See [EditingPageOverlay.onShowFormFieldMenu].
-  final void Function(Offset globalPosition, String fieldName)
-      onShowFormFieldMenu;
+  final void Function(Offset globalPosition, String fieldName,
+      {int? widgetIndex}) onShowFormFieldMenu;
 
   /// See [EditingPageOverlay.onResolvePagePoint].
   final (int, double, double)? Function(Offset globalPosition)
@@ -4364,16 +4727,47 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   /// PdfPageView's new render lands — the window the editing overlay
   /// keeps its just-committed preview painted over.
   bool _rastered = false;
+  bool _annotationLayerCurrent = true;
 
   @override
   void didUpdateWidget(_PdfViewerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.page, widget.page)) _rastered = false;
+    final pageImageChanged = oldWidget.pageEpoch != widget.pageEpoch ||
+        oldWidget.destructiveStamp != widget.destructiveStamp ||
+        oldWidget.contentStamp != widget.contentStamp ||
+        oldWidget.effectiveRotation != widget.effectiveRotation ||
+        oldWidget.pageColor != widget.pageColor ||
+        oldWidget.pageImagesShowAnnotations !=
+            widget.pageImagesShowAnnotations ||
+        oldWidget.trustContentStamp != widget.trustContentStamp ||
+        (!widget.trustContentStamp && !identical(oldWidget.page, widget.page));
+    if (pageImageChanged) _rastered = false;
+    final oldLayer = oldWidget.showAnnotations &&
+        !oldWidget.pageImagesShowAnnotations &&
+        (oldWidget.editing ??
+                (oldWidget.interactiveForms
+                    ? oldWidget.formController
+                    : null)) !=
+            null;
+    final newLayer = widget.showAnnotations &&
+        !widget.pageImagesShowAnnotations &&
+        (widget.editing ??
+                (widget.interactiveForms ? widget.formController : null)) !=
+            null;
+    if (oldLayer != newLayer ||
+        (newLayer && !identical(oldWidget.page, widget.page))) {
+      _annotationLayerCurrent = !newLayer;
+    }
   }
 
   void _onRasterReady() {
     if (_rastered || !mounted) return;
     setState(() => _rastered = true);
+  }
+
+  void _onAnnotationLayerReady() {
+    if (_annotationLayerCurrent || !mounted) return;
+    setState(() => _annotationLayerCurrent = true);
   }
 
   @override
@@ -4385,6 +4779,10 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
     final editing = widget.editing;
     final formController = widget.formController;
     final textSelection = widget.textSelection;
+    final annotationLayerController =
+        widget.showAnnotations && !widget.pageImagesShowAnnotations
+            ? editing ?? (widget.interactiveForms ? formController : null)
+            : null;
     return Stack(children: [
       PdfPageView(
         page: widget.page,
@@ -4396,23 +4794,37 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         destructiveStamp: widget.destructiveStamp,
         renderPriority: widget.renderPriority,
         pageColor: widget.pageColor,
-        showAnnotations: widget.showAnnotations,
+        showAnnotations: widget.pageImagesShowAnnotations,
+        trustContentStamp: widget.trustContentStamp,
         onRasterReady: _onRasterReady,
         renderScheduler: widget.renderScheduler,
         previewCache: widget.previewCache,
         renderWorker: widget.renderWorker,
         previewIndex: widget.index,
       ),
+      if (annotationLayerController != null)
+        Positioned.fill(
+          child: _AnnotationAppearanceLayer(
+            page: widget.page,
+            rotation: widget.effectiveRotation,
+            pageEpoch: widget.pageEpoch,
+            onReady: _onAnnotationLayerReady,
+          ),
+        ),
       // the field highlight sits under text highlights and overlays:
       // it marks where fields are, everything else paints over it
       if (widget.formFields.isNotEmpty)
         Positioned.fill(
-          child: CustomPaint(
-            painter: _FormFieldPainter(
-              box: widget.page.cropBox,
-              rotation: widget.effectiveRotation,
-              fields: widget.formFields,
-              theme: PdfViewerTheme.of(context),
+          child: ValueListenableBuilder<double>(
+            valueListenable: widget.transformScale,
+            builder: (context, zoom, _) => CustomPaint(
+              painter: _FormFieldPainter(
+                box: widget.page.cropBox,
+                rotation: widget.effectiveRotation,
+                fields: widget.formFields,
+                theme: PdfViewerTheme.of(context),
+                chromeScale: zoom.isFinite && zoom > 0 ? 1 / zoom : 1.0,
+              ),
             ),
           ),
         ),
@@ -4459,40 +4871,46 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   // default-mode (mouse click) annotation selection, or
                   // a pending attention flash (the sidebar's zoom-to —
                   // links and form fields flash without a selection)
-                  builder: (context, _) => editing.tool == null &&
-                          !editing.isPickingColor &&
-                          !editing.hasAnnotationSelection &&
-                          editing.pendingFlash == null &&
-                          (_rastered ||
-                              editing.committedInkOn(widget.index) == null)
-                      ? const SizedBox.shrink()
-                      : Positioned.fill(
-                          child: ValueListenableBuilder<double>(
-                            valueListenable: widget.transformScale,
-                            builder: (context, zoom, _) => EditingPageOverlay(
-                              controller: editing,
-                              pageIndex: widget.index,
-                              geometry: geometry,
-                              textPrompt: widget.editingTextPrompt,
-                              formImagePicker: widget.formImagePicker,
-                              imagePicker: widget.imagePicker,
-                              onSnapshot: widget.onSnapshot,
-                              pageColor: widget.pageColor,
-                              showAnnotations: widget.showAnnotations,
-                              onPanViewport: widget.onPanViewport,
-                              onPanViewportEnd: widget.onPanViewportEnd,
-                              edgeAutoScroll: widget.edgeAutoScroll,
-                              onShowAnnotationMenu: widget.onShowAnnotationMenu,
-                              onShowFormFieldMenu: widget.onShowFormFieldMenu,
-                              onResolvePagePoint: widget.onResolvePagePoint,
-                              onMoveDragPreview: widget.onMoveDragPreview,
-                              onTextEditClosed: widget.onTextEditClosed,
-                              rasterCurrent: _rastered,
-                              zoom: zoom,
-                              predictStrokes: widget.predictStrokes,
+                  builder: (context, _) {
+                    final rasterCurrent = _rastered &&
+                        _annotationLayerCurrent &&
+                        identical(widget.page.document, editing.document);
+                    return editing.tool == null &&
+                            !editing.isPickingColor &&
+                            !editing.hasAnnotationSelection &&
+                            editing.pendingFlash == null &&
+                            (rasterCurrent ||
+                                editing.committedInkOn(widget.index) == null)
+                        ? const SizedBox.shrink()
+                        : Positioned.fill(
+                            child: ValueListenableBuilder<double>(
+                              valueListenable: widget.transformScale,
+                              builder: (context, zoom, _) => EditingPageOverlay(
+                                controller: editing,
+                                pageIndex: widget.index,
+                                geometry: geometry,
+                                textPrompt: widget.editingTextPrompt,
+                                formImagePicker: widget.formImagePicker,
+                                imagePicker: widget.imagePicker,
+                                onSnapshot: widget.onSnapshot,
+                                pageColor: widget.pageColor,
+                                showAnnotations: widget.showAnnotations,
+                                onPanViewport: widget.onPanViewport,
+                                onPanViewportEnd: widget.onPanViewportEnd,
+                                edgeAutoScroll: widget.edgeAutoScroll,
+                                onShowAnnotationMenu:
+                                    widget.onShowAnnotationMenu,
+                                onShowFormFieldMenu: widget.onShowFormFieldMenu,
+                                onResolvePagePoint: widget.onResolvePagePoint,
+                                onMoveDragPreview: widget.onMoveDragPreview,
+                                onTextEditClosed: widget.onTextEditClosed,
+                                rasterCurrent: rasterCurrent,
+                                zoom: zoom,
+                                predictStrokes: widget.predictStrokes,
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                  },
                 ),
               // field-name labels: while the form-authoring tool is armed,
               // outline every field and tag it with its name so empty
@@ -4502,10 +4920,14 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   child: ListenableBuilder(
                     listenable: editing,
                     builder: (context, _) => editing.tool == PdfEditTool.form
-                        ? FormFieldLabelLayer(
-                            controller: editing,
-                            pageIndex: widget.index,
-                            geometry: geometry,
+                        ? ValueListenableBuilder<double>(
+                            valueListenable: widget.transformScale,
+                            builder: (context, zoom, _) => FormFieldLabelLayer(
+                              controller: editing,
+                              pageIndex: widget.index,
+                              geometry: geometry,
+                              zoom: zoom,
+                            ),
                           )
                         : const SizedBox.shrink(),
                   ),
@@ -4527,13 +4949,19 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                           tool == null ||
                           tool == PdfEditTool.select;
                       return active
-                          ? FormInteractionLayer(
-                              controller: formController,
-                              pageIndex: widget.index,
-                              geometry: geometry,
-                              pageColor: widget.pageColor,
-                              rasterCurrent: _rastered,
-                              formImagePicker: widget.formImagePicker,
+                          ? ValueListenableBuilder<double>(
+                              valueListenable: widget.transformScale,
+                              builder: (context, zoom, _) =>
+                                  FormInteractionLayer(
+                                controller: formController,
+                                pageIndex: widget.index,
+                                geometry: geometry,
+                                pageColor: widget.pageColor,
+                                rasterCurrent: _rastered,
+                                zoom: zoom,
+                                formImagePicker: widget.formImagePicker,
+                                onAnnotationTap: widget.onAnnotationTap,
+                              ),
                             )
                           : const SizedBox.shrink();
                     },
@@ -4569,12 +4997,14 @@ class _FormFieldPainter extends CustomPainter {
     required this.rotation,
     required this.fields,
     required this.theme,
+    required this.chromeScale,
   });
 
   final PdfRect box;
   final int rotation;
   final List<PdfRect> fields;
   final PdfViewerThemeData theme;
+  final double chromeScale;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -4585,12 +5015,12 @@ class _FormFieldPainter extends CustomPainter {
     final fillPaint = Paint()..color = fill;
     final borderPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
+      ..strokeWidth = 1 * chromeScale
       ..color = fill.withValues(alpha: (fill.a * 2.5).clamp(0.0, 1.0));
     for (final field in fields) {
       final rect = geometry.toViewRect(field);
       canvas.drawRect(rect, fillPaint);
-      canvas.drawRect(rect.deflate(0.5), borderPaint);
+      canvas.drawRect(rect.deflate(0.5 * chromeScale), borderPaint);
     }
   }
 
@@ -4598,7 +5028,8 @@ class _FormFieldPainter extends CustomPainter {
   bool shouldRepaint(_FormFieldPainter oldDelegate) =>
       oldDelegate.fields != fields ||
       oldDelegate.rotation != rotation ||
-      oldDelegate.theme != theme;
+      oldDelegate.theme != theme ||
+      oldDelegate.chromeScale != chromeScale;
 }
 
 class _HighlightPainter extends CustomPainter {

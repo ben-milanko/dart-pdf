@@ -167,7 +167,8 @@ void main() {
       expect(editing.selectedAnnotation, isNotNull);
 
       // drag the annotation toward the lower right and hold mid-drag
-      final gesture = await tester.startGesture(view(175, 700));
+      final gesture = await tester.startGesture(view(175, 700),
+          kind: PointerDeviceKind.mouse);
       await gesture.moveTo(view(255, 550));
       await gesture.moveTo(view(335, 400));
       await tester.pump();
@@ -199,6 +200,44 @@ void main() {
       final rect = editing.selectedAnnotation!.rect;
       expect(rect.left, closeTo(260, 2));
       expect(rect.top, closeTo(450, 2));
+    });
+
+    testWidgets('a moved stamp keeps its afterimage while host rebuilds',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFFFF0000)
+        ..addStamp(0, const PdfRect(100, 650, 250, 750), 'PAID')
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            controller: viewer,
+            editing: editing,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(editing.selectedAnnotation?.subtype, 'Stamp');
+
+      final gesture = await tester.startGesture(view(175, 700),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(255, 600));
+      await gesture.up();
+      await tester.pump();
+
+      final afterGhost = overlayPainter(tester).afterGhost;
+      expect(afterGhost, isNotNull);
+      expect(afterGhost.to.center.dx,
+          closeTo(view(175, 700).dx + (view(255, 600) - view(175, 700)).dx, 1));
+      expect(afterGhost.source, isNotNull);
+      expect(afterGhost.sourceClean, isNull);
+      expect(afterGhost.sourceWash, isNotNull);
     });
   });
 
@@ -247,8 +286,8 @@ void main() {
       // center and drag it well down past the page's bottom edge
       const grab = Offset(100, 96);
       const target = Offset(160, 420);
-      final gesture =
-          await tester.startGesture(origin + grab, kind: PointerDeviceKind.mouse);
+      final gesture = await tester.startGesture(origin + grab,
+          kind: PointerDeviceKind.mouse);
       await gesture.moveTo(origin + target);
       await tester.pump();
 

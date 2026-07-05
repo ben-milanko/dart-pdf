@@ -65,6 +65,8 @@ class PdfEditingPreferences extends ChangeNotifier {
   String? _author;
   PdfInkSignature? _signature;
   List<PdfCustomStamp> _customStamps = const [];
+  PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
+  PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
   ThemeMode _themeMode = ThemeMode.system;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
   Color _pageColor = const Color(0xFFFFFFFF);
@@ -233,6 +235,18 @@ class PdfEditingPreferences extends ChangeNotifier {
           for (final stamp in stamps)
             if (PdfCustomStamp.decode(stamp) case final decoded?) decoded
         ]);
+      }
+      final stampDateFormat = store.getString('${_prefix}stampDateFormat');
+      if (stampDateFormat != null) {
+        _stampDateFormat =
+            PdfStampDateFormat.values.asNameMap()[stampDateFormat] ??
+                _stampDateFormat;
+      }
+      final stampTimeFormat = store.getString('${_prefix}stampTimeFormat');
+      if (stampTimeFormat != null) {
+        _stampTimeFormat =
+            PdfStampTimeFormat.values.asNameMap()[stampTimeFormat] ??
+                _stampTimeFormat;
       }
     }
     // viewports are a write-mostly store, not user-set UI state, so they
@@ -586,6 +600,26 @@ class PdfEditingPreferences extends ChangeNotifier {
     _customStamps = List.unmodifiable(value);
     _write((s) => s.setStringList(
         '${_prefix}customStamps', [for (final stamp in value) stamp.encode()]));
+    notifyListeners();
+  }
+
+  /// User-selected format for built-in stamp `{{date}}` fields.
+  PdfStampDateFormat get stampDateFormat => _stampDateFormat;
+
+  set stampDateFormat(PdfStampDateFormat value) {
+    if (value == _stampDateFormat) return;
+    _stampDateFormat = value;
+    _write((s) => s.setString('${_prefix}stampDateFormat', value.name));
+    notifyListeners();
+  }
+
+  /// User-selected format for built-in stamp `{{time}}` fields.
+  PdfStampTimeFormat get stampTimeFormat => _stampTimeFormat;
+
+  set stampTimeFormat(PdfStampTimeFormat value) {
+    if (value == _stampTimeFormat) return;
+    _stampTimeFormat = value;
+    _write((s) => s.setString('${_prefix}stampTimeFormat', value.name));
     notifyListeners();
   }
 

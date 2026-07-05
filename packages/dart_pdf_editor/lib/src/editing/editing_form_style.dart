@@ -24,7 +24,7 @@ class PdfFormFieldStyleControls extends StatefulWidget {
 
   final PdfEditingController controller;
 
-  /// How "More fonts → Load font…" obtains a `.ttf`/`.otf` file; the entry
+  /// How "Font → Load font…" obtains a `.ttf`/`.otf` file; the entry
   /// is hidden when null.
   final PdfFontPicker? fontPicker;
 
@@ -64,6 +64,16 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
           children: [
             Row(children: [
               const Expanded(child: Text('Font')),
+              PdfFontMenuButton(
+                buttonKey: const ValueKey('pdf-form-style-font-menu'),
+                controller: _controller,
+                fontPicker: widget.fontPicker,
+                currentFont: style.font,
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Row(children: [
+              const Expanded(child: Text('Style')),
               FontStyleToggles(
                 keyPrefix: 'pdf-form-style-font',
                 font: style.font,
@@ -81,14 +91,6 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                     _controller.setFormFieldStyle(name, align: align),
               ),
             ]),
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: PdfFontMenuButton(
-                controller: _controller,
-                fontPicker: widget.fontPicker,
-              ),
-            ),
             SwitchListTile(
               key: const ValueKey('pdf-form-style-autosize'),
               dense: true,
@@ -135,7 +137,8 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
               contentPadding: EdgeInsets.zero,
               title: const Text('Multiline'),
               value: style.multiline,
-              onChanged: (v) => _controller.setFormFieldStyle(name, multiline: v),
+              onChanged: (v) =>
+                  _controller.setFormFieldStyle(name, multiline: v),
             ),
             Row(children: [
               const Expanded(child: Text('Colour')),

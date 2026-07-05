@@ -249,6 +249,30 @@ void main() {
           find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
     });
 
+    testWidgets('customStamps are supplied to the owned editor session',
+        (tester) async {
+      List<PdfCustomStamp>? seen;
+      const audit = PdfCustomStamp(
+        text: 'AUDIT',
+        color: 0x1A3E8C,
+        type: 'Audit',
+        tags: ['external'],
+      );
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          customStamps: const [audit],
+          toolbarBuilder: (context, controller, viewer) {
+            seen = controller.customStamps;
+            return const SizedBox.shrink();
+          },
+        ),
+      );
+
+      expect(seen, [audit]);
+    });
+
     testWidgets('settings opens keyboard shortcuts submenu', (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
 

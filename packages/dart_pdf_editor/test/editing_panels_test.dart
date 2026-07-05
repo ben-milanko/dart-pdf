@@ -30,6 +30,22 @@ void main() {
       expect(editing.pageRenderStamp(2), before[2]);
     });
 
+    test('annotation edits leave the base page content stamp stable', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      final renderBefore = editing.pageRenderStamp(0);
+      final contentBefore = editing.pageContentRenderStamp(0);
+      final otherContentBefore = editing.pageContentRenderStamp(1);
+
+      editing.placeTextStamp(0, 200, 300, 'APPROVED');
+
+      expect(editing.pageRenderStamp(0), isNot(renderBefore),
+          reason: 'thumbnails and annotation overlays still refresh');
+      expect(editing.pageContentRenderStamp(0), contentBefore,
+          reason: 'deep-zoom page images should not rerender for /Annots');
+      expect(editing.pageContentRenderStamp(1), otherContentBefore);
+    });
+
     test('undo and redo bump exactly the reverted revision\'s pages', () {
       final editing = PdfEditingController(buildMultiPagePdf(3))
         ..addRectangle(1, const PdfRect(100, 100, 200, 150));

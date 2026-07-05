@@ -179,6 +179,54 @@ void main() {
     });
   });
 
+  group('viewer marquee under zoom', () {
+    dynamic privatePainter(WidgetTester tester, String typeName) {
+      for (final paint
+          in tester.widgetList<CustomPaint>(find.byType(CustomPaint))) {
+        final painter = paint.painter;
+        if (painter.runtimeType.toString() == typeName) return painter;
+      }
+      return null;
+    }
+
+    testWidgets('the Shift-drag marquee counter-scales its outline',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            controller: viewer,
+            editing: editing,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      const fitWidth = 800 / 612;
+      viewer.setZoom(2 * fitWidth);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      final gesture = await tester.startGesture(const Offset(300, 300),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveBy(const Offset(80, 60));
+      await tester.pump();
+
+      final painter = privatePainter(tester, '_MarqueePainter');
+      expect(painter, isNotNull);
+      expect(painter.chromeScale, closeTo(0.5, 0.01));
+
+      await gesture.up();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+    });
+  });
+
   group('rotate knob connector', () {
     testWidgets('the line stays under the top-center resize handle',
         (tester) async {

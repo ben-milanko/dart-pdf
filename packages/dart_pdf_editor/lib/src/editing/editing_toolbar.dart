@@ -15,6 +15,7 @@ import 'editing_fonts.dart';
 import 'editing_form_style.dart';
 import 'editing_value_field.dart';
 import 'editing_measure.dart';
+import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
@@ -42,7 +43,7 @@ enum PdfEditToolGroup {
   /// Text-markup actions (highlight, underline, strike out, squiggly).
   markup,
 
-  /// Freehand drawing (ink) and the ink eraser.
+  /// Freehand drawing, text highlight, and the ink eraser.
   draw,
 
   /// Rectangle, ellipse, line, arrow, polyline, polygon.
@@ -146,10 +147,11 @@ class PdfEditingToolbar extends StatefulWidget {
   /// tools can still be armed through the controller.
   final Set<PdfEditToolGroup>? groups;
 
-  /// Whether the Markup group (highlight, underline, strike out, squiggly
-  /// — they act on the viewer's text selection) is shown. A convenience
-  /// for the common case; equivalent to dropping [PdfEditToolGroup.markup]
-  /// from [groups].
+  /// Whether text markup actions (highlight, underline, strike out,
+  /// squiggly — they act on the viewer's text selection) are shown. A
+  /// convenience for the common case; equivalent to dropping
+  /// [PdfEditToolGroup.markup] from [groups]. This also hides the Draw
+  /// group's Highlight shortcut.
   final bool showMarkup;
 
   /// Whether the undo/redo buttons are shown. The viewer's ⌘Z/⇧⌘Z
@@ -273,6 +275,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         Icons.draw,
         [
           _GroupTool.tool(PdfEditTool.ink, Icons.draw, 'Draw'),
+          _GroupTool.markup(PdfMarkupKind.highlight, Icons.border_color,
+              'Highlight selection'),
           _GroupTool.tool(
               PdfEditTool.eraser, Icons.auto_fix_normal, 'Erase ink strokes'),
         ],
@@ -338,6 +342,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   bool _shows(PdfEditTool tool) => widget.tools?.contains(tool) ?? true;
 
+  bool _entryVisible(_GroupTool entry) {
+    final tool = entry.tool;
+    if (tool != null) return _shows(tool);
+    if (entry.markup != null) return widget.showMarkup;
+    return true;
+  }
+
   /// Whether [group] has any visible entry (the whole group gated by
   /// [PdfEditingToolbar.groups], markup also gated by showMarkup, tools
   /// gated by [PdfEditingToolbar.tools]).
@@ -345,7 +356,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final kind = PdfEditToolGroup.values.byName(group.id);
     if (widget.groups != null && !widget.groups!.contains(kind)) return false;
     if (group.id == 'markup') return widget.showMarkup;
-    return group.tools.any((e) => e.tool != null && _shows(e.tool!));
+    return group.tools.any(_entryVisible);
   }
 
   List<_ToolGroup> get _visibleGroups =>
@@ -381,6 +392,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         page: viewerController.selectionRectsOn(page),
     };
     controller.addMarkup(kind, quadsByPage);
+  }
+
+  void _applyMarkup(PdfMarkupKind kind, {bool restoreTool = false}) {
+    final previousTool = controller.tool;
+    if (restoreTool) controller.tool = null;
+    controller.useMarkupStyleScope();
+    _markup(kind);
+    if (restoreTool && previousTool != null) controller.tool = previousTool;
   }
 
   /// Sets the creation colour — and recolours the selected annotations in
@@ -421,8 +440,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     }
     setState(() => _openGroupId = group.id);
     if (_groupForTool(controller.tool)?.id == group.id) return;
-    controller.tool = group.defaultTool;
-    if (controller.tool != null) viewerController.clearSelection();
+    final keepTextSelection =
+        group.id == 'draw' && viewerController.hasSelection;
+    controller.tool = keepTextSelection ? null : group.defaultTool;
+    if (keepTextSelection) {
+      controller.useMarkupStyleScope();
+    } else if (controller.tool != null) {
+      viewerController.clearSelection();
+    }
     // markup arms no tool, so its style scope is set explicitly (after the
     // tool reset above, which would otherwise clear it) — this is what lets
     // the highlighter keep its own colour from the other tools'
@@ -822,12 +847,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final labelled = group.id == 'edit';
     final toolButtons = <Widget>[];
     for (final entry in group.tools) {
-      if (entry.tool != null && !_shows(entry.tool!)) continue;
+      if (!_entryVisible(entry)) continue;
       if (entry.markup != null) {
         toolButtons.add(IconButton(
           icon: Icon(entry.icon),
           tooltip: entry.tip,
-          onPressed: hasTextSelection ? () => _markup(entry.markup!) : null,
+          onPressed: hasTextSelection
+              ? () =>
+                  _applyMarkup(entry.markup!, restoreTool: group.id != 'markup')
+              : null,
         ));
       } else if (labelled) {
         final tool = entry.tool!;
@@ -853,6 +881,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onPressed: () => _armGroupTool(context, tool),
         ));
       }
+    }
+    if (group.id == 'measure') {
+      toolButtons.add(_takeoffButton(context));
     }
 
     final settings = _groupSettings(context, group);
@@ -898,6 +929,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ..._tuneTrailing(context, fields),
         ];
       case 'draw':
+        if (tool == null && viewerController.hasSelection) {
+          return [
+            ..._colorCluster(context),
+            if (widget.showColor && widget.showStyle) const _MiniDivider(),
+            _opacitySlider(context),
+            ..._tuneTrailing(context, fields),
+          ];
+        }
         if (tool == PdfEditTool.eraser) {
           return [
             ..._drawToolExtras(context),
@@ -986,7 +1025,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           icon: const Icon(Icons.style),
           tooltip: 'Custom stamps…',
           isSelected: controller.activeStamp != null,
-          onPressed: () => showPdfStampPicker(context, controller: controller),
+          onPressed: () => showPdfStampPicker(context,
+              controller: controller, imagePicker: widget.imagePicker),
         ),
       if (controller.tool == PdfEditTool.signature)
         IconButton(
@@ -1414,6 +1454,29 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     );
   }
 
+  Widget _takeoffButton(BuildContext context) {
+    return _LabeledToolButton(
+      key: const ValueKey('pdf-takeoff-totals'),
+      icon: Icons.functions,
+      label: 'Totals',
+      tooltip: 'Takeoff totals',
+      active: false,
+      onTap: () => _showTakeoffPanel(context),
+    );
+  }
+
+  void _showTakeoffPanel(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: PdfTakeoffPanel(controller: controller),
+        ),
+      ),
+    );
+  }
+
   /// The tune popup trigger (and nothing else), or empty when
   /// [PdfEditingToolbar.showStyle] is off or [fields] carries nothing
   /// relevant. A font context renders the trigger as the design's font
@@ -1440,6 +1503,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final tool = controller.tool;
     switch (group.id) {
       case 'draw':
+        if (tool == null && viewerController.hasSelection) {
+          return const _StyleFields(opacity: true);
+        }
         if (tool == PdfEditTool.eraser) return const _StyleFields(eraser: true);
         return const _StyleFields(stroke: true, opacity: true);
       case 'shapes':
@@ -1791,8 +1857,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   Widget _sheetToolGrid(BuildContext context, _ToolGroup group) {
     final hasTextSelection = viewerController.hasSelection;
-    final entries =
-        group.tools.where((e) => e.markup != null || _shows(e.tool!)).toList();
+    final entries = group.tools.where(_entryVisible).toList();
     return GridView.count(
       crossAxisCount: 4,
       shrinkWrap: true,
@@ -1811,11 +1876,23 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             enabled: entry.markup == null || hasTextSelection,
             onTap: () async {
               if (entry.markup != null) {
-                _markup(entry.markup!);
+                _applyMarkup(entry.markup!, restoreTool: group.id != 'markup');
                 if (context.mounted) Navigator.of(context).pop();
               } else {
                 await _armGroupTool(context, entry.tool!);
               }
+            },
+          ),
+        if (group.id == 'measure')
+          _SheetToolTile(
+            key: const ValueKey('pdf-takeoff-totals'),
+            icon: Icons.functions,
+            label: 'Totals',
+            active: false,
+            enabled: true,
+            onTap: () {
+              Navigator.of(context).pop();
+              if (mounted) _showTakeoffPanel(this.context);
             },
           ),
       ],
@@ -2057,6 +2134,7 @@ class _GroupChip extends StatelessWidget {
 /// document-altering operations they trigger.
 class _LabeledToolButton extends StatelessWidget {
   const _LabeledToolButton({
+    super.key,
     required this.icon,
     required this.label,
     required this.tooltip,
@@ -2113,6 +2191,7 @@ class _LabeledToolButton extends StatelessWidget {
 /// A tile in the mobile sheet's tool grid: icon above a label.
 class _SheetToolTile extends StatelessWidget {
   const _SheetToolTile({
+    super.key,
     required this.icon,
     required this.label,
     required this.active,
@@ -2782,6 +2861,10 @@ class _StyleMenuState extends State<_StyleMenu> {
                             child: PdfFontMenuButton(
                               controller: controller,
                               fontPicker: widget.fontPicker,
+                              currentFont: selectedStyle?.font ??
+                                  captionStyle?.font ??
+                                  controller.activeFont ??
+                                  controller.fontFamily,
                             ),
                           ),
                         ),

@@ -113,7 +113,8 @@ void main() {
     expect(tester.widget<RawImage>(find.byType(RawImage)).image!.height, 1008);
   });
 
-  testWidgets('an additive content edit keeps the raster; a destructive one '
+  testWidgets(
+      'an additive content edit keeps the raster; a destructive one '
       'drops it', (tester) async {
     // After finishing an ink markup on a heavy page the document swaps and
     // the page's contentStamp advances. The old raster must stay painted
@@ -161,6 +162,53 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
     expect(find.byType(RawImage), findsOneWidget);
+  });
+
+  testWidgets('an additive content edit keeps the detail patch until refreshed',
+      (tester) async {
+    // At deep zoom a sharp detail patch paints above the capped base raster.
+    // After an annotation commit, keep that sharp patch while the editing
+    // overlay's commit afterimage covers the new annotation. The overlay only
+    // clears once the fresh detail patch has replaced it.
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    final hold = ValueNotifier<bool>(false);
+    addTearDown(hold.dispose);
+    var ready = 0;
+    Widget at({int content = 0}) => Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: SizedBox(
+              width: 6120,
+              child: PdfPageView(
+                page: page,
+                contentStamp: content,
+                renderHold: hold,
+                onRasterReady: () => ready++,
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at());
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(find.byType(RawImage), findsNWidgets(2),
+        reason: 'base raster plus deep-zoom detail patch');
+    expect(ready, 1);
+
+    hold.value = true;
+    await tester.pumpWidget(at(content: 1));
+    await tester.pump();
+
+    expect(find.byType(RawImage), findsNWidgets(2),
+        reason: 'the stale detail patch stays up for sharpness');
+    expect(ready, 1,
+        reason: 'the annotation afterimage must stay until a fresh detail '
+            'patch is ready');
   });
 
   testWidgets('raster resolution is capped at deep zoom', (tester) async {

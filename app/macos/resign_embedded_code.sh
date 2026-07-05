@@ -14,6 +14,7 @@ fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 frameworks_dir="$app_bundle/Contents/Frameworks"
+macos_dir="$app_bundle/Contents/MacOS"
 identity="${CODESIGN_IDENTITY:-${EXPANDED_CODE_SIGN_IDENTITY:-${CODE_SIGN_IDENTITY:--}}}"
 if [[ -z "$identity" ]]; then
   identity="-"
@@ -40,6 +41,14 @@ if [[ -d "$frameworks_dir" ]]; then
   while IFS= read -r -d '' framework; do
     sign_code "$framework"
   done < <(find "$frameworks_dir" -depth -type d -name '*.framework' -print0)
+fi
+
+if [[ -d "$macos_dir" ]]; then
+  while IFS= read -r -d '' file; do
+    if [[ "$file" == *.dylib ]] && /usr/bin/file -b "$file" | grep -q 'Mach-O'; then
+      sign_code "$file"
+    fi
+  done < <(find "$macos_dir" -maxdepth 1 -type f -print0)
 fi
 
 app_sign_args=(--force --options runtime --sign "$identity")

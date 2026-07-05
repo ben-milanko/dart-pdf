@@ -243,8 +243,7 @@ class _EditorScreenState extends State<EditorScreen>
   bool get _hasExplicitLaunchTarget =>
       widget.initialDocument != null ||
       (!kIsWeb &&
-          widget.launchArgs
-              .any((a) => a.toLowerCase().endsWith('.pdf')));
+          widget.launchArgs.any((a) => a.toLowerCase().endsWith('.pdf')));
 
   /// Re-opens the file-backed documents that were open when the app last closed.
   /// Runs once at startup, then enables session persistence so this run's open
@@ -478,7 +477,8 @@ class _EditorScreenState extends State<EditorScreen>
     }
     if (!mounted) return;
     if (inserted == 0) {
-      _toast('Could not insert the dropped ${pdfs.length == 1 ? 'PDF' : 'PDFs'}');
+      _toast(
+          'Could not insert the dropped ${pdfs.length == 1 ? 'PDF' : 'PDFs'}');
     } else if (failed.isEmpty) {
       _toast(inserted == 1
           ? 'Inserted pages into $title'
@@ -1087,13 +1087,7 @@ class _EditorScreenState extends State<EditorScreen>
                 ),
         ),
       if (compact && _tabs.isNotEmpty) _buildMobileTabsButton(),
-      if (!_readOnly && tab?.session != null && !tab!.isComparison)
-        IconButton(
-          key: const ValueKey('dartpdf-takeoff-button'),
-          icon: const Icon(Icons.functions),
-          tooltip: 'Takeoff totals',
-          onPressed: () => _showTakeoffPanel(tab.session!),
-        ),
+
       if (compact && !_readOnly && tab?.session != null)
         Padding(
           padding: const EdgeInsets.only(right: 8),
@@ -1109,22 +1103,6 @@ class _EditorScreenState extends State<EditorScreen>
           ),
         ),
     ];
-  }
-
-  /// Shows the construction-takeoff register — the per-tool running totals
-  /// over the live document (length, area, count, volume, …) — in a bottom
-  /// sheet. The panel listens to the edit session, so totals update as
-  /// measurements are added, edited, or undone.
-  void _showTakeoffPanel(PdfEditingController session) {
-    unawaited(showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: PdfTakeoffPanel(controller: session),
-        ),
-      ),
-    ));
   }
 
   Widget _buildAppMenu(DocumentTab? tab) => PopupMenuButton<VoidCallback>(
@@ -1519,7 +1497,9 @@ class _DropOverlay extends StatelessWidget {
               Icon(Icons.file_download_outlined,
                   size: 40, color: scheme.primary),
               const SizedBox(height: 8),
-              Text(canInsert ? 'Drop PDF to open or insert' : 'Drop PDF to open'),
+              Text(canInsert
+                  ? 'Drop PDF to open or insert'
+                  : 'Drop PDF to open'),
             ],
           ),
         ),

@@ -49,14 +49,23 @@ void main() {
   // read lazily later — so no real file is needed to exercise the drop's
   // branching (show the action dialog / add a loading tab). The drop point is
   // the centre of the surface so it lands inside the editor body (DropTarget
-  // only reports a done event for in-bounds drops).
+  // only reports a done event for in-bounds drops). Send an update first so
+  // the target is entered even when the test runs on a non-Linux host.
   Future<void> dropPdf(WidgetTester tester, String name) async {
     final size = tester.view.physicalSize / tester.view.devicePixelRatio;
     const codec = StandardMethodCodec();
+    final point = <double>[size.width / 2, size.height / 2];
+    final update = codec.encodeMethodCall(MethodCall('updated', point));
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'desktop_drop',
+      update,
+      (_) {},
+    );
+    await tester.pump();
     final message = codec.encodeMethodCall(
       MethodCall('performOperation_linux', <dynamic>[
         Uri.file('/dartpdf-test/$name').toString(),
-        <double>[size.width / 2, size.height / 2],
+        point,
       ]),
     );
     unawaited(
