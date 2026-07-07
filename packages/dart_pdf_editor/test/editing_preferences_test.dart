@@ -192,6 +192,28 @@ void main() {
       expect(editing.color, const Color(0xFFFFEB3B));
     });
 
+    test('color locking preserves tool colours behind the locked value',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      await editing.preferences.ready;
+
+      editing
+        ..tool = PdfEditTool.ink
+        ..color = const Color(0xFF123456)
+        ..colorLocked = true
+        ..tool = PdfEditTool.highlight;
+
+      expect(editing.color, const Color(0xFF123456));
+      expect(editing.strokeWidth, 12);
+      expect(editing.opacity, 0.45);
+
+      editing.colorLocked = false;
+      expect(editing.color, const Color(0xFFFFD100));
+      editing.tool = PdfEditTool.ink;
+      expect(editing.color, const Color(0xFF123456));
+    });
+
     test('a tool with no saved style inherits the current value', () async {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));

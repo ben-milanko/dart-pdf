@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:pdf_cos/pdf_cos.dart';
 
-/// Helpers for reading composite (/Type0) font metrics — the `/ToUnicode`
-/// CMap (code → text) and the descendant CIDFont's `/W` widths — shared by
+/// Helpers for reading composite (/Type0) font metrics - the `/ToUnicode`
+/// CMap (code → text) and the descendant CIDFont's `/W` widths - shared by
 /// content-element extraction (to show real text and measure runs) and the
 /// Type0 text editor (to match and re-measure replacements).
 

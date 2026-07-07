@@ -131,7 +131,7 @@ void main() {
 
     testWidgets('touch pinch still zooms while the ink tool is armed',
         (tester) async {
-      // the suppression is for trackpad/wheel only — on-screen pinch runs
+      // the suppression is for trackpad/wheel only - on-screen pinch runs
       // through _EagerPinchRecognizer, not IV, so it must keep working
       final (editing, viewer) = await pumpViewer(tester, pages: 3);
       editing.tool = PdfEditTool.ink;
@@ -160,7 +160,7 @@ void main() {
       editing.tool = PdfEditTool.ink;
       await tester.pump();
 
-      // 16px of total motion — under every recognizer's slop, so the
+      // 16px of total motion - under every recognizer's slop, so the
       // old arena path would have dropped this stroke as a tap
       final g = await tester.startGesture(view(200, 500),
           kind: PointerDeviceKind.stylus);

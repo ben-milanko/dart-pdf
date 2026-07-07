@@ -1,4 +1,4 @@
-/// Minimal ASN.1 DER reader and writer — just enough for CMS signatures
+/// Minimal ASN.1 DER reader and writer - just enough for CMS signatures
 /// and X.509 certificates. Definite lengths and low-tag-number form only,
 /// which is all DER-encoded PKIX structures use.
 library;
@@ -44,7 +44,7 @@ class DerObject {
     return object;
   }
 
-  /// Parses the first value, ignoring whatever follows it — PDF /Contents
+  /// Parses the first value, ignoring whatever follows it - PDF /Contents
   /// entries pad the DER blob with zeros to their pre-allocated size.
   static DerObject parsePrefix(Uint8List bytes) => _read(bytes, 0).$1;
 
@@ -271,7 +271,7 @@ Uint8List derUtcTime(DateTime time) {
 }
 
 /// GeneralizedTime in the DER canonical form (always UTC, seconds present,
-/// no fractional part) — what RFC 5280 §4.1.2.5.2 and RFC 3161 require.
+/// no fractional part) - what RFC 5280 §4.1.2.5.2 and RFC 3161 require.
 Uint8List derGeneralizedTime(DateTime time) {
   final t = time.toUtc();
   String two(int v) => v.toString().padLeft(2, '0');

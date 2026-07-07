@@ -96,7 +96,7 @@ void main() {
     expect(identical(a, b), isTrue,
         reason: 'repeat lookups return the memoised string');
     // The empty string (unmapped control code) is a valid cached value, so it
-    // must stay stable too — not recompute on every call.
+    // must stay stable too - not recompute on every call.
     expect(info.charFor(0x00), info.charFor(0x00));
     // Memoising must not change the decoded value of any other code.
     expect(info.charFor(0xD0), String.fromCharCode(0x2014));
@@ -217,7 +217,7 @@ void main() {
     final signatures = <String>{};
     var withOutline = 0;
     for (var code = 33; code <= 48; code++) {
-      // Code 37 is the space glyph here — legitimately empty; skip empties.
+      // Code 37 is the space glyph here - legitimately empty; skip empties.
       final outline = info.outlineFor(code);
       if (outline == null || outline.segments.isEmpty) continue;
       withOutline++;

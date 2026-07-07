@@ -11,13 +11,13 @@ import 'ocr_status.dart';
 export 'ocr_status.dart';
 
 /// Drives the app's on-device OCR flow: download the model (once, behind a
-/// quick confirm), then run it over every page of a document — in the
+/// quick confirm), then run it over every page of a document - in the
 /// **background**, so the user keeps interacting with the PDF while a long
 /// (hundreds of pages) job runs. Progress is published on [status] for an
 /// app-bar indicator; [cancel] stops it.
 ///
 /// All of the heavy work lives in [pdf_ocr_ondevice]; this is just the app's
-/// orchestration — model gating, the download prompt, progress reporting, and
+/// orchestration - model gating, the download prompt, progress reporting, and
 /// turning failures into a toast.
 class OnDeviceOcr {
   OnDeviceOcr();
@@ -61,7 +61,7 @@ class OnDeviceOcr {
     required void Function(Uint8List result) onComplete,
   }) async {
     if (isBusy) {
-      onToast('OCR is already running — wait for it to finish or cancel it');
+      onToast('OCR is already running - wait for it to finish or cancel it');
       return;
     }
     if (!isSupported) {
@@ -123,7 +123,7 @@ class OnDeviceOcr {
       final result = editor.save();
       onToast(spans == 0
           ? 'OCR found no text on these pages'
-          : 'OCR added $spans text spans — the page text is now selectable');
+          : 'OCR added $spans text spans - the page text is now selectable');
       onComplete(result);
     } catch (e) {
       onToast('OCR failed: $e');

@@ -22,7 +22,7 @@ class PdfPageSize {
   /// ISO A3 (297 × 420 mm).
   static const a3 = PdfPageSize(841.89, 1190.55);
 
-  /// ISO A4 (210 × 297 mm) — the common document size.
+  /// ISO A4 (210 × 297 mm) - the common document size.
   static const a4 = PdfPageSize(595.28, 841.89);
 
   /// ISO A5 (148 × 210 mm).
@@ -94,7 +94,7 @@ class PdfImageAlign {
   static const bottomRight = PdfImageAlign(1, -1);
 }
 
-/// Assembles a brand-new PDF from a list of raster images — one page per
+/// Assembles a brand-new PDF from a list of raster images - one page per
 /// image.
 ///
 /// This is the pure-Dart half of "Office / image ingestion": turning a
@@ -110,7 +110,7 @@ class PdfImageAlign {
 ///
 /// By default each page is sized to its image (one image pixel = one point
 /// at the default 72 dpi). Pass a [pageSize] to lay the images onto a fixed
-/// page instead — A4, Letter, anything — with a [fit] and [align] (and an
+/// page instead - A4, Letter, anything - with a [fit] and [align] (and an
 /// optional [margin]).
 class PdfImageDocument {
   PdfImageDocument._();
@@ -176,7 +176,7 @@ class PdfImageDocument {
       final naturalH = image.height * scale;
 
       // toXObject registers the soft mask (if any) before returning the
-      // image stream, so the mask is numbered first — both go to builder.
+      // image stream, so the mask is numbered first - both go to builder.
       final xobjectRef = builder.add(image.toXObject(builder.add));
 
       final double pageW;

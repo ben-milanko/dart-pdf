@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// A PDF handed to the app by the operating system — an "open with", a share,
+/// A PDF handed to the app by the operating system - an "open with", a share,
 /// a file association, or a launch argument.
 @immutable
 class IncomingFile {
-  const IncomingFile({required this.name, this.path, this.bytes})
+  const IncomingFile({required this.name, this.path, this.bytes, this.bookmark})
       : assert(path != null || bytes != null,
             'an incoming file needs a path or bytes');
 
@@ -20,6 +20,10 @@ class IncomingFile {
   /// The raw bytes, when the OS handed us content without a usable path
   /// (Android content:// streams, web file handles).
   final Uint8List? bytes;
+
+  /// macOS security-scoped bookmark for [path], when the native runner can
+  /// provide one. Persisted with recents/session entries for later reopens.
+  final String? bookmark;
 }
 
 /// The single conduit for files the OS opens in the app, across every
@@ -84,6 +88,7 @@ class IncomingFileService {
       name: name == null || name.isEmpty ? 'document.pdf' : name,
       path: (path != null && path.isEmpty) ? null : path,
       bytes: bytes,
+      bookmark: args['bookmark'] as String?,
     );
   }
 }

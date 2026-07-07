@@ -1,26 +1,26 @@
 part of 'editor.dart';
 
-/// Tier 4 — paragraph reflow. Where [PdfContentEditing.replaceText] corrects
+/// Tier 4 - paragraph reflow. Where [PdfContentEditing.replaceText] corrects
 /// text *within* a line (holding everything after it put), this re-wraps a
 /// whole paragraph: the replacement may make the paragraph grow or shrink by
 /// lines, the paragraph's lines are re-broken at its right margin, and the
 /// lines that follow it cascade up or down so nothing overlaps.
 ///
 /// The paragraph is found by the same kind of geometric inference the reading
-/// (reflow) view uses — visual lines grouped into a left-aligned, single
-/// column, single font/size block with a regular leading — but ported to run
+/// (reflow) view uses - visual lines grouped into a left-aligned, single
+/// column, single font/size block with a regular leading - but ported to run
 /// directly over the content stream (this layer cannot import the renderer).
 ///
 /// ## Supported shape (others leave the page untouched, returning false)
 ///
 ///  * Single column, left-aligned, horizontal unrotated text (the text and
 ///    line matrices are pure translation: `a == d == 1`, `b == c == 0`).
-///  * Lines reached by a regular *relative* downward break — `T*`, or
-///    `0 -leading Td`/`TD` — so changing the paragraph's line count cascades
+///  * Lines reached by a regular *relative* downward break - `T*`, or
+///    `0 -leading Td`/`TD` - so changing the paragraph's line count cascades
 ///    into the following lines through the same relative breaks. The first
 ///    line keeps whatever positioned it (an absolute `Tm`/`Td` is fine).
 ///  * One show operator (`Tj`/`TJ`) per line, with nothing but the breaks
-///    between them — no mid-paragraph font, colour, or spacing changes.
+///    between them - no mid-paragraph font, colour, or spacing changes.
 ///  * Simple Latin-1 fonts, or Identity-H / CIDFontType2 / Identity-
 ///    CIDToGIDMap composite (/Type0) fonts whose embedded program carries a
 ///    glyph for every character of the reflowed text (no fallback-font path).
@@ -104,7 +104,7 @@ extension PdfParagraphReflow on PdfEditor {
       }
 
       // every show op between the first and last line of the paragraph must
-      // be a plain show or a recognized relative break — anything else
+      // be a plain show or a recognized relative break - anything else
       // (a font switch, colour, spacing) would be dropped by the rewrite.
       final firstShow = group.first.opIndex;
       final lastShow = group.last.opIndex;
@@ -124,7 +124,7 @@ extension PdfParagraphReflow on PdfEditor {
         }
         generated.add(show);
       }
-      if (generated.isEmpty) continue; // a line couldn't be encoded — bail
+      if (generated.isEmpty) continue; // a line couldn't be encoded - bail
 
       ops.replaceRange(firstShow, lastShow + 1, generated);
       reflowFont.commit();
@@ -345,7 +345,7 @@ extension PdfParagraphReflow on PdfEditor {
       (line.d - 1).abs() < 1e-6;
 
   /// Whether [line] was reached by a relative downward break (`T*`, or a
-  /// `Td`/`TD` that only moves down) — the breaks a line-count change can
+  /// `Td`/`TD` that only moves down) - the breaks a line-count change can
   /// cascade through.
   static bool _isRelativeDown(_ReflowLine line) {
     switch (line.brk.kind) {
@@ -399,7 +399,7 @@ extension PdfParagraphReflow on PdfEditor {
   }
 
   /// Whether `ops[first..last]` holds only show operators and the recognized
-  /// relative breaks — so replacing the span drops nothing meaningful.
+  /// relative breaks - so replacing the span drops nothing meaningful.
   static bool _spanIsClean(List<ContentOperation> ops, int first, int last) {
     for (var i = first; i <= last; i++) {
       switch (ops[i].operator) {

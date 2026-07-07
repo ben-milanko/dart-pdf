@@ -148,8 +148,8 @@ class _JpxParser {
         case 0xFF90: // SOT
           // SOT fields from the marker (T.800 A.4.2): Lsot @+2, Isot @+4,
           // Psot @+6. Reading Psot at +8 (off by two) only ever read "rest of
-          // codestream" for single tile-part files — which is the right chunk
-          // there — but on a multi-tile-part tile it swallowed every later
+          // codestream" for single tile-part files - which is the right chunk
+          // there - but on a multi-tile-part tile it swallowed every later
           // tile-part's SOT/SOD markers into the packet bitstream, desyncing
           // tier-2 into garbage coefficients (issue3371.pdf: 6 tile-parts).
           final tileIndex = view.getUint16(p + 4);
@@ -258,7 +258,7 @@ class _JpxParser {
     // Bit 1 (0x02) = reset the MQ context probabilities at each coding-pass
     // boundary (Table A.19); supported below. The remaining style bits
     // (arithmetic bypass, per-pass termination, vertically-causal contexts,
-    // predictable termination, segmentation symbols) are not — reject them so
+    // predictable termination, segmentation symbols) are not - reject them so
     // the image is skipped rather than mis-decoded.
     const supportedCbStyle = 0x02;
     if (style.cbStyle & ~supportedCbStyle != 0) {
@@ -442,7 +442,7 @@ class _TileComponent {
 
   /// Tier-1 decodes every code-block, dequantizes, and runs the inverse
   /// wavelet. Returns the tile-component samples (still centered around
-  /// zero — the DC shift happens later).
+  /// zero - the DC shift happens later).
   Float32List reconstruct() {
     for (final resolution in resolutions) {
       for (final band in resolution.bands) {

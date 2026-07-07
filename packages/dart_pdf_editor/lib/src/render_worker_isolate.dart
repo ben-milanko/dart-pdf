@@ -16,7 +16,7 @@ import 'render_worker.dart';
 /// on-screen page (priority 0) jumps ahead of background prefetch (priority 1),
 /// so the visible page never waits behind a storm of prerenders even though
 /// the single isolate processes serially. Keeping just one request in flight
-/// is what makes that reordering possible — and when a higher-priority request
+/// is what makes that reordering possible - and when a higher-priority request
 /// arrives while a lower-priority one is in flight, the worker cancels the
 /// in-flight job mid-walk (cooperative preemption via [PdfCancellationToken])
 /// and serves the urgent request next.
@@ -47,7 +47,7 @@ class _IsolateRenderWorker implements PdfRenderWorker {
     try {
       await _spawnInner(bytes);
     } catch (_) {
-      // isolates unsupported / spawn threw: behave like the null worker —
+      // isolates unsupported / spawn threw: behave like the null worker -
       // every queued and future record() resolves to null (local render).
       _spawnFailed = true;
       _failPending();
@@ -61,7 +61,7 @@ class _IsolateRenderWorker implements PdfRenderWorker {
         handshake.complete(message);
         return;
       }
-      // [int id, TransferableTypedData? data] — null means "render locally".
+      // [int id, TransferableTypedData? data] - null means "render locally".
       final response = message as List<Object?>;
       final id = response[0] as int;
       final request = _inFlight;
@@ -79,7 +79,7 @@ class _IsolateRenderWorker implements PdfRenderWorker {
       errorsAreFatal: false,
     );
     // Disposed while the spawn was in flight (a widget test tearing down, a
-    // fast document swap): kill the freshly-spawned isolate now — dispose
+    // fast document swap): kill the freshly-spawned isolate now - dispose
     // couldn't, _isolate was still null then.
     if (_disposed) {
       isolate.kill(priority: Isolate.immediate);
@@ -172,7 +172,7 @@ class _IsolateRenderWorker implements PdfRenderWorker {
   void cancel(int pageIndex, {int priority = 0}) {
     if (_disposed) return;
     // Drop matching QUEUED requests. Completing with null makes their record()
-    // futures resolve to a local render — the abandoning caller ignores that.
+    // futures resolve to a local render - the abandoning caller ignores that.
     _queue.removeWhere((request) {
       if (request.pageIndex != pageIndex || request.priority != priority) {
         return false;
@@ -194,7 +194,7 @@ class _IsolateRenderWorker implements PdfRenderWorker {
     _failPending();
   }
 
-  /// Resolves every in-flight and queued request to null (local render) —
+  /// Resolves every in-flight and queued request to null (local render) -
   /// on dispose, or when the spawn fails.
   void _failPending() {
     final orphaned = [if (_inFlight != null) _inFlight!, ..._queue];

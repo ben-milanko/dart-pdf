@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4.0
+
+- Add color processing for replacing document colors across selected pages or
+  the full document, including multi-source selection, document color swatches,
+  custom picker colors, transparent replacement, and background processing for
+  larger files.
+- Add full bookmark management, cloud polygon markups, freehand highlighting,
+  stamp hover previews, stamp import/export, annotation apply-to-pages, and
+  image export from selected PDF content.
+- Improve desktop workflows with Open Recent, visible shortcut labels,
+  feedback links, multi-file picker selection, and more reliable macOS
+  open-with and OneDrive/security-scoped file access.
+- Polish page and annotation navigation: hover-only desktop controls,
+  arrow-key page navigation, page-grid click-to-select/double-click-to-open,
+  and fixes for thumbnail/search layout overflow.
+- Fix eraser misses across separate ink annotations, highlighter style leakage,
+  color-lock handling, and several popup/menu layout issues.
+
 ## 1.3.2
 
 - Editing polish from the 1.3.2 package suite: no-flicker annotation

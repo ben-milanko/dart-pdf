@@ -13,7 +13,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 /// Returns one word at a fixed raster pixel box, mapped to user space by
-/// the page geometry — exactly how a real engine would hand back results.
+/// the page geometry - exactly how a real engine would hand back results.
 class _FakeOcrEngine implements PdfOcrEngine {
   _FakeOcrEngine(this.word, this.pixels);
   final String word;

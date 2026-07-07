@@ -11,8 +11,8 @@ import 'measure.dart';
 ///
 /// Stored under the annotation's non-standard /Takeoff dictionary so it
 /// round-trips through a save/reopen without disturbing other viewers. The
-/// classic distance/perimeter/area kinds don't need it — they're inferred
-/// from the subtype — but the takeoff kinds (count, volume, angle, arc,
+/// classic distance/perimeter/area kinds don't need it - they're inferred
+/// from the subtype - but the takeoff kinds (count, volume, angle, arc,
 /// slope, area cutout) all do, because several share a subtype.
 class PdfTakeoffData {
   const PdfTakeoffData({
@@ -180,7 +180,7 @@ class PdfTakeoffGroup {
   }
 }
 
-/// Per-kind running totals over a document's measurement annotations — the
+/// Per-kind running totals over a document's measurement annotations - the
 /// data behind the takeoff tool's tallies and (later) the markups list.
 ///
 /// Measurements are bucketed by their /Takeoff /Label (falling back to a
@@ -224,7 +224,7 @@ class PdfTakeoffSummary {
   }
 
   /// The grand total of every distance-like group (distance/perimeter/arc)
-  /// in [unit], or 0 when none match — a convenience for a status line.
+  /// in [unit], or 0 when none match - a convenience for a status line.
   double get totalLength => _sumWhere(const {
         PdfMeasurementKind.distance,
         PdfMeasurementKind.perimeter,

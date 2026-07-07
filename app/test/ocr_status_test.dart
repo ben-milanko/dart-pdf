@@ -1,4 +1,4 @@
-// The app-bar OCR chip is driven by OcrJobStatus — its fraction (determinate
+// The app-bar OCR chip is driven by OcrJobStatus - its fraction (determinate
 // where we know it, indeterminate otherwise) and short label per phase.
 import 'package:dart_pdf_editor_app/ocr_status.dart';
 import 'package:flutter_test/flutter_test.dart';

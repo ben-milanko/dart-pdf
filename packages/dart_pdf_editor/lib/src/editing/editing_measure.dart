@@ -49,7 +49,7 @@ class PdfMeasurementScale {
   /// The distance unit label ('ft', 'm', ...).
   final String unitLabel;
 
-  /// The on-page reference unit the scale is quoted against — the
+  /// The on-page reference unit the scale is quoted against - the
   /// left-hand side of the `1 <pageUnit> = N <unit>` ratio ('in', 'cm',
   /// 'mm'). Defaults to inches, the traditional drawing-scale reference.
   final String pageUnitLabel;
@@ -168,7 +168,7 @@ const _imperialCountries = {'US', 'LR', 'MM'};
 /// Whether [locale]'s region uses the imperial measurement system. The
 /// measurement system is a regional preference, so the country comes from
 /// [locale] when it carries one, otherwise from the device locale
-/// (`platformDispatcher.locale` — the browser language on the web).
+/// (`platformDispatcher.locale` - the browser language on the web).
 bool _isImperialRegion([Locale? locale]) {
   final country = (locale?.countryCode ??
           WidgetsBinding.instance.platformDispatcher.locale.countryCode)
@@ -209,7 +209,7 @@ Future<PdfMeasurementScale?> showPdfScaleDialog(
 
 /// The scale-calibration dialog shown by [showPdfScaleDialog]. The user
 /// expresses the drawing's scale as "1 inch on the page equals N real
-/// units" — the most common way drawing scales are quoted — or taps
+/// units" - the most common way drawing scales are quoted - or taps
 /// "Calibrate" (when [onCalibrate] is set) to measure a known length on
 /// the page instead.
 class PdfScaleDialog extends StatefulWidget {

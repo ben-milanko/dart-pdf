@@ -85,7 +85,7 @@ class PdfTextRun {
   final double strokeWidth;
 
   /// Render mode 3 (§9.4.3): the run paints nothing but still occupies
-  /// its geometry — the OCR text layer of scanned documents. Painting
+  /// its geometry - the OCR text layer of scanned documents. Painting
   /// devices must skip it; text extraction wants it like any other run.
   final bool invisible;
 
@@ -123,7 +123,7 @@ class PdfTextRun {
 }
 
 /// An image draw request. Decoding is left to the device, which may have
-/// platform codecs (and may need to be async — devices can pre-collect).
+/// platform codecs (and may need to be async - devices can pre-collect).
 class PdfImageRequest {
   const PdfImageRequest({
     required this.stream,
@@ -141,7 +141,7 @@ class PdfImageRequest {
   /// carried back with the recorded command, or null when this image is to be
   /// decoded locally (every non-worker render path). When present the
   /// consumer hands these straight to the engine codec instead of running the
-  /// pure-Dart decode — the point of the worker's image-decode offload. The
+  /// pure-Dart decode - the point of the worker's image-decode offload. The
   /// [stream] is still serialized so the decoded pixels cache by content like
   /// every other render path.
   final PdfDecodedPixels? decoded;
@@ -203,7 +203,7 @@ abstract interface class PdfDevice {
   /// Brackets a transparency-group form (§11.6.6) whose composite result
   /// paints at [alpha]. Inside the group, alpha starts over at 1.0; the
   /// group then blends as one object. Non-compositing devices can treat
-  /// the pair as a no-op — the group's content still arrives through the
+  /// the pair as a no-op - the group's content still arrives through the
   /// normal callbacks in between.
   ///
   /// When [knockout] is true the group is a knockout group (/K true,

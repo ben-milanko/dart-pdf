@@ -57,7 +57,7 @@ class _PdfAValidator {
     return PdfConformanceReport(profile, issues);
   }
 
-  // 6.1.3 — a conforming file shall not be encrypted.
+  // 6.1.3 - a conforming file shall not be encrypted.
   void _checkEncryption() {
     if (cos.isEncrypted) {
       _err('A$part:6.1.3', 'The document is encrypted; PDF/A forbids '
@@ -65,7 +65,7 @@ class _PdfAValidator {
     }
   }
 
-  // 6.1.3 — the file trailer shall contain an /ID.
+  // 6.1.3 - the file trailer shall contain an /ID.
   void _checkId() {
     final id = cos.resolve(cos.trailer['ID']);
     if (id is! CosArray || id.length < 2) {
@@ -87,7 +87,7 @@ class _PdfAValidator {
     }
   }
 
-  // 6.2.2 — an OutputIntent with subtype GTS_PDFA1 and a DestOutputProfile
+  // 6.2.2 - an OutputIntent with subtype GTS_PDFA1 and a DestOutputProfile
   // ICC stream is required when device-dependent colour is used. We require it
   // unconditionally for level B (the safe assumption for arbitrary content).
   void _checkOutputIntent() {
@@ -125,7 +125,7 @@ class _PdfAValidator {
     }
   }
 
-  // 6.7 — XMP metadata with the pdfaid part and conformance is required.
+  // 6.7 - XMP metadata with the pdfaid part and conformance is required.
   void _checkMetadata() {
     final meta = cos.resolve(document.catalog['Metadata']);
     if (meta is! CosStream) {
@@ -146,7 +146,7 @@ class _PdfAValidator {
     }
   }
 
-  // 6.3 — every font used for rendering shall be embedded.
+  // 6.3 - every font used for rendering shall be embedded.
   void _checkFonts() {
     final visited = <CosDictionary>{};
     for (var p = 0; p < document.pageCount; p++) {
@@ -207,7 +207,7 @@ class _PdfAValidator {
     return false;
   }
 
-  // 6.1.x — LZWDecode is forbidden (so is the deprecated /Crypt usage).
+  // 6.1.x - LZWDecode is forbidden (so is the deprecated /Crypt usage).
   void _checkFilters() {
     var reported = false;
     for (final number in cos.objectNumbers) {
@@ -235,7 +235,7 @@ class _PdfAValidator {
     }
   }
 
-  // 6.6.1 — interactive features that run code are forbidden.
+  // 6.6.1 - interactive features that run code are forbidden.
   void _checkActions() {
     final names = cos.resolve(document.catalog['Names']);
     if (names is CosDictionary &&
@@ -267,7 +267,7 @@ class _PdfAValidator {
     }
   }
 
-  // 6.x — A-1 and A-2 forbid embedded files; A-3 allows them (with metadata).
+  // 6.x - A-1 and A-2 forbid embedded files; A-3 allows them (with metadata).
   void _checkEmbeddedFiles() {
     if (part >= 3) return;
     final names = cos.resolve(document.catalog['Names']);
@@ -281,7 +281,7 @@ class _PdfAValidator {
     }
   }
 
-  // 6.5.3 — annotations shall be set to print and not hidden; appearances are
+  // 6.5.3 - annotations shall be set to print and not hidden; appearances are
   // required. Reported as warnings (rendering-dependent).
   void _checkAnnotations() {
     for (var p = 0; p < document.pageCount; p++) {

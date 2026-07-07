@@ -20,7 +20,7 @@ class PdfBundledFont {
   final String assetKey;
 }
 
-/// The fonts bundled with the editor — the DejaVu trio (sans, serif and
+/// The fonts bundled with the editor - the DejaVu trio (sans, serif and
 /// monospace covering Latin, Cyrillic, Greek and more) plus a few extra
 /// faces for stylistic range: Fira Sans (humanist sans), Spectral (a
 /// refined serif) and Lobster (a display script). Users get a richer
@@ -57,7 +57,7 @@ Future<Uint8List> loadBundledFont(PdfBundledFont font) async {
 /// (`dart:io` is banned in `lib/` so the package keeps running on the web),
 /// so the host app discovers these and registers them in [pdfPlatformFonts]:
 /// a label, the engine font family to preview the menu entry with (optional)
-/// and a lazy byte loader called only when the font is chosen — its outlines
+/// and a lazy byte loader called only when the font is chosen - its outlines
 /// then embed into the document so the text renders everywhere.
 class PdfPlatformFont {
   const PdfPlatformFont({
@@ -69,7 +69,7 @@ class PdfPlatformFont {
   /// The name shown in the font menu.
   final String label;
 
-  /// The engine font-family name to preview the menu entry with — a real
+  /// The engine font-family name to preview the menu entry with - a real
   /// platform family the host knows the system can draw. When null the entry
   /// previews in the menu's default face (the bytes still embed on pick).
   final String? family;
@@ -131,7 +131,7 @@ void pdfApplyFont(PdfEditingController controller, PdfTextFont font) {
   } else if (font is PdfStandardFont &&
       controller.canRestyleMeasurementCaption) {
     // a measurement caption is drawn in a base-14 face (/DA resource name),
-    // so only a standard family applies — embedded fonts don't
+    // so only a standard family applies - embedded fonts don't
     controller.setSelectedMeasurementCaption(font: font);
   }
 }

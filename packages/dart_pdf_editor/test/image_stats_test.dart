@@ -1,6 +1,6 @@
 // PdfPageRenderer.decodedImageStats: the diagnostic that counts a worker
 // buffer's decoded images and their total pixels (recursing soft-mask groups),
-// so a slow raster page's cause — one oversized image vs. many capped tiles —
+// so a slow raster page's cause - one oversized image vs. many capped tiles -
 // is visible in the perf trace.
 import 'dart:typed_data';
 

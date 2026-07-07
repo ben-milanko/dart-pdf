@@ -10,7 +10,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // The drop-in shells: PdfReader (view-only) and PdfEditorView (the full
-// workbench). The pieces they compose have their own suites — these
+// workbench). The pieces they compose have their own suites - these
 // tests cover the wiring: features toggling chrome, panel toggles,
 // session ownership, and the save/changed callbacks.
 void main() {
@@ -27,10 +27,32 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
+  Uint8List buildBookmarkedPdf() {
+    final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)));
+    editor.addOutlineItem('Intro', pageIndex: 0);
+    editor.addOutlineItem('Details', pageIndex: 1);
+    return editor.save();
+  }
+
   Future<void> openShellControls(WidgetTester tester) async {
     await tester.tap(find.byKey(const ValueKey('pdf-shell-controls')),
         kind: PointerDeviceKind.mouse);
     await tester.pumpAndSettle();
+  }
+
+  Visibility actionVisibility(WidgetTester tester, Finder action) =>
+      tester.widget<Visibility>(
+        find.ancestor(of: action, matching: find.byType(Visibility)).first,
+      );
+
+  Future<TestGesture> hoverAt(WidgetTester tester, Offset target) async {
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(799, 599));
+    addTearDown(mouse.removePointer);
+    await tester.pump();
+    await mouse.moveTo(target);
+    await tester.pump();
+    return mouse;
   }
 
   group('PdfReader', () {
@@ -46,6 +68,8 @@ void main() {
       expect(
           find.byKey(const ValueKey('pdf-shell-zoom-reset')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-thumbnails-toggle')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-bookmarks-toggle')),
           findsOneWidget);
       // view-only: no editing toolbar anywhere
       expect(find.byType(PdfEditingToolbar), findsNothing);
@@ -103,6 +127,29 @@ void main() {
         ),
         findsNothing,
       );
+    });
+
+    testWidgets('bookmarks panel navigates in reader mode', (tester) async {
+      final viewer = PdfViewerController();
+      final prefs = PdfEditingPreferences();
+      addTearDown(viewer.dispose);
+      addTearDown(prefs.dispose);
+      prefs.showBookmarkSidebar = true;
+
+      await pump(
+          tester,
+          PdfReader(
+              bytes: buildBookmarkedPdf(),
+              controller: viewer,
+              preferences: prefs));
+
+      expect(find.byType(PdfBookmarkSidebar), findsOneWidget);
+      expect(find.text('Details'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-bookmark-add')), findsNothing);
+
+      await tester.tap(find.text('Details'));
+      await tester.pumpAndSettle();
+      expect(viewer.currentPage, 1);
     });
 
     testWidgets('compact first run starts with thumbnails closed',
@@ -230,6 +277,7 @@ void main() {
         'pdf-shell-search-results-toggle',
         'pdf-shell-view-options',
         'pdf-shell-thumbnails-toggle',
+        'pdf-shell-bookmarks-toggle',
         'pdf-shell-annotations-toggle',
         'pdf-shell-properties-toggle',
       ]) {
@@ -410,7 +458,11 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-shell-zoom-menu')), findsNothing);
 
-      // tapping a page in the grid returns to the page view
+      // single click selects; the second click opens the page and returns to
+      // the page view
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(prefs.showThumbnailView, isTrue);
       await tester.tap(find.text('Page 2'));
       await tester.pump();
       expect(prefs.showThumbnailView, isFalse);
@@ -505,6 +557,117 @@ void main() {
       expect(find.byType(PdfAnnotationSidebar), findsOneWidget);
       expect(find.byType(PdfAnnotationPropertiesPanel), findsOneWidget);
     });
+
+    testWidgets('bookmarks panel creates edits and deletes outline items',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing.preferences.showBookmarkSidebar = true;
+
+      await pump(
+          tester, PdfEditorView(controller: editing, viewerController: viewer));
+
+      expect(find.byType(PdfBookmarkSidebar), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-bookmark-empty-add')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-empty-add')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-bookmark-title')), 'Chapter 1');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-bookmark-page')), '2');
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-save')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(editing.outline.items.single.title, 'Chapter 1');
+      expect(editing.outline.items.single.destination?.pageIndex, 1);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-edit-0')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-bookmark-title')), 'Renamed');
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-save')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(editing.outline.items.single.title, 'Renamed');
+
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-delete-0')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(editing.outline.items, isEmpty);
+    });
+
+    testWidgets(
+        'desktop bookmark controls reveal on hover without reserved space',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing
+        ..addBookmark('Chapter 1', pageIndex: 0)
+        ..preferences.showBookmarkSidebar = true;
+
+      await pump(
+          tester, PdfEditorView(controller: editing, viewerController: viewer));
+
+      final edit = find.byKey(const ValueKey('pdf-bookmark-edit-0'));
+      expect(edit, findsNothing);
+
+      await hoverAt(tester,
+          tester.getCenter(find.byKey(const ValueKey('pdf-bookmark-tile-0'))));
+
+      expect(edit, findsOneWidget);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+    testWidgets(
+        'desktop thumbnail controls reveal on hover without reserved space',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+
+      final rotate = find.byKey(const ValueKey('pdf-thumbnail-rotate-0'));
+      expect(rotate, findsNothing);
+
+      await hoverAt(
+          tester,
+          tester.getCenter(
+              find.byKey(const ValueKey('pdf-thumbnail-tile-chip-0'))));
+
+      expect(rotate, findsOneWidget);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+    testWidgets('desktop annotation controls reveal on hover without shifting',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 550, 180, 610));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+
+      await pump(
+        tester,
+        Row(children: [
+          PdfAnnotationSidebar(controller: editing, viewerController: viewer),
+          const Expanded(child: SizedBox()),
+        ]),
+      );
+
+      final delete = find.byKey(const ValueKey('pdf-annotation-delete-0-0'));
+      expect(actionVisibility(tester, delete).visible, isFalse);
+      final before = tester.getRect(delete);
+
+      await hoverAt(tester, tester.getCenter(find.text('Square')));
+
+      expect(actionVisibility(tester, delete).visible, isTrue);
+      expect(tester.getRect(delete), before);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
     testWidgets('features can strip the chrome down to the viewer',
         (tester) async {
@@ -610,9 +773,36 @@ void main() {
       expect(find.byType(Slider), findsWidgets);
     });
 
+    testWidgets('colorControls locks the freehand highlight color',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.color = const Color(0xFF123456);
+
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          features: const PdfEditorFeatures(colorControls: false),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-draw')));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.ink);
+      expect(editing.color, const Color(0xFF123456));
+
+      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.highlight);
+      expect(editing.color, const Color(0xFF123456));
+      expect(editing.strokeWidth, 12);
+      expect(editing.opacity, 0.45);
+    });
+
     testWidgets('color controls are present by default', (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
-      // the colour controls live in a group's strip — open one
+      // the colour controls live in a group's strip - open one
       await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
       await tester.pump();
       final moreColors = find.byKey(const ValueKey('pdf-more-colors'));
@@ -778,8 +968,16 @@ void main() {
       editing.addRectangle(0, const PdfRect(100, 550, 300, 650));
       await tester.pump();
       // save now lives in the shell header (near the host's Open), keyed
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-save')),
-          kind: PointerDeviceKind.mouse);
+      final save = find.byKey(const ValueKey('pdf-shell-save'));
+      await tester.scrollUntilVisible(
+        save,
+        80,
+        scrollable: find.ancestor(
+          of: save,
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.tap(save, kind: PointerDeviceKind.mouse);
       expect(saved, isNotNull);
       expect(saved!.length, editing.bytes.length);
     });
@@ -1045,7 +1243,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-page-actions')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      // insert needs page editing — hidden; export stands alone
+      // insert needs page editing - hidden; export stands alone
       expect(
           find.byKey(const ValueKey('pdf-thumbnail-insert-pdf')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-thumbnail-export-pages')),
@@ -1211,7 +1409,7 @@ void main() {
       expect(before, lessThan(800 * 0.55));
       expect(after, greaterThan(800 * 0.6));
       expect(after, lessThanOrEqualTo(800 * 0.9 + 1));
-      // a resize is not a dismiss — the panel is still open
+      // a resize is not a dismiss - the panel is still open
       expect(panel, findsOneWidget);
     });
 
@@ -1237,7 +1435,7 @@ void main() {
       addTearDown(prefs.dispose);
       // the default 800x600 test surface is above the compact width, so
       // panels dock to the side and carry their own little × (the sheet
-      // variants — and their close buttons — are not mounted here)
+      // variants - and their close buttons - are not mounted here)
       await pump(tester,
           PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
 
@@ -1351,7 +1549,7 @@ void main() {
         'compact: dragging the empty margin of the thumbnail sheet '
         'scrolls it', (tester) async {
       // Regression: the tile column was a narrow centered SizedBox, so the
-      // scroll viewport only covered the tiles — a drag on the wide sheet's
+      // scroll viewport only covered the tiles - a drag on the wide sheet's
       // empty side margins hit nothing and never scrolled. The list now
       // fills the sheet and centers the column via its own inset.
       final prefs = PdfEditingPreferences();
@@ -1376,7 +1574,7 @@ void main() {
       expect(position.maxScrollExtent, greaterThan(0),
           reason: 'the strip should overflow with 12 pages');
 
-      // drag UP from near the sheet's left edge — the empty margin beside
+      // drag UP from near the sheet's left edge - the empty margin beside
       // the centered tile column, not on a tile; check the offset while the
       // gesture is held (the raster loop never settles, so no pumpAndSettle)
       final sheetRect = tester.getRect(sheet);
@@ -1447,7 +1645,7 @@ void main() {
 
     testWidgets('wide: the editing toolbar floats over the viewer',
         (tester) async {
-      // Above the breakpoint the toolbar is transparent floating cards —
+      // Above the breakpoint the toolbar is transparent floating cards -
       // it sits over the bottom of the page (Acrobat/Bluebeam-style).
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
 

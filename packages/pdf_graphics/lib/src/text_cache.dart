@@ -15,7 +15,7 @@ const int _textBlobMagic = 0x50545831; // 'PTX1'
 /// Serializes [page] into a compact binary blob for the on-disk text
 /// cache. The format is little-endian and self-describing enough to
 /// reject foreign/old bytes ([pdfDecodePageText] returns null on any
-/// mismatch). No external dependency — just `dart:typed_data`.
+/// mismatch). No external dependency - just `dart:typed_data`.
 Uint8List pdfEncodePageText(PdfPageText page) {
   final out = _Writer();
   out.u32(_textBlobMagic);
@@ -45,7 +45,7 @@ Uint8List pdfEncodePageText(PdfPageText page) {
 }
 
 /// Reverses [pdfEncodePageText], or returns null when [bytes] are absent,
-/// truncated, corrupt, or from an incompatible format — every such case
+/// truncated, corrupt, or from an incompatible format - every such case
 /// is a cache miss the caller recomputes from.
 PdfPageText? pdfDecodePageText(Uint8List bytes) {
   try {
@@ -97,8 +97,8 @@ class PdfPageTextCache {
 
   /// Returns page [pageIndex]'s text for the document identified by
   /// [documentKey] (e.g. [pdfContentKey] of the bytes, or a file path),
-  /// reading it from disk on a hit and falling back to [compute] —
-  /// caching the result — on a miss.
+  /// reading it from disk on a hit and falling back to [compute] -
+  /// caching the result - on a miss.
   ///
   /// Best-effort: a store failure simply runs [compute].
   Future<PdfPageText> get(
@@ -119,7 +119,7 @@ class PdfPageTextCache {
 }
 
 class _Writer {
-  // copy: true — the scratch buffer is reused across calls, so the builder
+  // copy: true - the scratch buffer is reused across calls, so the builder
   // must take its own copy of each slice rather than retain a live view.
   final BytesBuilder _builder = BytesBuilder(copy: true);
   final ByteData _scratch = ByteData(8);

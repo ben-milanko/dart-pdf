@@ -91,7 +91,7 @@ void main() {
 
     // Hold renders (as during a fast scroll). A same-epoch page change (a
     // content-only edit reused the slot): the old raster is intentionally
-    // kept and re-rendered in place when the hold releases — no blank flash.
+    // kept and re-rendered in place when the hold releases - no blank flash.
     hold.value = true;
     await tester.pumpWidget(at(doc.page(2), 0));
     await tester.pump();
@@ -99,7 +99,7 @@ void main() {
         reason: 'a same-geometry edit keeps the raster while the render holds');
 
     // Bumped epoch (a structural change put a different page in this slot):
-    // the stale raster must drop now, before the held render lands — else the
+    // the stale raster must drop now, before the held render lands - else the
     // fast scroll paints page 0's image for page 2.
     await tester.pumpWidget(at(doc.page(2), 1));
     await tester.pump();
@@ -119,7 +119,7 @@ void main() {
     // After finishing an ink markup on a heavy page the document swaps and
     // the page's contentStamp advances. The old raster must stay painted
     // until the new render lands (the just-drawn markup rides on top via the
-    // editing overlay) — otherwise the whole page flashes blank while the
+    // editing overlay) - otherwise the whole page flashes blank while the
     // slow re-interpret runs. A redaction burn, by contrast, advances the
     // destructiveStamp and must drop the (un-redacted) raster at once.
     tester.view.devicePixelRatio = 1.0;

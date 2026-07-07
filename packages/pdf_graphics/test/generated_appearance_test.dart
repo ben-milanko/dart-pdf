@@ -114,7 +114,7 @@ void main() {
       e.addHighlight(0, const [PdfRect(72, 680, 200, 692)], color: 0x00FF00);
     });
     final page = doc.page(0);
-    // skip by /NM — a stable handle that survives re-parsing the page
+    // skip by /NM - a stable handle that survives re-parsing the page
     final targetName = page.annotations.first.name; // the red highlight
     expect(targetName, isNotNull);
 

@@ -76,7 +76,7 @@ class PdfAnnotation {
   bool get isReadOnly => flags & 64 != 0;
 
   /// The Locked flag (§12.5.3 bit 8): the annotation may not be deleted
-  /// and its properties (position, size) may not change — but its
+  /// and its properties (position, size) may not change - but its
   /// contents may, see [isLockedContents].
   bool get isLocked => flags & 128 != 0;
 
@@ -104,7 +104,7 @@ class PdfAnnotation {
   /// The editor stamps a generated UUID on every annotation it creates
   /// and preserves it through restyles and rewrites, which makes /NM the
   /// durable handle for syncing annotations across documents and devices
-  /// — slots shift, names don't.
+  /// - slots shift, names don't.
   String? get name {
     final nm = document.cos.resolve(dict['NM']);
     return nm is CosString ? nm.text : null;
@@ -180,7 +180,7 @@ class PdfAnnotation {
     return s is CosString ? s.text : null;
   }
 
-  /// The /StateModel naming which family [reviewState] belongs to —
+  /// The /StateModel naming which family [reviewState] belongs to -
   /// `Review` or `Marked` (§12.5.6.2). Its presence is what marks an
   /// annotation as a *state* annotation rather than a content reply.
   String? get stateModel {
@@ -258,6 +258,15 @@ class PdfAnnotation {
     return values.any((value) => value > 0) ? values : null;
   }
 
+  /// Whether the annotation asks conforming viewers to render its border as
+  /// a cloudy border effect (`/BE << /S /Cloudy ... >>`).
+  bool get hasCloudyBorder {
+    final be = document.cos.resolve(dict['BE']);
+    if (be is! CosDictionary) return false;
+    final style = document.cos.resolve(be['S']);
+    return style is CosName && style.value == 'Cloudy';
+  }
+
   /// The endpoints of a /Line annotation, page space.
   ((double, double), (double, double))? get line {
     if (subtype != 'Line') return null;
@@ -329,8 +338,8 @@ class PdfAnnotation {
     return null;
   }
 
-  /// The fully computed takeoff measurement — kind, real-world value, unit,
-  /// formatted text — or null when the annotation isn't a measurement (no
+  /// The fully computed takeoff measurement - kind, real-world value, unit,
+  /// formatted text - or null when the annotation isn't a measurement (no
   /// /Measure and not a count marker).
   PdfMeasurementResult? get measurementResult {
     final kind = measurementKind;
@@ -417,7 +426,7 @@ class PdfAnnotation {
   /// The real-world measurement this annotation represents, formatted
   /// through its /Measure: a distance for /Line, a perimeter (the sum of
   /// the segment lengths) for /PolyLine, and a shoelace area for
-  /// /Polygon — plus the takeoff kinds (count/volume/angle/arc/slope/net
+  /// /Polygon - plus the takeoff kinds (count/volume/angle/arc/slope/net
   /// area) when a /Takeoff is present. Null without a /Measure or for
   /// other subtypes.
   String? get measurementText => measurementResult?.text;
@@ -464,7 +473,7 @@ class PdfAnnotation {
     return da is CosString ? da.text : null;
   }
 
-  /// The free-text rich-content string (§12.7.3.4 `/RC`) — the XHTML that
+  /// The free-text rich-content string (§12.7.3.4 `/RC`) - the XHTML that
   /// records per-run styling the flat /DA can't, written by
   /// `PdfEditor.addFreeTextRich`. Null when absent (plain free text or a
   /// non-free-text annotation). Parse it with
@@ -476,13 +485,13 @@ class PdfAnnotation {
   }
 
   /// The complete style of a free-text annotation, parsed from /DA, /C,
-  /// and /BS — everything needed to regenerate its appearance at a new
+  /// and /BS - everything needed to regenerate its appearance at a new
   /// size. Null for other subtypes or when /DA has no usable `Tf`.
   ///
   /// Mapping: text color is /DA's `rg` (or `g`) operator; the background
-  /// is /C (per §12.5.6.6 — but a /C that *equals* the text color is
+  /// is /C (per §12.5.6.6 - but a /C that *equals* the text color is
   /// treated as a legacy text-color mirror, not a background); border
-  /// width is /BS /W (0 when absent — the /Border default of 1 would
+  /// width is /BS /W (0 when absent - the /Border default of 1 would
   /// conjure borders most viewers never drew); border color is /DA's
   /// `RG` operator, falling back to the text color when /BS declares a
   /// width without one.
@@ -580,7 +589,7 @@ class PdfAnnotation {
   }
 
   /// The constant alpha the normal appearance carries: the first /ca
-  /// among its /Resources /ExtGState entries — where [PdfEditor]-authored
+  /// among its /Resources /ExtGState entries - where [PdfEditor]-authored
   /// annotations store their opacity (they deliberately write no dict
   /// /CA, which conforming viewers would apply *on top* of the alpha
   /// already baked into the appearance). 1.0 without one.
@@ -684,7 +693,7 @@ DateTime? _parsePdfDate(String? value) {
   return time;
 }
 
-/// Formats [time] as a PDF date string (§7.9.4) in UTC — the form the
+/// Formats [time] as a PDF date string (§7.9.4) in UTC - the form the
 /// comment editor stamps on /CreationDate and /M, round-tripping through
 /// [_parsePdfDate] and parsing in other readers (Acrobat).
 String pdfFormatDate(DateTime time) {
@@ -805,7 +814,7 @@ class PdfWidgetAnnotation extends PdfAnnotation {
   /// Fully qualified field name (partial names joined with dots).
   final String? fieldName;
 
-  /// The field's current value — /V resolved up the /Parent chain
+  /// The field's current value - /V resolved up the /Parent chain
   /// (§12.7.4.2): the text of text and choice fields, the on-state name
   /// of buttons ('Off' when unchecked), the first element of a
   /// multi-select choice value.
@@ -888,7 +897,7 @@ class PdfNamedAction extends PdfAction {
   final String name;
 }
 
-/// /JavaScript: the script is surfaced verbatim — there is deliberately no
+/// /JavaScript: the script is surfaced verbatim - there is deliberately no
 /// JS engine here. Apps that author their own PDFs can pattern-match the
 /// source; everything else should be ignored.
 class PdfJavaScriptAction extends PdfAction {

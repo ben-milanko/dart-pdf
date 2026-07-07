@@ -4,7 +4,7 @@ part of 'editor.dart';
 /// [PdfAnnotationEditing.addRedaction].
 ///
 /// True redaction per §12.5.6.23: covered text and images are *removed
-/// from the content-stream bytes* — not merely painted over — then the
+/// from the content-stream bytes* - not merely painted over - then the
 /// /IC fill is drawn into the page content and the /Redact annotations are
 /// deleted. The result is irreversible: a viewer (or a byte search of the
 /// saved file) cannot recover the glyphs that were under a redaction rect.
@@ -26,7 +26,7 @@ extension PdfRedactionApply on PdfEditor {
   /// whose /Rect is fully inside a redaction region.
   ///
   /// Unlike every other editor operation, the burn is NOT written as an
-  /// incremental update — an incremental save keeps the original bytes
+  /// incremental update - an incremental save keeps the original bytes
   /// (and therefore the redacted glyphs) physically in the file, where a
   /// byte search would recover them. Instead the whole document is
   /// re-serialized fresh (a compaction), dropping the superseded content
@@ -374,7 +374,7 @@ class _Redaction {
 }
 
 /// Walks a page content stream and rewrites it with the glyphs and images
-/// that fall inside any redaction [regions] removed — the content-stream
+/// that fall inside any redaction [regions] removed - the content-stream
 /// surgery half of a redaction burn.
 class _RedactionBurn {
   _RedactionBurn(this._cos, this._resources, this._regions);
@@ -609,7 +609,7 @@ class _RedactionBurn {
 
     final font = _font(_fontName);
     // Composite fonts: bytes are CID codes, not characters. Don't try to
-    // split — drop the whole op if it touches a region, else keep verbatim.
+    // split - drop the whole op if it touches a region, else keep verbatim.
     if (font != null && font.isComposite) {
       final bounds = _compositeBounds(elements, font);
       if (bounds != null && _rectIntersectsAny(bounds)) {

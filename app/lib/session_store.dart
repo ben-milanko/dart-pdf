@@ -7,27 +7,39 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// the editor can re-open it on the next launch.
 @immutable
 class SessionDocument {
-  const SessionDocument({required this.title, required this.path});
+  const SessionDocument({
+    required this.title,
+    required this.path,
+    this.bookmark,
+  });
 
-  /// The tab title (usually the file name) — shown while the file is read back.
+  /// The tab title (usually the file name) - shown while the file is read back.
   final String title;
 
   /// The reusable on-disk origin. Only documents with a path are tracked, so
   /// every restored document can be read directly without a fresh pick.
   final String path;
 
-  Map<String, dynamic> toJson() => {'t': title, 'p': path};
+  /// macOS security-scoped bookmark for [path], when available.
+  final String? bookmark;
+
+  Map<String, dynamic> toJson() => {
+        't': title,
+        'p': path,
+        if (bookmark != null) 'b': bookmark,
+      };
 
   factory SessionDocument.fromJson(Map<String, dynamic> j) => SessionDocument(
         title: (j['t'] as String?) ?? 'Untitled',
         path: (j['p'] as String?) ?? '',
+        bookmark: j['b'] as String?,
       );
 }
 
 /// Persists the ordered list of file-backed documents currently open so the
 /// editor can re-open them the next time it launches ("restore last session").
 ///
-/// Only documents with a reusable on-disk path are tracked — web and mobile
+/// Only documents with a reusable on-disk path are tracked - web and mobile
 /// picks have no path to read back from, so the session there is always empty
 /// and restore is a no-op. Backed by `shared_preferences`; when storage is
 /// unavailable (widget tests) it degrades to the in-memory list, mirroring how
@@ -55,7 +67,7 @@ class SessionStore {
           .where((d) => d.path.isNotEmpty)
           .toList();
     } catch (_) {
-      // No storage (tests) — keep whatever is already in memory.
+      // No storage (tests) - keep whatever is already in memory.
     }
     return _documents;
   }
@@ -68,7 +80,7 @@ class SessionStore {
       await prefs.setString(
           _key, jsonEncode(_documents.map((d) => d.toJson()).toList()));
     } catch (_) {
-      // No storage — nothing to persist.
+      // No storage - nothing to persist.
     }
   }
 }

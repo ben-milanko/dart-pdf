@@ -19,7 +19,7 @@ extension PdfTextDirectionResolution on PdfTextDirection {
 /// /Q quadding value (§12.7.4.3): 0 left, 1 centered, 2 right.
 ///
 /// When no alignment is given the appearance generator falls back to the
-/// text direction — left for LTR, right for RTL — so the default keeps the
+/// text direction - left for LTR, right for RTL - so the default keeps the
 /// long-standing behaviour.
 enum PdfTextAlign {
   left(0),
@@ -191,7 +191,7 @@ class ContentWriter {
     _buffer.write('] ${fmt(phase)} d\n');
   }
 
-  /// Round caps and joins — the right look for freehand ink strokes.
+  /// Round caps and joins - the right look for freehand ink strokes.
   void roundLines() {
     lineCap(1);
     lineJoin(1);
@@ -274,7 +274,7 @@ class ContentWriter {
     _buffer.write(') Tj\n');
   }
 
-  /// Shows pre-encoded glyphs as a hex string operand — used for composite
+  /// Shows pre-encoded glyphs as a hex string operand - used for composite
   /// (Type0) fonts whose codes are multi-byte glyph ids. [hex] is the raw
   /// hex digits (e.g. `00480065` for two 2-byte glyph ids).
   void showGlyphHex(String hex) => _buffer.write('<$hex> Tj\n');
@@ -397,7 +397,7 @@ abstract interface class PdfTextFont {
   /// resources.
   String get resourceName;
 
-  /// Ascender height in thousandths of an em — where the first baseline
+  /// Ascender height in thousandths of an em - where the first baseline
   /// sits below the top of a text box.
   int get ascent;
 
@@ -405,7 +405,7 @@ abstract interface class PdfTextFont {
   double measure(String text, double fontSize);
 }
 
-/// The three base-14 type families the editors write text with — a
+/// The three base-14 type families the editors write text with - a
 /// sans-serif, serif, and monospace pick that every viewer renders
 /// without embedding. The bold/italic variants of each are individual
 /// [PdfStandardFont] values; this is the axis the UI's family picker
@@ -426,7 +426,7 @@ enum PdfStandardFontFamily {
   final String label;
 }
 
-/// The standard one-byte fonts the editors write text with — the bold,
+/// The standard one-byte fonts the editors write text with - the bold,
 /// italic, and bold-italic variants of a sans-serif, serif, and
 /// monospace pick from the PDF base-14 set, which every viewer renders
 /// without embedding.
@@ -479,7 +479,7 @@ enum PdfStandardFont implements PdfTextFont {
   @override
   final String resourceName;
 
-  /// Ascender height in thousandths of an em — where the first baseline
+  /// Ascender height in thousandths of an em - where the first baseline
   /// sits below the top of a text box.
   @override
   final int ascent;
@@ -533,15 +533,15 @@ enum PdfStandardFont implements PdfTextFont {
   PdfStandardFont withItalic(bool italic) =>
       styled(family, bold: isBold, italic: italic);
 
-  /// Maps a /DA resource name or /BaseFont name leniently — other
-  /// producers write /Times-Roman, /Georgia, /CourierNew and the like —
+  /// Maps a /DA resource name or /BaseFont name leniently - other
+  /// producers write /Times-Roman, /Georgia, /CourierNew and the like -
   /// defaulting to [helvetica]. Bold and italic/oblique are recovered
   /// from the name when present.
   static PdfStandardFont fromName(String name) =>
       tryFromName(name) ?? helvetica;
 
   /// Like [fromName], but null for names that don't clearly belong to
-  /// one of the three families (e.g. an embedded font's `/F1`) — callers
+  /// one of the three families (e.g. an embedded font's `/F1`) - callers
   /// that would *regenerate* text in the mapped font use this to leave
   /// unrecognized fonts alone rather than silently substitute.
   static PdfStandardFont? tryFromName(String name) {

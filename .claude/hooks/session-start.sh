@@ -2,7 +2,7 @@
 # SessionStart hook for Claude Code on the web.
 #
 # Provisions the Flutter/Dart toolchain so `dart analyze`, `dart test`,
-# `flutter test` — and the repo's `fvm flutter` / `fvm dart` commands —
+# `flutter test` - and the repo's `fvm flutter` / `fvm dart` commands -
 # work in a fresh web session.
 #
 # The repo pins Flutter via .fvmrc. fvm's own installer (fvm.app) is
@@ -12,7 +12,7 @@
 # (matching the commands documented in CLAUDE.md).
 set -euo pipefail
 
-# Local machines already have the developer's own toolchain — only
+# Local machines already have the developer's own toolchain - only
 # provision inside the remote (web) environment.
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
@@ -59,7 +59,7 @@ export PATH="$SDK_DIR/bin:$DART_BIN:$SHIM_DIR:$PATH"
 mkdir -p "$SHIM_DIR"
 cat > "$SHIM_DIR/fvm" <<SHIM
 #!/usr/bin/env bash
-# Minimal fvm shim — forwards to the SDK provisioned by the session hook.
+# Minimal fvm shim - forwards to the SDK provisioned by the session hook.
 set -euo pipefail
 SDK="$SDK_DIR"
 case "\${1:-}" in

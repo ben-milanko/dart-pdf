@@ -1,6 +1,6 @@
 part of 'editor.dart';
 
-/// A detached, **vector** copy of a rectangular region of a page — the page
+/// A detached, **vector** copy of a rectangular region of a page - the page
 /// content and resources under the region, resolved and copied inline so
 /// the snapshot survives edits, undo, and even closing the source document.
 ///
@@ -29,13 +29,13 @@ class PdfVectorSnapshot {
   /// bottom-left), before /Rotate.
   final PdfRect region;
 
-  /// The region's displayed width and height — [region] rotated by the
+  /// The region's displayed width and height - [region] rotated by the
   /// page's /Rotate, so a 90°/270° page swaps the two. The natural paste
   /// size.
   final double displayWidth;
   final double displayHeight;
 
-  /// The source page's content streams, decoded and concatenated — the
+  /// The source page's content streams, decoded and concatenated - the
   /// operators the appearance replays (under [_matrix], clipped to the
   /// form BBox).
   final Uint8List _content;
@@ -45,12 +45,12 @@ class PdfVectorSnapshot {
   final CosDictionary _resources;
 
   /// The cm mapping the page's user space onto an upright
-  /// `[0 0 displayWidth displayHeight]` box — translation for an unrotated
+  /// `[0 0 displayWidth displayHeight]` box - translation for an unrotated
   /// page, a rotation+translation for 90/180/270.
   final List<double> _matrix;
 }
 
-/// Capturing and pasting vector regions ([PdfVectorSnapshot]) — the vector
+/// Capturing and pasting vector regions ([PdfVectorSnapshot]) - the vector
 /// half of the Snapshot tool, complementing the raster capture in
 /// `dart_pdf_editor`.
 extension PdfVectorSnapshotEditing on PdfEditor {
@@ -109,7 +109,7 @@ extension PdfVectorSnapshotEditing on PdfEditor {
     }
 
     // reuse an already-materialized captured form when one was handed back
-    // from a prior paste and still resolves — N pastes then share ONE
+    // from a prior paste and still resolves - N pastes then share ONE
     // XObject instead of embedding N copies of the page content
     CosObject? existing;
     if (sharedObject != null) {
@@ -143,7 +143,7 @@ extension PdfVectorSnapshotEditing on PdfEditor {
         }),
         bytes,
       );
-      // the resources hold fonts / images / nested forms as inline streams —
+      // the resources hold fonts / images / nested forms as inline streams -
       // hoist them to indirect objects (§7.3.8) before referencing the form
       _hoistStreams(captured.dictionary);
       capRef = _updater.addObject(captured);
@@ -173,7 +173,7 @@ extension PdfVectorSnapshotEditing on PdfEditor {
   }
 }
 
-/// Formats a matrix component for a content stream — integers without a
+/// Formats a matrix component for a content stream - integers without a
 /// trailing `.0`.
 String _fmtNum(double v) =>
     v == v.roundToDouble() ? v.toInt().toString() : v.toString();

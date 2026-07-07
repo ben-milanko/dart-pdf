@@ -76,7 +76,7 @@ void main() {
             }
 
             final sw = Stopwatch()..start();
-            // parse the page content once and share it across both passes —
+            // parse the page content once and share it across both passes -
             // exactly what renderPicture does.
             final pageOps = ContentStreamParser.parse(page.contentBytes());
             parseUs += sw.elapsedMicroseconds;
@@ -84,7 +84,7 @@ void main() {
             sw
               ..reset()
               ..start();
-            // collect pass — scan-only image discovery (matches renderPicture)
+            // collect pass - scan-only image discovery (matches renderPicture)
             final collector = ImageCollector();
             final collecting = PdfInterpreter(
                 cos: cos, device: collector, scanImagesOnly: true)

@@ -15,7 +15,7 @@ import 'pdf_viewer.dart';
 const double pdfShellCompactWidth = 700;
 
 /// Whether the shell is narrow enough that side panels should give way to
-/// bottom sheets — a phone, or a small window. Below [pdfShellCompactWidth]
+/// bottom sheets - a phone, or a small window. Below [pdfShellCompactWidth]
 /// a docked 280px panel would crowd the page out, so the shells float the
 /// panels (and the thumbnail strip) up from the bottom instead.
 bool pdfShellUseBottomSheets(BoxConstraints constraints) =>
@@ -33,7 +33,7 @@ const double _pdfShellSheetMaxFactor = 0.9;
 /// another and anchored to the bottom of the content area. The space above
 /// the topmost sheet stays clear, so the page underneath keeps scrolling
 /// and taking taps. The whole stack is resizable by dragging a sheet's
-/// handle (up to 90% of the area). Returns a [Positioned] — drop it
+/// handle (up to 90% of the area). Returns a [Positioned] - drop it
 /// straight into the content [Stack] (only when [sheets] is non-empty).
 Widget pdfShellBottomSheets(List<Widget> sheets) =>
     _PdfShellBottomSheetArea(sheets: sheets);
@@ -192,7 +192,7 @@ class PdfPanelBottomSheet extends StatelessWidget {
   /// The panel's name, shown in the header.
   final String title;
 
-  /// Dismisses the sheet — the shells turn the panel's visibility
+  /// Dismisses the sheet - the shells turn the panel's visibility
   /// preference off.
   final VoidCallback onClose;
 
@@ -218,7 +218,7 @@ class PdfPanelBottomSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           // the handle resizes the sheet (drag up to grow, down to shrink)
-          // and dismisses on a fast downward flick — the Material
+          // and dismisses on a fast downward flick - the Material
           // bottom-sheet idiom. With no resize scope (standalone use) it
           // only dismisses, on a gentler flick.
           GestureDetector(
@@ -278,7 +278,7 @@ class PdfPanelBottomSheet extends StatelessWidget {
 ///
 /// It tracks the latest viewport as the user scrolls/zooms (cheaply, in
 /// memory) and writes it to [PdfEditingPreferences] on a debounce; [flush]
-/// forces a write (on dispose), and [rekey] switches documents — saving
+/// forces a write (on dispose), and [rekey] switches documents - saving
 /// the outgoing one and restoring the incoming one. Used package-private
 /// by both shells.
 class PdfViewportMemory {
@@ -289,8 +289,8 @@ class PdfViewportMemory {
   }) : _documentKey = documentKey {
     viewer.viewportChanges.addListener(_onViewportChanged);
     // the debounced write can lose the last position when the app goes
-    // away before it fires — on the web a closed/hidden tab never disposes
-    // this — so flush on every "going away" lifecycle transition too
+    // away before it fires - on the web a closed/hidden tab never disposes
+    // this - so flush on every "going away" lifecycle transition too
     _lifecycle = AppLifecycleListener(
       onHide: flush,
       onPause: flush,
@@ -311,7 +311,7 @@ class PdfViewportMemory {
   static const _debounce = Duration(milliseconds: 400);
 
   void _onViewportChanged() {
-    // capture now (the viewer is live), debounce only the disk write — so
+    // capture now (the viewer is live), debounce only the disk write - so
     // [flush] has a fresh position even after the viewer detaches
     final viewport = viewer.captureViewport();
     if (viewport != null) _last = viewport;
@@ -340,7 +340,7 @@ class PdfViewportMemory {
     _restore(documentKey);
   }
 
-  /// Writes the latest known position immediately — call before disposing.
+  /// Writes the latest known position immediately - call before disposing.
   void flush() {
     _saveTimer?.cancel();
     _saveTimer = null;
@@ -773,7 +773,7 @@ Future<void> _selectViewOption(
     case _ViewOption.formHighlight:
       preferences.highlightFormFields = !preferences.highlightFormFields;
     case _ViewOption.reflow:
-      // reflow and the page grid both replace the page viewer — only one
+      // reflow and the page grid both replace the page viewer - only one
       // can claim the area, so each clears the other
       preferences.showThumbnailView = false;
       preferences.showReflowView = !preferences.showReflowView;
@@ -1152,12 +1152,12 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   final PdfEditingPreferences preferences;
   final bool reflow;
 
-  /// Whether the menu offers "Page grid" — the full-area page thumbnail
+  /// Whether the menu offers "Page grid" - the full-area page thumbnail
   /// view (`PdfThumbnailView`) that replaces the page viewer.
   final bool pageGrid;
 
   /// Whether the "Page color…" item is offered. With it false the paper
-  /// color can't be changed here — for hosts that set [pageColor] from
+  /// color can't be changed here - for hosts that set [pageColor] from
   /// the document programmatically and lock it.
   final bool pageColor;
 

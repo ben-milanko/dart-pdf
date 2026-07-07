@@ -13,7 +13,7 @@ typedef PdfPrinter = Future<void> Function({
 /// Sends [bytes] to the OS print dialog via the `printing` plugin, which covers
 /// iOS, Android, macOS, Windows, Linux, and the web. The document is already a
 /// finished PDF, so the layout callback returns it verbatim regardless of the
-/// paper [format] the user picks — the engine here renders, it doesn't reflow.
+/// paper [format] the user picks - the engine here renders, it doesn't reflow.
 Future<void> printPdfBytes({
   required Uint8List bytes,
   required String title,

@@ -28,7 +28,7 @@ void main() {
     test('paste makes a vector /Stamp drawing the captured form', () {
       final doc = PdfDocument.open(buildMultiPagePdf(2));
       final editor = PdfEditor(doc);
-      // page 1's content draws "Page 1" near (72, 720) — inside this region
+      // page 1's content draws "Page 1" near (72, 720) - inside this region
       final snap =
           editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
       editor.pasteVectorSnapshot(1, const PdfRect(100, 100, 260, 140), snap);
@@ -43,7 +43,7 @@ void main() {
       expect(ap, contains('/Cap Do'));
 
       // /Cap is a Form XObject in an upright [0 0 dW dH] box whose content
-      // is the page's own operators under the capture matrix — i.e. real
+      // is the page's own operators under the capture matrix - i.e. real
       // vectors, not a raster
       final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
           as CosDictionary;
@@ -134,7 +134,7 @@ void main() {
       final editor = PdfEditor(doc);
       final snap =
           editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
-      // a bogus object number doesn't resolve to a form — paste makes its own
+      // a bogus object number doesn't resolve to a form - paste makes its own
       final ref = editor.pasteVectorSnapshot(
           0, const PdfRect(0, 0, 160, 40), snap,
           sharedObject: 99999);

@@ -61,7 +61,7 @@ void main() {
 
   test('an unterminated array operand keeps what parsed', () {
     final ops = ContentStreamParser.parse(ascii('[(a) 1 2'));
-    expect(ops, isEmpty); // no operator ever arrived — nothing to run
+    expect(ops, isEmpty); // no operator ever arrived - nothing to run
   });
 
   test('inline image becomes one BI operation', () {

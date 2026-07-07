@@ -1,7 +1,7 @@
 part of 'editor.dart';
 
-/// Authoring and auto-tagging for the logical structure tree (§14.7) — the
-/// write half of Tagged PDF — plus PDF/A conversion. Grouped in one extension
+/// Authoring and auto-tagging for the logical structure tree (§14.7) - the
+/// write half of Tagged PDF - plus PDF/A conversion. Grouped in one extension
 /// because PDF/A conversion reuses the XMP/metadata helpers below (Dart
 /// extension members are not callable across separate extensions).
 extension PdfTaggingAndArchival on PdfEditor {
@@ -11,11 +11,11 @@ extension PdfTaggingAndArchival on PdfEditor {
   /// /ActualText, /Lang and /T, tagging the marked content (its [PdfStructSpec.mcids]
   /// on page [PdfStructSpec.pageIndex]) and objects ([PdfStructSpec.objects],
   /// written as /OBJR) it lists. The marked content must already carry those
-  /// /MCID values — [autoTag] writes both together; callers using this
+  /// /MCID values - [autoTag] writes both together; callers using this
   /// directly are responsible for emitting matching `/Tag <</MCID n>> BDC … EMC`.
   ///
   /// Also sets catalog /MarkInfo << /Marked true >>, document [lang] (when
-  /// given), and — when [displayDocTitle] — /ViewerPreferences
+  /// given), and - when [displayDocTitle] - /ViewerPreferences
   /// << /DisplayDocTitle true >> (required by PDF/UA so the title bar shows
   /// the document /Title rather than the file name). [roleMap] maps any custom
   /// structure types onto standard ones.
@@ -172,7 +172,7 @@ extension PdfTaggingAndArchival on PdfEditor {
   /// /MCID, marks non-text painting as /Artifact, and writes a matching
   /// structure tree. Returns the number of structure elements created.
   ///
-  /// This is intentionally approximate — PDFs carry no reading order. Text is
+  /// This is intentionally approximate - PDFs carry no reading order. Text is
   /// grouped into visual lines and paragraphs; a line markedly larger than
   /// the page median becomes a heading (/H1 or /H2), a run of bullet/number
   /// lines becomes a list (/L → /LI → /LBody), everything else a paragraph
@@ -257,7 +257,7 @@ extension PdfTaggingAndArchival on PdfEditor {
   /// trailer /ID, and a catalog /Version cap. It refuses an encrypted document
   /// (PDF/A forbids encryption and the content cannot be re-emitted here).
   ///
-  /// It does NOT embed missing fonts or rewrite colour — run [validatePdfA]
+  /// It does NOT embed missing fonts or rewrite colour - run [validatePdfA]
   /// afterward to see what remains. A document whose fonts are already
   /// embedded and whose colour is device-independent (or covered by the
   /// OutputIntent) becomes conformant. [title]/[creator] populate the
@@ -433,7 +433,7 @@ extension PdfTaggingAndArchival on PdfEditor {
     ContentStreamSerializer.writeOperation(op, out);
   }
 
-  /// Painting operators whose output is not tagged text — wrapped as
+  /// Painting operators whose output is not tagged text - wrapped as
   /// artifacts so the page carries no untagged real content. State-only
   /// operators (q/Q/cm/gs/colour) are left alone to keep q/Q nesting intact.
   static bool _isArtifactOp(String op) => const {
@@ -527,7 +527,7 @@ extension PdfTaggingAndArchival on PdfEditor {
 
   /// Best-effort text of a show operand for list-marker detection. Bytes are
   /// decoded as Latin-1 (covers the base-14 / WinAnsi case); good enough to
-  /// spot a leading bullet or number — a miss only loses list grouping.
+  /// spot a leading bullet or number - a miss only loses list grouping.
   String _showOperandText(CosObject? operand) {
     if (operand is CosString) {
       return latin1.decode(operand.bytes, allowInvalid: true);

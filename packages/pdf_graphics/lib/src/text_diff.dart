@@ -5,7 +5,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'text_extraction.dart';
 
 /// A whitespace-delimited token of page text, with the page-space box it
-/// covers — the unit a [PdfTextDiff] aligns and the bounds a viewer
+/// covers - the unit a [PdfTextDiff] aligns and the bounds a viewer
 /// highlights when it flags the token as changed.
 class PdfTextToken {
   const PdfTextToken({
@@ -23,7 +23,7 @@ class PdfTextToken {
   final int end;
 
   /// The axis-aligned page-space box covering the token, or null when the
-  /// page exposed no geometry for it (rare — empty/degenerate runs).
+  /// page exposed no geometry for it (rare - empty/degenerate runs).
   final PdfRect? bounds;
 }
 
@@ -96,7 +96,7 @@ class PdfTextDiffSegment {
   final List<PdfTextToken> after;
 }
 
-/// A contiguous change — one or more adjacent non-[PdfTextDiffKind.equal]
+/// A contiguous change - one or more adjacent non-[PdfTextDiffKind.equal]
 /// segments, the unit a diff navigator steps through. A pure replace is a
 /// delete next to an insert, so a hunk carries both [before] and [after]
 /// tokens.
@@ -151,7 +151,7 @@ class PdfTextDiff {
           if (s.kind == PdfTextDiffKind.inserted) ...s.after
       ];
 
-  /// The changes grouped into contiguous hunks — adjacent delete/insert
+  /// The changes grouped into contiguous hunks - adjacent delete/insert
   /// segments merge so a replacement is one navigation stop, not two.
   List<PdfTextDiffHunk> get hunks {
     final hunks = <PdfTextDiffHunk>[];

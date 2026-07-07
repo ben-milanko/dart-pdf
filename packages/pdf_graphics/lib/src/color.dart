@@ -21,7 +21,7 @@ class PdfColor {
   /// (`DeviceCmykCS`, a least-squares fit to a US Web Coated profile).
   /// Each output channel is a quadratic in (c, m, y, k); this matches
   /// pdf.js's rendering of process CMYK far more closely than a halftone
-  /// or complement model — e.g. `0 0 0 0.89 k` → RGB(69,71,77), not the
+  /// or complement model - e.g. `0 0 0 0.89 k` → RGB(69,71,77), not the
   /// halftone (28,28,28). Adopted so corpus/print colour matches the
   /// reference renderer across the board.
   factory PdfColor.cmyk(double cyan, double magenta, double yellow,

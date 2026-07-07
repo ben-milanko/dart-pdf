@@ -1,6 +1,6 @@
 // Unit coverage for the print wrapper: the job-name normaliser and the
 // `printPdfBytes` hand-off to the `printing` plugin. The real plugin talks over
-// the `net.nfet.printing` method channel, which we mock here — driving the
+// the `net.nfet.printing` method channel, which we mock here - driving the
 // `onCompleted` callback so `Printing.layoutPdf` resolves without a platform.
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

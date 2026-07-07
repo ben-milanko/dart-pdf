@@ -22,7 +22,7 @@ constexpr const wchar_t kSingleInstanceMutexName[] =
 constexpr const wchar_t kMainWindowClassName[] = L"DARTPDF_WIN32_WINDOW";
 
 // Returns the first `.pdf` path on the command line, or an empty string. This
-// is how Windows delivers a file association / "open with" — the path is the
+// is how Windows delivers a file association / "open with" - the path is the
 // first argument after the executable.
 std::wstring FirstPdfArgument() {
   int argc = 0;
@@ -92,7 +92,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   // Single instance: if one is already running, hand it our file (so the
   // document opens in a new tab of the existing window) and exit. If we can't
-  // find its window — it may be shutting down — fall through and start fresh.
+  // find its window - it may be shutting down - fall through and start fresh.
   HANDLE single_instance =
       ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
   const bool already_running =

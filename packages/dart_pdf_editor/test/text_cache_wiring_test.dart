@@ -1,6 +1,6 @@
 // The persistent text cache wired into the viewer: a static document's
 // search extraction is written through to (and, on a cold reopen, read
-// from) the on-disk PdfPageTextCache — but an active edit session never
+// from) the on-disk PdfPageTextCache - but an active edit session never
 // serves text from the content-keyed persistent cache.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,7 +80,7 @@ void main() {
 
     await tester.runAsync(() async {
       await controller.search('sentinel');
-      // the content-keyed store stays empty — an edit session's text is
+      // the content-keyed store stays empty - an edit session's text is
       // in-memory only (it would otherwise go stale after a content edit)
       expect(store.debugBytes, 0);
     });

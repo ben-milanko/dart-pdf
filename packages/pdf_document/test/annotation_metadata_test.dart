@@ -25,11 +25,11 @@ void main() {
         latin1.decode(doc.cos.decodeStreamData(before.normalAppearance!));
 
     final out = edited(doc, (e) {
-      e.setAnnotationContents(0, before, 'a comment — naïve ✓');
+      e.setAnnotationContents(0, before, 'a comment - naïve ✓');
       e.setAnnotationAuthor(0, before, 'Ben');
     });
     final after = out.page(0).annotations.single;
-    expect(after.contents, 'a comment — naïve ✓'); // UTF-16BE round trip
+    expect(after.contents, 'a comment - naïve ✓'); // UTF-16BE round trip
     expect(after.author, 'Ben');
     expect(after.rect, const PdfRect(100, 600, 200, 660));
     expect(
@@ -77,7 +77,7 @@ void main() {
     expect(flagged.isHidden, isFalse);
   });
 
-  test('authoring a widget refuses — /T is the field name there', () {
+  test('authoring a widget refuses - /T is the field name there', () {
     final doc = PdfDocument.open(buildAcroFormPdf());
     final widget = doc
         .page(0)

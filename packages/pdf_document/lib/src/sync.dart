@@ -10,7 +10,7 @@ import 'editor.dart';
 /// last-writer-wins conflict resolution, keyed on the change's /NM.
 ///
 /// This is the unit a transport ships. [toJson]/[fromJson] make it
-/// wire-ready (the host's real transport — WebSocket, WebRTC, a backend —
+/// wire-ready (the host's real transport - WebSocket, WebRTC, a backend -
 /// serializes these); the snapshot inside encodes through
 /// [PdfAnnotationSnapshot.toJson].
 class PdfSyncMessage {
@@ -71,7 +71,7 @@ class PdfSyncMessage {
   }
 }
 
-/// The transport seam a [PdfSyncSession] talks through — the same shape of
+/// The transport seam a [PdfSyncSession] talks through - the same shape of
 /// injectable dependency as the OCR engine: the library defines the
 /// interface and a loopback reference ([PdfLoopbackSyncHub]); the host
 /// supplies the real one (a WebSocket, WebRTC data channel, or backend
@@ -101,13 +101,13 @@ abstract class PdfSyncTransport {
   void close();
 }
 
-/// An in-memory hub that wires [PdfSyncTransport] endpoints together — the
+/// An in-memory hub that wires [PdfSyncTransport] endpoints together - the
 /// reference transport for tests and local multi-view demos. It is pure
 /// Dart (no `dart:io`, no sockets): [connect] returns an endpoint, and a
 /// [send] fans out to every *other* connected endpoint on a microtask, so
 /// two [PdfSyncSession]s sharing one hub exchange changes and converge.
 ///
-/// The real product transport is the host's concern — swap this for an
+/// The real product transport is the host's concern - swap this for an
 /// adapter over your socket and the sessions behave identically.
 class PdfLoopbackSyncHub {
   final List<_LoopbackEndpoint> _endpoints = [];
@@ -206,12 +206,12 @@ class _LoopbackEndpoint implements PdfSyncTransport {
 /// /NM**, ordered by the message's `(clock, origin)`. Because that order
 /// is total and every session evaluates it identically, sessions sharing a
 /// transport **converge to the same annotation set** regardless of
-/// delivery order — conflicting edits to the same /NM resolve to the same
+/// delivery order - conflicting edits to the same /NM resolve to the same
 /// winner everywhere.
 ///
 /// Seed every collaborator from the *same* bytes (run
 /// [PdfAnnotationEditing.nameAnnotations] once on the source so every
-/// annotation has a durable /NM before sharing) — independently minted
+/// annotation has a durable /NM before sharing) - independently minted
 /// names would never reconcile.
 ///
 /// Anonymous annotations (no /NM) cannot be id-merged: they ride along as
@@ -248,7 +248,7 @@ class PdfSyncSession {
   /// This session's id (its transport endpoint's).
   String get id => transport.sessionId;
 
-  /// The current document bytes — what "save to disk" would write.
+  /// The current document bytes - what "save to disk" would write.
   Uint8List get bytes => Uint8List.sublistView(_bytes);
 
   /// The live document for the current state.
@@ -261,8 +261,8 @@ class PdfSyncSession {
   /// whenever a peer joins or leaves.
   Stream<Set<String>> get presence => transport.presence;
 
-  /// Every annotation change this session applies — both local edits and
-  /// accepted remote merges — so a host can refresh its UI. Local edits
+  /// Every annotation change this session applies - both local edits and
+  /// accepted remote merges - so a host can refresh its UI. Local edits
   /// are also broadcast to peers; remote merges are not re-broadcast (no
   /// echo).
   Stream<List<PdfAnnotationChange>> get changes => _changes.stream;
@@ -270,7 +270,7 @@ class PdfSyncSession {
   /// Runs [edit] against the current document, commits it as the new
   /// state, broadcasts the resulting changes, and returns them. [pages]
   /// limits the diff to the touched page indices (null/empty diffs every
-  /// page — pass it for speed on large documents). No-op edits return an
+  /// page - pass it for speed on large documents). No-op edits return an
   /// empty list and send nothing.
   List<PdfAnnotationChange> apply(void Function(PdfEditor editor) edit,
       {Iterable<int>? pages}) {
@@ -298,7 +298,7 @@ class PdfSyncSession {
     return changes;
   }
 
-  /// The whole current annotation state as created-changes — what a new
+  /// The whole current annotation state as created-changes - what a new
   /// peer asks an existing session for to catch up (or what seeds a store).
   /// Mirrors `PdfEditingController.annotationBaseline`.
   List<PdfAnnotationChange> annotationBaseline() {
@@ -323,7 +323,7 @@ class PdfSyncSession {
 
   /// A canonical fingerprint of the current annotation state: /NM →
   /// snapshot JSON for every captureable named annotation. Two converged
-  /// sessions have equal digests — handy for tests and for detecting drift.
+  /// sessions have equal digests - handy for tests and for detecting drift.
   Map<String, Object?> annotationDigest() {
     final digest = <String, Object?>{};
     for (final change in annotationBaseline()) {
@@ -384,7 +384,7 @@ class PdfSyncSession {
   }
 
   /// Stops listening and releases the change stream. Does not close the
-  /// transport — the host owns its lifecycle.
+  /// transport - the host owns its lifecycle.
   Future<void> dispose() async {
     await _subscription.cancel();
     await _changes.close();

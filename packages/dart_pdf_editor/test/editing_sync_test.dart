@@ -1,5 +1,5 @@
 // The controller's annotation sync surface: the change feed
-// (annotationChanges — per-revision /NM-keyed diffs across edits, undo,
+// (annotationChanges - per-revision /NM-keyed diffs across edits, undo,
 // and redo), remote replay (applyRemoteChange, echo-free), and the
 // onboarding helpers (ensureAnnotationNames, annotationBaseline,
 // findAnnotationByName). Two controllers piped together stand in for two

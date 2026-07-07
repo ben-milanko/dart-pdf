@@ -83,7 +83,7 @@ class PdfAcroForm {
 
   /// One [PdfFormFieldInfo] per terminal field: the metadata a form
   /// editor or template pipeline persists (name, type, page, rect)
-  /// without touching values. Lenient — malformed widgets yield
+  /// without touching values. Lenient - malformed widgets yield
   /// pageIndex −1 and a null rect rather than failing the whole list.
   List<PdfFormFieldInfo> describeFields() => [
         for (final field in fields)
@@ -173,7 +173,7 @@ class PdfAcroForm {
     for (final field in out) {
       final group = orphans[field.name];
       if (group == null) continue;
-      // only adopt when the field's own widgets show on no page — i.e. the
+      // only adopt when the field's own widgets show on no page - i.e. the
       // /Fields copy is the invisible one; a field already on the page keeps
       // its real widgets.
       final onPage = field.widgets.any((w) => _pageIndexOf(w) >= 0);
@@ -214,7 +214,7 @@ class PdfAcroForm {
     return out;
   }
 
-  /// Every dictionary reachable from /Fields by descending /Kids — field
+  /// Every dictionary reachable from /Fields by descending /Kids - field
   /// nodes and the widget annotations properly linked under them.
   Set<CosDictionary> _fieldTreeDicts() {
     final cos = document.cos;
@@ -258,7 +258,7 @@ class PdfAcroForm {
   }
 }
 
-/// Persistable metadata for one terminal field — what a template editor
+/// Persistable metadata for one terminal field - what a template editor
 /// stores about a form without reading values (see
 /// [PdfAcroForm.describeFields]).
 class PdfFormFieldInfo {
@@ -420,9 +420,9 @@ class PdfFormField {
   /// state names without the slash, multi-select arrays as their first
   /// string. Null when the field is empty.
   ///
-  /// For a reconciled field the visible page widget's /V wins when set —
+  /// For a reconciled field the visible page widget's /V wins when set -
   /// the producer split the form's data across both copies, and the page
-  /// side is what the user sees — falling back to the field's own /V.
+  /// side is what the user sees - falling back to the field's own /V.
   String? get value {
     if (_reconciled != null) {
       for (final widget in _reconciled!) {

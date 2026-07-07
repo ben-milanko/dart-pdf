@@ -2,7 +2,7 @@
 //
 // A standalone Flutter web entrypoint (NOT the shipping app) that loads a big
 // PDF over HTTP, mounts the real [PdfViewer] with the web render worker enabled,
-// and then auto-scrolls every page while recording perf data — so an
+// and then auto-scrolls every page while recording perf data - so an
 // off-browser driver (tool/perf/driver.mjs) can run it headless in real Chrome
 // and assert the decode/interpret offload keeps the UI thread smooth, exactly
 // the manual `flutter run -d chrome` check but repeatable and unattended.
@@ -35,7 +35,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 // ---------------------------------------------------------------------------
-// Tunables — read from the URL query string at runtime (so the driver can vary
+// Tunables - read from the URL query string at runtime (so the driver can vary
 // them per run without a rebuild), each falling back to a --dart-define default.
 //   ?url=/perf.pdf&dwell=220&maxPages=0&passes=1&fast=1
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ final List<FrameTiming> _frames = <FrameTiming>[];
 void _record(String line) {
   _lines.add(line);
   // Mirror to the real console too, so a headful run / page.on('console')
-  // can watch live. Guarded — console must exist in a browser.
+  // can watch live. Guarded - console must exist in a browser.
   _consoleLog(line.toJS);
 }
 

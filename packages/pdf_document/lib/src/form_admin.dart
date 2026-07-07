@@ -3,9 +3,9 @@ part of 'editor.dart';
 /// AcroForm structure editing: creating, renaming, retyping, and removing
 /// fields, plus flattening the whole form into page content.
 ///
-/// Everything here is lenient toward broken field trees — orphaned
+/// Everything here is lenient toward broken field trees - orphaned
 /// widgets, missing pages, and unresolvable references are skipped, not
-/// fatal — because template PDFs in the wild are routinely hand-mangled.
+/// fatal - because template PDFs in the wild are routinely hand-mangled.
 extension PdfFormAdmin on PdfEditor {
   /// Adds a single-widget text field named [name] on [pageIndex].
   /// The document gains an /AcroForm dictionary if it has none.
@@ -28,7 +28,7 @@ extension PdfFormAdmin on PdfEditor {
     return field;
   }
 
-  /// Adds a push-button field — the conventional carrier for images
+  /// Adds a push-button field - the conventional carrier for images
   /// (see [PdfFormFilling.setButtonImage]). The button renders blank
   /// until an image or appearance is set.
   PdfFormField addPushButtonField(int pageIndex, String name, PdfRect rect) {
@@ -121,7 +121,7 @@ extension PdfFormAdmin on PdfEditor {
   }
 
   /// Rebuilds [field] as [newType] (text, check box, or push button) at
-  /// its first widget's page and rectangle, keeping the name — so
+  /// its first widget's page and rectangle, keeping the name - so
   /// pipelines that resolve fields by name keep working after an
   /// operator fixes a mis-typed template field.
   ///
@@ -142,7 +142,7 @@ extension PdfFormAdmin on PdfEditor {
     final pageIndex = field.widgetPageIndex(0);
     final rect = field.widgetRect(0);
     if (pageIndex < 0 || rect == null) {
-      throw StateError('field "${field.name}" has no widget bound to a page — '
+      throw StateError('field "${field.name}" has no widget bound to a page - '
           'cannot rebuild');
     }
     final name = field.name;
@@ -157,8 +157,8 @@ extension PdfFormAdmin on PdfEditor {
   /// Flattens the interactive form: paints every widget's current
   /// appearance into its page's content, then removes all fields and
   /// their widgets. Fields without a paintable appearance simply
-  /// disappear. Broken structures — widgets without pages, unparseable
-  /// rectangles, corrupt appearance streams — are skipped, never fatal.
+  /// disappear. Broken structures - widgets without pages, unparseable
+  /// rectangles, corrupt appearance streams - are skipped, never fatal.
   void flattenForm() {
     final form = acroForm;
     if (form == null) return;

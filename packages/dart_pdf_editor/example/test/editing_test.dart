@@ -29,7 +29,7 @@ void main() {
     return page.topLeft + Offset(page.width * fx, page.height * fy);
   }
 
-  /// Taps a toolbar button, scrolling the toolbar's own row to it first —
+  /// Taps a toolbar button, scrolling the toolbar's own row to it first -
   /// the full button set overflows an 800px test window, and with the
   /// viewer in the tree there are two Scrollables to choose from.
   Future<void> tapToolbar(WidgetTester tester, String tooltip) async {
@@ -185,7 +185,7 @@ void main() {
     await gesture.up();
     await tester.pump();
 
-    // auto-commit: no confirm button — the stroke lands on its own
+    // auto-commit: no confirm button - the stroke lands on its own
     expect(find.byTooltip('Add ink annotation'), findsNothing);
     await tester.pump(const Duration(seconds: 1));
 

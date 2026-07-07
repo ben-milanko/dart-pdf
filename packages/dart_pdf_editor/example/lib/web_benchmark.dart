@@ -1,6 +1,6 @@
 // In-browser rasterization benchmark entrypoint.
 //
-// This is NOT the demo app — it is a headless-friendly harness that runs the
+// This is NOT the demo app - it is a headless-friendly harness that runs the
 // SAME page-rasterization pipeline as `test/benchmark_render_test.dart`
 // (`PdfPageRenderer.renderImage` -> `toImage` -> `toByteData` readback) but
 // inside a real browser, so the work actually flows through whichever web
@@ -75,7 +75,7 @@ class _BenchAppState extends State<_BenchApp> {
       for (var r = 0; r < repeat; r++) {
         for (var i = 0; i < files.length; i++) {
           final name = files[i];
-          _report('pass ${r + 1}/$repeat — file ${i + 1}/${files.length}: $name');
+          _report('pass ${r + 1}/$repeat - file ${i + 1}/${files.length}: $name');
           final res = await _benchFile(name, scale, maxPages,
               warmup: warmup && r == 0);
           final prev = best[name];
@@ -98,7 +98,7 @@ class _BenchAppState extends State<_BenchApp> {
       };
       globalContext['__benchResults'] =
           const JsonEncoder().convert(payload).toJS;
-      _report('done — ${files.length} files');
+      _report('done - ${files.length} files');
     } catch (e, st) {
       globalContext['__benchError'] =
           jsonEncode({'error': e.toString(), 'stack': st.toString()}).toJS;

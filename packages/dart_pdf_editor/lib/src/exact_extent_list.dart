@@ -10,7 +10,7 @@ import 'package:flutter/widgets.dart';
 /// the rest of the list. On long documents with mixed page sizes the
 /// average swings as pages enter and leave the build window, so
 /// `maxScrollExtent` oscillates by tens of thousands of pixels while
-/// scrolling — and anything derived from it (the scrollbar thumb, end
+/// scrolling - and anything derived from it (the scrollbar thumb, end
 /// clamping) leaps around. This subclass reports the exact sum of every
 /// item's extent instead, so the metrics are constant.
 class ExactExtentListView extends ListView {
@@ -53,7 +53,7 @@ class _ExactRenderSliverVariedExtentList extends RenderSliverVariedExtentList {
     double? trailingScrollOffset,
   }) {
     // computeMaxScrollOffset sums itemExtentBuilder over the full child
-    // count — the precise value the framework only consults when layout
+    // count - the precise value the framework only consults when layout
     // runs past the end of the list. The -1 argument is the deprecated
     // itemExtent placeholder performLayout itself passes.
     // ignore: invalid_use_of_visible_for_testing_member

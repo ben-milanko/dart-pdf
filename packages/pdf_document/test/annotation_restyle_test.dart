@@ -59,7 +59,7 @@ void main() {
     expect(stream, contains('${rgb(0x1E88E5)} RG'));
     expect(stream, contains('${rgb(0x43A047)} rg'));
     expect(stream, contains('4 w'));
-    // the appearance kept its object number — replaced, not re-added
+    // the appearance kept its object number - replaced, not re-added
     expect(out.cos.referenceTo(after.normalAppearance!)!.objectNumber,
         formRef.objectNumber);
   });
@@ -106,7 +106,7 @@ void main() {
         .toList();
     // segment widths [2.6, 1.4] invert to point pressures
     // [0.75, 0.5, 0.25] (the segment→point averaging smooths the ends),
-    // which re-render at base 4 as [4.6, 3.4] — still clearly pressured
+    // which re-render at base 4 as [4.6, 3.4] - still clearly pressured
     expect(widthsAfter, hasLength(3));
     expect(widthsAfter[0], closeTo(4, 1e-3)); // the base lineWidth op
     expect(widthsAfter[1], closeTo(4.6, 1e-3));

@@ -3,11 +3,11 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 
-/// A decoded RGBA raster in plain Dart memory — the form the OCR pipeline
+/// A decoded RGBA raster in plain Dart memory - the form the OCR pipeline
 /// works in, so all of its geometry/cropping/resizing is pure Dart and unit
 /// testable off a GPU.
 ///
-/// Pixels are row-major, 4 bytes (R, G, B, A) each, top-left origin, y down —
+/// Pixels are row-major, 4 bytes (R, G, B, A) each, top-left origin, y down -
 /// the same convention as `ui.Image.toByteData(rawRgba)` and an OCR model's
 /// pixel boxes.
 class OcrImage {

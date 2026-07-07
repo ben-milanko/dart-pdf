@@ -12,13 +12,13 @@ import 'render_worker.dart';
 
 // Worker lifecycle diagnostics, routed through PdfPerfLog so they ride the same
 // zero-overhead toggle as the rest of the perf trace (a single bool branch when
-// disabled) — and show up in a user-captured trace when something declines.
+// disabled) - and show up in a user-captured trace when something declines.
 void _wlog(String m) => PdfPerfLog.log('webworker $m');
 
 /// How long to wait for the worker to post `'ready'` (it opens the document
 /// first) before giving up and rendering every page locally. The document
-/// bytes are transferred to the worker at start; on some hosts — notably a
-/// dart2wasm main app driving a dart2js worker — a large transfer or open can
+/// bytes are transferred to the worker at start; on some hosts - notably a
+/// dart2wasm main app driving a dart2js worker - a large transfer or open can
 /// silently never complete, and with no bound the viewer would spin forever on
 /// such a document while small ones (a fast transfer/open) work. Generous: a
 /// healthy worker opens even a large CAD document in well under a second, so
@@ -28,11 +28,11 @@ Duration pdfRenderWorkerReadyTimeout = const Duration(seconds: 12);
 /// How long to wait for a single [PdfRenderWorker.record] reply before giving up
 /// on that one in-flight page. A heavy large-format CAD sheet's image decode can
 /// genuinely take tens of seconds in the web worker (pure-Dart zlib inflate of a
-/// multi-megapixel raster, compiled to JS/WASM), so this is generous — it exists
+/// multi-megapixel raster, compiled to JS/WASM), so this is generous - it exists
 /// to free a wedged in-flight slot, not to police slow-but-progressing decodes.
 /// A single miss drops only its own page (see [_WebRenderWorker]); the worker
 /// keeps serving every other page. Only [pdfRenderWorkerTimeoutsBeforeFail]
-/// consecutive misses — the signature of a genuinely dead worker — tear it down.
+/// consecutive misses - the signature of a genuinely dead worker - tear it down.
 Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 
 /// Consecutive record timeouts that mark the worker dead (so the viewer stops
@@ -51,7 +51,7 @@ bool pdfRenderWorkerUseSharedArrayBuffer = true;
 /// Web backend: a dedicated [web.Worker] that opens its own [PdfDocument] from
 /// the bytes once and records pages on request, posting the serialized command
 /// buffer back over `postMessage` (result buffers travel as transferred
-/// `ArrayBuffer`s — zero-copy, not structured-cloned). On cross-origin isolated
+/// `ArrayBuffer`s - zero-copy, not structured-cloned). On cross-origin isolated
 /// pages, the document bytes are copied once into a `SharedArrayBuffer` and
 /// shared by all workers instead of cloned per worker; otherwise startup falls
 /// back to a transferable `ArrayBuffer`. The heavy content-stream parse and
@@ -59,8 +59,8 @@ bool pdfRenderWorkerUseSharedArrayBuffer = true;
 /// isolate backend.
 ///
 /// The worker only runs when [pdfRenderWorkerScriptUrl] names a compiled
-/// worker script (whose `main()` calls `runPdfRenderWorker`). With no URL — or
-/// if the [web.Worker] fails to construct — this degrades to a null worker
+/// worker script (whose `main()` calls `runPdfRenderWorker`). With no URL - or
+/// if the [web.Worker] fails to construct - this degrades to a null worker
 /// ([isActive] false), so web apps that haven't built the worker script behave
 /// exactly as before (local rendering). See `doc/render_worker_web.md`.
 PdfRenderWorker startRenderWorker(Uint8List bytes) {
@@ -71,7 +71,7 @@ PdfRenderWorker startRenderWorker(Uint8List bytes) {
     return _WebRenderWorker(bytes, url);
   } catch (e) {
     // Worker construction can throw (bad URL, blocked by CSP): fall back.
-    _wlog('construction threw: $e — falling back to local');
+    _wlog('construction threw: $e - falling back to local');
     return _WebRenderWorker.disabled();
   }
 }
@@ -84,7 +84,7 @@ class _WebRenderWorker implements PdfRenderWorker {
     // A worker-level error (script failed to load/parse) is terminal: behave
     // like the null worker so every record resolves to a local render.
     worker.onerror = ((web.Event e) {
-      _wlog('onerror: ${e.type} — worker script failed; falling back to local');
+      _wlog('onerror: ${e.type} - worker script failed; falling back to local');
       _fail();
     }).toJS;
     _wlog('worker constructed from $scriptUrl');
@@ -116,7 +116,7 @@ class _WebRenderWorker implements PdfRenderWorker {
       if (_ready || _disposed || _failed) return;
       _wlog(
           'ready watchdog fired after ${pdfRenderWorkerReadyTimeout.inSeconds}'
-          's — worker never opened the document; falling back to local');
+          's - worker never opened the document; falling back to local');
       _fail();
     });
   }
@@ -207,7 +207,7 @@ class _WebRenderWorker implements PdfRenderWorker {
 
   /// Sends the highest-priority queued request to the worker when it is idle
   /// and ready. Lower [priority] wins; ties break by submission order, so a
-  /// freshly-requested visible page (priority 0) preempts pending prefetch —
+  /// freshly-requested visible page (priority 0) preempts pending prefetch -
   /// the same one-in-flight reordering the isolate backend uses.
   ///
   /// When a higher-priority request is queued while a lower-priority one is
@@ -265,7 +265,7 @@ class _WebRenderWorker implements PdfRenderWorker {
     worker.postMessage(message);
 
     // Watchdog: a record that never comes back wedges the single in-flight slot
-    // (and so every queued page) forever. Bound it — but a miss frees only THIS
+    // (and so every queued page) forever. Bound it - but a miss frees only THIS
     // page (the worker keeps serving the rest), because a heavy sheet that is
     // merely slow is not a dead worker. Killing the whole worker on one slow
     // page is what dumped the entire document onto the UI thread. Only a run of
@@ -280,14 +280,14 @@ class _WebRenderWorker implements PdfRenderWorker {
       _consecutiveTimeouts++;
       if (_consecutiveTimeouts >= pdfRenderWorkerTimeoutsBeforeFail) {
         _wlog('record watchdog: page=${request.pageIndex} timed out after '
-            '${pdfRenderWorkerRecordTimeout.inSeconds}s — '
+            '${pdfRenderWorkerRecordTimeout.inSeconds}s - '
             '$_consecutiveTimeouts misses in a row; worker is dead, '
             'falling back to local for all pages');
         _fail();
         return;
       }
       _wlog('record watchdog: page=${request.pageIndex} timed out after '
-          '${pdfRenderWorkerRecordTimeout.inSeconds}s — dropping this page to '
+          '${pdfRenderWorkerRecordTimeout.inSeconds}s - dropping this page to '
           'local; worker stays up ($_consecutiveTimeouts/'
           '$pdfRenderWorkerTimeoutsBeforeFail before giving up)');
       if (!request.completer.isCompleted) request.completer.complete(null);
@@ -341,7 +341,7 @@ class _WebRenderWorker implements PdfRenderWorker {
     _recordWatchdog = null;
   }
 
-  /// Resolves every in-flight and queued request to null (local render) — on
+  /// Resolves every in-flight and queued request to null (local render) - on
   /// dispose, or when the worker errors out.
   void _failPending() {
     final orphaned = [if (_inFlight != null) _inFlight!, ..._queue];

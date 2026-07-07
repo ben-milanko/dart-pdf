@@ -1,7 +1,7 @@
 /// The pure-Dart half of image-XObject decoding: everything that turns an
 /// image stream into RGBA pixels without touching `dart:ui`.
 ///
-/// This is `dart:ui`-free on purpose, so it runs on a bare worker — a native
+/// This is `dart:ui`-free on purpose, so it runs on a bare worker - a native
 /// background isolate, and (crucially) a Web Worker, which has no Flutter
 /// engine at all. The `dart:ui` glue (the platform JPEG codec and
 /// `decodeImageFromPixels`) lives one layer up in `dart_pdf_editor`'s
@@ -144,8 +144,8 @@ PdfImageBase? decodePdfImageBase(CosDocument cos, CosStream stream) {
 
 /// Decodes an image XObject [stream] to premultiplied, codec-ready RGBA
 /// **purely** (no `dart:ui`), or returns null when the platform JPEG codec is
-/// needed — a non-CMYK DCTDecode base, or any image paired with a DCTDecode-
-/// encoded /SMask — or the image can't be decoded. On null the caller falls
+/// needed - a non-CMYK DCTDecode base, or any image paired with a DCTDecode-
+/// encoded /SMask - or the image can't be decoded. On null the caller falls
 /// back to the `dart:ui` decode path ([decodePdfImageBase] + the codec).
 PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
   final base = decodePdfImageBase(cos, stream);
@@ -291,12 +291,12 @@ PdfDecodedPixels _finish(Uint8List rgba, int width, int height,
 /// Area-average (box filter) downsample of premultiplied RGBA [pixels] to
 /// [targetWidth]×[targetHeight]. Each destination pixel is the mean of the
 /// source pixels in its cell, so a large raster underlay shrinks to the
-/// resolution it is actually displayed at — the whole point on heavy CAD
+/// resolution it is actually displayed at - the whole point on heavy CAD
 /// sheets, where a 160-megapixel scan blocks the raster thread (and blows the
 /// decoded-image cache) when drawn into a page only a few thousand pixels wide.
 ///
 /// Averaging premultiplied samples directly is correct: alpha rides along with
-/// the colour it weights. Never upscales — returns [pixels] unchanged when the
+/// the colour it weights. Never upscales - returns [pixels] unchanged when the
 /// target is at least as large on both axes. The caller passes target
 /// dimensions that already preserve the aspect it wants; this only resamples.
 PdfDecodedPixels downsamplePdfDecodedPixels(
@@ -320,7 +320,7 @@ PdfDecodedPixels downsamplePdfDecodedPixels(
       var sx1 = (tx + 1) * sw ~/ tw;
       if (sx1 <= sx0) sx1 = sx0 + 1;
       // Local int accumulators: a cell spans (sw/tw)·(sh/th) source pixels, so
-      // the worst sum is bounded by the source pixel count × 255 — well within
+      // the worst sum is bounded by the source pixel count × 255 - well within
       // a 64-bit int (native) and float64's 2^53 (web).
       var r = 0, g = 0, b = 0, a = 0, n = 0;
       for (var sy = sy0; sy < sy1; sy++) {
@@ -564,7 +564,7 @@ int _bilinearByte(
 }
 
 /// The pixel size an image should be decoded/stored at so it is no sharper than
-/// [headroom]× its on-screen footprint — the cap behind `serializeCommands`'s
+/// [headroom]× its on-screen footprint - the cap behind `serializeCommands`'s
 /// `maxImagePixelRatio` (see render_command_codec.dart), extracted as a pure
 /// function so every branch is unit-testable without a giant fixture image.
 ///
@@ -576,7 +576,7 @@ int _bilinearByte(
 /// sheet-sized raster underlay within a GPU texture limit and the decoded-image
 /// cache. Returns `(srcWidth, srcHeight)` unchanged when no worthwhile
 /// reduction applies (already small enough, a degenerate transform, or a
-/// non-positive ratio) — the caller then ships the native pixels as-is.
+/// non-positive ratio) - the caller then ships the native pixels as-is.
 (int, int) cappedImagePixelSize(int srcWidth, int srcHeight, double widthPts,
     double heightPts, double ratio,
     {double headroom = 2.0,
@@ -605,7 +605,7 @@ int _bilinearByte(
     th = (th * s).floor().clamp(1, srcHeight);
   }
 
-  // Not worth a full-buffer resample for a sliver — keep the native pixels.
+  // Not worth a full-buffer resample for a sliver - keep the native pixels.
   if (tw * th >= srcWidth * srcHeight * 0.9) return (srcWidth, srcHeight);
   return (tw, th);
 }
@@ -756,7 +756,7 @@ Uint8List? _jbig2Globals(CosDocument cos, CosDictionary dict) {
   }
 }
 
-/// Whether the image's /SMask is DCTDecode-encoded — that mask needs the
+/// Whether the image's /SMask is DCTDecode-encoded - that mask needs the
 /// platform JPEG codec, so the pure path declines the whole image.
 bool _softMaskIsDct(CosDocument cos, CosDictionary dict) {
   final smask = cos.resolve(dict['SMask']);
@@ -962,9 +962,9 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
 }
 
 /// Bakes [mask]'s alpha into [rgba], returning the resulting (bytes, width,
-/// height). When the mask is HIGHER resolution than the base image — common
+/// height). When the mask is HIGHER resolution than the base image - common
 /// for /Mask stencils where a tiny colour image carries a large crisp cutout
-/// (issue4246: a 50x40 gradient under a 1000x800 letter mask) — the result is
+/// (issue4246: a 50x40 gradient under a 1000x800 letter mask) - the result is
 /// built at the mask's resolution with the colour bilinearly upsampled, so the
 /// cutout's detail survives instead of being crushed to the base grid (which
 /// the device would then upscale into visible blocks). Otherwise the mask is
@@ -1092,7 +1092,7 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     case 'DeviceRGB':
       if (data.length < count * 3) return null;
       final rgbIcc = icc != null && icc.channels == 3 ? icc : null;
-      // Fast path: no colour management, identity /Decode, no color key — the
+      // Fast path: no colour management, identity /Decode, no color key - the
       // RGB samples copy straight through (the LUTs would be identity and the
       // alpha is a constant 255), with no per-pixel list allocation.
       if (rgbIcc == null && ranges == null && colorKey == null) {
@@ -1139,7 +1139,7 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       final lut = _lutFor(ranges, 0);
       final grayIcc = icc != null && icc.channels == 1 ? icc : null;
       final key = colorKey;
-      // Fast path: identity /Decode, no ICC, no color key — replicate the gray
+      // Fast path: identity /Decode, no ICC, no color key - replicate the gray
       // sample into RGB with constant 255 alpha, no per-pixel allocation.
       if (grayIcc == null && ranges == null && key == null) {
         for (var i = 0; i < count; i++) {
@@ -1177,7 +1177,7 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       final key = colorKey;
       // CMYK→RGB is the heaviest per-pixel path (a quadratic polynomial, or an
       // ICC LUT). The conversion math is unchanged, but the per-pixel sample
-      // and value lists — and the keyed() argument list — are gone, which is
+      // and value lists - and the keyed() argument list - are gone, which is
       // most of the old cost.
       for (var i = 0; i < count; i++) {
         final base = i * 4;
@@ -1298,7 +1298,7 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
 (Uint8List, int)? _indexedPalette(CosDocument cos, CosDictionary dict) {
   final space = cos.resolve(dict['ColorSpace']);
   if (space is! CosArray || space.length < 4) return null;
-  // A Lab base palette is decoded through the CIE machinery — without this it
+  // A Lab base palette is decoded through the CIE machinery - without this it
   // falls through to DeviceGray and the L*/a*/b* triples read as three
   // separate gray samples, banding a smooth gradient into diagonal stripes.
   // (CalRGB/CalGray keep their existing device decode to avoid baseline churn.)

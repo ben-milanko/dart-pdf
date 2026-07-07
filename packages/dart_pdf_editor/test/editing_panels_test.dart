@@ -128,7 +128,7 @@ void main() {
       await tester.pump();
       expect(PdfThumbnailSidebar.debugRasterizations, 4);
 
-      // undoing it re-renders page 0 again — and only page 0
+      // undoing it re-renders page 0 again - and only page 0
       editing.undo();
       await waitForRasters(tester, 5);
       await tester.runAsync(
@@ -137,7 +137,7 @@ void main() {
       expect(PdfThumbnailSidebar.debugRasterizations, 5);
     });
 
-    testWidgets('a new edit session re-renders — stamps restart at zero',
+    testWidgets('a new edit session re-renders - stamps restart at zero',
         (tester) async {
       final first = PdfEditingController(buildMultiPagePdf(2));
       final second = PdfEditingController(buildMultiPagePdf(2));
@@ -209,7 +209,7 @@ void main() {
 
     testWidgets('reads on white paper under a dark theme', (tester) async {
       final color = await indicatorColor(tester, ThemeData.dark());
-      // a dark theme's primary is light — near-invisible on white paper
+      // a dark theme's primary is light - near-invisible on white paper
       expect(contrast(color, const Color(0xFFFFFFFF)), greaterThan(3));
     });
 
@@ -366,7 +366,7 @@ void main() {
       );
     }
 
-    /// Whether the captured frame holds the flash's amber anywhere —
+    /// Whether the captured frame holds the flash's amber anywhere -
     /// the 0.9-alpha stroke stays close to (255, 179, 0) over any paper.
     bool hasAmber(ByteData pixels, int width, int height) {
       for (var y = 0; y < height; y += 2) {
@@ -511,7 +511,7 @@ void main() {
       await tester.pump();
 
       // left-docked strip: 14px bar stepped off the 8px grip, tiles
-      // already pad 12 — the list adds the missing 10
+      // already pad 12 - the list adds the missing 10
       final strip =
           tester.widget<ReorderableListView>(find.byType(ReorderableListView));
       expect(strip.padding, const EdgeInsets.fromLTRB(0, 8, 10, 8));

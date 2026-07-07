@@ -120,7 +120,7 @@ platform_geom() { case "$1" in
   android) echo "portrait 1320 2640" ;;
 esac; }
 
-# compose <target> <platform> — frames the raw captures onto the gradient
+# compose <target> <platform> - frames the raw captures onto the gradient
 # marketing canvas. Skipped when SKIP_COMPOSE=1 or rsvg-convert is missing.
 compose() {
   local target="$1" platform="$2"
@@ -231,4 +231,4 @@ for platform in "${PLATFORMS[@]}"; do
   esac
 done
 
-log "done. raw under $OUT_ROOT/ — marketing under $MKT_ROOT/"
+log "done. raw under $OUT_ROOT/ - marketing under $MKT_ROOT/"

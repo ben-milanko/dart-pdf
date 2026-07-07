@@ -15,26 +15,26 @@ import 'shading.dart';
 /// verbatim as one of these records; [replayCommands] feeds them straight
 /// back into another [PdfDevice] (the Flutter canvas device, a test
 /// recorder, …). The interpreter, the device interface, and the canvas
-/// device are unchanged — interpretation (the expensive parse + walk) and
+/// device are unchanged - interpretation (the expensive parse + walk) and
 /// painting are merely decoupled, which is the prerequisite for running the
 /// interpret off the UI thread.
 ///
 /// The command list is a flat sequence; the nesting of transparency groups
 /// and `q`/`Q` is implicit in the open/close pairing, exactly as the canvas
-/// device already tracks it. The one callback that carries control flow —
-/// [PdfDevice.endSoftMasked]'s `drawMask` closure — stores the mask group's
+/// device already tracks it. The one callback that carries control flow -
+/// [PdfDevice.endSoftMasked]'s `drawMask` closure - stores the mask group's
 /// own commands inline ([PdfEndSoftMaskedCommand.maskCommands]); replay
 /// reconstructs the closure from them.
 sealed class PdfRenderCommand {
   const PdfRenderCommand();
 }
 
-/// `q` — [PdfDevice.save].
+/// `q` - [PdfDevice.save].
 class PdfSaveCommand extends PdfRenderCommand {
   const PdfSaveCommand();
 }
 
-/// `Q` — [PdfDevice.restore].
+/// `Q` - [PdfDevice.restore].
 class PdfRestoreCommand extends PdfRenderCommand {
   const PdfRestoreCommand();
 }
@@ -138,7 +138,7 @@ class PdfEndSoftMaskedCommand extends PdfRenderCommand {
 
 /// Replays [commands] into [device], reproducing the original interpreter
 /// callbacks in order. The dispatch is total over the [PdfRenderCommand]
-/// hierarchy — adding a command without a case here is a compile error.
+/// hierarchy - adding a command without a case here is a compile error.
 void replayCommands(List<PdfRenderCommand> commands, PdfDevice device) {
   for (final command in commands) {
     switch (command) {

@@ -44,7 +44,7 @@ enum PdfOfficeFormat {
   /// leading [bytes]. Returns null when nothing matches.
   ///
   /// OOXML and ODF are ZIP containers and the legacy Office formats are OLE
-  /// compound files, so the magic bytes only narrow the family — the precise
+  /// compound files, so the magic bytes only narrow the family - the precise
   /// type still comes from the extension. RTF has its own `{\rtf` signature.
   static PdfOfficeFormat? sniff({String? filename, Uint8List? bytes}) {
     if (filename != null) {
@@ -81,7 +81,7 @@ class PdfOfficeDocument {
   /// with [PdfOfficeFormat.sniff] from [filename]/[bytes].
   final PdfOfficeFormat? format;
 
-  /// The original filename, if known — useful for format sniffing and for
+  /// The original filename, if known - useful for format sniffing and for
   /// converters that key off the name.
   final String? filename;
 
@@ -90,12 +90,12 @@ class PdfOfficeDocument {
       format ?? PdfOfficeFormat.sniff(filename: filename, bytes: bytes);
 }
 
-/// A pluggable office-to-PDF converter — the seam for `.docx`/`.xlsx`/etc.
+/// A pluggable office-to-PDF converter - the seam for `.docx`/`.xlsx`/etc.
 /// ingestion, mirroring how [`PdfOcrEngine`] plugs OCR in.
 ///
 /// **Nothing ships in-tree, and nothing should.** Faithfully rendering an
-/// office document means reimplementing Word/Excel/PowerPoint layout — text
-/// flow, tables, charts, the OOXML drawing model, font substitution — which
+/// office document means reimplementing Word/Excel/PowerPoint layout - text
+/// flow, tables, charts, the OOXML drawing model, font substitution - which
 /// is a project the size of LibreOffice, not a pure-Dart library function.
 /// dart-pdf therefore only defines the contract; a host wires in a real
 /// converter the same way it wires in an OCR engine.
@@ -104,7 +104,7 @@ class PdfOfficeDocument {
 ///
 /// The pure-Dart layers (`pdf_cos`/`pdf_document`/`pdf_graphics`) never touch
 /// `dart:io` or native code, so a converter must live *outside* them and be
-/// injected — exactly like [`PdfOcrEngine`]. Two shapes fit:
+/// injected - exactly like [`PdfOcrEngine`]. Two shapes fit:
 ///
 /// 1. **Headless LibreOffice service.** Run `soffice --headless --convert-to
 ///    pdf` (or the `unoconv`/LibreOfficeKit API) behind an HTTP endpoint, and
@@ -119,7 +119,7 @@ class PdfOfficeDocument {
 ///    a platform component on desktop, implementing the same [convert] method.
 ///
 /// Either way the host implements [PdfOfficeConverter], passes the office
-/// bytes in, gets PDF bytes back, and opens them with `PdfDocument.open` — at
+/// bytes in, gets PDF bytes back, and opens them with `PdfDocument.open` - at
 /// which point the rest of dart-pdf (viewing, editing, export) applies
 /// unchanged. The images path ([`PdfImageDocument`]) and OCR
 /// ([`PdfOcrEngine`]) are the in-tree, pure-Dart ingestion routes; office

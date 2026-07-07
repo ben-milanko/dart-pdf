@@ -1,4 +1,4 @@
-// Byte-codec round-trip for the recorded command buffer — the wire format the
+// Byte-codec round-trip for the recorded command buffer - the wire format the
 // background-isolate / Web-Worker render path crosses. A recorded buffer
 // serialized to bytes and read back must replay into the EXACT same device
 // transcript as the original buffer. Pure Dart, no dart:ui: it proves the
@@ -20,12 +20,12 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
 /// Deterministic transcript of every device call, recursing into soft-mask
-/// content — the same shape as render_command_test's oracle.
+/// content - the same shape as render_command_test's oracle.
 class _TranscriptDevice implements PdfDevice {
   final List<String> log = [];
 
   // Path coordinates ride the wire as float32 (the codec stores geometry at
-  // f32 precision — see _writePath in render_command_codec.dart). The render
+  // f32 precision - see _writePath in render_command_codec.dart). The render
   // engine truncates every coordinate to f32 regardless, and that truncation is
   // idempotent, so a page renders pixel-identically whether the codec shipped
   // the original f64 or its f32 image; the only observable effect is here, in
@@ -195,7 +195,7 @@ void main() {
   });
 
   // Real pages exercise the fragile callbacks: transparency groups, soft masks
-  // (their drawMask content), blend modes, gradients, knockout — and images,
+  // (their drawMask content), blend modes, gradients, knockout - and images,
   // which round-trip through the inline-resolved stream subgraph (given `cos`)
   // to the same transcript, or decline to null without a `cos`.
   group('corpus round-trip', () {
@@ -230,14 +230,14 @@ void main() {
           final noCos = serializeCommands(recorder.commands);
           if (recorder.imageRequests.isNotEmpty) {
             expect(noCos, isNull,
-                reason: '$name page $i draws images — declines without a cos');
+                reason: '$name page $i draws images - declines without a cos');
           } else {
             expect(noCos, isNotNull, reason: '$name page $i has no images');
           }
 
           // With the document, image XObjects serialize via their inlined
           // stream subgraph; the buffer round-trips to the same transcript.
-          // (An inline image would still decline — none in these fixtures.)
+          // (An inline image would still decline - none in these fixtures.)
           final bytes = serializeCommands(recorder.commands, cos: doc.cos);
           expect(bytes, isNotNull,
               reason: '$name page $i should serialize with a cos');
@@ -273,7 +273,7 @@ void main() {
 
   // The worker path: serializeCommands(decodeImages: true) decodes each image
   // off-thread and embeds the premultiplied RGBA, so the reconstructed request
-  // carries pixels that match the pure-Dart decode — and the replay transcript
+  // carries pixels that match the pure-Dart decode - and the replay transcript
   // is unchanged (the decode never alters the command shape).
   group('image decode offload', () {
     test('uses predecoded image request pixels', () {
@@ -425,7 +425,7 @@ void main() {
             final got = images[k].request.decoded;
             if (expected == null) {
               expect(got, isNull,
-                  reason: '$name page $i image $k needs the platform codec — '
+                  reason: '$name page $i image $k needs the platform codec - '
                       'ships no pixels');
             } else {
               expect(got, isNotNull,
@@ -445,7 +445,7 @@ void main() {
   });
 
   // maxImagePixelRatio caps each decoded image to ~display resolution before it
-  // crosses the worker boundary — the fix for raster-thread jank on CAD sheets
+  // crosses the worker boundary - the fix for raster-thread jank on CAD sheets
   // whose embedded underlays are 100+ megapixels. A tiny ratio must shrink
   // them; a null/huge ratio must leave them at native resolution; and the
   // command transcript must be untouched either way (only the pixels change).
@@ -520,13 +520,13 @@ void main() {
           }
         }
         expect(sawCapped, isTrue,
-            reason: '$name capped no image — the test proved nothing');
+            reason: '$name capped no image - the test proved nothing');
       });
     }
   });
 
   // imageBudgetFactor bounds the TOTAL decoded pixels of a page to a multiple
-  // of the page raster cap, on top of the per-image cap — the fix for sheets
+  // of the page raster cap, on top of the per-image cap - the fix for sheets
   // layered from dozens of overlapping raster tiles, where each image is near
   // its own footprint yet their sum dwarfs the raster. A tiny factor forces
   // the page budget to bind even on these small pages: total decoded pixels
@@ -593,7 +593,7 @@ void main() {
           sawBudgeted = true;
         }
         expect(sawBudgeted, isTrue,
-            reason: '$name page budget bound no page — proved nothing');
+            reason: '$name page budget bound no page - proved nothing');
       });
     }
   });
@@ -610,7 +610,7 @@ int _decodedPixelSum(List<PdfRenderCommand> commands) {
 }
 
 /// Every image draw command in [commands], in replay (DFS) order, descending
-/// into soft-mask groups — the same order serializeCommands writes them.
+/// into soft-mask groups - the same order serializeCommands writes them.
 List<PdfDrawImageCommand> _imageCommands(List<PdfRenderCommand> commands) {
   final out = <PdfDrawImageCommand>[];
   void walk(List<PdfRenderCommand> cs) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.0. Low-level
+  parser, writer, filter, and crypto maintenance supports the higher-level
+  editor and document features in this release.
+
 ## 1.3.2
 
 - Version bump to keep the dart-pdf package suite aligned at 1.3.2. No COS

@@ -16,7 +16,7 @@ import '_uhc_data.dart';
 /// per the charset codespace and look each multi-byte code up in an embedded
 /// table (or, for the `Uni*-UCS2/UTF16` CMaps, read the code as Unicode
 /// directly). The renderer has no glyph outlines for these fonts anyway, so it
-/// substitutes a system CJK font using the Unicode we return — exactly what
+/// substitutes a system CJK font using the Unicode we return - exactly what
 /// PDF.js does in Node.
 ///
 /// Covered families: Shift-JIS (`*-RKSJ-*`, Adobe-Japan1), EUC-JP (`EUC-H/V`,
@@ -38,7 +38,7 @@ abstract class CjkCmap {
 
   /// The decoder for [encodingName], or null when the name is not a handled
   /// predefined CMap (`Identity-H/V`, embedded CMap stream names, and charset
-  /// families we don't cover all return null — the caller keeps the two-byte
+  /// families we don't cover all return null - the caller keeps the two-byte
   /// path).
   static CjkCmap? forName(String? encodingName) {
     if (encodingName == null) return null;
@@ -80,7 +80,7 @@ class ShiftJisCmap extends CjkCmap {
   static Uint8List get _data => _table ??= base64.decode(shiftJisPackedBase64);
 
   /// True for predefined Shift-JIS CMap names (90ms-RKSJ-H, 90pv-RKSJ-V,
-  /// Ext-RKSJ-H, …) — every member carries the `RKSJ` token.
+  /// Ext-RKSJ-H, …) - every member carries the `RKSJ` token.
   static bool handles(String? encodingName) =>
       encodingName != null && encodingName.contains('RKSJ');
 
@@ -124,7 +124,7 @@ class EucJpCmap extends CjkCmap {
   static Uint8List? _table;
   static Uint8List get _data => _table ??= base64.decode(eucJpPackedBase64);
 
-  /// True for the EUC-JP CMap names — exactly `EUC-H` and `EUC-V` (the GB/KSC
+  /// True for the EUC-JP CMap names - exactly `EUC-H` and `EUC-V` (the GB/KSC
   /// `*-EUC-*` names carry their own registry prefix and route elsewhere).
   static bool handles(String? encodingName) =>
       encodingName == 'EUC-H' || encodingName == 'EUC-V';
@@ -141,7 +141,7 @@ class EucJpCmap extends CjkCmap {
       if (b == 0x8E && i + 1 < bytes.length) {
         codes.add((b << 8) | bytes[++i]);
       } else if (b == 0x8F && i + 2 < bytes.length) {
-        codes.add((b << 8) | bytes[i + 1]); // JIS X 0212 — unmapped
+        codes.add((b << 8) | bytes[i + 1]); // JIS X 0212 - unmapped
         i += 2;
       } else if (b >= 0xA1 && b <= 0xFE && i + 1 < bytes.length) {
         codes.add((b << 8) | bytes[++i]);
@@ -214,7 +214,7 @@ class Big5Cmap extends CjkCmap {
   static Uint8List? _table;
   static Uint8List get _data => _table ??= base64.decode(big5PackedBase64);
 
-  /// True for the Big5-registry CMap names — every member carries the `B5`
+  /// True for the Big5-registry CMap names - every member carries the `B5`
   /// token (`B5pc-H`, `ETen-B5-H`, `HKscs-B5-H`, …).
   static bool handles(String? encodingName) =>
       encodingName != null && encodingName.contains('B5');

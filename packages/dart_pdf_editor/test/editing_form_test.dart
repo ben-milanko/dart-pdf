@@ -232,7 +232,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     }
 
-    /// Two quick taps — the form tool's fill gesture.
+    /// Two quick taps - the form tool's fill gesture.
     Future<void> doubleTap(WidgetTester tester, Offset position) async {
       await tester.tapAt(position);
       await tester.pump(const Duration(milliseconds: 60));
@@ -507,7 +507,7 @@ void main() {
 
       // the form tool now lives in the group's strip
       final formButton = find.byTooltip(
-          'Form fields — tap to select, double-tap to fill, drag to add (F)');
+          'Form fields - tap to select, double-tap to fill, drag to add (F)');
       await tester.scrollUntilVisible(formButton, 80,
           scrollable: stripScrollable);
       await tester.tap(formButton);
@@ -524,7 +524,7 @@ void main() {
       expect(editing.newFormFieldKind, PdfFormFieldKind.checkBox);
 
       final flatten =
-          find.byTooltip('Flatten form — bake values into the pages');
+          find.byTooltip('Flatten form - bake values into the pages');
       await tester.scrollUntilVisible(flatten, 80, scrollable: stripScrollable);
       await tester.tap(flatten);
       await tester.pump();

@@ -1,6 +1,6 @@
 // The paint-pass text caches must (a) memoize substituted-font layouts so
 // repeated (text, font, colour) runs reuse one laid-out painter, and (b) never
-// change a pixel — a warm (cache-hot) render is byte-identical to a cold one,
+// change a pixel - a warm (cache-hot) render is byte-identical to a cold one,
 // for both substituted text and embedded-font glyph outlines.
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -32,7 +32,7 @@ void main() {
       expect(afterFirst, greaterThan(0),
           reason: 'standard-font runs should be cached');
 
-      // Re-rendering the same page hits the cache for every run — no new
+      // Re-rendering the same page hits the cache for every run - no new
       // entries appear.
       await _raster(page);
       expect(CanvasPdfDevice.debugTextLayoutCacheLength, afterFirst,

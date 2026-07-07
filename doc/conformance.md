@@ -54,7 +54,7 @@ PdfEditor(document).convertToPdfA(
 ## External validation (veraPDF)
 
 veraPDF is the intended external oracle for both PDF/A and PDF/UA. **It could
-not be run in the development environment** — the network policy blocks
+not be run in the development environment** - the network policy blocks
 `software.verapdf.org` (HTTP 403 `host_not_allowed`), so the checkers in this
 package were implemented directly against the ISO specifications and validated
 with the in-repo round-trip tests (auto-tag → `validatePdfUa` passes; convert →
@@ -71,18 +71,18 @@ and reconcile any findings with the rule coverage below.
 
 ## PDF/UA-1 rules checked (`validatePdfUa`, ISO 14289-1)
 
-| Clause | Check |
-|--------|-------|
-| 7.1 | `/MarkInfo /Marked true`; `/MarkInfo /Suspects` not true |
-| 7.1 | `/StructTreeRoot` present |
-| 7.2 | document `/Lang` present and non-empty |
-| 7.1 | document title (`/Info /Title`) present and `/ViewerPreferences /DisplayDocTitle true` |
-| 5   | XMP `/Metadata` with `pdfuaid:part = 1` |
-| 7.1 | every structure type is standard or mapped via `/RoleMap` |
-| 7.3 | `Figure` elements carry `/Alt` or `/ActualText` |
-| 7.1 | fully-tagged content: no real content (text/path/image) outside a marked-content sequence that is tagged (`/MCID` in the tree) or an `/Artifact`; every content `/MCID` is referenced by the structure tree |
-| 7.18 | link annotations carry `/StructParent` (warning) |
-| 7.10 | `Formula` elements carry a text alternative (warning) |
+| Clause | Check                                                                                                                                                                                                       |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.1    | `/MarkInfo /Marked true`; `/MarkInfo /Suspects` not true                                                                                                                                                    |
+| 7.1    | `/StructTreeRoot` present                                                                                                                                                                                   |
+| 7.2    | document `/Lang` present and non-empty                                                                                                                                                                      |
+| 7.1    | document title (`/Info /Title`) present and `/ViewerPreferences /DisplayDocTitle true`                                                                                                                      |
+| 5      | XMP `/Metadata` with `pdfuaid:part = 1`                                                                                                                                                                     |
+| 7.1    | every structure type is standard or mapped via `/RoleMap`                                                                                                                                                   |
+| 7.3    | `Figure` elements carry `/Alt` or `/ActualText`                                                                                                                                                             |
+| 7.1    | fully-tagged content: no real content (text/path/image) outside a marked-content sequence that is tagged (`/MCID` in the tree) or an `/Artifact`; every content `/MCID` is referenced by the structure tree |
+| 7.18   | link annotations carry `/StructParent` (warning)                                                                                                                                                            |
+| 7.10   | `Formula` elements carry a text alternative (warning)                                                                                                                                                       |
 
 Out of scope (cannot be decided mechanically): whether alt text / reading
 order is *meaningful*, heading-level nesting semantics, table regularity,
@@ -90,19 +90,19 @@ contrast.
 
 ## PDF/A rules checked (`validatePdfA`, ISO 19005, level B)
 
-| Clause | Check |
-|--------|-------|
-| 6.1.3 | not encrypted; trailer has a valid `/ID` |
-| 6.1.2 | version ≤ profile max (A-1 → 1.4, A-2/A-3 → 1.7; catalog `/Version` honoured) |
-| 6.2.2 | an OutputIntent `/S /GTS_PDFA1` with a `/DestOutputProfile` ICC stream (`/N` ∈ {1,3,4}) |
-| 6.7   | XMP `/Metadata` with `pdfaid:part` and `pdfaid:conformance` matching the claimed profile |
-| 6.3   | all fonts embedded (FontFile/2/3 on the descriptor; Type0 via descendant; Type3 exempt) |
-| 6.1   | no `LZWDecode` filter |
-| 6.6.1 | no document/annotation JavaScript or Launch actions; no `/AA` |
-| 6.x   | (A-1/A-2 only) no `/EmbeddedFiles` |
-| 6.5.3 | annotations are printable and not hidden (warning) |
+| Clause | Check                                                                                    |
+| ------ | ---------------------------------------------------------------------------------------- |
+| 6.1.3  | not encrypted; trailer has a valid `/ID`                                                 |
+| 6.1.2  | version ≤ profile max (A-1 → 1.4, A-2/A-3 → 1.7; catalog `/Version` honoured)            |
+| 6.2.2  | an OutputIntent `/S /GTS_PDFA1` with a `/DestOutputProfile` ICC stream (`/N` ∈ {1,3,4})  |
+| 6.7    | XMP `/Metadata` with `pdfaid:part` and `pdfaid:conformance` matching the claimed profile |
+| 6.3    | all fonts embedded (FontFile/2/3 on the descriptor; Type0 via descendant; Type3 exempt)  |
+| 6.1    | no `LZWDecode` filter                                                                    |
+| 6.6.1  | no document/annotation JavaScript or Launch actions; no `/AA`                            |
+| 6.x    | (A-1/A-2 only) no `/EmbeddedFiles`                                                       |
+| 6.5.3  | annotations are printable and not hidden (warning)                                       |
 
-## `convertToPdfA` — what it does and does not do
+## `convertToPdfA` - what it does and does not do
 
 Adds, by incremental update: the OutputIntent + ICC, the `pdfaid` XMP packet,
 a trailer `/ID`, and a catalog `/Version` cap. It refuses an encrypted
@@ -125,7 +125,7 @@ standard-14 fonts still fails the font-embedding rule after conversion (run
 - **Auto-tagger semantics.** Roles are inferred from text geometry (size →
   heading, bullet → list); it produces *structurally valid* Tagged PDF, not
   semantically perfect tagging. Tables, multi-column reading order beyond the
-  paragraph grouping, and figure alt text are not inferred — supply alt text
+  paragraph grouping, and figure alt text are not inferred - supply alt text
   and richer structure via `writeStructTree` when needed. Image/graphic content
   is marked as `/Artifact`; tag it as a `Figure` (with alt) explicitly when it
   conveys meaning.

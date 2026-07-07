@@ -292,14 +292,14 @@ Uint8List buildAnnotatedPdf() {
 /// Builds a one-page PDF whose annotations carry appearance streams:
 ///
 /// - a Square at /Rect [100 100 200 150], /AP BBox [0 0 10 10] filling
-///   itself green — exercises the BBox → Rect scaling (×10, ×5)
+///   itself green - exercises the BBox → Rect scaling (×10, ×5)
 /// - a Stamp at /Rect [300 100 350 200] whose /AP has a 90°-rotation
 ///   /Matrix and fills its BBox red
 /// - a Widget checkbox "agree" at /Rect [400 100 420 120] with /AS /On
 ///   selecting between /On (fills 0.5 gray) and /Off (empty) states
-/// - a hidden (/F 2) Square at [100 300 200 350] whose /AP fills magenta —
+/// - a hidden (/F 2) Square at [100 300 200 350] whose /AP fills magenta -
 ///   must not be drawn
-/// - a Popup at [300 300 400 400] whose /AP fills yellow — must not be
+/// - a Popup at [300 300 400 400] whose /AP fills yellow - must not be
 ///   drawn during page rendering
 ///
 /// The page content itself fills a blue square at (10,10)-(60,60).
@@ -446,12 +446,12 @@ Uint8List buildAcroFormPdf() {
 /// what the page shows; reconciliation must adopt the page widgets.
 Uint8List buildOrphanedAcroFormPdf() {
   final objects = <String>[
-    // 1: catalog — /Fields holds only the off-page copies (6, 7)
+    // 1: catalog - /Fields holds only the off-page copies (6, 7)
     '<< /Type /Catalog /Pages 2 0 R /AcroForm << '
         '/Fields [6 0 R 7 0 R] '
         '/DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >> >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    // 3: page — /Annots lists only the orphan page widgets (8, 9, 10)
+    // 3: page - /Annots lists only the orphan page widgets (8, 9, 10)
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
         '/Annots [8 0 R 9 0 R 10 0 R] >>',
     '<< /Length 0 >>\nstream\n\nendstream',
@@ -463,13 +463,13 @@ Uint8List buildOrphanedAcroFormPdf() {
     // 7: off-page /Fields copy of `town`, empty
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (town) '
         '/Rect [72 660 300 684] /DA (/Helv 12 Tf 0 g) >>',
-    // 8: on-page orphan `name` — not in /Fields, the value the user sees
+    // 8: on-page orphan `name` - not in /Fields, the value the user sees
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) '
         '/Rect [72 700 300 724] /DA (/Helv 12 Tf 0 g) /V (Jane) >>',
-    // 9: on-page orphan `town` — not in /Fields, empty
+    // 9: on-page orphan `town` - not in /Fields, empty
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (town) '
         '/Rect [72 660 300 684] /DA (/Helv 12 Tf 0 g) >>',
-    // 10: on-page orphan `extra` — no /Fields entry at all
+    // 10: on-page orphan `extra` - no /Fields entry at all
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (extra) '
         '/Rect [72 620 300 644] /DA (/Helv 12 Tf 0 g) /V (Solo) >>',
   ];
@@ -499,7 +499,7 @@ Uint8List buildOrphanedAcroFormPdf() {
 ///
 /// Set [includeCmap] false to omit the cmap (a cmap-less embedded subset),
 /// and [includePost] true to add a `post` format 2.0 table naming gid 1 'A'
-/// and gid 2 'B' — together they exercise name-based glyph selection.
+/// and gid 2 'B' - together they exercise name-based glyph selection.
 Uint8List buildTestTrueTypeFont(
     {bool includeCmap = true, bool includePost = false}) {
   final out = BytesBuilder();
@@ -605,7 +605,7 @@ Uint8List buildTestTrueTypeFont(
   ]);
 
   // post format 2.0: gid 0 = .notdef (mac index 0), gid 1 = 'A' (index 36),
-  // gid 2 = 'B' (index 37) — all standard Mac names, no Pascal strings.
+  // gid 2 = 'B' (index 37) - all standard Mac names, no Pascal strings.
   final post = join([
     u32(0x00020000), u32(0), // version, italicAngle
     s16(0), s16(0), u32(0), // underline pos/thick, isFixedPitch

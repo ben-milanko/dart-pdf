@@ -53,7 +53,7 @@ class OnDeviceOcr {
     required void Function(Uint8List result) onComplete,
   }) async {
     if (isBusy) {
-      onToast('OCR is already running — wait for it to finish or cancel it');
+      onToast('OCR is already running - wait for it to finish or cancel it');
       return;
     }
     if (!_hasBridge) {
@@ -99,7 +99,7 @@ class OnDeviceOcr {
       final result = editor.save();
       onToast(spans == 0
           ? 'OCR found no text on these pages'
-          : 'OCR added $spans text spans — the page text is now selectable');
+          : 'OCR added $spans text spans - the page text is now selectable');
       onComplete(result);
     } catch (e) {
       onToast('OCR failed: $e');

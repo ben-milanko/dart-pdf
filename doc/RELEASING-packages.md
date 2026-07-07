@@ -2,7 +2,7 @@
 
 This covers the seven workspace **packages** (`pdf_cos`, `pdf_test_fixtures`,
 `pdf_document`, `pdf_graphics`, `dart_pdf_editor`, `pdf_ocr_vlm`,
-`pdf_ocr_ondevice`). The standalone **app** ships separately — see
+`pdf_ocr_ondevice`). The standalone **app** ships separately - see
 [`app/RELEASING.md`](../app/RELEASING.md).
 
 The packages are released **in lockstep** at one version. Cutting a release is:
@@ -12,7 +12,7 @@ The packages are released **in lockstep** at one version. Cutting a release is:
    version-bump line for packages with no unreleased entries).
 3. Update inter-package lower bounds to the new version (`pdf_document: ^X.Y.Z`).
    Run `dart pub upgrade --tighten` or edit by hand, then verify with
-   `dart run tool/check_lockstep_constraints.dart` (CI enforces this — see
+   `dart run tool/check_lockstep_constraints.dart` (CI enforces this - see
    [Lockstep invariant](#lockstep-invariant)).
 4. `flutter pub get` + `dart analyze --fatal-infos` at the root.
 5. Publish (below), then tag `<pkg>-v<version>` for each package.
@@ -23,7 +23,7 @@ There are two paths. The **automated** path is preferred once the one-time
 setup below is in place; the **manual** path is the always-works fallback and
 is how 1.1.0–1.2.3 actually shipped.
 
-### Automated (tag-driven OIDC) — preferred
+### Automated (tag-driven OIDC) - preferred
 
 Push the version bumps to `main`, then merge `main` into `deploy` and push it.
 `release-pub-tags.yml` runs the test suite, then for each package whose version
@@ -42,7 +42,7 @@ For **each** of the seven packages, on pub.dev → the package → **Admin** tab
 
 - Enable **Publishing from GitHub Actions**.
 - **Repository:** `ben-milanko/dart-pdf`.
-- **Tag pattern:** `<pkg>-v{{version}}` — e.g. `pdf_cos-v{{version}}`,
+- **Tag pattern:** `<pkg>-v{{version}}` - e.g. `pdf_cos-v{{version}}`,
   `dart_pdf_editor-v{{version}}`. The pattern is per-package because the tags
   are namespaced.
 - Leave the **Require GitHub Actions environment** field consistent with the
@@ -57,7 +57,7 @@ github is not enabled`.
 #### 2. Provision the tag-push PAT
 
 `release-pub-tags.yml` pushes tags with a **fine-grained PAT**, not the default
-`GITHUB_TOKEN` — tags created by `GITHUB_TOKEN` do **not** trigger
+`GITHUB_TOKEN` - tags created by `GITHUB_TOKEN` do **not** trigger
 `publish-pub.yml` (GitHub suppresses workflow-on-workflow events).
 
 - Create a fine-grained PAT scoped to `ben-milanko/dart-pdf` with
@@ -81,10 +81,10 @@ ruleset bypass actors. Keep that ruleset in place before adding or rotating
 
 > Note: GitHub does **not** trigger `push` workflows when more than three tags
 > are pushed at once. `release-pub-tags.yml` pushes one tag at a time (waiting
-> for each to appear on pub.dev), so it's unaffected — but if you ever tag by
+> for each to appear on pub.dev), so it's unaffected - but if you ever tag by
 > hand, push in batches of ≤3.
 
-### Manual (`tool/release.sh`) — fallback
+### Manual (`tool/release.sh`) - fallback
 
 Always works; needs a pub.dev login on the machine.
 
@@ -121,16 +121,16 @@ don't exist there.
 
 `dart run tool/check_lockstep_constraints.dart` enforces this and runs in
 `ci.yml` (every push/PR) and `release-pub-tags.yml` (before publishing).
-`dev_dependencies` are intentionally exempt — they don't reach consumers, aren't
+`dev_dependencies` are intentionally exempt - they don't reach consumers, aren't
 part of downgrade analysis, and pinning them would create a publish-ordering
 cycle (`pdf_cos` dev-depends on `pdf_test_fixtures`, which depends on `pdf_cos`).
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `publishing from github is not enabled` | pub.dev automated publishing off for that package | [Setup 1](#1-enable-automated-publishing-on-pubdev-per-package) |
-| Tag push step `403 denied` | `PUB_RELEASE_TAG_TOKEN` expired / missing Contents:write | [Setup 2](#2-provision-the-tag-push-pat) |
-| Tag pushed but never publishes | `publish-pub.yml` job missing for the package, or OIDC off | confirm a job + trigger exist in `publish-pub.yml`; [Setup 1](#1-enable-automated-publishing-on-pubdev-per-package) |
-| `…-v…` not visible after 10 min | publish failed upstream | open the package's "Publish to pub.dev" run |
-| 0/20 lower-bounds score | stale inter-package lower bound | `dart pub upgrade --tighten`; the lockstep check catches it |
+| Symptom                                 | Cause                                                      | Fix                                                                                                                 |
+| --------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `publishing from github is not enabled` | pub.dev automated publishing off for that package          | [Setup 1](#1-enable-automated-publishing-on-pubdev-per-package)                                                     |
+| Tag push step `403 denied`              | `PUB_RELEASE_TAG_TOKEN` expired / missing Contents:write   | [Setup 2](#2-provision-the-tag-push-pat)                                                                            |
+| Tag pushed but never publishes          | `publish-pub.yml` job missing for the package, or OIDC off | confirm a job + trigger exist in `publish-pub.yml`; [Setup 1](#1-enable-automated-publishing-on-pubdev-per-package) |
+| `…-v…` not visible after 10 min         | publish failed upstream                                    | open the package's "Publish to pub.dev" run                                                                         |
+| 0/20 lower-bounds score                 | stale inter-package lower bound                            | `dart pub upgrade --tighten`; the lockstep check catches it                                                         |

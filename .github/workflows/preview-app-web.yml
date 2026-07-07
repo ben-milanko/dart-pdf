@@ -47,6 +47,9 @@ jobs:
       - run: flutter build web --release
         working-directory: app
 
+      - name: Cache-bust web build
+        run: bash tool/web_cache_bust.sh app/build/web
+
       - name: Stage static preview artifact
         run: |
           set -euo pipefail
@@ -88,15 +91,18 @@ jobs:
               "ignore": ["firebase.json", ".firebaserc", "**/.*"],
               "rewrites": [{ "source": "**", "destination": "/index.html" }],
               "headers": [
-                { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/flutter_bootstrap.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/flutter_service_worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/flutter.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/main.dart.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/main.dart.wasm", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/main.dart.mjs", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/pdf_render_worker.dart.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+                { "source": "**/*.@(eot|otf|ttf|ttc|woff|woff2|font.css)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/@(AssetManifest*|FontManifest.json)", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "**/*.@(jpg|jpeg|gif|png|svg|webp|ico)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/*.@(wasm|mjs)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/*.@(js|css)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/manifest.json", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter_bootstrap.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter_service_worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
                 {
                   "source": "**",
                   "headers": [

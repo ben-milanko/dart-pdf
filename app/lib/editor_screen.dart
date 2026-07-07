@@ -30,6 +30,7 @@ const double _tabStripHeight = 42;
 const double _mobileTabsBreakpoint = 700;
 const double _appMenuLeadingWidth = 60;
 const double _appMenuIconSize = 24;
+const int _maxRecentMenuItems = 8;
 
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
@@ -45,11 +46,12 @@ class EditorScreen extends StatefulWidget {
     this.autoCheckUpdates = false,
     this.printDocument,
     this.imageClipboardWriter,
+    this.imageClipboardReader,
   });
 
   final PdfEditingPreferences prefs;
 
-  /// Desktop launch arguments — a `.pdf` path here opens at startup.
+  /// Desktop launch arguments - a `.pdf` path here opens at startup.
   final List<String> launchArgs;
 
   /// An in-memory document opened in a tab at startup, regardless of
@@ -57,13 +59,13 @@ class EditorScreen extends StatefulWidget {
   /// tests) to land directly in the editor without a file picker.
   final ({Uint8List bytes, String title})? initialDocument;
 
-  /// An update checker to use instead of the one the screen builds itself —
+  /// An update checker to use instead of the one the screen builds itself -
   /// the seam tests use to inject a fake without real network.
   final UpdateService? updateService;
 
   /// Whether to check for a newer release on startup (and show a banner if one
   /// is found). The host (production) sets this true; it defaults to false so
-  /// plain widget tests stay hermetic — no startup network traffic. The
+  /// plain widget tests stay hermetic - no startup network traffic. The
   /// Settings panel can still check on demand regardless.
   final bool autoCheckUpdates;
 
@@ -75,10 +77,14 @@ class EditorScreen extends StatefulWidget {
 
   /// Override for writing a captured snapshot to the system clipboard. Tests
   /// inject a fake to assert the Snapshot tool's clipboard wiring without the
-  /// real `super_clipboard` plugin (its platform channel is unavailable under
+  /// real host clipboard channel (unavailable under
   /// flutter_test). Production leaves this null and the screen falls back to
   /// [copyPngToClipboard].
   final ImageClipboardWriter? imageClipboardWriter;
+
+  /// Override for reading an image from the system clipboard. Tests inject a
+  /// fake; production falls back to [readImageFromClipboard].
+  final ImageClipboardReader? imageClipboardReader;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -189,7 +195,7 @@ class _EditorScreenState extends State<EditorScreen>
     ));
   }
 
-  /// Opens a `.pdf` passed on the command line — how Windows and Linux deliver
+  /// Opens a `.pdf` passed on the command line - how Windows and Linux deliver
   /// a file association / "open with" at cold start (macOS and mobile use the
   /// channel instead).
   void _openLaunchArgs() {
@@ -264,9 +270,13 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _reopenSessionDocument(SessionDocument doc) async {
-    final loading = _openLoading(doc.title, originPath: doc.path);
+    final loading = _openLoading(
+      doc.title,
+      originPath: doc.path,
+      originBookmark: doc.bookmark,
+    );
     try {
-      final bytes = await readPdfAtPath(doc.path);
+      final bytes = await readPdfAtPath(doc.path, bookmark: doc.bookmark);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       final opened = _replaceLoadingTab(
@@ -276,9 +286,12 @@ class _EditorScreenState extends State<EditorScreen>
           bytes: bytes,
           preferences: _prefs,
           originPath: doc.path,
+          originBookmark: doc.bookmark,
         ),
       );
-      if (opened) _recents.add(title: doc.title, path: doc.path);
+      if (opened) {
+        _recents.add(title: doc.title, path: doc.path, bookmark: doc.bookmark);
+      }
     } catch (_) {
       // The file is gone (moved/deleted): drop the placeholder quietly.
       if (mounted) await _closeTabs([loading]);
@@ -295,7 +308,8 @@ class _EditorScreenState extends State<EditorScreen>
     for (final tab in _tabs) {
       final path = tab.originPath;
       if (path == null || path.isEmpty || !seen.add(path)) continue;
-      documents.add(SessionDocument(title: tab.title, path: path));
+      documents.add(SessionDocument(
+          title: tab.title, path: path, bookmark: tab.originBookmark));
     }
     await _session.save(documents);
   }
@@ -303,14 +317,16 @@ class _EditorScreenState extends State<EditorScreen>
   // --- opening -------------------------------------------------------------
 
   /// Opens [bytes] in a brand-new tab and makes it active, recording a recent.
-  void _openBytes(Uint8List bytes, String title, {String? originPath}) {
+  void _openBytes(Uint8List bytes, String title,
+      {String? originPath, String? originBookmark}) {
     _addTab(DocumentTab.document(
       title: title,
       bytes: bytes,
       preferences: _prefs,
       originPath: originPath,
+      originBookmark: originBookmark,
     ));
-    _recents.add(title: title, path: originPath);
+    _recents.add(title: title, path: originPath, bookmark: originBookmark);
   }
 
   void _openError(String title, String error) {
@@ -325,8 +341,10 @@ class _EditorScreenState extends State<EditorScreen>
     unawaited(_persistSession());
   }
 
-  DocumentTab _openLoading(String title, {String? originPath}) {
-    final tab = DocumentTab.loading(title: title, originPath: originPath);
+  DocumentTab _openLoading(String title,
+      {String? originPath, String? originBookmark}) {
+    final tab = DocumentTab.loading(
+        title: title, originPath: originPath, originBookmark: originBookmark);
     _addTab(tab);
     return tab;
   }
@@ -350,9 +368,14 @@ class _EditorScreenState extends State<EditorScreen>
     Future<Uint8List> bytesFuture, {
     required String title,
     String? originPath,
+    String? originBookmark,
     String? errorTitle,
   }) async {
-    final loading = _openLoading(title, originPath: originPath);
+    final loading = _openLoading(
+      title,
+      originPath: originPath,
+      originBookmark: originBookmark,
+    );
     try {
       final bytes = await bytesFuture;
       // Let the loading tab paint before constructing the edit session, which
@@ -366,9 +389,12 @@ class _EditorScreenState extends State<EditorScreen>
           bytes: bytes,
           preferences: _prefs,
           originPath: originPath,
+          originBookmark: originBookmark,
         ),
       );
-      if (opened) _recents.add(title: title, path: originPath);
+      if (opened) {
+        _recents.add(title: title, path: originPath, bookmark: originBookmark);
+      }
     } catch (e) {
       if (!mounted) return;
       _replaceLoadingTab(
@@ -383,13 +409,19 @@ class _EditorScreenState extends State<EditorScreen>
 
   Future<void> _pickAndOpen() async {
     try {
-      final file = await pickPdfFile();
-      if (file == null) return;
-      await _openLoadedBytes(
-        file.readAsBytes(),
-        title: file.name,
-        originPath: originPathForPickedFile(file),
-      );
+      final files = await pickPdfFiles();
+      if (files.isEmpty) return;
+      for (final file in files) {
+        if (!mounted) return;
+        final path = originPathForPickedFile(file);
+        final bookmark = await securityBookmarkForPath(path);
+        await _openLoadedBytes(
+          file.readAsBytes(),
+          title: file.name,
+          originPath: path,
+          originBookmark: bookmark,
+        );
+      }
     } catch (e) {
       _openError('Open failed', 'Could not open the selected file\n$e');
     }
@@ -398,9 +430,9 @@ class _EditorScreenState extends State<EditorScreen>
   /// Opens a file the OS handed us (association, share, launch arg).
   ///
   /// If a tab already holds this exact path, focus it instead of opening a
-  /// duplicate. The same launch file can arrive twice — once via the
+  /// duplicate. The same launch file can arrive twice - once via the
   /// command-line launch args and once via the native `getInitialFile`
-  /// channel (Windows delivers both) — and re-opening an already-open
+  /// channel (Windows delivers both) - and re-opening an already-open
   /// document from the OS should surface the existing tab, not stack copies.
   Future<void> _openIncoming(IncomingFile file) async {
     final path = file.path;
@@ -413,16 +445,17 @@ class _EditorScreenState extends State<EditorScreen>
     }
     await _openLoadedBytes(
       file.bytes == null
-          ? readPdfAtPath(file.path!)
+          ? readPdfAtPath(file.path!, bookmark: file.bookmark)
           : Future<Uint8List>.value(file.bytes!),
       title: file.name,
       originPath: file.path,
+      originBookmark: file.bookmark,
     );
   }
 
   /// Handles PDFs dropped onto the window (desktop and web). Non-PDFs are
   /// ignored. With an editable document already open, the drop offers a
-  /// choice — open each PDF in its own tab, or insert their pages into the
+  /// choice - open each PDF in its own tab, or insert their pages into the
   /// current document; with nothing open (or in read-only mode) each PDF
   /// just opens in its own tab.
   Future<void> _onFilesDropped(List<DropItem> items) async {
@@ -451,10 +484,12 @@ class _EditorScreenState extends State<EditorScreen>
       // desktop_drop exposes a real path on desktop; on web it's a blob ref
       // we don't treat as a writable origin.
       final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
+      final bookmark = await securityBookmarkForPath(path);
       await _openLoadedBytes(
         item.readAsBytes(),
         title: item.name,
         originPath: path,
+        originBookmark: bookmark,
       );
     }
   }
@@ -527,9 +562,13 @@ class _EditorScreenState extends State<EditorScreen>
       await _pickAndOpen();
       return;
     }
-    final loading = _openLoading(entry.title, originPath: path);
+    final loading = _openLoading(
+      entry.title,
+      originPath: path,
+      originBookmark: entry.bookmark,
+    );
     try {
-      final bytes = await readPdfAtPath(path);
+      final bytes = await readPdfAtPath(path, bookmark: entry.bookmark);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       final opened = _replaceLoadingTab(
@@ -539,9 +578,12 @@ class _EditorScreenState extends State<EditorScreen>
           bytes: bytes,
           preferences: _prefs,
           originPath: path,
+          originBookmark: entry.bookmark,
         ),
       );
-      if (opened) _recents.add(title: entry.title, path: path);
+      if (opened) {
+        _recents.add(title: entry.title, path: path, bookmark: entry.bookmark);
+      }
     } catch (e) {
       await _recents.remove(entry.id);
       if (!mounted) return;
@@ -554,6 +596,29 @@ class _EditorScreenState extends State<EditorScreen>
       );
       _toast('Could not reopen ${entry.title}');
     }
+  }
+
+  List<RecentFile> _recentMenuEntries() {
+    final openIds = {
+      for (final tab in _tabs)
+        if (tab.originPath != null && tab.originPath!.isNotEmpty)
+          tab.originPath!
+        else
+          tab.title,
+    };
+    return [
+      for (final entry in _recents.items)
+        if (!openIds.contains(entry.id)) entry,
+    ].take(_maxRecentMenuItems).toList();
+  }
+
+  void _openMostRecent() {
+    final recents = _recentMenuEntries();
+    if (recents.isEmpty) {
+      _toast('No recent files');
+      return;
+    }
+    unawaited(_openRecent(recents.first));
   }
 
   /// Opens a second PDF and compares it against the active document. The
@@ -590,7 +655,7 @@ class _EditorScreenState extends State<EditorScreen>
       _toast('Open a document before running OCR');
       return;
     }
-    // Snapshot the title now — the source tab may be closed before OCR ends.
+    // Snapshot the title now - the source tab may be closed before OCR ends.
     final title = tab.title;
     await _ocr.start(
       context,
@@ -692,7 +757,7 @@ class _EditorScreenState extends State<EditorScreen>
       ],
     );
     if (selected == null || !mounted) return;
-    // Re-resolve the tab's current position — nothing reorders while the modal
+    // Re-resolve the tab's current position - nothing reorders while the modal
     // menu is up, but indexing by identity is robust regardless.
     final i = _tabs.indexOf(tab);
     if (i < 0) return;
@@ -743,22 +808,37 @@ class _EditorScreenState extends State<EditorScreen>
     if (bytes == null) return;
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
-        ? await saveBytesToPath(bytes, tab.originPath!)
+        ? await saveBytesToPath(
+            bytes,
+            tab.originPath!,
+            bookmark: tab.originBookmark,
+          )
         : await saveBytesAs(context, bytes, tab.title);
     if (!mounted) return;
     if (inPlace && !result.succeeded) {
-      // The origin couldn't be written (moved, read-only) — offer save-as.
+      // The origin couldn't be written (moved, read-only) - offer save-as.
       result = await saveBytesAs(context, bytes, tab.title);
       if (!mounted) return;
     }
     if (result.succeeded) {
+      final path = result.path;
+      final existingBookmark =
+          path != null && path == tab.originPath ? tab.originBookmark : null;
+      final bookmark = path == null
+          ? null
+          : (await securityBookmarkForPath(path)) ?? existingBookmark;
+      if (!mounted) return;
       setState(() {
         tab.markSaved();
-        if (result.path != null) tab.originPath = result.path;
+        if (path != null) {
+          tab.originPath = path;
+          tab.originBookmark = bookmark;
+        }
       });
-      if (result.path != null) {
-        _recents.add(title: tab.title, path: result.path);
-        // A Save As gave the tab a reusable origin — remember it for next time.
+      if (path != null) {
+        _recents.add(
+            title: tab.title, path: path, bookmark: tab.originBookmark);
+        // A Save As gave the tab a reusable origin - remember it for next time.
         unawaited(_persistSession());
       }
     }
@@ -767,7 +847,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- printing ------------------------------------------------------------
 
-  /// Hands the active document to the OS print dialog (the `printing` plugin —
+  /// Hands the active document to the OS print dialog (the `printing` plugin -
   /// native dialog on desktop/mobile, browser print on the web). The current
   /// revision is printed, so unsaved edits are included. A failed or
   /// unavailable backend surfaces as a toast rather than throwing.
@@ -784,7 +864,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
-  /// Prints the active document, if one is open — bound to ⌘P / Ctrl+P.
+  /// Prints the active document, if one is open - bound to ⌘P / Ctrl+P.
   void _printActive() {
     final tab = _active;
     if (tab?.session != null) unawaited(_print(tab!));
@@ -823,6 +903,34 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  Future<void> _exportSelectedContentImage(
+    BuildContext exportContext,
+    DocumentTab tab,
+    PdfSelectedContentImage image,
+  ) async {
+    final name = selectedContentImageFileName(tab.title, image.pageIndex + 1);
+    final result = await saveImageBytesAs(
+        exportContext, image.pngBytes, name, 'image/png');
+    if (mounted && result.message != null) _toast(result.message!);
+  }
+
+  Future<void> _exportCustomStamps(
+    BuildContext exportContext,
+    List<PdfCustomStamp> stamps,
+  ) async {
+    final result = await exportCustomStampsAs(exportContext, stamps);
+    if (mounted && result.message != null) _toast(result.message!);
+  }
+
+  Future<List<PdfCustomStamp>?> _importCustomStamps(BuildContext _) async {
+    try {
+      return await importCustomStamps();
+    } catch (e) {
+      if (mounted) _toast('Could not import stamps: $e');
+      return null;
+    }
+  }
+
   // --- link actions --------------------------------------------------------
 
   /// GoTo and named page actions never reach here (the viewer follows them).
@@ -843,7 +951,7 @@ class _EditorScreenState extends State<EditorScreen>
       case PdfUnknownAction(:final type):
         _toast('Unsupported action: $type');
       case PdfGoToAction():
-        break; // unreachable — handled by the viewer
+        break; // unreachable - handled by the viewer
     }
   }
 
@@ -880,59 +988,176 @@ class _EditorScreenState extends State<EditorScreen>
       ));
   }
 
-  List<PopupMenuEntry<VoidCallback>> _appMenuItems(DocumentTab? tab) => [
+  bool get _usesAppleShortcuts =>
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  String _menuShortcut(String key, {bool shift = false}) => _usesAppleShortcuts
+      ? '${shift ? '⇧' : ''}⌘$key'
+      : 'Ctrl+${shift ? 'Shift+' : ''}$key';
+
+  Widget _appMenuTile({
+    required IconData icon,
+    required String title,
+    String? shortcut,
+    Widget? trailing,
+  }) =>
+      ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        trailing: trailing ??
+            (shortcut == null
+                ? null
+                : Text(
+                    shortcut,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  )),
+        contentPadding: EdgeInsets.zero,
+      );
+
+  List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
+      BuildContext menuContext) {
+    final recents = _recentMenuEntries();
+    final trailing = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _menuShortcut('O', shift: true),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(width: 12),
+        const Icon(Icons.arrow_right),
+      ],
+    );
+    return [
+      PopupMenuItem<VoidCallback>(
+        value: () {},
+        padding: EdgeInsets.zero,
+        child: PopupMenuButton<VoidCallback>(
+          key: const ValueKey('open-recent-submenu'),
+          tooltip: 'Open Recent',
+          onSelected: (action) {
+            action();
+            if (Navigator.of(menuContext).canPop()) {
+              Navigator.of(menuContext).pop();
+            }
+          },
+          itemBuilder: (_) => [
+            if (recents.isEmpty)
+              const PopupMenuItem<VoidCallback>(
+                enabled: false,
+                child: ListTile(
+                  leading: Icon(Icons.history_toggle_off),
+                  title: Text('No recent files'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              )
+            else ...[
+              for (final entry in recents)
+                PopupMenuItem<VoidCallback>(
+                  value: () => unawaited(_openRecent(entry)),
+                  child: ListTile(
+                    leading: const Icon(Icons.picture_as_pdf_outlined),
+                    title: Text(
+                      entry.title.isEmpty ? 'Untitled' : entry.title,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: entry.path == null
+                        ? null
+                        : Text(
+                            entry.path!,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              const PopupMenuDivider(),
+              PopupMenuItem<VoidCallback>(
+                value: () => unawaited(_recents.clear()),
+                child: const ListTile(
+                  leading: Icon(Icons.clear_all),
+                  title: Text('Clear recent files'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ],
+          child: _appMenuTile(
+            icon: Icons.history,
+            title: 'Open Recent',
+            trailing: trailing,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<PopupMenuEntry<VoidCallback>> _appMenuItems(
+          BuildContext menuContext, DocumentTab? tab) =>
+      [
+        PopupMenuItem(
+          key: const ValueKey('menu-open'),
+          value: () => unawaited(_pickAndOpen()),
+          child: _appMenuTile(
+            icon: Icons.folder_open,
+            title: 'Open a PDF…',
+            shortcut: _menuShortcut('O'),
+          ),
+        ),
+        ..._recentMenuItems(menuContext),
+        const PopupMenuDivider(),
         if (tab?.session != null) ...[
           PopupMenuItem(
             value: () => _save(tab!, saveAs: true),
-            child: const ListTile(
-              leading: Icon(Icons.save_as_outlined),
-              title: Text('Save as…'),
-              contentPadding: EdgeInsets.zero,
+            child: _appMenuTile(
+              icon: Icons.save_as_outlined,
+              title: 'Save as…',
+              shortcut: _menuShortcut('S', shift: true),
             ),
           ),
           PopupMenuItem(
             key: const ValueKey('menu-print'),
             value: () => unawaited(_print(tab!)),
-            child: const ListTile(
-              leading: Icon(Icons.print_outlined),
-              title: Text('Print…'),
-              contentPadding: EdgeInsets.zero,
+            child: _appMenuTile(
+              icon: Icons.print_outlined,
+              title: 'Print…',
+              shortcut: _menuShortcut('P'),
             ),
           ),
           PopupMenuItem(
             key: const ValueKey('menu-export-image'),
             value: () => unawaited(_exportImage(tab!)),
-            child: const ListTile(
-              leading: Icon(Icons.image_outlined),
-              title: Text('Export page as image…'),
-              contentPadding: EdgeInsets.zero,
+            child: _appMenuTile(
+              icon: Icons.image_outlined,
+              title: 'Export page as image…',
             ),
           ),
           PopupMenuItem(
             value: _compareWith,
-            child: const ListTile(
-              leading: Icon(Icons.compare_arrows),
-              title: Text('Compare with…'),
-              contentPadding: EdgeInsets.zero,
+            child: _appMenuTile(
+              icon: Icons.compare_arrows,
+              title: 'Compare with…',
             ),
           ),
           PopupMenuItem(
             value: () => setState(() => _readOnly = !_readOnly),
-            child: ListTile(
-              leading: Icon(_readOnly ? Icons.edit : Icons.edit_off),
-              title: Text(
-                  _readOnly ? 'Switch to edit mode' : 'Switch to read-only'),
-              contentPadding: EdgeInsets.zero,
+            child: _appMenuTile(
+              icon: _readOnly ? Icons.edit : Icons.edit_off,
+              title: _readOnly ? 'Switch to edit mode' : 'Switch to read-only',
             ),
           ),
           if (OnDeviceOcr.isSupported)
             PopupMenuItem(
               key: const ValueKey('menu-ocr'),
               value: () => unawaited(_runOcr()),
-              child: const ListTile(
-                leading: Icon(Icons.document_scanner_outlined),
-                title: Text('OCR…'),
-                contentPadding: EdgeInsets.zero,
+              child: _appMenuTile(
+                icon: Icons.document_scanner_outlined,
+                title: 'OCR…',
               ),
             ),
           const PopupMenuDivider(),
@@ -944,10 +1169,9 @@ class _EditorScreenState extends State<EditorScreen>
             recents: _recents,
             updates: _updates,
           ),
-          child: const ListTile(
-            leading: Icon(Icons.settings_outlined),
-            title: Text('Settings'),
-            contentPadding: EdgeInsets.zero,
+          child: _appMenuTile(
+            icon: Icons.settings_outlined,
+            title: 'Settings',
           ),
         ),
       ];
@@ -975,6 +1199,14 @@ class _EditorScreenState extends State<EditorScreen>
               _printActive,
           const SingleActivator(LogicalKeyboardKey.keyP, control: true):
               _printActive,
+          const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
+              _pickAndOpen,
+          const SingleActivator(LogicalKeyboardKey.keyO, control: true):
+              _pickAndOpen,
+          const SingleActivator(LogicalKeyboardKey.keyO,
+              meta: true, shift: true): _openMostRecent,
+          const SingleActivator(LogicalKeyboardKey.keyO,
+              control: true, shift: true): _openMostRecent,
         },
         child: DropTarget(
           onDragEntered: (_) => setState(() => _dragging = true),
@@ -1046,6 +1278,12 @@ class _EditorScreenState extends State<EditorScreen>
       annotationMenuBuilder: _annotationMenuActions,
       formImagePicker: (context, field) => pickImageBytes(),
       imagePicker: (context) => pickImageBytes(),
+      systemImagePasteProvider: (context) =>
+          (widget.imageClipboardReader ?? readImageFromClipboard)(),
+      onExportSelectedContentImage: (context, image) =>
+          _exportSelectedContentImage(context, tab, image),
+      onExportCustomStamps: _exportCustomStamps,
+      onImportCustomStamps: _importCustomStamps,
       // The Snapshot tool keeps a vector copy on the in-app clipboard for
       // paste-back; this also drops the captured PNG on the system clipboard.
       onSnapshot: clipboardSnapshotHandler(
@@ -1063,7 +1301,7 @@ class _EditorScreenState extends State<EditorScreen>
   List<Widget> _buildActions(DocumentTab? tab) {
     final compact = _isCompactWidth(context);
     return [
-      // Background OCR progress (when a job is running) — non-blocking, so the
+      // Background OCR progress (when a job is running) - non-blocking, so the
       // user keeps using the PDF while hundreds of pages are recognized.
       ValueListenableBuilder<OcrJobStatus?>(
         valueListenable: _ocr.status,
@@ -1116,7 +1354,7 @@ class _EditorScreenState extends State<EditorScreen>
         ),
         tooltip: 'DartPDF menu',
         onSelected: (action) => action(),
-        itemBuilder: (context) => _appMenuItems(tab),
+        itemBuilder: (context) => _appMenuItems(context, tab),
       );
 
   Widget _buildTabsTitle() {
@@ -1433,7 +1671,7 @@ class _OpeningDocument extends StatelessWidget {
 /// The actions offered by a tab's right-click context menu.
 enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 
-/// Starts a tab drag immediately for mouse pointers (the desktop expectation —
+/// Starts a tab drag immediately for mouse pointers (the desktop expectation -
 /// a mouse drag never means scrolling the strip) but only after a long press
 /// for touch and stylus, so finger drags still scroll the tab strip. Plain
 /// taps are unaffected: both recognizers claim the pointer only once it moves
@@ -1449,7 +1687,7 @@ class _TabDragStartListener extends ReorderableDragStartListener {
   Widget build(BuildContext context) {
     return Listener(
       onPointerDown: (event) {
-        // A right-click opens the tab context menu — never a drag-reorder.
+        // A right-click opens the tab context menu - never a drag-reorder.
         if (event.buttons == kSecondaryButton) return;
         SliverReorderableList.maybeOf(context)?.startItemDragReorder(
           index: index,
@@ -1474,7 +1712,7 @@ class _DropOverlay extends StatelessWidget {
   const _DropOverlay({this.canInsert = false});
 
   /// Whether the drop can be inserted into the open document (vs. only
-  /// opened in a new tab) — drives the hint text.
+  /// opened in a new tab) - drives the hint text.
   final bool canInsert;
 
   @override

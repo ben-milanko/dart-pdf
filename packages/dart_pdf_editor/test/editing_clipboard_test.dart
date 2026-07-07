@@ -2,6 +2,8 @@
 // context menu) and restyling a selected annotation (controller +
 // toolbar wiring).
 
+import 'dart:convert';
+
 import 'package:flutter/gestures.dart'
     show PointerDeviceKind, kSecondaryMouseButton;
 import 'package:flutter/material.dart';
@@ -11,6 +13,9 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+final _png = base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
+    'AAAAGUlEQVR4nGP4z8DwHwgbWBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==');
 
 void main() {
   setUp(() {
@@ -119,6 +124,29 @@ void main() {
       expect(pasted.subtype, 'Square');
       expect(pasted.rect.left, closeTo(112, 1e-6));
     });
+
+    test('applySelectedAnnotationsToPages copies selection to other pages', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(editing.dispose);
+      editing.selectAnnotation(0, 0);
+
+      final count = editing.applySelectedAnnotationsToPages([0, 1, 2]);
+
+      expect(count, 2);
+      expect(editing.document.page(0).annotations, hasLength(1),
+          reason: 'the source page is not duplicated');
+      expect(editing.document.page(1).annotations.single.rect,
+          const PdfRect(100, 650, 250, 750));
+      expect(editing.document.page(2).annotations.single.rect,
+          const PdfRect(100, 650, 250, 750));
+      expect(editing.selectedAnnotationSlots, [(0, 0)]);
+
+      editing.undo();
+      expect(editing.document.page(1).annotations, isEmpty);
+      expect(editing.document.page(2).annotations, isEmpty);
+      expect(editing.document.page(0).annotations, hasLength(1));
+    });
   });
 
   group('controller restyle', () {
@@ -209,7 +237,8 @@ void main() {
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
         WidgetTester tester,
         {int pages = 2,
-        bool toolbar = false}) async {
+        bool toolbar = false,
+        PdfSystemImagePasteProvider? systemImagePasteProvider}) async {
       final editing = PdfEditingController(buildMultiPagePdf(pages));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
@@ -223,6 +252,7 @@ void main() {
               document: editing.document,
               controller: viewer,
               editing: editing,
+              systemImagePasteProvider: systemImagePasteProvider,
             ),
           ),
           bottomNavigationBar: toolbar
@@ -238,6 +268,17 @@ void main() {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
       await tester.sendKeyEvent(key);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+    }
+
+    Future<void> waitForAnnotation(
+        WidgetTester tester, PdfEditingController editing) async {
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50; i++) {
+          if (editing.document.page(0).annotations.isNotEmpty) return;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
       await tester.pump();
     }
 
@@ -297,8 +338,8 @@ void main() {
 
     testWidgets('Ctrl+V pastes system clipboard text as a text box',
         (tester) async {
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform, (call) async {
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
         if (call.method == 'Clipboard.getData') {
           return const <String, Object?>{'text': 'Pasted note'};
         }
@@ -317,6 +358,42 @@ void main() {
       expect(annotation.subtype, 'FreeText');
       expect(annotation.contents, 'Pasted note');
       expect(annotation.rect, const PdfRect(290, 384.6, 510, 415.4));
+      expect(editing.selectedAnnotationSlots, [(0, 0)]);
+      await settle(tester);
+    });
+
+    testWidgets('Ctrl+V pastes a system clipboard image as an image stamp',
+        (tester) async {
+      var imageReads = 0;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return const <String, Object?>{'text': 'Ignored text'};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      final (editing, _) = await pumpEditor(
+        tester,
+        systemImagePasteProvider: (context) async {
+          imageReads++;
+          return _png;
+        },
+      );
+      await tester.tapAt(view(400, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await waitForAnnotation(tester, editing);
+
+      expect(imageReads, 1);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Stamp');
+      expect(annotation.contents, isNull);
+      expect(annotation.rect.left, closeTo(300, 1e-6));
+      expect(annotation.rect.right, closeTo(500, 1e-6));
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
       await settle(tester);
     });
@@ -379,6 +456,33 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the context menu applies an annotation to a page range',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 3);
+      editing.addRectangle(0, const PdfRect(100, 650, 250, 750));
+      await tester.pump();
+
+      await rightClick(tester, view(175, 700));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-apply-pages')),
+          findsOneWidget);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-apply-pages')));
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('pdf-page-range-dialog')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(editing.document.page(0).annotations, hasLength(1));
+      expect(editing.document.page(1).annotations.single.rect,
+          const PdfRect(100, 650, 250, 750));
+      expect(editing.document.page(2).annotations.single.rect,
+          const PdfRect(100, 650, 250, 750));
+      await settle(tester);
+    });
+
     testWidgets('a palette tap recolors the selected annotation',
         (tester) async {
       final (editing, _) = await pumpEditor(tester, toolbar: true);
@@ -437,7 +541,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // the stroke slider shows the selected annotation's width (scope to
-      // the popup — the strip also carries an inline opacity slider)
+      // the popup - the strip also carries an inline opacity slider)
       final menuSlider = find.descendant(
           of: find.byType(MenuAnchor), matching: find.byType(Slider));
       final slider = tester.widget(menuSlider.first) as Slider;

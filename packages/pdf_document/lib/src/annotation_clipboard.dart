@@ -1,7 +1,7 @@
 part of 'editor.dart';
 
 /// A self-contained copy of one annotation: its dictionary with every
-/// referenced object — appearance streams included — resolved and copied
+/// referenced object - appearance streams included - resolved and copied
 /// inline, detached from the document it came from.
 ///
 /// Snapshots survive edits, undo, and even closing the source document,
@@ -20,7 +20,7 @@ class PdfAnnotationSnapshot {
   /// The /Subtype name ('Square', 'Ink', 'FreeText', ...).
   final String subtype;
 
-  /// The source /Rect in its page's space — paste offsets are relative
+  /// The source /Rect in its page's space - paste offsets are relative
   /// to this.
   final PdfRect rect;
 
@@ -45,10 +45,10 @@ class PdfAnnotationSnapshot {
   ///
   /// Popups belong to their parent annotation, and links and form
   /// widgets are interactive objects whose targets (destinations, the
-  /// AcroForm field tree) cannot travel with a copy — those return null.
+  /// AcroForm field tree) cannot travel with a copy - those return null.
   ///
   /// [keepName] keeps the /NM unique identifier in the snapshot. The
-  /// clipboard leaves it false — a pasted copy is a new annotation and
+  /// clipboard leaves it false - a pasted copy is a new annotation and
   /// mints its own name. Sync payloads set it true: the name *is* the
   /// identity the snapshot travels under (see
   /// [PdfAnnotationSyncEditing.upsertAnnotation]).
@@ -79,8 +79,8 @@ class PdfAnnotationSnapshot {
     return nm is CosString ? nm.text : null;
   }
 
-  /// Encodes the snapshot as plain JSON-compatible data — appearance
-  /// streams travel as base64 — so it can live in a database or cross
+  /// Encodes the snapshot as plain JSON-compatible data - appearance
+  /// streams travel as base64 - so it can live in a database or cross
   /// the wire and come back through [fromJson] rendering byte-identically.
   Map<String, dynamic> toJson() => {
         'v': 1,
@@ -185,7 +185,7 @@ CosObject _decodeCos(Object? value) {
 }
 
 /// Pure structural copy of an already-detached tree (no references to
-/// resolve — [PdfAnnotationSnapshot] guarantees none survive capture).
+/// resolve - [PdfAnnotationSnapshot] guarantees none survive capture).
 CosObject _copyDetached(CosObject value) {
   switch (value) {
     case CosStream stream:
@@ -248,7 +248,7 @@ class _SnapshotCopier {
   }
 
   /// Stream payload as plain (decrypted) bytes with the /Filter chain
-  /// intact — same approach as page imports: stop the decode before the
+  /// intact - same approach as page imports: stop the decode before the
   /// first filter so only the encryption comes off.
   Uint8List _payloadOf(CosStream stream) {
     final cos = source.cos;
@@ -271,7 +271,7 @@ extension PdfAnnotationClipboard on PdfEditor {
   /// Pastes [snapshot] onto page [pageIndex], its geometry shifted by
   /// ([dx], [dy]) page units.
   ///
-  /// Each call materializes an independent copy — pasting twice yields
+  /// Each call materializes an independent copy - pasting twice yields
   /// two annotations. Streams (the appearance) become fresh indirect
   /// objects per §7.3.8, and the annotation appends to the page's
   /// /Annots, so it paints on top (§12.5.2).

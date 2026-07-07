@@ -3,7 +3,7 @@
 The `/app` already wrapped its editor body in a `desktop_drop`
 `DropTarget` (`app/lib/editor_screen.dart`) that opened every dropped PDF
 in a new tab. This session adds the second behavior the drop should offer
-— inserting the dropped pages into the document that's already open.
+- inserting the dropped pages into the document that's already open.
 
 ## What changed
 
@@ -11,7 +11,7 @@ in a new tab. This session adds the second behavior the drop should offer
 
 1. Filters the dropped items to `.pdf` names up front.
 2. If there's an active, editable session (`tab.session != null` and not
-   read-only), shows `_promptDropAction` — an `AlertDialog`
+   read-only), shows `_promptDropAction` - an `AlertDialog`
    (`ValueKey('drop-action-dialog')`) offering **Open in new tab(s)** /
    **Insert pages** / Cancel.
 3. On *insert*, `_insertDropped` reads each PDF and calls
@@ -43,7 +43,7 @@ its Linux branch fires even without a prior `entered`). Two traps:
   UI tap (which needs frame pumps `runAsync` can't do), and the
   `await readAsBytes` continuation is bound to the fake-async zone, so even
   with the file written and the real read completed inside `runAsync`, the
-  continuation (insert + toast) never runs — the document stays unchanged
+  continuation (insert + toast) never runs - the document stays unchanged
   and no snackbar appears. Codecov flags the ~16 read/toast glue lines as
   uncovered; `codecov/patch` still passes, and the branching that matters
   is covered.

@@ -45,7 +45,7 @@ void main() {
     expect(position.maxScrollExtent, moreOrLessEquals(expected, epsilon: 1));
 
     // scrolling through windows dominated by short or tall pages must not
-    // move the metrics — this is what the estimating sliver gets wrong
+    // move the metrics - this is what the estimating sliver gets wrong
     final initialMax = position.maxScrollExtent;
     for (final fraction in [0.15, 0.4, 0.65, 0.9, 0.3, 0.05]) {
       position.jumpTo(initialMax * fraction);

@@ -44,7 +44,7 @@ void main() {
 
   test('raw logits without softmax overstate confidence (clamp to 1.0)', () {
     // A confident-looking logit row [.., 8.0, ..] taken as a probability is
-    // clamped to 1.0 — the bug applySoftmax fixes.
+    // clamped to 1.0 - the bug applySoftmax fixes.
     final raw = CtcDecoder(['a', 'b', 'c', ' ']);
     final logits = Float32List(vocab)..[1] = 8.0; // argmax 'a', logit 8
     expect(raw.decode(logits, 1, vocab).confidence, 1.0);

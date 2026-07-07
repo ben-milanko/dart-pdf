@@ -80,7 +80,7 @@ void main() {
       _expectSame(_sample(), first);
       expect(computes, 1);
 
-      // second call hits the disk cache — no recompute
+      // second call hits the disk cache - no recompute
       final second = await cache.get('docA', 3, compute);
       _expectSame(_sample(), second);
       expect(computes, 1);

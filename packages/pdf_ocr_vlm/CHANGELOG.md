@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+
+- Version bump to align with `dart_pdf_editor` 1.4.0. No public OCR API
+  changes since 1.3.2.
+
 ## 1.3.2
 
 - Version bump to align with `dart_pdf_editor` 1.3.2. No API changes since

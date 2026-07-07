@@ -82,7 +82,7 @@ class PngImage {
         Uint8List.fromList(const ZLibDecoder().decodeBytes(idat.takeBytes()));
 
     // raw channel data, 8 bits per channel, full image. Palette indices
-    // must stay verbatim — only real samples scale to 0–255.
+    // must stay verbatim - only real samples scale to 0–255.
     final scale = colorType != 3;
     final pixels = interlace == 1
         ? _deinterlace(raw, width, height, channels, bitDepth, scale)
@@ -185,7 +185,7 @@ class PngImage {
 
   /// Unfilters [height] rows of a (sub)image starting at [offset] in the
   /// inflated stream, writing 8-bit channel values into [out]. Returns
-  /// (out, bytes consumed). Sub-byte depths are expanded per pixel —
+  /// (out, bytes consumed). Sub-byte depths are expanded per pixel -
   /// scaled to 0–255 except for palette indices, which stay raw (the
   /// caller distinguishes via the palette path reading them verbatim;
   /// scaling is suppressed there by [scaleSubByte]).

@@ -6,7 +6,7 @@ part of 'editor.dart';
 /// thread.
 ///
 /// A reply and a state annotation are markup `/Text` annotations that
-/// carry no on-page appearance — they are thread content shown in the
+/// carry no on-page appearance - they are thread content shown in the
 /// comment pane, not a second icon painted over the page (the renderer
 /// skips them, [PdfAnnotation.isReply]/[PdfAnnotation.isStateAnnotation]).
 /// Each gets a generated /NM, so replies and state changes sync through
@@ -20,11 +20,11 @@ extension PdfCommentEditing on PdfEditor {
   /// The reply is a `/Text` markup annotation with /IRT referencing
   /// [target] and /RT `R`. [target] may itself be a reply, building a
   /// deeper chain. [author] sets /T; [createdAt] overrides the timestamp
-  /// (defaults to now) — pass it when replaying a synced reply so /M and
+  /// (defaults to now) - pass it when replaying a synced reply so /M and
   /// /CreationDate match the origin.
   ///
   /// Throws if [target] is not yet an indirect object (create it, save,
-  /// and reopen the document before replying — every editor-authored
+  /// and reopen the document before replying - every editor-authored
   /// annotation is indirect once written).
   String replyToAnnotation(
     int pageIndex,
@@ -70,7 +70,7 @@ extension PdfCommentEditing on PdfEditor {
   ///
   /// The thread's *current* state is the newest such reply
   /// ([PdfCommentThread.state]); set a new state to change it rather than
-  /// editing the old reply, so the history (who set what, when) survives —
+  /// editing the old reply, so the history (who set what, when) survives -
   /// which is exactly how Acrobat's review workflow stores it.
   String setReviewState(
     int pageIndex,
@@ -109,14 +109,14 @@ extension PdfCommentEditing on PdfEditor {
     return nm;
   }
 
-  /// Marks [target]'s thread resolved — review state `Completed`
+  /// Marks [target]'s thread resolved - review state `Completed`
   /// ([PdfCommentThread.isResolved]). A convenience over [setReviewState].
   String resolveThread(int pageIndex, PdfAnnotation target,
           {String? author, DateTime? at, String? name}) =>
       setReviewState(pageIndex, target, PdfReviewState.completed,
           author: author, at: at, name: name);
 
-  /// Reopens [target]'s thread — review state `None`, clearing a prior
+  /// Reopens [target]'s thread - review state `None`, clearing a prior
   /// resolution. A convenience over [setReviewState].
   String reopenThread(int pageIndex, PdfAnnotation target,
           {String? author, DateTime? at, String? name}) =>

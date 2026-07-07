@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 /// A Bold / Italic toggle pair that picks the matching base-14 variant of
-/// [font]'s current family (Sans/Serif/Mono). Reports the new font — same
-/// family, the toggled style — through [onChanged].
+/// [font]'s current family (Sans/Serif/Mono). Reports the new font - same
+/// family, the toggled style - through [onChanged].
 ///
 /// Package-internal chrome shared by the toolbar style popup and the
 /// annotation properties panel; not part of the public API.

@@ -3,7 +3,7 @@ part of 'editor.dart';
 /// Content editing tiers: stamping new content, deleting elements, and
 /// replacing text runs.
 extension PdfContentEditing on PdfEditor {
-  /// Tier 1 — stamping. Draws new content on top of page [index] via
+  /// Tier 1 - stamping. Draws new content on top of page [index] via
   /// [draw]. The existing content is wrapped in q/Q once so its dangling
   /// graphics state cannot leak into the stamp, and each stamp runs in
   /// its own saved state.
@@ -18,7 +18,7 @@ extension PdfContentEditing on PdfEditor {
     _appendContent(page, wrapped.takeBytes());
   }
 
-  /// Tier 2 — element deletion. Removes the [ids] listed in [elements]
+  /// Tier 2 - element deletion. Removes the [ids] listed in [elements]
   /// (a snapshot from [PdfPageElements.of]) and rewrites the page's
   /// content stream. The `'` and `"` text operators keep their line-feed
   /// and spacing side effects so surrounding text stays put.
@@ -49,7 +49,7 @@ extension PdfContentEditing on PdfEditor {
         page, elements.serialize(drop: drop, replacements: replacements));
   }
 
-  /// Tier 3 — text editing. Replaces occurrences of [find] with [replace]
+  /// Tier 3 - text editing. Replaces occurrences of [find] with [replace]
   /// in the text-showing operations on page [index] and returns how many
   /// were rewritten.
   ///
@@ -72,10 +72,10 @@ extension PdfContentEditing on PdfEditor {
   /// encoding, missing program/ToUnicode, or a character the font lacks).
   ///
   /// Remaining limitations: for simple fonts both strings must be Latin-1;
-  /// and matches do not cross a line break (`Td`/`T*`/`'`/`"`) — this
+  /// and matches do not cross a line break (`Td`/`T*`/`'`/`"`) - this
   /// corrects and re-flows within a line, it does not re-flow paragraphs.
   /// [fallbackFonts] (composite editing only) supply glyph outlines for
-  /// characters the document's own /Type0 font can't draw — a subsetted
+  /// characters the document's own /Type0 font can't draw - a subsetted
   /// embedded font physically lacks the glyphs it dropped, and this library
   /// bundles none. When given, such a replacement is drawn in the first
   /// fallback that can render it (style-matched to the document font); when
@@ -100,7 +100,7 @@ extension PdfContentEditing on PdfEditor {
     }
 
     // composite (/Type0) fonts are rewritten by a separate path that decodes
-    // 2-byte glyph codes — built lazily and cached per font resource name.
+    // 2-byte glyph codes - built lazily and cached per font resource name.
     final type0Cache = <String, _Type0Editing?>{};
     _Type0Editing? type0For(String name, CosDictionary f) =>
         type0Cache.putIfAbsent(
@@ -566,7 +566,7 @@ class PdfStamp {
       image(PdfEmbeddableImage.jpeg(jpeg),
           x: x, y: y, width: width, height: height);
 
-  /// Places a decoded [PdfEmbeddableImage] (JPEG or PNG — including PNG
+  /// Places a decoded [PdfEmbeddableImage] (JPEG or PNG - including PNG
   /// transparency) with its bottom-left corner at ([x], [y]). Sizing
   /// follows the [jpegImage] rules.
   void image(

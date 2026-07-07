@@ -7,7 +7,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
-/// Map key for a decoded image. Image XObjects key by stream identity —
+/// Map key for a decoded image. Image XObjects key by stream identity -
 /// the xref cache hands back the same [CosStream] on every interpretation
 /// pass. Inline images are re-synthesized each pass, so they key by value
 /// ([PdfInlineImageKey]) or the paint-time lookup could never hit.
@@ -15,7 +15,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 /// A request carrying worker-decoded pixels ([PdfImageRequest.decoded]) folds
 /// those pixels' dimensions into the key: the worker caps each image to display
 /// resolution (see `serializeCommands`'s `maxImagePixelRatio`), so the *same*
-/// source image can be decoded at two sizes — sharp for the on-screen page,
+/// source image can be decoded at two sizes - sharp for the on-screen page,
 /// tiny for its 200px preview. Keying by content alone would let one resolution
 /// evict and stand in for the other (a blurry page, or a needlessly huge
 /// preview); the dimensions disambiguate them so each caches on its own.
@@ -28,7 +28,7 @@ Object pdfImageKey(PdfImageRequest request) {
       : PdfSizedImageKey(content, decoded.width, decoded.height);
 }
 
-/// An [PdfInlineImageKey] qualified by a decoded resolution — see [pdfImageKey].
+/// An [PdfInlineImageKey] qualified by a decoded resolution - see [pdfImageKey].
 class PdfSizedImageKey {
   PdfSizedImageKey(this.content, this.width, this.height);
 
@@ -76,10 +76,10 @@ class PdfInlineImageKey {
 
 /// A process-wide cache of decoded image XObjects, so repeat renders of a
 /// page reuse the already-decoded [ui.Image] instead of re-running the
-/// codec. The same image is decoded once and shared by every render path —
+/// codec. The same image is decoded once and shared by every render path -
 /// the on-screen page, its thumbnail, the fast-scroll preview, the
 /// eyedropper sampler, and re-renders after a zoom/page-colour/annotation
-/// change — for the life of the document.
+/// change - for the life of the document.
 ///
 /// Lifetime mirrors the other [ui.Image] caches in this package
 /// ([PdfPagePreviewCache], the thumbnail strip): the cache holds a master
@@ -131,7 +131,7 @@ class PdfImageCache {
     _entries[key] = entry;
     _bytes += entry.bytes;
     // Keep at least the just-added entry even if it alone exceeds the
-    // budget — it is still useful for this render's clones; it ages out on
+    // budget - it is still useful for this render's clones; it ages out on
     // the next insert.
     while (_bytes > maxBytes && _entries.length > 1) {
       _entries.remove(_entries.keys.first)!.dispose(this);
@@ -157,11 +157,11 @@ class PdfImageCache {
     clear();
   }
 
-  /// Number of cached masters — for tests.
+  /// Number of cached masters - for tests.
   @visibleForTesting
   int get debugLength => _entries.length;
 
-  /// Estimated cached bytes — for tests.
+  /// Estimated cached bytes - for tests.
   @visibleForTesting
   int get debugBytes => _bytes;
 }
@@ -224,7 +224,7 @@ class ImageCollector implements PdfDevice {
 
 /// Decodes image XObjects to [ui.Image]s ahead of the (synchronous) paint.
 ///
-/// The heavy lifting — turning an image stream into RGBA pixels — is pure
+/// The heavy lifting - turning an image stream into RGBA pixels - is pure
 /// Dart and lives in `pdf_graphics`' [decodePdfImagePixels], so it can run on
 /// a worker (off the UI thread, and on the web where there is no separate
 /// raster thread). This function is the thin `dart:ui` layer over it:
@@ -232,8 +232,8 @@ class ImageCollector implements PdfDevice {
 /// platform-JPEG path (a non-CMYK DCTDecode base) handled here.
 ///
 /// A request that carries worker-decoded pixels ([PdfImageRequest.decoded],
-/// already premultiplied) bypasses the decode and only runs the engine codec —
-/// the point of the offload — and the result still caches by content, so a
+/// already premultiplied) bypasses the decode and only runs the engine codec -
+/// the point of the offload - and the result still caches by content, so a
 /// later local render of the same image hits the cache.
 ///
 /// When a [cache] is given, decodes are shared across renders: a hit
@@ -362,7 +362,7 @@ Future<PdfImageSoftMask?> _resolveDartUiMask(
   return pdfImageSoftMask(cos, dict) ?? pdfImageStencilMask(cos, dict);
 }
 
-/// Hands already-premultiplied RGBA straight to the engine codec — the only
+/// Hands already-premultiplied RGBA straight to the engine codec - the only
 /// per-image UI-thread cost once the decode itself runs on a worker.
 Future<ui.Image> _imageFromPremultiplied(
     Uint8List rgba, int width, int height) {

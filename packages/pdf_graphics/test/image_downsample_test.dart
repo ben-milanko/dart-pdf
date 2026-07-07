@@ -67,7 +67,7 @@ void main() {
 
   group('cappedImagePixelSize', () {
     // An image drawn at `pts` points wide/tall, displayed at `ratio` px/point,
-    // should cap to ~headroom×(pts·ratio) — here headroom defaults to 2.
+    // should cap to ~headroom×(pts·ratio) - here headroom defaults to 2.
     test('caps to ~2x the on-screen footprint', () {
       // 4000px native, drawn 100pt across, shown at 1px/pt → ~200px target.
       expect(cappedImagePixelSize(4000, 4000, 100, 100, 1.0), (200, 200));
@@ -109,7 +109,7 @@ void main() {
     });
 
     test('skips a negligible (<10%) reduction', () {
-      // 2x footprint lands at ~96% of native — not worth resampling.
+      // 2x footprint lands at ~96% of native - not worth resampling.
       expect(cappedImagePixelSize(100, 100, 49, 49, 1.0), (100, 100));
     });
   });

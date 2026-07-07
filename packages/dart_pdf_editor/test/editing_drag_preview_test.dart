@@ -10,7 +10,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
-/// A two-page PDF whose pages are [height] pt tall (612 wide) — short
+/// A two-page PDF whose pages are [height] pt tall (612 wide) - short
 /// enough that both pages sit inside an 800×600 viewport at fit-width, so
 /// a move drag can cross the page boundary on screen.
 Uint8List buildShortTwoPagePdf(int height) {
@@ -118,7 +118,7 @@ void main() {
     expect(a, closeTo(191, 25));
     expect(r, closeTo(191, 25));
 
-    // the resting position is untouched — the preview moved, the
+    // the resting position is untouched - the preview moved, the
     // original spot stays for the page below to show through
     final (_, _, _, a2) = pixelAt(data, image.width, 30, 30);
     expect(a2, 0);
@@ -301,7 +301,7 @@ void main() {
       expect(reported!.to.left, closeTo(50 + delta.dx, 0.5));
       expect(reported!.to.top, closeTo(71 + delta.dy, 0.5));
       // the overlay still paints its own ghost (the floating copy is an
-      // addition for the overflow, not a replacement — so an in-page drag
+      // addition for the overflow, not a replacement - so an in-page drag
       // never goes blank even if the floating layer can't paint)
       expect(overlayPainter(tester).ghost, isNotNull);
 
@@ -318,7 +318,7 @@ void main() {
       // 300pt pages at fit-width (800/612 px/pt) are ~392px tall, so page 1
       // and the top of page 2 both fit in the 800×600 viewport. Dragging an
       // annotation from page 1 into page 2's area must still show the ghost
-      // — before the fix the per-page overlay clipped it behind page 2.
+      // - before the fix the per-page overlay clipped it behind page 2.
       const pageHeight = 300;
       const scale = 800 / 612;
       // page-0 view coordinates (y up in page space)

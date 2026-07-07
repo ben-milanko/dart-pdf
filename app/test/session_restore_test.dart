@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:file_selector_platform_interface/file_selector_platform_interface.dart'
+    as fs;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 import 'package:dart_pdf_editor_app/session_store.dart';
+
+class _FakeFileSelector extends fs.FileSelectorPlatform {
+  _FakeFileSelector(this.files);
+
+  final List<fs.XFile> files;
+  bool openedMultiple = false;
+
+  @override
+  Future<List<fs.XFile>> openFiles({
+    List<fs.XTypeGroup>? acceptedTypeGroups,
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    openedMultiple = true;
+    return files;
+  }
+}
 
 void main() {
   late PdfEditingPreferences prefs;
@@ -37,8 +56,9 @@ void main() {
 
   void seedSession(List<({String title, String path})> docs) {
     SharedPreferences.setMockInitialValues({
-      'dart_pdf_editor_app.session': jsonEncode(
-          [for (final d in docs) {'t': d.title, 'p': d.path}]),
+      'dart_pdf_editor_app.session': jsonEncode([
+        for (final d in docs) {'t': d.title, 'p': d.path}
+      ]),
     });
   }
 
@@ -48,7 +68,7 @@ void main() {
       );
 
   // The editor never settles (it keeps rasterizing), and restore performs real
-  // file I/O — which only progresses under runAsync. Pump a handful of real
+  // file I/O - which only progresses under runAsync. Pump a handful of real
   // frames so each read can complete and swap its loading placeholder.
   Future<void> pumpEditor(WidgetTester tester) async {
     await tester.runAsync(() async {
@@ -79,7 +99,7 @@ void main() {
 
     await pumpEditor(tester);
 
-    // Nothing opened — we land back on the welcome screen, no error placeholder.
+    // Nothing opened - we land back on the welcome screen, no error placeholder.
     expect(tabTitle('missing.pdf'), findsNothing);
     expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
   });
@@ -122,6 +142,7 @@ void main() {
       'name': 'opened.pdf',
       'bytes': buildClassicPdf(),
       'path': path,
+      'bookmark': 'bookmark-data',
     }));
     await tester.runAsync(() async {
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -139,5 +160,31 @@ void main() {
     expect(tabTitle('opened.pdf'), findsOneWidget);
     final persisted = await SessionStore().load();
     expect(persisted.map((d) => d.path), [path]);
+    expect(persisted.map((d) => d.bookmark), ['bookmark-data']);
+  });
+
+  testWidgets('Open button opens every PDF selected in the picker',
+      (tester) async {
+    final a = seedFile('picker-a.pdf');
+    final b = seedFile('picker-b.pdf');
+    await pumpEditor(tester);
+
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector([fs.XFile(a), fs.XFile(b)]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Open a PDF'));
+    await tester.runAsync(() async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pump();
+
+    expect(fake.openedMultiple, isTrue);
+    expect(tabTitle('picker-a.pdf'), findsOneWidget);
+    expect(tabTitle('picker-b.pdf'), findsOneWidget);
   });
 }

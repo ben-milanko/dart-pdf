@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart';
 /// A tab is one of four kinds: a normal editable [document], a [loading]
 /// placeholder, an [error] placeholder, or a two-file [comparison].
 class DocumentTab {
-  DocumentTab.loading({required this.title, this.originPath})
+  DocumentTab.loading(
+      {required this.title, this.originPath, this.originBookmark})
       : session = null,
         viewer = null,
         savedLength = 0,
@@ -21,6 +22,7 @@ class DocumentTab {
     required Uint8List bytes,
     required PdfEditingPreferences preferences,
     this.originPath,
+    this.originBookmark,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
         savedLength = bytes.length,
@@ -33,6 +35,7 @@ class DocumentTab {
       : session = null,
         viewer = null,
         originPath = null,
+        originBookmark = null,
         savedLength = 0,
         compareBefore = null,
         compareAfter = null,
@@ -47,6 +50,7 @@ class DocumentTab {
         viewer = null,
         error = null,
         originPath = null,
+        originBookmark = null,
         savedLength = 0,
         compareBefore = before,
         compareAfter = after,
@@ -61,8 +65,11 @@ class DocumentTab {
   /// path. Null means save-as only.
   String? originPath;
 
+  /// macOS security-scoped bookmark for [originPath], when available.
+  String? originBookmark;
+
   /// Byte length of the last-saved revision. Revisions are byte prefixes of one
-  /// buffer, so length uniquely identifies a revision — the document is dirty
+  /// buffer, so length uniquely identifies a revision - the document is dirty
   /// when the current [PdfEditingController.bytes] length differs from this.
   int savedLength;
 

@@ -119,7 +119,7 @@ class CosLexer {
   CosToken _number(int start) {
     // Content streams are number-dense (every coordinate, colour, index), so
     // this is the tokenizer's hottest path. Scan the digit/sign/dot run once
-    // and parse straight from the bytes — no per-char StringBuffer.
+    // and parse straight from the bytes - no per-char StringBuffer.
     var isReal = false;
     var p = position;
     while (p < bytes.length) {
@@ -158,8 +158,8 @@ class CosLexer {
   }
 
   /// Parses the integer in `bytes[start..end)` exactly as
-  /// `int.tryParse(String.fromCharCodes(bytes, start, end))` would — an
-  /// optional leading `+`/`-` then digits — but without allocating a string.
+  /// `int.tryParse(String.fromCharCodes(bytes, start, end))` would - an
+  /// optional leading `+`/`-` then digits - but without allocating a string.
   /// Returns null for malformed input or a mantissa long enough to risk
   /// 64-bit overflow (≥19 digits), so the caller can fall back to the string
   /// path with identical semantics.

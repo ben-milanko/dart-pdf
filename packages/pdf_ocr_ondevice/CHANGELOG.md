@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+
+- Version bump to align with `dart_pdf_editor` 1.4.0. Runtime maintenance keeps
+  the on-device OCR package compatible with the 1.4.0 editor/app release.
+
 ## 1.3.2
 
 - Version bump to align with `dart_pdf_editor` 1.3.2. No API changes since
@@ -21,7 +26,7 @@
   doesn't exist" error. The ONNX Runtime session is now created from the model
   *bytes* (`OrtSession.fromBuffer`) instead of a file path: on Windows the
   binding passed the path as a narrow UTF-8 string where ONNX Runtime expects a
-  wide `wchar_t*`, mangling every path — even pure-ASCII ones — into CJK
+  wide `wchar_t*`, mangling every path - even pure-ASCII ones - into CJK
   mojibake. This supersedes the 1.2.2 ASCII path-staging workaround, which could
   not help because the corruption happened regardless of the path's contents.
 

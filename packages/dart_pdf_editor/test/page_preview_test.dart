@@ -1,6 +1,6 @@
 // Low-res fast-scroll previews: pages whose full render is pending (the
 // render hold, or simply not interpreted yet) paint a small cached
-// raster instead of blank paper — Bluebeam-style. The cache is fed for
+// raster instead of blank paper - Bluebeam-style. The cache is fed for
 // free from on-screen renders and by the viewer's background prerender.
 import 'dart:async';
 import 'dart:typed_data';
@@ -63,7 +63,7 @@ void main() {
   testWidgets('rebind drops previews of pages whose content changed',
       (tester) async {
     // A same-geometry edit revision rebinds previews to the new page objects
-    // without re-rendering — except pages whose content actually changed (a
+    // without re-rendering - except pages whose content actually changed (a
     // redaction burn), whose stale previews must be dropped so a fast scroll
     // can't flash the removed content.
     final document = PdfDocument.open(buildMultiPagePdf(3));
@@ -275,7 +275,7 @@ void main() {
     await tester.pump();
 
     // the background prerender reaches the far pages while the viewer
-    // idles — pages 6 and 7 have never been built
+    // idles - pages 6 and 7 have never been built
     final cache = controller.debugPreviewCache!;
     for (var i = 0; i < 100 && !(cache.has(6) && cache.has(7)); i++) {
       await settle(tester);
@@ -347,7 +347,7 @@ void main() {
     expect(cache.has(11), isFalse);
 
     // jump to the far end (plain pumps complete the animation; runAsync
-    // interleaving would stall the clock) — the settle restarts the loop,
+    // interleaving would stall the clock) - the settle restarts the loop,
     // which now centers on the new current page and warms its neighbors
     unawaited(controller.jumpToPage(11));
     for (var i = 0; i < 20; i++) {
@@ -434,7 +434,7 @@ void main() {
     await tester.pump();
     final cache = controller.debugPreviewCache!;
 
-    // scroll the far page onto screen — its full render feeds the cache for
+    // scroll the far page onto screen - its full render feeds the cache for
     // free (putFromPicture), independent of the prerender window (plain
     // pumps complete the jump; runAsync would stall the animation clock)
     unawaited(controller.jumpToPage(11));

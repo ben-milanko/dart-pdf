@@ -124,7 +124,7 @@ String _stream(String dict, String data) =>
 
 /// Builds the 6-page feature-showcase demo document.
 ///
-/// Pages 1–2 are the interactivity demo: page 1 is plain PDF — link and
+/// Pages 1–2 are the interactivity demo: page 1 is plain PDF - link and
 /// widget annotations any conforming viewer understands; the app reacts to
 /// them through PdfViewer.onAction. Page 2 is the inverse direction:
 /// Flutter widgets pinned over the page.
@@ -135,7 +135,7 @@ String _stream(String dict, String data) =>
 /// authored at build time through the dart-pdf editor API.
 Uint8List buildDemoPdf() {
   // The masthead banner (top) and the corner app mark are stamped onto this
-  // page as image XObjects in _authorShowcase — real PNGs don't fit this
+  // page as image XObjects in _authorShowcase - real PNGs don't fit this
   // text-only COS builder. The banner carries the wordmark + tagline, so the
   // page no longer draws a plain-text title of its own.
   final page1 = StringBuffer()
@@ -170,7 +170,7 @@ Uint8List buildDemoPdf() {
         '<< /S /GoTo /D [@PG$page@ 0 R /Fit] >>'));
   }
   // A real web hyperlink (https): the viewer opens it itself via
-  // PdfViewer.onLaunchUrl, no app wiring needed — unlike the app:// links
+  // PdfViewer.onLaunchUrl, no app wiring needed - unlike the app:// links
   // above, which the app dispatches through onAction.
   const webLinkY = 166.0;
   const webLinkLabel = 'Open dart-pdf on pub.dev (a real web link)';
@@ -521,7 +521,7 @@ Uint8List buildDemoPdf() {
 }
 
 /// Adds page 6's annotations and fills its form fields through the public
-/// editor API — the demo document doubles as a smoke test of the authoring
+/// editor API - the demo document doubles as a smoke test of the authoring
 /// pipeline.
 Uint8List _authorShowcase(Uint8List base) {
   const page = 5; // page 6, zero-based

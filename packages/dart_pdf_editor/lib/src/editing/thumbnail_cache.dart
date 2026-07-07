@@ -7,12 +7,12 @@ import 'package:flutter/scheduler.dart';
 import '../perf_log.dart';
 import '../raster_cache.dart';
 
-/// A shared, viewport-aware cache of rasterized page thumbnails — and the
+/// A shared, viewport-aware cache of rasterized page thumbnails - and the
 /// render queues that fill it.
 ///
 /// One of these is owned by each [PdfEditingController] (see
 /// [PdfEditingController.thumbnailCache]) so every thumbnail surface of a
-/// session — the docked strip, the full-area page grid — draws from the
+/// session - the docked strip, the full-area page grid - draws from the
 /// *same* rasters. A page rendered for the strip is reused by the grid (and
 /// vice versa), and a tile scrolled out of view and back is served from the
 /// cache instead of re-rendering.
@@ -26,14 +26,14 @@ import '../raster_cache.dart';
 /// On-screen tiles register through [request]: a serialized queue (one page
 /// interpreted at a time, so a burst of fresh tiles never walks a dozen
 /// content streams at once) *ordered* by viewport proximity rather than
-/// first-come — the task nearest [focus] is served next, so the pages on
+/// first-come - the task nearest [focus] is served next, so the pages on
 /// screen sharpen before off-screen neighbours even when a hundred tiles
 /// requested at once (the page grid builds every cell eagerly). Panels push
 /// [focus] as they scroll, re-prioritizing the queue toward whatever just
 /// came into view.
 ///
 /// The whole-document background warm ([setWarm]) is a *separate*, paced loop
-/// — never the same serialized slot as the on-screen tiles. It renders one
+/// - never the same serialized slot as the on-screen tiles. It renders one
 /// off-screen page at a time, nearest [focus] first, but only while no tile
 /// is queued or rendering, and yields a frame between pages. Crucially it
 /// must not block a tile the user is looking at: a tile that arrives mid-warm
@@ -74,12 +74,12 @@ class PdfThumbnailCache {
 
   int get focus => _focus;
 
-  /// Whether any on-screen tile is queued or rendering — the warm loop holds
+  /// Whether any on-screen tile is queued or rendering - the warm loop holds
   /// off while this is true so the visible pages always win the worker.
   bool get _foregroundBusy => _draining || _pending.isNotEmpty;
 
   /// Registers (or refreshes) [token]'s request to render on-screen tile
-  /// [pageIndex]. [run] is invoked when the task's turn comes — the queue
+  /// [pageIndex]. [run] is invoked when the task's turn comes - the queue
   /// grants the pending task nearest [focus], one at a time. Calling again
   /// for the same [token] (a re-layout, a resize, a viewport move) just
   /// updates it.
@@ -98,7 +98,7 @@ class PdfThumbnailCache {
     _scheduleDrain();
   }
 
-  /// Withdraws [token]'s pending request — its tile was disposed (scrolled
+  /// Withdraws [token]'s pending request - its tile was disposed (scrolled
   /// out of the lazy strip), superseded, or no longer needs rendering. A
   /// cheap no-op when nothing matches or the task already started.
   void cancel(Object token) =>
@@ -137,7 +137,7 @@ class PdfThumbnailCache {
           // the engine breathe between pages
           await next.run();
         } catch (_) {
-          // a page that throws mid-render must not strand the queue — it
+          // a page that throws mid-render must not strand the queue - it
           // simply keeps its placeholder and the next page proceeds
         }
       }
@@ -205,11 +205,11 @@ class PdfThumbnailCache {
   Future<void> _warmLoop() async {
     try {
       while (!_disposed && _warmRenderer != null) {
-        // never compete with the page the user is looking at — step aside and
+        // never compete with the page the user is looking at - step aside and
         // let the foreground drain re-kick us when it's done (its `finally`
         // calls _kickWarm), rather than busy-waiting on frames
         if (_foregroundBusy) {
-          PdfPerfLog.log('thumbnail warm yields — foreground busy '
+          PdfPerfLog.log('thumbnail warm yields - foreground busy '
               '(pending=${_pending.length} draining=$_draining)');
           return;
         }
@@ -235,7 +235,7 @@ class PdfThumbnailCache {
     }
   }
 
-  /// The not-yet-attempted warm page nearest [focus] — warming radiates out
+  /// The not-yet-attempted warm page nearest [focus] - warming radiates out
   /// from wherever the viewport is.
   int? _nextWarmPage() {
     int? best;

@@ -14,7 +14,7 @@ TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
 
 /// While the form-authoring tool is armed, outlines every form-field
-/// widget on a page and tags it with its field name — so empty fields
+/// widget on a page and tags it with its field name - so empty fields
 /// (which render nothing) are discoverable and you can see what each one
 /// is named before selecting it.
 ///
@@ -87,13 +87,13 @@ class FormFieldLabelLayer extends StatelessWidget {
 }
 
 /// One page's interactive form layer: places a tap target over every
-/// visible form-field widget so a reader can fill the form directly —
+/// visible form-field widget so a reader can fill the form directly -
 /// click a text field and type, tap a check box or radio button, pick
-/// from a drop-down — without ever arming the form authoring tool.
+/// from a drop-down - without ever arming the form authoring tool.
 ///
 /// [PdfViewer] mounts it over each page whenever an editing controller is
 /// present, [PdfViewer.interactiveForms] is on, annotations are shown,
-/// and no editing tool (or only the select tool) is armed — so it
+/// and no editing tool (or only the select tool) is armed - so it
 /// coexists with plain reading and annotation selection but yields the
 /// whole page to the drawing/authoring tools. Tap targets cover only the
 /// field rects, leaving the rest of the page transparent so scrolling,
@@ -145,7 +145,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Rect? _editRect; // view space; derived from _editPageRect per build
   // page space is the source of truth: a zoom that re-lays-out the page
   // (the _layoutZoom regime changes geometry.scale) would leave a cached
-  // view rect stale, drifting the editor across the field — build
+  // view rect stale, drifting the editor across the field - build
   // refreshes _editRect from this through the live geometry
   PdfRect? _editPageRect;
   PdfStandardFont _editFont = PdfStandardFont.helvetica;
@@ -177,7 +177,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   double get _chromeScale =>
       widget.zoom.isFinite && widget.zoom > 0 ? 1 / widget.zoom : 1.0;
 
-  /// The flutter font family visually matching a base-14 [font] — the
+  /// The flutter font family visually matching a base-14 [font] - the
   /// same substitution the renderer and the inline editor use.
   static String _uiFamily(PdfStandardFont font) => switch (font.family) {
         PdfStandardFontFamily.sans => 'Helvetica',
@@ -211,7 +211,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     });
     _controller.setEditingText(true);
     // autofocus only fires into an unfocused scope and the tapping
-    // gesture left focus on the viewer — claim it for the fresh field
+    // gesture left focus on the viewer - claim it for the fresh field
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _editingField != null) _focus.requestFocus();
     });
@@ -304,7 +304,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           PopupMenuItem(
             key: ValueKey('pdf-form-option-$export'),
             value: export,
-            child: Text(display),
+            height: 34,
+            child: Text(display,
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(height: 1.1)),
           ),
       ],
     );
@@ -430,7 +435,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
             maxLines: _editMultiline ? null : 1,
             expands: _editMultiline,
             onSubmitted: (_) => _commitText(),
-            // tapping off the field commits it — the viewer suppresses its
+            // tapping off the field commits it - the viewer suppresses its
             // own focus steal while editing, so the field keeps focus
             // until this fires
             onTapOutside: (_) => _commitText(),

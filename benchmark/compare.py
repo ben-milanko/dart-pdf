@@ -30,7 +30,7 @@ def load(path):
 
 def fmt_ms(r):
     if r is None:
-        return "—"
+        return "-"
     if r.get("error"):
         return "err"
     return f"{r['renderMs']:.1f}"
@@ -68,7 +68,7 @@ def main():
         key=lambda f: -(base_map.get(f, {}).get("renderMs", 0)
                         if not base_map.get(f, {}).get("error") else 0))
 
-    print(f"# dart-pdf vs PDFium — render benchmark")
+    print(f"# dart-pdf vs PDFium - render benchmark")
     print()
     for head, _m in payloads:
         print(f"- **{head['tool']}**: {head.get('engine', '?')}  "
@@ -89,7 +89,7 @@ def main():
             cells.append(fmt_ms(r))
         for r in recs[1:]:
             bp, tp = per_page(base), per_page(r)
-            cells.append(f"{bp / tp:.2f}x" if (bp and tp) else "—")
+            cells.append(f"{bp / tp:.2f}x" if (bp and tp) else "-")
         rows.append(cells)
 
     shown = rows if args.per_file else rows[:25]

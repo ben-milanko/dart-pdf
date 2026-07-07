@@ -3,9 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../page_range_dialog.dart';
 import 'editing_controller.dart';
 import 'editing_form_style.dart';
 import 'text_prompt.dart';
+
+const _densePopupMenuHeight = 34.0;
+
+TextStyle? _densePopupTextStyle(BuildContext context, {Color? color}) =>
+    Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: color,
+          height: 1.1,
+        );
 
 /// What an annotation context menu acts on: the controller and the
 /// selection at the moment the menu opened. The right-clicked annotation
@@ -32,7 +41,7 @@ class PdfAnnotationMenuRequest {
   /// The selected annotations, in [slots] order.
   final List<PdfAnnotation> annotations;
 
-  /// The primary selected annotation — the one right-clicked, when the
+  /// The primary selected annotation - the one right-clicked, when the
   /// click started a fresh selection.
   PdfAnnotation? get primary => annotations.isEmpty ? null : annotations.last;
 }
@@ -68,11 +77,11 @@ typedef PdfAnnotationMenuBuilder = List<PdfAnnotationMenuItem> Function(
     BuildContext context, PdfAnnotationMenuRequest request);
 
 /// Shows the annotation context menu at [position] (global coordinates)
-/// for [controller]'s current selection: copy/cut/paste, bring to
-/// front, send to back, delete, then whatever [customActions] adds.
+/// for [controller]'s current selection: copy/cut/apply-to-pages/paste,
+/// bring to front, send to back, delete, then whatever [customActions] adds.
 /// Resolves when the menu closes, after the picked action ran.
 ///
-/// [pagePoint] is where on the page the menu was opened (page space) —
+/// [pagePoint] is where on the page the menu was opened (page space) -
 /// Paste centers the clipboard there; without it the paste falls back
 /// to [PdfEditingController.pasteAnnotations]' cascade. With nothing
 /// selected the menu still opens when the clipboard has content (the
@@ -105,6 +114,29 @@ Future<void> showPdfAnnotationMenu({
         label: 'Cut',
         icon: Icons.cut,
         onSelected: (request) => request.controller.cutSelectedAnnotations(),
+      ),
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-apply-pages'),
+        label: 'Apply to pages…',
+        icon: Icons.copy_all_outlined,
+        onSelected: (request) async {
+          final pageCount = request.controller.document.pageCount;
+          final range = await showPdfPageRangeDialog(
+            context,
+            pageCount: pageCount,
+            title: request.annotations.length == 1
+                ? 'Apply annotation to pages'
+                : 'Apply annotations to pages',
+            confirmLabel: 'Apply',
+          );
+          if (range == null) return;
+          request.controller.applySelectedAnnotationsToPages(
+            Iterable<int>.generate(
+              range.end - range.start + 1,
+              (i) => range.start + i,
+            ),
+          );
+        },
       ),
     ],
     PdfAnnotationMenuItem(
@@ -235,7 +267,8 @@ Future<void> showPdfFormFieldMenu({
                   PopupMenuItem(
                     key: ValueKey('pdf-form-edit-option-$export'),
                     value: export,
-                    child: Text(display),
+                    height: _densePopupMenuHeight,
+                    child: Text(display, style: _densePopupTextStyle(context)),
                   ),
               ],
             );
@@ -352,20 +385,29 @@ PopupMenuItem<PdfAnnotationMenuItem> _menuRow(PdfAnnotationMenuItem item) =>
       key: item.key,
       value: item,
       enabled: item.enabled,
-      child: Row(
-        children: [
-          if (item.icon != null) ...[
-            // PopupMenuItem dims only text when disabled; match it
-            Builder(
-              builder: (context) => Icon(item.icon,
-                  size: 18,
-                  color: item.enabled ? null : Theme.of(context).disabledColor),
-            ),
-            const SizedBox(width: 10),
-          ],
-          // flexible: long labels ellipsize at the popup's width cap
-          // instead of overflowing
-          Flexible(child: Text(item.label, overflow: TextOverflow.ellipsis)),
-        ],
+      height: _densePopupMenuHeight,
+      child: Builder(
+        builder: (context) {
+          final disabledColor = Theme.of(context).disabledColor;
+          final color = item.enabled ? null : disabledColor;
+          return Row(
+            children: [
+              if (item.icon != null) ...[
+                // PopupMenuItem dims only text when disabled; match it
+                Icon(item.icon, size: 16, color: color),
+                const SizedBox(width: 8),
+              ],
+              // flexible: long labels ellipsize at the popup's width cap
+              // instead of overflowing
+              Flexible(
+                child: Text(
+                  item.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: _densePopupTextStyle(context, color: color),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );

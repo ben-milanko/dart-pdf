@@ -140,7 +140,7 @@ void main() {
 
     testWidgets('long-press on page text still selects the word',
         (tester) async {
-      // the controller must ride the viewer from the first build — it
+      // the controller must ride the viewer from the first build - it
       // attaches in initState
       final controller = PdfViewerController();
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -160,7 +160,7 @@ void main() {
       ));
       await tester.pump();
 
-      // 'Page 1' baseline at (72, 720), 24pt — press mid-word
+      // 'Page 1' baseline at (72, 720), 24pt - press mid-word
       await longPressAt(tester, viewPoint(100, 726));
       expect(controller.selectedText, 'Page');
       expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);

@@ -1,5 +1,5 @@
 // The annotation sidebar's comment-thread UI: reply, show replies and the
-// review-state chip, resolve and reopen — driving the controller's thread
+// review-state chip, resolve and reopen - driving the controller's thread
 // methods (which round-trip through pdf_document's reply model).
 
 import 'package:flutter/material.dart';
@@ -52,10 +52,8 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
 
     // the reply landed in the document, linked to the note
-    final reply = editing.document
-        .page(0)
-        .annotations
-        .firstWhere((a) => a.isReply);
+    final reply =
+        editing.document.page(0).annotations.firstWhere((a) => a.isReply);
     expect(reply.contents, 'Looks fine to me');
     expect(reply.author, 'Ann');
     expect(reply.subtype, 'Text');
@@ -108,7 +106,9 @@ void main() {
     expect(thread.state!.author, 'Ann');
 
     // a blank reply is a no-op
-    final fresh = editing.document.page(0).annotations
+    final fresh = editing.document
+        .page(0)
+        .annotations
         .firstWhere((a) => !a.isReply && !a.isStateAnnotation);
     expect(editing.replyToAnnotation(0, fresh, '   '), isFalse);
   });
@@ -127,8 +127,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('pdf-reply-send')));
     await tester.pump();
     expect(find.byKey(const ValueKey('pdf-reply-field')), findsNothing);
-    expect(editing.document.page(0).annotations.where((a) => a.isReply),
-        isEmpty);
+    expect(
+        editing.document.page(0).annotations.where((a) => a.isReply), isEmpty);
   });
 
   testWidgets('a reply emits on the change feed for sync', (tester) async {
@@ -147,8 +147,9 @@ void main() {
     await tester.pump();
 
     expect(batches, isNotEmpty);
-    final created = batches.expand((b) => b).where(
-        (c) => c.kind == PdfAnnotationChangeKind.created);
+    final created = batches
+        .expand((b) => b)
+        .where((c) => c.kind == PdfAnnotationChangeKind.created);
     expect(created.any((c) => c.snapshot?.inReplyTo == root.name), isTrue);
   });
 }

@@ -37,7 +37,7 @@ void main() {
 
   test('non-Latin text the base-14 fonts cannot encode survives embedding',
       () {
-    // 'é' and the Greek capital omega — outside the base-14 reach, the
+    // 'é' and the Greek capital omega - outside the base-14 reach, the
     // whole point of embedding.
     final device =
         render(freeTextWith('café Ω', PdfEmbeddedFont.parse(_fontBytes)));
@@ -48,7 +48,7 @@ void main() {
 
   test('the run carries the embedded font name and real glyph outlines', () {
     // The interpreter resolves the embedded font program, so the run names
-    // the embedded face and exposes vector outlines — devices paint these
+    // the embedded face and exposes vector outlines - devices paint these
     // rather than substituting a system font.
     final device =
         render(freeTextWith('Ag', PdfEmbeddedFont.parse(_fontBytes)));

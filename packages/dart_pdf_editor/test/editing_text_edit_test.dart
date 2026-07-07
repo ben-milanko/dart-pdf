@@ -280,7 +280,7 @@ void main() {
 
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
         WidgetTester tester) async {
-      // the preference tests above seed the global mock store — these
+      // the preference tests above seed the global mock store - these
       // tests assert on default styles, so start from an empty one
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(2));
@@ -341,7 +341,7 @@ void main() {
 
       await drag(tester, view(100, 700), view(300, 640));
 
-      // the editor is open in place — nothing committed yet, no dialog
+      // the editor is open in place - nothing committed yet, no dialog
       expect(find.byKey(editorKey), findsOneWidget);
       expect(find.byType(AlertDialog), findsNothing);
       expect(editing.isEditingText, isTrue);
@@ -388,7 +388,7 @@ void main() {
       await tester.pump();
 
       // the drag's pointer-down put focus on the viewer's own node, so
-      // the field's autofocus alone is ignored — typing must still land
+      // the field's autofocus alone is ignored - typing must still land
       // in the editor without clicking into it first
       final field = tester.widget<TextField>(find.byKey(editorKey));
       expect(field.focusNode!.hasFocus, isTrue);
@@ -440,7 +440,7 @@ void main() {
 
       expect(find.byKey(editorKey), findsNothing);
       expect(editing.isEditingText, isFalse);
-      // Escape finishes the box rather than discarding it — losing the box
+      // Escape finishes the box rather than discarding it - losing the box
       // you just placed read as Escape "deleting" the annotation
       expect(editing.document.page(0).annotations, hasLength(1));
       expect(editing.document.page(0).annotations.single.contents, 'keep me');
@@ -1155,7 +1155,7 @@ void main() {
       await tap(tester, view(200, 630)); // edit
 
       // the TextField's content area must sit exactly on the annotation
-      // box — the chrome border lives in the inflate(2) gutter outside.
+      // box - the chrome border lives in the inflate(2) gutter outside.
       // (It used to start 2px up-left, so the text jumped on open.)
       expect(tester.getTopLeft(find.byKey(editorKey)),
           offsetMoreOrLessEquals(view(100, 660), epsilon: 0.1));
@@ -1209,7 +1209,7 @@ void main() {
       await tester.pump();
 
       // mid-drag: the wrapped-text preview rides the dragged box, with
-      // the glyphs at their committed size — not stretched
+      // the glyphs at their committed size - not stretched
       expect(find.byKey(previewKey), findsOneWidget);
       final text = tester.widget<Text>(find.descendant(
           of: find.byKey(previewKey), matching: find.byType(Text)));
@@ -1232,7 +1232,7 @@ void main() {
       expect(annotation.rect.right, closeTo(220, 0.5));
       expect(annotation.defaultAppearance, contains('16 Tf'));
       // the afterimage keeps the wrapped text painted until the raster
-      // lands — the live preview itself is gone with the drag
+      // lands - the live preview itself is gone with the drag
       expect(find.byKey(previewKey), findsNothing);
       expect(find.text('Wrap me please'), findsOneWidget);
       await settle(tester);
@@ -1255,7 +1255,7 @@ void main() {
       await gesture.moveTo(view(220, 600));
       await tester.pump();
 
-      // the preview itself carries only the box's own fill — it is
+      // the preview itself carries only the box's own fill - it is
       // otherwise transparent, so the page content behind shows through
       // (the original is hidden by the painter's lift layer, not a wash)
       final box = tester.widget<Container>(
@@ -1263,7 +1263,7 @@ void main() {
       expect(box.color, const Color(0xFFFFEB3B));
 
       // the lift fallback (until the async clean render lands) is OPAQUE
-      // blank paper, never translucent — the original must never flash
+      // blank paper, never translucent - the original must never flash
       final painter = overlayPainter(tester);
       expect((painter.resizeHideWash as Color).a, 1.0);
       expect(painter.resizeHideWash, const Color(0xFFFFFFFF));
@@ -1306,7 +1306,7 @@ void main() {
       // the commit happened, and the lift carried into the afterimage:
       // the painter still hides the old footprint with real page content
       // (resizeClean) instead of washing opaque paper over a transparent
-      // box — that wash was the white flash.
+      // box - that wash was the white flash.
       painter = overlayPainter(tester);
       expect(painter.resizeClean, isNotNull);
       expect(painter.resizeHideRect, isNotNull);

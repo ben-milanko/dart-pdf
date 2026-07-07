@@ -10,7 +10,7 @@ import 'ocr_model_runner.dart';
 import 'onnx_ocr_model_runner.dart';
 
 /// A [PdfOcrEngine] that recognizes pages **on device**, with no network call
-/// at recognition time — the model is downloaded once (see
+/// at recognition time - the model is downloaded once (see
 /// [PdfOcrModelManager]) and then runs locally.
 ///
 /// The actual inference is delegated to an [OcrModelRunner]; the engine reads

@@ -4,8 +4,8 @@ part of 'editor.dart';
 ///
 /// Where simple-font runs encode one byte per character, a /Type0 run draws
 /// 2-byte codes. For the Identity-H + CIDFontType2 + Identity-CIDToGIDMap
-/// shape — what this library emits and the dominant form real producers use
-/// — a content-stream code is the glyph id directly, and:
+/// shape - what this library emits and the dominant form real producers use
+/// - a content-stream code is the glyph id directly, and:
 ///
 ///  * the existing text is recovered from the font's `/ToUnicode` CMap
 ///    (code -> string), so a `find` string can be matched against it;
@@ -18,8 +18,8 @@ part of 'editor.dart';
 ///    re-measures correctly and the result stays selectable/searchable in
 ///    every viewer.
 ///
-/// When the document's own font has no glyph for a replacement character —
-/// a *subsetted* embedded font physically lacks the outlines it dropped —
+/// When the document's own font has no glyph for a replacement character -
+/// a *subsetted* embedded font physically lacks the outlines it dropped -
 /// the run's replacement is drawn in a bundled **fallback font** instead
 /// (passed in via [PdfContentEditing.replaceText]'s `fallbackFonts`): the
 /// fallback is embedded as a new page /Font resource and the replacement is
@@ -52,7 +52,7 @@ class _Type0Editing {
   final PdfPage page;
 
   /// The /Font resource key this font is referenced by on [page] (e.g. `F0`)
-  /// — emitted in the `Tf` that restores it after a fallback segment.
+  /// - emitted in the `Tf` that restores it after a fallback segment.
   final String resourceName;
   final CosDictionary fontDict; // the /Type0 dictionary
   final CosDictionary cidFont; // the descendant CIDFont
@@ -75,7 +75,7 @@ class _Type0Editing {
   final Map<int, int> _newGlyphs = {};
 
   /// Fallback fonts actually used, mapped to the page /Font resource name
-  /// allocated for each — registered by [commit].
+  /// allocated for each - registered by [commit].
   final Map<PdfEmbeddedFont, String> _usedFallbacks = {};
   final Set<String> _allocatedNames = {};
   CosDictionary? _fontResourcesCache;
@@ -140,7 +140,7 @@ class _Type0Editing {
 
   /// Encodes [text] as an Identity-H hex show string (2-byte glyph ids),
   /// recording each glyph's width and Unicode for [commit]. Returns null
-  /// when the embedded font lacks a glyph for any rune — paragraph reflow
+  /// when the embedded font lacks a glyph for any rune - paragraph reflow
   /// has no fallback path, so the caller bails rather than draw `.notdef`.
   CosString? encodeReflowLine(String text) {
     final buffer = <int>[];
@@ -166,7 +166,7 @@ class _Type0Editing {
   }
 
   /// Advance of [text] in text-space points at [size], from the embedded
-  /// font's own metrics — used to re-measure reflowed lines.
+  /// font's own metrics - used to re-measure reflowed lines.
   double measureReflow(String text, double size) =>
       _embedded.measure(text, size);
 
@@ -193,7 +193,7 @@ class _Type0Editing {
 
     // pick the font that can draw the whole replacement: the document's own
     // font when it has every glyph, else a style-matched fallback. (An empty
-    // replacement — deletion — needs no font.)
+    // replacement - deletion - needs no font.)
     final runes = replace.runes.toList();
     final origOk = runes.every((r) => _embedded.glyphForRune(r) != 0);
     PdfEmbeddedFont? fallback;
@@ -237,7 +237,7 @@ class _Type0Editing {
           matches.add((start, end));
           from = at + find.length;
         } else {
-          from = at + 1; // not on code boundaries — skip
+          from = at + 1; // not on code boundaries - skip
         }
       }
     }

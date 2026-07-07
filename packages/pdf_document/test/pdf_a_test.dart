@@ -46,7 +46,7 @@ void main() {
 
     test('conversion does not invent font embedding', () {
       // Converting a base-14 (non-embedded Helvetica) PDF satisfies the
-      // structural rules but the font check still fails — proving we do not
+      // structural rules but the font check still fails - proving we do not
       // claim more than we deliver.
       final doc = PdfDocument.open(buildClassicPdf());
       final editor = PdfEditor(doc)

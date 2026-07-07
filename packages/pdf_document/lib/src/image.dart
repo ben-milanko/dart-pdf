@@ -32,7 +32,7 @@ class PdfEmbeddableImage {
   }
 
   /// A baseline or progressive JPEG, embedded verbatim under DCTDecode.
-  /// Gray and RGB only — CMYK JPEGs are rejected.
+  /// Gray and RGB only - CMYK JPEGs are rejected.
   factory PdfEmbeddableImage.jpeg(Uint8List bytes) {
     final info = readJpegInfo(bytes);
     return PdfEmbeddableImage._(
@@ -88,7 +88,7 @@ class PdfEmbeddableImage {
 
   /// Builds the image XObject. When the image carries transparency,
   /// [addObject] registers the soft-mask stream so /SMask can reference
-  /// it indirectly (a requirement of the spec — /SMask is a stream).
+  /// it indirectly (a requirement of the spec - /SMask is a stream).
   CosStream toXObject(CosReference Function(CosStream) addObject) {
     final dict = CosDictionary({
       'Type': const CosName('XObject'),

@@ -1,6 +1,6 @@
 // The on-device engine reads a page raster into an OcrImage, runs an
 // OcrModelRunner, and maps each recognized line's PIXEL box back to PDF user
-// space — proven here with a fake runner (no ONNX), so the engine + geometry
+// space - proven here with a fake runner (no ONNX), so the engine + geometry
 // are covered without a model. applyOcr then turns the spans into an
 // invisible, selectable text layer.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -11,7 +11,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_ocr_ondevice/pdf_ocr_ondevice.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
-/// Returns canned lines and records whether it was loaded — exactly the
+/// Returns canned lines and records whether it was loaded - exactly the
 /// contract a real ONNX runner fulfils, minus the inference.
 class _FakeRunner implements OcrModelRunner {
   _FakeRunner(this.lines);

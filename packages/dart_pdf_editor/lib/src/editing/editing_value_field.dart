@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 
 /// The numeric readout beside a slider, editable in place: the user can type
 /// an exact value instead of nudging the slider (a general rule across the
-/// editing UI — any slider's value is directly typeable).
+/// editing UI - any slider's value is directly typeable).
 ///
 /// Tracks the slider's [value] while not focused (so a drag updates the
 /// text), and on Enter or focus loss parses, clamps to [min]..[max], and
-/// commits through [onSubmit] — the same callback the slider fires on
+/// commits through [onSubmit] - the same callback the slider fires on
 /// change-end. Invalid text reverts to the current value.
 ///
 /// [display] formats the value for show (e.g. `42` or `40%`); [parse] inverts

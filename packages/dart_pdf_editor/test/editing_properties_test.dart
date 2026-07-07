@@ -1,5 +1,5 @@
 // The annotation properties panel: reads the selection's properties and
-// edits them through the controller — plus the controller's contents and
+// edits them through the controller - plus the controller's contents and
 // author setters it relies on.
 
 import 'package:flutter/gestures.dart';
@@ -29,7 +29,7 @@ void main() {
       expect(editing.setSelectedContents('a comment'), isTrue);
       final after = editing.document.page(0).annotations.single;
       expect(after.contents, 'a comment');
-      // same appearance bytes — nothing was redrawn
+      // same appearance bytes - nothing was redrawn
       expect(editing.document.cos.decodeStreamData(after.normalAppearance!),
           appearance);
       // the selection survives the in-place edit

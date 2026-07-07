@@ -226,7 +226,7 @@ class OcspResponse {
   final List<OcspSingleResponse> responses;
 
   /// Certificates the response carried (the responder cert, for delegated
-  /// responders) — candidates for verifying the response signature.
+  /// responders) - candidates for verifying the response signature.
   final List<X509Certificate> certificates;
 
   final Uint8List? _tbsResponseData;

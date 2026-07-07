@@ -6,8 +6,8 @@ import 'package:dart_pdf_editor/src/editing/editing_form_layer.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Form fields fill in directly in reading / default mode — no editing
-/// tool armed — both in the editor (an [editing] controller) and in the
+/// Form fields fill in directly in reading / default mode - no editing
+/// tool armed - both in the editor (an [editing] controller) and in the
 /// read-only reader (a standalone [PdfViewer.formController]).
 void main() {
   // 800px viewport over a 612pt page, fit to width (the same math the
@@ -25,7 +25,7 @@ void main() {
       tester.pumpAndSettle(const Duration(milliseconds: 300));
 
   /// Pumps a viewer with an editing controller but no tool armed (the
-  /// editor's default mode), or — when [asReader] — only a
+  /// editor's default mode), or - when [asReader] - only a
   /// [formController], the way the read-only reader drives it.
   Future<PdfEditingController> pumpViewer(
     WidgetTester tester, {

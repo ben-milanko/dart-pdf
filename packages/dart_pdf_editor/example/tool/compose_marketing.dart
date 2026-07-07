@@ -5,7 +5,7 @@
 //
 // The whole composition is one SVG (gradient + text + the capture embedded as
 // a base64 <image> with a rounded clip and a blurred drop shadow) rendered to
-// PNG with `rsvg-convert -w <W> -h <H>` — no per-pixel work in Dart, crisp
+// PNG with `rsvg-convert -w <W> -h <H>` - no per-pixel work in Dart, crisp
 // type from a real system font.
 //
 // Usage (tool/screenshots.sh drives this after each capture run):
@@ -23,7 +23,7 @@ import 'dart:io';
 import 'dart:math';
 
 /// Headline + subtitle per screenshot, keyed `<target>/<basename>` (the raw
-/// PNG name without its extension). Edit these freely — they're the only
+/// PNG name without its extension). Edit these freely - they're the only
 /// marketing copy in the pipeline.
 const _captions = <String, (String, String)>{
   // The standalone DartPDF app.
@@ -42,7 +42,7 @@ const _captions = <String, (String, String)>{
 /// An optional hand-drawn markup flourish per screenshot, keyed
 /// `<target>/<basename>` (same scheme as [_captions]). Each builder is handed
 /// the device-frame rect (its on-canvas left/top/width/height after scaling)
-/// and the canvas orientation, and returns SVG drawn *over* the capture —
+/// and the canvas orientation, and returns SVG drawn *over* the capture -
 /// deliberately allowed to run past the frame edge into the gradient, the way a
 /// reviewer's pen overshoots the page. Only the standalone-app shots are marked
 /// up. Geometry is in frame fractions (values outside 0..1 fall beyond the
@@ -76,7 +76,7 @@ final _annotations = <String, _Flourish>{
       )),
 };
 
-/// The brand "ink" colour for drawn-on markup — a confident marker red-orange
+/// The brand "ink" colour for drawn-on markup - a confident marker red-orange
 /// that reads cleanly over both the screenshot and the blue gradient.
 const _inkColor = '#FF5A47';
 

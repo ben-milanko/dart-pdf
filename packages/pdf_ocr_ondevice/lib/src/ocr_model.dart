@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// One downloadable file that makes up an on-device OCR model — typically an
+/// One downloadable file that makes up an on-device OCR model - typically an
 /// ONNX network or a character dictionary.
 @immutable
 class PdfOcrModelFile {
@@ -19,7 +19,7 @@ class PdfOcrModelFile {
 
   /// Optional lowercase hex SHA-256 of the file. When set, a download whose
   /// digest does not match is rejected (and the partial file deleted). When
-  /// null, integrity is not checked — fine for a self-hosted bundle you
+  /// null, integrity is not checked - fine for a self-hosted bundle you
   /// control, but set it for anything you ship to users.
   final String? sha256;
 
@@ -30,7 +30,7 @@ class PdfOcrModelFile {
 
 /// A complete on-device OCR model: a text-detection network, a
 /// text-recognition network, the recognizer's character dictionary, and an
-/// optional orientation classifier — the four pieces of a classic
+/// optional orientation classifier - the four pieces of a classic
 /// detect-then-recognize OCR pipeline (PP-OCR family).
 @immutable
 class PdfOcrModel {
@@ -49,7 +49,7 @@ class PdfOcrModel {
     this.detectionStd = const [0.229, 0.224, 0.225],
   });
 
-  /// A stable identifier — also the model's cache sub-directory name, so keep
+  /// A stable identifier - also the model's cache sub-directory name, so keep
   /// it filesystem-safe (letters, digits, `-`, `_`).
   final String id;
 
@@ -71,7 +71,7 @@ class PdfOcrModel {
   /// The recognizer's character dictionary (one token per line).
   final PdfOcrModelFile dictionary;
 
-  /// Optional angle classifier (0/180) — omitted by default.
+  /// Optional angle classifier (0/180) - omitted by default.
   final PdfOcrModelFile? classification;
 
   /// The fixed input height the recognizer expects (PP-OCRv5 = 48).
@@ -117,7 +117,7 @@ class PdfOcrModel {
 /// ships in-tree, so the default [ppOcrV5Mobile] points its file URLs at the
 /// `ocr-models-v1` GitHub release (PP-OCRv5 mobile converted to ONNX; see the
 /// package README for the `paddle2onnx` recipe and Apache-2.0 attribution).
-/// To host the bundle elsewhere — or use a different model — swap in your own
+/// To host the bundle elsewhere - or use a different model - swap in your own
 /// [PdfOcrModel] (any URLs + SHA-256s) via [PdfOcrModelManager] /
 /// [OnDeviceOcrEngine] at any time.
 abstract final class PdfOcrModels {
@@ -129,7 +129,7 @@ abstract final class PdfOcrModels {
     'https://github.com/ben-milanko/dart-pdf/releases/download/ocr-models-v1/',
   );
 
-  /// PP-OCRv5 *mobile* — the small (~5M-parameter, ~21 MB total) classic
+  /// PP-OCRv5 *mobile* - the small (~5M-parameter, ~21 MB total) classic
   /// detect+recognize pipeline. Runs on CPU on every supported platform; the
   /// recommended offline default. Multilingual dictionary (CJK + Latin), so
   /// it reads English/Latin scans out of the box.

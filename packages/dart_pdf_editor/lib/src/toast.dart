@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Margin that floats a [SnackBar] clear of the editor's bottom chrome —
+/// Margin that floats a [SnackBar] clear of the editor's bottom chrome -
 /// the floating editing toolbar dock (and any device safe-area inset
 /// beneath it, e.g. a home indicator). Use it with
 /// [SnackBarBehavior.floating] so toasts never hide behind the dock:

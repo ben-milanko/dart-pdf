@@ -104,8 +104,8 @@ extension PdfPageOperations on PdfEditor {
         [...leaves]..insert(insertAt, _Leaf(ref, dict, isNew: true)));
   }
 
-  /// Copies pages from [source] into this document — all of them, or the
-  /// given [indices] (in that order) — inserting [at] the given position
+  /// Copies pages from [source] into this document - all of them, or the
+  /// given [indices] (in that order) - inserting [at] the given position
   /// (default: appended at the end).
   ///
   /// Everything each page references is deep-copied: content streams,
@@ -133,7 +133,7 @@ extension PdfPageOperations on PdfEditor {
   }
 
   /// Collects the current leaves in order, copying any attributes a page
-  /// inherits from its ancestors onto the page itself — flattening is
+  /// inherits from its ancestors onto the page itself - flattening is
   /// about to cut those ancestors out of the tree.
   List<_Leaf> _materializedLeaves() {
     final count = document.pageCount;
@@ -248,7 +248,7 @@ extension PdfPageExtraction on PdfDocument {
   }
 
   /// Builds a standalone PDF of pages [start] through [end] inclusive, in
-  /// order — a convenience over [extractPages] for the common contiguous
+  /// order - a convenience over [extractPages] for the common contiguous
   /// range. [end] must not be before [start].
   Uint8List extractPageRange(int start, int end) {
     if (end < start) {
@@ -268,7 +268,7 @@ class _Leaf {
   /// Attributes were materialized onto the dict, so it must be rewritten.
   final bool changed;
 
-  /// Freshly imported — already queued for writing, [PdfEditor] must not
+  /// Freshly imported - already queued for writing, [PdfEditor] must not
   /// call markChanged on it.
   final bool isNew;
 }
@@ -291,8 +291,8 @@ class _PageImporter {
     final cos = source.cos;
     final pages = [for (final i in indices) source.page(i)];
 
-    // pre-register every imported page so references between them — link
-    // destinations, annotation /P entries — remap instead of dropping
+    // pre-register every imported page so references between them - link
+    // destinations, annotation /P entries - remap instead of dropping
     final leaves = <_Leaf>[];
     for (final page in pages) {
       final dest = CosDictionary();
@@ -370,7 +370,7 @@ class _PageImporter {
       case CosNull():
         return CosNull.instance;
       default:
-        // an indirectly referenced scalar — inline it at the use site
+        // an indirectly referenced scalar - inline it at the use site
         return copyValue(target);
     }
   }

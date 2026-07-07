@@ -1,6 +1,6 @@
 # Launching hyperlinks from the viewer
 
-Tapping a `/Link` whose action is `/URI` used to do nothing on its own —
+Tapping a `/Link` whose action is `/URI` used to do nothing on its own -
 the viewer surfaced every URI to `PdfViewer.onAction` and left opening it
 to the host. So a plain web link in a PDF was inert unless the embedding
 app wired `url_launcher` itself. This adds built-in launching.
@@ -13,12 +13,12 @@ app wired `url_launcher` itself. This adds built-in launching.
   `PdfViewer.onLaunchUrl` (threaded through `PdfReader` too).
 - `_activate` routes `PdfUriAction` into `_openUri`, which calls
   `onLaunchUrl ?? _launchExternalUrl`. The default opens the well-known
-  external schemes — `http`, `https`, `mailto`, `tel`, `sms` — through
+  external schemes - `http`, `https`, `mailto`, `tel`, `sms` - through
   `url_launcher`'s `launchUrl(..., LaunchMode.externalApplication)` and
   returns `false` for anything else.
 - `url_launcher: ^6.3.0` is now a direct dependency of `dart_pdf_editor`
   (it was already used by `app/` and the example). It is web-safe and
-  pulls in no `dart:io`, so the layering rules hold — only the top
+  pulls in no `dart:io`, so the layering rules hold - only the top
   `dart_pdf_editor` layer touches it.
 
 ## The onAction fallback is preserved deliberately
@@ -47,7 +47,7 @@ scheme included.
 
 `url_launcher` can't reach a real platform in widget tests. Two seams:
 
-- The `onLaunchUrl` override is plain Dart — most tests pass a closure
+- The `onLaunchUrl` override is plain Dart - most tests pass a closure
   that records the `Uri` (and return true/false/throw) and assert against
   `onAction`. No platform mock needed.
 - For the *default* path (proving `http` actually reaches
@@ -61,6 +61,6 @@ scheme included.
 ## Demo
 
 The example's page 1 gains a real `https://pub.dev/...` text link beneath
-the table of contents — the viewer opens it with zero host wiring, in
+the table of contents - the viewer opens it with zero host wiring, in
 contrast to the `app://` buttons above it that the demo dispatches through
 `onAction`. `demo_document_test` now expects 9 page-1 links (was 8).

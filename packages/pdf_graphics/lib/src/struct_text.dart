@@ -1,4 +1,4 @@
-/// The logical structure tree joined to extracted text — the read-path
+/// The logical structure tree joined to extracted text - the read-path
 /// bridge between the COS-level structure tree (pdf_document's
 /// [PdfStructTree]) and the positioned text runs this layer extracts.
 ///
@@ -40,7 +40,7 @@ class PdfLogicalNode {
 
   /// The best accessible text for this node alone: replacement text
   /// (/ActualText) wins, then the tagged [text], then the alternate
-  /// description (/Alt) — the order a screen reader would announce.
+  /// description (/Alt) - the order a screen reader would announce.
   String get accessibleText {
     final actual = element.actualText;
     if (actual != null && actual.isNotEmpty) return actual;

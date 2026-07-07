@@ -1,6 +1,6 @@
 // Wheel-event scrolling, including web trackpad pans: on web there are
-// no PointerPanZoomEvents — the engine delivers trackpad scrolls as
-// PointerScrollEvents with kind: trackpad — so these tests simulate that
+// no PointerPanZoomEvents - the engine delivers trackpad scrolls as
+// PointerScrollEvents with kind: trackpad - so these tests simulate that
 // stream. Regression: with an editing tool armed the list's
 // NeverScrollableScrollPhysics made the Scrollable refuse wheel events,
 // which on web killed vertical two-finger scrolling entirely (horizontal
@@ -98,7 +98,7 @@ void main() {
   // still in dy (the engine passes the wheel through raw and Flutter's
   // own pointerAxisModifiers do the flip) and pre-flipped into dx (the
   // browser / macOS swap the axis at the source). Both must pan the zoom
-  // window sideways without scrolling the list — and crucially the dx form
+  // window sideways without scrolling the list - and crucially the dx form
   // is the one the vertical Scrollable would otherwise eat as a vertical
   // scroll, so it's the regression that broke real-app shift-scrolling.
   for (final delta in const [Offset(0, 60), Offset(60, 0)]) {

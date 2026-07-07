@@ -7,7 +7,7 @@ part of 'editor.dart';
 /// timestamp.
 ///
 /// The TSA and revocation transports are injected ([PdfTimestampClient],
-/// [PdfRevocationClient]) — the library performs no network I/O.
+/// [PdfRevocationClient]) - the library performs no network I/O.
 extension PdfPadesSigning on PdfEditor {
   /// Signs the document at PAdES baseline [level] and returns the complete
   /// signed file. Builds an `ETSI.CAdES.detached` signature with the
@@ -108,7 +108,7 @@ extension PdfPadesSigning on PdfEditor {
   }
 
   /// Adds a document timestamp (DocTimeStamp, SubFilter ETSI.RFC3161) over
-  /// the whole current file as a fresh incremental update — the archive
+  /// the whole current file as a fresh incremental update - the archive
   /// timestamp that B-LTA renews. Standalone too: call it on an already
   /// signed file to extend (or initiate) long-term assurance.
   Future<Uint8List> addDocumentTimestamp(

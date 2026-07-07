@@ -110,7 +110,7 @@ void main() {
         (tester) async {
       final editing = await pumpOverlay(tester, zoom: 2.5);
       final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
-      // where the knob would sit at zoom 1 (22 local px above the top) —
+      // where the knob would sit at zoom 1 (22 local px above the top) -
       // 13.2 px from the scaled knob, past the 12/2.5 = 4.8 px hit radius
       final stale = origin + const Offset(100, 71 - 22);
       final center = origin + const Offset(100, 96);
@@ -123,7 +123,7 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle(const Duration(milliseconds: 400));
 
-      // the drag missed the knob — nothing committed
+      // the drag missed the knob - nothing committed
       expect(identical(editing.document, before), isTrue);
       final annotation = editing.document.page(0).annotations.single;
       expect(annotation.rect.width, closeTo(200, 1e-6));
@@ -170,7 +170,7 @@ void main() {
       final zoom = viewer.zoom;
       expect(zoom, greaterThan(1.5));
       // chrome counter-scales the transform zoom (the only thing that scales
-      // it on screen), not the px/pt zoom — public zoom is px/pt
+      // it on screen), not the px/pt zoom - public zoom is px/pt
       // (= transform scale × fit-width = 800/612 here), so divide it back out
       const fitWidth = 800 / 612;
       final transformScale = zoom / fitWidth;
@@ -274,7 +274,7 @@ void main() {
       expect(g, greaterThan(200));
       expect(b, greaterThan(200));
 
-      // between the handle and the knob the connector still shows — scan
+      // between the handle and the knob the connector still shows - scan
       // a small patch: the 1.5px line lands between pixel columns
       var lineSeen = false;
       for (var dx = -2; dx <= 2 && !lineSeen; dx++) {

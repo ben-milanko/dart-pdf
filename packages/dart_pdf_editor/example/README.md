@@ -7,7 +7,7 @@ also the reference wiring for the drop-in `PdfEditorView` / `PdfReader`
 shells, web render worker setup, file open/save, and HTTP OCR through
 `pdf_ocr_vlm`.
 
-Runs on every Flutter platform — macOS, iOS, Android, web, Windows, and
+Runs on every Flutter platform - macOS, iOS, Android, web, Windows, and
 Linux:
 
 ```sh

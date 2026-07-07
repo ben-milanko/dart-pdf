@@ -15,7 +15,7 @@ extension PdfFormFilling on PdfEditor {
   /// aligned per /Q quadding.
   ///
   /// [multiline] toggles the field's multiline flag (/Ff bit 13) before
-  /// the appearance regenerates — pass true to let long values wrap in
+  /// the appearance regenerates - pass true to let long values wrap in
   /// fields authored as single-line. Null leaves the flag alone.
   ///
   /// /V stores [value] verbatim (UTF-16BE when it leaves Latin-1); the
@@ -187,7 +187,7 @@ extension PdfFormFilling on PdfEditor {
 
   /// Rebuilds [widget]'s /AP /N on/off states at its current /Rect,
   /// preserving the existing state names (so a radio button keeps its
-  /// export value). Used when a button widget is resized — unlike
+  /// export value). Used when a button widget is resized - unlike
   /// [_ensureButtonAppearances], it regenerates states that already
   /// exist so the mark refits the new box.
   void _regenerateButtonStates(PdfFormField field, CosDictionary widget) {
@@ -231,7 +231,7 @@ extension PdfFormFilling on PdfEditor {
   /// appearance at the new size instead of stretching it: text and
   /// choice fields re-lay their value, check boxes and radio buttons
   /// redraw their mark. Push-button, signature, and unknown fields keep
-  /// their appearance — only the /Rect moves. A no-op when the field or
+  /// their appearance - only the /Rect moves. A no-op when the field or
   /// widget index is missing.
   ///
   /// Used by the editing UI's form tool when a field's resize handle is
@@ -271,7 +271,7 @@ extension PdfFormFilling on PdfEditor {
   // variable text (§12.7.3.3)
 
   /// The appearance fonts are byte-encoded simple fonts, so code units
-  /// past 0xFF can never reach the page — swap them for spaces (the
+  /// past 0xFF can never reach the page - swap them for spaces (the
   /// trax/desktop-filler convention) instead of letting the writer
   /// emit '?'. /V keeps the original text.
   static String sanitizeFieldText(String text) {
@@ -288,7 +288,7 @@ extension PdfFormFilling on PdfEditor {
     // an embedded (Type0) /DR font shows text as 2-byte glyph ids: reparse
     // its program so the appearance can encode and measure with it. A
     // base-14 /DR entry stays on the simple byte path. Text past Latin-1 is
-    // only sanitized for the simple fonts — an embedded font can show it.
+    // only sanitized for the simple fonts - an embedded font can show it.
     final embedded = fontDict == null
         ? null
         : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);

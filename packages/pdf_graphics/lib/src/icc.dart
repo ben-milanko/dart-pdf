@@ -8,7 +8,7 @@ import 'color.dart';
 ///
 /// Coverage: gray TRC profiles, matrix/TRC RGB profiles (v2 and v4,
 /// `curv` and `para` curves), and LUT profiles via A2B0 (`mft1`, `mft2`,
-/// and `mAB ` pipelines) with XYZ or Lab PCS — which spans sRGB-like,
+/// and `mAB ` pipelines) with XYZ or Lab PCS - which spans sRGB-like,
 /// wide-gamut RGB, and the common CMYK press profiles. Unsupported
 /// shapes parse to null and callers fall back to device heuristics.
 /// Rendering intents and black-point compensation are not applied.

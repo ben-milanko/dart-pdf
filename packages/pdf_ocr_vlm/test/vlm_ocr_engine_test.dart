@@ -2,7 +2,7 @@
 // back into PDF user space. These tests stand in a MockClient for the
 // service, so they exercise the request shape, the response parsing (both
 // the simple contract and the dots.ocr OpenAI shape), and the pixel→user
-// geometry — with no network and no GPU.
+// geometry - with no network and no GPU.
 import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';

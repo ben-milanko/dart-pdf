@@ -8,7 +8,7 @@ import 'editing_controller.dart';
 /// with its kind, item count, and accumulated real-world total.
 ///
 /// Pure read-side: it listens to the [controller] and rebuilds
-/// [PdfTakeoffSummary] on every revision (cheap — one annotation walk), so
+/// [PdfTakeoffSummary] on every revision (cheap - one annotation walk), so
 /// it always mirrors the current document, including after undo/redo. Drop
 /// it beside the viewer or in a bottom sheet:
 ///

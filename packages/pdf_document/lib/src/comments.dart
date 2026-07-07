@@ -130,7 +130,7 @@ class PdfComment {
 /// replies linked by /IRT and its review state recorded as state replies.
 ///
 /// Assemble the threads on a page with [forPage]; find the thread a given
-/// annotation belongs to with [of]. The model is read-only — author and
+/// annotation belongs to with [of]. The model is read-only - author and
 /// edit threads through `PdfCommentEditing` on the editor.
 class PdfCommentThread {
   PdfCommentThread._(this.root);
@@ -164,7 +164,7 @@ class PdfCommentThread {
     return latest;
   }
 
-  /// Whether the thread has been resolved — its current state is
+  /// Whether the thread has been resolved - its current state is
   /// `Completed` (see `PdfCommentEditing.resolveThread`).
   bool get isResolved => state?.state == PdfReviewState.completed;
 

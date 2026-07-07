@@ -30,8 +30,8 @@ void main() {
       expect(stamp.rect.height, closeTo(40, 1e-6));
       expect((stamp.rect.left + stamp.rect.right) / 2, closeTo(300, 1e-6));
       // pasting it back is vector: the appearance draws the captured form
-      final ap =
-          latin1.decode(editing.document.cos.decodeStreamData(stamp.normalAppearance!));
+      final ap = latin1.decode(
+          editing.document.cos.decodeStreamData(stamp.normalAppearance!));
       expect(ap, contains('/Cap Do'));
       // the pasted stamp is selected for immediate move/resize
       expect(editing.hasAnnotationSelection, isTrue);
@@ -162,7 +162,7 @@ void main() {
         await gesture.moveTo(view(150, 720));
         await gesture.moveTo(view(220, 700));
         await gesture.up();
-        // captureSnapshot renders + encodes a PNG (toImage) — let it finish
+        // captureSnapshot renders + encodes a PNG (toImage) - let it finish
         for (var i = 0; i < 50 && captured == null; i++) {
           await tester.pump(const Duration(milliseconds: 20));
           await Future<void>.delayed(const Duration(milliseconds: 10));

@@ -423,7 +423,7 @@ void main() {
       30
     ]);
 
-    // The base ignores the /SMask (alpha stays 255) — the caller bakes it in.
+    // The base ignores the /SMask (alpha stays 255) - the caller bakes it in.
     final base = decodePdfImageBase(cos, stream)!;
     expect(base.opaque, isTrue);
     expect(base.rgba, [10, 20, 30, 255]);

@@ -3,7 +3,7 @@ import 'dart:ui' show Offset, Rect;
 
 /// Pure (web-free) geometry and parsing for the browser OCR path, so the
 /// tiling, Florence-2 result parsing, and overlap de-duplication can be unit
-/// tested on the Dart VM — `ocr_web.dart` itself imports `dart:js_interop`
+/// tested on the Dart VM - `ocr_web.dart` itself imports `dart:js_interop`
 /// and so can't be loaded by `flutter test`.
 ///
 /// Florence-2 resizes every input image to a fixed 768x768 square before it
@@ -14,7 +14,7 @@ import 'dart:ui' show Offset, Rect;
 /// per-tile boxes back into full-page pixel space and drop the duplicates the
 /// overlaps produce ([ocrTiles] + [parseFlorenceSpans] + [mergeOcrSpans]).
 
-/// One recognized text run in raster-pixel space (top-left origin, y down) —
+/// One recognized text run in raster-pixel space (top-left origin, y down) -
 /// the space tiles and an image-based OCR engine both work in, before the
 /// page geometry maps it to PDF user space.
 class OcrRawSpan {
@@ -28,7 +28,7 @@ class OcrRawSpan {
   final Rect box;
   final double confidence;
 
-  /// A copy translated by ([dx], [dy]) — used to lift a tile-local box into
+  /// A copy translated by ([dx], [dy]) - used to lift a tile-local box into
   /// full-page pixel coordinates by its tile's origin.
   OcrRawSpan shifted(double dx, double dy) => OcrRawSpan(
         text: text,
@@ -88,7 +88,7 @@ List<Rect> ocrTiles(
 }
 
 /// Parses a Florence-2 `<OCR_WITH_REGION>` (or plain `<OCR>`) result [payload]
-/// — already JSON-decoded — into raster-pixel spans. Boxes come back in
+/// - already JSON-decoded - into raster-pixel spans. Boxes come back in
 /// whatever pixel space the model was given; for a tile that is tile-local, so
 /// the caller offsets each span by the tile origin ([OcrRawSpan.shifted]).
 ///

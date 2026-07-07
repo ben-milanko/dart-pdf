@@ -87,7 +87,7 @@ void main() {
 
       final a = c.document.page(0).annotations.last;
       expect(a.contents, 'edited text');
-      // Still the embedded font — not reverted to /Helv.
+      // Still the embedded font - not reverted to /Helv.
       expect(daOf(c, a), contains('/F0'));
       expect(isType0(c, a), isTrue);
     });

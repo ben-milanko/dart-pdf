@@ -1,5 +1,5 @@
 // A CLI-style example that exports the pages of a PDF to PNG/JPEG image
-// files — the public "PDF → image" entry point ([PdfPageExport]).
+// files - the public "PDF → image" entry point ([PdfPageExport]).
 //
 // Rasterization needs the Flutter engine (`dart:ui`), so this runs under the
 // flutter_test harness rather than `dart run`:
@@ -14,7 +14,7 @@
 //   FORMAT     png | jpeg (default png)
 //   PAGES      "all" or a 0-based "start-end" range, inclusive (default all)
 //
-// `dart:io` here is fine — this is an example/tool, not library code.
+// `dart:io` here is fine - this is an example/tool, not library code.
 import 'dart:io';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';

@@ -16,7 +16,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 /// fonts (macOS paths) so rendered text is legible. Best-effort.
 ///
 /// FontLoader registrations persist for the whole test process, so this loads
-/// once — re-running it per file (the render suites call it inside every file's
+/// once - re-running it per file (the render suites call it inside every file's
 /// runAsync) would re-read tens of MB of .ttc data each time and exhaust the
 /// tester.
 bool _systemFontsLoaded = false;

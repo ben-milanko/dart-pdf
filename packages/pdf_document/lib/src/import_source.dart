@@ -6,15 +6,15 @@ import 'document.dart';
 ///
 /// **This is an interface seam, not an engine.** dart-pdf deliberately does
 /// not implement OOXML (DOCX/XLSX/PPTX), RTF, or other office-format layout
-/// in Dart — faithful conversion is a large native/cloud subsystem and a
+/// in Dart - faithful conversion is a large native/cloud subsystem and a
 /// poor fit for a pure-Dart, web-capable library. Instead, a host supplies
 /// the conversion (a server endpoint, a platform plugin like Apple's
 /// `NSAttributedString`/Quick Look, LibreOffice headless, a cloud API) and
 /// dart-pdf consumes the resulting PDF bytes through the rest of the
-/// pipeline — viewing, editing, signing.
+/// pipeline - viewing, editing, signing.
 ///
-/// For the one ingestion path that *is* feasible in pure Dart — assembling
-/// a stack of raster images into a PDF — see `PdfImageDocument`, which
+/// For the one ingestion path that *is* feasible in pure Dart - assembling
+/// a stack of raster images into a PDF - see `PdfImageDocument`, which
 /// needs no host engine.
 ///
 /// Example:

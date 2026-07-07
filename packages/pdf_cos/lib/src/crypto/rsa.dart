@@ -1,4 +1,4 @@
-/// RSA PKCS#1 v1.5 signatures over Dart's native [BigInt.modPow] — used
+/// RSA PKCS#1 v1.5 signatures over Dart's native [BigInt.modPow] - used
 /// to verify and produce CMS signatures. No padding oracle concerns
 /// apply: signing pads deterministically and verification rebuilds the
 /// expected encoding and compares.
@@ -166,7 +166,7 @@ Uint8List _mgf1(crypto.Hash hash, List<int> seed, int length) {
 
 /// Verifies an RSASSA-PSS signature (RFC 8017 §8.1.2) over a precomputed
 /// message hash [mHash]. [hash] is used both for the message digest and as
-/// the MGF1 hash — PSS permits them to differ, but conformant signers (and
+/// the MGF1 hash - PSS permits them to differ, but conformant signers (and
 /// every real PDF signature) use one algorithm for both.
 ///
 /// When [saltLength] is null the salt length is recovered from the encoded

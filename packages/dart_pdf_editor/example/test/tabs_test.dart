@@ -72,7 +72,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    // no tabs, no strip, no viewer — just the empty-state buttons
+    // no tabs, no strip, no viewer - just the empty-state buttons
     expect(closeButtons(), findsNothing);
     expect(find.byType(PdfViewer), findsNothing);
     expect(find.text('Open a PDF'), findsOneWidget);

@@ -26,7 +26,7 @@ void main() {
       expect(await raster.loadPreview(0), isNull);
       expect(await raster.readBytes(0), isNull);
       // storePreview without an image is hard to call; readBytes proving no
-      // write key exists is enough — documentKey '' short-circuits both.
+      // write key exists is enough - documentKey '' short-circuits both.
     });
   });
 
@@ -149,7 +149,7 @@ void main() {
     // remove, or reorder pages, shifting that index, so a stale-by-index
     // preview would surface during fast scrolling. The viewer must keep an
     // editing document's previews in-memory only, exactly as the text cache
-    // does — so even with a rasterCache + documentId the store stays idle.
+    // does - so even with a rasterCache + documentId the store stays idle.
     final store = PdfMemoryCacheStore();
     final raster = PdfRasterCache(PdfDiskCache(store));
     final editing = PdfEditingController(buildMultiPagePdf(4));

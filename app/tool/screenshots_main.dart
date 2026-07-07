@@ -3,8 +3,8 @@
 // light + dark). It steps through a fixed list of states, holding each one
 // still and printing a marker line the host capture tool watches for:
 //
-//   @@SHOT@@ <name>     a scene is settled and on screen — grab it now
-//   @@SHOT_DONE@@       all scenes done — the host can quit `flutter run`
+//   @@SHOT@@ <name>     a scene is settled and on screen - grab it now
+//   @@SHOT_DONE@@       all scenes done - the host can quit `flutter run`
 //
 // tool/screenshots.sh (shared with the example) drives it; or run by hand
 // once a device is booted:
@@ -13,8 +13,8 @@
 //
 // This entry lives under tool/ (not lib/) so it may import the example
 // package as a dev dependency for its feature-showcase document. It mirrors
-// the real app shell (app/lib/app.dart) — a prefs-driven MaterialApp around
-// EditorScreen — but starts from an isolated, empty preferences store so a
+// the real app shell (app/lib/app.dart) - a prefs-driven MaterialApp around
+// EditorScreen - but starts from an isolated, empty preferences store so a
 // developer's real saved settings never bleed into a marketing shot.
 
 import 'dart:async';
@@ -62,7 +62,7 @@ const _scenes = <_Scene>[
   // page itself is the focus.
   _Scene('01-welcome'),
   // The editor showing the page-thumbnail panel and the browser-style tab strip
-  // — the full workspace.
+  // - the full workspace.
   _Scene('02-editor', thumbnails: true),
   // The same editor in dark mode.
   _Scene('03-dark', themeMode: ThemeMode.dark, thumbnails: true),
@@ -99,7 +99,7 @@ class _AppScreenshotsState extends State<AppScreenshots> {
     for (final scene in _scenes) {
       // Set the prefs first, THEN rebuild the editor under a per-scene key. The
       // shell reads panel visibility once at init, so flipping the pref on a
-      // live shell won't collapse an open panel — re-keying forces a fresh read
+      // live shell won't collapse an open panel - re-keying forces a fresh read
       // (the theme still applies live through the prefs listenable).
       _prefs.themeMode = scene.themeMode;
       _prefs.showThumbnailSidebar = scene.thumbnails;

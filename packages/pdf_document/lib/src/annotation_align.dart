@@ -52,7 +52,7 @@ enum PdfAlignment {
 ///
 /// Returns all-zero offsets when there are too few rects for the operation
 /// ([PdfAlignment.minimumCount]). The caller applies the offsets by
-/// translating each annotation's /Rect (and its coordinate arrays) — see
+/// translating each annotation's /Rect (and its coordinate arrays) - see
 /// `PdfEditor.moveAnnotation`.
 List<({double dx, double dy})> alignmentOffsets(
     List<PdfRect> rects, PdfAlignment alignment) {

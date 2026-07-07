@@ -40,7 +40,7 @@ void main() {
 
   /// A fast upward touch drag over empty page area; the overlay's pan
   /// recognizer claims it (select tool armed) and pans the viewport.
-  /// Events carry explicit timestamps — TestGesture defaults every event
+  /// Events carry explicit timestamps - TestGesture defaults every event
   /// to t=0, which reads as zero velocity at lift-off.
   Future<(TestGesture, Duration)> swipeUp(WidgetTester tester) async {
     var stamp = Duration.zero;

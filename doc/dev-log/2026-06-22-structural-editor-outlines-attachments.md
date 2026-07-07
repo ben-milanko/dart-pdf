@@ -8,7 +8,7 @@ Four mostly-independent "complete editor" structural features, all in
 A combined-feature PDF was generated and opened in **pdf.js 6.0** (real
 reader): it reported the nested outline (with bold/colour flags), the
 embedded attachment bytes, page labels `[i, ii, 1, 2, 3, 4]`, and the
-stamped header/footer text — all correct.
+stamped header/footer text - all correct.
 
 **1. Outlines / bookmarks** (`outline.dart` read, `outline_editor.dart`
 write). `PdfOutline.of(doc)` resolves the `/Outlines` tree into nested
@@ -21,7 +21,7 @@ identity-cached so this is sound). `PdfOutlineEditing` exposes
 other mutators), `removeOutlineItem`, `moveOutlineItem`, `setOutlineTitle/
 Destination/Style`. Items are linked by First/Last/Next/Prev/Parent; the
 robust primitive is `_relinkOutlineChildren(parentRef, orderedRefs)`,
-which rebuilds all four sibling links + Parent from an ordered list — every
+which rebuilds all four sibling links + Parent from an ordered list - every
 insert/move/remove reduces to "compute the new ordered child list, relink".
 `/Count` is recomputed wholesale after each mutation (`_recountOutline`):
 `visible(node)` = Σ over children of `1 + (childOpen ? visible(child) : 0)`,
@@ -49,7 +49,7 @@ re-writes the tree (clears `/EmbeddedFiles` when empty).
 filespec + icon. GOTCHA: when reusing an indirect tree node via
 `replaceObject`, also `cos.adoptObject(ref, node)` or a later read in the
 same session sees the stale node. Date parsing honours the `Z`/`±HH'mm'`
-zone (the writer emits UTC `D:...Z`; the reader returns the same instant —
+zone (the writer emits UTC `D:...Z`; the reader returns the same instant -
 without this a round-trip compared `12:30:15Z` against a local
 `12:30:15`). Encrypt-on-write re-encrypts the new plaintext stream
 automatically (updater `_encryptedCopy`).
@@ -67,7 +67,7 @@ present, else the number), `{date}` (`YYYY-MM-DD`).
 write, viewer wiring). `PdfPageLabelStyle` {decimal, romanUpper/Lower,
 alphaUpper/Lower, none}; `PdfPageLabelRange` formats labels
 (`labelAt(offset)` = prefix + styled `start+offset`; alpha is A..Z, AA..ZZ,
-AAA.. per §12.4.2 — NOT spreadsheet base-26). `PdfPageLabels.of(doc)` walks
+AAA.. per §12.4.2 - NOT spreadsheet base-26). `PdfPageLabels.of(doc)` walks
 the `/PageLabels` number tree (/Nums + /Kids), sorts ranges, and
 `labelFor(index)` finds the covering range (physical-number fallback).
 `PdfPageLabelEditing`: `setPageLabel`/`removePageLabelRange`/`clearPageLabels`/

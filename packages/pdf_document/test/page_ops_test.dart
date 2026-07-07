@@ -223,7 +223,7 @@ void main() {
       expect(annots.length, 6);
 
       // the GoTo link on imported page 1 pointed at source page 3, which
-      // came along — its destination must now be the copy
+      // came along - its destination must now be the copy
       final goTo = out.cos.resolve(annots[1]) as CosDictionary;
       final action = out.cos.resolve(goTo['A']) as CosDictionary;
       final destArray = out.cos.resolve(action['D']) as CosArray;

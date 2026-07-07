@@ -420,7 +420,7 @@ class _Type1Runner {
         } else if (b <= 254) {
           _stack.add((-(b - 251) * 256 - cs[p++] - 108).toDouble());
         } else {
-          // 255: 32-bit signed integer (not 16.16 fixed — that's Type 2).
+          // 255: 32-bit signed integer (not 16.16 fixed - that's Type 2).
           var v = (cs[p] << 24) | (cs[p + 1] << 16) | (cs[p + 2] << 8) | cs[p + 3];
           if (v > 0x7FFFFFFF) v -= 0x100000000;
           p += 4;

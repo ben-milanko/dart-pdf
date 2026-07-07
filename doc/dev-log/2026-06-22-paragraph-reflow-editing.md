@@ -1,6 +1,6 @@
 # Paragraph-level reflow editing (PdfEditor.reflowText)
 
-## Paragraph reflow (Tier 4 — `PdfEditor.reflowText`)
+## Paragraph reflow (Tier 4 - `PdfEditor.reflowText`)
 
 Where `replaceText` corrects text *within* a line (holding the rest of the
 line put with a compensating kern), `reflowText(index, find, replace)`
@@ -8,7 +8,7 @@ line put with a compensating kern), `reflowText(index, find, replace)`
 paragraph: the replacement may make the paragraph grow or shrink by lines,
 its lines re-break at the column's right margin, and the lines that follow
 it cascade up/down so nothing overlaps. It returns `true` when a paragraph
-was reflowed, `false` (page untouched) otherwise — the same never-corrupt
+was reflowed, `false` (page untouched) otherwise - the same never-corrupt
 philosophy as the Type0 editor.
 
 Layering note: the reading-order/paragraph inference lives in
@@ -16,7 +16,7 @@ Layering note: the reading-order/paragraph inference lives in
 the block heuristics are **ported** to run directly over the content stream.
 `reflowText` simulates the text/line matrices over `PdfPageElements`'
 operations to build `_ReflowLine`s (origin, baseline, leading, font, and the
-break that reached each line — decoded text comes from `PdfPageElements`
+break that reached each line - decoded text comes from `PdfPageElements`
 elements so Type0 reads as real Unicode), then `_reflowGroups` folds
 consecutive lines into a paragraph when they share a text object, font +
 size, left margin, and a constant leading reached by a *relative* downward
@@ -29,7 +29,7 @@ lines, replacing only the op span `[firstShow..lastShow]`. The break that
 connects the paragraph to the following content is left in place, so
 changing the number of in-paragraph breaks shifts everything after it by
 exactly `(newLines − oldLines) × leading` through the content stream's own
-relative positioning — no following content is rewritten. It bails when a
+relative positioning - no following content is rewritten. It bails when a
 line-count change would have to cascade through *absolutely* positioned
 following content (it can't move → would overlap).
 

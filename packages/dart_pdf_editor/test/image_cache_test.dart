@@ -1,6 +1,6 @@
 // PdfImageCache must (a) hand out independent clones backed by a retained
 // master, (b) evict by total decoded bytes, oldest-first, and (c) never alter
-// the rendered pixels — a warm (cache-hot) render is byte-identical to a cold
+// the rendered pixels - a warm (cache-hot) render is byte-identical to a cold
 // one.
 import 'dart:async';
 import 'dart:typed_data';
@@ -28,8 +28,7 @@ Future<int> _topLeftRed(ui.Image image) async {
 }
 
 void main() {
-  test('take/put hand out independent clones over a retained master',
-      () async {
+  test('take/put hand out independent clones over a retained master', () async {
     final cache = PdfImageCache();
     final key = Object();
     expect(cache.take(key), isNull);
@@ -94,8 +93,8 @@ void main() {
     await tester.runAsync(() async {
       // A one-page PDF carrying a real RGB image, so the render path actually
       // decodes and caches an image XObject.
-      final png = Uint8List.fromList(img.encodePng(img.Image(width: 24, height: 24)
-        ..clear(img.ColorRgb8(180, 60, 30))));
+      final png = Uint8List.fromList(img.encodePng(
+          img.Image(width: 24, height: 24)..clear(img.ColorRgb8(180, 60, 30))));
       final doc = PdfDocument.open(PdfImageDocument.fromImageBytes([png]));
       final page = doc.page(0);
 

@@ -19,7 +19,7 @@ import 'renderer.dart';
 /// re-rasterizes that cached picture, so zoom-driven re-renders are cheap.
 /// Past the full-page raster caps, a detail patch covering the visible
 /// part of the page (inflated for panning headroom) renders at full
-/// resolution on top of the capped base — single patch, not a tile grid,
+/// resolution on top of the capped base - single patch, not a tile grid,
 /// so the page is never interpreted more than once per zoom level.
 class PdfPageView extends StatefulWidget {
   const PdfPageView({
@@ -46,21 +46,21 @@ class PdfPageView extends StatefulWidget {
   final PdfPage page;
 
   /// Display rotation override. When set, the page renders at this
-  /// rotation instead of its own /Rotate — the view rotation feature
+  /// rotation instead of its own /Rotate - the view rotation feature
   /// rotates the display without modifying the document. Null (the
   /// default) uses the page's own /Rotate.
   final int? rotation;
 
   /// Offloads this page's interpretation (the content-stream parse + walk)
   /// to a background isolate when set and [showAnnotations] matches a
-  /// serializable page — the picture is then replayed cheaply on this
+  /// serializable page - the picture is then replayed cheaply on this
   /// thread. Image-bearing pages and the null fallback render locally. Must
   /// be a worker started over the same bytes [page] belongs to.
   final PdfRenderWorker? renderWorker;
 
   /// Shared low-res previews (see [PdfPagePreviewCache]): while this
-  /// page's full render is pending — most visibly under [renderHold]
-  /// during fast scrolling — the cached preview paints instead of the
+  /// page's full render is pending - most visibly under [renderHold]
+  /// during fast scrolling - the cached preview paints instead of the
   /// blank paper placeholder. When the full render lands, its picture
   /// refreshes the cache, so a page seen once keeps a preview after
   /// this state is long disposed.
@@ -84,7 +84,7 @@ class PdfPageView extends StatefulWidget {
   /// [pageEpoch] it is per-page, so a content-only same-geometry edit that
   /// changed *this* page advances it while leaving untouched pages alone.
   /// When it changes the page re-renders, but the held raster and preview
-  /// stay painted until the fresh render replaces them — an additive edit
+  /// stay painted until the fresh render replaces them - an additive edit
   /// (ink, a highlight, a shape) on a heavy page must not flash the page
   /// blank, and the just-added markup rides on top through the editing
   /// overlay until the new raster (with it baked in) lands. 0 outside an
@@ -100,7 +100,7 @@ class PdfPageView extends StatefulWidget {
   /// This page's [PdfEditingController.pageDestructiveStamp]. Unlike
   /// [contentStamp] it advances only when an edit *removed* content from
   /// this page (a redaction burn). When it changes the held raster and
-  /// preview are dropped immediately — keeping the pre-edit (un-redacted)
+  /// preview are dropped immediately - keeping the pre-edit (un-redacted)
   /// content up, even for the frame before the re-render lands or in a
   /// fast-scroll preview, would expose the very content the burn deleted.
   /// 0 outside an editing session (never changes).
@@ -108,7 +108,7 @@ class PdfPageView extends StatefulWidget {
 
   /// While true, a page that has not been interpreted yet keeps its
   /// paper placeholder instead of starting the (UI-thread) interpreter
-  /// walk — the viewer raises it during fast scrolling so heavy pages
+  /// walk - the viewer raises it during fast scrolling so heavy pages
   /// flying past can't stall the frame rate. Held pages render as soon
   /// as it drops back to false. Pages that already have a picture are
   /// unaffected (re-rasters reuse it).
@@ -165,8 +165,8 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   /// The effective pixel ratio [_image] was last rasterized at. A settle
   /// that only moved the detail patch (scale unchanged) must not re-read
-  /// the whole page back off the GPU — an expensive, uncancellable
-  /// `toImage` on web — so [_renderNow] skips the full-page raster when
+  /// the whole page back off the GPU - an expensive, uncancellable
+  /// `toImage` on web - so [_renderNow] skips the full-page raster when
   /// this still matches.
   double? _rasteredRatio;
 
@@ -178,7 +178,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// raster exists, dropped (to free the buffer) the moment one lands.
   ui.Image? _preview;
 
-  /// A render that arrived while [PdfPageView.renderHold] was up — it
+  /// A render that arrived while [PdfPageView.renderHold] was up - it
   /// fires the moment the hold releases.
   bool _holdPending = false;
 
@@ -187,7 +187,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   // the detail patch takes over for the visible region.
   static const _maxPixels = 1 << 24;
   static const _maxDimension = 8192.0;
-  // Pixel budget for the progressive vector-first preview raster — a fraction
+  // Pixel budget for the progressive vector-first preview raster - a fraction
   // of [_maxPixels]. The preview is transient (the full pass re-rasterizes at
   // [_effectiveRatio] on settle), so bounding it keeps rasterizing a dense
   // large-format CAD sheet's linework (~8000px wide, tens of thousands of
@@ -273,7 +273,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
     if (oldWidget.previewIndex != widget.previewIndex) {
       // The lazy list reused this State for a different page (it scrolled into
-      // this slot): cancel the old page's queued worker request — the user
+      // this slot): cancel the old page's queued worker request - the user
       // scrolled past it, so decoding it now would only delay the page now on
       // screen. The in-flight one can't be preempted; this clears the backlog.
       oldWidget.renderWorker
@@ -293,13 +293,13 @@ class _PdfPageViewState extends State<PdfPageView> {
       // Either a structural document change reused this State for a different
       // page at the same slot (pageEpoch; previewIndex unchanged, so the
       // branches above don't fire), or content was removed from this page in
-      // a same-geometry edit (destructiveStamp — a redaction burn). Either
+      // a same-geometry edit (destructiveStamp - a redaction burn). Either
       // way the held raster and preview show content that must not linger:
       // drop them so neither the gap before the re-render nor a fast-scroll
       // preview can flash the old (or, after a redaction, removed) content;
       // the preview cache (cleared for changed pages) and _render below
       // repaint. An *additive* same-geometry edit (ink, a highlight, a
-      // shape — contentStamp only) deliberately does NOT land here: its old
+      // shape - contentStamp only) deliberately does NOT land here: its old
       // raster stays painted until the fresh one replaces it.
       _image?.dispose();
       _image = null;
@@ -317,8 +317,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     final visualChanged = contentChanged || nonContentVisualChanged;
     if (blanked || visualChanged) {
       // Re-interpret at the new content/page. Unless we blanked above, the
-      // old base raster stays up until the new render replaces it —
-      // _dropPicture nulls _rasteredRatio so _renderNow still re-rasters —
+      // old base raster stays up until the new render replaces it -
+      // _dropPicture nulls _rasteredRatio so _renderNow still re-rasters -
       // so an additive edit on a heavy page never flashes blank.
       _dropPicture();
       if (blanked || nonContentVisualChanged) {
@@ -346,7 +346,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     widget.renderScheduler?.cancel(this);
     // Scrolled out of the cache window: drop this page's queued worker request
     // so the worker's next slot serves a page still on screen (the abandoned
-    // result is ignored — _interpretPicture's !mounted guard skips the local
+    // result is ignored - _interpretPicture's !mounted guard skips the local
     // fallback). No-op if nothing is queued for it.
     widget.renderWorker
         ?.cancel(widget.previewIndex, priority: widget.renderPriority);
@@ -379,7 +379,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     final size = _renderPlan.pageSize(widget.page);
     final width = math.max(1.0, size.width);
     // pages display fit-width, so the raster must match the on-screen
-    // width — a 612pt page across a wide window needs far more pixels
+    // width - a 612pt page across a wide window needs far more pixels
     // than its nominal point size
     final fitWidth = (_layoutWidth ?? width) / width;
     return math.max(fitWidth * (_pixelRatio ?? 1.0) * widget.scale, 0.05);
@@ -416,7 +416,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       // detail-patch follow) through the scheduler: it dedupes per page
       // (token), paces one render per frame, and defers while a scroll or
       // zoom is in flight. The first interpret walks the content stream
-      // twice on the UI thread — what stalls fast scrolling on heavy
+      // twice on the UI thread - what stalls fast scrolling on heavy
       // pages. Re-rasters are a `toImage`, cheap on a raster thread but a
       // single-threaded GPU readback on web: rapid zoom in/out used to
       // fire one uncancellable readback per settle and they piled up,
@@ -454,10 +454,10 @@ class _PdfPageViewState extends State<PdfPageView> {
           annotations: widget.showAnnotations,
           priority: widget.renderPriority,
           imagePixelRatio: _effectiveRatio());
-      // Abandoned while the worker ran — the State was disposed or the lazy
+      // Abandoned while the worker ran - the State was disposed or the lazy
       // list recycled it onto another page (this is the cancel() path: a
       // cancelled request returns null). Skip the local fallback: the page is
-      // gone, so a re-interpret would burn the UI thread for nothing — exactly
+      // gone, so a re-interpret would burn the UI thread for nothing - exactly
       // what the worker exists to avoid. Note we DON'T gate on the render
       // generation here: a newer same-page render (e.g. a zoom mid-interpret)
       // reuses this very future, so the picture must still be produced for it.
@@ -473,7 +473,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (_abandoned(pageIndex)) return _emptyPicture();
     if (_renderPaused) return null;
     // The worker may be active yet decline this page (it returns null), in
-    // which case the interpret runs here — the log must say so, not 'worker'.
+    // which case the interpret runs here - the log must say so, not 'worker'.
     _lastInterpretPath = 'recorded';
     return PdfPageRenderer.renderPictureRecordedWithPlan(
         widget.page, _renderPlan);
@@ -486,7 +486,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// without an active worker (the local render already decodes inline).
   ///
   /// When the page draws no images the fast buffer is the whole page, so it is
-  /// cached as [_picture] for the full pass to reuse — no second record.
+  /// cached as [_picture] for the full pass to reuse - no second record.
   Future<void> _paintVectorFirst(int generation, int pageIndex) async {
     final worker = widget.renderWorker;
     if (worker == null || !worker.isActive) return;
@@ -525,7 +525,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     // Adopt the vector raster only if the full pass hasn't already landed (a
     // landed full raster has a non-null _rasteredRatio). Deliberately leave
     // _rasteredRatio null so the full pass below is not skipped by its
-    // resolution-unchanged guard — it must re-raster to bring the images in.
+    // resolution-unchanged guard - it must re-raster to bring the images in.
     if (_superseded(generation, pageIndex) || _rasteredRatio != null) {
       image.dispose();
       return;
@@ -540,7 +540,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   /// Reports, when the perf log is on, how many images a worker buffer carries
-  /// and their total decoded megapixels — the deciding number for why a
+  /// and their total decoded megapixels - the deciding number for why a
   /// raster-heavy page is still slow: one oversized image escaping the
   /// resolution cap looks very different from many tiles each capped but
   /// summing large. The walk lives in [PdfPageRenderer.decodedImageStats] (and
@@ -555,14 +555,14 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
   }
 
-  /// Whether the page this render was for is gone — the widget unmounted, or
+  /// Whether the page this render was for is gone - the widget unmounted, or
   /// the lazy list recycled this State onto a different page. Picture
   /// production stops here (no wasted local interpret); painting is gated
   /// separately by [_superseded], which also rejects a stale generation.
   bool _abandoned(int pageIndex) =>
       !mounted || widget.previewIndex != pageIndex;
 
-  /// Whether a render started at ([generation], [pageIndex]) must not paint —
+  /// Whether a render started at ([generation], [pageIndex]) must not paint -
   /// [_abandoned], or a newer render bumped the generation past this one.
   bool _superseded(int generation, int pageIndex) =>
       _abandoned(pageIndex) || generation != _renderGeneration;
@@ -575,7 +575,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     return recorder.endRecording();
   }
 
-  /// Which path [_interpretPicture] actually took, for the perf log — 'worker'
+  /// Which path [_interpretPicture] actually took, for the perf log - 'worker'
   /// only when a command buffer came back and replayed, else 'recorded'.
   String _lastInterpretPath = 'recorded';
 
@@ -590,8 +590,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       return;
     }
     // Progressive first paint: on a page's first interpret, paint its
-    // vector/text immediately (images skipped) so a heavy raster underlay —
-    // which can take seconds to decode — doesn't leave the page blank
+    // vector/text immediately (images skipped) so a heavy raster underlay -
+    // which can take seconds to decode - doesn't leave the page blank
     // meanwhile. The full pass below then re-rasters with the images in.
     if (firstInterpret &&
         !(widget.previewCache?.isFresh(pageIndex, widget.page) ?? false)) {
@@ -617,7 +617,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       picture = interpreted;
     }
     sw.stop();
-    // Bail before logging when superseded — an abandoned interpret (page
+    // Bail before logging when superseded - an abandoned interpret (page
     // recycled, disposed, or cancelled prefetch) never paints, so logging it
     // as a 'recorded' interpret would be a phantom UI-thread cost.
     if (_superseded(generation, pageIndex)) return;
@@ -657,7 +657,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         _preview = null;
       });
       // feed the preview cache from the picture we already paid to
-      // interpret — this is how previews appear for pages the background
+      // interpret - this is how previews appear for pages the background
       // prerender hasn't reached (and refresh after edits)
       final cache = widget.previewCache;
       if (cache != null &&
@@ -748,7 +748,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       return true;
     }
 
-    // never interpret the page for the first time inline here — that is
+    // never interpret the page for the first time inline here - that is
     // the scheduler's job (or, bare, the hold's); the next settle
     // refreshes the patch once the base picture lands
     if (_picture == null) {

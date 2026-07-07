@@ -19,7 +19,7 @@ void main() {
     test('addRedaction marks a /Redact region without removing content', () {
       final editing = controller();
       addTearDown(editing.dispose);
-      // "Page 1" sits at 72,720 (24pt) — mark a box over it
+      // "Page 1" sits at 72,720 (24pt) - mark a box over it
       editing.addRedaction(0, const PdfRect(60, 715, 200, 748));
 
       expect(editing.hasRedactionMarks, isTrue);
@@ -28,7 +28,7 @@ void main() {
           .annotations
           .singleWhere((a) => a.subtype == 'Redact');
       expect(redact, isNotNull);
-      // marking is undoable — nothing burned yet
+      // marking is undoable - nothing burned yet
       expect(editing.canUndo, isTrue);
       expect(latin1.decode(editing.bytes, allowInvalid: true),
           contains('Page 1'));
@@ -60,14 +60,14 @@ void main() {
       final otherBefore = editing.pageDestructiveStamp(1);
 
       // an additive edit (ink) bumps the render stamp but not the
-      // destructive one — the viewer keeps page 0's raster up across it
+      // destructive one - the viewer keeps page 0's raster up across it
       final renderBefore = editing.pageRenderStamp(0);
       editing.addInkStroke(0, const [(72, 72), (200, 200)]);
       editing.finishInk();
       expect(editing.pageRenderStamp(0), greaterThan(renderBefore));
       expect(editing.pageDestructiveStamp(0), before);
 
-      // a redaction burn removes content — every page's destructive stamp
+      // a redaction burn removes content - every page's destructive stamp
       // advances so the viewer drops the (un-redacted) rasters at once
       editing.addRedaction(0, const PdfRect(60, 715, 200, 748));
       expect(editing.applyRedactions(), isTrue);
@@ -178,7 +178,7 @@ void main() {
     testWidgets('burning a redaction refreshes the stale low-res preview',
         (tester) async {
       // Regression: the burn swaps to a same-geometry revision, which used to
-      // *rebind* (keep, and mark fresh) the cached low-res preview — so a fast
+      // *rebind* (keep, and mark fresh) the cached low-res preview - so a fast
       // scroll right after redacting flashed the now-removed content, and the
       // on-screen render could never replace it. The changed page's preview
       // must be dropped at the swap so it refreshes to the redacted content.

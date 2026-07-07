@@ -12,7 +12,7 @@ import 'content_writer.dart';
 ///
 /// Where [PdfStandardFont] writes one of the base-14 faces every viewer
 /// already has, this embeds an *arbitrary* font so authored text renders
-/// and prints identically everywhere — the price is the font bytes riding
+/// and prints identically everywhere - the price is the font bytes riding
 /// along in the file.
 ///
 /// Encoding is Identity-H over a CIDFontType2 (TrueType outlines) or
@@ -61,7 +61,7 @@ class PdfEmbeddedFont implements PdfTextFont {
 
   /// The raw font program (the TrueType/OpenType bytes this was parsed
   /// from). Exposed so a host can register the same outline data with a
-  /// UI toolkit's font system — e.g. to preview the font while editing —
+  /// UI toolkit's font system - e.g. to preview the font while editing -
   /// rather than re-loading it from disk.
   Uint8List get fontBytes => _bytes;
 
@@ -81,7 +81,7 @@ class PdfEmbeddedFont implements PdfTextFont {
   final int _stemV;
   final int _flags;
 
-  // Glyphs shown since the last [resetUsage] — drives /W and /ToUnicode.
+  // Glyphs shown since the last [resetUsage] - drives /W and /ToUnicode.
   final Map<int, int> _gidToRune = {};
 
   /// Ascender height in thousandths of an em (where the first baseline
@@ -216,7 +216,7 @@ class PdfEmbeddedFont implements PdfTextFont {
   /// Recovers the embedded font from a free-text [annotation]'s appearance,
   /// or null when it was written with a base-14 face (or the appearance
   /// can't be read). Lets editors round-trip the text of an embedded-font
-  /// box — re-wrap, resize, restyle — without reverting it to a standard
+  /// box - re-wrap, resize, restyle - without reverting it to a standard
   /// font.
   static PdfEmbeddedFont? fromFreeText(PdfAnnotation annotation) {
     try {
@@ -239,7 +239,7 @@ class PdfEmbeddedFont implements PdfTextFont {
   }
 
   /// Reparses the embedded font program of a [Type0] font dictionary
-  /// [type0] — typically an AcroForm /DR entry — back into a usable
+  /// [type0] - typically an AcroForm /DR entry - back into a usable
   /// [PdfEmbeddedFont] so callers can measure and re-encode text in it.
   ///
   /// [resourceName] becomes the reparsed font's [resourceName] (so its
@@ -292,8 +292,8 @@ class PdfEmbeddedFont implements PdfTextFont {
   /// the next /W and /ToUnicode cover only the new text.
   void resetUsage() => _gidToRune.clear();
 
-  /// Encodes [text] as a hex string of big-endian 2-byte glyph ids — the
-  /// operand of an Identity-H `Tj`/`TJ` show — recording each glyph so
+  /// Encodes [text] as a hex string of big-endian 2-byte glyph ids - the
+  /// operand of an Identity-H `Tj`/`TJ` show - recording each glyph so
   /// [buildResource] can emit its width and ToUnicode mapping.
   String encodeHex(String text) {
     final out = StringBuffer();
@@ -614,7 +614,7 @@ class _Cmap {
 ///
 /// This lets non-Latin text (Arabic, CJK, etc.) appear in appearance streams
 /// authored with standard fonts. The renderer substitutes a system font for
-/// the actual glyph shapes — identical to how it handles any Type0 font
+/// the actual glyph shapes - identical to how it handles any Type0 font
 /// without an embedded font program.
 ///
 /// Wraps a [PdfStandardFont] for Latin-range metrics and uses a default width

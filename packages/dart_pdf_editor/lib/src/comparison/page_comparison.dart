@@ -15,7 +15,7 @@ enum PdfDiffStyle {
   /// Used by the Ghent baseline-failure dump (red marks over the render).
   redOverImage,
 
-  /// Differing pixels red on an otherwise white field — the changes alone,
+  /// Differing pixels red on an otherwise white field - the changes alone,
   /// easy to spot. Used by the PDF.js comparison gallery.
   redOnWhite,
 
@@ -67,7 +67,7 @@ class PdfPixelDiff {
   Future<ui.Image> toImage() => _imageFromRgba(_diffMap, width, height);
 
   /// Bounding boxes (raster-pixel coordinates) of clusters of changed
-  /// pixels, top-to-bottom — the navigation stops a diff viewer steps
+  /// pixels, top-to-bottom - the navigation stops a diff viewer steps
   /// through. Coarse-grid clustered, so a handful of boxes cover a page.
   List<Rect> changeRegions({int cellSize = 24}) =>
       _clusterRegions(_changedMask, width, height, cellSize);
@@ -129,11 +129,11 @@ class PdfPageComparison {
             final afterInk = _isInk(after, i);
             int r, g, b;
             if (beforeInk && !afterInk) {
-              (r, g, b) = (0xE5, 0x39, 0x35); // removed — red
+              (r, g, b) = (0xE5, 0x39, 0x35); // removed - red
             } else if (afterInk && !beforeInk) {
-              (r, g, b) = (0x2E, 0x7D, 0x32); // added — green
+              (r, g, b) = (0x2E, 0x7D, 0x32); // added - green
             } else {
-              (r, g, b) = (0xF5, 0x7C, 0x00); // changed — amber
+              (r, g, b) = (0xF5, 0x7C, 0x00); // changed - amber
             }
             diffMap[i] = r;
             diffMap[i + 1] = g;
@@ -153,7 +153,7 @@ class PdfPageComparison {
   }
 
   /// Compares two already-rendered page images. They need not be the same
-  /// size — each is padded (top-left) onto a shared canvas the size of the
+  /// size - each is padded (top-left) onto a shared canvas the size of the
   /// larger, with the extra area treated as page background, so inserted or
   /// removed content near an edge still registers.
   static Future<PdfPixelDiff> compareImages(

@@ -13,10 +13,14 @@ import 'render_worker_stub.dart'
 /// `doc/render_worker_web.md` for the build wiring).
 ///
 /// Set this once before opening a viewer to move page interpretation off the
-/// main thread on web. Left null, web falls back to local rendering — exactly
-/// the historical behavior — so apps that haven't built the worker script are
+/// main thread on web. Left null, web falls back to local rendering - exactly
+/// the historical behavior - so apps that haven't built the worker script are
 /// unaffected. Ignored on native, where the isolate backend needs no script.
 String? pdfRenderWorkerScriptUrl;
+
+/// Default number of platform workers [PdfRenderWorker.start] fans page
+/// records across.
+const int defaultPdfRenderWorkerPoolSize = 3;
 
 /// How many platform workers [PdfRenderWorker.start] fans page records across.
 ///
@@ -32,9 +36,30 @@ String? pdfRenderWorkerScriptUrl;
 /// pool holds N copies of the bytes plus N decode working sets. Default 3 gives
 /// long documents enough parallelism for viewport-ordered thumbnails without
 /// flooding the machine. The host can set this once before opening a viewer,
-/// sized to the platform — fewer on a memory-constrained device. Values below 1
+/// sized to the platform - fewer on a memory-constrained device. Values below 1
 /// mean 1.
-int pdfRenderWorkerPoolSize = 3;
+int pdfRenderWorkerPoolSize = defaultPdfRenderWorkerPoolSize;
+
+/// Default decoded-image command-buffer cache budget for one render worker.
+const int defaultPdfRenderWorkerCacheBudgetBytes = 96 << 20;
+
+/// Decoded-image command-buffer cache budget for each render worker.
+///
+/// Completed worker records keep decoded image pixels so recycled page widgets
+/// and thumbnails can revisit recently-rendered pages without paying another
+/// decode. The bytes are bounded by this LRU budget. Hosts running on memory-
+/// constrained devices can lower it once at startup before opening viewers.
+int pdfRenderWorkerCacheBudgetBytes = defaultPdfRenderWorkerCacheBudgetBytes;
+
+/// How long the caching worker waits for one backend record before giving up on
+/// that worker snapshot.
+///
+/// The page view falls back to local rendering when a worker returns null. A
+/// wedged native isolate used to leave the worker future pending forever, which
+/// also pinned the cache's in-flight entry and kept progressive vector-first
+/// rasters on screen indefinitely. Web has its own backend watchdog; this common
+/// guard covers native and pooled workers.
+Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 
 /// Documents with at least this many pages use a [PdfPooledRenderWorker] via
 /// [startPdfRenderWorker]; shorter ones use a single worker because extra
@@ -54,14 +79,14 @@ PdfRenderWorker startPdfRenderWorker(Uint8List bytes,
 }
 
 /// Records a PDF page's interpreter callbacks into a portable command buffer
-/// OFF the UI thread, so the dominant render cost — the content-stream parse
-/// and interpreter walk — stops blocking frames while scrolling.
+/// OFF the UI thread, so the dominant render cost - the content-stream parse
+/// and interpreter walk - stops blocking frames while scrolling.
 ///
 /// A worker owns a private copy of the document, opened from the same bytes on
 /// its own isolate (native), and answers [record] with the page's replayable
 /// [PdfRenderCommand] list, already deserialized from the wire format. The
 /// caller turns that into a `ui.Picture` with
-/// `PdfPageRenderer.pictureFromCommands` — a cheap replay. Image XObjects are
+/// `PdfPageRenderer.pictureFromCommands` - a cheap replay. Image XObjects are
 /// serialized into the buffer, and the worker decodes them off-thread too
 /// (the premultiplied pixels ride on each command), so the main thread runs
 /// only the engine codec, never the pure-Dart inflate/colour-convert. Images
@@ -93,8 +118,8 @@ abstract class PdfRenderWorker {
   static PdfRenderWorker start(Uint8List bytes) =>
       PdfCachingRenderWorker(_backend(bytes));
 
-  /// Builds the uncached backend: a single platform worker, or — when
-  /// [pdfRenderWorkerPoolSize] asks for more than one — a pool of them.
+  /// Builds the uncached backend: a single platform worker, or - when
+  /// [pdfRenderWorkerPoolSize] asks for more than one - a pool of them.
   static PdfRenderWorker _backend(Uint8List bytes) =>
       pdfRenderWorkerPoolSize > 1
           ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize)
@@ -111,21 +136,21 @@ abstract class PdfRenderWorker {
 
   /// Records page [pageIndex] off-thread and returns its replayable command
   /// buffer (image XObjects decoded off-thread and attached), or null when the
-  /// page can't be offloaded — it draws an inline image (`BI .. ID .. EI`,
+  /// page can't be offloaded - it draws an inline image (`BI .. ID .. EI`,
   /// which can name a page-resource colour space the stream can't reach), the
-  /// worker failed or was disposed, or this platform has no worker — and the
+  /// worker failed or was disposed, or this platform has no worker - and the
   /// caller must render the page locally.
   ///
   /// [annotations] mirrors `PdfPageRenderer.renderPicture`'s flag: when false
   /// the page's annotations are left out of the recording.
   ///
-  /// [priority] orders the worker's single queue — lower is served first, so
+  /// [priority] orders the worker's single queue - lower is served first, so
   /// the on-screen page (0) preempts background prefetch (1) even though the
   /// isolate processes one page at a time.
   ///
   /// [imagePixelRatio] (screen pixels per page point, device pixel ratio
   /// included) caps each decoded image to display resolution before it is
-  /// serialized — see `serializeCommands`'s `maxImagePixelRatio`. Pass the
+  /// serialized - see `serializeCommands`'s `maxImagePixelRatio`. Pass the
   /// resolution the page will be shown at; a raster-heavy CAD sheet then ships
   /// a display-sized underlay instead of its native 100+ megapixels. Null
   /// leaves images at native resolution.
@@ -133,7 +158,7 @@ abstract class PdfRenderWorker {
   /// [decodeImages] false records the page's vector/text but ships its images
   /// un-decoded (just their streams), or as placeholders when an image is not
   /// self-contained enough to serialize. The buffer comes back fast even on a
-  /// page whose raster underlay takes seconds to decode — the fast first pass
+  /// page whose raster underlay takes seconds to decode - the fast first pass
   /// of progressive rendering. The caller replays it with
   /// `PdfPageRenderer.pictureFromCommands(includeImages: false)` to paint the
   /// linework immediately, then records again with [decodeImages] true for the
@@ -154,7 +179,7 @@ abstract class PdfRenderWorker {
       PdfRect? imageDecodeRegion});
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
-  /// [priority], completing its future with null — as if the page had declined
+  /// [priority], completing its future with null - as if the page had declined
   /// to a local render. A cheap no-op when nothing matches.
   ///
   /// In-flight preemption is handled separately: when a higher-priority
@@ -164,8 +189,8 @@ abstract class PdfRenderWorker {
   ///
   /// The point is to cancel prefetch the user has scrolled past: a page that
   /// left the viewport before its turn came no longer needs decoding, and
-  /// leaving its request queued would make the worker spend its next slot — and
-  /// ship a multi-megabyte decoded buffer — for a page nobody is looking at,
+  /// leaving its request queued would make the worker spend its next slot - and
+  /// ship a multi-megabyte decoded buffer - for a page nobody is looking at,
   /// delaying the page that is. The caller that abandons a cancelled result
   /// must not fall back to a local interpret (the work would be wasted);
   /// [PdfPageView] does this by abandoning when it is unmounted or superseded.
@@ -183,7 +208,7 @@ abstract class PdfRenderWorker {
 /// Fans [record] calls across a fixed set of platform workers so up to N pages
 /// decode at once instead of one at a time. A single worker serializes every
 /// page; on a document whose sheets are each a multi-second image decode that
-/// makes the tail crawl. Spreading the work across a pool drains it ~N× faster —
+/// makes the tail crawl. Spreading the work across a pool drains it ~N× faster -
 /// the visible burst on load and the background prefetch alike.
 ///
 /// New records are dispatched to the least-loaded active worker, where load is
@@ -196,13 +221,13 @@ abstract class PdfRenderWorker {
 ///
 /// Each worker opens its own copy of the document. The bytes are copied per
 /// worker ([Uint8List.fromList]) because a platform worker may transfer (and so
-/// detach) the buffer it is handed — sharing one buffer would leave later
+/// detach) the buffer it is handed - sharing one buffer would leave later
 /// workers with an empty document. The cost is N copies of the bytes plus N
 /// decode working sets; size the pool to the platform via
 /// [pdfRenderWorkerPoolSize].
 ///
 /// Normally wrapped in a [PdfCachingRenderWorker] (see [PdfRenderWorker.start]),
-/// which dedups concurrent requests for one page — so the cache, not the pool,
+/// which dedups concurrent requests for one page - so the cache, not the pool,
 /// prevents the same page being decoded by its worker twice at once.
 ///
 /// Ultra-urgent records (currently the long-jump preview, priority -2000)
@@ -388,12 +413,12 @@ typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
 /// command-limit, image-decode-region when decoded image bytes are present).
 /// The lazy
 /// page list recycles a [PdfPageView]'s State when it scrolls out of view and
-/// re-creates it on the way back, dropping the State's cached picture — so
+/// re-creates it on the way back, dropping the State's cached picture - so
 /// without this every scroll-back re-asks the worker to decode the page from
 /// scratch (a multi-second inflate + colour-convert on a raster-heavy CAD
 /// sheet, observed re-running ~7× for one page during a single scroll). A
 /// page's bytes don't change under the worker (it holds a fixed snapshot), so
-/// a completed buffer stays valid for the worker's whole life — caching it
+/// a completed buffer stays valid for the worker's whole life - caching it
 /// makes a revisit a map lookup instead of a re-decode. The cache lives on the
 /// worker, so it is shared across every recycled page widget and dies with the
 /// worker (a new document opens a new worker, hence a fresh cache).
@@ -405,16 +430,16 @@ typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
 ///
 /// In-flight requests are also deduplicated: a second record for a key whose
 /// decode is still running shares that pending future instead of starting a
-/// new decode. This is the dominant win on a fast scroll — the render
+/// new decode. This is the dominant win on a fast scroll - the render
 /// scheduler re-grants the same window of pages every ~2s while the worker is
 /// still chewing through the first batch (each heavy page is a multi-second
 /// decode), so a completion-only cache never gets the chance to intercept; the
 /// requests pile up before any finishes. Sharing the in-flight future collapses
 /// those repeats into one decode per page. A scrolled-away page is cancelled
-/// for every sharer at once, which is correct — none of them want it any more.
+/// for every sharer at once, which is correct - none of them want it any more.
 class PdfCachingRenderWorker implements PdfRenderWorker {
-  PdfCachingRenderWorker(this._inner, {int budgetBytes = 96 << 20})
-      : _budgetBytes = budgetBytes;
+  PdfCachingRenderWorker(this._inner, {int? budgetBytes})
+      : _budgetBytes = budgetBytes ?? pdfRenderWorkerCacheBudgetBytes;
 
   final PdfRenderWorker _inner;
   final int _budgetBytes;
@@ -500,13 +525,20 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
       required bool decodeImages,
       required PdfRect? imageDecodeRegion}) async {
     try {
-      final commands = await _inner.record(pageIndex,
-          annotations: annotations,
-          priority: priority,
-          imagePixelRatio: imagePixelRatio,
-          decodeImages: decodeImages,
-          commandLimit: key.$5,
-          imageDecodeRegion: imageDecodeRegion);
+      final timeout = pdfRenderWorkerRecordTimeout;
+      final commands = await _inner
+          .record(pageIndex,
+              annotations: annotations,
+              priority: priority,
+              imagePixelRatio: imagePixelRatio,
+              decodeImages: decodeImages,
+              commandLimit: key.$5,
+              imageDecodeRegion: imageDecodeRegion)
+          .timeout(timeout, onTimeout: () {
+        _inner.cancel(pageIndex, priority: priority);
+        _inner.dispose();
+        return null;
+      });
       if (commands != null) {
         final weight = _weigh(commands);
         final storeKey =
@@ -557,7 +589,7 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
     // Evict the least-recently-used entries that actually hold bytes until
     // under budget. The budget bounds DECODED image memory, so evicting a
     // weight-0 buffer (a vector-first pass or an image-free page) frees
-    // nothing — yet it would have to be re-decoded on the next revisit. On a
+    // nothing - yet it would have to be re-decoded on the next revisit. On a
     // heavy CAD sheet the full-image buffers (tens of MB each) are exactly
     // what blows the budget while the cheap vector-first buffers are the ones
     // re-requested every scroll settle, so a blind oldest-first eviction
@@ -572,7 +604,7 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
 
   /// The least-recently-used key whose buffer holds decoded bytes (weight > 0),
   /// other than [except] (the entry just inserted, which we keep). Null when no
-  /// such entry exists — every remaining buffer is costless, so eviction stops.
+  /// such entry exists - every remaining buffer is costless, so eviction stops.
   _RecordCacheKey? _oldestHeavyKey({required _RecordCacheKey except}) {
     for (final entry in _cache.entries) {
       if (entry.value.weight > 0 && entry.key != except) return entry.key;

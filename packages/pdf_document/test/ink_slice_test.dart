@@ -102,7 +102,7 @@ void main() {
 
     test('a cut leaving an invisible crumb drops it', () {
       // the circle reaches x = 9.99; the right-hand remnant is 0.01
-      // long — below the visibility floor, so only the left piece stays
+      // long - below the visibility floor, so only the left piece stays
       final result = pdfSliceInkStrokes(
         [
           [(0, 0), (10, 0)],

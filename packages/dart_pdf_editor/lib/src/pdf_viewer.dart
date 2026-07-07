@@ -37,6 +37,8 @@ export 'viewport.dart' show PdfViewport, pdfDocumentKey;
 export 'annotation_tap.dart'
     show PdfAnnotationTapDetails, PdfAnnotationTapHandler;
 
+const double _defaultMaxZoom = 24;
+
 /// One search hit with the text around it, ready for a results list
 /// like [PdfSearchResultsPanel].
 class PdfSearchResult {
@@ -84,7 +86,7 @@ class PdfSearchOptions {
   ///
   /// Matching runs synchronously on the calling (UI) thread with no
   /// timeout, so a catastrophically backtracking pattern over a very large
-  /// page can briefly stall the frame — acceptable for local desktop use,
+  /// page can briefly stall the frame - acceptable for local desktop use,
   /// but a host exposing this to untrusted input should guard it.
   final bool regex;
 
@@ -107,7 +109,7 @@ class PdfSearchOptions {
 }
 
 /// A snapshot of a viewer's scroll position and zoom, for mirroring one
-/// [PdfViewer] onto another — the comparison view's synchronized panes.
+/// [PdfViewer] onto another - the comparison view's synchronized panes.
 /// Read [PdfViewerController.viewSync], hand it to another controller's
 /// [PdfViewerController.applyViewSync].
 class PdfViewSync {
@@ -169,13 +171,13 @@ class PdfViewerController extends ChangeNotifier {
   }
 
   /// Extra rotation applied to every page's display, in degrees (0, 90,
-  /// 180, or 270). This is a view-only setting — the document's /Rotate
+  /// 180, or 270). This is a view-only setting - the document's /Rotate
   /// entries are untouched.
   int get viewRotation => _viewRotation;
 
   /// Rotates the view by [degrees] (typically ±90). The effective display
   /// rotation of each page becomes `(page.rotation + viewRotation) % 360`.
-  /// This is a view-only transform — the PDF is not modified.
+  /// This is a view-only transform - the PDF is not modified.
   void rotateView(int degrees) {
     final next = ((_viewRotation + degrees) % 360 + 360) % 360;
     if (next == _viewRotation) return;
@@ -199,7 +201,7 @@ class PdfViewerController extends ChangeNotifier {
   PdfSearchOptions get searchOptions => _searchOptions;
 
   /// Every hit of the current [query] in document order, with context
-  /// snippets — what a search results panel lists.
+  /// snippets - what a search results panel lists.
   List<PdfSearchResult> get searchResults => _results;
 
   /// Test hook: the attached viewer's low-res preview cache (see
@@ -210,7 +212,7 @@ class PdfViewerController extends ChangeNotifier {
   /// The attached viewer's low-res page previews (see [PdfViewer.pagePreviews]),
   /// or null when no viewer is attached or previews are off. The page
   /// thumbnail panels read it to paint an instant soft placeholder while a
-  /// tile's sharp raster is still rendering — the same images the viewer
+  /// tile's sharp raster is still rendering - the same images the viewer
   /// shows during a fast scroll, shared rather than re-rendered.
   PdfPagePreviewCache? get pagePreviewCache => _state?._previews;
 
@@ -244,7 +246,7 @@ class PdfViewerController extends ChangeNotifier {
     return [for (var i = range.$1.$1; i <= range.$2.$1; i++) i];
   }
 
-  /// The selection's rectangles on [pageIndex], in PDF page coordinates —
+  /// The selection's rectangles on [pageIndex], in PDF page coordinates -
   /// ready to use as the quads of a text-markup annotation.
   List<PdfRect> selectionRectsOn(int pageIndex) =>
       _state?._selectionRectsOn(pageIndex) ?? const [];
@@ -260,6 +262,11 @@ class PdfViewerController extends ChangeNotifier {
 
   Future<void> jumpToPage(int index) async => _state?._jumpToPage(index);
 
+  /// Scrolls to a PDF destination, using the same `/Fit`, `/FitH`, and
+  /// `/XYZ` handling as in-document GoTo links.
+  void showDestination(PdfDestination destination) =>
+      _state?._scrollToDestination(destination);
+
   /// Sets the viewer zoom around the center of the viewport.
   ///
   /// The value is logical pixels per PDF point: 1 is actual size (100%),
@@ -273,7 +280,7 @@ class PdfViewerController extends ChangeNotifier {
   /// the viewport.
   void resetZoom() => setZoom(1);
 
-  /// Scrolls — and zooms in when that helps — so [rect] (page space on
+  /// Scrolls - and zooms in when that helps - so [rect] (page space on
   /// [pageIndex]) sits centered in the viewport, filling around 40% of
   /// it. Never zooms out below 100% or in past [PdfViewer.maxZoom]. The
   /// annotation sidebar uses this to zoom to an annotation.
@@ -281,7 +288,7 @@ class PdfViewerController extends ChangeNotifier {
       _state?._showRect(pageIndex, rect);
 
   /// The current scroll position and zoom, as a resolution-independent
-  /// snapshot — what to persist so reopening the same document lands the
+  /// snapshot - what to persist so reopening the same document lands the
   /// user where they left off. Null while no viewer is attached or it has
   /// not laid out yet. Restore it with [restoreViewport] or
   /// [PdfViewer.initialViewport].
@@ -294,7 +301,7 @@ class PdfViewerController extends ChangeNotifier {
 
   final _viewport = _ViewportNotifier();
 
-  /// Notifies whenever the visible region changes — scrolling, zooming.
+  /// Notifies whenever the visible region changes - scrolling, zooming.
   /// The controller itself stays quiet during scrolling (it only notifies
   /// when [currentPage] flips), so listen to this to track
   /// [visiblePageRegion], e.g. for a thumbnail strip's viewport indicator.
@@ -313,7 +320,7 @@ class PdfViewerController extends ChangeNotifier {
   PdfViewSync? get viewSync => _state?._captureViewSync();
 
   /// Mirrors [sync] onto this viewer: matches its scroll offset and zoom.
-  /// Geometry-dependent — it assumes both viewers lay their pages out the
+  /// Geometry-dependent - it assumes both viewers lay their pages out the
   /// same way (the comparison view pairs documents with matching page
   /// geometry). Guard against feedback loops at the call site.
   void applyViewSync(PdfViewSync sync) => _state?._applyViewSync(sync);
@@ -379,7 +386,7 @@ class PdfViewerController extends ChangeNotifier {
   void previousMatch() => _stepMatch(-1);
 
   /// Makes match [index] (into [searchResults]) current and scrolls it
-  /// into view — what tapping a results-panel entry does.
+  /// into view - what tapping a results-panel entry does.
   void goToMatch(int index) {
     if (index < 0 || index >= _matches.length) return;
     _currentMatch = index;
@@ -419,7 +426,7 @@ class PdfViewerController extends ChangeNotifier {
 
   /// Viewer-internal updates can land mid-frame (initState/didUpdateWidget
   /// run during build; scroll listeners can fire during layout), when
-  /// notifying would mark listening widgets dirty illegally — defer those
+  /// notifying would mark listening widgets dirty illegally - defer those
   /// to after the frame.
   void _notifySafely() {
     if (SchedulerBinding.instance.schedulerPhase ==
@@ -462,7 +469,7 @@ typedef PdfActionHandler = void Function(
     PdfAction action, PdfAnnotation annotation);
 
 /// Signature for [PdfViewer.onLaunchUrl]: open the hyperlink [uri] of a
-/// tapped /URI action. Returns whether it was opened — false hands the
+/// tapped /URI action. Returns whether it was opened - false hands the
 /// link back to [PdfViewer.onAction] so a custom scheme can still be
 /// dispatched there.
 typedef PdfUrlLauncher = Future<bool> Function(Uri uri);
@@ -494,12 +501,13 @@ class PdfViewer extends StatefulWidget {
     this.formImagePicker,
     this.fontPicker,
     this.imagePicker,
+    this.systemImagePasteProvider,
     this.onSnapshot,
     this.pageSpacing = 12,
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
     this.minZoom = 0.25,
-    this.maxZoom = 24,
+    this.maxZoom = _defaultMaxZoom,
     this.doubleTapZoom = 2.5,
     this.backgroundColor,
     this.pageColor = const Color(0xFFFFFFFF),
@@ -521,7 +529,7 @@ class PdfViewer extends StatefulWidget {
 
   /// Whether the viewer is the foreground view. Set false when another view
   /// fully overlays it (the editor's full-area page grid) so it stops
-  /// interpreting its own pages and stops the background preview prerender —
+  /// interpreting its own pages and stops the background preview prerender -
   /// both compete for the single render worker, and an invisible viewer
   /// rendering its pages would starve the overlay's. The viewer stays laid
   /// out (so programmatic navigation, e.g. tapping a grid page, still scrolls
@@ -537,7 +545,7 @@ class PdfViewer extends StatefulWidget {
   /// Persistent on-disk text cache (see [PdfPageTextCache]). When set with
   /// [documentId], full-document search extraction is read back from the
   /// store on a cold reopen instead of re-walking every page's content
-  /// stream. Used only when [editing] is null — an edit session mutates the
+  /// stream. Used only when [editing] is null - an edit session mutates the
   /// page content, so its text is never served from the (content-keyed)
   /// persistent cache, only the per-revision in-memory cache.
   final PdfPageTextCache? textCache;
@@ -552,7 +560,7 @@ class PdfViewer extends StatefulWidget {
   /// dominant render cost) to a background isolate, so heavy pages flying
   /// past during a scroll can't stall frames. Caller-owned and caller-
   /// disposed; it must be started over the same bytes as [document] and is
-  /// only correct while [document] doesn't change under it — pass one for a
+  /// only correct while [document] doesn't change under it - pass one for a
   /// read-only document, leave it null for an editing session whose bytes
   /// change per revision (it would render stale pages). Image-bearing pages
   /// always render locally. Null and the web fallback keep today's
@@ -574,7 +582,7 @@ class PdfViewer extends StatefulWidget {
   /// /Named page actions navigate internally and never reach this, and a
   /// /URI action whose link [onLaunchUrl] opens is consumed there too;
   /// JavaScript, unrecognized actions, and links [onLaunchUrl] declines
-  /// are the app's call — the conventional bridge for PDFs that drive the
+  /// are the app's call - the conventional bridge for PDFs that drive the
   /// app is a URI action with a custom scheme, dispatched here.
   final PdfActionHandler? onAction;
 
@@ -589,7 +597,7 @@ class PdfViewer extends StatefulWidget {
 
   /// Opens the hyperlink of a tapped /URI action (and of a push button
   /// whose action is a /URI). Defaults to launching well-known external
-  /// schemes — http, https, mailto, tel, sms — in the platform's default
+  /// schemes - http, https, mailto, tel, sms - in the platform's default
   /// handler via `url_launcher`, leaving custom schemes for [onAction].
   ///
   /// Replace it to widen or narrow what opens, to confirm before leaving
@@ -610,12 +618,12 @@ class PdfViewer extends StatefulWidget {
   /// and the viewer binds undo/redo/delete shortcuts.
   ///
   /// The controller owns the document revisions, so [document] must be
-  /// `editing.document` — rebuild the viewer when the controller
+  /// `editing.document` - rebuild the viewer when the controller
   /// notifies. Because edits are incremental updates, a swap to the next
   /// revision keeps the scroll position and zoom.
   final PdfEditingController? editing;
 
-  /// Enables interactive form filling without the full editing surface —
+  /// Enables interactive form filling without the full editing surface -
   /// for the read-only reader, which lets users fill fields but not move
   /// or delete annotations. The controller owns the document revisions
   /// (filling produces one), so [document] must track its current
@@ -628,30 +636,37 @@ class PdfViewer extends StatefulWidget {
   final PdfTextPrompt? editingTextPrompt;
 
   /// Adds the app's own entries to the annotation context menu (the
-  /// right-click menu — z-order and delete come stock). Called when the
+  /// right-click menu - z-order and delete come stock). Called when the
   /// menu opens, with the selection it acts on; the custom entries
-  /// appear below a divider. Needs [editing] — without a controller
+  /// appear below a divider. Needs [editing] - without a controller
   /// there is no context menu.
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
 
   /// How the form tool fills a tapped push-button field with an image
-  /// (signature and logo fields) — typically a file picker returning
+  /// (signature and logo fields) - typically a file picker returning
   /// PNG or JPEG bytes. With none, tapping a push button does nothing.
   final PdfFormImagePicker? formImagePicker;
 
   /// How the form field "Text style…" popup loads a custom `.ttf`/`.otf`
-  /// font (its "Font → Load font…" entry) — typically a file picker
+  /// font (its "Font → Load font…" entry) - typically a file picker
   /// returning the font bytes. With none, that popup still offers the
   /// standard and bundled fonts; only the load-custom entry is hidden.
   final PdfFontPicker? fontPicker;
 
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
-  /// insert — typically a file picker returning PNG or JPEG bytes. With
+  /// insert - typically a file picker returning PNG or JPEG bytes. With
   /// none, the image tool does nothing.
   final PdfImagePicker? imagePicker;
 
+  /// Supplies image bytes for ⌘V/Ctrl+V when the in-app annotation/vector
+  /// clipboard is empty. When this returns PNG or JPEG bytes, the image is
+  /// placed as a stamp under the cursor, or at the current page center when
+  /// no pointer location is known. When null or when it returns null, paste
+  /// falls back to plain text from Flutter's system clipboard.
+  final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
   /// Receives a region captured by the snapshot tool
-  /// ([PdfEditTool.snapshot]) — typically to copy it to the clipboard,
+  /// ([PdfEditTool.snapshot]) - typically to copy it to the clipboard,
   /// save it, or share it. With none, the snapshot tool does nothing.
   final PdfSnapshotHandler? onSnapshot;
 
@@ -660,11 +675,11 @@ class PdfViewer extends StatefulWidget {
   /// The zoom the document opens at: the whole first page visible
   /// (default, like desktop browser viewers) or filling the viewport
   /// width. Re-applied when a swapped-in document has a different page
-  /// geometry (a different file — not an edit revision). Ignored when
+  /// geometry (a different file - not an edit revision). Ignored when
   /// [initialViewport] is given.
   final PdfViewerFit initialFit;
 
-  /// The scroll position and zoom to open at — a [captureViewport]
+  /// The scroll position and zoom to open at - a [captureViewport]
   /// snapshot from a previous session, so reopening a document lands
   /// where the user left it. Overrides [initialFit] for the first layout;
   /// null falls back to it.
@@ -680,6 +695,10 @@ class PdfViewer extends StatefulWidget {
   /// high for very wide engineering plots and long drawings: fit-width makes
   /// each PDF point tiny on screen, and the deep-zoom detail patch keeps the
   /// visible slice sharp without forcing a full-page raster at this scale.
+  ///
+  /// When the default is used on a narrow viewport, the viewer may lift the
+  /// internal fit-width multiplier so the actual-size cap still reaches at
+  /// least 2400%. Custom [maxZoom] values are respected exactly.
   final double maxZoom;
   final double doubleTapZoom;
 
@@ -689,22 +708,22 @@ class PdfViewer extends StatefulWidget {
   final Color? backgroundColor;
 
   /// The paper color: the fill pages render their content on. PDF pages
-  /// have no background of their own — white is only the convention — so
+  /// have no background of their own - white is only the convention - so
   /// this can be any color (sepia for reading, a tint to match the app).
   /// Purely a display setting; the document is untouched.
   final Color pageColor;
 
   /// Whether pages render their annotations (highlights, ink, stamps,
-  /// form fields...). False shows the clean underlying pages —
+  /// form fields...). False shows the clean underlying pages -
   /// a reading mode for heavily marked-up documents. Display-only: the
   /// document is untouched and the annotations come right back. While
   /// hidden, annotations don't respond to taps either (links included),
-  /// and editing tools still work but draw over an unannotated page —
+  /// and editing tools still work but draw over an unannotated page -
   /// hosts typically disarm editing while hiding.
   final bool showAnnotations;
 
   /// Washes every visible form-field widget with a translucent tint and
-  /// a hairline border, the way desktop PDF editors mark fields — most
+  /// a hairline border, the way desktop PDF editors mark fields - most
   /// fields are otherwise invisible until clicked. Display-only; the
   /// tint comes from [PdfViewerThemeData.formFieldHighlightColor]. Off
   /// automatically while [showAnnotations] is false (the fields aren't
@@ -712,8 +731,8 @@ class PdfViewer extends StatefulWidget {
   final bool highlightFormFields;
 
   /// Whether form fields can be filled in directly, the way Acrobat,
-  /// Chrome, and Preview let you — click a text field and type, tap a
-  /// check box or radio button, pick from a drop-down — with no editing
+  /// Chrome, and Preview let you - click a text field and type, tap a
+  /// check box or radio button, pick from a drop-down - with no editing
   /// tool to arm. Requires an [editing] controller (filling produces a
   /// revision); active in reading and annotation-selection modes, and
   /// suppressed while a drawing or the form-authoring tool is armed (that
@@ -735,15 +754,15 @@ class PdfViewer extends StatefulWidget {
   /// documents.
   final bool pagePreviews;
 
-  /// See the constructor doc — false pauses page rendering and the preview
+  /// See the constructor doc - false pauses page rendering and the preview
   /// prerender while another view overlays the viewer.
   final bool active;
 
   /// How many pages on each side of the current page the background
   /// prerender ([pagePreviews]) warms. Each preview drives a worker record
   /// (or a synchronous interpreter walk without a worker), and on a
-  /// raster-heavy page that record pays the full image decode — seconds of
-  /// inflate + colour-convert — even though the preview only rasterizes a
+  /// raster-heavy page that record pays the full image decode - seconds of
+  /// inflate + colour-convert - even though the preview only rasterizes a
   /// ~200px thumbnail (the decode happens at native resolution, then
   /// downsamples). A wide window therefore floods the single worker with
   /// dozens of multi-second decodes, starving the on-screen page the user is
@@ -752,14 +771,14 @@ class PdfViewer extends StatefulWidget {
   /// ([PdfCachingRenderWorker]). The window recenters as the user navigates,
   /// and pages outside it still get a preview for free when scrolled onto
   /// screen (their on-screen render feeds the cache). `<= 0` warms every page
-  /// (historical behavior — fine for short, light documents).
+  /// (historical behavior - fine for short, light documents).
   final int previewWindow;
 
   /// Draws a short speculative "lead" ahead of the pen while an ink stroke
   /// is in flight, forward-extrapolated from the recent samples' velocity
   /// and curvature, to mask the input+render latency between the pencil
   /// tip and the painted line the way PencilKit's predicted touches do.
-  /// The lead is display-only — it never enters the committed stroke — and
+  /// The lead is display-only - it never enters the committed stroke - and
   /// is suppressed when prediction would be unstable (too few samples, a
   /// near-stationary pen, or a sharp direction reversal). Pure geometry, so
   /// it helps every stylus platform; it approximates, but does not equal,
@@ -799,14 +818,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   int? _jumpFocusPage;
 
   /// Bumped whenever the document is swapped for a revision whose page
-  /// structure differs (insert/remove/reorder — the non-same-geometry path
+  /// structure differs (insert/remove/reorder - the non-same-geometry path
   /// that clears the preview cache). Threaded to every [_PdfViewerPage] so a
   /// slot-reused page State drops the stale raster of the page that used to
   /// occupy its slot instead of painting it during a fast scroll.
   int _pageEpoch = 0;
 
   /// Paces every page's first (UI-thread) interpret so no frame runs
-  /// more than one — [PdfPageRenderScheduler]. Its [holding] flag stands
+  /// more than one - [PdfPageRenderScheduler]. Its [holding] flag stands
   /// in for the old render hold: while the list scrolls faster than
   /// pages can usefully render, not-yet-interpreted pages keep their
   /// preview/placeholder instead of stalling the UI thread mid-fling
@@ -824,13 +843,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// Frame timestamp of the first sample in the current scroll burst. The
   /// hold stays up unconditionally for a short window past it (see
-  /// [_trackScrollVelocity]) — a flick ramps up, so the windowed velocity
+  /// [_trackScrollVelocity]) - a flick ramps up, so the windowed velocity
   /// underreads its true speed for the first few frames, and releasing
   /// then would let a heavy page interpret and hitch a fraction of a page
   /// into the scroll.
   Duration _scrollBurstStart = Duration.zero;
 
-  /// Low-res previews painted while a page's full render is pending —
+  /// Low-res previews painted while a page's full render is pending -
   /// what keeps fast-scrolled pages from being blank (see
   /// [PdfViewer.pagePreviews]).
   final _previews = PdfPagePreviewCache();
@@ -846,7 +865,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   bool _vectorFirstPrefetch = false;
 
   /// The editing controller's [PdfEditingController.pageRenderStamp] for
-  /// each page as of the displayed revision — the content the cached
+  /// each page as of the displayed revision - the content the cached
   /// previews (and on-screen rasters) reflect. A same-geometry edit swap
   /// compares the new stamps against this snapshot: any page whose stamp
   /// advanced had its content change (most importantly a redaction burn),
@@ -863,7 +882,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// instead of every page filling the viewport.
   late List<double> _pointWidths;
 
-  /// The widest page's displayed point width — the fit-width reference. At
+  /// The widest page's displayed point width - the fit-width reference. At
   /// layout zoom 1 this page exactly fills the viewport; narrower pages lay
   /// out proportionally narrower and centered.
   double _maxPointWidth = 0;
@@ -884,7 +903,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   bool _appliedInitialFit = false;
 
   /// A viewport waiting to be scrolled/zoomed to once the viewer has laid
-  /// out — the saved position from [PdfViewer.initialViewport] on first
+  /// out - the saved position from [PdfViewer.initialViewport] on first
   /// run, or a runtime [PdfViewerController.restoreViewport]. Applied (and
   /// cleared) in build, then placed in a post-frame callback once the new
   /// scroll extents exist.
@@ -904,7 +923,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Tracks the gesture's pan velocity for the fling on lift-off.
   VelocityTracker? _trackpadVelocity;
 
-  /// What the gesture turned out to be — see _onTrackpadPanZoomUpdate.
+  /// What the gesture turned out to be - see _onTrackpadPanZoomUpdate.
   _TrackpadIntent _trackpadIntent = _TrackpadIntent.undecided;
   Offset _trackpadPendingPan = Offset.zero;
 
@@ -991,19 +1010,19 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   // double-click-and-drag selects by whole words. The double-tap
   // recognizer rejects as soon as the pointer moves, so the drag arrives
-  // as a plain pan — a raw pointer listener spots that the press was the
+  // as a plain pan - a raw pointer listener spots that the press was the
   // second click of a double-click.
   Duration? _lastMouseDownStamp;
   Offset? _lastMouseDownLocal;
   bool _wordDrag = false;
   ((int, int), (int, int))? _wordAnchor;
 
-  /// The device kind of the latest pointer down — tap callbacks don't
+  /// The device kind of the latest pointer down - tap callbacks don't
   /// carry one, and default-mode annotation selection is mouse-only.
   PointerDeviceKind? _lastPointerKind;
 
   /// The latest pointer location (mouse hover or any pointer-down), in the
-  /// viewer's local space — so a keyboard ⌘V pastes the annotation
+  /// viewer's local space - so a keyboard ⌘V pastes the annotation
   /// clipboard at the cursor, like the right-click paste does. Null until
   /// a pointer is seen (touch/keyboard-only paste falls back to cascade).
   Offset? _lastPointerLocal;
@@ -1025,7 +1044,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   bool _grabPanning = false;
 
   /// A Shift+drag in default editing mode (no tool armed, nothing
-  /// selected) rubber-bands a marquee selection of annotations — the
+  /// selected) rubber-bands a marquee selection of annotations - the
   /// same gesture the select tool offers, without arming it. The start
   /// and current points are viewport-local (the selection detector's
   /// own coordinate space, which the zoom transform maps to screen);
@@ -1052,7 +1071,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _controller = widget.controller ?? PdfViewerController();
     _ownsController = widget.controller == null;
     _controller._state = this;
-    // mounted already paused (overlaid by another view) — hold rendering from
+    // mounted already paused (overlaid by another view) - hold rendering from
     // the first frame so covered pages never interpret
     if (!widget.active) _renderScheduler.holding = true;
     _pendingViewport = widget.initialViewport;
@@ -1070,7 +1089,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _transform.addListener(_onTransformChanged);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
     // on the web the browser's native context menu pops on right-click and
-    // pre-empts the viewer's own annotation/text menus — suppress it while
+    // pre-empts the viewer's own annotation/text menus - suppress it while
     // a viewer is mounted (ref-counted so multiple viewers cooperate)
     _suppressBrowserContextMenu();
     // Cmd+Tab and friends: the modifier's key-up goes to the other app, so
@@ -1087,7 +1106,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   late final AppLifecycleListener _lifecycle;
 
-  /// How many mounted viewers have suppressed the browser context menu —
+  /// How many mounted viewers have suppressed the browser context menu -
   /// `BrowserContextMenu` is a single global toggle, so several viewers
   /// (or a host that re-enables it) must cooperate. The native menu is
   /// re-enabled only when the last viewer goes away.
@@ -1118,14 +1137,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// Wheel events: the viewer owns zooming, not InteractiveViewer (whose
   /// wheel handler acts directly, outside the signal resolver, so it would
-  /// zoom on every wheel-up regardless of modifiers — its scaleFactor is
+  /// zoom on every wheel-up regardless of modifiers - its scaleFactor is
   /// set to infinity to neutralize it).
   ///
   /// With ctrl/cmd held the list is out of the hit path (IgnorePointer),
   /// this registration wins, and the wheel zooms around the pointer.
   /// Without a modifier the list's own registration wins while it can
   /// scroll; this wins instead at the scroll extents AND whenever the
-  /// list refuses wheel events outright — with an editing tool armed its
+  /// list refuses wheel events outright - with an editing tool armed its
   /// physics is NeverScrollableScrollPhysics, and on web every trackpad
   /// two-finger pan arrives as a wheel event (no PointerPanZoomEvents
   /// there), so this path must scroll the document itself: vertical
@@ -1137,13 +1156,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Shift+wheel scrolls horizontally (the conventional axis swap): a
   /// vertical Scrollable already flips its own axis for shift+mouse-wheel
   /// and finds no dx to consume, so it steps aside and the event lands
-  /// here with the vertical delta intact — redirect it into a horizontal
+  /// here with the vertical delta intact - redirect it into a horizontal
   /// pan of the zoom window.
   /// Front-of-the-list interceptor for a shift+mouse wheel: it claims the
   /// event (so the vertical Scrollable's axis-flip can't eat it as a
   /// vertical scroll) and hands it to [_onPointerSignal], which pans
-  /// horizontally. Anything else — a plain wheel, ctrl/cmd wheel zoom, a
-  /// trackpad pan — is left for the list and the outer handler to resolve
+  /// horizontally. Anything else - a plain wheel, ctrl/cmd wheel zoom, a
+  /// trackpad pan - is left for the list and the outer handler to resolve
   /// normally.
   void _onShiftWheelSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
@@ -1163,7 +1182,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _hBounceController.stop();
       _touchPanning = false;
       if (_zoomModifierDown) {
-        // not while a draw tool is armed — on the web a trackpad pinch
+        // not while a draw tool is armed - on the web a trackpad pinch
         // surfaces as a modifier-flagged wheel event, and zooming would
         // disrupt the stroke
         if (!_drawToolArmed) _applyWheelZoom(scroll);
@@ -1219,7 +1238,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   void _zoomTo(double target, Offset focal) {
-    final zoom = target.clamp(widget.minZoom, widget.maxZoom);
+    final zoom = target.clamp(widget.minZoom, _effectiveMaxZoom);
     if (zoom <= 1) {
       if (_transform.value.getMaxScaleOnAxis() > 1) {
         _transform.value = Matrix4.identity();
@@ -1385,7 +1404,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           _previewVectorAttempts.remove(page);
         }
         if (!mounted) return;
-        // breathe between interpreter walks — each is a synchronous
+        // breathe between interpreter walks - each is a synchronous
         // UI-thread chunk, so give the engine a frame for input and
         // animations (endOfFrame schedules one when idle; deliberately
         // not a Timer, which would pend in widget tests)
@@ -1398,7 +1417,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// The next page worth prerendering: missing a fresh preview, not yet
   /// attempted, and not near the viewport (pages in or around the build
-  /// window render fully on their own — their full picture feeds the
+  /// window render fully on their own - their full picture feeds the
   /// cache, so prerendering them too would interpret twice).
   int? _nextPreviewIndex(List<PdfPage> pages,
       {required bool requireImages, required bool allowNearViewport}) {
@@ -1425,7 +1444,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         continue;
       }
       final distance = (i - current).abs();
-      // bound the proactive warm to a window around the viewport — far
+      // bound the proactive warm to a window around the viewport - far
       // pages render on demand on arrival (render hold) and feed the
       // cache for free when scrolled through (putFromPicture)
       final window = _effectivePreviewWindow(requireImages: requireImages);
@@ -1482,7 +1501,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Estimates the scroll velocity over a ~200ms window of per-frame
   /// samples and holds the render scheduler past ~2 viewport-heights/sec.
   /// Frame timestamps (not wall clock) collapse the burst of listener
-  /// calls a single wheel tick produces into one sample — an instant
+  /// calls a single wheel tick produces into one sample - an instant
   /// 100px jump must not read as infinite velocity.
   void _trackScrollVelocity() {
     if (!_scroll.hasClients) return;
@@ -1517,7 +1536,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // A flick ramps up: its first inter-frame deltas underread the
     // gesture's true speed, so a velocity verdict taken in the burst's
     // opening frames reads "slow" and releases the hold right as the
-    // scroll accelerates — a heavy page entering then interprets
+    // scroll accelerates - a heavy page entering then interprets
     // synchronously and drops the frame (the hitch felt a fraction of a
     // page into a fast scroll). Hold unconditionally through the opening
     // window, then govern by the windowed velocity (>~2 viewport-
@@ -1554,7 +1573,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _clearSelection();
       _loadPages();
       // an edit revision keeps its previews (rebound to the new page
-      // objects — edited pages refresh from their on-screen render); a
+      // objects - edited pages refresh from their on-screen render); a
       // different document starts clean
       if (sameGeometry) {
         // a page whose content stamp advanced changed materially (a
@@ -1584,7 +1603,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
       if (!sameGeometry) {
         // didUpdateWidget runs mid-build, and jumpTo synchronously
-        // dispatches a ScrollNotification — ancestors listening through a
+        // dispatches a ScrollNotification - ancestors listening through a
         // ScrollNotificationObserver (a Material AppBar's scrolled-under
         // state, for one) would setState during build. Reset after the frame.
         SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -1606,7 +1625,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     if (oldWidget.pageColor != widget.pageColor ||
         oldPageImagesShowAnnotations != _pageImagesShowAnnotations) {
       // previews bake the paper color and annotation visibility in, so the
-      // disk key changes with them too — rebind and re-prime under the new key
+      // disk key changes with them too - rebind and re-prime under the new key
       _previews.clear();
       _bindRasterCache();
       _previewAttempts.clear();
@@ -1617,12 +1636,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         (oldWidget.editing == null) != (widget.editing == null)) {
       // the host swapped the cache or the document's identity without
       // changing the document object (e.g. a path became known), or toggled
-      // editing on/off in place — entering an edit session must drop the
+      // editing on/off in place - entering an edit session must drop the
       // index-keyed disk backing, leaving it must restore (and re-prime) it
       _bindRasterCache();
     }
     // the viewer was paused (e.g. the full-area page grid overlaid it) and is
-    // foreground again — release the render hold and resume the prerender
+    // foreground again - release the render hold and resume the prerender
     if (oldWidget.active != widget.active) {
       if (!widget.active) {
         _renderScheduler.holding = true;
@@ -1704,7 +1723,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       0;
 
   /// Page [index]'s current destructive-content stamp (advances only when an
-  /// edit removed content — a redaction burn), or 0 when not editing. Lets
+  /// edit removed content - a redaction burn), or 0 when not editing. Lets
   /// the page view keep its raster across additive edits but drop it on a
   /// destructive one.
   int _destructiveStamp(int index) =>
@@ -1751,7 +1770,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// The disk-raster key for the current document under the current paper
-  /// color, annotation visibility, and view rotation — those are baked into
+  /// color, annotation visibility, and view rotation - those are baked into
   /// a preview, so changing any must not load a mismatched cached raster.
   String? _rasterKey() {
     final id = widget.documentId;
@@ -1770,7 +1789,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // previews are never served from the (index-keyed) persistent backing.
     // Inserting, removing, or reordering pages shifts the index a stored
     // raster was keyed by, so priming from disk would bind a stale-by-index
-    // preview to the wrong page and surface it during fast scrolling — and,
+    // preview to the wrong page and surface it during fast scrolling - and,
     // marked fresh, it would block the on-screen full render from replacing
     // it. The in-memory preview cache (rebound on a same-geometry edit,
     // cleared and re-prerendered otherwise) covers the session; disk priming
@@ -1805,7 +1824,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _motionHoldReleaseTimer?.cancel();
     // when the host recreates the viewer element (e.g. a panel appearing
     // shifts it to a new slot in a Row), the replacement state attaches in
-    // initState BEFORE this deferred dispose runs — only detach if the
+    // initState BEFORE this deferred dispose runs - only detach if the
     // controller still points here, or the new viewer is severed and every
     // controller call (jumpToPage, visiblePageRegion, search) silently
     // no-ops
@@ -1832,8 +1851,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       ? 1
       : _viewWidth / _maxPointWidth;
 
+  /// Gesture/controller zoom clamps are expressed as fit-width multiples.
+  /// On phone-width viewports fit-width is less than actual size, so the
+  /// stock 24x fit-width cap used to top out below 2400% actual size. Keep
+  /// the default generous there without changing explicit host caps.
+  double get _effectiveMaxZoom {
+    if (widget.maxZoom != _defaultMaxZoom) return widget.maxZoom;
+    final fitWidth = _fitWidthScale;
+    if (!fitWidth.isFinite || fitWidth <= 0 || fitWidth >= 1) {
+      return widget.maxZoom;
+    }
+    return math.max(widget.maxZoom, _defaultMaxZoom / fitWidth);
+  }
+
   /// The on-screen scale the user sees, in logical pixels per PDF point,
-  /// where 1.0 is actual size (100%) — independent of the viewport. This is
+  /// where 1.0 is actual size (100%) - independent of the viewport. This is
   /// what [PdfViewerController.zoom] reports.
   double get _displayScale => _currentZoom * _fitWidthScale;
 
@@ -1848,7 +1880,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   double _pageLeft(int index) => (_viewWidth - _pageWidth(index)) / 2;
 
   /// The fraction of the viewport width page [index] occupies at the
-  /// current layout zoom — its real width relative to the widest page.
+  /// current layout zoom - its real width relative to the widest page.
   double _widthFactor(int index) =>
       (_maxPointWidth <= 0 ? 1.0 : _pointWidths[index] / _maxPointWidth) *
       _layoutZoom;
@@ -1878,8 +1910,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Page heights scale with [_viewWidth] (see [_pageHeight]), so when the
-  /// viewport width changes — most visibly while a side panel's resize grip
-  /// is dragged — a fixed scroll offset maps to a different page and the
+  /// viewport width changes - most visibly while a side panel's resize grip
+  /// is dragged - a fixed scroll offset maps to a different page and the
   /// document appears to scroll under the reader. This pins the reading
   /// position: capture the page (and fraction within it) at the viewport top
   /// under the OLD geometry, then re-derive the scroll offset once the new
@@ -1954,7 +1986,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// While zoomed in, the screen viewport sees list space starting at
-  /// (pixels − t_y)/s (see _visibleFractionOf) — scroll targets must
+  /// (pixels − t_y)/s (see _visibleFractionOf) - scroll targets must
   /// shift by t_y/s, or every jump lands above where the user looks.
   double get _zoomWindowDy {
     final m = _transform.value;
@@ -2018,7 +2050,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _restoreViewport(PdfViewport viewport) {
     if (_viewWidth <= 0 || _viewHeight <= 0 || !_scroll.hasClients) {
       _pendingViewport = viewport;
-      // ensure a build runs to consume it — the caller (e.g. the saved
+      // ensure a build runs to consume it - the caller (e.g. the saved
       // viewport arriving after an async preferences load) may fire while
       // the app is otherwise idle, with no frame already scheduled
       if (mounted) setState(() {});
@@ -2036,7 +2068,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         if (mounted && _scroll.hasClients) _placeViewport(viewport, page);
       });
     } else {
-      // the layout already matches — place now, no frame needed (so an idle
+      // the layout already matches - place now, no frame needed (so an idle
       // app with nothing scheduling frames still restores)
       _placeViewport(viewport, page);
     }
@@ -2056,7 +2088,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     } else {
       // zoom above fit-width rides the transform over fit-width pages, so
       // the page is the full viewport width here (see _zoomTo)
-      final scale = viewport.zoom.clamp(1.0, widget.maxZoom);
+      final scale = viewport.zoom.clamp(1.0, _effectiveMaxZoom);
       final scroll = listTop.clamp(0.0, maxScroll);
       // solve (p - t) / s = target for the translation, matching the
       // unprojection in _captureViewport / _visibleFractionOf; the page is
@@ -2077,7 +2109,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// Frames [rect] (page space on page [index]): centers it in the
   /// viewport and zooms so it fills ~40% of the view, clamped to
-  /// [1, maxZoom] — tiny annotations don't explode, big ones don't
+  /// [1, maxZoom] - tiny annotations don't explode, big ones don't
   /// force a zoom-out.
   Future<void> _showRect(int index, PdfRect rect) async {
     if (!_scroll.hasClients || _viewWidth <= 0 || _pages.isEmpty) return;
@@ -2104,7 +2136,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final fit = 0.4 *
         math.min(_viewWidth / math.max(target.width, 8),
             _viewHeight / math.max(target.height, 8));
-    final scale = fit.clamp(1.0, widget.maxZoom);
+    final scale = fit.clamp(1.0, _effectiveMaxZoom);
     final scroll = (center.dy - _viewHeight / 2)
         .clamp(0.0, _scroll.position.maxScrollExtent);
     final Matrix4 end;
@@ -2137,7 +2169,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// then the persistent [PdfViewer.textCache] (cold reopen, async), then a
   /// fresh extraction. The persistent cache is consulted only for a static
   /// document ([PdfViewer.editing] null and a [PdfViewer.documentId] to key
-  /// by) — an edit session mutates page content, so its text stays
+  /// by) - an edit session mutates page content, so its text stays
   /// in-memory-only to avoid serving a stale content-keyed entry.
   Future<PdfPageText> _extractText(int index) async {
     final cached = _textCache[index];
@@ -2157,7 +2189,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       String query, PdfSearchOptions options) async {
     final results = <PdfSearchResult>[];
     for (var i = 0; i < _pages.length; i++) {
-      // A newer keystroke has superseded this search — stop grinding pages
+      // A newer keystroke has superseded this search - stop grinding pages
       // immediately instead of interpreting every remaining content stream
       // (100–420ms each) only for the caller to discard the result. Without
       // this, each keystroke on a heavy document stacks another full-document
@@ -2267,7 +2299,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Resolves a *global* point to the page index and page-space point
-  /// under it — the editing overlay hands a cross-page move drag's drop
+  /// under it - the editing overlay hands a cross-page move drag's drop
   /// position here. Conversion runs through the list-space render box, so
   /// the zoom transform is undone for free (same path the text-selection
   /// handles use).
@@ -2286,12 +2318,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// The slice of an in-flight single-selection move ghost that lands on
-  /// page [index], expressed in that page's own view space — null when no
+  /// page [index], expressed in that page's own view space - null when no
   /// move is dragging, when [index] is the source page (its own overlay
   /// already draws the in-page part), or when the ghost doesn't reach this
   /// page. Each page draws its own slice in its overlay Stack (clipped to
   /// the page, painted over the page's raster), so the part hanging onto a
-  /// neighbour isn't lost behind it — the per-page render path the in-page
+  /// neighbour isn't lost behind it - the per-page render path the in-page
   /// ghost already uses, rather than a viewer-level layer that the web
   /// build wouldn't paint.
   PdfMoveDragPreview? _crossPageGhostFor(int index) {
@@ -2341,7 +2373,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Maps a viewport-local offset into page [index]'s view-box
-  /// coordinates (what [PdfPageGeometry] expects), without clamping — a
+  /// coordinates (what [PdfPageGeometry] expects), without clamping - a
   /// marquee dragged past the page edge still maps to sensible (possibly
   /// out-of-page) user-space coordinates.
   Offset _toPageView(int index, Offset local) {
@@ -2389,7 +2421,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     Offset pagePoint,
     Offset pageViewPosition,
   })? _annotationHitAt(Offset local, {required bool actionsOnly}) {
-    // hidden annotations don't render, so they don't take taps either —
+    // hidden annotations don't render, so they don't take taps either -
     // an invisible link navigating would be baffling
     if (!widget.showAnnotations) return null;
     final point = _pagePointAt(local);
@@ -2467,10 +2499,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Right-click (or two-finger tap): a context menu for mouse
   /// platforms. With the form tool armed and a field under the click it
   /// opens the field menu; over an annotation (or empty page area with
-  /// something on the clipboard) it opens the annotation menu — the hit
+  /// something on the clipboard) it opens the annotation menu - the hit
   /// annotation joins the selection first, an already-selected one
-  /// keeping a multi-selection intact. Otherwise — reading mode, or a
-  /// click that lands on plain page text — it opens the text menu
+  /// keeping a multi-selection intact. Otherwise - reading mode, or a
+  /// click that lands on plain page text - it opens the text menu
   /// (Copy / Select all).
   Future<void> _onSecondaryTapUp(TapUpDetails details) async {
     final point = _pagePointAt(details.localPosition);
@@ -2639,8 +2671,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// Follows a tapped /URI link: hands it to [PdfViewer.onLaunchUrl] (the
   /// default opens well-known external schemes via `url_launcher`), and
-  /// only when that declines — a custom scheme, an unparseable URI, or a
-  /// launch that failed — surfaces it to [PdfViewer.onAction] so the host
+  /// only when that declines - a custom scheme, an unparseable URI, or a
+  /// launch that failed - surfaces it to [PdfViewer.onAction] so the host
   /// keeps the last word.
   Future<void> _openUri(PdfUriAction action, PdfAnnotation annotation) async {
     final uri = Uri.tryParse(action.uri);
@@ -2756,7 +2788,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   void _onCut() => widget.editing?.cutSelectedAnnotations();
 
   /// ⌘V/Ctrl+V: paste the in-app annotation/snapshot clipboard at the
-  /// cursor. When that clipboard is empty, read plain text from the
+  /// cursor. When that clipboard is empty, ask the host for a system
+  /// clipboard image first, then fall back to plain text from Flutter's
   /// system clipboard and create a FreeText annotation at the same point.
   /// With no pointer seen yet (touch / keyboard-only) annotation paste
   /// falls back to the current page's cascade; text paste lands in the
@@ -2769,7 +2802,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // controller's clipboards)
     final snapshot = editing.hasSnapshotClipboard;
     if (!snapshot && !editing.hasAnnotationClipboard) {
-      unawaited(_pasteSystemClipboardText(editing));
+      unawaited(_pasteSystemClipboard(editing));
       return;
     }
     final local = _lastPointerLocal;
@@ -2785,6 +2818,39 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     } else {
       editing.pasteAnnotations(_controller.currentPage);
     }
+  }
+
+  Future<void> _pasteSystemClipboard(PdfEditingController editing) async {
+    if (await _pasteSystemClipboardImage(editing)) return;
+    await _pasteSystemClipboardText(editing);
+  }
+
+  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing) async {
+    final provider = widget.systemImagePasteProvider;
+    if (provider == null) return false;
+    Uint8List? bytes;
+    try {
+      bytes = await provider(context);
+    } catch (_) {
+      return false;
+    }
+    if (bytes == null || bytes.isEmpty) return false;
+    if (!mounted || widget.editing != editing) return false;
+    final local = _lastPointerLocal;
+    final point = local == null ? null : _pagePointAt(local);
+    if (point != null) {
+      return editing.placeImageAsync(point.$1, point.$2, point.$3, bytes);
+    }
+    if (_pages.isEmpty) return false;
+    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
+    if (page < 0 || page >= _pages.length) return false;
+    final box = _pages[page].cropBox;
+    return editing.placeImageAsync(
+      page,
+      (box.left + box.right) / 2,
+      (box.bottom + box.top) / 2,
+      bytes,
+    );
   }
 
   Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
@@ -2881,14 +2947,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   /// Reclaims keyboard focus after the in-place text editor closes while it
   /// owned the keyboard (Escape, ⌘Enter, or a tap-on-page commit), so the
-  /// viewer's own shortcuts fire on the very next key — notably a second
+  /// viewer's own shortcuts fire on the very next key - notably a second
   /// Escape stepping the armed tool back out. Without it the removed field's
   /// focus node leaves focus in limbo and that next key reaches nothing.
   void _reclaimFocusAfterTextEdit() {
     if (mounted) _focusNode.requestFocus();
   }
 
-  /// The controller behind any in-place text editor — the editing
+  /// The controller behind any in-place text editor - the editing
   /// session, or (in the reader) the standalone form-fill controller.
   PdfEditingController? get _textEditController =>
       widget.editing ?? widget.formController;
@@ -2905,7 +2971,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       widget.editing?.noteTouchInput();
     }
     // a raw listener fires regardless of who wins the gesture arena, so
-    // clicking anywhere — including editing overlays — focuses the viewer
+    // clicking anywhere - including editing overlays - focuses the viewer
     // and its keyboard shortcuts. Not while an in-place text editor is
     // typing, though: stealing its focus on every click would close it.
     if (_textEditController?.isEditingText != true) _focusNode.requestFocus();
@@ -2926,7 +2992,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Completes a mouse double-click (second press, released without
   /// dragging): select the word under it. Detected from raw pointer
   /// timing so no double-tap recognizer has to sit in the gesture arena
-  /// for mice — an arena recognizer would delay every click in the viewer
+  /// for mice - an arena recognizer would delay every click in the viewer
   /// by the disambiguation timeout and claim the second of two rapid
   /// clicks, starving buttons in page overlays.
   void _onPointerUp(PointerUpEvent event) {
@@ -2966,12 +3032,13 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Whether a pointer of [kind] is drawing through the editing
-  /// overlay's raw event stream right now (ink or eraser armed, pen or
-  /// drawing finger) — the viewer's own gestures must stand aside.
+  /// overlay's raw event stream right now (ink/highlighter or eraser armed,
+  /// pen or drawing finger) - the viewer's own gestures must stand aside.
   bool _kindDrawsInk(PointerDeviceKind? kind) {
     final editing = widget.editing;
     if (editing == null ||
         (editing.tool != PdfEditTool.ink &&
+            editing.tool != PdfEditTool.highlight &&
             editing.tool != PdfEditTool.eraser)) {
       return false;
     }
@@ -2982,35 +3049,37 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     };
   }
 
-  /// Whether a freehand drawing tool (ink or eraser) is armed. In this
-  /// "drawing mode" the viewer's trackpad/wheel zoom paths stand down so
-  /// a stray pinch can't zoom the page out from under a stroke: on the
+  /// Whether a freehand drawing tool (ink, highlighter, or eraser) is armed.
+  /// In this "drawing mode" the viewer's trackpad/wheel zoom paths stand down
+  /// so a stray pinch can't zoom the page out from under a stroke: on the
   /// web a two-finger trackpad gesture arrives as a pinch
   /// (`PointerScaleEvent`) that [InteractiveViewer] would otherwise apply
   /// directly (its `scaleFactor` neutralization only covers wheel
-  /// scrolling). Touch pinch still zooms — it runs through
-  /// [_EagerPinchRecognizer], not these paths — so on-screen pinch-to-zoom
+  /// scrolling). Touch pinch still zooms - it runs through
+  /// [_EagerPinchRecognizer], not these paths - so on-screen pinch-to-zoom
   /// while drawing is unaffected; on a trackpad/wheel, switch to another
   /// tool to zoom.
   bool get _drawToolArmed {
     final tool = widget.editing?.tool;
-    return tool == PdfEditTool.ink || tool == PdfEditTool.eraser;
+    return tool == PdfEditTool.ink ||
+        tool == PdfEditTool.highlight ||
+        tool == PdfEditTool.eraser;
   }
 
   void _onSelectionStart(DragStartDetails details) {
     // a raw-drawing pointer may still win this arena (the overlay's
-    // recognizers don't claim every kind) — it must not grab-pan the
+    // recognizers don't claim every kind) - it must not grab-pan the
     // document out from under its own stroke
     if (_kindDrawsInk(details.kind)) return;
     _focusNode.requestFocus();
     // Shift+drag in default editing mode (no tool armed, nothing
-    // selected) rubber-bands a marquee selection — the gesture the
+    // selected) rubber-bands a marquee selection - the gesture the
     // select tool offers, without arming it. Shift forces the marquee
     // over whatever is under the press (text, an annotation, empty
     // page), so a normal drag still grab-pans or selects text.
     if (_marqueeShouldStart(details)) {
       // anchor at the pointer-down position, not where the pan was
-      // recognized past the slop — the box should start under the press
+      // recognized past the slop - the box should start under the press
       final start = _lastMouseDownLocal ?? details.localPosition;
       final point = _pagePointAt(start);
       if (point != null) {
@@ -3166,7 +3235,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final range = _wordRangeAt(details.localPosition);
     if (range == null) {
       // no text under the press: an annotation (or, with something on
-      // the clipboard, empty page area) gets the context menu instead —
+      // the clipboard, empty page area) gets the context menu instead -
       // reader mode's touch counterpart of a right-click
       if (!_maybeAnnotationMenu(details)) _clearSelection();
       return;
@@ -3293,7 +3362,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _scrollbarPanBy(-delta.dx);
   }
 
-  /// Grab panning from a touch gesture — allows rubber-band over-scroll
+  /// Grab panning from a touch gesture - allows rubber-band over-scroll
   /// on the horizontal axis so the edge doesn't snap.
   void _touchGrabPanBy(Offset delta) {
     _touchPanning = true;
@@ -3350,7 +3419,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   static const Tolerance _flingTolerance = Tolerance(velocity: 5);
 
   /// Continues a viewport pan with the gesture's lift-off velocity
-  /// (list-space px/s — drag velocity trackers run on local positions,
+  /// (list-space px/s - drag velocity trackers run on local positions,
   /// so the zoom transform is already divided out).
   void _flingViewport(Velocity velocity) {
     _touchPanning = true;
@@ -3370,7 +3439,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// One frame of the touch fling: both axes' friction deltas go through
-  /// the touch pan path — the scroll extents absorb what they can, the
+  /// the touch pan path - the scroll extents absorb what they can, the
   /// rest pans the zoom window with rubber-band over-scroll.
   void _onTouchFlingTick() {
     final simX = _flingSimX, simY = _flingSimY;
@@ -3459,7 +3528,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final box = page.cropBox;
     var target = _pageOffset(match.pageIndex) + _zoomWindowDy;
     if (match.rects.isNotEmpty && box.height > 0) {
-      // place the match a third of the way down the screen viewport —
+      // place the match a third of the way down the screen viewport -
       // which, zoomed in, covers 1/s of the list's space
       final scale = _transform.value.getMaxScaleOnAxis();
       final fractionDown = (box.top - match.rects.first.top) / box.height;
@@ -3511,20 +3580,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _controller._setSelection(_selectedText());
   }
 
-  /// Touch double-tap: toggle zoom. Mice never reach this — the
+  /// Touch double-tap: toggle zoom. Mice never reach this - the
   /// recognizer is restricted to touch/stylus so desktop clicks resolve
   /// instantly; mouse double-click word selection lives in [_onPointerUp].
   void _onDoubleTap() {
     final details = _doubleTapDetails;
     if (details == null) return;
     // two quick pen dots (dotting an i twice) are ink, not a zoom
-    // gesture — the strokes already committed through the raw path
+    // gesture - the strokes already committed through the raw path
     if (_kindDrawsInk(details.kind)) return;
     final current = _currentZoom;
     final Matrix4 end;
     final bool zoomedAfter;
     if ((current - 1).abs() > 0.01) {
-      // from any zoom — in or out — back to 100%
+      // from any zoom - in or out - back to 100%
       if (_layoutZoom < 1) {
         _setLayoutZoom(1, focalY: details.localPosition.dy);
       }
@@ -3575,7 +3644,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       _pinchScale = details.scale;
     }
     // focalPointDelta is local to the receiver, which sits inside the
-    // zoom transform — list-space pixels, exactly what _grabPanBy takes
+    // zoom transform - list-space pixels, exactly what _grabPanBy takes
     final delta = details.focalPointDelta;
     if (delta != Offset.zero) _touchGrabPanBy(delta);
   }
@@ -3644,7 +3713,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
     // macOS delivers magnification and scrolling through the same gesture
     // stream, and a magnify gesture reports the fingers' drift as pan
-    // deltas — applying both made every pinch also scroll. The first
+    // deltas - applying both made every pinch also scroll. The first
     // intent to cross its threshold claims the whole gesture; until then
     // motion accumulates unapplied (and is paid back in one piece when
     // scrolling latches, so nothing is lost to the dead zone).
@@ -3652,7 +3721,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     if (_trackpadIntent == _TrackpadIntent.undecided) {
       _trackpadPendingPan += delta;
       // a draw tool armed: never latch zoom, so a pinch can't scale the
-      // page mid-stroke — two-finger motion only scrolls
+      // page mid-stroke - two-finger motion only scrolls
       if ((event.scale - 1).abs() > 0.01 && !_drawToolArmed) {
         _trackpadIntent = _TrackpadIntent.zoom;
       } else if (_trackpadPendingPan.distance > 8) {
@@ -3796,7 +3865,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _touchPanning = false;
     final overscroll = _horizontalOverscroll();
     if (overscroll.abs() < 0.5) {
-      // close enough — just clamp
+      // close enough - just clamp
       if (overscroll != 0) {
         _transform.value = _clampedTransform(_transform.value.clone());
       }
@@ -3827,7 +3896,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   }
 
   /// Scrollbar motion, in list-space pixels: the scroll extents absorb
-  /// what they can and the leftover pans the zoom window — the same
+  /// what they can and the leftover pans the zoom window - the same
   /// spillover as trackpad scrolling, so the document's very ends stay
   /// reachable from the bar while zoomed in.
   void _scrollbarScrollBy(double delta) {
@@ -3915,7 +3984,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
           // PdfViewerFit.width fills the viewport with the widest page
           // (layout zoom 1); PdfViewerFit.page shrinks until the whole
           // first page fits in height as well. Either way pages keep their
-          // real relative sizes — a narrower page lays out narrower.
+          // real relative sizes - a narrower page lays out narrower.
           final firstHeightAtFullWidth = _aspects.isNotEmpty
               ? _aspects.first * _pointWidths.first * _fitWidthScale
               : 0.0;
@@ -3927,21 +3996,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         }
       }
       // no implicit desktop scrollbar: it would attach here, inside the
-      // zoom transform — thin, low-contrast, and scaled or translated out
+      // zoom transform - thin, low-contrast, and scaled or translated out
       // of view when zoomed. The viewer paints its own bar outside the
       // transform instead (_PdfScrollbar below).
       final list = ExactExtentListView.builder(
         controller: _scroll,
-        // with a tool armed, touch drags belong to the editing overlay —
+        // with a tool armed, touch drags belong to the editing overlay -
         // the list's drag recognizer would win vertical-ish strokes in
         // the arena otherwise. Desktop trackpad gestures are unaffected
         // (_onTrackpadPanZoomUpdate drives the position directly); wheel
-        // events — including web trackpad pans, which arrive as wheel —
+        // events - including web trackpad pans, which arrive as wheel -
         // are refused by these physics and handled by _onPointerSignal.
         physics:
             editing?.tool != null ? const NeverScrollableScrollPhysics() : null,
         // every page's extent is known up front, so give the sliver exact
-        // geometry instead of letting it estimate from built children —
+        // geometry instead of letting it estimate from built children -
         // estimates drift on long mixed-size documents, landing jumps
         // (search, links, page navigation) off target. ExactExtentListView
         // additionally makes maxScrollExtent the exact total: the stock
@@ -3956,7 +4025,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         itemBuilder: (context, index) => Padding(
           padding: EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
           // each page lays out at its real width relative to the widest
-          // page (times the layout zoom), centered — so pages keep their
+          // page (times the layout zoom), centered - so pages keep their
           // true sizes instead of all stretching to the viewport width
           child: Center(
             child: FractionallySizedBox(
@@ -4062,7 +4131,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                   const SingleActivator(LogicalKeyboardKey.backspace):
                       editing.deleteSelected,
                   // unmodified single-key tool shortcuts (V select, P pen,
-                  // R rectangle, …) — safe because an open in-place text
+                  // R rectangle, …) - safe because an open in-place text
                   // editor disables every binding above
                   for (final entry in widget.toolShortcuts.entries)
                     SingleActivator(entry.value): () => _armTool(entry.key),
@@ -4075,7 +4144,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
               // touch/stylus only: a double-tap recognizer that accepted
               // mice would hold every click in the gesture arena for the
               // disambiguation timeout and steal the second of two rapid
-              // clicks — links and overlay buttons would feel dead
+              // clicks - links and overlay buttons would feel dead
               DoubleTapGestureRecognizer: GestureRecognizerFactoryWithHandlers<
                   DoubleTapGestureRecognizer>(
                 () => DoubleTapGestureRecognizer(
@@ -4097,7 +4166,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
               child: Stack(children: [
                 InteractiveViewer(
                   transformationController: _transform,
-                  maxScale: widget.maxZoom,
+                  maxScale: _effectiveMaxZoom,
                   // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
                   // disables InteractiveViewer's own (modifier-blind) version
                   scaleFactor: double.maxFinite,
@@ -4385,7 +4454,7 @@ class _MarqueePainter extends CustomPainter {
 /// Paints the slice of a cross-page move ghost that lands on a page, in
 /// that page's own view space (from/to already mapped there). It sits in
 /// the page's overlay Stack, so it paints over the page raster and is
-/// clipped to the page — the same per-page render path the in-page ghost
+/// clipped to the page - the same per-page render path the in-page ghost
 /// uses, so a drag onto a neighbour page shows there.
 class _MoveDragPreviewPainter extends CustomPainter {
   const _MoveDragPreviewPainter(this.preview);
@@ -4657,7 +4726,7 @@ class _PdfViewerPage extends StatefulWidget {
   final PdfPageOverlayBuilder? overlayBuilder;
   final PdfEditingController? editing;
 
-  /// The controller driving interactive form fill — [editing] in the
+  /// The controller driving interactive form fill - [editing] in the
   /// editor, or a standalone session in the read-only reader (so forms
   /// fill without enabling annotation editing). Null disables it.
   final PdfEditingController? formController;
@@ -4698,7 +4767,7 @@ class _PdfViewerPage extends StatefulWidget {
   /// nothing is dragging onto this page. See [_PdfViewerState._crossPageGhostFor].
   final PdfMoveDragPreview? crossPageGhost;
 
-  /// The viewer transform's scale — the editing overlay's chrome divides
+  /// The viewer transform's scale - the editing overlay's chrome divides
   /// by it to stay constant-size on screen while zoomed.
   final ValueListenable<double> transformScale;
 
@@ -4724,7 +4793,7 @@ class _PdfViewerPage extends StatefulWidget {
 class _PdfViewerPageState extends State<_PdfViewerPage> {
   /// Whether the on-screen raster shows the current [widget.page] (this
   /// revision). False from the moment an edit swaps the document until
-  /// PdfPageView's new render lands — the window the editing overlay
+  /// PdfPageView's new render lands - the window the editing overlay
   /// keeps its just-committed preview painted over.
   bool _rastered = false;
   bool _annotationLayerCurrent = true;
@@ -4772,7 +4841,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    // the Stack is always present — toggling it when highlights appear
+    // the Stack is always present - toggling it when highlights appear
     // would reshape the element tree and recreate PdfPageView's state
     // (dropping its rendered image: a white flash)
     final builder = widget.overlayBuilder;
@@ -4869,7 +4938,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   listenable: editing,
                   // mounted for an armed tool, the eyedropper, a
                   // default-mode (mouse click) annotation selection, or
-                  // a pending attention flash (the sidebar's zoom-to —
+                  // a pending attention flash (the sidebar's zoom-to -
                   // links and form fields flash without a selection)
                   builder: (context, _) {
                     final rasterCurrent = _rastered &&
@@ -4967,7 +5036,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                     },
                   ),
                 ),
-              // touch text selection chrome rides topmost — it only
+              // touch text selection chrome rides topmost - it only
               // shows in reader mode (tool disarmed), so it never
               // competes with an armed tool's gestures
               if (textSelection != null)
@@ -4990,7 +5059,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
 
 /// Washes every visible form-field widget with a translucent tint and a
 /// hairline border so fields read at a glance ([PdfViewer.
-/// highlightFormFields] — most fields are invisible until focused).
+/// highlightFormFields] - most fields are invisible until focused).
 class _FormFieldPainter extends CustomPainter {
   _FormFieldPainter({
     required this.box,
@@ -5158,7 +5227,7 @@ class _TrackpadPanRecognizer extends OneSequenceGestureRecognizer {
 /// Touch pinch zoom. The stock arena loses pinches: the list's vertical
 /// drag (or, with a tool armed, the editing overlay's pan) accepts one
 /// finger's motion before InteractiveViewer's scale recognizer can claim
-/// the pair, so pinching scrolled — or drew — instead of zooming. This
+/// the pair, so pinching scrolled - or drew - instead of zooming. This
 /// recognizer stays passive for single touches (taps, scrolls, and
 /// strokes resolve exactly as before) and claims the whole gesture the
 /// moment a second touch pointer lands, while both arenas are still
@@ -5180,7 +5249,7 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
   @override
   void resolve(GestureDisposition disposition) {
     // Block the superclass (ScaleGestureRecognizer) from accepting for a
-    // single touch — its _advanceStateMachine calls resolve(accepted) once
+    // single touch - its _advanceStateMachine calls resolve(accepted) once
     // past pan slop, which would steal the gesture from InteractiveViewer's
     // pan handler and then swallow it (onUpdate returns early for
     // pointerCount < 2). Only accept when two fingers are down (pinch).
@@ -5211,7 +5280,7 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
 /// Touch text selection: long-press to select. Sits in the same arena
 /// as the list's drag recognizers, so once it fires the press can drag
 /// to extend without scrolling. Stands down (never enters the arena)
-/// while an editing tool is armed — a held finger must not start
+/// while an editing tool is armed - a held finger must not start
 /// selecting text under an ink stroke or a shape drag.
 class _SelectionLongPressRecognizer extends LongPressGestureRecognizer {
   _SelectionLongPressRecognizer({super.debugOwner})
@@ -5232,7 +5301,7 @@ class _SelectionLongPressRecognizer extends LongPressGestureRecognizer {
   String get debugDescription => 'selection long press';
 }
 
-/// A selection handle's drag must beat the list's scroll drag — the
+/// A selection handle's drag must beat the list's scroll drag - the
 /// handle is a small, explicit target, so claiming the pointer the
 /// moment it lands is right.
 class _EagerPanRecognizer extends PanGestureRecognizer {

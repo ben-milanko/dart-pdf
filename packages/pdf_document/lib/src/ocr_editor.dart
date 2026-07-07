@@ -1,6 +1,6 @@
 part of 'editor.dart';
 
-/// A single fragment of recognized text positioned in PDF user space —
+/// A single fragment of recognized text positioned in PDF user space -
 /// the unit an OCR engine returns and [PdfOcrEditing.injectTextLayer]
 /// writes onto a page.
 ///
@@ -38,8 +38,8 @@ extension PdfOcrEditing on PdfEditor {
   ///
   /// Each span becomes one text-showing operation, sized and horizontally
   /// scaled (`Tz`) so its selection box matches [PdfOcrSpan.bounds]: the
-  /// font size is the box height and the run's em box — the conventional
-  /// ascent/descent the selection and search code reconstructs — spans the
+  /// font size is the box height and the run's em box - the conventional
+  /// ascent/descent the selection and search code reconstructs - spans the
   /// box exactly. By default the text is invisible (render mode 3,
   /// §9.4.3): it paints nothing but stays selectable, searchable, and
   /// extractable, exactly like the OCR layer Acrobat/Tesseract bury under a
@@ -79,7 +79,7 @@ extension PdfOcrEditing on PdfEditor {
       final size = box.height;
       final natural = measureStandardText(span.text, size, font: font);
       // Horizontal scaling that stretches the run's natural width onto the
-      // box width — so the invisible selection box tracks the word.
+      // box width - so the invisible selection box tracks the word.
       final scale = natural > 0 ? box.width / natural * 100 : 100.0;
       writer
         ..beginText()

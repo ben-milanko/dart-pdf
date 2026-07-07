@@ -1,5 +1,5 @@
 /// XMP metadata packet construction (ISO 16684-1) for the identification
-/// schemas PDF/A and PDF/UA require — built as plain XML text so it works on
+/// schemas PDF/A and PDF/UA require - built as plain XML text so it works on
 /// the Dart VM and the web with no platform XML dependency.
 library;
 
@@ -96,7 +96,7 @@ String _esc(String s) => s
     .replaceAll('>', '&gt;');
 
 /// Reads the `pdfuaid:part` value from an XMP packet's bytes, or null. Lenient
-/// substring/regex scan — XMP is RDF/XML but the identifier is unambiguous.
+/// substring/regex scan - XMP is RDF/XML but the identifier is unambiguous.
 int? readPdfUaPart(Uint8List xmp) => _readIntField(xmp, 'pdfuaid:part');
 
 /// Reads the `pdfaid:part` value from an XMP packet, or null.

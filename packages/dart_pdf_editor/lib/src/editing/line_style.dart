@@ -31,7 +31,7 @@ enum PdfLineStyle {
   }
 
   /// Classifies a stored dash array (from `PdfAnnotation.borderDash`) back
-  /// to the closest style — so a style control can show the current value.
+  /// to the closest style - so a style control can show the current value.
   /// Null/empty → [solid]; otherwise by segment count and dash:gap ratio.
   static PdfLineStyle ofDashArray(List<double>? dash) {
     if (dash == null || dash.isEmpty) return PdfLineStyle.solid;

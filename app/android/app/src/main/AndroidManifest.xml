@@ -45,12 +45,12 @@
                 <data android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
-        <!-- Lets super_clipboard hand image (PNG) data to the Android
-             clipboard for the Snapshot tool's "copy to clipboard". Text-only
-             clipboard writes work without it; images need this provider. -->
+        <!-- Lets the Snapshot tool hand PNG data to other apps through the
+             Android clipboard. Text-only clipboard writes work without it;
+             images need a content URI. -->
         <provider
-            android:name="com.superlist.super_native_extensions.DataProvider"
-            android:authorities="${applicationId}.SuperClipboardDataProvider"
+            android:name=".ImageClipboardProvider"
+            android:authorities="${applicationId}.image_clipboard"
             android:exported="true"
             android:grantUriPermissions="true" />
         <!-- Don't delete the meta-data below.

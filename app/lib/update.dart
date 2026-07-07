@@ -260,7 +260,7 @@ class UpdateService extends ChangeNotifier {
   }
 
   /// Queries GitHub for a newer release. Throttled to [_checkInterval] unless
-  /// [force] is set (the Settings "Check now" button forces). Never throws —
+  /// [force] is set (the Settings "Check now" button forces). Never throws -
   /// failures land in [status]/[error].
   Future<void> checkForUpdates({bool force = false}) async {
     if (!supported || _status == UpdateStatus.checking) return;
@@ -371,7 +371,7 @@ class UpdateService extends ChangeNotifier {
       }
       _dismissedTag = prefs.getString(_dismissedKey);
     } catch (_) {
-      // No storage (tests) — keep the in-memory defaults.
+      // No storage (tests) - keep the in-memory defaults.
     }
   }
 
@@ -382,7 +382,7 @@ class UpdateService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_lastCheckedKey, last.millisecondsSinceEpoch);
     } catch (_) {
-      // No storage — nothing to persist.
+      // No storage - nothing to persist.
     }
   }
 
@@ -391,7 +391,7 @@ class UpdateService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_dismissedKey, tag);
     } catch (_) {
-      // No storage — nothing to persist.
+      // No storage - nothing to persist.
     }
   }
 }

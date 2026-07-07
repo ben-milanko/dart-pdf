@@ -4,18 +4,46 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../page_geometry.dart';
 import '../renderer.dart';
 import 'editing_measure.dart';
 import 'editing_preferences.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
+import 'text_prompt.dart';
 import 'thumbnail_cache.dart';
 
 PdfEmbeddableImage _decodeEmbeddableImage(Uint8List bytes) =>
     PdfEmbeddableImage.decode(bytes);
+
+Map<String, Object?> _replaceDocumentColorsOnWorker(
+    Map<String, Object?> message) {
+  final document = PdfDocument.open(
+    message['bytes']! as Uint8List,
+    password: message['password']! as String,
+  );
+  final editor = PdfEditor(document);
+  final count = editor.replaceColorsOnPages(
+    (message['pages']! as List).cast<int>(),
+    finds: (message['finds']! as List).cast<int>(),
+    replace: message['replace']! as int,
+    tolerance: message['tolerance']! as int,
+    fill: message['fill']! as bool,
+    stroke: message['stroke']! as bool,
+    transparent: message['transparent']! as bool,
+  );
+  if (count == 0 || !editor.hasChanges) {
+    return const {'count': 0};
+  }
+  return {
+    'count': count,
+    'bytes': editor.save(),
+  };
+}
 
 Map<String, String> _normalizeStampTemplateValues(Map<String, String> values) {
   final normalized = <String, String>{};
@@ -30,8 +58,9 @@ Map<String, String> _normalizeStampTemplateValues(Map<String, String> values) {
 /// The annotation tools a [PdfEditingController] can arm.
 ///
 /// Text markups (highlight, underline, strike-out, squiggly) are not
-/// tools — they act on the viewer's current text selection through
-/// [PdfEditingController.addMarkup].
+/// tools - they act on the viewer's current text selection through
+/// [PdfEditingController.addMarkup]. [highlight] is the Draw group's
+/// freehand highlighter.
 enum PdfEditTool {
   /// Tap to select an annotation; drag it to move, drag its handles to
   /// resize.
@@ -40,6 +69,11 @@ enum PdfEditTool {
   /// Freehand drawing. Strokes accumulate in the controller until
   /// [PdfEditingController.finishInk] commits them as one Ink annotation.
   ink,
+
+  /// Freehand highlight. Like [ink], but with a separate highlighter style
+  /// scope so it defaults to a broad translucent yellow stroke and remembers
+  /// later user changes independently of the pen.
+  highlight,
 
   /// Drag (or tap) over ink strokes to delete them. Whole-annotation:
   /// every Ink annotation the pointer crosses is removed; one swipe is
@@ -66,6 +100,9 @@ enum PdfEditTool {
   /// Drag to create a sampled closed /Polygon annotation.
   polygon,
 
+  /// Drag out a rectangular cloudy /Polygon annotation.
+  cloudPolygon,
+
   /// Drag a straight segment whose real-world length is shown live and
   /// stamped as a /Line measurement (§12.9). Needs an active
   /// [PdfEditingController.measurementScale].
@@ -84,13 +121,13 @@ enum PdfEditTool {
   /// takeoff measurement.
   measureSlope,
 
-  /// Click three points — arm end, vertex, arm end — to measure the
+  /// Click three points - arm end, vertex, arm end - to measure the
   /// interior angle (degrees) at the middle vertex. Auto-finishes on the
   /// third click; stamped as a /PolyLine takeoff measurement.
   measureAngle,
 
-  /// Click three points on a circular arc — start, a point on the arc, end
-  /// — to measure its swept length. Auto-finishes on the third click;
+  /// Click three points on a circular arc - start, a point on the arc, end
+  /// - to measure its swept length. Auto-finishes on the third click;
   /// stamped as a /PolyLine takeoff measurement.
   measureArc,
 
@@ -155,7 +192,7 @@ enum PdfEditTool {
   /// Drag out a rectangle to capture that region of the page as a raster
   /// image, like Bluebeam's Snapshot. The captured PNG is rendered through
   /// [PdfEditingController.captureSnapshot] and handed to
-  /// [PdfViewer.onSnapshot] — typically to copy it to the clipboard, save,
+  /// [PdfViewer.onSnapshot] - typically to copy it to the clipboard, save,
   /// or share it; with no handler the tool does nothing. It only reads the
   /// page: no annotation or page content is written.
   snapshot,
@@ -164,15 +201,15 @@ enum PdfEditTool {
 /// Text-markup kinds for [PdfEditingController.addMarkup].
 enum PdfMarkupKind { highlight, underline, strikeOut, squiggly }
 
-/// Host veto over which annotations the editing UI may change — see
+/// Host veto over which annotations the editing UI may change - see
 /// [PdfEditingController.canEditAnnotation].
 typedef PdfAnnotationEditPredicate = bool Function(PdfAnnotation annotation);
 
-/// The field kinds the form tool can create (and convert fields to) —
+/// The field kinds the form tool can create (and convert fields to) -
 /// the subset of [PdfFieldType] with creation support in [PdfEditor].
 enum PdfFormFieldKind { text, checkBox, pushButton }
 
-/// The text styling of a form text field, read from its /DA, /Q and /Ff —
+/// The text styling of a form text field, read from its /DA, /Q and /Ff -
 /// what the form-field style controls reflect and edit
 /// ([PdfEditingController.selectedFormFieldStyle]).
 class PdfFormFieldStyle {
@@ -253,15 +290,15 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The persisted UI preferences backing [color], [strokeWidth],
-  /// [fontSize], [opacity], and [fingerDrawsInk] — every change is saved
+  /// [fontSize], [opacity], and [fingerDrawsInk] - every change is saved
   /// to the local device and restored on the next session. Pass one in
   /// to share it with the host's chrome (the sidebar-visibility flags
   /// live there too).
   final PdfEditingPreferences preferences;
 
   /// The session's shared page-thumbnail cache (and its viewport-ordered
-  /// render queue). Every thumbnail surface — the docked strip, the
-  /// full-area page grid — draws from this one cache, so a page rendered for
+  /// render queue). Every thumbnail surface - the docked strip, the
+  /// full-area page grid - draws from this one cache, so a page rendered for
   /// one is reused by the other and survives a tile scrolling out of view
   /// and back. Lives as long as the session; a new session brings a fresh,
   /// empty cache (render stamps restart at zero, so stale keys can't collide
@@ -289,8 +326,8 @@ class PdfEditingController extends ChangeNotifier {
   int _cursor = 0;
 
   /// Parallels [_revisions]: the page indices each revision changed
-  /// visually (null = unknown, treat as all). Entry 0 — the original
-  /// document — is never consulted.
+  /// visually (null = unknown, treat as all). Entry 0 - the original
+  /// document - is never consulted.
   final List<Set<int>?> _revisionPages = [null];
 
   /// Parallels [_revisions]: the page indices whose base page content image
@@ -328,7 +365,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// A value that changes whenever [pageIndex]'s rendering may have
-  /// changed — and stays put across edits, undo, and redo that touched
+  /// changed - and stays put across edits, undo, and redo that touched
   /// other pages only. Thumbnails key their raster caches on it instead
   /// of re-rendering every page on every revision.
   int pageRenderStamp(int pageIndex) =>
@@ -343,8 +380,8 @@ class PdfEditingController extends ChangeNotifier {
   /// Destructive-render epoch: bumped only by edits that *remove* existing
   /// page content (a redaction burn), as opposed to the additive ones (ink,
   /// highlights, shapes, fills) that merely lay new marks on top. The viewer
-  /// keeps the on-screen raster painted across an additive edit — so a heavy
-  /// page never flashes blank while the new render lands — but must drop it
+  /// keeps the on-screen raster painted across an additive edit - so a heavy
+  /// page never flashes blank while the new render lands - but must drop it
   /// on a destructive one, so the removed content can't linger on screen (or
   /// in a fast-scroll preview) for even a frame. A burn recompacts the whole
   /// file (every page may have changed), so this is a single all-pages
@@ -365,7 +402,7 @@ class PdfEditingController extends ChangeNotifier {
   /// edit, undo, and redo.
   PdfDocument get document => _document;
 
-  /// The current revision's bytes — what "save to disk" should write.
+  /// The current revision's bytes - what "save to disk" should write.
   Uint8List get bytes => Uint8List.sublistView(_bytes, 0, _revisions[_cursor]);
 
   /// Set once a redaction burn replaces the byte buffer: the undo history
@@ -417,7 +454,7 @@ class PdfEditingController extends ChangeNotifier {
   /// changes. Redoable revisions are discarded, like any editor's redo
   /// stack on a fresh edit.
   ///
-  /// [pages] names the page indices the edit changes visually — it feeds
+  /// [pages] names the page indices the edit changes visually - it feeds
   /// [pageRenderStamp], which lets page thumbnails skip re-rendering
   /// pages an edit didn't touch. Omit it (null) when the affected pages
   /// are unknown and every page's stamp is bumped.
@@ -433,6 +470,21 @@ class PdfEditingController extends ChangeNotifier {
     if (!editor.hasChanges) return false;
     final saved = editor.save();
     final beforeLength = _revisions[_cursor];
+    _commitSavedRevision(
+      saved,
+      beforeLength: beforeLength,
+      pages: pages,
+      contentPages: contentPages,
+    );
+    return true;
+  }
+
+  void _commitSavedRevision(
+    Uint8List saved, {
+    required int beforeLength,
+    Iterable<int>? pages,
+    Iterable<int>? contentPages,
+  }) {
     final touched = pages == null ? null : Set<int>.unmodifiable(pages);
     final contentTouched =
         contentPages == null ? touched : Set<int>.unmodifiable(contentPages);
@@ -460,7 +512,109 @@ class PdfEditingController extends ChangeNotifier {
     _invalidateElements();
     _emitAnnotationChanges(beforeLength, touched);
     notifyListeners();
-    return true;
+  }
+
+  // ---------------------------------------------------------------------
+  // document outline / bookmarks
+
+  /// The current document outline (`/Outlines`) as nested bookmark items.
+  PdfOutline get outline => PdfOutline.of(_document);
+
+  /// Adds a PDF bookmark pointing at [pageIndex], or the first page when no
+  /// page is supplied. [parentPath] identifies the parent outline item; null
+  /// adds a top-level bookmark. Returns false when the title/page/path is
+  /// invalid or the edit stages no PDF changes.
+  bool addBookmark(String title,
+      {int? pageIndex, List<int>? parentPath, int? index, bool open = true}) {
+    final text = title.trim();
+    if (text.isEmpty) return false;
+    final page = (pageIndex ?? 0);
+    if (page < 0 || page >= _document.pageCount) return false;
+    var resolvedParent = true;
+    final changed = apply((editor) {
+      final parent = parentPath == null
+          ? null
+          : _outlineRefAt(editor.document, parentPath);
+      if (parentPath != null && parent == null) {
+        resolvedParent = false;
+        return;
+      }
+      editor.addOutlineItem(text,
+          pageIndex: page, parent: parent, index: index, open: open);
+    }, pages: const <int>[], contentPages: const <int>[]);
+    return resolvedParent && changed;
+  }
+
+  /// Edits an existing bookmark addressed by [path]. A null field is left
+  /// unchanged. Page destinations are written as explicit `/Fit` destinations.
+  bool editBookmark(List<int> path,
+      {String? title, int? pageIndex, bool? open}) {
+    final text = title?.trim();
+    if (text != null && text.isEmpty) return false;
+    if (pageIndex != null &&
+        (pageIndex < 0 || pageIndex >= _document.pageCount)) {
+      return false;
+    }
+    if (text == null && pageIndex == null && open == null) return false;
+    var resolved = true;
+    final changed = apply((editor) {
+      final item = _outlineRefAt(editor.document, path);
+      if (item == null) {
+        resolved = false;
+        return;
+      }
+      if (text != null) editor.setOutlineTitle(item, text);
+      if (pageIndex != null) {
+        editor.setOutlineDestination(
+            item, PdfExplicitDestination.fit(pageIndex));
+      }
+      if (open != null) editor.setOutlineStyle(item, open: open);
+    }, pages: const <int>[], contentPages: const <int>[]);
+    return resolved && changed;
+  }
+
+  /// Deletes the bookmark at [path], including its child bookmark subtree.
+  bool deleteBookmark(List<int> path) {
+    var resolved = true;
+    final changed = apply((editor) {
+      final item = _outlineRefAt(editor.document, path);
+      if (item == null) {
+        resolved = false;
+        return;
+      }
+      editor.removeOutlineItem(item);
+    }, pages: const <int>[], contentPages: const <int>[]);
+    return resolved && changed;
+  }
+
+  static CosReference? _outlineRefAt(PdfDocument document, List<int> path) {
+    if (path.isEmpty) return null;
+    final cos = document.cos;
+    final root = cos.resolve(document.catalog['Outlines']);
+    if (root is! CosDictionary) return null;
+    var parent = root;
+    CosReference? foundRef;
+    for (final index in path) {
+      if (index < 0) return null;
+      var cur = parent['First'];
+      var i = 0;
+      final seen = <int>{};
+      CosDictionary? foundDict;
+      while (cur is CosReference && seen.add(cur.objectNumber)) {
+        final dict = cos.resolve(cur);
+        if (dict is! CosDictionary) return null;
+        if (i == index) {
+          foundRef = cur;
+          foundDict = dict;
+          break;
+        }
+        i++;
+        cur = dict['Next'];
+      }
+      if (foundDict == null) return null;
+      parent = foundDict;
+    }
+    return foundRef;
   }
 
   // ---------------------------------------------------------------------
@@ -477,13 +631,13 @@ class PdfEditingController extends ChangeNotifier {
   /// This is the outbound half of annotation sync: serialize each
   /// change's snapshot ([PdfAnnotationSnapshot.toJson]) into your store
   /// (Firestore, a server, ...) and replay batches from other devices
-  /// through [applyRemoteChange] — remote applies don't re-emit, so
+  /// through [applyRemoteChange] - remote applies don't re-emit, so
   /// there is no echo to suppress.
   ///
   /// Caveats: open pre-existing documents with [ensureAnnotationNames] +
   /// [annotationBaseline] so every annotation has a durable identity
   /// first, and remember that remote applies join the revision (undo)
-  /// stack — undoing past one reverts it locally and broadcasts the
+  /// stack - undoing past one reverts it locally and broadcasts the
   /// revert as a local change.
   Stream<List<PdfAnnotationChange>> get annotationChanges =>
       (_changeFeed ??= StreamController.broadcast()).stream;
@@ -501,7 +655,7 @@ class PdfEditingController extends ChangeNotifier {
         password: _password);
     // `pages` names render-changed pages; metadata edits (contents,
     // author) pass an empty set because nothing repaints, yet the
-    // annotation content did change — diff everything for those.
+    // annotation content did change - diff everything for those.
     final diffPages = pages != null && pages.isEmpty ? null : pages;
     final changes = pdfDiffAnnotations(before, _document, pages: diffPages);
     if (changes.isNotEmpty) feed.add(changes);
@@ -549,7 +703,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Stamps a generated /NM on every annotation that lacks one (see
-  /// [PdfAnnotationEditing.nameAnnotations]) — run once when opening a
+  /// [PdfAnnotationEditing.nameAnnotations]) - run once when opening a
   /// document for sync, before [annotationBaseline]. Returns how many
   /// were named. Emits nothing: the baseline is the explicit hand-off.
   int ensureAnnotationNames() {
@@ -563,7 +717,7 @@ class PdfEditingController extends ChangeNotifier {
     return named;
   }
 
-  /// The current document's whole annotation state as created-changes —
+  /// The current document's whole annotation state as created-changes -
   /// what a sync layer uploads to seed its store when a document joins
   /// sync. Annotations without /NM (call [ensureAnnotationNames] first)
   /// and non-captureable subtypes (popups, links, widgets) are skipped.
@@ -602,56 +756,80 @@ class PdfEditingController extends ChangeNotifier {
   // tool state
 
   PdfEditTool? _tool;
+  bool _colorLocked = false;
+
+  static const Set<String> _colorLockedFields = {'color'};
 
   /// The armed tool, or null when the viewer behaves as a plain reader.
   PdfEditTool? get tool => _tool;
 
   set tool(PdfEditTool? value) {
     if (value == _tool) return;
-    // leaving the ink tool commits the drawing, like lifting the pen.
+    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
+    // leaving an ink-like tool commits the drawing, like lifting the pen.
     //
     // Switching directly from ink to the eraser is the latency-sensitive
     // path used by Apple Pencil double-tap.  A pending ink commit can rewrite
     // the PDF and trigger a raster refresh, which made the eraser button feel
     // sticky.  Arm the eraser and repaint the toolbar/cursor first, then let
-    // the commit run in the next event-loop turn; the ink is still committed
+    // the commit run in the next event-loop turn; the stroke is still committed
     // before any subsequent pointer event can erase it.
-    final deferInkCommit = _tool == PdfEditTool.ink &&
-        value == PdfEditTool.eraser &&
-        hasPendingInk;
-    if (_tool == PdfEditTool.ink &&
-        value != PdfEditTool.ink &&
-        !deferInkCommit) {
+    final leavingInkTool = _buffersInk(_tool) && value != _tool;
+    final deferInkCommit =
+        leavingInkTool && value == PdfEditTool.eraser && hasPendingInk;
+    if (leavingInkTool && !deferInkCommit) {
       finishInk();
     }
     // arming anything but the eraser by other means breaks the pencil
-    // double-tap pairing (see [togglePencilEraser]) — the remembered tool
+    // double-tap pairing (see [togglePencilEraser]) - the remembered tool
     // is only valid while the eraser stays the toggled-on partner
     if (value != PdfEditTool.eraser) _eraserToggledOn = false;
     _tool = value;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
-    // each annotation tool remembers its own colour, stroke, opacity, … —
+    // each annotation tool remembers its own colour, stroke, opacity, … -
     // arming one restores its saved style and routes further style changes
     // back into its slot (see [PdfEditingPreferences.beginStyleScope])
-    preferences.beginStyleScope(
-        _styleScopeKey(value), _styleScopeFields(value));
+    preferences.beginStyleScope(_styleScopeKey(value), _styleScopeFields(value),
+        defaults: _styleScopeDefaults(value), lockedFields: _lockedStyleFields);
     notifyListeners();
     if (deferInkCommit) Timer.run(finishInk);
   }
 
+  Set<String> get _lockedStyleFields =>
+      _colorLocked ? _colorLockedFields : const {};
+
+  /// Whether tool style scopes are allowed to change [color].
+  ///
+  /// Hosts use this for color-locked sessions: the current creation color is
+  /// still usable and can be changed programmatically, but arming another
+  /// tool does not restore that tool's saved color. Stroke width, opacity,
+  /// font, fill, and the other style fields keep their normal per-tool memory.
+  bool get colorLocked => _colorLocked;
+
+  set colorLocked(bool value) {
+    if (value == _colorLocked) return;
+    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
+    _colorLocked = value;
+    preferences.beginStyleScope(_styleScopeKey(_tool), _styleScopeFields(_tool),
+        defaults: _styleScopeDefaults(_tool),
+        lockedFields: _lockedStyleFields,
+        forceRestore: true);
+    notifyListeners();
+  }
+
   // Apple Pencil double-tap eraser toggle: the tool that was armed when the
   // eraser was toggled on, and whether the current eraser arming came from a
-  // toggle (so toggling off restores exactly what was there — reader mode
-  // included — rather than a guessed default).
+  // toggle (so toggling off restores exactly what was there - reader mode
+  // included - rather than a guessed default).
   PdfEditTool? _toolBeforeEraserToggle;
   bool _eraserToggledOn = false;
 
   /// Toggles the eraser the way the Apple Pencil's hardware double-tap does
   /// in drawing apps: the first call arms [PdfEditTool.eraser] remembering
   /// whatever tool was active, and the next restores it (reader mode
-  /// included). Double-tapping while the eraser was armed by hand — never
-  /// paired through this method — falls back to [PdfEditTool.ink] so the
+  /// included). Double-tapping while the eraser was armed by hand - never
+  /// paired through this method - falls back to [PdfEditTool.ink] so the
   /// gesture always returns to drawing.
   ///
   /// Flutter exposes no framework event for the pencil's double-tap (or the
@@ -669,12 +847,16 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  /// The persisted-style scope key for [tool] — its [PdfEditTool] name for
+  static bool _buffersInk(PdfEditTool? tool) =>
+      tool == PdfEditTool.ink || tool == PdfEditTool.highlight;
+
+  /// The persisted-style scope key for [tool] - its [PdfEditTool] name for
   /// the tools that create styled annotations, null for the others (select,
   /// content, form, redact, signature, eraser-when-radius-only handled by
   /// its own slot). See [preferences].
   static String? _styleScopeKey(PdfEditTool? tool) => switch (tool) {
         PdfEditTool.ink => 'ink',
+        PdfEditTool.highlight => 'freehandHighlight',
         PdfEditTool.eraser => 'eraser',
         PdfEditTool.rectangle => 'rectangle',
         PdfEditTool.ellipse => 'ellipse',
@@ -682,6 +864,7 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.arrow => 'arrow',
         PdfEditTool.polyline => 'polyline',
         PdfEditTool.polygon => 'polygon',
+        PdfEditTool.cloudPolygon => 'cloudPolygon',
         PdfEditTool.measureDistance => 'measureDistance',
         PdfEditTool.measurePerimeter => 'measurePerimeter',
         PdfEditTool.measureArea => 'measureArea',
@@ -696,15 +879,20 @@ class PdfEditingController extends ChangeNotifier {
         _ => null,
       };
 
-  /// The style fields [tool] remembers — mirrors the controls its toolbar
+  /// The style fields [tool] remembers - mirrors the controls its toolbar
   /// strip exposes, so a rectangle keeps its fill but not a font, ink keeps
   /// its stroke but not line endings, and so on.
   static Set<String> _styleScopeFields(PdfEditTool? tool) => switch (tool) {
-        PdfEditTool.ink => const {'color', 'strokeWidth', 'opacity'},
+        PdfEditTool.ink || PdfEditTool.highlight => const {
+            'color',
+            'strokeWidth',
+            'opacity',
+          },
         PdfEditTool.eraser => const {'eraserRadius'},
         PdfEditTool.rectangle ||
         PdfEditTool.ellipse ||
-        PdfEditTool.polygon =>
+        PdfEditTool.polygon ||
+        PdfEditTool.cloudPolygon =>
           const {
             'color',
             'strokeWidth',
@@ -750,16 +938,27 @@ class PdfEditingController extends ChangeNotifier {
         _ => const {},
       };
 
+  static Map<String, Object?> _styleScopeDefaults(PdfEditTool? tool) =>
+      switch (tool) {
+        PdfEditTool.highlight => const {
+            'color': 0xFFFFD100,
+            'strokeWidth': 12.0,
+            'opacity': 0.45,
+          },
+        _ => const {},
+      };
+
   /// Activates the text-markup style scope (highlight / underline / strike
-  /// out / squiggly) — they act on the text selection rather than arming a
+  /// out / squiggly) - they act on the text selection rather than arming a
   /// tool, so the toolbar calls this when its Markup strip opens, giving
   /// markup its own remembered colour and opacity (the classic yellow
   /// highlighter that stays yellow). See [preferences].
   void useMarkupStyleScope() =>
-      preferences.beginStyleScope('markup', const {'color', 'opacity'});
+      preferences.beginStyleScope('markup', const {'color', 'opacity'},
+          lockedFields: _lockedStyleFields);
 
   /// Whether the armed [tool] creates annotations that carry a colour the
-  /// toolbar can offer — i.e. the tool's style scope remembers `color`.
+  /// toolbar can offer - i.e. the tool's style scope remembers `color`.
   /// False for tools that ignore colour (select, eraser, content, form,
   /// redact, signature), so the colour swatches aren't shown beside them.
   bool get toolUsesColor => _styleScopeFields(tool).contains('color');
@@ -769,7 +968,7 @@ class PdfEditingController extends ChangeNotifier {
   Color get color => preferences.color;
 
   set color(Color value) {
-    preferences.color = value;
+    preferences.setColor(value, recordStyleScope: !_colorLocked);
     if (_tool == PdfEditTool.stamp) _recolorActiveStamp(value);
   }
 
@@ -778,7 +977,7 @@ class PdfEditingController extends ChangeNotifier {
 
   set strokeWidth(double value) => preferences.strokeWidth = value;
 
-  /// The circle eraser's radius, in PDF points — the eraser removes
+  /// The circle eraser's radius, in PDF points - the eraser removes
   /// every part of an ink stroke within this distance of its swept
   /// path, PSPDFKit-style. Persisted.
   double get eraserRadius => preferences.eraserRadius;
@@ -790,7 +989,7 @@ class PdfEditingController extends ChangeNotifier {
 
   set fontSize(double value) => preferences.fontSize = value;
 
-  /// Font family for free-text annotations — one of the standard PDF
+  /// Font family for free-text annotations - one of the standard PDF
   /// text fonts (sans-serif, serif, monospace). Persisted. Selecting a
   /// standard family also clears any [activeFont] (back to base-14).
   PdfStandardFont get fontFamily => preferences.fontFamily;
@@ -804,7 +1003,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Horizontal alignment (left/center/right) new free-text boxes are
-  /// created with, or null (the default) to follow the text direction —
+  /// created with, or null (the default) to follow the text direction -
   /// left for LTR, right for RTL. Persisted.
   PdfTextAlign? get textAlign => preferences.textAlign;
 
@@ -816,7 +1015,7 @@ class PdfEditingController extends ChangeNotifier {
   /// precedence over [fontFamily] so authored text can use any font (not
   /// just the base-14 faces). Null means a standard family.
   ///
-  /// Not persisted — the font program is large, and recovering it from a
+  /// Not persisted - the font program is large, and recovering it from a
   /// box's own appearance keeps editing lossless regardless. A session
   /// starts on the standard fonts; reselect a bundled or custom font to
   /// use it again.
@@ -828,7 +1027,7 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// A human label for the font the font controls currently target — a
+  /// A human label for the font the font controls currently target - a
   /// selected measurement's caption face, else the font new free text will
   /// be written in (the embedded font's family, or the standard family).
   String get activeFontLabel =>
@@ -860,7 +1059,7 @@ class PdfEditingController extends ChangeNotifier {
 
   set lineStyle(PdfLineStyle value) => preferences.lineStyle = value;
 
-  /// Whether new annotations are non-solid — the legacy boolean view of
+  /// Whether new annotations are non-solid - the legacy boolean view of
   /// [lineStyle] (kept for the drag previews that only show dashed/solid).
   bool get dashedStroke => preferences.lineStyle != PdfLineStyle.solid;
 
@@ -868,7 +1067,7 @@ class PdfEditingController extends ChangeNotifier {
       preferences.lineStyle = value ? PdfLineStyle.dashed : PdfLineStyle.solid;
 
   /// The `/BS /D` dash array new annotations get, for the current
-  /// [lineStyle] at the current [strokeWidth] — null for a solid border.
+  /// [lineStyle] at the current [strokeWidth] - null for a solid border.
   List<double>? get _lineDashPattern =>
       preferences.lineStyle.dashArray(preferences.strokeWidth);
 
@@ -886,7 +1085,7 @@ class PdfEditingController extends ChangeNotifier {
   set lineEndEnding(PdfLineEnding value) => preferences.lineEndEnding = value;
 
   /// The background fill new text boxes get, or null for none (the
-  /// default — a bare text box, like before). Persisted.
+  /// default - a bare text box, like before). Persisted.
   Color? get textFillColor => preferences.textFillColor;
 
   set textFillColor(Color? value) => preferences.textFillColor = value;
@@ -908,7 +1107,7 @@ class PdfEditingController extends ChangeNotifier {
   static int? _rgbOf(Color? color) =>
       color == null ? null : color.toARGB32() & 0xFFFFFF;
 
-  /// The author name new annotations carry (/T — shown in
+  /// The author name new annotations carry (/T - shown in
   /// [PdfAnnotationSidebar] and other viewers' comment lists). Null
   /// (the default) leaves them unsigned. Persisted.
   String? get author => preferences.author;
@@ -1004,7 +1203,7 @@ class PdfEditingController extends ChangeNotifier {
   int _editingTextFocusHoldRevision = 0;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
-  /// on a page. While it is, the viewer releases its keyboard shortcuts —
+  /// on a page. While it is, the viewer releases its keyboard shortcuts -
   /// backspace must delete characters, not the annotation.
   bool get isEditingText => _editingText;
 
@@ -1100,7 +1299,7 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Disarms the eyedropper and adopts [picked] (forced opaque — alpha is
+  /// Disarms the eyedropper and adopts [picked] (forced opaque - alpha is
   /// [opacity]'s job) as the annotation [color].
   void finishColorPick(Color picked) {
     _pickingColor = false;
@@ -1116,10 +1315,10 @@ class PdfEditingController extends ChangeNotifier {
   Timer? _inkTimer;
 
   /// How long after the last stroke the buffer auto-commits as one Ink
-  /// annotation — strokes drawn within the window aggregate (dotting an
+  /// annotation - strokes drawn within the window aggregate (dotting an
   /// i, crossing a t), so a multi-stroke drawing still lands as a single
   /// annotation and a single undo step. Null restores fully manual
-  /// commits ([finishInk] — the toolbar shows its confirm buttons then).
+  /// commits ([finishInk] - the toolbar shows its confirm buttons then).
   Duration? inkCommitDelay = const Duration(milliseconds: 800);
 
   /// Whether drawn strokes commit on their own ([inkCommitDelay] is set).
@@ -1133,7 +1332,7 @@ class PdfEditingController extends ChangeNotifier {
     _inkTimer = null;
   }
 
-  /// Releases a [beginInkStroke] hold without adding a stroke — the
+  /// Releases a [beginInkStroke] hold without adding a stroke - the
   /// gesture was aborted (a second finger landed, the pointer was
   /// canceled). Earlier strokes waiting in the buffer get their
   /// auto-commit timer back; without this they'd sit uncommitted until
@@ -1145,7 +1344,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The strokes of the most recent ink commit, while [document] is
-  /// still the revision they landed in — the page overlay keeps painting
+  /// still the revision they landed in - the page overlay keeps painting
   /// them until that revision's raster is on screen, so the drawing
   /// doesn't blink out for the render's duration.
   ({
@@ -1180,7 +1379,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Whether touch pointers draw with the ink tool. When false they
-  /// scroll and zoom as usual and only stylus (and mouse) input draws —
+  /// scroll and zoom as usual and only stylus (and mouse) input draws -
   /// palm rejection. The viewer turns this off automatically the first
   /// time a stylus (Apple Pencil) touches a page with the ink tool armed,
   /// and the choice is persisted with the other [preferences].
@@ -1192,7 +1391,7 @@ class PdfEditingController extends ChangeNotifier {
   /// touch-first platforms (iOS/Android/Fuchsia), and flipped on by the
   /// first touch pointer the viewer or toolbar sees elsewhere (a
   /// touchscreen laptop, say). The stock toolbar hides the finger-draws
-  /// toggle until this is true — on a mouse-only desktop the control
+  /// toggle until this is true - on a mouse-only desktop the control
   /// has nothing to control.
   bool get hasTouchInput =>
       _touchSeen ||
@@ -1207,7 +1406,7 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Records that a touch pointer was seen, revealing touch-only chrome
   /// ([hasTouchInput]). The viewer and toolbar call this from their raw
-  /// pointer-down listeners; not persisted — a session without touch
+  /// pointer-down listeners; not persisted - a session without touch
   /// starts clean.
   void noteTouchInput() {
     if (_touchSeen) return;
@@ -1219,7 +1418,7 @@ class PdfEditingController extends ChangeNotifier {
   List<List<(double, double)>> strokesOn(int pageIndex) =>
       List.unmodifiable(_ink[pageIndex] ?? const []);
 
-  /// Per-point normalized pressures paralleling [strokesOn] — null for
+  /// Per-point normalized pressures paralleling [strokesOn] - null for
   /// strokes drawn without pressure (finger, mouse).
   List<List<double>?> strokePressuresOn(int pageIndex) =>
       List.unmodifiable(_inkPressures[pageIndex] ?? const []);
@@ -1337,7 +1536,7 @@ class PdfEditingController extends ChangeNotifier {
   // redaction
 
   /// Marks a single rectangular region for redaction (a /Redact
-  /// annotation, fill black). This is the MARK phase — nothing is removed
+  /// annotation, fill black). This is the MARK phase - nothing is removed
   /// until [applyRedactions]. Undoable like any other edit until burned.
   void addRedaction(int pageIndex, PdfRect rect) =>
       apply((e) => e.addRedaction(pageIndex, [rect], author: author),
@@ -1363,7 +1562,7 @@ class PdfEditingController extends ChangeNotifier {
     return false;
   }
 
-  /// Burns every marked redaction across the document, irreversibly —
+  /// Burns every marked redaction across the document, irreversibly -
   /// covered text and images are removed from the content-stream bytes,
   /// the fill is painted, and the /Redact marks are deleted.
   ///
@@ -1398,7 +1597,7 @@ class PdfEditingController extends ChangeNotifier {
     _selected.clear();
     _bumpRenderStamps(null); // every page may have changed
     _bumpContentRenderStamps(null);
-    // a burn removes content irreversibly — mark it destructive so the
+    // a burn removes content irreversibly - mark it destructive so the
     // viewer blanks each page's raster instead of holding the (now
     // un-redacted) one up while the fresh render lands
     _destructiveStampEpoch++;
@@ -1461,6 +1660,26 @@ class PdfEditingController extends ChangeNotifier {
       pages: [pageIndex],
       contentPages: const <int>[]);
 
+  void addCloudPolygon(int pageIndex, PdfRect rect) => apply(
+      (e) => e.addPolygon(
+            pageIndex,
+            [
+              (rect.left, rect.bottom),
+              (rect.right, rect.bottom),
+              (rect.right, rect.top),
+              (rect.left, rect.top),
+            ],
+            strokeColor: _colorValue,
+            strokeWidth: preferences.strokeWidth,
+            fillColor: _rgbOf(preferences.shapeFillColor),
+            opacity: preferences.opacity,
+            dashPattern: _lineDashPattern,
+            cloudy: true,
+            author: author,
+          ),
+      pages: [pageIndex],
+      contentPages: const <int>[]);
+
   // ---------------------------------------------------------------------
   // measurements (§12.9)
 
@@ -1473,7 +1692,7 @@ class PdfEditingController extends ChangeNotifier {
   set measurementScale(PdfMeasurementScale? value) =>
       preferences.measurementScale = value;
 
-  /// Whether a measurement tool can place an annotation right now — i.e. a
+  /// Whether a measurement tool can place an annotation right now - i.e. a
   /// scale has been calibrated.
   bool get hasMeasurementScale => preferences.measurementScale != null;
 
@@ -1553,7 +1772,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The live angle readout (degrees at the middle vertex) for the three
-  /// page-space [points], or null with fewer than three. Needs no scale —
+  /// page-space [points], or null with fewer than three. Needs no scale -
   /// an angle is unit-free.
   String? measuredAngle(List<(double, double)> points) {
     if (points.length < 3) return null;
@@ -1623,15 +1842,15 @@ class PdfEditingController extends ChangeNotifier {
       addMeasurement(pageIndex, PdfMeasurementKind.count, [point],
           label: label);
 
-  /// The per-tool running totals over the live document — the takeoff
+  /// The per-tool running totals over the live document - the takeoff
   /// register's data source. Rebuilt on demand (cheap: a single annotation
   /// walk), so callers refresh it whenever the controller notifies.
   PdfTakeoffSummary get takeoffSummary => PdfTakeoffSummary.of(_document);
 
   /// Writes the active [measurementScale] into the document itself (a /VP
   /// viewport /Measure on [pageIndex], or every page when null) so the
-  /// drawing scale travels with the file — surviving a reopen and portable
-  /// across devices — not just in this device's preferences. A no-op
+  /// drawing scale travels with the file - surviving a reopen and portable
+  /// across devices - not just in this device's preferences. A no-op
   /// without a scale.
   void persistScaleToDocument({int? pageIndex}) {
     final scale = measurementScale;
@@ -1894,13 +2113,21 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   bool _addImageStamp(int pageIndex, PdfRect rect, PdfEmbeddableImage image) {
-    return apply(
+    final added = apply(
         (e) => e.addImageStamp(pageIndex, rect, image,
             opacity: preferences.opacity,
             pageRotation: _page(pageIndex).rotation,
             author: author),
         pages: [pageIndex],
         contentPages: const <int>[]);
+    if (!added) return false;
+    tool = PdfEditTool.select;
+    final total = _page(pageIndex).annotations.length;
+    _selected
+      ..clear()
+      ..add((pageIndex, total - 1));
+    notifyListeners();
+    return true;
   }
 
   /// Adds a sticky note with its top-left corner at ([x], [y]).
@@ -1923,7 +2150,7 @@ class PdfEditingController extends ChangeNotifier {
   set signature(PdfInkSignature? value) => preferences.signature = value;
 
   /// The layout [placeSignature] would commit for a tap at ([x], [y]):
-  /// the page-space strokes, pressures, ink color, and stroke width —
+  /// the page-space strokes, pressures, ink color, and stroke width -
   /// what the signature tool's live preview paints under the pointer.
   /// The ink follows the currently selected [color] (not the colour the
   /// signature was drawn in), so recolouring the toolbar recolours the
@@ -2056,7 +2283,7 @@ class PdfEditingController extends ChangeNotifier {
   PdfCustomStamp? _activeStamp;
 
   /// The custom stamp the stamp tool places on tap. Null means the
-  /// classic flow: drag out a box and type the caption. Not persisted —
+  /// classic flow: drag out a box and type the caption. Not persisted -
   /// each session starts in the classic flow.
   PdfCustomStamp? get activeStamp => _activeStamp;
 
@@ -2101,11 +2328,13 @@ class PdfEditingController extends ChangeNotifier {
     ];
   }
 
-  /// Places [activeStamp] centered on ([x], [y]) in page space,
-  /// [height] points tall and auto-sized from its caption (clamped,
-  /// with the center, so the whole stamp stays on the page). Returns
-  /// false when no stamp is active.
-  bool placeStamp(int pageIndex, double x, double y, {double height = 40}) {
+  /// Places [activeStamp] centered on ([x], [y]) in page space. Text-only
+  /// stamps default to 40 points tall and auto-size from their caption;
+  /// template stamps default to the template's own width/height. Passing
+  /// [height] keeps the old explicit-height behavior for either kind. The
+  /// result is clamped with the center so the whole stamp stays on the page.
+  /// Returns false when no stamp is active.
+  bool placeStamp(int pageIndex, double x, double y, {double? height}) {
     final stamp = _activeStamp;
     if (stamp == null) return false;
     final template = stamp.template;
@@ -2127,7 +2356,7 @@ class PdfEditingController extends ChangeNotifier {
       }, pages: [pageIndex], contentPages: const <int>[]);
     }
     return placeTextStamp(pageIndex, x, y, _resolveStampText(stamp.text),
-        height: height,
+        height: height ?? 40,
         color: stamp.color,
         stampType: stamp.type,
         stampTags: stamp.tags);
@@ -2135,22 +2364,22 @@ class PdfEditingController extends ChangeNotifier {
 
   /// The page-space rect [placeStamp] would use for the current
   /// [activeStamp]. Null when no stamp is active or its template is invalid.
-  PdfRect? stampPlacement(int pageIndex, double x, double y,
-      {double height = 40}) {
+  PdfRect? stampPlacement(int pageIndex, double x, double y, {double? height}) {
     final stamp = _activeStamp;
     if (stamp == null) return null;
     final template = stamp.template;
     return template == null
         ? textStampPlacement(pageIndex, x, y, _resolveStampText(stamp.text),
-            height: height)
+            height: height ?? 40)
         : _stampTemplatePlacement(pageIndex, x, y, template, height: height);
   }
 
   PdfRect? _stampTemplatePlacement(
       int pageIndex, double x, double y, PdfStampTemplate template,
-      {required double height}) {
+      {double? height}) {
     if (!template.isValid) return null;
-    final h = height.clamp(8.0, _visualPageHeight(pageIndex) * 0.9);
+    final h = (height ?? template.height)
+        .clamp(8.0, _visualPageHeight(pageIndex) * 0.9);
     final aspect = template.width / template.height;
     var w = h * aspect;
     final maxW = _visualPageWidth(pageIndex) * 0.9;
@@ -2213,7 +2442,7 @@ class PdfEditingController extends ChangeNotifier {
   /// per side (clamped, with the centre, so the whole mark stays on the
   /// page). The mark follows the selected toolbar [color] and [opacity] and
   /// is a real /Stamp annotation, so it can be moved, resized, and deleted
-  /// like any other. This is the count tool's tap-to-place — repeated taps
+  /// like any other. This is the count tool's tap-to-place - repeated taps
   /// build the tally exposed by [checkMarkCount], Bluebeam-style.
   bool placeCheckMark(int pageIndex, double x, double y,
       {double size = checkMarkSize}) {
@@ -2235,7 +2464,7 @@ class PdfEditingController extends ChangeNotifier {
   int? _checkMarkCount;
 
   /// The live count of check-marks ([PdfAnnotation.isCheckMark]) across the
-  /// whole document — the count tool's running tally. Recomputed per
+  /// whole document - the count tool's running tally. Recomputed per
   /// revision (so undo, delete, and remote edits keep it accurate) and
   /// cached. Walking the pages is cheap (counts are small) and only happens
   /// on demand, when the count UI reads it.
@@ -2274,7 +2503,7 @@ class PdfEditingController extends ChangeNotifier {
     apply((e) => e.movePage(from, to));
   }
 
-  /// Removes the page at [index]. Refused (a no-op) on the last page —
+  /// Removes the page at [index]. Refused (a no-op) on the last page -
   /// a document must keep at least one.
   void removePage(int index) {
     if (_document.pageCount <= 1) return;
@@ -2307,8 +2536,8 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Inserts pages from another open [source] document at [at] (default:
   /// appended at the end). [indices] picks a subset of [source] (default:
-  /// all of it, in order). Everything each page references — content,
-  /// resources, fonts, images, annotations — is deep-copied across.
+  /// all of it, in order). Everything each page references - content,
+  /// resources, fonts, images, annotations - is deep-copied across.
   void insertPagesFrom(PdfDocument source, {List<int>? indices, int? at}) {
     _selected.clear();
     _selectedPages.clear();
@@ -2359,14 +2588,14 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // page selection (the thumbnail strip's multi-select)
 
-  /// The set of selected page indices — the thumbnail strip's
+  /// The set of selected page indices - the thumbnail strip's
   /// click/shift-click/⌘-click selection. Distinct from the annotation
   /// selection; it drives bulk page operations (delete, export). Any
   /// structural page edit (move/remove/insert) shifts indices, so it is
   /// cleared by those.
   final Set<int> _selectedPages = {};
 
-  /// The anchor a shift-click extends a range from — the last page
+  /// The anchor a shift-click extends a range from - the last page
   /// clicked without shift (a plain or ⌘ click).
   int? _pageSelectionAnchor;
 
@@ -2402,14 +2631,14 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The page a shift-click extends a range from, or null when nothing
-  /// has anchored it yet — the strip reads it to preview the range while
+  /// has anchored it yet - the strip reads it to preview the range while
   /// Shift is held.
   int? get pageSelectionAnchor => _pageSelectionAnchor;
 
   /// The pages a shift-click on [index] would select right now: the
   /// contiguous run from the current anchor to [index] (ascending), or
   /// just [index] with no anchor yet. The live preview the strip paints
-  /// while Shift is held — mirrors [selectPageRange] without committing.
+  /// while Shift is held - mirrors [selectPageRange] without committing.
   List<int> pageRangePreviewTo(int index) {
     final anchor = _pageSelectionAnchor ?? index;
     final lo = math.min(anchor, index);
@@ -2453,7 +2682,7 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Removes the selected pages in one edit (one undo). Refused (a no-op,
   /// returns false) when nothing is selected or the selection would empty
-  /// the document — at least one page must remain. Clears the selection.
+  /// the document - at least one page must remain. Clears the selection.
   bool removeSelectedPages() {
     final doomed =
         _selectedPages.where((i) => i >= 0 && i < _document.pageCount).toList();
@@ -2491,12 +2720,228 @@ class PdfEditingController extends ChangeNotifier {
   bool rotateSelectedPages([int degrees = 90]) =>
       rotatePages(selectedPages, degrees);
 
+  /// Returns explicit page-content colors across [pages], or the whole
+  /// document when [pages] is null.
+  ///
+  /// The list is sorted by frequency descending. It scans content-stream
+  /// color operators, not raster image pixels, annotations, shadings,
+  /// patterns, form XObjects, or implicit default black.
+  List<Color> documentContentColors({
+    Iterable<int>? pages,
+    bool fill = true,
+    bool stroke = true,
+  }) {
+    final targets = (pages ??
+            Iterable<int>.generate(_document.pageCount, (index) => index))
+        .where((index) => index >= 0 && index < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || (!fill && !stroke)) return const [];
+    final editor = PdfEditor(_document);
+    return [
+      for (final color
+          in editor.contentColorsOnPages(targets, fill: fill, stroke: stroke))
+        Color(0xFF000000 | color.rgb)
+    ];
+  }
+
+  /// Asynchronously scans page-content colors, yielding between pages.
+  ///
+  /// This is intended for UI previews over large documents: [yieldAfterPage]
+  /// gives the caller a chance to paint progress between pages, [onProgress]
+  /// reports completed pages, and [isCancelled] lets newer scans supersede
+  /// older ones.
+  Future<List<Color>> documentContentColorsAsync({
+    Iterable<int>? pages,
+    bool fill = true,
+    bool stroke = true,
+    bool Function()? isCancelled,
+    void Function(int completed, int total)? onProgress,
+    Future<void> Function()? yieldAfterPage,
+  }) async {
+    final targets = (pages ??
+            Iterable<int>.generate(_document.pageCount, (index) => index))
+        .where((index) => index >= 0 && index < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || (!fill && !stroke)) return const [];
+    final editor = PdfEditor(_document);
+    final uses = <int, List<int>>{};
+    for (var i = 0; i < targets.length; i++) {
+      if (isCancelled?.call() ?? false) return const [];
+      final pageColors =
+          editor.contentColors(targets[i], fill: fill, stroke: stroke);
+      for (final color in pageColors) {
+        final counts = uses.putIfAbsent(color.rgb, () => [0, 0]);
+        counts[0] += color.fillUses;
+        counts[1] += color.strokeUses;
+      }
+      onProgress?.call(i + 1, targets.length);
+      if (i < targets.length - 1 && yieldAfterPage != null) {
+        await yieldAfterPage();
+      }
+    }
+    final entries = uses.entries.toList()
+      ..sort((a, b) {
+        final aUses = a.value[0] + a.value[1];
+        final bUses = b.value[0] + b.value[1];
+        final byUses = bUses.compareTo(aUses);
+        return byUses != 0 ? byUses : a.key.compareTo(b.key);
+      });
+    return [
+      for (final entry in entries) Color(0xFF000000 | entry.key),
+    ];
+  }
+
+  /// Replaces matching page-content colors across [pages], or the whole
+  /// document when [pages] is null. Returns the number of color-setting
+  /// operators rewritten, or the number of paint sides suppressed when
+  /// [transparent] is true.
+  ///
+  /// [find], [findColors], and [replace] are opaque Flutter colors; alpha is
+  /// ignored. Pass [findColors] to replace several source colors in one pass.
+  /// [replace] may be omitted only when [transparent] is true. [tolerance] is
+  /// an 8-bit per-channel tolerance. This is an undoable edit over page
+  /// content streams (text/vector colors), not annotation styling or raster
+  /// image pixel editing.
+  int replaceDocumentColors({
+    Color? find,
+    Iterable<Color>? findColors,
+    Color? replace,
+    Iterable<int>? pages,
+    int tolerance = 0,
+    bool fill = true,
+    bool stroke = true,
+    bool transparent = false,
+  }) {
+    final targets = (pages ??
+            Iterable<int>.generate(_document.pageCount, (index) => index))
+        .where((index) => index >= 0 && index < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || (!fill && !stroke)) return 0;
+    final finds = {
+      if (find != null) find.toARGB32() & 0xFFFFFF,
+      if (findColors != null)
+        for (final color in findColors) color.toARGB32() & 0xFFFFFF,
+    }.toList()
+      ..sort();
+    if (finds.isEmpty) return 0;
+    if (!transparent && replace == null) {
+      throw ArgumentError.notNull('replace');
+    }
+    var count = 0;
+    final changed = apply((editor) {
+      count = editor.replaceColorsOnPages(
+        targets,
+        finds: finds,
+        replace: replace?.toARGB32() ?? 0,
+        tolerance: tolerance,
+        fill: fill,
+        stroke: stroke,
+        transparent: transparent,
+      );
+    }, pages: targets);
+    return changed ? count : 0;
+  }
+
+  /// Background version of [replaceDocumentColors].
+  ///
+  /// The replacement work runs against a reopened copy of the current bytes in
+  /// a background worker where Flutter supports one, then commits the returned
+  /// file as one undoable revision. This keeps large whole-document jobs from
+  /// blocking pointer/paint events in the UI isolate on desktop/mobile. If
+  /// another edit lands before the worker returns, the stale result is ignored
+  /// and zero is returned.
+  Future<int> replaceDocumentColorsAsync({
+    Color? find,
+    Iterable<Color>? findColors,
+    Color? replace,
+    Iterable<int>? pages,
+    int tolerance = 0,
+    bool fill = true,
+    bool stroke = true,
+    bool transparent = false,
+  }) async {
+    final targets = (pages ??
+            Iterable<int>.generate(_document.pageCount, (index) => index))
+        .where((index) => index >= 0 && index < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || (!fill && !stroke)) return 0;
+    final finds = {
+      if (find != null) find.toARGB32() & 0xFFFFFF,
+      if (findColors != null)
+        for (final color in findColors) color.toARGB32() & 0xFFFFFF,
+    }.toList()
+      ..sort();
+    if (finds.isEmpty) return 0;
+    if (!transparent && replace == null) {
+      throw ArgumentError.notNull('replace');
+    }
+
+    final beforeCursor = _cursor;
+    final beforeLength = _revisions[_cursor];
+    final result = await compute<Map<String, Object?>, Map<String, Object?>>(
+      _replaceDocumentColorsOnWorker,
+      {
+        'bytes': bytes,
+        'password': _password,
+        'pages': targets,
+        'finds': finds,
+        'replace': replace?.toARGB32() ?? 0,
+        'tolerance': tolerance,
+        'fill': fill,
+        'stroke': stroke,
+        'transparent': transparent,
+      },
+      debugLabel: 'PDF color processing',
+    );
+    final count = result['count'] as int? ?? 0;
+    final saved = result['bytes'] as Uint8List?;
+    if (count == 0 || saved == null) return 0;
+    if (_cursor != beforeCursor || _revisions[_cursor] != beforeLength) {
+      return 0;
+    }
+
+    _commitSavedRevision(saved, beforeLength: beforeLength, pages: targets);
+    return count;
+  }
+
+  /// Replaces colors on the thumbnail-strip page selection. Returns zero
+  /// when no pages are selected.
+  int replaceSelectedPageColors({
+    Color? find,
+    Iterable<Color>? findColors,
+    Color? replace,
+    int tolerance = 0,
+    bool fill = true,
+    bool stroke = true,
+    bool transparent = false,
+  }) =>
+      _selectedPages.isEmpty
+          ? 0
+          : replaceDocumentColors(
+              pages: selectedPages,
+              find: find,
+              findColors: findColors,
+              replace: replace,
+              tolerance: tolerance,
+              fill: fill,
+              stroke: stroke,
+              transparent: transparent,
+            );
+
   // ---------------------------------------------------------------------
   // selection
 
   /// Annotation subtypes the select tool ignores: popups belong to their
   /// parent, links and widgets are interactive objects with their own
-  /// semantics (widgets are form fields — moving one breaks its field).
+  /// semantics (widgets are form fields - moving one breaks its field).
   static const _unselectable = {'Popup', 'Link', 'Widget'};
 
   /// Subtypes whose geometry is defined by /Rect (plus point arrays the
@@ -2522,7 +2967,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Consulted (alongside the document's own /F ReadOnly and Locked
   /// flags) by every mutating path: hit-test selection, the marquee,
   /// ⌘A, the sidebar's select, delete, and the eraser. An annotation
-  /// the predicate rejects still renders, lists, zooms-to, and flashes —
+  /// the predicate rejects still renders, lists, zooms-to, and flashes -
   /// it just can't be selected for editing or destroyed.
   ///
   /// The typical multi-user host allows only the current user's own
@@ -2569,14 +3014,14 @@ class PdfEditingController extends ChangeNotifier {
 
   /// The page at [index], cached for the current revision.
   /// [PdfDocument.page] re-walks the page tree and re-parses /Annots on
-  /// every call — UI that reads pages per frame (sidebars, hit tests)
+  /// every call - UI that reads pages per frame (sidebars, hit tests)
   /// should come through here.
   PdfPage pageAt(int index) => _page(index);
 
-  /// Renders [region] of page [pageIndex] to PNG bytes — the capture
+  /// Renders [region] of page [pageIndex] to PNG bytes - the capture
   /// behind the Snapshot tool ([PdfEditTool.snapshot]).
   ///
-  /// [region] is page raster space: points with y down, after /Rotate —
+  /// [region] is page raster space: points with y down, after /Rotate -
   /// i.e. a view position divided by the view scale (`PdfPageGeometry`).
   /// The overlay therefore passes the dragged box straight through.
   /// [pixelRatio] scales the output resolution (2 keeps a snapshot crisp
@@ -2663,7 +3108,7 @@ class PdfEditingController extends ChangeNotifier {
       selectedAnnotation?.isLockedContents != true;
 
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
-  /// with its /Annots slot — the select tool's hit test (later entries
+  /// with its /Annots slot - the select tool's hit test (later entries
   /// draw on top, so they win).
   (int index, PdfAnnotation)? selectableAnnotationAt(
       int pageIndex, double x, double y) {
@@ -2681,7 +3126,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The topmost form-field widget under ([x], [y]) on [pageIndex] with
-  /// its /Annots slot — the form tool's selection hit test (later
+  /// its /Annots slot - the form tool's selection hit test (later
   /// entries draw on top, so they win). Skips hidden widgets and ones
   /// the host or /F Locked flag protects ([isAnnotationEditable]); a
   /// read-only field (one whose *value* can't change) is still
@@ -2702,7 +3147,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Selects the topmost form-field widget under ([x], [y]) on
-  /// [pageIndex] for manipulation (move/resize/menu) — the form tool's
+  /// [pageIndex] for manipulation (move/resize/menu) - the form tool's
   /// tap. Clears the selection when nothing is hit. With [toggle]
   /// (shift/⌘-click) the hit is added to or removed from the selection
   /// and a miss leaves the selection alone. The form tool stays armed.
@@ -2727,7 +3172,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The topmost Ink annotation whose strokes pass within [tolerance]
-  /// page units of ([x], [y]) on [pageIndex], with its /Annots slot —
+  /// page units of ([x], [y]) on [pageIndex], with its /Annots slot -
   /// the eraser's hit test. Precise: the point must be near the inked
   /// centerline (padded by half the pen width), not merely inside the
   /// bounding rect, so crossing strokes don't erase together. An Ink
@@ -2814,7 +3259,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Selects every selectable annotation on [pageIndex] whose rect
-  /// intersects [rect] (page space) — the select tool's rubber band.
+  /// intersects [rect] (page space) - the select tool's rubber band.
   /// With [add] the hits join the existing selection instead of
   /// replacing it. Returns how many annotations the band hit.
   int selectAnnotationsIn(int pageIndex, PdfRect rect, {bool add = false}) {
@@ -2896,7 +3341,7 @@ class PdfEditingController extends ChangeNotifier {
         pages: [pageIndex], contentPages: const <int>[]);
   }
 
-  /// Removes several annotations — (pageIndex, /Annots slot) pairs — in
+  /// Removes several annotations - (pageIndex, /Annots slot) pairs - in
   /// one revision, so a single undo restores them all. Invalid slots are
   /// skipped. Used by the annotation sidebar's multi-select delete.
   void deleteAnnotations(Iterable<(int page, int index)> slots) {
@@ -2965,8 +3410,8 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Erases along [path] (page space) with the circle eraser: every
   /// ink annotation on [pageIndex] is sliced where the swept circle of
-  /// [eraserRadius] crosses its strokes — strokes split, the rest
-  /// survives — in one revision, so a single undo restores the whole
+  /// [eraserRadius] crosses its strokes - strokes split, the rest
+  /// survives - in one revision, so a single undo restores the whole
   /// swipe. Ink annotations without a usable /InkList can't be sliced
   /// and are deleted whole when the path reaches their rect. Returns
   /// whether anything changed.
@@ -2987,7 +3432,7 @@ class PdfEditingController extends ChangeNotifier {
       var changed = false;
       for (final annotation in targets) {
         if (annotation.inkList == null) {
-          // no centerline to slice — the rect is all we have
+          // no centerline to slice - the rect is all we have
           if (_pathTouchesRect(path, annotation.rect, radius)) {
             editor.removeAnnotation(pageIndex, annotation);
             changed = true;
@@ -3022,7 +3467,7 @@ class PdfEditingController extends ChangeNotifier {
   bool get canSendSelectedToBack => _reorderChangesSlots(toFront: false);
 
   /// Moves the selected annotations to the top of their pages' z-order
-  /// (the end of /Annots — later entries paint on top), preserving their
+  /// (the end of /Annots - later entries paint on top), preserving their
   /// relative order. One revision, one undo; the selection follows the
   /// annotations to their new slots.
   void bringSelectedToFront() => _reorderSelected(toFront: true);
@@ -3032,7 +3477,7 @@ class PdfEditingController extends ChangeNotifier {
   void sendSelectedToBack() => _reorderSelected(toFront: false);
 
   /// Simulates the /Annots reorder slot-by-slot: unmoved entries keep
-  /// their relative order, the moved block lands at the top or bottom —
+  /// their relative order, the moved block lands at the top or bottom -
   /// exactly what the editor does to the array, expressed on slots.
   Map<(int, int), (int, int)> _reorderRemap({required bool toFront}) {
     final remap = <(int, int), (int, int)>{};
@@ -3106,7 +3551,7 @@ class PdfEditingController extends ChangeNotifier {
   List<PdfAnnotationSnapshot> _clipboard = const [];
   int _clipboardSourcePage = -1;
 
-  /// Pastes since the clipboard was last filled — each one cascades the
+  /// Pastes since the clipboard was last filled - each one cascades the
   /// default paste position by another 12pt so copies don't stack.
   int _pasteCount = 0;
 
@@ -3145,11 +3590,11 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Pastes the clipboard onto [pageIndex] and selects the pasted
-  /// annotations (one revision — one undo removes them all).
+  /// annotations (one revision - one undo removes them all).
   ///
   /// With [at] the group centers on that page point (the context menu
   /// pastes where the right-click landed). Without it the group keeps
-  /// its position, shifted 12pt down-right per repeat paste — and per
+  /// its position, shifted 12pt down-right per repeat paste - and per
   /// the first paste too when it would sit exactly on the source. The
   /// group always clamps into the page's crop box. Returns whether
   /// anything was pasted.
@@ -3186,7 +3631,7 @@ class PdfEditingController extends ChangeNotifier {
     }, pages: [pageIndex], contentPages: const <int>[]);
     if (!pasted) return false;
     _pasteCount++;
-    // pasted entries appended to /Annots — select them, like any editor
+    // pasted entries appended to /Annots - select them, like any editor
     tool = PdfEditTool.select;
     final total = _page(pageIndex).annotations.length;
     _selected
@@ -3194,6 +3639,55 @@ class PdfEditingController extends ChangeNotifier {
       ..addAll([for (var i = total - count; i < total; i++) (pageIndex, i)]);
     notifyListeners();
     return true;
+  }
+
+  /// Copies the current annotation selection to every page in [pageIndices],
+  /// preserving each annotation's page coordinates.
+  ///
+  /// Source pages are skipped for their own annotations, so applying a
+  /// selection to the whole document does not duplicate it on the page where
+  /// it already lives. Returns the number of annotations created. The edit is
+  /// a single undoable revision.
+  int applySelectedAnnotationsToPages(Iterable<int> pageIndices) {
+    final snapshots = <({int page, PdfAnnotationSnapshot snapshot})>[];
+    for (final slot in _selected) {
+      final annotation = _annotationAt(slot);
+      if (annotation == null) continue;
+      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation);
+      if (snapshot != null) snapshots.add((page: slot.$1, snapshot: snapshot));
+    }
+    if (snapshots.isEmpty) return 0;
+
+    final targets = pageIndices
+        .where((index) => index >= 0 && index < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty) return 0;
+
+    final touched = <int>{};
+    var count = 0;
+    for (final page in targets) {
+      var pageCount = 0;
+      for (final item in snapshots) {
+        if (item.page == page) continue;
+        pageCount++;
+      }
+      if (pageCount == 0) continue;
+      touched.add(page);
+      count += pageCount;
+    }
+    if (count == 0) return 0;
+
+    final changed = apply((e) {
+      for (final page in targets) {
+        for (final item in snapshots) {
+          if (item.page == page) continue;
+          e.pasteAnnotation(page, item.snapshot);
+        }
+      }
+    }, pages: touched, contentPages: const <int>[]);
+    return changed ? count : 0;
   }
 
   // ---------------------------------------------------------------------
@@ -3207,7 +3701,7 @@ class PdfEditingController extends ChangeNotifier {
   int _snapshotPasteCount = 0;
 
   /// The object number of the captured form materialized by the last paste
-  /// of [_snapshotClipboard] into the current document — reused so repeat
+  /// of [_snapshotClipboard] into the current document - reused so repeat
   /// pastes share one XObject instead of re-embedding the page content.
   /// Reset whenever a fresh snapshot is captured.
   int? _snapshotCapturedRef;
@@ -3219,14 +3713,14 @@ class PdfEditingController extends ChangeNotifier {
   PdfVectorSnapshot? get snapshotClipboard => _snapshotClipboard;
 
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
-  /// vector snapshot — the page graphics under the region, copied inline,
+  /// vector snapshot - the page graphics under the region, copied inline,
   /// with the page's /Rotate baked in. Read-only: the document is
   /// untouched. See [PdfVectorSnapshotEditing.captureVectorSnapshot].
   PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region) =>
       PdfEditor(_document).captureVectorSnapshot(pageIndex, region);
 
   /// Captures [region] of [pageIndex] and keeps it on the snapshot
-  /// clipboard for [pasteSnapshot] — the copy half of the Snapshot tool.
+  /// clipboard for [pasteSnapshot] - the copy half of the Snapshot tool.
   /// The most recent copy wins, so this also drops the annotation
   /// clipboard. Returns the captured snapshot.
   PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region) {
@@ -3323,7 +3817,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Whether every selected annotation is a fillable shape (Square,
-  /// Circle, or Polygon) — i.e. [restyleSelected]'s `fill` parameter
+  /// Circle, or Polygon) - i.e. [restyleSelected]'s `fill` parameter
   /// applies to the whole selection.
   bool get canFillSelected =>
       canRestyleSelected &&
@@ -3341,8 +3835,8 @@ class PdfEditingController extends ChangeNotifier {
     return rgb == null ? null : Color(0xFF000000 | rgb);
   }
 
-  /// Whether every selected annotation takes a border line style — shapes
-  /// and the line family — so [restyleSelected]'s `lineStyle` applies.
+  /// Whether every selected annotation takes a border line style - shapes
+  /// and the line family - so [restyleSelected]'s `lineStyle` applies.
   bool get canSetLineStyleSelected =>
       canRestyleSelected &&
       _selected.every((slot) {
@@ -3364,7 +3858,7 @@ class PdfEditingController extends ChangeNotifier {
     return PdfLineStyle.ofDashArray(annotation.borderDash);
   }
 
-  /// Restyles every selected annotation in place — one revision, one
+  /// Restyles every selected annotation in place - one revision, one
   /// undo, and the selection survives (annotations keep their /Annots
   /// slots). Parameters follow [PdfEditor.restyleAnnotation]: [color]
   /// is the stroke/tint (free text's *text* color), [fill] the shape
@@ -3420,7 +3914,7 @@ class PdfEditingController extends ChangeNotifier {
   static const flashLifetime = Duration(milliseconds: 1600);
 
   /// Fires a brief attention pulse around the annotation in slot
-  /// [index] of [pageIndex]'s /Annots — the page overlay animates it.
+  /// [index] of [pageIndex]'s /Annots - the page overlay animates it.
   /// The annotation sidebar calls this when a tile zooms the viewer to
   /// its annotation, so the eye lands on the right spot.
   void flashAnnotation(int pageIndex, int index) {
@@ -3446,7 +3940,7 @@ class PdfEditingController extends ChangeNotifier {
     return (page: flash.page, slot: flash.slot, sequence: _flashSequence);
   }
 
-  /// Clears [pendingFlash] once its pulse has run — the page overlay
+  /// Clears [pendingFlash] once its pulse has run - the page overlay
   /// calls this when the animation completes. The [flashLifetime] timer
   /// stays as the backstop for a flash no overlay ever picked up.
   void expireFlash(int sequence) {
@@ -3476,7 +3970,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The selected annotations that share the primary selection's page, in
-  /// selection order — the candidates an alignment acts on. Aligning across
+  /// selection order - the candidates an alignment acts on. Aligning across
   /// pages has no geometric meaning, so the primary page wins and other
   /// pages' selections are left alone.
   List<PdfAnnotation> _alignmentTargets() {
@@ -3503,7 +3997,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Lines up (or spreads out) the selected annotations on the primary
   /// page per [alignment], as one revision. Needs two annotations to align
   /// and three to distribute; a no-op below that, or when the selection is
-  /// already aligned (nothing would move). The selection survives — a move
+  /// already aligned (nothing would move). The selection survives - a move
   /// keeps each annotation's /Annots slot.
   void alignSelected(PdfAlignment alignment) {
     final page = selectedPage;
@@ -3526,7 +4020,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Re-homes the single selected annotation onto [targetPage], shifted
-  /// by ([dx], [dy]) in page space — what a move drag dropped over a
+  /// by ([dx], [dy]) in page space - what a move drag dropped over a
   /// *different* page produces. The annotation leaves its source page and
   /// is appended to the target page's /Annots, so it draws on top instead
   /// of staying on its old page (off the crop box, behind the neighbour).
@@ -3562,7 +4056,7 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Resizes the selected annotation so its /Rect becomes [to].
   ///
-  /// [flipX]/[flipY] mirror the artwork — what a resize handle dragged
+  /// [flipX]/[flipY] mirror the artwork - what a resize handle dragged
   /// past the opposite edge produces.
   void resizeSelected(PdfRect to, {bool flipX = false, bool flipY = false}) {
     final annotation = selectedAnnotation;
@@ -3610,7 +4104,7 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Resizes the selected annotation in its own (unrotated) frame:
   /// [localTo] rotated by the annotation's resting angle about its
-  /// center is where the artwork lands — how the overlay resizes a
+  /// center is where the artwork lands - how the overlay resizes a
   /// rotated selection without shearing it.
   ///
   /// [flipX]/[flipY] mirror the artwork along the local axes.
@@ -3658,7 +4152,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The start/end line endings of the selected /Line or /PolyLine, or
-  /// null when no such single annotation is selected — for the ending
+  /// null when no such single annotation is selected - for the ending
   /// picker to show.
   (PdfLineEnding, PdfLineEnding)? get selectedLineEndings {
     final annotation = selectedAnnotation;
@@ -3667,7 +4161,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Swaps the start and/or end ending of the selected /Line or
-  /// /PolyLine in place — one revision, one undo, and the annotation
+  /// /PolyLine in place - one revision, one undo, and the annotation
   /// keeps its /Annots slot and object number. Pass null for an axis to
   /// leave it unchanged.
   void setSelectedLineEndings({PdfLineEnding? start, PdfLineEnding? end}) {
@@ -3693,7 +4187,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The selected measurement caption's font and size, parsed from its
-  /// /DA, or null when no single measurement is selected — for the font
+  /// /DA, or null when no single measurement is selected - for the font
   /// controls to reflect the current caption.
   ({PdfStandardFont font, double size})? get selectedMeasurementCaptionStyle {
     if (!canRestyleMeasurementCaption) return null;
@@ -3701,7 +4195,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Restyles the selected measurement's caption font and/or size in
-  /// place — one revision, one undo, and the annotation keeps its /Annots
+  /// place - one revision, one undo, and the annotation keeps its /Annots
   /// slot and object number. Pass null for an axis to leave it unchanged.
   void setSelectedMeasurementCaption({PdfStandardFont? font, double? size}) {
     final annotation = selectedAnnotation;
@@ -3857,8 +4351,8 @@ class PdfEditingController extends ChangeNotifier {
   /// survives (the annotation keeps its /Annots slot).
   ///
   /// [fill] and [border] change the box's background and border color:
-  /// the single-field record distinguishes "set to this RGB" — including
-  /// `(null,)`, removing the fill/border — from an omitted parameter,
+  /// the single-field record distinguishes "set to this RGB" - including
+  /// `(null,)`, removing the fill/border - from an omitted parameter,
   /// which leaves the annotation's own style alone. A border set without
   /// [borderWidth] keeps the annotation's width (or 1pt when it had no
   /// border to keep).
@@ -3892,8 +4386,8 @@ class PdfEditingController extends ChangeNotifier {
     if (canRestyleSelectedText) restyleSelectedText(align: align);
   }
 
-  /// Rewrites the selected free-text annotation in [font] — a base-14
-  /// face or an embedded TrueType/OpenType font — keeping its text, size,
+  /// Rewrites the selected free-text annotation in [font] - a base-14
+  /// face or an embedded TrueType/OpenType font - keeping its text, size,
   /// place, color, and author. Unlike [restyleSelectedText] (which only
   /// takes the standard families) this can switch a box to any embedded
   /// font.
@@ -3954,7 +4448,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Sets the (single) selected annotation's /Contents. For subtypes
   /// whose contents are the displayed text (free text, stamps, notes)
   /// this rewrites the annotation so the page matches; for everything
-  /// else it's a metadata edit — the comment shown in annotation lists —
+  /// else it's a metadata edit - the comment shown in annotation lists -
   /// and the artwork is untouched. Returns whether anything changed.
   bool setSelectedContents(String text) {
     final annotation = selectedAnnotation;
@@ -3971,7 +4465,7 @@ class PdfEditingController extends ChangeNotifier {
         pages: const <int>[]);
   }
 
-  /// Sets the author (/T) on every selected annotation — one revision,
+  /// Sets the author (/T) on every selected annotation - one revision,
   /// one undo. Null or empty removes it. Returns whether anything
   /// changed.
   bool setSelectedAuthor(String? author) {
@@ -4001,7 +4495,7 @@ class PdfEditingController extends ChangeNotifier {
     // a rotated text box flattens to horizontal under plain remove +
     // re-add (addFreeText/addStamp/addNote bake a horizontal matrix), so
     // re-create it in its un-rotated local frame and re-apply the resting
-    // rotation afterwards — the same shape resizeAnnotationLocal uses.
+    // rotation afterwards - the same shape resizeAnnotationLocal uses.
     final rotation = _appearanceRotationOf(annotation);
     final rect = rotation == 0 ? annotation.rect : _localFrameOf(annotation);
     final color = annotation.color;
@@ -4052,7 +4546,7 @@ class PdfEditingController extends ChangeNotifier {
         }
       }
     }, pages: [page], contentPages: const <int>[]);
-    // the rewritten annotation lands in the last /Annots slot — keep it
+    // the rewritten annotation lands in the last /Annots slot - keep it
     // selected so consecutive restyles (a settings popup) stay anchored
     final annotations = _page(page).annotations;
     if (annotations.isNotEmpty) {
@@ -4114,7 +4608,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The un-rotated local box of a rotated [annotation]: its appearance
-  /// quad's edge lengths about the quad center — the frame the text is
+  /// quad's edge lengths about the quad center - the frame the text is
   /// re-created in before [PdfEditor.rotateAnnotation] spins it back.
   static PdfRect _localFrameOf(PdfAnnotation annotation) {
     final quad = annotation.appearanceQuad!;
@@ -4173,6 +4667,11 @@ class PdfEditingController extends ChangeNotifier {
   /// removed from the page stream and replaced by an image stamp in the same
   /// bounds.
   bool get canReplaceSelectedElementImage {
+    return _isReplaceableImageElement(selectedElement);
+  }
+
+  /// Whether the selected content element can be exported as a PNG image.
+  bool get canExportSelectedElementImage {
     return _isReplaceableImageElement(selectedElement);
   }
 
@@ -4321,13 +4820,94 @@ class PdfEditingController extends ChangeNotifier {
         pages: [selected.$1]);
   }
 
+  /// Renders the selected page-content image element to a standalone PNG.
+  ///
+  /// This exports the selected element's page bounds as they render in the
+  /// document. Image pixels are sampled from the clean page content only:
+  /// annotations are omitted. Returns null when the current selection is not an
+  /// image-like content element or the crop is degenerate.
+  Future<PdfSelectedContentImage?> exportSelectedElementImage({
+    double dpi = 150,
+    Color pageColor = const Color(0xFFFFFFFF),
+  }) async {
+    if (dpi <= 0) throw ArgumentError.value(dpi, 'dpi', 'must be positive');
+    final selected = _selectedElement;
+    final element = selectedElement;
+    final bounds = element?.bounds;
+    if (selected == null ||
+        element == null ||
+        bounds == null ||
+        !_isReplaceableImageElement(element) ||
+        bounds.width <= 0 ||
+        bounds.height <= 0) {
+      return null;
+    }
+
+    final document = _document;
+    final page = _page(selected.$1);
+    final size = PdfPageRenderer.pageSize(page, rotation: page.rotation);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize: size,
+    );
+    final pageRegion = Offset.zero & size;
+    final region = geometry.toViewRect(bounds).intersect(pageRegion);
+    if (region.width <= 0 || region.height <= 0) return null;
+
+    final nativeRatio = _nativeImagePixelRatio(element, region);
+    final requestedRatio = math.max(dpi / 72, nativeRatio);
+    final maxSideRatio = 8192 / math.max(region.width, region.height);
+    final pixelRatio =
+        requestedRatio.clamp(1.0, math.max(1.0, maxSideRatio)).toDouble();
+
+    final picture = await PdfPageRenderer.renderPicture(
+      page,
+      pageColor: pageColor,
+      annotations: false,
+      rotation: page.rotation,
+    );
+    ui.Image? image;
+    try {
+      image = await PdfPageRenderer.rasterizeRegion(
+        picture,
+        region,
+        pixelRatio,
+      );
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null ||
+          !identical(_document, document) ||
+          _selectedElement != selected) {
+        return null;
+      }
+      return PdfSelectedContentImage(
+        pageIndex: selected.$1,
+        pageRect: bounds,
+        pngBytes: Uint8List.fromList(
+            data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes)),
+      );
+    } finally {
+      image?.dispose();
+      picture.dispose();
+    }
+  }
+
+  double _nativeImagePixelRatio(PdfContentElement element, Rect region) {
+    final width = element.imageWidth;
+    final height = element.imageHeight;
+    if (width == null || height == null || width <= 0 || height <= 0) {
+      return 1;
+    }
+    return math.max(width / region.width, height / region.height);
+  }
+
   /// Edits the selected text element and re-flows its whole paragraph via
   /// [PdfEditor.reflowText]: when the replacement changes the paragraph's
   /// line count, the paragraph re-wraps at its right margin and the lines
   /// that follow it cascade up or down so nothing overlaps.
   ///
   /// Returns true when a paragraph was reflowed, false (nothing changed)
-  /// when the selection isn't part of a reflowable paragraph — single
+  /// when the selection isn't part of a reflowable paragraph - single
   /// column, left aligned, one font/size, regular leading (see
   /// [PdfParagraphReflow]); the caller can fall back to
   /// [replaceSelectedElementText] for an in-line correction.
@@ -4350,7 +4930,7 @@ class PdfEditingController extends ChangeNotifier {
   bool _formResolved = false;
 
   /// The document's interactive form at the current revision, or null
-  /// when it has none. Cached per revision — enumerating fields walks
+  /// when it has none. Cached per revision - enumerating fields walks
   /// the whole field tree, and the form tool's hit tests run per
   /// pointer event.
   PdfAcroForm? get acroForm {
@@ -4362,7 +4942,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The topmost visible form-field widget under ([x], [y]) on
-  /// [pageIndex], with the hit widget's index within its field — for a
+  /// [pageIndex], with the hit widget's index within its field - for a
   /// radio group that index says which button was tapped
   /// ([PdfFormField.widgetOnState]). Null when nothing is hit.
   (PdfFormField field, int widgetIndex)? formFieldAt(
@@ -4391,7 +4971,7 @@ class PdfEditingController extends ChangeNotifier {
   /// which state each selects). The reader's interactive form layer
   /// places a tap target over each entry's [PdfAnnotation.rect].
   ///
-  /// Hidden / no-view widgets are skipped — they don't render, so they
+  /// Hidden / no-view widgets are skipped - they don't render, so they
   /// take no taps. Resolved against the per-revision page cache and
   /// [acroForm]; the returned fields die with the next revision.
   List<(PdfFormField field, int widgetIndex, PdfAnnotation widget)>
@@ -4434,7 +5014,7 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Shared fill plumbing: resolves the field by [name] (fields die with
   /// every revision, so names are the stable handle), guards type and
-  /// read-only, and turns editor complaints into a false return — a UI
+  /// read-only, and turns editor complaints into a false return - a UI
   /// tap must never crash on a quirky field.
   bool _fillField(String name, Set<PdfFieldType> types,
       void Function(PdfEditor e, PdfFormField f) fill) {
@@ -4487,7 +5067,7 @@ class PdfEditingController extends ChangeNotifier {
       (e, f) => e.setChoiceValue(f, value));
 
   /// Fills the push button [name] with [imageBytes] (PNG or JPEG),
-  /// aspect-fit — signature and logo fields in template pipelines.
+  /// aspect-fit - signature and logo fields in template pipelines.
   bool setFormButtonImage(String name, Uint8List imageBytes) {
     final PdfEmbeddableImage image;
     try {
@@ -4511,7 +5091,7 @@ class PdfEditingController extends ChangeNotifier {
   PdfFormFieldKind _newFormFieldKind = PdfFormFieldKind.text;
 
   /// The kind of field a form-tool drag on empty page area creates.
-  /// Not persisted — each session starts adding text fields.
+  /// Not persisted - each session starts adding text fields.
   PdfFormFieldKind get newFormFieldKind => _newFormFieldKind;
 
   set newFormFieldKind(PdfFormFieldKind value) {
@@ -4597,7 +5177,7 @@ class PdfEditingController extends ChangeNotifier {
   bool flattenFormFields() => apply((e) => e.flattenForm());
 
   /// The selected text field (name + field), or null unless exactly one
-  /// text-field widget is selected — the styling controls' target.
+  /// text-field widget is selected - the styling controls' target.
   (String name, PdfFormField field)? get _selectedFormTextField {
     if (_selected.length != 1) return null;
     if (selectedAnnotation?.subtype != 'Widget') return null;
@@ -4614,12 +5194,12 @@ class PdfEditingController extends ChangeNotifier {
   bool get canStyleSelectedFormField => _selectedFormTextField != null;
 
   /// The name of the selected text field, or null unless exactly one is
-  /// selected — the handle the style controls pass to [setFormFieldStyle].
+  /// selected - the handle the style controls pass to [setFormFieldStyle].
   String? get selectedFormFieldName => _selectedFormTextField?.$1;
 
   /// The field name of the selected form widget of any field type (text,
   /// check box, radio, button, …), or null unless exactly one form widget
-  /// is selected — for the properties panel's field-name row.
+  /// is selected - for the properties panel's field-name row.
   String? get selectedWidgetFieldName {
     if (_selected.length != 1 || selectedAnnotation?.subtype != 'Widget') {
       return null;
@@ -4641,7 +5221,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The selected text field's current style, or null when no single text
-  /// field is selected — drives the form-field style controls.
+  /// field is selected - drives the form-field style controls.
   PdfFormFieldStyle? get selectedFormFieldStyle {
     final sel = _selectedFormTextField;
     if (sel == null) return null;

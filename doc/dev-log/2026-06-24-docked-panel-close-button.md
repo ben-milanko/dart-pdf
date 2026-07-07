@@ -4,18 +4,18 @@ On a narrow screen the side panels float up as bottom sheets, and
 `PdfPanelBottomSheet` gives each a titled header with a close ×. On a wide
 (desktop) screen the same panels dock into the `Row` beside the viewer
 (`pdf_editor_view.dart`, `pdf_reader.dart`) and had no in-panel way to
-dismiss them — only the header's panel-toggle buttons. This adds the
+dismiss them - only the header's panel-toggle buttons. This adds the
 matching little × to the docked layout.
 
 ## Shape
 
-- New shared `PdfSidebarCloseButton` in `editing_panel.dart` — a compact
+- New shared `PdfSidebarCloseButton` in `editing_panel.dart` - a compact
   `IconButton(Icons.close, size 18)` with a "Close" tooltip. The desktop
   counterpart of the sheet chrome's close button.
 - Each of the four panels (`PdfThumbnailSidebar`, `PdfSearchResultsPanel`,
   `PdfAnnotationSidebar`, `PdfAnnotationPropertiesPanel`) gained an
   optional `onClose`. The button renders **only** when `onClose != null &&
-  !bottomSheet` — a bottom sheet still supplies its own × via
+  !bottomSheet` - a bottom sheet still supplies its own × via
   `PdfPanelBottomSheet`, so the guard prevents a double close button when
   the breakpoint flips.
 - Both shells wire `onClose: bottomSheet ? null : () => prefs.showXPanel =

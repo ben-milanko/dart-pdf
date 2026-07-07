@@ -58,7 +58,7 @@ void main() {
     final out = PdfDocument.open(editor.save());
 
     // the same interpreter the rasterizer uses must handle the rewritten
-    // stream — extraction runs the full PdfInterpreter.
+    // stream - extraction runs the full PdfInterpreter.
     final after = PdfTextExtractor.extract(out, 0);
     expect(after.runs, isNotEmpty);
 

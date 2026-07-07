@@ -10,12 +10,12 @@ import 'document.dart';
 /// /PolyLine [perimeter] (sum of segment lengths), and a /Polygon [area]
 /// (shoelace). The takeoff suite adds:
 ///
-/// - [count] — a point marker; each contributes 1 to a running tally.
-/// - [volume] — a /Polygon area multiplied by a stored depth (area × depth).
-/// - [angle] — three vertices; the interior angle at the middle one.
-/// - [arc] — three vertices on a circular arc; its swept length.
-/// - [slope] — a /Line read as rise/run; the inclination from horizontal.
-/// - [areaCutout] — a /Polygon with holes; the net (outer − holes) area.
+/// - [count] - a point marker; each contributes 1 to a running tally.
+/// - [volume] - a /Polygon area multiplied by a stored depth (area × depth).
+/// - [angle] - three vertices; the interior angle at the middle one.
+/// - [arc] - three vertices on a circular arc; its swept length.
+/// - [slope] - a /Line read as rise/run; the inclination from horizontal.
+/// - [areaCutout] - a /Polygon with holes; the net (outer − holes) area.
 enum PdfMeasurementKind {
   distance,
   perimeter,
@@ -162,7 +162,7 @@ double pdfSlopeDegrees((double, double) a, (double, double) b) {
 ///
 /// The display always strips trailing fractional zeros (and a dangling
 /// decimal separator), so the default `1 in = 20 ft` calibration shows
-/// `60 ft` rather than `60.00 ft` — the product choice the measurement
+/// `60 ft` rather than `60.00 ft` - the product choice the measurement
 /// tools rely on.
 class PdfNumberFormat {
   const PdfNumberFormat({
@@ -177,34 +177,34 @@ class PdfNumberFormat {
     this.labelPosition = 'S',
   });
 
-  /// /U — the unit label ('ft', 'm', 'ft²', ...).
+  /// /U - the unit label ('ft', 'm', 'ft²', ...).
   final String unit;
 
-  /// /C — the factor a value is multiplied by to reach [unit].
+  /// /C - the factor a value is multiplied by to reach [unit].
   final double conversion;
 
-  /// /D — the rounding granularity: the value is shown to the nearest
+  /// /D - the rounding granularity: the value is shown to the nearest
   /// `1 / precision` (so 100 → two decimals, 1 → whole numbers) for the
   /// decimal formats, or used as the denominator for [fractionFormat] 'F'.
   final int precision;
 
-  /// /F — 'D' decimal (default), 'F' fraction with denominator [precision],
+  /// /F - 'D' decimal (default), 'F' fraction with denominator [precision],
   /// 'R' round, 'T' truncate.
   final String fractionFormat;
 
-  /// /RD — the decimal separator.
+  /// /RD - the decimal separator.
   final String decimalSeparator;
 
-  /// /RT — the thousands separator.
+  /// /RT - the thousands separator.
   final String thousandsSeparator;
 
-  /// /PS — text concatenated to the start of the display.
+  /// /PS - text concatenated to the start of the display.
   final String prefix;
 
-  /// /SS — text concatenated to the end of the display.
+  /// /SS - text concatenated to the end of the display.
   final String suffix;
 
-  /// /O — 'S' to place [unit] after the number (default), 'P' before.
+  /// /O - 'S' to place [unit] after the number (default), 'P' before.
   final String labelPosition;
 
   /// Formats [value] (in this format's input units) as a display string.
@@ -405,31 +405,31 @@ class PdfMeasure {
     return '1 in = $perInch $unitLabel';
   }
 
-  /// /Subtype — 'RL' (rectilinear) is the only kind written here.
+  /// /Subtype - 'RL' (rectilinear) is the only kind written here.
   final String subtype;
 
-  /// /R — the user-facing ratio label (e.g. `1 in = 20 ft`).
+  /// /R - the user-facing ratio label (e.g. `1 in = 20 ft`).
   final String ratio;
 
-  /// /X — the number formats converting an x-axis page distance to the
+  /// /X - the number formats converting an x-axis page distance to the
   /// measured unit. The first entry's [PdfNumberFormat.conversion] is the
   /// per-point scale factor.
   final List<PdfNumberFormat> x;
 
-  /// /Y — the y-axis formats; falls back to [x] when absent.
+  /// /Y - the y-axis formats; falls back to [x] when absent.
   final List<PdfNumberFormat>? y;
 
-  /// /D — the formats rendering a distance.
+  /// /D - the formats rendering a distance.
   final List<PdfNumberFormat> distance;
 
-  /// /A — the formats rendering an area.
+  /// /A - the formats rendering an area.
   final List<PdfNumberFormat> area;
 
-  /// /T — the formats rendering an angle, if present.
+  /// /T - the formats rendering an angle, if present.
   final List<PdfNumberFormat>? angle;
 
   /// The formats rendering a volume (area × depth), if present. Persisted
-  /// under the non-standard /V key — viewers that don't know it ignore it;
+  /// under the non-standard /V key - viewers that don't know it ignore it;
   /// this library round-trips it so volume takeoffs survive a reopen.
   final List<PdfNumberFormat>? volume;
 

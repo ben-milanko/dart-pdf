@@ -11,7 +11,7 @@ import 'render_worker.dart';
 import 'renderer.dart';
 
 /// Low-resolution page previews shown while a page's full render is
-/// pending — most visibly during fast scrolling, when [PdfPageView]
+/// pending - most visibly during fast scrolling, when [PdfPageView]
 /// holds the (UI-thread) first interpretation of pages flying past and
 /// would otherwise show blank paper.
 ///
@@ -29,7 +29,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   PdfPagePreviewCache({this.longestSide = 200, this.capacity = 300});
 
   /// Pixel size of a preview's longest side. Stretched to page size on
-  /// screen the result is soft but recognizable — enough to navigate by.
+  /// screen the result is soft but recognizable - enough to navigate by.
   final double longestSide;
 
   /// Maximum number of cached previews (LRU eviction past it).
@@ -51,7 +51,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// of a previously-seen document paints soft content at once. Pages that
   /// already hold a (fresher, in-session) preview are left alone, and the
   /// loaded entries are bound to the current [pages] objects so the
-  /// background prerender treats them as done — the on-screen full render
+  /// background prerender treats them as done - the on-screen full render
   /// still replaces them when it lands.
   Future<void> loadFromDisk(List<PdfPage> pages) async {
     final cache = disk;
@@ -65,7 +65,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
         image.dispose();
         continue;
       }
-      // adopt without writing back — these bytes just came from disk
+      // adopt without writing back - these bytes just came from disk
       _entries[i] = _PreviewEntry(pages[i], image, includesImages: true);
       while (_entries.length > capacity) {
         final oldest = _entries.keys.first;
@@ -89,7 +89,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   bool has(int index) => _entries.containsKey(index);
 
   /// Whether the cached preview for [index] was rendered from exactly
-  /// this [page] object — the staleness test both fill paths use to
+  /// this [page] object - the staleness test both fill paths use to
   /// skip redundant work.
   bool isFresh(int index, PdfPage page, {bool requireImages = false}) {
     final entry = _entries[index];
@@ -103,7 +103,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     return math.min(1, longestSide / longest);
   }
 
-  /// Interprets [page] and stores its preview — the background-prerender
+  /// Interprets [page] and stores its preview - the background-prerender
   /// path for pages that have never rendered on screen. When [worker] is
   /// supplied the interpreter walk is offloaded to a background isolate and
   /// only the (cheap) replay + downscale run here; otherwise the walk is
@@ -132,7 +132,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final ratio = _ratioFor(size);
       // priority 1: prefetch yields to any on-screen page the worker owes.
       // The preview is rasterized at [ratio] (longest side ~200px), so cap the
-      // worker's images to that — a heavy raster underlay need not ship at full
+      // worker's images to that - a heavy raster underlay need not ship at full
       // resolution just to be downscaled into a thumbnail.
       final commands = worker != null && worker.isActive
           ? await worker.record(index,
@@ -199,7 +199,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     }
   }
 
-  /// Downscales an already-interpreted [picture] into the cache — free
+  /// Downscales an already-interpreted [picture] into the cache - free
   /// population as pages render on screen (raster-thread work only, no
   /// second interpreter walk). The picture stays owned by the caller.
   Future<void> putFromPicture(int index, PdfPage page, ui.Picture picture,
@@ -236,13 +236,13 @@ class PdfPagePreviewCache extends ChangeNotifier {
 
   /// Re-binds entries to the page objects of a same-geometry document
   /// revision (an edit swap) without re-rendering. Previews of pages the
-  /// edit visually changed go briefly stale — they refresh from the full
+  /// edit visually changed go briefly stale - they refresh from the full
   /// render the moment the page is on screen, which is where edits
-  /// happen — but the whole document doesn't re-interpret per pen
+  /// happen - but the whole document doesn't re-interpret per pen
   /// stroke.
   ///
   /// [changed] (when given) names pages whose *content* changed in the new
-  /// revision — most importantly a redaction burn, where the old preview
+  /// revision - most importantly a redaction burn, where the old preview
   /// still shows the removed glyphs/images. Their previews are dropped
   /// rather than rebound, so a fresh page state scrolled past during a fast
   /// scroll paints blank (then re-renders) instead of flashing now-deleted

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.4.0
+
+- Color processing: add a Bluebeam-style tool that can list document colors,
+  replace one or more selected colors across selected pages or the whole
+  document, replace colors with transparency, and run large-document
+  processing in the background to avoid UI hangs.
+- Bookmarks: add a PDF outline/bookmarks panel with create, edit, delete, and
+  navigation support in the reader and editor shells.
+- Editing tools: add freehand highlighting, cloudy polygon annotations,
+  annotation apply-to-pages, selected-image export, color locking, and stronger
+  style isolation when switching tools.
+- Stamps: support hover placement previews, custom template dimensions, and
+  import/export for custom stamp libraries.
+- Page and annotation chrome: add hover-only controls on mouse platforms,
+  arrow-key navigation for thumbnail/page views, page-grid click-to-select
+  with double-click navigation, and layout fixes for thumbnail/search chrome.
+- App integrations: improve macOS open-with/file access handling, multi-file
+  picking, recent-file menus, menu shortcut labels, and the built-in feedback
+  link.
+
 ## 1.3.2
 
 - Viewer rendering: annotation appearances now paint in a separate overlay
@@ -8,8 +28,8 @@
 - Viewer interaction: motion-based render hold defers expensive UI work during
   active gestures, chrome stays visually constant while zoomed, and annotation
   hit handling exposes a new `PdfAnnotationTapHandler` callback.
-- Editing UI: the draw toolbar includes a highlight selection action, active
-  text selections can be styled as markup, count-tool cursor previews are more
+- Editing UI: the draw toolbar includes a freehand highlight tool, active text
+  selections can be styled as markup, count-tool cursor previews are more
   accurate, and the takeoff panel has improved accessibility labels.
 - Forms: right-click form-field editing and form-style controls are available
   from the viewer, including font and visual style updates.
@@ -44,7 +64,7 @@
 ## 1.2.3
 
 - Free text: align a text box left, center, or right. The alignment buttons
-  sit in the text style popup and the annotation properties panel — they
+  sit in the text style popup and the annotation properties panel - they
   apply to the selected box and set the default for new boxes (remembered
   per the text tool). New boxes still follow the text direction until you
   pick an alignment.
@@ -90,7 +110,7 @@
 
 - Full font selection for text boxes: a font menu (in the style popup and
   the properties panel) offers the standard families, a set of bundled
-  full-Unicode fonts (DejaVu Sans/Serif/Mono), and "Load font…" — a
+  full-Unicode fonts (DejaVu Sans/Serif/Mono), and "Load font…" - a
   host-provided `PdfFontPicker` for any `.ttf`/`.otf` file. The chosen
   font embeds into the document so the text renders and prints
   identically everywhere. `PdfEditingController.activeFont`/`setCustomFont`
@@ -188,7 +208,7 @@ First stable release. Highlights since 0.1.0:
 - Keyboard shortcuts for the common editing tools: single, unmodified keys
   arm a tool from the viewer (V select, P pen/ink, E eraser, R rectangle,
   O ellipse, L line, A arrow, T text box, N note, S stamp, I image,
-  G signature, M measure, F form, C content, K redact); pressing a tool's
+  G snapshot, H signature, M measure, F form, C content, K redact); pressing a tool's
   key again drops back to Select. Active only during an editing session and
   suppressed while an in-place text editor (free text or form field) is
   open. The bindings are exposed as `pdfEditToolShortcuts` and surfaced in

@@ -3,7 +3,7 @@ import 'package:flutter/painting.dart';
 import 'ocr_image.dart';
 
 /// One recognized text line: the characters and where they sit in the page
-/// raster's **pixel** space (top-left origin, y down — the same space the OCR
+/// raster's **pixel** space (top-left origin, y down - the same space the OCR
 /// model worked in). [OnDeviceOcrEngine] maps [pixelBounds] back to PDF user
 /// space.
 class RecognizedTextLine {
@@ -22,7 +22,7 @@ class RecognizedTextLine {
 /// into recognized text lines.
 ///
 /// The default backend ([OnnxOcrModelRunner]) runs a PP-OCR detect+recognize
-/// pipeline on ONNX Runtime, but the engine takes any implementation — so a
+/// pipeline on ONNX Runtime, but the engine takes any implementation - so a
 /// platform-native recognizer (Vision / ML Kit / Windows OCR) or a test fake
 /// can stand in without touching the engine or the page-geometry mapping.
 abstract class OcrModelRunner {

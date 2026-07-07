@@ -5,8 +5,8 @@ part of 'editor.dart';
 /// regenerating its appearance so it looks identical here and in other
 /// viewers (no /NeedAppearances dependency).
 ///
-/// The font may be a base-14 [PdfStandardFont] — written into the form /DR
-/// as a Type1 face every viewer has — or a [PdfEmbeddedFont], embedded as a
+/// The font may be a base-14 [PdfStandardFont] - written into the form /DR
+/// as a Type1 face every viewer has - or a [PdfEmbeddedFont], embedded as a
 /// Type0 face so the value shows the same everywhere. Either way the
 /// appearance is rebuilt by [PdfFormFilling], which now reads the /DR font
 /// back to decide the simple-byte vs Type0 show path.
@@ -109,7 +109,7 @@ extension PdfFormStyling on PdfEditor {
   }
 
   /// Stages the nearest indirect object carrying a /DR /Font mutation: the
-  /// font dict, the /DR dict, the form dict, or finally the catalog —
+  /// font dict, the /DR dict, the form dict, or finally the catalog -
   /// mirroring [_stageFormDict] for form-level (non-field) resources.
   void _stageFormResources(
       PdfAcroForm form, CosDictionary fonts, CosDictionary dr) {

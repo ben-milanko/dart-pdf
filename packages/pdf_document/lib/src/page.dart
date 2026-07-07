@@ -69,7 +69,7 @@ class PdfPage {
 
   /// The page's measurement scale, read from its first /VP viewport's
   /// /Measure dictionary (§12.9). This is the document-borne, portable
-  /// drawing scale — written by `PdfEditor.setPageMeasurementScale` — so a
+  /// drawing scale - written by `PdfEditor.setPageMeasurementScale` - so a
   /// reopened or shared file keeps its calibration without relying on an
   /// app-side preference. Null when the page declares no viewport scale.
   PdfMeasure? get measure {

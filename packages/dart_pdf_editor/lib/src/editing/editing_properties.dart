@@ -12,7 +12,7 @@ import 'editing_value_field.dart';
 import 'text_prompt.dart';
 import 'line_style.dart';
 
-/// A panel showing — and editing — the selected annotation's properties.
+/// A panel showing - and editing - the selected annotation's properties.
 ///
 /// With one annotation selected it shows its type and page plus whatever
 /// of these apply: color, fill, stroke width, opacity (restyled in place
@@ -54,7 +54,7 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
   /// the "Load font…" entry (bundled and standard fonts still show).
   final PdfFontPicker? fontPicker;
 
-  /// The default width — a user-dragged width, persisted in
+  /// The default width - a user-dragged width, persisted in
   /// [PdfEditingPreferences.propertiesPanelWidth], wins over it.
   final double width;
 
@@ -70,7 +70,7 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
   final double maxWidth;
 
   /// Whether the "Author" row is shown. With it false the selected
-  /// annotation's author can't be edited here — for hosts that set the
+  /// annotation's author can't be edited here - for hosts that set the
   /// author programmatically and lock it.
   final bool showAuthor;
 
@@ -79,7 +79,7 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
   /// than as a fixed-width docked column.
   final bool bottomSheet;
 
-  /// Closes the docked panel — the host turns its visibility preference
+  /// Closes the docked panel - the host turns its visibility preference
   /// off. When given (and not a [bottomSheet]) a close (×) button appears
   /// in the panel's header. Null leaves the panel with no close button (a
   /// bottom sheet supplies its own).
@@ -107,7 +107,7 @@ class _PdfAnnotationPropertiesPanelState
   /// the field text; any revision or selection change re-syncs.
   (PdfDocument, (int, int)?)? _syncedFor;
 
-  /// Slider values while a drag is in flight — each restyle commits one
+  /// Slider values while a drag is in flight - each restyle commits one
   /// revision, so it lands on release, and the thumb shows the dragged
   /// value meanwhile.
   double? _draggingStroke;
@@ -265,7 +265,7 @@ class _PdfAnnotationPropertiesPanelState
     final next = _fieldName.text.trim();
     if (current == null || next.isEmpty || next == current) return;
     if (!_controller.renameFormField(current, next)) {
-      // a clash or invalid name leaves the field unchanged — restore the
+      // a clash or invalid name leaves the field unchanged - restore the
       // text so the row keeps reflecting the real name
       _fieldName.text = current;
     }
@@ -288,7 +288,7 @@ class _PdfAnnotationPropertiesPanelState
     } else if (x != rect.left || y != rect.bottom) {
       _controller.moveSelected(x - rect.left, y - rect.bottom);
     } else {
-      // unparsable input — put the real values back
+      // unparsable input - put the real values back
       _syncedFor = null;
       setState(() {});
     }
@@ -644,7 +644,7 @@ class _PdfAnnotationPropertiesPanelState
   }
 
   /// Text styling for a selected form text field (font, style, alignment,
-  /// auto-size, size, multiline, colour) — regenerated through
+  /// auto-size, size, multiline, colour) - regenerated through
   /// [PdfEditingController.setFormFieldStyle].
   List<Widget> _formFieldControls() {
     final name = _controller.selectedFormFieldName;
@@ -745,7 +745,7 @@ class _PdfAnnotationPropertiesPanelState
       ..._styleControls(annotation),
       ..._textStyleControls(annotation),
       // a form widget's /T is its field name, not an author, and /V (not
-      // /Contents) is its value — so widgets get a "Field name" row instead
+      // /Contents) is its value - so widgets get a "Field name" row instead
       // of the generic Contents/Author section
       if (annotation.subtype == 'Widget') ...[
         if (_controller.selectedWidgetFieldName != null) ...[

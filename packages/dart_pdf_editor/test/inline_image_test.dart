@@ -28,7 +28,7 @@ Uint8List buildPdf(String content) {
 
 void main() {
   // Inline images synthesize a fresh CosStream every interpretation pass,
-  // so decoded pixels must be keyed by value (PdfInlineImageKey) — keyed by
+  // so decoded pixels must be keyed by value (PdfInlineImageKey) - keyed by
   // stream identity the paint-time lookup never hits and nothing draws.
   testWidgets('inline image (BI..ID..EI) renders', (tester) async {
     await tester.runAsync(() async {

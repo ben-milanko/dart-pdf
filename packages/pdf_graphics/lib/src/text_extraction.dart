@@ -28,7 +28,7 @@ class PdfExtractedRun {
 
   /// The marked-content id of the structure-tagged sequence this run belongs
   /// to (§14.7), or null when the run is not tagged. Joins runs to the
-  /// logical structure tree — see [PdfTaggedText].
+  /// logical structure tree - see [PdfTaggedText].
   final int? mcid;
 
   /// Em space → page space (see [PdfTextRun.transform]).
@@ -126,7 +126,7 @@ class PdfPageText {
       try {
         pattern = RegExp(query, caseSensitive: caseSensitive, multiLine: true);
       } on FormatException {
-        return const []; // invalid pattern — surface no matches, don't throw
+        return const []; // invalid pattern - surface no matches, don't throw
       }
       for (final match in pattern.allMatches(text)) {
         if (match.start == match.end) continue; // skip zero-width hits
@@ -162,7 +162,7 @@ class PdfPageText {
   }
 
   /// Whether [text]`[start..end)` is bounded by non-word characters on both
-  /// sides (or the string edge) — the "match whole word" test.
+  /// sides (or the string edge) - the "match whole word" test.
   bool _isWholeWord(int start, int end) =>
       !_isWordChar(start - 1) && !_isWordChar(end);
 
@@ -182,7 +182,7 @@ class PdfPageText {
       [for (final quad in quadsFor(start, end)) quad.bounds];
 
   /// Baseline-aligned page-space quads covering the characters
-  /// [start]..[end] of [text] — for selection and search highlights that
+  /// [start]..[end] of [text] - for selection and search highlights that
   /// rotate with rotated text.
   List<PdfTextQuad> quadsFor(int start, int end) {
     final quads = <PdfTextQuad>[];
@@ -305,7 +305,7 @@ class PdfReflowImage extends PdfReflowItem {
     required this.bounds,
   });
 
-  /// The interpreter's draw request — carries the image stream and the
+  /// The interpreter's draw request - carries the image stream and the
   /// unit-square → page-space transform.
   final PdfImageRequest request;
 
@@ -340,7 +340,7 @@ class PdfReflowPage {
   List<PdfReflowImage> get images =>
       [for (final item in items) if (item is PdfReflowImage) item];
 
-  /// The reading-order text — blocks joined with blank lines (images skipped).
+  /// The reading-order text - blocks joined with blank lines (images skipped).
   String get text => blocks.map((block) => block.text).join('\n\n');
 }
 
@@ -354,7 +354,7 @@ class PdfReflowDocument {
 }
 
 /// Extracts positioned text by running the interpreter with a collecting
-/// device — the same code path rendering uses, so what you search is what
+/// device - the same code path rendering uses, so what you search is what
 /// you see.
 class PdfTextExtractor {
   PdfTextExtractor._();
@@ -706,9 +706,9 @@ class PdfTextReflower {
   }
 
   /// A line that opens with a bullet glyph or an enumerator (`1.`, `a)`,
-  /// `(iv)`) followed by whitespace — the start of a list item.
+  /// `(iv)`) followed by whitespace - the start of a list item.
   static final RegExp _listMarker = RegExp(
-      r'^\s*([•‣◦⁃∙·▪●❖*\-–—]'
+      r'^\s*([•‣◦⁃∙·▪●❖*\-–-]'
       r'|\(?([0-9]{1,3}|[A-Za-z]|[ivxlcdmIVXLCDM]{1,5})[.)])\s+\S');
 
   static bool _startsListItem(String text) => _listMarker.hasMatch(text);

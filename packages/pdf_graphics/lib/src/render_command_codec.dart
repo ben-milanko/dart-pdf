@@ -19,7 +19,7 @@ import 'shading.dart';
 /// The record/replay split produces a flat, `dart:ui`-free command list. To
 /// move the recording onto another thread (a native isolate, or a Web Worker
 /// reached over `postMessage`) the list has to cross a boundary that copies
-/// only plain data — not live Dart objects. This codec flattens the buffer to
+/// only plain data - not live Dart objects. This codec flattens the buffer to
 /// a [Uint8List] and back: re-serializing a decoded buffer yields the same
 /// bytes. Path coordinates are carried at float32 precision (see [_writePath]),
 /// which the render engine's own float32 truncation makes pixel-lossless;
@@ -28,23 +28,23 @@ import 'shading.dart';
 /// Every command and value type the interpreter emits is a pure value
 /// ([PdfPath], [PdfColor], [PdfMatrix], [PdfTextRun] with glyph outlines, …)
 /// EXCEPT [PdfImageRequest], whose `stream` is a live [CosStream] (a COS
-/// dictionary plus encoded bytes, often with nested references — colour
+/// dictionary plus encoded bytes, often with nested references - colour
 /// spaces, soft masks). Serializing that faithfully means serializing a slice
 /// of the COS object graph: [serializeCommands] (given the source [CosDocument]
-/// via `cos`) does exactly that for image XObjects — it inline-resolves the
+/// via `cos`) does exactly that for image XObjects - it inline-resolves the
 /// image's stream subgraph (every [CosReference] replaced by a detached copy
 /// of its resolved target, and every nested stream's bytes decrypted-but-still-
 /// filtered so the consumer re-runs the filters), then writes that self-
 /// contained tree. The consumer reconstructs the stream and decodes it with the
 /// unchanged image decoder. This matters on CAD documents, whose drawing sheets
-/// carry embedded raster underlays — without it the heaviest pages decline and
+/// carry embedded raster underlays - without it the heaviest pages decline and
 /// interpret synchronously on the UI thread.
 ///
 /// Two cases still decline (the buffer serializes to `null`, and the caller
 /// renders the page on the owning isolate): an INLINE image (`BI .. ID .. EI`),
 /// whose `/CS` may name a page-resource colour space that isn't reachable from
 /// the stream alone; and any image when no `cos` is supplied. Image-free pages
-/// — the dense vector/text pages that also dominate the interpret cost —
+/// - the dense vector/text pages that also dominate the interpret cost -
 /// serialize regardless.
 ///
 /// Format: little notion of versioning beyond a leading byte; the producer and
@@ -82,7 +82,7 @@ class _UnserializableImage implements Exception {
 /// When [decodeImages] is true, the serializer ALSO decodes each image's
 /// pixels off-thread (via the pure-Dart [decodePdfImagePixels]) and embeds the
 /// premultiplied RGBA beside the command, so the consumer skips the decode and
-/// only runs the engine codec — issue #73's image-decode offload. Images that
+/// only runs the engine codec - issue #73's image-decode offload. Images that
 /// need the platform JPEG codec carry no pixels and decode locally as before.
 /// When [imagePlaceholders] is true and [decodeImages] is false, images that
 /// cannot be serialized as self-contained streams are kept as draw-image
@@ -92,7 +92,7 @@ class _UnserializableImage implements Exception {
 ///
 /// [maxImagePixelRatio] (screen pixels per page point, including the device
 /// pixel ratio) caps the resolution of each decoded image to ~2× the pixels it
-/// covers on screen — a giant raster underlay on a CAD sheet is shipped (and
+/// covers on screen - a giant raster underlay on a CAD sheet is shipped (and
 /// later rasterized, and cached) at display resolution instead of its native
 /// 100+ megapixels, which is what otherwise blocks the (single-threaded, on
 /// web) raster thread for hundreds of milliseconds every time a settled scroll
@@ -112,7 +112,7 @@ const int _maxImagePixels = 1 << 24;
 /// Total decoded image pixels per page are bounded to this multiple of
 /// [_maxImagePixels]. The per-image cap keeps each image near its own
 /// on-screen footprint, but a sheet layered from dozens of overlapping raster
-/// tiles can still sum to many times the page raster — only the topmost layer
+/// tiles can still sum to many times the page raster - only the topmost layer
 /// per pixel is ever shown, so the rest is decoded, shipped, and cached for
 /// nothing. This ceiling (~17 MP at the default) scales every image down to
 /// fit, bounding the command buffer and the decoded-image cache no matter how
@@ -180,7 +180,7 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
 /// Walks declared image dimensions only (no decode), descending soft-mask
 /// groups, so it is a cheap pre-pass before the decoding write pass. Images
 /// that ship un-decoded (platform-codec path) are counted too, so the scale is
-/// conservative when those are mixed in — acceptable, and they are rare on the
+/// conservative when those are mixed in - acceptable, and they are rare on the
 /// raster-tiled sheets this targets.
 double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
     double ratio, int budgetPixels,
@@ -216,7 +216,7 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
 }
 
 /// The native pixel dimensions an image stream declares (`/Width`, `/Height`),
-/// or null when absent/degenerate. Cheap — no pixels are decoded.
+/// or null when absent/degenerate. Cheap - no pixels are decoded.
 (int, int)? _declaredImageSize(CosDocument cos, CosStream stream) {
   final w = _cosInt(cos.resolve(stream.dictionary['Width']));
   final h = _cosInt(cos.resolve(stream.dictionary['Height']));
@@ -355,7 +355,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
     case PdfDrawImageCommand(:final request):
       // Inline images can name a page-resource colour space unreachable from
       // the stream alone; decline them. XObjects serialize as a self-contained
-      // (inline-resolved, decrypted) stream subgraph — any failure inlining or
+      // (inline-resolved, decrypted) stream subgraph - any failure inlining or
       // decrypting it declines too, so the page falls back to a local render
       // rather than shipping a broken image.
       if (request.isInline || cos == null) {
@@ -830,14 +830,14 @@ PdfRenderCommand _readCommand(_Reader r) {
 // --- value types ---
 
 // Path coordinates are written as float32, not float64. A graphics-rich (CAD)
-// page is overwhelmingly path geometry — hundreds of thousands of segments —
+// page is overwhelmingly path geometry - hundreds of thousands of segments -
 // so halving each coordinate halves the serialized buffer and the time to
 // write and read it. The precision is not lost in practice: the render engine
 // truncates every coordinate to float32 anyway (Skia/Impeller are 32-bit), and
 // that truncation is idempotent, so shipping the float32 image renders
 // pixel-identically to shipping the original double (verified against the Ghent
-// baselines). Everything that needs full precision — transforms, colours,
-// stroke widths, text placement — stays float64.
+// baselines). Everything that needs full precision - transforms, colours,
+// stroke widths, text placement - stays float64.
 void _writePath(_Writer w, PdfPath path) {
   w.u32(path.segments.length);
   for (final s in path.segments) {
@@ -1086,7 +1086,7 @@ const int _cDict = 7;
 const int _cStream = 8;
 
 /// Returns a detached deep copy of [object] (resolved against [cos]) with every
-/// [CosReference] replaced by a copy of its target, so the result stands alone —
+/// [CosReference] replaced by a copy of its target, so the result stands alone -
 /// the consumer can decode it with no access to the source document. Stream
 /// bytes are taken decrypted-but-still-filtered (encryption removed, filters
 /// left for the consumer to undo); on an unencrypted document that is the raw
@@ -1118,7 +1118,7 @@ CosObject _inlineCos(CosDocument cos, CosObject? object, int depth) {
 }
 
 /// The first filter name on [dict] (`/Filter` as a name or array), or null when
-/// the stream is unfiltered — what [_inlineCos] stops before so the shipped
+/// the stream is unfiltered - what [_inlineCos] stops before so the shipped
 /// bytes stay filtered (decryption alone is undone).
 String? _firstFilterName(CosDocument cos, CosDictionary dict) {
   final filter = cos.resolve(dict['Filter']);
@@ -1212,11 +1212,11 @@ CosObject _readCos(_Reader r) {
 // --- low-level reader/writer ---
 
 class _Writer {
-  // A graphics-rich (CAD) page serializes to many MB of mostly path geometry —
+  // A graphics-rich (CAD) page serializes to many MB of mostly path geometry -
   // millions of scalar writes. The old BytesBuilder approach allocated a fresh
   // ByteData and a Uint8List view per scalar (and a `_b.add` per call), which
   // dominated the serialize cost. Instead grow one backing buffer and write
-  // scalars straight into a [ByteData] view of it at a running offset — no
+  // scalars straight into a [ByteData] view of it at a running offset - no
   // per-value allocation. The output bytes are unchanged (ByteData defaults to
   // big-endian, matching the old per-scalar ByteData), so this rewrite is a
   // pure speed-up: it emits exactly the bytes the BytesBuilder version did.
@@ -1249,7 +1249,7 @@ class _Writer {
 
   // ByteData's 64-bit int accessors throw on the web (JS has no 64-bit int),
   // and this codec crosses the isolate/Web-Worker boundary, so encode the value
-  // as a float64 instead — exact for |v| <= 2^53, which covers every PDF
+  // as a float64 instead - exact for |v| <= 2^53, which covers every PDF
   // integer we serialize (on the web a Dart int is already capped at 2^53).
   void i64(int v) {
     _ensure(8);
@@ -1342,7 +1342,7 @@ class _Reader {
   }
 
   int i64() {
-    final v = _data.getFloat64(_o); // see [_Writer.i64] — float64-encoded
+    final v = _data.getFloat64(_o); // see [_Writer.i64] - float64-encoded
     _o += 8;
     return v.toInt();
   }

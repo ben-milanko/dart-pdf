@@ -24,11 +24,13 @@ void main() {
 
   test('persists across loads', () async {
     final a = RecentsStore();
-    await a.add(title: 'keep.pdf', path: '/x/keep.pdf');
+    await a.add(
+        title: 'keep.pdf', path: '/x/keep.pdf', bookmark: 'bookmark-data');
 
     final b = RecentsStore();
     await b.load();
     expect(b.items.single.path, '/x/keep.pdf');
+    expect(b.items.single.bookmark, 'bookmark-data');
   });
 
   test('clear empties the list', () async {

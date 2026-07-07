@@ -11,7 +11,7 @@ extension PdfSigning on PdfEditor {
   /// subject becomes the visible signer unless [signerName] overrides it.
   /// An existing empty signature field called [fieldName] is used when
   /// present, otherwise an invisible signature field is created on the
-  /// first page. After this call the editor is spent — saving again
+  /// first page. After this call the editor is spent - saving again
   /// would invalidate the signature it just produced.
   Uint8List saveSigned({
     required RsaPrivateKey privateKey,

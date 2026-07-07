@@ -120,7 +120,7 @@ void runPdfRenderWorker() {
         out = null; // any failure → the main thread renders this page locally
         error = '$e\n$st';
       }
-      // Only clear the active token if it is still ours — a newer record may
+      // Only clear the active token if it is still ours - a newer record may
       // have replaced it while this one was running.
       if (identical(activeToken, token)) activeToken = null;
 
@@ -177,7 +177,7 @@ Future<Uint8List?> _recordPageAsync(
   }
   // Decode the page's images in the worker too: the buffer carries
   // premultiplied RGBA so the main thread only runs the engine codec. On web
-  // this matters more than on native — there is no separate raster thread, so
+  // this matters more than on native - there is no separate raster thread, so
   // the pure-Dart inflate/colour-convert would otherwise block frames. #73.
   // imagePixelRatio caps each image to display resolution before it crosses the
   // postMessage boundary, so a sheet-sized raster underlay ships at a few MB

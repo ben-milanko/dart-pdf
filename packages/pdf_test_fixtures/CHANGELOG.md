@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.0. Fixture
+  updates support the new color-processing, bookmark, annotation, and app
+  workflow tests.
+
 ## 1.3.2
 
 - Version bump to keep the dart-pdf package suite aligned at 1.3.2. No

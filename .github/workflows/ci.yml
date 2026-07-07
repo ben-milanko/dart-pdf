@@ -26,7 +26,7 @@ jobs:
         run: dart run tool/check_lockstep_constraints.dart
       # Compile the web render worker. `dart analyze` does NOT catch
       # `.toJS`-conversion errors (e.g. an async/Future-returning message
-      # handler), which only surface at `dart compile js` — the step the deploy
+      # handler), which only surface at `dart compile js` - the step the deploy
       # workflows run. Gate it here so a broken worker can't merge green and
       # silently ship a non-functional off-thread renderer.
       - name: Compile web render worker

@@ -19,7 +19,7 @@ clipboard. Wired that up.
   `imageClipboardWriter` constructor seam, matching the existing
   `printDocument` / `updateService` test-injection pattern.
 - `android/app/src/main/AndroidManifest.xml`: declared the
-  `com.superlist.super_native_extensions.DataProvider` content provider —
+  `com.superlist.super_native_extensions.DataProvider` content provider -
   Android needs it for *image* clipboard writes (text works without it).
 - `app/test/snapshot_clipboard_test.dart`: unit-tests the handler
   (success / writer-returns-false / writer-throws → all reported correctly)
@@ -38,7 +38,7 @@ cleanly is `0.1.7+6` (its 0.1.x `super_native_extensions` doesn't pull
 device_info_plus). That version's API is `ClipboardWriter.instance.write([...])`
 (not the newer `SystemClipboard.instance`), but `Formats.png` + all-platform
 support (incl. web) are present, so it's fully functional. If share_plus/the
-example are ever realigned on win32 6, super_clipboard can move to 0.9.x — only
+example are ever realigned on win32 6, super_clipboard can move to 0.9.x - only
 `copyPngToClipboard` needs the `SystemClipboard.instance` rename.
 
 ## Native build prerequisites (super_clipboard)

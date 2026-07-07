@@ -24,7 +24,7 @@ ReleaseInfo _release(
     );
 
 /// A release with an explicit version, for tags the parser would otherwise
-/// reject — used to prove the `app-v` tag filter, not the version parser.
+/// reject - used to prove the `app-v` tag filter, not the version parser.
 ReleaseInfo _tagged(String tag, AppVersion version) => ReleaseInfo(
       version: version,
       tagName: tag,

@@ -1,33 +1,21 @@
 PODS:
   - FlutterMacOS (1.0.0)
-  - irondash_engine_context (0.0.1):
-    - FlutterMacOS
   - onnxruntime (0.0.1):
-    - FlutterMacOS
-  - super_native_extensions (0.0.1):
     - FlutterMacOS
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
-  - irondash_engine_context (from `Flutter/ephemeral/.symlinks/plugins/irondash_engine_context/macos`)
   - onnxruntime (from `Flutter/ephemeral/.symlinks/plugins/onnxruntime/macos`)
-  - super_native_extensions (from `Flutter/ephemeral/.symlinks/plugins/super_native_extensions/macos`)
 
 EXTERNAL SOURCES:
   FlutterMacOS:
     :path: Flutter/ephemeral
-  irondash_engine_context:
-    :path: Flutter/ephemeral/.symlinks/plugins/irondash_engine_context/macos
   onnxruntime:
     :path: Flutter/ephemeral/.symlinks/plugins/onnxruntime/macos
-  super_native_extensions:
-    :path: Flutter/ephemeral/.symlinks/plugins/super_native_extensions/macos
 
 SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  irondash_engine_context: 893c7d96d20ce361d7e996f39d360c4c2f9869ba
   onnxruntime: 07de55f2042e50ef3769768feb45eb69552cff05
-  super_native_extensions: 943eb20ab25a1a624abd3f9403a2d24327301f19
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
 

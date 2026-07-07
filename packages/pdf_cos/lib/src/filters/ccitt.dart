@@ -189,7 +189,7 @@ class CcittDecoder {
       while (index < reference.length && reference[index] <= a0) {
         index++;
       }
-      // transitions at even indices flip white→black — those are the
+      // transitions at even indices flip white→black - those are the
       // "opposite of white" changes
       if (white) {
         if (index.isOdd) index++;

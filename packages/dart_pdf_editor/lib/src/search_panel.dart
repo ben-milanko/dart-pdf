@@ -9,7 +9,7 @@ import 'scrollbar.dart';
 import 'theme.dart';
 
 /// A compact document-search field: a slim text box with the match
-/// count, previous/next, and clear riding alongside — small enough for
+/// count, previous/next, and clear riding alongside - small enough for
 /// an app bar.
 ///
 /// Searches as you type (debounced) and on enter; once a query is live,
@@ -41,7 +41,7 @@ class PdfSearchField extends StatefulWidget {
   /// (and seed from) these preferences, so they survive across sessions.
   final PdfEditingPreferences? preferences;
 
-  /// Optional external text controller — pass one to clear or prefill
+  /// Optional external text controller - pass one to clear or prefill
   /// the field from the host (e.g. when a new document opens).
   final TextEditingController? searchController;
 
@@ -199,7 +199,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
 typedef _Entry = ({int? header, int? result});
 
 /// A side panel listing every search hit with its surrounding text,
-/// grouped by page — tap one to jump there.
+/// grouped by page - tap one to jump there.
 ///
 /// Reads [PdfViewerController.searchResults]; the current match is
 /// highlighted and taps go through [PdfViewerController.goToMatch].
@@ -229,7 +229,7 @@ class PdfSearchResultsPanel extends StatefulWidget {
   /// controls in its header. They drive [PdfViewerController.searchOptions].
   final bool showOptions;
 
-  /// The default width — a persisted user-dragged width wins over it.
+  /// The default width - a persisted user-dragged width wins over it.
   final double width;
 
   /// Which side of the viewer the panel sits on; the resize grip rides
@@ -248,7 +248,7 @@ class PdfSearchResultsPanel extends StatefulWidget {
   /// than as a fixed-width docked column.
   final bool bottomSheet;
 
-  /// Closes the docked panel — the host turns its visibility preference
+  /// Closes the docked panel - the host turns its visibility preference
   /// off. When given (and not a [bottomSheet]) a close (×) button appears
   /// in the panel's header. Null leaves the panel with no close button (a
   /// bottom sheet supplies its own).
@@ -424,6 +424,9 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
     final onLeftEdge =
         !widget.bottomSheet && widget.side == PdfSidebarSide.left;
     final barInset = showGrip && onLeftEdge;
+    final dividerStartIndent =
+        showGrip && !onLeftEdge ? PdfSidebarResizeGrip.width : 0.0;
+    final dividerEndIndent = barInset ? PdfSidebarResizeGrip.width : 0.0;
     final content = Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
       child: ListenableBuilder(
@@ -456,7 +459,11 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     controller: controller, preferences: widget.preferences),
               ),
             ),
-            const Divider(height: 1),
+            Divider(
+              height: 1,
+              indent: dividerStartIndent,
+              endIndent: dividerEndIndent,
+            ),
           ],
           Expanded(child: _body(context, barInset: barInset)),
         ]),
@@ -485,8 +492,8 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   }
 }
 
-/// A compact row of toggle buttons for the search match options — case
-/// sensitivity, whole word, and regular expression — driving
+/// A compact row of toggle buttons for the search match options - case
+/// sensitivity, whole word, and regular expression - driving
 /// [PdfViewerController.searchOptions]. Shared by [PdfSearchField] and
 /// [PdfSearchResultsPanel].
 ///

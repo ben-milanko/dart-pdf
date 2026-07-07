@@ -84,7 +84,7 @@ function startServer() {
           return;
         }
         // Negative control: 404 the worker script so the app degrades to
-        // UI-thread render — the loop must then flag the regression.
+        // UI-thread render - the loop must then flag the regression.
         if (NO_WORKER && path === '/pdf_render_worker.dart.js') {
           res.writeHead(404); res.end('worker disabled'); return;
         }
@@ -149,9 +149,9 @@ function parse(lines, frames) {
       const path = m[2];
       if (path in r.interpret) r.interpret[path]++; else r.interpret.other++;
       if (atMs != null &&
-          r.target.startMs != null &&
-          r.target.firstContentMs == null &&
-          Number(m[1]) === r.target.page) {
+        r.target.startMs != null &&
+        r.target.firstContentMs == null &&
+        Number(m[1]) === r.target.page) {
         r.target.firstContentMs = atMs - r.target.startMs;
         r.target.kind = `interpret/${path}`;
       }
@@ -168,19 +168,19 @@ function parse(lines, frames) {
     if (pre) r.prerender[pre[1]]++;
     const vector = line.match(/vector-first page=(\d+)/);
     if (vector &&
-        atMs != null &&
-        r.target.startMs != null &&
-        r.target.firstContentMs == null &&
-        Number(vector[1]) === r.target.page) {
+      atMs != null &&
+      r.target.startMs != null &&
+      r.target.firstContentMs == null &&
+      Number(vector[1]) === r.target.page) {
       r.target.firstContentMs = atMs - r.target.startMs;
       r.target.kind = 'vector-first';
     }
     const preview = line.match(/preview-paint page=(\d+)/);
     if (preview &&
-        atMs != null &&
-        r.target.startMs != null &&
-        r.target.firstContentMs == null &&
-        Number(preview[1]) === r.target.page) {
+      atMs != null &&
+      r.target.startMs != null &&
+      r.target.firstContentMs == null &&
+      Number(preview[1]) === r.target.page) {
       r.target.firstContentMs = atMs - r.target.startMs;
       r.target.kind = 'preview';
     }
@@ -211,7 +211,7 @@ function fmt(n, d = 1) { return Number(n).toFixed(d); }
 
 async function main() {
   if (!existsSync(WEB_DIR) || !existsSync(join(WEB_DIR, 'index.html'))) {
-    console.error(`✗ no harness build at ${WEB_DIR} — run tool/perf/build.sh first`);
+    console.error(`✗ no harness build at ${WEB_DIR} - run tool/perf/build.sh first`);
     process.exit(2);
   }
   if (!existsSync(PDF)) {
@@ -260,7 +260,7 @@ async function main() {
 
     // Poll for the harness to finish (or its own error path), up to the budget.
     // Bail fast on a startup crash: a pageerror with no harness output after a
-    // short grace means the app never came up — don't burn the whole budget.
+    // short grace means the app never came up - don't burn the whole budget.
     const deadline = t0 + TIMEOUT_S * 1000;
     let done = false;
     while (Date.now() < deadline) {
@@ -288,7 +288,7 @@ async function main() {
   } catch (e) {
     fatal = String(e?.stack ?? e);
   } finally {
-    await browser.close().catch(() => {});
+    await browser.close().catch(() => { });
     server.close();
   }
 
@@ -300,7 +300,7 @@ async function main() {
     fatal,
     ...(result ?? {}),
   };
-  // pages is a Set — make it serialisable / summarisable.
+  // pages is a Set - make it serialisable / summarisable.
   const pagesVisited = result?.pages ? result.pages.size : 0;
   if (record.pages) record.pages = pagesVisited;
 
@@ -335,10 +335,10 @@ async function main() {
   const regressed = result && (result.interpret.plain > 0 || result.interpret.recorded > 0);
   record.ok = ok;
   record.regressed = !!regressed;
-  console.log(ok ? (regressed ? '◐ PASS (with UI-thread interpret — see plain/recorded)' : '✓ PASS') : '✗ FAIL');
+  console.log(ok ? (regressed ? '◐ PASS (with UI-thread interpret - see plain/recorded)' : '✓ PASS') : '✗ FAIL');
   console.log('──────────────────────────────────\n');
 
-  await appendFile(RESULTS, JSON.stringify(record) + '\n').catch(() => {});
+  await appendFile(RESULTS, JSON.stringify(record) + '\n').catch(() => { });
   process.exit(ok ? 0 : 1);
 }
 

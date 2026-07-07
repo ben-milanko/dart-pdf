@@ -56,16 +56,16 @@ class PdfPageRenderer {
   /// page's crop box and rotated per /Rotate.
   ///
   /// [pageColor] is the paper: the fill painted under the page content.
-  /// PDF pages have no background of their own — white is only the
-  /// convention — so any opaque color works (a viewer-level setting; the
+  /// PDF pages have no background of their own - white is only the
+  /// convention - so any opaque color works (a viewer-level setting; the
   /// document is untouched).
   ///
   /// [annotations] false leaves the page's annotations (highlights, ink,
-  /// stamps, form fields...) out of the render — the clean underlying
+  /// stamps, form fields...) out of the render - the clean underlying
   /// page. Display-only, like [pageColor]; the document is untouched.
   ///
   /// [skipAnnotation] omits the annotations it matches while keeping the
-  /// rest — the "lift" model behind a live drag/resize preview, so the
+  /// rest - the "lift" model behind a live drag/resize preview, so the
   /// page reads as the artwork minus the one being edited.
   static Future<ui.Picture> renderPicture(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
@@ -90,12 +90,12 @@ class PdfPageRenderer {
     final cos = page.document.cos;
 
     // Parsing the content stream (and decompressing it) dominates rendering on
-    // graphics-rich pages, and the page is interpreted twice here — once to
+    // graphics-rich pages, and the page is interpreted twice here - once to
     // discover images to decode, once to paint. Parse it once and feed both.
     final pageOps = ContentStreamParser.parse(page.contentBytes());
 
     // Discover the images to decode with a scan-only interpretation: it walks
-    // the same content (so it sees every image — including those drawn by
+    // the same content (so it sees every image - including those drawn by
     // Type3 glyphs and tiling patterns) but skips the path/text/colour/shading
     // build work, so the collect walk is a fraction of the paint walk.
     final collector = ImageCollector();
@@ -123,7 +123,7 @@ class PdfPageRenderer {
     final picture = recorder.endRecording();
     // The picture retains its own reference to every drawn image, so the
     // decode handles (clones from the cache, or fresh decodes) can be freed
-    // now — the cache keeps the masters for the next render.
+    // now - the cache keeps the masters for the next render.
     for (final image in images.values) {
       image.dispose();
     }
@@ -135,8 +135,8 @@ class PdfPageRenderer {
   /// [RecordingPdfDevice]) and then replaying that buffer onto the canvas via
   /// the unchanged [CanvasPdfDevice].
   ///
-  /// The result is pixel-identical to [renderPicture] — the same canvas calls
-  /// happen in the same order — but the interpretation (the dominant cost: the
+  /// The result is pixel-identical to [renderPicture] - the same canvas calls
+  /// happen in the same order - but the interpretation (the dominant cost: the
   /// content-stream parse and walk) is now decoupled from the painting. This
   /// is the seam the background-isolate work splits across: the recording half
   /// is pure Dart and `dart:ui`-free, so it can move to a worker isolate, with
@@ -195,7 +195,7 @@ class PdfPageRenderer {
     return picture;
   }
 
-  /// Builds a page picture from an already-recorded [commands] buffer —
+  /// Builds a page picture from an already-recorded [commands] buffer -
   /// the replay half of an off-thread render. The interpreter walk that
   /// produced [commands] happened elsewhere (a [PdfRenderWorker]'s isolate),
   /// so this is just the cheap canvas replay plus the paper/transform setup,
@@ -204,7 +204,7 @@ class PdfPageRenderer {
   /// The only UI-thread work besides the replay is decoding any images the
   /// buffer carries (image XObjects serialize as self-contained streams; see
   /// [serializeCommands]). Those decodes are shared through [PdfImageCache] like
-  /// every other render path — the reconstructed streams key by content, so a
+  /// every other render path - the reconstructed streams key by content, so a
   /// page redrawn while scrolling reuses its decoded pixels instead of re-
   /// running the codec. An image-free buffer decodes nothing.
   ///
@@ -273,7 +273,7 @@ class PdfPageRenderer {
   }
 
   /// Whether [commands] draws any image at all (decoded or not, including
-  /// inside soft-mask groups) — the cue the progressive vector-first pass uses
+  /// inside soft-mask groups) - the cue the progressive vector-first pass uses
   /// to decide whether a slower full (image-decoding) pass needs to follow it.
   static bool hasImageDraws(List<PdfRenderCommand> commands) {
     final requests = <PdfImageRequest>[];
@@ -335,7 +335,7 @@ class PdfPageRenderer {
 
   /// Renders one annotation's appearance into a picture in the same page
   /// raster space as [renderPicture] (post-rotation, y down, 1 unit =
-  /// 1 point) but with a transparent background — for live drag/resize
+  /// 1 point) but with a transparent background - for live drag/resize
   /// previews. Null when the annotation has no appearance stream.
   static Future<ui.Picture?> renderAnnotationPicture(
       PdfPage page, PdfAnnotation annotation,
@@ -398,7 +398,7 @@ class PdfPageRenderer {
     }
   }
 
-  /// Rasterizes an already-recorded page [picture] (sized [size] points) —
+  /// Rasterizes an already-recorded page [picture] (sized [size] points) -
   /// re-rasterizing a cached picture at a new zoom skips re-interpreting
   /// the page entirely.
   static Future<ui.Image> rasterize(
@@ -419,7 +419,7 @@ class PdfPageRenderer {
   }
 
   /// Rasterizes only [region] (in page points, y-down raster space) of a
-  /// recorded page [picture] at [pixelRatio] — the deep-zoom detail patch.
+  /// recorded page [picture] at [pixelRatio] - the deep-zoom detail patch.
   static Future<ui.Image> rasterizeRegion(
       ui.Picture picture, Rect region, double pixelRatio) async {
     final recorder = ui.PictureRecorder();
@@ -438,7 +438,7 @@ class PdfPageRenderer {
     }
   }
 
-  /// Samples the rendered color of [page] at [point] — page raster space,
+  /// Samples the rendered color of [page] at [point] - page raster space,
   /// i.e. post-rotation points with y down (view coordinates divided by
   /// the view scale). One-shot; for repeated samples (an eyedropper's
   /// live preview) build a [PdfPageColorSampler] once instead.
@@ -455,7 +455,7 @@ class PdfPageRenderer {
 
   /// Page size in points after applying rotation.
   ///
-  /// [rotation] overrides the page's own /Rotate when set — the view
+  /// [rotation] overrides the page's own /Rotate when set - the view
   /// rotation feature uses this to display a page at a different
   /// orientation without modifying the document.
   static Size pageSize(PdfPage page, {int? rotation}) {
@@ -466,7 +466,7 @@ class PdfPageRenderer {
   }
 }
 
-/// Pixel access to a page rendered once, for repeated color sampling —
+/// Pixel access to a page rendered once, for repeated color sampling -
 /// the eyedropper's live preview follows the pointer, and re-rendering
 /// per event would be far too slow.
 ///

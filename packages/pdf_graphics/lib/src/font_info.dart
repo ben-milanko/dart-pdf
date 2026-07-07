@@ -96,7 +96,7 @@ class PdfFontInfo {
 
   /// Type3 glyph procedures by character code, with their resources and
   /// glyph-space matrix. Type3 text renders by executing these tiny content
-  /// streams — never by substitution (blank procs are intentional, e.g.
+  /// streams - never by substitution (blank procs are intentional, e.g.
   /// invisible text layers).
   final Map<int, CosStream> _type3Procs;
   final CosDictionary? type3Resources;
@@ -121,7 +121,7 @@ class PdfFontInfo {
     final baseFont = baseFontObj is CosName ? baseFontObj.value : null;
     final isCid = subtypeName == 'Type0';
 
-    // Widths are in thousandths of an em — except for Type3 fonts, whose
+    // Widths are in thousandths of an em - except for Type3 fonts, whose
     // glyph space is defined by /FontMatrix (§9.6.5).
     var widthScale = 0.001;
     var defaultWidth = 0.5;
@@ -234,7 +234,7 @@ class PdfFontInfo {
         }
         symbolic = _isSymbolic(cos, descriptor);
       }
-      // base-14 fonts may omit /Widths entirely (§9.6.2.2) — the viewer
+      // base-14 fonts may omit /Widths entirely (§9.6.2.2) - the viewer
       // must supply the built-in metrics. Without this, every glyph fell
       // back to a flat 500, so text measured ~15% wide and selection /
       // extraction bounds drifted from what was painted.
@@ -276,7 +276,7 @@ class PdfFontInfo {
   /// families from their AFM tables. Helvetica/Arial map to the
   /// Helvetica tables (bold variants to the bold table), Times to
   /// Times-Roman, Courier to its uniform 600. Italic/oblique reuse the
-  /// upright widths — within a percent of the real AFMs and far closer
+  /// upright widths - within a percent of the real AFMs and far closer
   /// than the flat fallback. Symbol/ZapfDingbats keep the default.
   static void _fillStandardWidths(String? baseFont, Map<int, double> widths) {
     if (baseFont == null) return;
@@ -388,7 +388,7 @@ class PdfFontInfo {
   }
 
   /// When the PDF declares its own /Encoding, codes map by glyph name
-  /// (base encoding + /Differences) through the CFF charset — the font's
+  /// (base encoding + /Differences) through the CFF charset - the font's
   /// built-in encoding does not apply (§9.6.6.2).
   static Map<int, int>? _buildCffEncoding(
       CosDocument cos, CosDictionary font, CffFont cff) {
@@ -525,7 +525,7 @@ class PdfFontInfo {
     }
     final mac = font.gidForMacCode(code);
     if (mac != 0) return mac;
-    // cmap-less fonts: select by glyph name through the `post` table — a subset
+    // cmap-less fonts: select by glyph name through the `post` table - a subset
     // packs its used glyphs at arbitrary gids, so the encoding name → gid
     // mapping (e.g. "greater" → gid 33) is the only correct path (§9.6.6.4).
     if (!font.hasCmap) {
@@ -596,7 +596,7 @@ class PdfFontInfo {
     return _defaultWidth;
   }
 
-  /// Vertical pen advance in em for [code] — the y-component of the vertical
+  /// Vertical pen advance in em for [code] - the y-component of the vertical
   /// displacement vector w1 (§9.7.4.3), normally negative (downward). Only
   /// meaningful when [isVertical].
   double verticalAdvanceOf(int code) => (_w2[code]?[0] ?? _dw2[1]) / 1000;

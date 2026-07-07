@@ -95,7 +95,7 @@ List<({String text, double bottom, double left})> textRuns(PdfDocument doc) => [
 String pageContent(PdfDocument doc) => latin1.decode(doc.page(0).contentBytes());
 
 void main() {
-  group('paragraph reflow — simple fonts', () {
+  group('paragraph reflow - simple fonts', () {
     // Two lines of body text (group A), a paragraph gap, then a two-line
     // footer (group B) reached relatively so it cascades.
     const fixture = 'BT /F1 12 Tf 14 TL 72 700 Td '
@@ -256,7 +256,7 @@ void main() {
 
     test('a line-count change before absolute content is left untouched', () {
       // the paragraph is followed by an absolutely positioned (Tm) line that
-      // can't cascade, so growing it would overlap — reflow must bail.
+      // can't cascade, so growing it would overlap - reflow must bail.
       const abs = 'BT /F1 12 Tf 14 TL 72 700 Td '
           '(one two three) Tj '
           'T* (four five six) Tj '
@@ -334,7 +334,7 @@ void main() {
     test('a single-line paragraph grows using its leading for new breaks', () {
       // a one-line paragraph (kept single because the next line is a
       // different font, so grouping does not absorb it) whose connecting
-      // break is a relative Td — growing it must use the line's /TL leading.
+      // break is a relative Td - growing it must use the line's /TL leading.
       const single = 'BT /F1 12 Tf 28 TL 72 700 Td '
           '(alpha beta single line) Tj '
           '0 -28 Td /F2 12 Tf (other font next) Tj ET';
@@ -375,7 +375,7 @@ void main() {
     });
   });
 
-  group('paragraph reflow — composite /Type0 fonts', () {
+  group('paragraph reflow - composite /Type0 fonts', () {
     final fontBytes = File('test/fonts/DejaVuSans.ttf').readAsBytesSync();
 
     test('grows a composite paragraph and cascades nothing when last', () {

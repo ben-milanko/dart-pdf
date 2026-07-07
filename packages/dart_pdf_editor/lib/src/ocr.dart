@@ -161,7 +161,7 @@ class PdfRendererOcrRasterizer extends PdfOcrRasterizer {
 extension PdfOcrApply on PdfEditor {
   /// Rasterizes page [pageIndex], runs [engine] over it, and injects the
   /// recognized text as a (by default invisible) selectable/searchable
-  /// layer — turning a scanned, image-only page into one whose text can be
+  /// layer - turning a scanned, image-only page into one whose text can be
   /// selected, searched, copied, and extracted, without changing how it
   /// looks. Returns how many spans were written.
   ///

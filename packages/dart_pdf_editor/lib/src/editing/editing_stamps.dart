@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_signature.dart';
 import 'text_prompt.dart';
@@ -161,17 +162,38 @@ class PdfCustomStamp {
       Object.hashAll(tags.map((tag) => tag.trim().toLowerCase())));
 }
 
+/// Saves user-managed custom stamps somewhere outside the editor package.
+///
+/// The stock picker passes only [PdfEditingController.savedCustomStamps];
+/// host-provided stamps are managed by the host and are not exported here.
+typedef PdfStampExportCallback = Future<void> Function(
+  BuildContext context,
+  List<PdfCustomStamp> stamps,
+);
+
+/// Loads user-managed custom stamps from somewhere outside the editor package.
+///
+/// Return null when the user cancels. Returned stamps are merged into the
+/// saved custom stamp list, skipping exact duplicates already shown.
+typedef PdfStampImportCallback = Future<List<PdfCustomStamp>?> Function(
+  BuildContext context,
+);
+
 /// Shows the stamp picker: choose the stamp the stamp tool places,
 /// create a new one, or delete saved ones. Selections apply directly to
 /// [controller].
 Future<void> showPdfStampPicker(BuildContext context,
         {required PdfEditingController controller,
-        PdfImagePicker? imagePicker}) =>
+        PdfImagePicker? imagePicker,
+        PdfStampExportCallback? onExportStamps,
+        PdfStampImportCallback? onImportStamps}) =>
     showDialog<void>(
       context: context,
       builder: (context) => PdfStampPickerDialog(
         controller: controller,
         imagePicker: imagePicker,
+        onExportStamps: onExportStamps,
+        onImportStamps: onImportStamps,
       ),
     );
 
@@ -181,10 +203,14 @@ class PdfStampPickerDialog extends StatelessWidget {
     super.key,
     required this.controller,
     this.imagePicker,
+    this.onExportStamps,
+    this.onImportStamps,
   });
 
   final PdfEditingController controller;
   final PdfImagePicker? imagePicker;
+  final PdfStampExportCallback? onExportStamps;
+  final PdfStampImportCallback? onImportStamps;
 
   Future<void> _create(BuildContext context) async {
     final created = await showPdfStampEditor(context,
@@ -204,6 +230,26 @@ class PdfStampPickerDialog extends StatelessWidget {
     );
     if (edited == null) return;
     controller.replaceCustomStamp(stamp, edited);
+  }
+
+  Future<void> _export(BuildContext context) async {
+    final stamps = controller.savedCustomStamps;
+    if (stamps.isEmpty) return;
+    await onExportStamps?.call(context, stamps);
+  }
+
+  Future<void> _import(BuildContext context) async {
+    final imported = await onImportStamps?.call(context);
+    if (imported == null || imported.isEmpty) return;
+    final existing = controller.customStamps.toSet();
+    PdfCustomStamp? firstAdded;
+    for (final stamp in imported) {
+      if (existing.contains(stamp)) continue;
+      controller.saveCustomStamp(stamp);
+      existing.add(stamp);
+      firstAdded ??= stamp;
+    }
+    if (firstAdded != null) controller.activeStamp = firstAdded;
   }
 
   @override
@@ -262,6 +308,25 @@ class PdfStampPickerDialog extends StatelessWidget {
         ),
       ),
       actions: [
+        if (onImportStamps != null)
+          TextButton.icon(
+            key: const ValueKey('pdf-stamp-import'),
+            onPressed: () => _import(context),
+            icon: const Icon(Icons.file_upload_outlined),
+            label: const Text('Import…'),
+          ),
+        if (onExportStamps != null)
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => TextButton.icon(
+              key: const ValueKey('pdf-stamp-export'),
+              onPressed: controller.savedCustomStamps.isEmpty
+                  ? null
+                  : () => _export(context),
+              icon: const Icon(Icons.file_download_outlined),
+              label: const Text('Export…'),
+            ),
+          ),
         TextButton(
           onPressed: () => _create(context),
           child: const Text('New stamp…'),
@@ -278,12 +343,23 @@ class PdfStampPickerDialog extends StatelessWidget {
 class _StampDateTimeFormatControls extends StatelessWidget {
   const _StampDateTimeFormatControls({required this.controller});
 
-  static final _sample = DateTime(2026, 7, 4, 9, 5, 6);
-
   final PdfEditingController controller;
+
+  static String _timePreview(PdfStampTimeFormat format, DateTime sample) {
+    final suffix = switch (format) {
+      PdfStampTimeFormat.twentyFourHour ||
+      PdfStampTimeFormat.twentyFourHourSeconds =>
+        '24 hr',
+      PdfStampTimeFormat.twelveHour ||
+      PdfStampTimeFormat.twelveHourSeconds =>
+        '12 hr',
+    };
+    return '${format.format(sample)} ($suffix)';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final sample = controller.stampTemplateClock();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -299,7 +375,7 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 DropdownMenuItem<PdfStampDateFormat>(
                   key: ValueKey('pdf-stamp-date-format-${format.name}'),
                   value: format,
-                  child: Text(format.format(_sample)),
+                  child: Text(format.format(sample)),
                 ),
             ],
             onChanged: (value) {
@@ -320,7 +396,7 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 DropdownMenuItem<PdfStampTimeFormat>(
                   key: ValueKey('pdf-stamp-time-format-${format.name}'),
                   value: format,
-                  child: Text(format.format(_sample)),
+                  child: Text(_timePreview(format, sample)),
                 ),
             ],
             onChanged: (value) {
@@ -470,7 +546,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
   void _setTemplateSize({double? width, double? height}) {
     final nextWidth = (width ?? _templateWidth).clamp(80.0, 640.0).toDouble();
     final nextHeight =
-        (height ?? _templateHeight).clamp(32.0, 360.0).toDouble();
+        (height ?? _templateHeight).clamp(32.0, 640.0).toDouble();
     if (nextWidth == _templateWidth && nextHeight == _templateHeight) return;
     final sx = nextWidth / _templateWidth;
     final sy = nextHeight / _templateHeight;
@@ -570,6 +646,15 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
     });
   }
 
+  Future<void> _pickCustomColor() async {
+    final picked = await showPdfColorPicker(
+      context,
+      initial: Color(0xFF000000 | _color),
+    );
+    if (!mounted || picked == null) return;
+    _setSelectedColor(picked.toARGB32() & 0xFFFFFF);
+  }
+
   void _addText() {
     const text = 'TEXT';
     final component = PdfStampTemplateComponent.text(
@@ -597,6 +682,23 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
       color: _color,
       strokeWidth: 2,
       radius: 8,
+    );
+    setState(() {
+      _components = [..._components, component];
+      _selected = _components.length - 1;
+    });
+  }
+
+  void _addCircle() {
+    final diameter =
+        math.min(64.0, math.min(_templateWidth, _templateHeight) * 0.65);
+    final component = PdfStampTemplateComponent.ellipse(
+      x: (_templateWidth - diameter) / 2,
+      y: (_templateHeight - diameter) / 2,
+      width: diameter,
+      height: diameter,
+      color: _color,
+      strokeWidth: 2,
     );
     setState(() {
       _components = [..._components, component];
@@ -759,6 +861,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                           PopupMenuItem<String>(
                             key: ValueKey('pdf-stamp-field-$field'),
                             value: field,
+                            height: 34,
                             child: Text(_fieldLabel(field)),
                           ),
                       ],
@@ -775,6 +878,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                           PopupMenuItem<PdfStandardFont>(
                             key: ValueKey('pdf-stamp-font-${font.name}'),
                             value: font,
+                            height: 34,
                             child: Text(
                               _fontLabel(font),
                               style: TextStyle(
@@ -817,6 +921,17 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                       ),
                     ),
                   ),
+                IconButton(
+                  key: const ValueKey('pdf-stamp-color-custom'),
+                  tooltip: 'More colors…',
+                  icon: const Icon(Icons.color_lens_outlined),
+                  style: IconButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    minimumSize: const Size(32, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: _pickCustomColor,
+                ),
               ]),
               const SizedBox(height: 12),
               Wrap(
@@ -834,6 +949,12 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                     onPressed: _addBox,
                     icon: const Icon(Icons.crop_square),
                     label: const Text('Box'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('pdf-stamp-add-circle'),
+                    onPressed: _addCircle,
+                    icon: const Icon(Icons.radio_button_unchecked),
+                    label: const Text('Circle'),
                   ),
                   OutlinedButton.icon(
                     key: const ValueKey('pdf-stamp-add-image'),
@@ -903,10 +1024,14 @@ class PdfStampPreview extends StatelessWidget {
                 pdfResolveStampTemplateText(stamp.text, templateValues),
                 stamp.color))
         .resolveText(templateValues);
-    final width = math.min(220.0, math.max(80.0, template.width));
+    const maxWidth = 220.0;
+    const maxHeight = 120.0;
+    final scale =
+        math.min(maxWidth / template.width, maxHeight / template.height);
+    final width = template.width * scale;
     return SizedBox(
       width: width,
-      height: width * template.height / template.width,
+      height: template.height * scale,
       child: _StampTemplateSurface(
         templateSize: Size(template.width, template.height),
         components: template.components,
@@ -1040,23 +1165,30 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    const width = 340.0;
+    const maxWidth = 340.0;
+    const maxHeight = 360.0;
+    final scale = math.min(maxWidth / widget.templateSize.width,
+        maxHeight / widget.templateSize.height);
     final size = Size(
-        width, width * widget.templateSize.height / widget.templateSize.width);
-    return SizedBox(
-      width: size.width,
-      height: size.height,
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: (event) => _start(event.localPosition, size),
-        onPointerMove: (event) => _update(event.localPosition, size),
-        onPointerUp: (_) => _end(),
-        onPointerCancel: (_) => _end(),
-        child: _StampTemplateSurface(
-          templateSize: widget.templateSize,
-          components: widget.components,
-          selectedIndex: widget.selectedIndex,
-          scheme: scheme,
+      widget.templateSize.width * scale,
+      widget.templateSize.height * scale,
+    );
+    return Align(
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (event) => _start(event.localPosition, size),
+          onPointerMove: (event) => _update(event.localPosition, size),
+          onPointerUp: (_) => _end(),
+          onPointerCancel: (_) => _end(),
+          child: _StampTemplateSurface(
+            templateSize: widget.templateSize,
+            components: widget.components,
+            selectedIndex: widget.selectedIndex,
+            scheme: scheme,
+          ),
         ),
       ),
     );

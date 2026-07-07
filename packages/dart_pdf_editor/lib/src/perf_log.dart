@@ -9,15 +9,15 @@ import 'package:flutter/scheduler.dart';
 /// prints:
 ///
 ///   * every UI-thread interpret with its page index, path (recorded vs
-///     plain), and split (interpret/raster) milliseconds — a long interpret
+///     plain), and split (interpret/raster) milliseconds - a long interpret
 ///     while you scroll IS the hang,
 ///   * render-scheduler grants and render-hold on/off transitions,
 ///   * background prerender warms,
 ///   * scroll velocity, and
 ///   * frame JANK (build or raster over the 16ms budget).
 ///
-/// Each line prints immediately (synchronously, so a hang — which produces
-/// no frames — can't swallow the lines that diagnose it); frame JANK is
+/// Each line prints immediately (synchronously, so a hang - which produces
+/// no frames - can't swallow the lines that diagnose it); frame JANK is
 /// appended from [SchedulerBinding]'s timings callback. Printing is
 /// [debugPrintSynchronously], never a [Timer], so it cannot trip widget
 /// tests' `!timersPending` invariant (and it stays off there anyway: the
@@ -50,7 +50,7 @@ class PdfPerfLog {
     _ensureHook();
     _buf.add('[perf ${_nowMs.toStringAsFixed(0)}] $message');
     // Flush every line immediately: the whole point of this trace is
-    // diagnosing hangs, and a hang produces no frames — so the per-frame
+    // diagnosing hangs, and a hang produces no frames - so the per-frame
     // timings flush never fires and the lines right before the freeze
     // (the ones that pinpoint it) would sit in the buffer and be lost.
     _flush();

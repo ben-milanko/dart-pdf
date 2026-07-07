@@ -50,7 +50,7 @@ void main() {
   test('whole-word search needs non-word boundaries', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0); // 'Hello, world!'
-    // bounded by start/',' and by space/'!' — both whole words
+    // bounded by start/',' and by space/'!' - both whole words
     expect(text.findAll('Hello', wholeWord: true), hasLength(1));
     expect(text.findAll('world', wholeWord: true), hasLength(1));
     // a substring of a longer word is not a whole word
@@ -145,7 +145,7 @@ void main() {
     // 'Hello, world!' spans x 72..204, y 714..738 (center ~138, 726)
     expect(text.textIn(const PdfRect(60, 700, 300, 760)), 'Hello, world!');
     expect(text.textIn(const PdfRect(0, 0, 50, 50)), '');
-    // covering only the tail of the run misses its center — whole runs
+    // covering only the tail of the run misses its center - whole runs
     // are in or out, no partial text
     expect(text.textIn(const PdfRect(200, 700, 300, 760)), '');
   });

@@ -66,7 +66,7 @@ void main() {
     await openTab(tester, 'beta.pdf');
 
     // Opened in order, so alpha sits left of beta. The last-opened (beta) is
-    // active — the AppBar title reflects it.
+    // active - the AppBar title reflects it.
     expect(tester.getCenter(tabTitle('alpha.pdf')).dx,
         lessThan(tester.getCenter(tabTitle('beta.pdf')).dx));
 

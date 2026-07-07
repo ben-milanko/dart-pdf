@@ -71,7 +71,7 @@ void main() {
 
     final gesture =
         await tester.startGesture(corner, kind: PointerDeviceKind.mouse);
-    // widen and lengthen the box a long way — a stretched ghost would
+    // widen and lengthen the box a long way - a stretched ghost would
     // thicken the line in proportion
     await gesture.moveTo(origin + const Offset(280, 250));
     await tester.pump();

@@ -8,8 +8,8 @@ import 'editing_value_field.dart';
 import 'text_prompt.dart';
 
 /// A reusable column of controls that style the selected form text field's
-/// text — font family, bold/italic, alignment, auto-size, size, multiline,
-/// and colour — all routed through [PdfEditingController.setFormFieldStyle].
+/// text - font family, bold/italic, alignment, auto-size, size, multiline,
+/// and colour - all routed through [PdfEditingController.setFormFieldStyle].
 ///
 /// Shared by the field context-menu sheet and the toolbar style popup so
 /// the surfaces stay in lock-step; the properties panel renders its own
@@ -164,7 +164,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
 }
 
 /// Opens the form text field's style controls in a popup anchored at
-/// [position] (global coordinates) — the field-anchored surface launched
+/// [position] (global coordinates) - the field-anchored surface launched
 /// from the form context menu's "Text style…" entry.
 Future<void> showPdfFormTextStylePopup({
   required BuildContext context,

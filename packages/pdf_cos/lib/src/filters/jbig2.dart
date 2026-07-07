@@ -8,7 +8,7 @@ import 'mq.dart';
 /// Coverage: arithmetic-coded generic regions (templates 0–3, TPGDON)
 /// and MMR-coded ones (via the CCITT engine), symbol dictionaries and
 /// text regions (arithmetic coding), pattern dictionaries, and
-/// arithmetic-coded halftone/refinement regions, with /JBIG2Globals support — which
+/// arithmetic-coded halftone/refinement regions, with /JBIG2Globals support - which
 /// spans what real-world PDF encoders (jbig2enc, Acrobat) emit. Custom
 /// Huffman tables and refined symbol aggregation are not supported; such
 /// files decode to null and the image is skipped.

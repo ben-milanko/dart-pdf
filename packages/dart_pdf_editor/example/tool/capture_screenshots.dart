@@ -39,7 +39,7 @@ late final String macAppHint;
 /// PID of the app instance *we* launched, parsed from the macOS embedder's
 /// startup log line (`AppName[pid:tid] Running with merged UI…`). This is
 /// unambiguous even when an installed copy of the same-named app is already
-/// running — the bug that made every macOS shot a full-display grab, because
+/// running - the bug that made every macOS shot a full-display grab, because
 /// the name fallback resolved to the installed app, which had no window.
 int? launchedPid;
 
@@ -90,7 +90,7 @@ Future<void> main() async {
     // Surface the app/flutter logs so a failed run is debuggable.
     stdout.writeln(line);
     // Grab our launched app's pid from the macOS embedder's first log line
-    // (`AppName[pid:tid] …`). First match wins — that's the main process.
+    // (`AppName[pid:tid] …`). First match wins - that's the main process.
     if (platform == 'macos' && launchedPid == null && macProcess.isNotEmpty) {
       final m = RegExp('${RegExp.escape(macProcess)}' r'\[(\d+):\d+\]')
           .firstMatch(line);
@@ -178,7 +178,7 @@ Future<void> _capture(String name) async {
 /// Captures just the app's window on macOS, by pid.
 ///
 /// The pid is the one we *launched* (parsed from the embedder's log line), so
-/// it can never resolve to an installed copy of the same-named app — the bug
+/// it can never resolve to an installed copy of the same-named app - the bug
 /// that turned every shot into a full-display grab. It falls back to the
 /// SHOT_MAC_APP_HINT path match (for hand runs) and finally the process name.
 ///
@@ -221,7 +221,7 @@ Future<ProcessResult> _captureMacWindow(String path) async {
           ? 'process "$macProcess"'
           : 'first process whose frontmost is true';
 
-  // Raise the app so no other window overlaps the cropped region —
+  // Raise the app so no other window overlaps the cropped region -
   // `screencapture -R` grabs the screen, not the window's backing store,
   // so anything on top (a terminal, the IDE) would bleed in otherwise.
   if (pid != null || macProcess.isNotEmpty) {
@@ -275,10 +275,10 @@ bool _macWindowPrepared = false;
 ///
 /// The window is moved onto the main display's top-left and sized to the macOS
 /// store aspect (SHOT_MAC_WINDOW, default 1440×900). On a 2× (Retina) main
-/// display that captures as exactly 2880×1800 — a valid Mac App Store size with
+/// display that captures as exactly 2880×1800 - a valid Mac App Store size with
 /// no upscaling; on a 1× display it's 1440×900, still ample for the marketing
 /// canvas. Needs Automation access; if that's unavailable (e.g. a CI runner)
-/// the default-sized window is captured instead — smaller, but never broken.
+/// the default-sized window is captured instead - smaller, but never broken.
 Future<void> _prepareMacWindow(int pid) async {
   if (_macWindowPrepared) return;
   _macWindowPrepared = true;
@@ -294,7 +294,7 @@ Future<void> _prepareMacWindow(int pid) async {
   // No `set frontmost` here: the `-l` capture grabs the window's own backing
   // store even when it's behind other windows, so we never steal the user's
   // focus. (Apps that run Flutter's merged UI/platform thread expose no windows
-  // to AX at all — `count of windows` is 0 — so this is a no-op there and the
+  // to AX at all - `count of windows` is 0 - so this is a no-op there and the
   // window is captured at its default size.)
   final script = '''
 tell application "System Events"
@@ -333,7 +333,7 @@ Future<int?> _macAppPid() async {
 /// Compiles the tiny CGWindowList helper to a temp binary once, returning its
 /// path (or null if the Swift toolchain isn't available). The helper prints
 /// `windowID x y w h` for the largest on-screen, normal-layer window
-/// owned by a pid — enough to feed `screencapture -l`. Reading window geometry
+/// owned by a pid - enough to feed `screencapture -l`. Reading window geometry
 /// needs neither Automation nor Screen Recording permission.
 Future<String?> _buildMacWinHelper() async {
   try {

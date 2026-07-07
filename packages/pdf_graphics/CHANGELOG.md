@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.0. Rendering
+  changes in this cycle support the editor's color-processing, cloud polygon,
+  and large-document interaction improvements.
+
 ## 1.3.2
 
 - Version bump to keep the dart-pdf package suite aligned at 1.3.2. No
@@ -19,7 +25,7 @@
 ## 1.2.2
 
 - The interpreter now checks for cancellation while walking a page's content
-  so a render can be preempted mid-interpretation — used by the viewer's
+  so a render can be preempted mid-interpretation - used by the viewer's
   background render worker to drop superseded jobs on fast scrolls.
 
 ## 1.2.1

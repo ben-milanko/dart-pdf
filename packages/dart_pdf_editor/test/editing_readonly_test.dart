@@ -1,6 +1,6 @@
 // Per-annotation read-only enforcement: the document's own /F ReadOnly
 // and Locked flags (§12.5.3) and the host's canEditAnnotation predicate
-// gate every mutating path — selection, marquee, ⌘A, delete, the
+// gate every mutating path - selection, marquee, ⌘A, delete, the
 // eraser, and text/contents edits.
 
 import 'package:flutter_test/flutter_test.dart';
@@ -129,7 +129,7 @@ void main() {
       expect(editing.selectAllAnnotationsOn(0), 2);
     });
 
-    test('remote applies bypass the gate — sync is not user editing', () {
+    test('remote applies bypass the gate - sync is not user editing', () {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
       editing.author = 'Alice';
