@@ -51,7 +51,7 @@ jobs:
       - name: Cache-bust web build
         run: bash tool/web_cache_bust.sh packages/dart_pdf_editor/example/build/web
 
-      - uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb
+      - uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
         with:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
           projectId: dart-pdf-demo

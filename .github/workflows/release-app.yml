@@ -430,7 +430,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@7c4723f7a335432393329f8f1c564994ce50185d
+      - uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b
         with:
           name: DartPDF ${{ needs.setup.outputs.version }}
           draft: true
