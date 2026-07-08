@@ -272,6 +272,69 @@ class GpuPdfDevice implements PdfDevice {
     if (subs.isEmpty) return;
     final a = (alpha * _alphaScale).clamp(0.0, 1.0);
     if (a <= 0) return;
+    // Shape instancing: CAD exports repeat identical small shapes
+    // (converted-text glyphs, symbols) at hundreds of offsets. Key the
+    // triangulation by the shape's translation-invariant form and replay
+    // it instead of re-classifying and re-clipping.
+    final key = _ShapeKey.of(subs, rule);
+    if (key != null) {
+      final cached = _shapeCache[key];
+      if (cached != null) {
+        _tally('fill-shape-cache');
+        _emitShape(cached, key.anchorX, key.anchorY, color, a);
+        return;
+      }
+      final solidStart = _solid.length;
+      final flushes = _solidFlushes;
+      _fillPathClassified(subs, color, rule, a);
+      if (_solidFlushes == flushes && _solid.length > solidStart) {
+        _tally('shape-capture');
+        _cacheShape(key, solidStart);
+      } else {
+        _tally('shape-capture-miss');
+      }
+      return;
+    }
+    _tally('shape-key-null');
+    _fillPathClassified(subs, color, rule, a);
+  }
+
+  int _solidFlushes = 0;
+
+  /// Shape-instancing cache: translation-invariant quantized outline ->
+  /// NDC-relative solid triangles. Shared across pages (device coords for
+  /// same-size pages line up); FIFO-capped.
+  static final _shapeCache = <_ShapeKey, Float64List>{};
+  static const _shapeCacheCap = 4096;
+
+  void _cacheShape(_ShapeKey key, int solidStart) {
+    final ax = _ndcX(key.anchorX), ay = _ndcY(key.anchorY);
+    final deltas = Float64List((_solid.length - solidStart) ~/ 6 * 2);
+    var w = 0;
+    for (var i = solidStart; i < _solid.length; i += 6) {
+      deltas[w++] = _solid[i] - ax;
+      deltas[w++] = _solid[i + 1] - ay;
+    }
+    if (_shapeCache.length >= _shapeCacheCap) {
+      _shapeCache.remove(_shapeCache.keys.first);
+    }
+    _shapeCache[key] = deltas;
+  }
+
+  void _emitShape(Float64List deltas, double anchorX, double anchorY,
+      PdfColor color, double a) {
+    _ensureSolidBatch();
+    final ax = _ndcX(anchorX), ay = _ndcY(anchorY);
+    final r = color.red.clamp(0.0, 1.0) * a;
+    final g = color.green.clamp(0.0, 1.0) * a;
+    final b = color.blue.clamp(0.0, 1.0) * a;
+    for (var i = 0; i < deltas.length; i += 2) {
+      _solid.add6(ax + deltas[i], ay + deltas[i + 1], r, g, b, a);
+    }
+  }
+
+  void _fillPathClassified(
+      List<FlatSubpath> subs, PdfColor color, PdfFillRule rule, double a) {
     if (isConvexPolygon(subs)) {
       _tally('fill-convex');
       _pushSolidFan(subs, color, a);
@@ -554,21 +617,52 @@ class GpuPdfDevice implements PdfDevice {
     appendFanTriangles(subs, _text);
   }
 
-  /// Appends a filled text run to the stencil batch using cached em-space
-  /// glyph triangles: each distinct outline flattens once per tolerance
-  /// bucket, then every occurrence is a 6-multiply affine per vertex.
+  /// Appends a filled text run using cached em-space glyph triangles: each
+  /// distinct outline triangulates once per tolerance bucket, then every
+  /// occurrence is a 6-multiply affine per vertex. Exactly-triangulated
+  /// glyphs (the common case) go straight into the solid batch - no
+  /// stencil, no cover; fan-form glyphs go through the stencil batch in a
+  /// second pass so the two deferred batches don't ping-pong.
   void _appendGlyphRun(
       PdfTextRun run, PdfMatrix m, double scale, double alpha) {
     final red = run.color.red.clamp(0.0, 1.0) * alpha;
     final green = run.color.green.clamp(0.0, 1.0) * alpha;
     final blue = run.color.blue.clamp(0.0, 1.0) * alpha;
     final emTol = 0.2 / scale;
+    var sawFan = false;
+    _ensureSolidBatch();
     for (final glyph in run.glyphs!) {
       final outline = glyph.outline;
       if (outline == null) continue;
       final fan = _glyphFanFor(outline, emTol);
       if (fan.tris.isEmpty) continue;
+      if (!fan.exact) {
+        sawFan = true;
+        continue;
+      }
       // (p + offset)·M = p·A + offset·M  (A = linear part of M)
+      final tx = m.transformX(glyph.offset, glyph.offsetY);
+      final ty = m.transformY(glyph.offset, glyph.offsetY);
+      final tris = fan.tris;
+      for (var i = 0; i + 5 < tris.length; i += 6) {
+        _solid
+          ..add6(_ndcX(tris[i] * m.a + tris[i + 1] * m.c + tx),
+              _ndcY(tris[i] * m.b + tris[i + 1] * m.d + ty), red, green, blue,
+              alpha)
+          ..add6(_ndcX(tris[i + 2] * m.a + tris[i + 3] * m.c + tx),
+              _ndcY(tris[i + 2] * m.b + tris[i + 3] * m.d + ty), red, green,
+              blue, alpha)
+          ..add6(_ndcX(tris[i + 4] * m.a + tris[i + 5] * m.c + tx),
+              _ndcY(tris[i + 4] * m.b + tris[i + 5] * m.d + ty), red, green,
+              blue, alpha);
+      }
+    }
+    if (!sawFan) return;
+    for (final glyph in run.glyphs!) {
+      final outline = glyph.outline;
+      if (outline == null) continue;
+      final fan = _glyphFanFor(outline, emTol);
+      if (fan.exact || fan.tris.isEmpty) continue;
       final tx = m.transformX(glyph.offset, glyph.offsetY);
       final ty = m.transformY(glyph.offset, glyph.offsetY);
       final c0x = fan.left * m.a + fan.top * m.c + tx;
@@ -594,9 +688,15 @@ class GpuPdfDevice implements PdfDevice {
 
   static final _glyphFans = Expando<_GlyphFan>('pdfGpuGlyphFans');
 
-  /// Em-space fan triangles for [outline], cached on the outline object.
+  /// Em-space triangles for [outline], cached on the outline object.
   /// Rebuilt when the requested tolerance leaves the cached bucket (finer
   /// is accepted down to 8x - extra vertices are cheap, reflattening isn't).
+  ///
+  /// Preferred form is an exact triangulation (ear clip, holes bridged via
+  /// a bbox nesting tree) - those triangles go straight into the solid
+  /// batch with no stencil or cover pass. Outlines that defeat the clipper
+  /// (self-intersections, deep nesting) fall back to fan triangles for the
+  /// stencil path.
   _GlyphFan _glyphFanFor(PdfPath outline, double emTol) {
     final cached = _glyphFans[outline];
     if (cached != null &&
@@ -607,9 +707,13 @@ class GpuPdfDevice implements PdfDevice {
     }
     _tally('glyph-flatten');
     final subs = flattenPath(outline, PdfMatrix.identity, tolerance: emTol);
-    final tris = DoubleBuilder(128);
-    appendFanTriangles(subs, tris);
     final b = FlatBounds.of(subs);
+    final tris = DoubleBuilder(128);
+    final exact = b != null && _clipGlyphExact(subs, tris);
+    if (!exact) {
+      tris.clear();
+      appendFanTriangles(subs, tris);
+    }
     final fan = _GlyphFan(
       emTol,
       Float64List.fromList(tris.view),
@@ -617,9 +721,67 @@ class GpuPdfDevice implements PdfDevice {
       b?.top ?? 0,
       b?.right ?? 0,
       b?.bottom ?? 0,
+      exact: exact,
     );
     _glyphFans[outline] = fan;
+    _tally(exact ? 'glyph-exact' : 'glyph-fan');
     return fan;
+  }
+
+  /// Exact em-space triangulation of a glyph: outer contours matched with
+  /// their holes by bbox nesting (letters with counters like o/a/e/4),
+  /// each clipped independently. False when the structure is deeper than
+  /// outer+hole or any clip fails.
+  static bool _clipGlyphExact(List<FlatSubpath> subs, DoubleBuilder out) {
+    if (subs.isEmpty) return false;
+    if (subs.length == 1) return earClipPolygon(subs[0].points, out);
+    final boxes = <FlatBounds>[];
+    var totalPts = 0;
+    for (final sub in subs) {
+      totalPts += sub.pointCount;
+      boxes.add(FlatBounds.of([sub])!);
+    }
+    if (subs.length > 8 || totalPts > 200) return false;
+    double boxArea(FlatBounds b) => (b.right - b.left) * (b.bottom - b.top);
+    // em-space outlines are ~unit scale; tie slack accordingly
+    const eps = 1e-4;
+    final parent = List<int>.filled(subs.length, -1);
+    for (var i = 0; i < subs.length; i++) {
+      var best = -1;
+      var bestArea = double.infinity;
+      for (var j = 0; j < subs.length; j++) {
+        if (j == i || boxArea(boxes[j]) <= boxArea(boxes[i])) continue;
+        if (boxes[j].left - eps <= boxes[i].left &&
+            boxes[j].right + eps >= boxes[i].right &&
+            boxes[j].top - eps <= boxes[i].top &&
+            boxes[j].bottom + eps >= boxes[i].bottom &&
+            boxArea(boxes[j]) < bestArea) {
+          best = j;
+          bestArea = boxArea(boxes[j]);
+        }
+      }
+      parent[i] = best;
+    }
+    final holesFor = <int, List<Float64List>>{};
+    final tops = <int>[];
+    for (var i = 0; i < subs.length; i++) {
+      final p = parent[i];
+      if (p == -1) {
+        tops.add(i);
+      } else if (parent[p] == -1) {
+        (holesFor[p] ??= []).add(subs[i].points);
+      } else {
+        return false; // island in a counter (rare): stencil handles it
+      }
+    }
+    for (final t in tops) {
+      final holes = holesFor[t];
+      final ok = holes == null
+          ? earClipPolygon(subs[t].points, out)
+          : earClipWithHoles(subs[t].points, holes, out);
+      if (!ok) return false;
+    }
+    return true;
   }
 
   @override
@@ -969,6 +1131,7 @@ class GpuPdfDevice implements PdfDevice {
   }
 
   void _flushSolid() {
+    _solidFlushes++; // invalidates any in-progress shape-cache capture
     if (_solid.isEmpty) {
       _solidScissor = null;
       return;
@@ -1191,15 +1354,92 @@ class GpuPdfDevice implements PdfDevice {
   }
 }
 
+/// Translation-invariant identity of a small filled shape: fill rule,
+/// subpath structure, and outline points quantized to 1/64 px relative to
+/// the first point. Two fills with equal keys are the same shape at
+/// different offsets (within subpixel), so one triangulation serves both.
+class _ShapeKey {
+  _ShapeKey._(this.rule, this.counts, this.deltas, this.anchorX, this.anchorY)
+      : hashCode = _hash(rule, counts, deltas);
+
+  /// Null when the path is too large to be a plausible repeated symbol.
+  static _ShapeKey? of(List<FlatSubpath> subs, PdfFillRule rule) {
+    if (subs.length > 16) return null;
+    var total = 0;
+    for (final sub in subs) {
+      total += sub.pointCount; // fills close implicitly; closed-ness moot
+    }
+    if (total > 200) return null;
+    final anchorX = subs[0].points[0], anchorY = subs[0].points[1];
+    final counts = Int32List(subs.length);
+    final deltas = Int32List(total * 2);
+    var w = 0;
+    for (var s = 0; s < subs.length; s++) {
+      final pts = subs[s].points;
+      counts[s] = pts.length ~/ 2;
+      for (var i = 0; i < pts.length; i += 2) {
+        final qx = ((pts[i] - anchorX) * 64).roundToDouble();
+        final qy = ((pts[i + 1] - anchorY) * 64).roundToDouble();
+        if (qx.abs() > 2e9 || qy.abs() > 2e9) return null;
+        deltas[w++] = qx.toInt();
+        deltas[w++] = qy.toInt();
+      }
+    }
+    return _ShapeKey._(rule, counts, deltas, anchorX, anchorY);
+  }
+
+  final PdfFillRule rule;
+  final Int32List counts;
+  final Int32List deltas;
+  final double anchorX, anchorY;
+
+  @override
+  final int hashCode;
+
+  static int _hash(PdfFillRule rule, Int32List counts, Int32List deltas) {
+    var h = 0xcbf29ce484222325 ^ rule.index;
+    for (final c in counts) {
+      h = (h ^ c) * 0x100000001b3;
+    }
+    for (final d in deltas) {
+      h = (h ^ (d & 0xffffffff)) * 0x100000001b3;
+    }
+    return h;
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! _ShapeKey ||
+        other.hashCode != hashCode ||
+        other.rule != rule ||
+        other.counts.length != counts.length ||
+        other.deltas.length != deltas.length) {
+      return false;
+    }
+    for (var i = 0; i < counts.length; i++) {
+      if (other.counts[i] != counts[i]) return false;
+    }
+    for (var i = 0; i < deltas.length; i++) {
+      if (other.deltas[i] != deltas[i]) return false;
+    }
+    return true;
+  }
+}
+
 /// Cached em-space tessellation of one glyph outline: fan triangles plus
 /// their bounds, valid for tolerances within the cached bucket.
 class _GlyphFan {
   const _GlyphFan(this.tolerance, this.tris, this.left, this.top, this.right,
-      this.bottom);
+      this.bottom,
+      {required this.exact});
 
   final double tolerance;
   final Float64List tris;
   final double left, top, right, bottom;
+
+  /// True when [tris] is an exact triangulation (solid batch, no stencil);
+  /// false when it is fan triangles for the stencil path.
+  final bool exact;
 }
 
 class _Rect {

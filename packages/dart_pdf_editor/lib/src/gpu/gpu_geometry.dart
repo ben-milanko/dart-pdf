@@ -65,6 +65,8 @@ class FloatBuilder {
 
   bool get isEmpty => length == 0;
 
+  double operator [](int i) => _data[i];
+
   void _ensure(int extra) {
     if (length + extra <= _data.length) return;
     var cap = _data.length * 2;
@@ -306,14 +308,35 @@ bool earClipPolygon(Float64List pts, DoubleBuilder out, {int maxPoints = 160}) {
   if (area.abs() < 1e-12) return false;
   final winding = area > 0 ? 1.0 : -1.0;
 
-  final idx = List<int>.generate(n, (i) => i);
+  // Consecutive duplicate points (common in converted-text outlines) create
+  // zero-length edges that block ears - skip them up front.
+  final idx = <int>[];
+  for (var i = 0; i < n; i++) {
+    if (idx.isNotEmpty &&
+        pts[2 * idx.last] == pts[2 * i] &&
+        pts[2 * idx.last + 1] == pts[2 * i + 1]) {
+      continue;
+    }
+    idx.add(i);
+  }
   final startLength = out.length;
-  var remaining = n;
+  var remaining = idx.length;
+  if (remaining < 3) return false;
   var cursor = 0;
   var sinceLastClip = 0;
   while (remaining > 3) {
     if (sinceLastClip++ > remaining) {
-      out.length = startLength; // stalled - undo partial output
+      // Stalled. When the leftover is the near-zero-area corridor that hole
+      // bridges leave behind, everything visible is already emitted - keep
+      // the output and drop the corridor. A leftover with real area is a
+      // genuine failure.
+      var rest = 0.0;
+      for (var i = 0, j = remaining - 1; i < remaining; j = i++) {
+        rest += pts[2 * idx[j]] * pts[2 * idx[i] + 1] -
+            pts[2 * idx[i]] * pts[2 * idx[j] + 1];
+      }
+      if (rest.abs() <= area.abs() * 1e-3 + 1e-9) return true;
+      out.length = startLength; // undo partial output
       return false;
     }
     final p = cursor % remaining;
@@ -433,17 +456,63 @@ Float64List _reversedRing(Float64List pts) {
   return out;
 }
 
-/// Joins [hole] into [outer] at the first mutually visible vertex pair
-/// (bridge segment properly crossing no edge of either ring), or null.
+/// Joins [hole] into [outer] at the first mutually visible vertex pair,
+/// or null. Visibility is strict: the bridge segment may not cross, touch,
+/// or overlap any edge of either ring (except at its own two endpoints),
+/// and its midpoint must lie inside the outer ring and outside the hole -
+/// converted-text glyphs routinely offer grazing bridges that pass the
+/// naive proper-crossing test but corrupt the merged polygon.
 Float64List? _bridgeHole(Float64List outer, Float64List hole) {
   final no = outer.length ~/ 2, nh = hole.length ~/ 2;
+
+  // any contact between segment (ax,ay)-(bx,by) and edge (cx,cy)-(dx,dy),
+  // including collinear overlap and endpoint grazing
+  bool touches(double ax, double ay, double bx, double by, double cx,
+      double cy, double dx, double dy) {
+    double orient(
+            double px, double py, double qx, double qy, double rx, double ry) =>
+        (qx - px) * (ry - py) - (qy - py) * (rx - px);
+    bool onSpan(double px, double py, double ux, double uy, double vx,
+            double vy) =>
+        px >= math.min(ux, vx) - 1e-12 &&
+        px <= math.max(ux, vx) + 1e-12 &&
+        py >= math.min(uy, vy) - 1e-12 &&
+        py <= math.max(uy, vy) + 1e-12;
+    final o1 = orient(ax, ay, bx, by, cx, cy);
+    final o2 = orient(ax, ay, bx, by, dx, dy);
+    final o3 = orient(cx, cy, dx, dy, ax, ay);
+    final o4 = orient(cx, cy, dx, dy, bx, by);
+    if (o1 * o2 < 0 && o3 * o4 < 0) return true; // proper crossing
+    const eps = 1e-9;
+    if (o1.abs() <= eps && onSpan(cx, cy, ax, ay, bx, by)) return true;
+    if (o2.abs() <= eps && onSpan(dx, dy, ax, ay, bx, by)) return true;
+    if (o3.abs() <= eps && onSpan(ax, ay, cx, cy, dx, dy)) return true;
+    if (o4.abs() <= eps && onSpan(bx, by, cx, cy, dx, dy)) return true;
+    return false;
+  }
+
+  // even-odd point-in-ring (boundary treatment irrelevant for midpoints)
+  bool inside(double px, double py, Float64List ring) {
+    final n = ring.length ~/ 2;
+    var odd = false;
+    for (var i = 0, j = n - 1; i < n; j = i++) {
+      final xi = ring[2 * i], yi = ring[2 * i + 1];
+      final xj = ring[2 * j], yj = ring[2 * j + 1];
+      if ((yi > py) != (yj > py) &&
+          px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+        odd = !odd;
+      }
+    }
+    return odd;
+  }
+
   bool visible(int o, int h) {
     final ox = outer[2 * o], oy = outer[2 * o + 1];
     final hx = hole[2 * h], hy = hole[2 * h + 1];
     for (var i = 0; i < no; i++) {
       final j = (i + 1) % no;
       if (i == o || j == o) continue; // edges touching the bridge endpoint
-      if (_segmentsCross(ox, oy, hx, hy, outer[2 * i], outer[2 * i + 1],
+      if (touches(ox, oy, hx, hy, outer[2 * i], outer[2 * i + 1],
           outer[2 * j], outer[2 * j + 1])) {
         return false;
       }
@@ -451,12 +520,13 @@ Float64List? _bridgeHole(Float64List outer, Float64List hole) {
     for (var i = 0; i < nh; i++) {
       final j = (i + 1) % nh;
       if (i == h || j == h) continue;
-      if (_segmentsCross(ox, oy, hx, hy, hole[2 * i], hole[2 * i + 1],
+      if (touches(ox, oy, hx, hy, hole[2 * i], hole[2 * i + 1],
           hole[2 * j], hole[2 * j + 1])) {
         return false;
       }
     }
-    return true;
+    final mx = (ox + hx) / 2, my = (oy + hy) / 2;
+    return inside(mx, my, outer) && !inside(mx, my, hole);
   }
 
   for (var o = 0; o < no; o++) {

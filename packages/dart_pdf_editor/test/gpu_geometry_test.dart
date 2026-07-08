@@ -87,6 +87,26 @@ void main() {
     expect(_triArea(out.view), closeTo(64, 1e-6));
   });
 
+  test('earClipWithHoles handles a converted-text "4" glyph', () {
+    // real geometry from ly9-far-cad p5 (a digit outline + its counter)
+    final out = DoubleBuilder();
+    final ok = earClipWithHoles(
+        _ring([
+          194.60, 868.80, 195.00, 868.80, 195.00, 867.60, 195.40, 867.60, //
+          195.40, 867.20, 195.00, 867.20, 195.00, 864.20, 194.60, 864.20,
+          193.20, 867.20, 193.20, 867.60, 194.60, 867.60, 194.60, 868.80,
+        ]),
+        [
+          _ring([194.60, 867.20, 193.60, 867.20, 194.60, 865.20, 194.60,
+              867.20]),
+        ],
+        out);
+    expect(ok, isTrue, reason: 'the "4" glyph ring should clip');
+    expect(_triArea(out.view), closeTo(9.32 / 2 - 2.0 / 2, 1e-6));
+    expect(_covers(out.view, 194.2, 866.4), isFalse,
+        reason: 'counter must stay open');
+  });
+
   test('earClipWithHoles rejects a hole crossing the outer boundary', () {
     final out = DoubleBuilder();
     final ok = earClipWithHoles(

@@ -55,26 +55,34 @@ shifted slightly from the table above):
 | engine | throughput | ms/page | vs PDFium |
 |---|---|---|---|
 | **PDFium** | 40.1 pages/s | 24.9 | 1.00× |
-| **dart-pdf interpret** | 58.6 pages/s | 17.1 | **1.46× faster** |
-| **dart-pdf render** (Canvas) | 16.3 pages/s | 61.3 | 2.46× slower |
+| **dart-pdf interpret** | 75.0 pages/s | 13.3 | **1.87× faster** |
+| **dart-pdf render** (Canvas) | 19.2 pages/s | 52.0 | 2.08× slower |
 | **dart-pdf GPU**, first cut | 8.5 pages/s | 117.1 | 4.69× slower |
-| **dart-pdf GPU**, round 2 (MSAA 4×) | 10.7 pages/s | 93.5 | 3.75× slower |
 | **dart-pdf GPU**, round 3 (MSAA 4×) | 11.9 pages/s | 83.8 | 3.36× slower |
-| **dart-pdf GPU**, round 3 (aliased, pipelined) | 17.3 pages/s | 57.9 | **2.32× slower — beats the Canvas renderer** |
+| **dart-pdf GPU**, round 4 (MSAA 4×) | 12.6 pages/s | 79.5 | 3.19× slower |
+| **dart-pdf GPU**, round 4 (aliased, pipelined) | 18.9 pages/s | 52.8 | **2.12× slower — ties the Canvas renderer** |
 
-Two profile-guided optimization rounds (render-target caching, same-color
-fill/text batching, an em-space glyph tessellation cache, ear-clip
-triangulation incl. hole-bridged rings, exact interiors-disjoint island
-detection, cover-spread flushing, typed builders, state elision, and a
-1-deep CPU/GPU page pipeline via `PDF_GPU_PIPELINE=1`) took the worst
-text page from 4417 draws to ~130 and flipped the verdict: the aliased
-pipelined GPU path renders the corpus **faster than the Canvas renderer
-overall (57.9 vs 61.3 ms/page), beating it on 39 of 49 files (median
-0.77, worst 1.52×)**, up to 9× on transparency-group pages. At matched
-(MSAA) quality the remaining gap vs Canvas is the SDK's non-memoryless
-MSAA resolve (~10 ms/page at A3). Ghent (57 pages, MSAA): GPU 82.8
-ms/page vs Canvas 78.3. Analysis, cost matrix, per-round numbers, and
-**notes on which optimizations transfer to the Canvas renderer** in
+Three profile-guided optimization rounds took the worst text page from
+4417 draws to ~130 (render-target caching, same-color fill/text
+batching, an em-space glyph cache with **exact triangulation straight
+into the solid batch**, hole-bridged ear clipping for rings and
+converted-text glyphs, interiors-disjoint island detection, a
+translation-invariant **shape-instancing cache** for repeated CAD
+symbols, cover-spread flushing, typed builders, state elision, and a
+1-deep CPU/GPU page pipeline via `PDF_GPU_PIPELINE=1`).
+
+Round 4's headline is a *shared* win: GPU profiling exposed the pdf_cos
+lexer's per-real `String.fromCharCodes` + `double.parse` as 30–45% of
+CAD page time. Byte-level real parsing (bit-exact, KAT-verified) plus
+operator-keyword interning dropped **interpret 17.1 → 13.3** and the
+**Canvas renderer 61.3 → 52.0 ms/page** with zero rendering change — so
+the Canvas goalposts moved too. The aliased pipelined GPU path now ties
+Canvas corpus-wide (52.8 vs 52.0; beats it on 32/49 files, median 0.92,
+worst 1.66×), up to 9× on transparency-group pages. At matched (MSAA)
+quality the remaining gap vs Canvas is the SDK's non-memoryless MSAA
+resolve (~10 ms/page at A3). Ghent (57 pages, MSAA): GPU 84.6 ms/page.
+Analysis, cost matrix, per-round numbers, the ly9-far-cad case study,
+and **notes on which optimizations transfer to the Canvas renderer** in
 [doc/dev-log/2026-07-08-flutter-gpu-experiment.md](../doc/dev-log/2026-07-08-flutter-gpu-experiment.md).
 
 ## What gets measured

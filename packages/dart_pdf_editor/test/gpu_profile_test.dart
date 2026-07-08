@@ -27,6 +27,14 @@ const _pages = <(String, int, String)>[
 
 void main() {
   final dir = Platform.environment['GPU_PROFILE_DIR'];
+  // GPU_PROFILE_FILE=name.pdf GPU_PROFILE_PAGES=0,3,7 overrides the stock
+  // page list for ad-hoc single-file investigation.
+  final overrideFile = Platform.environment['GPU_PROFILE_FILE'];
+  final overridePages = [
+    for (final p
+        in (Platform.environment['GPU_PROFILE_PAGES'] ?? '0').split(','))
+      int.parse(p.trim()),
+  ];
 
   testWidgets('profiles gpu render phases', (tester) async {
     if (dir == null) {
@@ -35,7 +43,10 @@ void main() {
     }
     await tester.runAsync(() async {
       await loadSystemFonts();
-      for (final (name, pageIndex, why) in _pages) {
+      final cases = overrideFile != null
+          ? [for (final p in overridePages) (overrideFile, p, 'ad-hoc')]
+          : _pages;
+      for (final (name, pageIndex, why) in cases) {
         final file = File('$dir/$name');
         if (!file.existsSync()) continue;
         final doc = PdfDocument.open(file.readAsBytesSync());

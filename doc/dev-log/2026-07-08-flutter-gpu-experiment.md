@@ -269,6 +269,96 @@ Findings from this experiment that transfer to the production path:
 5. **Glyph path caching is already there** (`_glyphPaths` Expando in
    canvas_device.dart) - no action; the GPU experiment just re-validated
    how load-bearing it is (83-88% reuse).
+6. **LANDED (round 4): byte-level real parsing + keyword interning in
+   the pdf_cos lexer.** Interpret 17.1 -> 13.3 ms/page, Canvas render
+   61.3 -> 52.0 ms/page, bit-exact (Ghent baselines untouched). The
+   chain was: GPU profiling exposed parse as 30-45% of CAD page time ->
+   the fix lives below both renderers.
+7. **Candidate: a display-list-level shape cache.** The GPU backend's
+   translation-invariant shape instancing (quantized outline -> cached
+   triangles) hit 73-100% on CAD pages. The Canvas equivalent would
+   cache a `ui.Path` per repeated shape and draw it translated, saving
+   per-fill path construction - worth measuring on the interpret side.
+
+## Round 4: research, converted-text CAD, and a lexer win for everyone
+
+Fourth session ("keep pushing, research online what the avenues are").
+
+**Research findings** (what the field does, and what's reachable here):
+- *Vello*-style compute rasterization (prefix-sum sort/clip on GPU,
+  analytic AA) is the state of the art for dynamic vector scenes, but
+  flutter_gpu exposes no compute shaders - dead end today.
+- *Glyph atlases* (rasterize each glyph once to a texture, draw quads)
+  are how Impeller itself, terminals, and PDFium render text. The best
+  remaining GPU avenue here: it would collapse text to one textured
+  draw per page AND give antialiased text in aliased mode. Needs a new
+  shader (coverage x tint), atlas packing, and subpixel-position
+  quantization - a future session.
+- The ~10ms MSAA resolve matches known Impeller issues (e.g.
+  flutter/flutter#137302, MSAA store cost); nothing to work around at
+  the flutter_gpu API level.
+
+**ly9-far-cad deep dive** (user-requested; 138-page CAD file). Page 5
+holds ~29k tiny fills - CAD text converted to outlines (digits/letters
+with counters, even-odd rule). Fixes, each profile-verified:
+- `earClipPolygon` now skips consecutive duplicate points (converted
+  outlines carry them) and, when stalled, keeps its output if the
+  leftover ring is the near-zero-area bridge corridor.
+- `_bridgeHole` visibility got strict: the bridge may not touch or
+  collinearly overlap *any* edge (not just properly cross), and its
+  midpoint must be inside outer/outside hole. Grazing bridges through
+  glyph stems were corrupting the merged polygon (the "4" test pins
+  this).
+- **Exact glyph triangulation**: `_glyphFanFor` now ear-clips the
+  outline (holes bridged via a bbox nesting tree) at cache-build time;
+  exact glyphs append straight to the solid batch - no stencil pass, no
+  cover. Text pages dropped their stencil batches ~10x (ly9 p1: 95
+  batches/411k stencil verts -> 10/1.3k).
+- **Shape-instancing cache**: fills keyed by translation-invariant
+  quantized outline (1/64 px) replay their captured solid triangles at
+  new offsets. CAD symbol/glyph repetition hits 73-100% (ly9 p8 paint
+  77 -> 21ms); the cache is static so later pages of the same file are
+  warm.
+- **The big shared win - lexer number parsing.** ly9 p5 spent 347ms in
+  `ContentStreamParser.parse`; the cost was `String.fromCharCodes` +
+  `double.parse` per real. PDF reals have no exponent, so ≤15-digit
+  reals now parse byte-level as one exact integer divided by one power
+  of ten - bit-for-bit identical to `double.parse` (KAT: 20k random
+  reals + full Ghent baseline pass). Operator keywords (≤3 bytes)
+  intern via a packed-int table. **This is a pdf_cos change: the
+  interpret benchmark fell 17.1 -> 13.3 ms/page (now 1.87x faster than
+  PDFium) and the production Canvas renderer fell 61.3 -> 52.0 ms/page
+  (-15%) with zero rendering change.**
+
+Corpus after round 4 (Canvas goalposts moved by the lexer win):
+
+| engine | ms/page | vs PDFium | files vs Canvas |
+|---|---|---|---|
+| PDFium | 24.9 | 1.00x | - |
+| dart-pdf interpret | 13.3 | **1.87x faster** | - |
+| Canvas renderer | 52.0 | 2.08x slower | - |
+| GPU MSAA 4x | 79.5 | 3.19x slower | 1/49 |
+| GPU aliased, pipelined | 52.8 | 2.12x slower | 32/49, median 0.92, worst 1.66 |
+
+GPU aliased and Canvas are now statistically tied corpus-wide - both
+because the GPU got faster and because the lexer win accrues to the
+Canvas total too (parse is a bigger fraction of its page time).
+
+ly9-far-cad.pdf specifically (10 pages, scale 2, best-of-3):
+
+| engine | ms/page |
+|---|---|
+| PDFium | 73.8 |
+| dart-pdf interpret (no raster) | 99.1 |
+| Canvas renderer | 153.7 (was 192.3 pre-lexer) |
+| GPU MSAA 4x | 265.5 (was 308.5) |
+| GPU aliased, pipelined | 197.3 (was 246.3) |
+
+ly9 stays the GPU's worst class: exact triangulation of ~29k converted
+glyphs/page produces ~1.45M solid verts (35MB of vertex upload), and
+the CPU tessellation+keying sits on top of an interpret cost (99
+ms/page) that dominates everyone. The glyph-atlas avenue is the fix -
+those 29k fills are ~200 distinct shapes.
 
 ## Gotchas discovered
 
