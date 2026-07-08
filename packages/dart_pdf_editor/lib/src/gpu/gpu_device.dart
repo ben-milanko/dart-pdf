@@ -487,8 +487,7 @@ class GpuPdfDevice implements PdfDevice {
       ..setColorBlendEnable(true)
       ..setColorBlendEquation(_srcOver)
       ..bindVertexBuffer(
-          hostBuffer
-              .emplace(Float32List.fromList(_solid).buffer.asByteData()),
+          _emplace(Float32List.fromList(_solid).buffer.asByteData()),
           _solid.length ~/ 6)
       ..draw();
     pass.clearBindings();

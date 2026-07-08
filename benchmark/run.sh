@@ -10,6 +10,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CORPUS="${1:-$ROOT/test_corpora/pdfjs}"
+# The dart harnesses cd into their packages, so a relative corpus path
+# must be resolved up front (single files pass through unchanged).
+if [[ -d "$CORPUS" ]]; then CORPUS="$(cd "$CORPUS" && pwd)"; fi
 SCALE="${2:-2}"
 MAX_PAGES="${3:-10}"
 # Per-file wall-clock budget for PDFium (seconds). The pdfjs corpus has
