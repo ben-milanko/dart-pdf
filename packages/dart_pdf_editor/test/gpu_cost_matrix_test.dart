@@ -40,7 +40,10 @@ void main() {
           int solidDraws = 0,
           int stencilPairs = 0,
           int trisPerDraw = 1,
-          bool reuseTargets = false}) async {
+          bool reuseTargets = false,
+          int samples = 4,
+          gpu.StorageMode msaaStorage = gpu.StorageMode.deviceTransient,
+          bool dontCareLoad = false}) async {
         var bestMs = double.infinity;
         for (var pass = 0; pass < 3; pass++) {
           final resolve = context.createTexture(
@@ -49,23 +52,21 @@ void main() {
           final gpu.Texture color;
           final gpu.Texture stencilTex;
           if (reuseTargets && msaa) {
-            cachedColor ??= context.createTexture(
-                gpu.StorageMode.deviceTransient, w, h,
-                format: context.defaultColorFormat, sampleCount: 4);
-            cachedStencil ??= context.createTexture(
-                gpu.StorageMode.deviceTransient, w, h,
-                format: context.defaultStencilFormat, sampleCount: 4);
+            cachedColor ??= context.createTexture(msaaStorage, w, h,
+                format: context.defaultColorFormat, sampleCount: samples);
+            cachedStencil ??= context.createTexture(msaaStorage, w, h,
+                format: context.defaultStencilFormat, sampleCount: samples);
             color = cachedColor!;
             stencilTex = cachedStencil!;
           } else {
             color = msaa
-                ? context.createTexture(gpu.StorageMode.deviceTransient, w, h,
-                    format: context.defaultColorFormat, sampleCount: 4)
+                ? context.createTexture(msaaStorage, w, h,
+                    format: context.defaultColorFormat, sampleCount: samples)
                 : resolve;
             stencilTex = context.createTexture(
                 gpu.StorageMode.deviceTransient, w, h,
                 format: context.defaultStencilFormat,
-                sampleCount: msaa ? 4 : 1);
+                sampleCount: msaa ? samples : 1);
           }
           final commandBuffer = context.createCommandBuffer();
           final rp = commandBuffer.createRenderPass(gpu.RenderTarget(
@@ -73,6 +74,9 @@ void main() {
               gpu.ColorAttachment(
                 texture: color,
                 resolveTexture: msaa ? resolve : null,
+                loadAction: dontCareLoad
+                    ? gpu.LoadAction.dontCare
+                    : gpu.LoadAction.clear,
                 clearValue: vm.Vector4(1, 1, 1, 1),
                 storeAction: msaa
                     ? gpu.StoreAction.multisampleResolve
@@ -102,6 +106,21 @@ void main() {
               trisPerDraw * 3 * 2,
               (i) => (i % 2 == 0 ? -1 : 1) + (i % 50) * 0.001));
 
+          if (dontCareLoad) {
+            // background as one oversized fullscreen triangle instead of a
+            // load-action clear
+            final quad = Float32List.fromList([
+              -1, -1, 1, 1, 1, 1, //
+              3, -1, 1, 1, 1, 1, //
+              -1, 3, 1, 1, 1, 1,
+            ]);
+            rp
+              ..bindPipeline(solid)
+              ..setColorBlendEnable(true)
+              ..bindVertexBuffer(
+                  hostBuffer.emplace(quad.buffer.asByteData()), 3)
+              ..draw();
+          }
           for (var i = 0; i < solidDraws; i++) {
             rp
               ..bindPipeline(solid)
@@ -162,6 +181,31 @@ void main() {
           w: 2382, h: 1684, msaa: true, reuseTargets: true);
       await run('I  2382x1684 msaa4, 2000 solid draws, reused targets',
           w: 2382, h: 1684, msaa: true, solidDraws: 2000, reuseTargets: true);
+      // Probing the residual ~10ms: is it the clear, the storage mode, or
+      // the resolve itself?
+      await run('J  msaa4 reused, dontCare load + fullscreen quad',
+          w: 2382, h: 1684, msaa: true, reuseTargets: true,
+          dontCareLoad: true);
+      cachedColor = cachedStencil = null;
+      try {
+        await run('K  msaa2 reused', w: 2382, h: 1684, msaa: true,
+            reuseTargets: true, samples: 2);
+      } catch (e) {
+        // ignore: avoid_print
+        print('K  msaa2: unsupported ($e)');
+      }
+      cachedColor = cachedStencil = null;
+      try {
+        await run('L  msaa4 devicePrivate reused', w: 2382, h: 1684,
+            msaa: true, reuseTargets: true,
+            msaaStorage: gpu.StorageMode.devicePrivate);
+      } catch (e) {
+        // ignore: avoid_print
+        print('L  devicePrivate msaa: unsupported ($e)');
+      }
+      cachedColor = cachedStencil = null;
+      // M: how much is the readback machinery itself? Same as C but half res.
+      await run('M  1191x842 no-msaa, 0 draws', w: 1191, h: 842, msaa: false);
     });
   }, timeout: const Timeout(Duration(minutes: 10)));
 }

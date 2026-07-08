@@ -327,8 +327,15 @@ bool earClipPolygon(Float64List pts, DoubleBuilder out, {int maxPoints = 160}) {
       for (var k = 0; k < remaining && isEar; k++) {
         final vi = idx[k];
         if (vi == i0 || vi == i1 || vi == i2) continue;
-        if (_pointInTriangle(pts[2 * vi], pts[2 * vi + 1], ax, ay, bx, by,
-            cx, cy)) {
+        final px = pts[2 * vi], py = pts[2 * vi + 1];
+        // duplicated bridge vertices (hole merges) coincide with corners -
+        // they don't block the ear
+        if ((px == ax && py == ay) ||
+            (px == bx && py == by) ||
+            (px == cx && py == cy)) {
+          continue;
+        }
+        if (_pointInTriangle(px, py, ax, ay, bx, by, cx, cy)) {
           isEar = false;
         }
       }
@@ -345,6 +352,138 @@ bool earClipPolygon(Float64List pts, DoubleBuilder out, {int maxPoints = 160}) {
   out.add6(pts[2 * idx[0]], pts[2 * idx[0] + 1], pts[2 * idx[1]],
       pts[2 * idx[1] + 1], pts[2 * idx[2]], pts[2 * idx[2] + 1]);
   return true;
+}
+
+/// Whether two convex polygons have disjoint interiors (touching along an
+/// edge or point counts as disjoint) - separating-axis test over both
+/// polygons' edge normals. CAD exports split quads into edge-sharing
+/// triangle pairs with opposite winding; those must fill as independent
+/// islands, and this is the exact test for it.
+bool convexInteriorsDisjoint(Float64List a, Float64List b) =>
+    _satSeparated(a, b) || _satSeparated(b, a);
+
+bool _satSeparated(Float64List axisSource, Float64List other) {
+  final src = _stripClosingPoint(axisSource);
+  final oth = _stripClosingPoint(other);
+  if (src == null || oth == null) return true; // degenerate: no interior
+  final n = src.length ~/ 2;
+  for (var i = 0; i < n; i++) {
+    final j = (i + 1) % n;
+    final nx = -(src[2 * j + 1] - src[2 * i + 1]);
+    final ny = src[2 * j] - src[2 * i];
+    var minA = double.infinity, maxA = double.negativeInfinity;
+    for (var k = 0; k < n; k++) {
+      final p = src[2 * k] * nx + src[2 * k + 1] * ny;
+      if (p < minA) minA = p;
+      if (p > maxA) maxA = p;
+    }
+    var minB = double.infinity, maxB = double.negativeInfinity;
+    final m = oth.length ~/ 2;
+    for (var k = 0; k < m; k++) {
+      final p = oth[2 * k] * nx + oth[2 * k + 1] * ny;
+      if (p < minB) minB = p;
+      if (p > maxB) maxB = p;
+    }
+    // touch-or-separate on this axis (scaled tolerance: nx,ny not unit)
+    final tol = 1e-9 * (maxA - minA + maxB - minB + 1);
+    if (minB >= maxA - tol || minA >= maxB - tol) return true;
+  }
+  return false;
+}
+
+/// Ear-clips [outer] with [holes] cut out by bridging each hole into the
+/// outer ring (two coincident bridge edges per hole), then clipping the
+/// merged polygon. Rings must be simple; hole winding is normalized to
+/// oppose the outer's. Returns false (appending nothing) when no visible
+/// bridge exists, the merged polygon exceeds [maxPoints], or clipping
+/// stalls - the caller falls back to stencil-then-cover.
+bool earClipWithHoles(
+    Float64List outer, List<Float64List> holes, DoubleBuilder out,
+    {int maxPoints = 160}) {
+  var merged = _stripClosingPoint(outer);
+  if (merged == null) return false;
+  final outerArea = signedArea2(merged);
+  if (outerArea.abs() < 1e-12) return false;
+  for (final holeRaw in holes) {
+    var hole = _stripClosingPoint(holeRaw);
+    if (hole == null) return false;
+    final holeArea = signedArea2(hole);
+    if (holeArea.abs() < 1e-12) return false;
+    if (holeArea.sign == outerArea.sign) hole = _reversedRing(hole);
+    merged = _bridgeHole(merged!, hole);
+    if (merged == null || merged.length ~/ 2 > maxPoints) return false;
+  }
+  return earClipPolygon(merged!, out, maxPoints: maxPoints);
+}
+
+Float64List? _stripClosingPoint(Float64List pts) {
+  var n = pts.length ~/ 2;
+  if (n >= 2 && pts[0] == pts[2 * n - 2] && pts[1] == pts[2 * n - 1]) n--;
+  if (n < 3) return null;
+  return n * 2 == pts.length ? pts : Float64List.sublistView(pts, 0, n * 2);
+}
+
+Float64List _reversedRing(Float64List pts) {
+  final n = pts.length ~/ 2;
+  final out = Float64List(pts.length);
+  for (var i = 0; i < n; i++) {
+    out[2 * i] = pts[2 * (n - 1 - i)];
+    out[2 * i + 1] = pts[2 * (n - 1 - i) + 1];
+  }
+  return out;
+}
+
+/// Joins [hole] into [outer] at the first mutually visible vertex pair
+/// (bridge segment properly crossing no edge of either ring), or null.
+Float64List? _bridgeHole(Float64List outer, Float64List hole) {
+  final no = outer.length ~/ 2, nh = hole.length ~/ 2;
+  bool visible(int o, int h) {
+    final ox = outer[2 * o], oy = outer[2 * o + 1];
+    final hx = hole[2 * h], hy = hole[2 * h + 1];
+    for (var i = 0; i < no; i++) {
+      final j = (i + 1) % no;
+      if (i == o || j == o) continue; // edges touching the bridge endpoint
+      if (_segmentsCross(ox, oy, hx, hy, outer[2 * i], outer[2 * i + 1],
+          outer[2 * j], outer[2 * j + 1])) {
+        return false;
+      }
+    }
+    for (var i = 0; i < nh; i++) {
+      final j = (i + 1) % nh;
+      if (i == h || j == h) continue;
+      if (_segmentsCross(ox, oy, hx, hy, hole[2 * i], hole[2 * i + 1],
+          hole[2 * j], hole[2 * j + 1])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  for (var o = 0; o < no; o++) {
+    for (var h = 0; h < nh; h++) {
+      if (!visible(o, h)) continue;
+      // outer[0..o], hole[h..h-1 wrapped], hole[h], outer[o], outer[o+1..]
+      final out = Float64List((no + nh + 2) * 2);
+      var w = 0;
+      void put(double x, double y) {
+        out[w++] = x;
+        out[w++] = y;
+      }
+
+      for (var i = 0; i <= o; i++) {
+        put(outer[2 * i], outer[2 * i + 1]);
+      }
+      for (var i = 0; i <= nh; i++) {
+        final k = (h + i) % nh;
+        put(hole[2 * k], hole[2 * k + 1]);
+      }
+      for (var i = o; i < no; i++) {
+        put(outer[2 * i], outer[2 * i + 1]);
+      }
+      return out;
+    }
+  }
+  return null;
 }
 
 bool _segmentsCross(double a1x, double a1y, double a2x, double a2y,

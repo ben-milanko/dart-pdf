@@ -125,6 +125,16 @@ class GpuPdfDevice implements PdfDevice {
   void _tally(String what, [int n = 1]) =>
       stats[what] = (stats[what] ?? 0) + n;
 
+  static final _timer = Stopwatch();
+  bool _timed(String what, bool Function() f) {
+    _timer
+      ..reset()
+      ..start();
+    final result = f();
+    _tally(what, _timer.elapsedMicroseconds);
+    return result;
+  }
+
   void _count(String what) =>
       unsupported[what] = (unsupported[what] ?? 0) + 1;
 
@@ -166,6 +176,10 @@ class GpuPdfDevice implements PdfDevice {
   FlatBounds? _textBounds;
   double _textR = 0, _textG = 0, _textB = 0, _textA = 0;
   _Rect? _textScissor;
+  bool _textOpen = false;
+  // Sum of member bbox areas: the flush-on-spread heuristic keeps the
+  // cover quad (union bbox) from ballooning past the painted content.
+  double _textCoverage = 0;
 
   // scratch for per-path fan/stroke triangles (reused across calls)
   final _scratch = DoubleBuilder(4096);
@@ -269,15 +283,12 @@ class GpuPdfDevice implements PdfDevice {
     } else if (subs.length == 1) {
       _tally('earclip-fail-${subs[0].pointCount <= 160 ? "shape" : "size"}');
       _fillStencilFallback(subs, color, rule, a);
-    } else if (rule == PdfFillRule.nonzero
-        ? _sameWinding(subs)
-        : _disjointSubpaths(subs)) {
-      // independent islands (hatch strips, dash-like fills): route each
-      // through the fast paths alone. Under nonzero, same-direction
-      // subpaths cannot punch holes in each other, so per-subpath filling
-      // is exact coverage (overlaps double-blend only when translucent).
-      // Under even-odd any nesting toggles, so only bbox-disjoint
-      // subpaths qualify.
+    } else if (_timed('islands-us', () => _independentIslands(subs, rule))) {
+      // independent islands (hatch strips, edge-split quads, dash-like
+      // fills): route each subpath through the fast paths alone. Winding
+      // and parity only interact where interiors overlap, so
+      // interior-disjoint subpaths fill independently under both rules.
+      // Checked before rings: this is the cheap, dominant CAD case.
       _tally('fill-islands');
       for (final sub in subs) {
         final single = [sub];
@@ -287,6 +298,10 @@ class GpuPdfDevice implements PdfDevice {
           _fillStencilFallback(single, color, rule, a);
         }
       }
+    } else if (_timed('rings-us', () => _pushRings(subs, color, a))) {
+      // outer+hole rings (rectangle borders, outlined thick strokes in CAD
+      // exports): bridged hole-aware ear clip into the solid batch
+      _tally('fill-rings');
     } else if (rule == PdfFillRule.nonzero) {
       // winding counts add across merged nonzero fills, so same-color
       // non-convex fills coalesce exactly like text runs
@@ -308,38 +323,148 @@ class GpuPdfDevice implements PdfDevice {
     }
   }
 
-  /// Whether every subpath winds the same direction - then under the
-  /// nonzero rule none can be a hole and each fills independently.
-  static bool _sameWinding(List<FlatSubpath> subs) {
-    var sign = 0.0;
+  /// Recognizes outer+hole ring structures (each hole's bbox nested in
+  /// exactly one outer) and fills them with bridged hole-aware ear clipping
+  /// straight into the solid batch. Handles both fill rules: for a one-deep
+  /// nesting tree the nonzero (opposite-winding) and even-odd results agree
+  /// with cutting the holes out. Returns false - appending nothing - when
+  /// the structure is deeper, ambiguous, or the clipping fails.
+  bool _pushRings(List<FlatSubpath> subs, PdfColor color, double alpha) {
+    if (subs.length > 48) return false;
+    const eps = 1.0; // device px slack: thin diagonal rings tie on extents
+    final areas = <double>[];
+    final boxes = <FlatBounds>[];
+    var totalPts = 0;
     for (final sub in subs) {
-      final area = signedArea2(sub.points);
-      if (area.abs() < 1e-12) continue; // degenerate sliver: no effect
-      if (sign == 0.0) {
-        sign = area.sign;
-      } else if (area.sign != sign) {
+      totalPts += sub.pointCount;
+      areas.add(signedArea2(sub.points));
+      boxes.add(FlatBounds.of([sub])!);
+    }
+    // Small rings only: CAD border/outline pairs are 4-12 points per ring.
+    // Big curvy rings usually fail the bridge/clip after O(n^2) work, and
+    // one stencil pair paints them faster than the attempt costs.
+    if (totalPts > 120) return false;
+
+    double boxArea(FlatBounds b) => (b.right - b.left) * (b.bottom - b.top);
+    bool contains(FlatBounds a, FlatBounds b) =>
+        a.left - eps <= b.left &&
+        a.right + eps >= b.right &&
+        a.top - eps <= b.top &&
+        a.bottom + eps >= b.bottom;
+
+    // parent = smallest strictly-larger bbox containing this one
+    final parent = List<int>.filled(subs.length, -1);
+    for (var i = 0; i < subs.length; i++) {
+      if (areas[i].abs() < 1e-9) continue; // degenerate sliver: ignore
+      var best = -1;
+      var bestArea = double.infinity;
+      for (var j = 0; j < subs.length; j++) {
+        if (j == i || areas[j].abs() < 1e-9) continue;
+        final ja = boxArea(boxes[j]);
+        if (ja <= boxArea(boxes[i]) + 1e-6) continue;
+        if (contains(boxes[j], boxes[i]) && ja < bestArea) {
+          best = j;
+          bestArea = ja;
+        }
+      }
+      parent[i] = best;
+    }
+    final holesFor = <int, List<Float64List>>{};
+    final tops = <int>[];
+    var holeCount = 0;
+    for (var i = 0; i < subs.length; i++) {
+      if (areas[i].abs() < 1e-9) continue;
+      final p = parent[i];
+      if (p == -1) {
+        tops.add(i);
+      } else if (parent[p] == -1) {
+        (holesFor[p] ??= []).add(subs[i].points);
+        holeCount++;
+      } else {
+        _tally('rings-fail-depth');
+        return false; // deeper nesting (island in hole): stencil handles it
+      }
+    }
+    if (holeCount == 0 || tops.isEmpty) {
+      _tally('rings-fail-noholes');
+      return false;
+    }
+    // an unassigned opposite-winding sub overlapping a top-level would
+    // cancel under nonzero - the tree can't represent that, so bail
+    for (var i = 0; i < tops.length; i++) {
+      for (var j = i + 1; j < tops.length; j++) {
+        final a = tops[i], b = tops[j];
+        if (areas[a].sign == areas[b].sign) continue;
+        final apart = boxes[a].right < boxes[b].left ||
+            boxes[b].right < boxes[a].left ||
+            boxes[a].bottom < boxes[b].top ||
+            boxes[b].bottom < boxes[a].top;
+        if (!apart) {
+          _tally('rings-fail-cancel-risk');
+          return false;
+        }
+      }
+    }
+
+    final tris = DoubleBuilder(512);
+    for (final t in tops) {
+      final holes = holesFor[t];
+      final ok = holes == null
+          ? earClipPolygon(subs[t].points, tris)
+          : earClipWithHoles(subs[t].points, holes, tris);
+      if (!ok) {
+        _tally('rings-fail-clip');
         return false;
       }
+    }
+    _ensureSolidBatch();
+    final v = tris.view;
+    final r = color.red.clamp(0.0, 1.0) * alpha;
+    final g = color.green.clamp(0.0, 1.0) * alpha;
+    final b = color.blue.clamp(0.0, 1.0) * alpha;
+    for (var i = 0; i < v.length; i += 2) {
+      _solid.add6(_ndcX(v[i]), _ndcY(v[i + 1]), r, g, b, alpha);
     }
     return true;
   }
 
-  /// Whether every subpath's bounding box is strictly disjoint from every
-  /// other's - then no subpath can punch a hole in another and each fills
-  /// independently. Touching boxes count as overlapping (safe fallback).
-  static bool _disjointSubpaths(List<FlatSubpath> subs) {
+  /// Whether the subpaths can fill independently: winding (nonzero) and
+  /// parity (even-odd) only interact where interiors overlap, so subpaths
+  /// with pairwise-disjoint interiors are just islands. Under nonzero,
+  /// same-winding overlaps are additionally fine (they union). Pairs whose
+  /// bounding boxes overlap resolve with an exact separating-axis test when
+  /// both are convex; anything unresolved falls back to the stencil.
+  static bool _independentIslands(List<FlatSubpath> subs, PdfFillRule rule) {
     if (subs.length > 64) return false; // O(k^2) guard
-    final boxes = [
-      for (final sub in subs) FlatBounds.of([sub])!,
-    ];
-    for (var i = 0; i < boxes.length; i++) {
-      for (var j = i + 1; j < boxes.length; j++) {
+    final signs = <double>[];
+    final boxes = <FlatBounds>[];
+    for (final sub in subs) {
+      signs.add(signedArea2(sub.points).sign);
+      boxes.add(FlatBounds.of([sub])!);
+    }
+    List<bool>? convex;
+    for (var i = 0; i < subs.length; i++) {
+      if (signs[i] == 0) continue;
+      for (var j = i + 1; j < subs.length; j++) {
+        if (signs[j] == 0) continue;
+        // nonzero: same-direction subpaths union - overlap is harmless
+        if (rule == PdfFillRule.nonzero && signs[i] == signs[j]) continue;
         final a = boxes[i], b = boxes[j];
         final apart = a.right < b.left ||
             b.right < a.left ||
             a.bottom < b.top ||
             b.bottom < a.top;
-        if (!apart) return false;
+        if (apart) continue;
+        // bbox overlap: prove the interiors disjoint or give up
+        if (subs[i].pointCount > 16 || subs[j].pointCount > 16) return false;
+        convex ??= [
+          for (final sub in subs)
+            sub.pointCount <= 16 && isConvexPolygon([sub]),
+        ];
+        if (!convex[i] || !convex[j]) return false;
+        if (!convexInteriorsDisjoint(subs[i].points, subs[j].points)) {
+          return false;
+        }
       }
     }
     return true;
@@ -364,11 +489,10 @@ class GpuPdfDevice implements PdfDevice {
     }
   }
 
-  /// Adds a nonzero fill to the pending same-color stencil batch, flushing
-  /// first when the color or clip changed.
-  void _appendStencilFill(
-      List<FlatSubpath> subs, double r, double g, double b, double a) {
-    if (_textBounds != null &&
+  /// Opens (or re-targets) the same-color stencil batch, flushing the
+  /// pending one when the premultiplied color or clip changed.
+  void _openStencilBatch(double r, double g, double b, double a) {
+    if (_textOpen &&
         (r != _textR ||
             g != _textG ||
             b != _textB ||
@@ -377,22 +501,125 @@ class GpuPdfDevice implements PdfDevice {
       _flushText();
     }
     _flushSolid(); // only one deferred batch open at a time
-    if (_textBounds == null) {
+    if (!_textOpen) {
+      _textOpen = true;
       _textR = r;
       _textG = g;
       _textB = b;
       _textA = a;
       _textScissor = _scissor;
+      _textBounds = null;
     }
+  }
+
+  void _growTextBounds(double x, double y) {
+    final b = _textBounds;
+    if (b == null) {
+      _textBounds = FlatBounds(x, y, x, y);
+    } else {
+      b.include(x, y);
+    }
+  }
+
+  /// Admits one element (bbox [l],[t],[r],[b]) into the stencil batch,
+  /// flushing first when merging it would spread the cover quad to more
+  /// than ~3x the accumulated content area. The cover pass rasterizes the
+  /// union bbox at MSAA rate, so a batch spanning distant page corners
+  /// costs far more fill than the draw calls it saves.
+  void _admitToBatch(double l, double t, double r, double b, double red,
+      double green, double blue, double alpha) {
+    final elemArea = math.max((r - l) * (b - t), 1.0);
+    final bounds = _textBounds;
+    if (_textOpen && bounds != null) {
+      final unionW = math.max(bounds.right, r) - math.min(bounds.left, l);
+      final unionH = math.max(bounds.bottom, b) - math.min(bounds.top, t);
+      if (unionW * unionH > 3 * (_textCoverage + elemArea) + 4096) {
+        _flushText();
+      }
+    }
+    _openStencilBatch(red, green, blue, alpha);
+    _growTextBounds(l, t);
+    _growTextBounds(r, b);
+    _textCoverage += elemArea;
+  }
+
+  /// Adds a nonzero fill to the pending same-color stencil batch, flushing
+  /// first when the color or clip changed.
+  void _appendStencilFill(
+      List<FlatSubpath> subs, double r, double g, double b, double a) {
     final bounds = FlatBounds.of(subs);
     if (bounds == null) return;
-    if (_textBounds == null) {
-      _textBounds = bounds;
-    } else {
-      _textBounds!.include(bounds.left, bounds.top);
-      _textBounds!.include(bounds.right, bounds.bottom);
-    }
+    _admitToBatch(
+        bounds.left, bounds.top, bounds.right, bounds.bottom, r, g, b, a);
     appendFanTriangles(subs, _text);
+  }
+
+  /// Appends a filled text run to the stencil batch using cached em-space
+  /// glyph triangles: each distinct outline flattens once per tolerance
+  /// bucket, then every occurrence is a 6-multiply affine per vertex.
+  void _appendGlyphRun(
+      PdfTextRun run, PdfMatrix m, double scale, double alpha) {
+    final red = run.color.red.clamp(0.0, 1.0) * alpha;
+    final green = run.color.green.clamp(0.0, 1.0) * alpha;
+    final blue = run.color.blue.clamp(0.0, 1.0) * alpha;
+    final emTol = 0.2 / scale;
+    for (final glyph in run.glyphs!) {
+      final outline = glyph.outline;
+      if (outline == null) continue;
+      final fan = _glyphFanFor(outline, emTol);
+      if (fan.tris.isEmpty) continue;
+      // (p + offset)·M = p·A + offset·M  (A = linear part of M)
+      final tx = m.transformX(glyph.offset, glyph.offsetY);
+      final ty = m.transformY(glyph.offset, glyph.offsetY);
+      final c0x = fan.left * m.a + fan.top * m.c + tx;
+      final c0y = fan.left * m.b + fan.top * m.d + ty;
+      final c1x = fan.right * m.a + fan.top * m.c + tx;
+      final c1y = fan.right * m.b + fan.top * m.d + ty;
+      final c2x = fan.left * m.a + fan.bottom * m.c + tx;
+      final c2y = fan.left * m.b + fan.bottom * m.d + ty;
+      final c3x = fan.right * m.a + fan.bottom * m.c + tx;
+      final c3y = fan.right * m.b + fan.bottom * m.d + ty;
+      final l = math.min(math.min(c0x, c1x), math.min(c2x, c3x));
+      final r = math.max(math.max(c0x, c1x), math.max(c2x, c3x));
+      final t = math.min(math.min(c0y, c1y), math.min(c2y, c3y));
+      final b = math.max(math.max(c0y, c1y), math.max(c2y, c3y));
+      _admitToBatch(l, t, r, b, red, green, blue, alpha);
+      final tris = fan.tris;
+      for (var i = 0; i < tris.length; i += 2) {
+        final x = tris[i], y = tris[i + 1];
+        _text.add2(x * m.a + y * m.c + tx, x * m.b + y * m.d + ty);
+      }
+    }
+  }
+
+  static final _glyphFans = Expando<_GlyphFan>('pdfGpuGlyphFans');
+
+  /// Em-space fan triangles for [outline], cached on the outline object.
+  /// Rebuilt when the requested tolerance leaves the cached bucket (finer
+  /// is accepted down to 8x - extra vertices are cheap, reflattening isn't).
+  _GlyphFan _glyphFanFor(PdfPath outline, double emTol) {
+    final cached = _glyphFans[outline];
+    if (cached != null &&
+        cached.tolerance <= emTol * 1.01 &&
+        cached.tolerance >= emTol / 8) {
+      _tally('glyph-cache-hit');
+      return cached;
+    }
+    _tally('glyph-flatten');
+    final subs = flattenPath(outline, PdfMatrix.identity, tolerance: emTol);
+    final tris = DoubleBuilder(128);
+    appendFanTriangles(subs, tris);
+    final b = FlatBounds.of(subs);
+    final fan = _GlyphFan(
+      emTol,
+      Float64List.fromList(tris.view),
+      b?.left ?? 0,
+      b?.top ?? 0,
+      b?.right ?? 0,
+      b?.bottom ?? 0,
+    );
+    _glyphFans[outline] = fan;
+    return fan;
   }
 
   @override
@@ -478,6 +705,19 @@ class GpuPdfDevice implements PdfDevice {
       _count('substituted-text-skipped');
       return;
     }
+    final a = _alphaScale.clamp(0.0, 1.0);
+
+    if (run.fill && run.gradient == null && run.strokeColor == null) {
+      // The batched common case: cached em-space glyph triangles, one affine
+      // per run, merged into the pending same-color batch.
+      final runToDevice = run.transform.concat(pageToDevice);
+      final scale = runToDevice.scaleFactor;
+      if (scale > 0 && scale.isFinite) {
+        _appendGlyphRun(run, runToDevice, scale, a);
+        return;
+      }
+    }
+
     final subs = <FlatSubpath>[];
     for (final glyph in run.glyphs!) {
       final outline = glyph.outline;
@@ -488,18 +728,6 @@ class GpuPdfDevice implements PdfDevice {
       subs.addAll(flattenPath(outline, emToDevice, tolerance: 0.2));
     }
     if (subs.isEmpty) return;
-    final a = _alphaScale.clamp(0.0, 1.0);
-
-    if (run.fill && run.gradient == null && run.strokeColor == null) {
-      // The batched common case: merge into the pending same-color batch.
-      _appendStencilFill(
-          subs,
-          run.color.red.clamp(0.0, 1.0) * a,
-          run.color.green.clamp(0.0, 1.0) * a,
-          run.color.blue.clamp(0.0, 1.0) * a,
-          a);
-      return;
-    }
 
     // gradient fills / stroked text: immediate stencil-then-cover
     _flushText();
@@ -760,10 +988,15 @@ class GpuPdfDevice implements PdfDevice {
 
   /// Flushes the pending coalesced text runs as one stencil+cover pair.
   void _flushText() {
+    if (!_textOpen) return;
+    _textOpen = false;
+    _textCoverage = 0;
     final bounds = _textBounds;
-    if (bounds == null) return;
     _textBounds = null;
-    if (_text.isEmpty) return;
+    if (bounds == null || _text.isEmpty) {
+      _text.clear();
+      return;
+    }
     final scissor = _textScissor ?? _scissor;
     _stencilRaw(_text.view,
         rule: PdfFillRule.nonzero, union: false, scissor: scissor);
@@ -956,6 +1189,17 @@ class GpuPdfDevice implements PdfDevice {
     }
     return b;
   }
+}
+
+/// Cached em-space tessellation of one glyph outline: fan triangles plus
+/// their bounds, valid for tolerances within the cached bucket.
+class _GlyphFan {
+  const _GlyphFan(this.tolerance, this.tris, this.left, this.top, this.right,
+      this.bottom);
+
+  final double tolerance;
+  final Float64List tris;
+  final double left, top, right, bottom;
 }
 
 class _Rect {
