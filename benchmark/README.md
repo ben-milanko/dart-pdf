@@ -44,14 +44,37 @@ Takeaways:
 Absolute milliseconds are machine-specific; the **ratios** are the portable
 number. Re-run with `benchmark/run.sh corpus 2 10` (see Quick start).
 
+### flutter_gpu experiment (2026-07-08, branch experiment/flutter-gpu)
+
+A fourth harness benchmarks the experimental Flutter GPU backend
+(`PdfGpuPageRenderer` - direct triangles + stencil-then-cover on Impeller's
+low-level API instead of ui.Canvas display lists). Same corpus/protocol,
+captured with the updated tools (totals now 255 pages, so the other rows
+shifted slightly from the table above):
+
+| engine | throughput | ms/page | vs PDFium |
+|---|---|---|---|
+| **PDFium** | 40.1 pages/s | 24.9 | 1.00× |
+| **dart-pdf interpret** | 58.6 pages/s | 17.1 | **1.46× faster** |
+| **dart-pdf render** (Canvas) | 16.3 pages/s | 61.3 | 2.46× slower |
+| **dart-pdf GPU** (flutter_gpu) | 8.5 pages/s | 117.1 | **4.69× slower** |
+
+Ghent suite (57 pages): GPU 96.9 ms/page vs Canvas 78.3. The GPU path wins
+on only 6 of 49 corpus files (transparency-group-heavy pages, where
+saveLayer costs vanish) and loses up to 4x on text-dense ones - without a
+glyph atlas every text run costs a stencil+cover draw pair and a fresh CPU
+tessellation. Verdict and details in
+[doc/dev-log/2026-07-08-flutter-gpu-experiment.md](../doc/dev-log/2026-07-08-flutter-gpu-experiment.md).
+
 ## What gets measured
 
-Three harnesses, all writing the same JSON schema so they line up file-by-file:
+Four harnesses, all writing the same JSON schema so they line up file-by-file:
 
 | harness | engine | measures | needs |
 |---|---|---|---|
 | `pdfium_benchmark.py` | PDFium via pypdfium2 | open + rasterize to bitmap | `pip install pypdfium2` |
 | `benchmark_render_test.dart` | dart-pdf full pipeline | open + interpret + paint + `toImage` | fvm Flutter |
+| `benchmark_gpu_render_test.dart` | dart-pdf flutter_gpu backend (experimental) | open + interpret + GPU draw + readback | fvm Flutter, `--enable-impeller --enable-flutter-gpu` |
 | `benchmark_interpret.dart` | dart-pdf interpreter | open + interpret to a `NullDevice` (no raster) | fvm Dart |
 
 `benchmark_render_test.dart` is the **apples-to-apples** comparison with
@@ -94,7 +117,7 @@ excludes Flutter's GPU raster + readback.
 ```bash
 pip install pypdfium2
 
-# one command: runs all three over test_corpora/pdfjs at scale 2, 10 pages/file
+# one command: runs all four over test_corpora/pdfjs at scale 2, 10 pages/file
 benchmark/run.sh
 
 # or a custom corpus / scale / page cap
