@@ -1,9 +1,17 @@
 // Experimental flutter_gpu implementation of PdfDevice.
 //
 // The interpreter's page-space callbacks are turned into GPU draws inside a
-// single render pass: solid geometry (fills, strokes, meshes, glyph covers)
-// batches into as few draw calls as possible; non-convex paths fill via
-// stencil-then-cover; images and gradients draw as textured geometry.
+// single render pass. Two deferred batches keep the draw count down (each
+// draw costs ~12us of GPU-timeline time regardless of size, measured in
+// gpu_cost_matrix_test.dart):
+//  - solid geometry (convex fills, opaque strokes, meshes) accumulates into
+//    one vertex buffer per state run;
+//  - consecutive same-color text runs merge into a single stencil-then-cover
+//    pair instead of one per show-text operator.
+// At most one batch is open at a time, so paint order is preserved.
+// Non-convex paths fill via stencil-then-cover; images and gradients draw
+// as textured geometry. Redundant pass-state calls (scissor, stencil
+// config, blend) are elided.
 //
 // Known fidelity gaps (each counted in [unsupported]):
 //  - substituted-font text (no embedded outlines) paints nothing
@@ -88,7 +96,9 @@ class GpuPdfDevice implements PdfDevice {
     pass
       ..setCullMode(gpu.CullMode.none)
       ..setWindingOrder(gpu.WindingOrder.counterClockwise)
-      ..setPrimitiveType(gpu.PrimitiveType.triangle);
+      ..setPrimitiveType(gpu.PrimitiveType.triangle)
+      ..setStencilReference(0)
+      ..setColorBlendEnable(true);
   }
 
   final gpu.GpuContext context;
@@ -108,6 +118,12 @@ class GpuPdfDevice implements PdfDevice {
   /// Approximated/skipped features and how often each was hit - honesty
   /// counters for the benchmark writeup.
   final Map<String, int> unsupported = {};
+
+  /// Work counters for profiling: draw calls, stencil passes, vertex volume.
+  final Map<String, int> stats = {};
+
+  void _tally(String what, [int n = 1]) =>
+      stats[what] = (stats[what] ?? 0) + n;
 
   void _count(String what) =>
       unsupported[what] = (unsupported[what] ?? 0) + 1;
@@ -137,11 +153,31 @@ class GpuPdfDevice implements PdfDevice {
       _groupAlpha.isEmpty ? 1.0 : _groupAlpha.fold(1.0, (a, b) => a * b);
 
   // Batched solid triangles: NDC x, y + premultiplied r, g, b, a.
-  final _solid = <double>[];
+  final _solid = FloatBuilder(4096);
   // The scissor the current batch was started under; a change flushes.
   _Rect? _solidScissor;
 
+  // Batched stencil fills: device-space fan triangles for consecutive
+  // same-color nonzero fills (text runs and non-convex paths), covered in
+  // one stencil-then-cover pair at flush. Overlaps between merged fills
+  // paint once instead of blending twice - invisible for the opaque common
+  // case, a small deviation for translucent overlapping same-color art.
+  final _text = DoubleBuilder(4096);
+  FlatBounds? _textBounds;
+  double _textR = 0, _textG = 0, _textB = 0, _textA = 0;
+  _Rect? _textScissor;
+
+  // scratch for per-path fan/stroke triangles (reused across calls)
+  final _scratch = DoubleBuilder(4096);
+
   static final _gradientLuts = Expando<gpu.Texture>('pdfGradientLuts');
+
+  // Applied pass state, for elision of redundant FFI setters.
+  int _appliedScissorX = -1, _appliedScissorY = -1;
+  int _appliedScissorW = -1, _appliedScissorH = -1;
+  int _stencilState = -1; // 0 default, 1 nonzero, 2 evenodd, 3 union, 4 cover
+  int _blendState = -1; // 0 srcOver, 1 no color write
+  gpu.RenderPipeline? _boundPipeline;
 
   double _ndcX(double x) => 2 * x / widthPx - 1;
   double _ndcY(double y) => 1 - 2 * y / heightPx;
@@ -223,12 +259,140 @@ class GpuPdfDevice implements PdfDevice {
     final a = (alpha * _alphaScale).clamp(0.0, 1.0);
     if (a <= 0) return;
     if (isConvexPolygon(subs)) {
+      _tally('fill-convex');
       _pushSolidFan(subs, color, a);
+    } else if (subs.length == 1 && _pushEarClipped(subs[0], color, a)) {
+      // small simple polygon (CAD hatches, arrowheads): exact triangles into
+      // the solid batch - no stencil pass, no hull overdraw, no cover.
+      // For a simple polygon nonzero and even-odd fill identically.
+      _tally('fill-earclip');
+    } else if (subs.length == 1) {
+      _tally('earclip-fail-${subs[0].pointCount <= 160 ? "shape" : "size"}');
+      _fillStencilFallback(subs, color, rule, a);
+    } else if (rule == PdfFillRule.nonzero
+        ? _sameWinding(subs)
+        : _disjointSubpaths(subs)) {
+      // independent islands (hatch strips, dash-like fills): route each
+      // through the fast paths alone. Under nonzero, same-direction
+      // subpaths cannot punch holes in each other, so per-subpath filling
+      // is exact coverage (overlaps double-blend only when translucent).
+      // Under even-odd any nesting toggles, so only bbox-disjoint
+      // subpaths qualify.
+      _tally('fill-islands');
+      for (final sub in subs) {
+        final single = [sub];
+        if (isConvexPolygon(single)) {
+          _pushSolidFan(single, color, a);
+        } else if (!_pushEarClipped(sub, color, a)) {
+          _fillStencilFallback(single, color, rule, a);
+        }
+      }
+    } else if (rule == PdfFillRule.nonzero) {
+      // winding counts add across merged nonzero fills, so same-color
+      // non-convex fills coalesce exactly like text runs
+      _tally('fill-stencil-batched');
+      _appendStencilFill(
+          subs,
+          color.red.clamp(0.0, 1.0) * a,
+          color.green.clamp(0.0, 1.0) * a,
+          color.blue.clamp(0.0, 1.0) * a,
+          a);
     } else {
+      // even-odd inverts, which would cancel across overlapping merged
+      // paths - fill immediately
+      _tally('fill-stencil');
+      _flushText();
       _stencilThenCover(subs, rule, union: false, cover: (bounds) {
         _coverSolid(bounds, color, a);
       });
     }
+  }
+
+  /// Whether every subpath winds the same direction - then under the
+  /// nonzero rule none can be a hole and each fills independently.
+  static bool _sameWinding(List<FlatSubpath> subs) {
+    var sign = 0.0;
+    for (final sub in subs) {
+      final area = signedArea2(sub.points);
+      if (area.abs() < 1e-12) continue; // degenerate sliver: no effect
+      if (sign == 0.0) {
+        sign = area.sign;
+      } else if (area.sign != sign) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Whether every subpath's bounding box is strictly disjoint from every
+  /// other's - then no subpath can punch a hole in another and each fills
+  /// independently. Touching boxes count as overlapping (safe fallback).
+  static bool _disjointSubpaths(List<FlatSubpath> subs) {
+    if (subs.length > 64) return false; // O(k^2) guard
+    final boxes = [
+      for (final sub in subs) FlatBounds.of([sub])!,
+    ];
+    for (var i = 0; i < boxes.length; i++) {
+      for (var j = i + 1; j < boxes.length; j++) {
+        final a = boxes[i], b = boxes[j];
+        final apart = a.right < b.left ||
+            b.right < a.left ||
+            a.bottom < b.top ||
+            b.bottom < a.top;
+        if (!apart) return false;
+      }
+    }
+    return true;
+  }
+
+  /// Routes a fill that failed the fast paths: same-color stencil batch for
+  /// nonzero, immediate stencil-then-cover for even-odd.
+  void _fillStencilFallback(
+      List<FlatSubpath> subs, PdfColor color, PdfFillRule rule, double a) {
+    if (rule == PdfFillRule.nonzero) {
+      _appendStencilFill(
+          subs,
+          color.red.clamp(0.0, 1.0) * a,
+          color.green.clamp(0.0, 1.0) * a,
+          color.blue.clamp(0.0, 1.0) * a,
+          a);
+    } else {
+      _flushText();
+      _stencilThenCover(subs, rule, union: false, cover: (bounds) {
+        _coverSolid(bounds, color, a);
+      });
+    }
+  }
+
+  /// Adds a nonzero fill to the pending same-color stencil batch, flushing
+  /// first when the color or clip changed.
+  void _appendStencilFill(
+      List<FlatSubpath> subs, double r, double g, double b, double a) {
+    if (_textBounds != null &&
+        (r != _textR ||
+            g != _textG ||
+            b != _textB ||
+            a != _textA ||
+            !_textScissor!.equals(_scissor))) {
+      _flushText();
+    }
+    _flushSolid(); // only one deferred batch open at a time
+    if (_textBounds == null) {
+      _textR = r;
+      _textG = g;
+      _textB = b;
+      _textA = a;
+      _textScissor = _scissor;
+    }
+    final bounds = FlatBounds.of(subs);
+    if (bounds == null) return;
+    if (_textBounds == null) {
+      _textBounds = bounds;
+    } else {
+      _textBounds!.include(bounds.left, bounds.top);
+      _textBounds!.include(bounds.right, bounds.bottom);
+    }
+    appendFanTriangles(subs, _text);
   }
 
   @override
@@ -244,6 +408,7 @@ class GpuPdfDevice implements PdfDevice {
       fillPath(path, gradient.averageColor, rule, alpha);
       return;
     }
+    _flushText();
     _stencilThenCover(subs, rule, union: false, cover: (bounds) {
       _coverGradient(bounds, gradient, deviceToGradient, a);
     });
@@ -259,13 +424,13 @@ class GpuPdfDevice implements PdfDevice {
       final v = mesh.vertices[index];
       final dx = pageToDevice.transformX(v.x, v.y);
       final dy = pageToDevice.transformY(v.x, v.y);
-      _solid
-        ..add(_ndcX(dx))
-        ..add(_ndcY(dy))
-        ..add(v.color.red.clamp(0.0, 1.0) * a)
-        ..add(v.color.green.clamp(0.0, 1.0) * a)
-        ..add(v.color.blue.clamp(0.0, 1.0) * a)
-        ..add(a);
+      _solid.add6(
+          _ndcX(dx),
+          _ndcY(dy),
+          v.color.red.clamp(0.0, 1.0) * a,
+          v.color.green.clamp(0.0, 1.0) * a,
+          v.color.blue.clamp(0.0, 1.0) * a,
+          a);
     }
   }
 
@@ -282,32 +447,33 @@ class GpuPdfDevice implements PdfDevice {
     final a = (alpha * _alphaScale).clamp(0.0, 1.0);
     if (a <= 0) return;
     final width = stroke.width * scale;
-    final triangles = <double>[];
+    final triangles = _scratch..clear();
     appendStrokeTriangles(
         subs, width, stroke.cap, stroke.join, stroke.miterLimit, triangles);
     if (triangles.isEmpty) return;
     if (a >= 1) {
       // opaque: overlapping join geometry is invisible, batch directly
       _ensureSolidBatch();
-      for (var i = 0; i < triangles.length; i += 2) {
-        _solid
-          ..add(_ndcX(triangles[i]))
-          ..add(_ndcY(triangles[i + 1]))
-          ..add(color.red.clamp(0.0, 1.0))
-          ..add(color.green.clamp(0.0, 1.0))
-          ..add(color.blue.clamp(0.0, 1.0))
-          ..add(1.0);
+      final t = triangles.view;
+      final r = color.red.clamp(0.0, 1.0);
+      final g = color.green.clamp(0.0, 1.0);
+      final b = color.blue.clamp(0.0, 1.0);
+      for (var i = 0; i < t.length; i += 2) {
+        _solid.add6(_ndcX(t[i]), _ndcY(t[i + 1]), r, g, b, 1.0);
       }
     } else {
       // translucent: stencil the union so overlaps don't double-blend
-      _stencilTriangles(triangles, union: true);
-      _coverSolid(_boundsOfTriangles(triangles), color, a);
+      _flushText();
+      final t = triangles.view;
+      _stencilRaw(t, rule: PdfFillRule.nonzero, union: true);
+      _coverSolid(_boundsOfTriangles(t), color, a);
     }
   }
 
   @override
   void drawText(PdfTextRun run) {
     if (run.invisible) return;
+    _tally('text-runs');
     if (run.glyphs == null) {
       _count('substituted-text-skipped');
       return;
@@ -319,10 +485,24 @@ class GpuPdfDevice implements PdfDevice {
       final emToDevice = PdfMatrix.translation(glyph.offset, glyph.offsetY)
           .concat(run.transform)
           .concat(pageToDevice);
-      subs.addAll(flattenPath(outline, emToDevice, tolerance: 0.1));
+      subs.addAll(flattenPath(outline, emToDevice, tolerance: 0.2));
     }
     if (subs.isEmpty) return;
     final a = _alphaScale.clamp(0.0, 1.0);
+
+    if (run.fill && run.gradient == null && run.strokeColor == null) {
+      // The batched common case: merge into the pending same-color batch.
+      _appendStencilFill(
+          subs,
+          run.color.red.clamp(0.0, 1.0) * a,
+          run.color.green.clamp(0.0, 1.0) * a,
+          run.color.blue.clamp(0.0, 1.0) * a,
+          a);
+      return;
+    }
+
+    // gradient fills / stroked text: immediate stencil-then-cover
+    _flushText();
     if (run.fill) {
       final gradient = run.gradient;
       final deviceToGradient =
@@ -337,7 +517,7 @@ class GpuPdfDevice implements PdfDevice {
       });
     }
     if (run.strokeColor != null) {
-      final triangles = <double>[];
+      final triangles = _scratch..clear();
       appendStrokeTriangles(
           subs,
           math.max(run.strokeWidth * pageToDevice.scaleFactor, 1.0),
@@ -345,9 +525,10 @@ class GpuPdfDevice implements PdfDevice {
           0,
           10,
           triangles);
-      if (triangles.isNotEmpty) {
-        _stencilTriangles(triangles, union: true);
-        _coverSolid(_boundsOfTriangles(triangles), run.strokeColor!, a);
+      if (!triangles.isEmpty) {
+        final t = triangles.view;
+        _stencilRaw(t, rule: PdfFillRule.nonzero, union: true);
+        _coverSolid(_boundsOfTriangles(t), run.strokeColor!, a);
       }
     }
   }
@@ -359,9 +540,10 @@ class GpuPdfDevice implements PdfDevice {
       _count('image-not-decoded');
       return;
     }
+    _flushText();
     _flushSolid();
-    _applyScissor();
-    _defaultStencil();
+    _applyScissor(_scissor);
+    _setStencilState(_stencilDefault);
 
     final a = (request.alpha * _alphaScale).clamp(0.0, 1.0);
     // unit square (y-up) corners -> device -> NDC; uv is y-down
@@ -388,10 +570,9 @@ class GpuPdfDevice implements PdfDevice {
       ..setRange(0, 4, tint)
       ..[4] = request.isStencil ? 1.0 : 0.0;
 
+    _bindPipeline(pipelines.texture);
+    _setBlendState(_blendSrcOver);
     pass
-      ..bindPipeline(pipelines.texture)
-      ..setColorBlendEnable(true)
-      ..setColorBlendEquation(_srcOver)
       ..bindUniform(pipelines.textureFragInfo,
           _emplace(info.buffer.asByteData()))
       ..bindTexture(pipelines.textureSampler, texture,
@@ -400,13 +581,26 @@ class GpuPdfDevice implements PdfDevice {
               magFilter: gpu.MinMagFilter.linear))
       ..bindVertexBuffer(_emplace(verts.buffer.asByteData()), 6)
       ..draw();
+    _tally('draw-image');
     pass.clearBindings();
+    _boundPipeline = null;
   }
 
   /// Flushes any pending batched geometry - call once after interpretation.
-  void finish() => _flushSolid();
+  void finish() {
+    _flushText();
+    _flushSolid();
+  }
 
-  // ---- internals -----------------------------------------------------------
+  // ---- pass-state elision ---------------------------------------------------
+
+  static const _blendSrcOver = 0;
+  static const _blendNoWrite = 1;
+  static const _stencilDefault = 0;
+  static const _stencilNonzero = 1;
+  static const _stencilEvenOdd = 2;
+  static const _stencilUnion = 3;
+  static const _stencilCover = 4;
 
   static final _srcOver = gpu.ColorBlendEquation(
     sourceColorBlendFactor: gpu.BlendFactor.one,
@@ -423,6 +617,85 @@ class GpuPdfDevice implements PdfDevice {
     destinationAlphaBlendFactor: gpu.BlendFactor.one,
   );
 
+  void _bindPipeline(gpu.RenderPipeline pipeline) {
+    if (identical(_boundPipeline, pipeline)) return;
+    pass.bindPipeline(pipeline);
+    _boundPipeline = pipeline;
+  }
+
+  void _setBlendState(int state) {
+    if (_blendState == state) return;
+    pass.setColorBlendEquation(
+        state == _blendSrcOver ? _srcOver : _noColorWrite);
+    _blendState = state;
+  }
+
+  void _setStencilState(int state) {
+    if (_stencilState == state) return;
+    switch (state) {
+      case _stencilDefault:
+        pass.setStencilConfig(gpu.StencilConfig(
+          compareFunction: gpu.CompareFunction.always,
+          depthStencilPassOperation: gpu.StencilOperation.keep,
+        ));
+      case _stencilNonzero:
+        pass
+          ..setStencilConfig(
+              gpu.StencilConfig(
+                compareFunction: gpu.CompareFunction.always,
+                depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
+              ),
+              targetFace: gpu.StencilFace.front)
+          ..setStencilConfig(
+              gpu.StencilConfig(
+                compareFunction: gpu.CompareFunction.always,
+                depthStencilPassOperation: gpu.StencilOperation.decrementWrap,
+              ),
+              targetFace: gpu.StencilFace.back);
+      case _stencilEvenOdd:
+        pass.setStencilConfig(gpu.StencilConfig(
+          compareFunction: gpu.CompareFunction.always,
+          depthStencilPassOperation: gpu.StencilOperation.invert,
+        ));
+      case _stencilUnion:
+        // union coverage: any hit marks the pixel, winding irrelevant
+        pass.setStencilConfig(gpu.StencilConfig(
+          compareFunction: gpu.CompareFunction.always,
+          depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
+        ));
+      case _stencilCover:
+        // paint where non-zero, zeroing behind the draw so the buffer is
+        // clean for the next path without an explicit clear
+        pass.setStencilConfig(gpu.StencilConfig(
+          compareFunction: gpu.CompareFunction.notEqual,
+          depthStencilPassOperation: gpu.StencilOperation.zero,
+          stencilFailureOperation: gpu.StencilOperation.keep,
+        ));
+    }
+    _stencilState = state;
+  }
+
+  void _applyScissor(_Rect s) {
+    final x = s.left.floor().clamp(0, widthPx);
+    final y = s.top.floor().clamp(0, heightPx);
+    final r = s.right.ceil().clamp(0, widthPx);
+    final b = s.bottom.ceil().clamp(0, heightPx);
+    final w = math.max(r - x, 0), h = math.max(b - y, 0);
+    if (x == _appliedScissorX &&
+        y == _appliedScissorY &&
+        w == _appliedScissorW &&
+        h == _appliedScissorH) {
+      return;
+    }
+    pass.setScissor(gpu.Scissor(x: x, y: y, width: w, height: h));
+    _appliedScissorX = x;
+    _appliedScissorY = y;
+    _appliedScissorW = w;
+    _appliedScissorH = h;
+  }
+
+  // ---- batches ---------------------------------------------------------------
+
   static List<double> _premul(PdfColor color, double alpha) => [
         color.red.clamp(0.0, 1.0) * alpha,
         color.green.clamp(0.0, 1.0) * alpha,
@@ -430,45 +703,40 @@ class GpuPdfDevice implements PdfDevice {
         alpha,
       ];
 
-  void _defaultStencil() {
-    pass
-      ..setStencilReference(0)
-      ..setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.always,
-        depthStencilPassOperation: gpu.StencilOperation.keep,
-      ));
-  }
-
-  void _applyScissor() {
-    final s = _scissor;
-    final x = s.left.floor().clamp(0, widthPx);
-    final y = s.top.floor().clamp(0, heightPx);
-    final r = s.right.ceil().clamp(0, widthPx);
-    final b = s.bottom.ceil().clamp(0, heightPx);
-    pass.setScissor(gpu.Scissor(
-        x: x, y: y, width: math.max(r - x, 0), height: math.max(b - y, 0)));
-  }
-
   void _ensureSolidBatch() {
+    _flushText();
     if (_solidScissor != null && !_solidScissor!.equals(_scissor)) {
       _flushSolid();
     }
     _solidScissor ??= _scissor;
   }
 
+  /// Ear-clips a single-subpath polygon straight into the solid batch.
+  /// False when it doesn't qualify (big/self-intersecting/degenerate).
+  bool _pushEarClipped(FlatSubpath sub, PdfColor color, double alpha) {
+    final tris = _scratch..clear();
+    if (!earClipPolygon(sub.points, tris)) return false;
+    _ensureSolidBatch();
+    final t = tris.view;
+    final r = color.red.clamp(0.0, 1.0) * alpha;
+    final g = color.green.clamp(0.0, 1.0) * alpha;
+    final b = color.blue.clamp(0.0, 1.0) * alpha;
+    for (var i = 0; i < t.length; i += 2) {
+      _solid.add6(_ndcX(t[i]), _ndcY(t[i + 1]), r, g, b, alpha);
+    }
+    return true;
+  }
+
   void _pushSolidFan(List<FlatSubpath> subs, PdfColor color, double alpha) {
     _ensureSolidBatch();
-    final fan = <double>[];
+    final fan = _scratch..clear();
     appendFanTriangles(subs, fan);
-    final c = _premul(color, alpha);
-    for (var i = 0; i < fan.length; i += 2) {
-      _solid
-        ..add(_ndcX(fan[i]))
-        ..add(_ndcY(fan[i + 1]))
-        ..add(c[0])
-        ..add(c[1])
-        ..add(c[2])
-        ..add(c[3]);
+    final t = fan.view;
+    final r = color.red.clamp(0.0, 1.0) * alpha;
+    final g = color.green.clamp(0.0, 1.0) * alpha;
+    final b = color.blue.clamp(0.0, 1.0) * alpha;
+    for (var i = 0; i < t.length; i += 2) {
+      _solid.add6(_ndcX(t[i]), _ndcY(t[i + 1]), r, g, b, alpha);
     }
   }
 
@@ -477,22 +745,32 @@ class GpuPdfDevice implements PdfDevice {
       _solidScissor = null;
       return;
     }
-    final saved = _scissor;
-    _scissor = _solidScissor ?? _scissor;
-    _applyScissor();
-    _scissor = saved;
-    _defaultStencil();
+    _applyScissor(_solidScissor ?? _scissor);
+    _setStencilState(_stencilDefault);
+    _bindPipeline(pipelines.solid);
+    _setBlendState(_blendSrcOver);
     pass
-      ..bindPipeline(pipelines.solid)
-      ..setColorBlendEnable(true)
-      ..setColorBlendEquation(_srcOver)
-      ..bindVertexBuffer(
-          _emplace(Float32List.fromList(_solid).buffer.asByteData()),
-          _solid.length ~/ 6)
+      ..bindVertexBuffer(_emplace(_solid.bytes), _solid.length ~/ 6)
       ..draw();
-    pass.clearBindings();
+    _tally('draw-solid-batch');
+    _tally('verts-solid', _solid.length ~/ 6);
     _solid.clear();
     _solidScissor = null;
+  }
+
+  /// Flushes the pending coalesced text runs as one stencil+cover pair.
+  void _flushText() {
+    final bounds = _textBounds;
+    if (bounds == null) return;
+    _textBounds = null;
+    if (_text.isEmpty) return;
+    final scissor = _textScissor ?? _scissor;
+    _stencilRaw(_text.view,
+        rule: PdfFillRule.nonzero, union: false, scissor: scissor);
+    _coverSolidPremul(bounds, _textR, _textG, _textB, _textA,
+        scissor: scissor);
+    _text.clear();
+    _tally('text-batches');
   }
 
   /// Stencil-then-cover fill: rasterize fan triangles into the stencil
@@ -509,74 +787,35 @@ class GpuPdfDevice implements PdfDevice {
         bounds.top >= _scissor.bottom) {
       return; // fully clipped away
     }
-    final fan = <double>[];
+    final fan = _scratch..clear();
     appendFanTriangles(subs, fan);
     if (fan.isEmpty) return;
-    _stencilRaw(fan, rule: rule, union: union);
+    _stencilRaw(fan.view, rule: rule, union: union);
     cover(bounds);
   }
 
-  void _stencilTriangles(List<double> triangles, {required bool union}) {
-    _stencilRaw(triangles, rule: PdfFillRule.nonzero, union: union);
-  }
-
-  void _stencilRaw(List<double> triangles,
-      {required PdfFillRule rule, required bool union}) {
+  void _stencilRaw(Float64List triangles,
+      {required PdfFillRule rule, required bool union, _Rect? scissor}) {
     _flushSolid();
-    _applyScissor();
+    _applyScissor(scissor ?? _scissor);
     final verts = Float32List(triangles.length);
     for (var i = 0; i < triangles.length; i += 2) {
       verts[i] = _ndcX(triangles[i]);
       verts[i + 1] = _ndcY(triangles[i + 1]);
     }
-    pass
-      ..bindPipeline(pipelines.stencil)
-      ..setColorBlendEnable(true)
-      ..setColorBlendEquation(_noColorWrite)
-      ..setStencilReference(0);
-    if (union) {
-      // union coverage: any hit marks the pixel, winding irrelevant
-      pass.setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.always,
-        depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
-      ));
-    } else if (rule == PdfFillRule.evenOdd) {
-      pass.setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.always,
-        depthStencilPassOperation: gpu.StencilOperation.invert,
-      ));
-    } else {
-      pass
-        ..setStencilConfig(
-            gpu.StencilConfig(
-              compareFunction: gpu.CompareFunction.always,
-              depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
-            ),
-            targetFace: gpu.StencilFace.front)
-        ..setStencilConfig(
-            gpu.StencilConfig(
-              compareFunction: gpu.CompareFunction.always,
-              depthStencilPassOperation: gpu.StencilOperation.decrementWrap,
-            ),
-            targetFace: gpu.StencilFace.back);
-    }
+    _bindPipeline(pipelines.stencil);
+    _setBlendState(_blendNoWrite);
+    _setStencilState(union
+        ? _stencilUnion
+        : rule == PdfFillRule.evenOdd
+            ? _stencilEvenOdd
+            : _stencilNonzero);
     pass
       ..bindVertexBuffer(
           _emplace(verts.buffer.asByteData()), verts.length ~/ 2)
       ..draw();
-    pass.clearBindings();
-  }
-
-  /// Stencil test for a cover draw: paint where the stencil is non-zero and
-  /// zero it behind the draw, leaving the buffer clean for the next path.
-  void _coverStencilConfig() {
-    pass
-      ..setStencilReference(0)
-      ..setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.notEqual,
-        depthStencilPassOperation: gpu.StencilOperation.zero,
-        stencilFailureOperation: gpu.StencilOperation.keep,
-      ));
+    _tally('draw-stencil');
+    _tally('verts-stencil', verts.length ~/ 2);
   }
 
   List<double> _coverQuad(FlatBounds b) {
@@ -587,28 +826,35 @@ class GpuPdfDevice implements PdfDevice {
 
   void _coverSolid(FlatBounds? bounds, PdfColor color, double alpha) {
     if (bounds == null) return;
-    _applyScissor();
-    _coverStencilConfig();
-    final c = _premul(color, alpha);
+    _coverSolidPremul(
+        bounds,
+        color.red.clamp(0.0, 1.0) * alpha,
+        color.green.clamp(0.0, 1.0) * alpha,
+        color.blue.clamp(0.0, 1.0) * alpha,
+        alpha);
+  }
+
+  void _coverSolidPremul(
+      FlatBounds bounds, double r, double g, double b, double a,
+      {_Rect? scissor}) {
+    _applyScissor(scissor ?? _scissor);
+    _setStencilState(_stencilCover);
     final quad = _coverQuad(bounds);
     final verts = Float32List(6 * 6);
     for (var i = 0; i < 6; i++) {
       verts[i * 6] = quad[2 * i];
       verts[i * 6 + 1] = quad[2 * i + 1];
-      verts[i * 6 + 2] = c[0];
-      verts[i * 6 + 3] = c[1];
-      verts[i * 6 + 4] = c[2];
-      verts[i * 6 + 5] = c[3];
+      verts[i * 6 + 2] = r;
+      verts[i * 6 + 3] = g;
+      verts[i * 6 + 4] = b;
+      verts[i * 6 + 5] = a;
     }
+    _bindPipeline(pipelines.solid);
+    _setBlendState(_blendSrcOver);
     pass
-      ..bindPipeline(pipelines.solid)
-      ..setColorBlendEnable(true)
-      ..setColorBlendEquation(_srcOver)
-      ..bindVertexBuffer(
-          _emplace(verts.buffer.asByteData()), 6)
+      ..bindVertexBuffer(_emplace(verts.buffer.asByteData()), 6)
       ..draw();
-    pass.clearBindings();
-    _defaultStencil();
+    _tally('draw-cover');
   }
 
   /// Device px -> gradient space, or null when the gradient's transform is
@@ -623,8 +869,8 @@ class GpuPdfDevice implements PdfDevice {
   void _coverGradient(FlatBounds? bounds, PdfGradient gradient,
       PdfMatrix deviceToGradient, double alpha) {
     if (bounds == null) return;
-    _applyScissor();
-    _coverStencilConfig();
+    _applyScissor(_scissor);
+    _setStencilState(_stencilCover);
     final quad = _coverQuad(bounds);
     // gradient-space coordinate per vertex (affine, so exact when
     // interpolated); recover device px from NDC to avoid re-deriving corners
@@ -649,10 +895,9 @@ class GpuPdfDevice implements PdfDevice {
     info[8] = gradient.extendStart ? 1 : 0;
     info[9] = gradient.extendEnd ? 1 : 0;
 
+    _bindPipeline(pipelines.gradient);
+    _setBlendState(_blendSrcOver);
     pass
-      ..bindPipeline(pipelines.gradient)
-      ..setColorBlendEnable(true)
-      ..setColorBlendEquation(_srcOver)
       ..bindUniform(
           pipelines.gradientInfo, _emplace(info.buffer.asByteData()))
       ..bindTexture(pipelines.gradientLut, _lutFor(gradient),
@@ -661,8 +906,9 @@ class GpuPdfDevice implements PdfDevice {
               magFilter: gpu.MinMagFilter.linear))
       ..bindVertexBuffer(_emplace(verts.buffer.asByteData()), 6)
       ..draw();
+    _tally('draw-cover-gradient');
     pass.clearBindings();
-    _defaultStencil();
+    _boundPipeline = null;
   }
 
   /// 256x1 premultiplied color ramp for [gradient], cached on the gradient's
@@ -701,15 +947,12 @@ class GpuPdfDevice implements PdfDevice {
     return texture;
   }
 
-  static FlatBounds? _boundsOfTriangles(List<double> triangles) {
+  static FlatBounds? _boundsOfTriangles(Float64List triangles) {
     if (triangles.isEmpty) return null;
     final b =
         FlatBounds(triangles[0], triangles[1], triangles[0], triangles[1]);
     for (var i = 2; i < triangles.length; i += 2) {
-      if (triangles[i] < b.left) b.left = triangles[i];
-      if (triangles[i] > b.right) b.right = triangles[i];
-      if (triangles[i + 1] < b.top) b.top = triangles[i + 1];
-      if (triangles[i + 1] > b.bottom) b.bottom = triangles[i + 1];
+      b.include(triangles[i], triangles[i + 1]);
     }
     return b;
   }
