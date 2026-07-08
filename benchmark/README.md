@@ -58,19 +58,23 @@ shifted slightly from the table above):
 | **dart-pdf interpret** | 58.6 pages/s | 17.1 | **1.46× faster** |
 | **dart-pdf render** (Canvas) | 16.3 pages/s | 61.3 | 2.46× slower |
 | **dart-pdf GPU**, first cut | 8.5 pages/s | 117.1 | 4.69× slower |
-| **dart-pdf GPU**, optimized (MSAA 4×) | 10.7 pages/s | 93.5 | 3.75× slower |
-| **dart-pdf GPU**, optimized (aliased) | 14.8 pages/s | 67.6 | **2.71× slower** |
+| **dart-pdf GPU**, round 2 (MSAA 4×) | 10.7 pages/s | 93.5 | 3.75× slower |
+| **dart-pdf GPU**, round 3 (MSAA 4×) | 11.9 pages/s | 83.8 | 3.36× slower |
+| **dart-pdf GPU**, round 3 (aliased, pipelined) | 17.3 pages/s | 57.9 | **2.32× slower — beats the Canvas renderer** |
 
-The optimization round (profile-guided: render-target caching, same-color
-fill/text batching, ear-clip triangulation, typed builders, state
-elision) took the worst text page from 4417 draws to ~130 and flipped the
-per-file story: in aliased mode the GPU path beats the Canvas renderer on
-**36 of 49 corpus files (median ratio 0.84)**, up to 9× on
-transparency-group pages. The remaining fixed gap vs Canvas is the SDK's
-non-memoryless MSAA resolve (~10 ms/page at A3); the remaining losses are
-image-decode-bound files and mixed-winding CAD hatches. Ghent (57 pages,
-MSAA): GPU 84.5 ms/page vs Canvas 78.3. Analysis, cost matrix, and
-verdict in
+Two profile-guided optimization rounds (render-target caching, same-color
+fill/text batching, an em-space glyph tessellation cache, ear-clip
+triangulation incl. hole-bridged rings, exact interiors-disjoint island
+detection, cover-spread flushing, typed builders, state elision, and a
+1-deep CPU/GPU page pipeline via `PDF_GPU_PIPELINE=1`) took the worst
+text page from 4417 draws to ~130 and flipped the verdict: the aliased
+pipelined GPU path renders the corpus **faster than the Canvas renderer
+overall (57.9 vs 61.3 ms/page), beating it on 39 of 49 files (median
+0.77, worst 1.52×)**, up to 9× on transparency-group pages. At matched
+(MSAA) quality the remaining gap vs Canvas is the SDK's non-memoryless
+MSAA resolve (~10 ms/page at A3). Ghent (57 pages, MSAA): GPU 82.8
+ms/page vs Canvas 78.3. Analysis, cost matrix, per-round numbers, and
+**notes on which optimizations transfer to the Canvas renderer** in
 [doc/dev-log/2026-07-08-flutter-gpu-experiment.md](../doc/dev-log/2026-07-08-flutter-gpu-experiment.md).
 
 ## What gets measured

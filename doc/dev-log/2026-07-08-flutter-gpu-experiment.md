@@ -1,13 +1,16 @@
 # flutter_gpu render backend experiment (branch: experiment/flutter-gpu)
 
-> **Updated after the optimization pass (same day).** The first cut was
-> 4.69x slower than PDFium; profiling showed the GPU wasn't the problem -
-> the backend was feeding it badly. After a measured optimization round
-> (see "Round 2" below) the GPU path is 2.71x slower than PDFium aliased /
-> 3.75x with MSAA, and in aliased mode it beats the Canvas renderer on
-> 36 of 49 corpus files (median per-file ratio 0.84). The remaining fixed
-> gap is an SDK artifact: flutter_gpu's deviceTransient MSAA attachments
-> are not memoryless, so every page pays a real-memory resolve.
+> **Updated through optimization rounds 2 and 3 (same day).** The first
+> cut was 4.69x slower than PDFium; profiling showed the GPU wasn't the
+> problem - the backend was feeding it badly. After two measured
+> optimization rounds the aliased pipelined GPU path renders the corpus
+> at 57.9 ms/page - **faster than the Canvas renderer (61.3)**, beating
+> it on 39/49 files (median 0.77) - and MSAA mode is at 83.8 (fixed-floor
+> bound: the SDK's MSAA resolve is ~10ms/page and its deviceTransient
+> attachments are not memoryless). Round 3 also produced concrete notes
+> for the production Canvas renderer (see below) - the biggest being that
+> `beginGroup` opens an unbounded full-surface saveLayer for every
+> transparency group.
 
 **Question.** Impeller ships a low-level GPU API (`package:flutter_gpu`).
 Would a direct-to-GPU PDF rasterizer - triangles + stencil buffer instead of
@@ -178,6 +181,95 @@ re-tessellates per occurrence; after batching this is CPU-visible only
 on extreme pages). Substituted-text, soft-mask, and blend-mode fidelity
 gaps are unchanged.
 
+## Round 3: glyph cache, CAD geometry, cover spread, pipelining
+
+Second optimization session ("keep pushing"), again profile-first. Branch
+timing tallies (`islands-us`/`rings-us` microsecond counters in
+`GpuPdfDevice.stats`) and a geometry dump of the worst CAD page drove
+each change:
+
+- **Glyph tessellation cache** - em-space fan triangles per outline
+  (`Expando`, tolerance-bucketed, rebuilt only when the requested
+  tolerance leaves the bucket); every occurrence is then one affine per
+  vertex. 83-88% hit rates; the huge-CAD page's paint walk dropped to
+  0.5ms.
+- **CAD fill geometry decoded.** The mixed-winding fills that stayed
+  stencil-bound turned out to be (a) quads split into edge-sharing
+  triangle pairs with opposite winding and (b) outer+hole rectangle
+  rings. For (a): winding/parity only interact where interiors overlap,
+  so the islands gate became an exact interiors-disjoint test
+  (separating-axis for small convex subpaths) - opposite winding with
+  touching edges fills independently under both rules. For (b):
+  `earClipWithHoles` bridges each hole into the outer ring and ear-clips
+  the merged polygon (unit-tested: rotated thin rings, CW outers,
+  crossing-hole rejection). Capped at 120 points after big curvy rings
+  burned 1.7ms per *failed* attempt - one stencil pair is cheaper.
+- **Cover-spread flush** - a stencil batch's cover quad rasterizes the
+  union bbox at MSAA rate, so a batch merging distant content costs far
+  more fill than the draws it saves. Batches now flush when the union
+  bbox exceeds ~3x the accumulated member area. Worst CAD page:
+  150 -> 119ms.
+- **Cross-page pipelining** (`PDF_GPU_PIPELINE=1`) - `renderImage`
+  returns after submit; `toByteData` is the fence; Metal serializes
+  command buffers, so the harness keeps one page in flight and runs page
+  N+1's CPU walk during page N's GPU execution. Helps the aliased mode
+  (CPU and GPU are comparable there); barely moves MSAA mode (GPU time
+  dominates, nothing to hide behind).
+- MSAA floor re-probed (cost matrix J/K/L/M): not the clear (background
+  as a fullscreen quad + dontCare load is no faster), not the storage
+  mode (devicePrivate == deviceTransient), sampleCount 2 unsupported.
+  It is the resolve execution itself, ~10ms at A3 - SDK-level.
+
+Corpus totals after round 3 (same protocol):
+
+| mode | ms/page | vs PDFium | files beating Canvas |
+|---|---|---|---|
+| GPU MSAA 4x, sequential | 83.8 | 3.36x slower | 8/49 (median 1.53) |
+| GPU MSAA 4x, pipelined | 82.1 | 3.29x slower | - |
+| **GPU aliased, pipelined** | **57.9** | **2.32x slower** | **39/49 (median 0.77, worst 1.52)** |
+| Canvas renderer (reference) | 61.3 | 2.46x slower | - |
+
+**The aliased pipelined GPU path is now faster than the Canvas renderer
+corpus-wide**, and per-file it wins on 39 of 49 with a worst case of only
+1.52x. At matched (MSAA) quality the remaining deficit vs Canvas is
+almost exactly the per-page fixed floor: ~10ms SDK MSAA resolve + ~4ms
+readback transfer - content cost is now competitive everywhere, including
+CAD. Ghent (feature-heavy, 57 pages): 82.8 ms/page vs Canvas 78.3.
+
+## Notes for the Canvas (non-GPU) renderer
+
+Findings from this experiment that transfer to the production path:
+
+1. **Bound the transparency-group layers.** `CanvasPdfDevice.beginGroup`
+   calls `canvas.saveLayer(null, ...)` - a full-surface layer - for
+   *every* group, even alpha=1/srcOver/non-knockout ones. The GPU
+   backend's group-as-alpha-multiplier renders the TRAX brief 9x faster
+   (49ms vs ~460ms), which bounds how much those layers cost. Two exact,
+   correctness-preserving fixes: (a) pass the group's transformed /BBox
+   as saveLayer bounds instead of null; (b) skip the layer entirely for
+   alpha=1 srcOver non-knockout groups whose resources declare no
+   non-normal blend modes (the interpreter can see the group's
+   /Resources). Likely the single biggest Canvas win available.
+2. **Pipeline batch rendering.** `PdfPageRenderer.renderImage`'s
+   toImage/readback is a fence just like the GPU path's; thumbnail
+   strips, export, and the corpus harness can keep one page in flight
+   and overlap the next page's parse+interpret+record. Pure call-site
+   change; worth ~the GPU-raster share of page time (16.7ms/page in the
+   benchmark README's phase split).
+3. **Typed accumulation.** A growable `List<double>` boxes every element
+   on the VM; switching the GPU backend to Float32/Float64 builders cut
+   its tessellation cost multiple-fold. Anywhere pdf_graphics or the
+   editor accumulates coordinates in growable double lists (text
+   measurement, path building, selection geometry) is a candidate.
+4. **The decode gap is still the Canvas path's biggest lever.** Phase
+   split: ~18ms/page image decode vs 7.3 paint. The GPU texture cache
+   mirroring the decode cache is what kept image pages at parity;
+   off-thread/pipelined decode helps the Canvas path identically
+   (ties into the render-worker effort).
+5. **Glyph path caching is already there** (`_glyphPaths` Expando in
+   canvas_device.dart) - no action; the GPU experiment just re-validated
+   how load-bearing it is (83-88% reuse).
+
 ## Gotchas discovered
 
 - **The headless tester can host flutter_gpu.** `flutter test
@@ -202,14 +294,16 @@ gaps are unchanged.
 
 ## Verdict / next steps
 
-Still an experiment branch, but the conclusion changed: the approach is
-*not* inherently slower - fed properly, direct flutter_gpu matches the
-Canvas path at equal(ish) quality and beats it on most real files in
-aliased mode, with the honest caveats that AA quality trails Impeller's
-analytic AA and the fidelity gaps (soft masks, blend modes, substituted
-text) remain. What still blocks product use: those fidelity gaps, the
-SDK's expensive MSAA resolve, and the maintenance surface of a second
-rasterizer. If revisited: hole-aware tessellation, a glyph triangle
-cache, tessellation on a worker isolate, and offscreen-texture layers
-for masks/blends - the last being where this stops being simpler than
-Skia/Impeller and starts being a second Impeller.
+Still an experiment branch, but the conclusion flipped: fed properly,
+direct flutter_gpu is *faster* than the Canvas path on real documents
+(aliased pipelined mode beats it corpus-wide and on 39/49 files;
+matched-quality MSAA mode is within the SDK's ~10ms/page resolve floor
+of parity). The honest caveats: AA quality trails Impeller's analytic
+AA, and the fidelity gaps (soft masks, blend modes, substituted text)
+remain. What still blocks product use: those gaps, the MSAA floor, and
+the maintenance surface of a second rasterizer. If revisited next:
+offscreen-texture layers for masks/blends (where this stops being
+simpler than Impeller and starts being a second one), tessellation on a
+worker isolate, and general hole-aware tessellation beyond the
+small-ring bridge. Meanwhile the transferable wins are written up in
+"Notes for the Canvas renderer" above - bounded/elided saveLayers first.

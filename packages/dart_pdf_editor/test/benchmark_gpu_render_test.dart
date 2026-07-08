@@ -26,6 +26,15 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'render_smoke_test.dart' show loadSystemFonts;
 
+/// PDF_GPU_PIPELINE=1 overlaps each page's CPU walk (parse + tessellate +
+/// command encoding) with the previous page's GPU execution: renderImage
+/// returns after submit, toByteData is the completion fence, and Metal
+/// serializes command buffers so the reused render targets stay safe with
+/// one page in flight. This is the realistic batch-rendering (thumbnails,
+/// export) number; the default sequential mode matches the other harnesses'
+/// strict per-page latency protocol.
+final bool _pipelined = Platform.environment['PDF_GPU_PIPELINE'] == '1';
+
 bool _gpuAvailable() {
   try {
     // ignore: unnecessary_statements
@@ -92,9 +101,9 @@ void main() {
       }
 
       final payload = {
-        'tool': Platform.environment['PDF_GPU_MSAA'] == '0'
-            ? 'dart-pdf-gpu-nomsaa'
-            : 'dart-pdf-gpu',
+        'tool': 'dart-pdf-gpu'
+            '${Platform.environment['PDF_GPU_MSAA'] == '0' ? '-nomsaa' : ''}'
+            '${_pipelined ? '-pipelined' : ''}',
         'scale': scale,
         'maxPages': maxPages,
         'engine':
@@ -142,20 +151,41 @@ Future<Map<String, Object?>> _benchFile(
   String? error;
   final unsupported = <String, int>{};
   final walk = Stopwatch()..start();
+  ui.Image? inFlight; // pipelined mode: previous page still on the GPU
+  Future<void> drain() async {
+    final image = inFlight;
+    if (image == null) return;
+    inFlight = null;
+    await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    image.dispose();
+    rendered++;
+  }
+
   for (var i = 0; i < limit; i++) {
     try {
       final image = await PdfGpuPageRenderer.renderImage(doc.page(i),
               pixelRatio: scale)
           .timeout(const Duration(seconds: 60));
-      // Force the readback so rasterization is fully realized, then free it.
-      await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      image.dispose();
-      rendered++;
       PdfGpuPageRenderer.lastUnsupported.forEach(
           (k, v) => unsupported[k] = (unsupported[k] ?? 0) + v);
+      if (_pipelined) {
+        // page i executes on the GPU while page i+1's CPU walk runs
+        await drain();
+        inFlight = image;
+      } else {
+        // strict per-page latency: realize the raster before the next page
+        await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+        image.dispose();
+        rendered++;
+      }
     } catch (e) {
       error ??= 'page $i: $e';
     }
+  }
+  try {
+    await drain();
+  } catch (e) {
+    error ??= 'drain: $e';
   }
   walk.stop();
   return {
