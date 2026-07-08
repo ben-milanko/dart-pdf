@@ -76,6 +76,13 @@ class PdfGpuPageRenderer {
 
   /// Renders [page] to a bitmap at [pixelRatio] (2 = 144 DPI), matching
   /// [PdfPageRenderer.renderImage]'s contract.
+  /// Whether pages render into a 4x MSAA target (edge antialiasing, matching
+  /// the canvas renderer's quality). Costs ~10ms/page of resolve at A3 sizes
+  /// on this SDK - flutter_gpu's deviceTransient attachments are not
+  /// memoryless, so the resolve round-trips real memory. Off = aliased
+  /// edges, minimum fixed cost.
+  static bool msaaEnabled = true;
+
   static Future<ui.Image> renderImage(PdfPage page,
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
@@ -117,7 +124,7 @@ class PdfGpuPageRenderer {
     final width = (size.width * pixelRatio).ceil().clamp(1, 1 << 14);
     final height = (size.height * pixelRatio).ceil().clamp(1, 1 << 14);
 
-    final useMsaa = context.doesSupportOffscreenMSAA;
+    final useMsaa = msaaEnabled && context.doesSupportOffscreenMSAA;
     final colorFormat = context.defaultColorFormat;
     // The resolve texture is fresh per render (its ui.Image is handed to the
     // caller), but the MSAA color + stencil attachments are consumed inside

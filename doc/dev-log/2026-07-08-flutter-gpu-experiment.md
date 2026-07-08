@@ -1,5 +1,14 @@
 # flutter_gpu render backend experiment (branch: experiment/flutter-gpu)
 
+> **Updated after the optimization pass (same day).** The first cut was
+> 4.69x slower than PDFium; profiling showed the GPU wasn't the problem -
+> the backend was feeding it badly. After a measured optimization round
+> (see "Round 2" below) the GPU path is 2.71x slower than PDFium aliased /
+> 3.75x with MSAA, and in aliased mode it beats the Canvas renderer on
+> 36 of 49 corpus files (median per-file ratio 0.84). The remaining fixed
+> gap is an SDK artifact: flutter_gpu's deviceTransient MSAA attachments
+> are not memoryless, so every page pays a real-memory resolve.
+
 **Question.** Impeller ships a low-level GPU API (`package:flutter_gpu`).
 Would a direct-to-GPU PDF rasterizer - triangles + stencil buffer instead of
 recording `ui.Canvas` display lists - beat the existing Canvas renderer, and
@@ -105,6 +114,70 @@ text-dense pages. The pattern:
 - The interpret row is the ceiling reminder: the pure-Dart walk is
   already faster than PDFium; everything lost is in rasterization.
 
+## Round 2: profile-guided optimization
+
+"How can a GPU rasterizer lose to a display list?" Instrumentation
+(`PdfGpuRenderStats`, per-device work counters, and the synthetic
+`gpu_cost_matrix_test.dart`) split one render's wall time into
+parse/collect/decode/upload/paint/submit plus the readback wait, and the
+answer was: the GPU pipeline itself, not the CPU. On every profiled page
+the paint walk (all tessellation + encoding) was 2-30ms while the
+realized-raster wait was 35-115ms, of which real pixel transfer was only
+2-4ms. The cost matrix isolated three structural sinks:
+
+| synthetic case (2382x1684) | ms |
+|---|---|
+| MSAA 4x target, zero draws | 23.4 |
+| ... with reused MSAA+stencil textures | 14.7 |
+| no MSAA, zero draws | 4.6 |
+| +2000 draws (any state) | +25-45 (~12us/draw) |
+| 1 draw with 6000 triangles | +0 (vertices are free) |
+
+So: ~12ms/page allocating the 4-sample attachments, ~10ms/page in the
+MSAA resolve itself (flutter_gpu's `deviceTransient` is evidently not
+memoryless on this SDK - reuse wouldn't save anything if it were),
+~12us per draw call, and stencil-fan hull overdraw at 4x on CAD art.
+Fixes, in landing order:
+
+1. **Render-target cache** - MSAA color + stencil attachments reuse
+   across same-size pages; only the resolve texture (whose ui.Image the
+   caller owns) is per-render. HostBuffer reuses one 4-frame ring.
+2. **Same-color fill/text coalescing** - consecutive text runs and
+   non-convex nonzero fills with one premultiplied color merge into a
+   single stencil-then-cover pair. The worst text page went from 2606
+   run-draws to 28 batch pairs (4417 -> ~130 total draws).
+3. **Ear-clip triangulation** - small simple polygons (<=160 pts,
+   verified non-self-intersecting) become exact triangles in the batched
+   solid draw: no stencil pass, no hull overdraw, no cover. Multi-subpath
+   fills route per-subpath when no subpath can be a hole (all same
+   winding under nonzero; bbox-disjoint under even-odd).
+4. **Typed builders** - Float32/Float64 accumulation everywhere
+   (a growable `List<double>` boxes every element on the VM).
+5. **Pass-state elision** - scissor/stencil/blend/pipeline setters only
+   fire on change.
+
+Corpus totals (same protocol as above):
+
+| engine | ms/page | vs PDFium | vs Canvas |
+|---|---|---|---|
+| dart-pdf GPU, first cut | 117.1 | 4.69x slower | 1.91x slower |
+| dart-pdf GPU, optimized (MSAA 4x) | 93.5 | 3.75x slower | 1.53x slower |
+| dart-pdf GPU, optimized (aliased) | 67.6 | 2.71x slower | **1.10x slower, beats Canvas on 36/49 files (median 0.84)** |
+
+Ghent: 96.9 -> 84.5 ms/page (MSAA). Per-file the aliased GPU path now
+wins everywhere except image-decode-bound and mixed-winding-CAD files
+(`ly9-far-cad` 1.61x, `document.pdf` 1.73x). The transparency-group
+brief renders in 49ms vs 459ms on Canvas (9.4x) - group alpha costs
+nothing here while Canvas pays saveLayer.
+
+What's left on the table: the ~10ms/page MSAA resolve (SDK-level - a
+memoryless resolve should be nearly free on Apple GPUs), real
+hole-aware tessellation for mixed-winding CAD hatches (the one
+remaining stencil-heavy shape class), and a glyph triangle cache (text
+re-tessellates per occurrence; after batching this is CPU-visible only
+on extreme pages). Substituted-text, soft-mask, and blend-mode fidelity
+gaps are unchanged.
+
 ## Gotchas discovered
 
 - **The headless tester can host flutter_gpu.** `flutter test
@@ -129,10 +202,14 @@ text-dense pages. The pattern:
 
 ## Verdict / next steps
 
-Keep as an experiment branch; do not merge into the product render path.
-If it's ever revisited, the wins would come from (a) cross-page batching
-and glyph-atlas caching rather than per-run stencil passes, (b) moving
-tessellation off the UI thread (it is pure Dart and worker-friendly), and
-(c) proper layer support (soft masks, blend modes) via offscreen textures,
-which is where the approach stops being simpler than Skia/Impeller and
-starts being a second Impeller.
+Still an experiment branch, but the conclusion changed: the approach is
+*not* inherently slower - fed properly, direct flutter_gpu matches the
+Canvas path at equal(ish) quality and beats it on most real files in
+aliased mode, with the honest caveats that AA quality trails Impeller's
+analytic AA and the fidelity gaps (soft masks, blend modes, substituted
+text) remain. What still blocks product use: those fidelity gaps, the
+SDK's expensive MSAA resolve, and the maintenance surface of a second
+rasterizer. If revisited: hole-aware tessellation, a glyph triangle
+cache, tessellation on a worker isolate, and offscreen-texture layers
+for masks/blends - the last being where this stops being simpler than
+Skia/Impeller and starts being a second Impeller.

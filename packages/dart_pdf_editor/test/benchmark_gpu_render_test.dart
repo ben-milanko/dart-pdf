@@ -56,6 +56,9 @@ void main() {
         fail('flutter_gpu unavailable: run with '
             '--enable-impeller --enable-flutter-gpu');
       }
+      // PDF_GPU_MSAA=0 renders aliased (minimum fixed cost per page).
+      PdfGpuPageRenderer.msaaEnabled =
+          Platform.environment['PDF_GPU_MSAA'] != '0';
       await loadSystemFonts();
       final corpus = Directory(dir);
       final files = corpus
@@ -89,7 +92,9 @@ void main() {
       }
 
       final payload = {
-        'tool': 'dart-pdf-gpu',
+        'tool': Platform.environment['PDF_GPU_MSAA'] == '0'
+            ? 'dart-pdf-gpu-nomsaa'
+            : 'dart-pdf-gpu',
         'scale': scale,
         'maxPages': maxPages,
         'engine':

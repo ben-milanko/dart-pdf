@@ -57,13 +57,20 @@ shifted slightly from the table above):
 | **PDFium** | 40.1 pages/s | 24.9 | 1.00× |
 | **dart-pdf interpret** | 58.6 pages/s | 17.1 | **1.46× faster** |
 | **dart-pdf render** (Canvas) | 16.3 pages/s | 61.3 | 2.46× slower |
-| **dart-pdf GPU** (flutter_gpu) | 8.5 pages/s | 117.1 | **4.69× slower** |
+| **dart-pdf GPU**, first cut | 8.5 pages/s | 117.1 | 4.69× slower |
+| **dart-pdf GPU**, optimized (MSAA 4×) | 10.7 pages/s | 93.5 | 3.75× slower |
+| **dart-pdf GPU**, optimized (aliased) | 14.8 pages/s | 67.6 | **2.71× slower** |
 
-Ghent suite (57 pages): GPU 96.9 ms/page vs Canvas 78.3. The GPU path wins
-on only 6 of 49 corpus files (transparency-group-heavy pages, where
-saveLayer costs vanish) and loses up to 4x on text-dense ones - without a
-glyph atlas every text run costs a stencil+cover draw pair and a fresh CPU
-tessellation. Verdict and details in
+The optimization round (profile-guided: render-target caching, same-color
+fill/text batching, ear-clip triangulation, typed builders, state
+elision) took the worst text page from 4417 draws to ~130 and flipped the
+per-file story: in aliased mode the GPU path beats the Canvas renderer on
+**36 of 49 corpus files (median ratio 0.84)**, up to 9× on
+transparency-group pages. The remaining fixed gap vs Canvas is the SDK's
+non-memoryless MSAA resolve (~10 ms/page at A3); the remaining losses are
+image-decode-bound files and mixed-winding CAD hatches. Ghent (57 pages,
+MSAA): GPU 84.5 ms/page vs Canvas 78.3. Analysis, cost matrix, and
+verdict in
 [doc/dev-log/2026-07-08-flutter-gpu-experiment.md](../doc/dev-log/2026-07-08-flutter-gpu-experiment.md).
 
 ## What gets measured
