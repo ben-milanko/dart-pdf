@@ -24,24 +24,33 @@ FLUTTER="${FLUTTER:-fvm flutter}"
 
 echo "== Corpus: $CORPUS  (scale $SCALE, $MAX_PAGES pages/file) =="
 
-echo "== 1/3  PDFium (pypdfium2) =="
+echo "== 1/4  PDFium (pypdfium2) =="
 python3 "$ROOT/benchmark/pdfium_benchmark.py" "$CORPUS" \
   --scale "$SCALE" --max-pages "$MAX_PAGES" --timeout "$PDFIUM_TIMEOUT" \
   --out "$OUT/pdfium.json"
 
-echo "== 2/3  dart-pdf interpret (pure Dart, no raster) =="
+echo "== 2/4  dart-pdf interpret (pure Dart, no raster) =="
 ( cd "$ROOT/packages/pdf_graphics" && \
   $DART run tool/benchmark_interpret.dart "$CORPUS" \
     --max-pages "$MAX_PAGES" --scale "$SCALE" --out "$OUT/dart-interpret.json" )
 
-echo "== 3/3  dart-pdf render (Flutter rasterization) =="
+echo "== 3/4  dart-pdf render (Flutter rasterization) =="
 ( cd "$ROOT/packages/dart_pdf_editor" && \
   PDF_BENCHMARK_DIR="$CORPUS" PDF_BENCHMARK_SCALE="$SCALE" \
   PDF_BENCHMARK_MAX_PAGES="$MAX_PAGES" \
   PDF_BENCHMARK_OUT="$OUT/dart-render.json" \
     $FLUTTER test test/benchmark_render_test.dart )
 
+echo "== 4/4  dart-pdf GPU render (experimental flutter_gpu backend) =="
+( cd "$ROOT/packages/dart_pdf_editor" && \
+  PDF_BENCHMARK_DIR="$CORPUS" PDF_BENCHMARK_SCALE="$SCALE" \
+  PDF_BENCHMARK_MAX_PAGES="$MAX_PAGES" \
+  PDF_BENCHMARK_OUT="$OUT/dart-gpu.json" \
+    $FLUTTER test --enable-impeller --enable-flutter-gpu \
+      test/benchmark_gpu_render_test.dart )
+
 echo
 echo "== Comparison (baseline = PDFium) =="
 python3 "$ROOT/benchmark/compare.py" \
-  "$OUT/pdfium.json" "$OUT/dart-render.json" "$OUT/dart-interpret.json"
+  "$OUT/pdfium.json" "$OUT/dart-render.json" "$OUT/dart-gpu.json" \
+  "$OUT/dart-interpret.json"

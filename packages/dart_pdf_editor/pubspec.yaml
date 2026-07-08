@@ -20,7 +20,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Experimental flutter_gpu render backend (GpuPdfDevice); needs Impeller.
+  flutter_gpu:
+    sdk: flutter
   image: ^4.9.1
+  # flutter_gpu clear values / uniform math use vector_math types.
+  vector_math: ^2.1.4
   pdf_cos: ^1.4.0
   pdf_document: ^1.4.0
   pdf_graphics: ^1.4.0
@@ -48,6 +53,9 @@ flutter:
   # SIL Open Font Licence - see the *-LICENSE.txt files in assets/fonts/.
   assets:
     - assets/web/pdf_render_worker.dart.js
+    # Experimental flutter_gpu backend shaders (lib/src/gpu/); rebuild with
+    # tool/gpu_shaders/build.sh.
+    - assets/shaders/pdf_gpu.shaderbundle
     - assets/fonts/DejaVuSans.ttf
     - assets/fonts/DejaVuSerif.ttf
     - assets/fonts/DejaVuSansMono.ttf
