@@ -1664,6 +1664,218 @@ extension PdfAnnotationEditing on PdfEditor {
     );
   }
 
+  /// Adds a callout annotation (§12.5.6.19): a /FreeText text box drawn at
+  /// [boxRect] joined to [target] on the page by a leader line that ends in
+  /// [ending] (an open arrow by default). Bluebeam's Callout tool.
+  ///
+  /// The annotation carries `/IT /FreeTextCallout`, the leader points in
+  /// `/CL` (arrow tip first, box attachment last), the arrow style in `/LE`,
+  /// and `/RD` (the inset from the enclosing /Rect to the text box). The
+  /// appearance draws both the leader with its arrowhead and the text box,
+  /// and /Rect encloses the two so the markup survives §12.5.5 fitting.
+  void addCallout(
+    int pageIndex,
+    PdfRect boxRect,
+    String text,
+    (double, double) target, {
+    double fontSize = 12,
+    PdfTextFont font = PdfStandardFont.helvetica,
+    PdfTextDirection textDirection = PdfTextDirection.auto,
+    PdfTextAlign? align,
+    int color = 0x000000,
+    int? fillColor,
+    int? borderColor = 0xD02020,
+    double borderWidth = 1,
+    int? lineColor,
+    double lineWidth = 1,
+    PdfLineEnding ending = PdfLineEnding.openArrow,
+    int? pageRotation,
+    String? author,
+    String? name,
+  }) {
+    final effectivePageRotation =
+        _appearancePageRotation(pageIndex, pageRotation);
+    // Match addFreeText's non-Latin-1 handling: wrap a base-14 face in a
+    // Type0 Identity-H font so the appearance can encode any code point.
+    PdfUnicodeFont? unicodeFont;
+    if (font is PdfStandardFont && text.codeUnits.any((c) => c > 0xFF)) {
+      unicodeFont = PdfUnicodeFont(font);
+      unicodeFont.resetUsage();
+    }
+    final effectiveFont = unicodeFont ?? font;
+    if (font is PdfEmbeddedFont) font.resetUsage();
+
+    final leaderColor = lineColor ?? borderColor ?? color;
+    final callout = _calloutLine(boxRect, target);
+    // /Rect and BBox must cover the box, the leader, and the arrowhead.
+    final endingPoints =
+        _endingExtent(ending, callout.first, callout[1], lineWidth);
+    final rect = _pointBounds([
+      (boxRect.left, boxRect.bottom),
+      (boxRect.right, boxRect.top),
+      ...callout,
+      ...endingPoints,
+    ], math.max(borderWidth, lineWidth));
+
+    final w = _calloutContent(boxRect, callout, text,
+        fontSize: fontSize,
+        font: effectiveFont,
+        textDirection: textDirection,
+        align: align,
+        color: color,
+        fillColor: fillColor,
+        borderColor: borderColor,
+        borderWidth: borderWidth,
+        lineColor: leaderColor,
+        lineWidth: lineWidth,
+        ending: ending,
+        pageRotation: effectivePageRotation);
+
+    String rgb(int c) =>
+        ContentWriter.rgbComponents(c).map(ContentWriter.fmt).join(' ');
+    final da = '${rgb(color)} rg '
+        '${borderColor != null ? '${rgb(borderColor)} RG ' : ''}'
+        '/${effectiveFont.resourceName} ${ContentWriter.fmt(fontSize)} Tf';
+    final dict = _markupDict('FreeText', rect, fillColor ?? color, text, author)
+      ..['DA'] = CosString.fromText(da)
+      ..['IT'] = const CosName('FreeTextCallout')
+      ..['CL'] = _pointArray(callout)
+      ..['LE'] = CosName(ending.pdfName)
+      ..['RD'] = _rdArray(rect, boxRect)
+      ..['Q'] = CosInteger(align?.quadding ??
+          (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0));
+    if (borderColor != null && borderWidth > 0) {
+      dict['BS'] = _borderStyle(borderWidth);
+    }
+    final CosDictionary fontResource;
+    if (unicodeFont != null) {
+      fontResource = unicodeFont.buildResource(_updater.addObject);
+    } else if (font is PdfEmbeddedFont) {
+      fontResource = font.buildResource(_updater.addObject);
+    } else {
+      fontResource = _standardFont(font as PdfStandardFont);
+    }
+    _addAnnotation(
+      pageIndex,
+      dict,
+      _form(rect, w, resources: _resources(font: fontResource)),
+      name: name,
+    );
+  }
+
+  /// The leader-line points for a callout whose text box is [box] and whose
+  /// arrow points at [target]: `[target, knee, attach]`, where `attach`
+  /// meets the box edge nearest the target and `knee` gives the leader a
+  /// short stub into the box (Acrobat/Bluebeam house style). Collapses to
+  /// `[target, attach]` when a knee would be degenerate.
+  List<(double, double)> _calloutLine(PdfRect box, (double, double) target) {
+    final (tx, ty) = target;
+    const stub = 14.0;
+    if (tx < box.left) {
+      final y = ty.clamp(box.bottom + 2, box.top - 2).toDouble();
+      final k = box.left - math.min(stub, (box.left - tx) * 0.5);
+      return [target, (k, y), (box.left, y)];
+    }
+    if (tx > box.right) {
+      final y = ty.clamp(box.bottom + 2, box.top - 2).toDouble();
+      final k = box.right + math.min(stub, (tx - box.right) * 0.5);
+      return [target, (k, y), (box.right, y)];
+    }
+    final x = tx.clamp(box.left + 2, box.right - 2).toDouble();
+    if (ty > box.top) {
+      final k = box.top + math.min(stub, (ty - box.top) * 0.5);
+      return [target, (x, k), (x, box.top)];
+    }
+    if (ty < box.bottom) {
+      final k = box.bottom - math.min(stub, (box.bottom - ty) * 0.5);
+      return [target, (x, k), (x, box.bottom)];
+    }
+    // Target lands inside the box: a straight stub to the near edge.
+    final cy = (box.bottom + box.top) / 2;
+    return [target, (x, cy)];
+  }
+
+  /// The /RD (rectangle differences, §12.5.6.19) insets - left, top, right,
+  /// bottom - from the annotation [rect] to the text [box] within it.
+  CosArray _rdArray(PdfRect rect, PdfRect box) => CosArray([
+        CosReal(box.left - rect.left),
+        CosReal(rect.top - box.top),
+        CosReal(rect.right - box.right),
+        CosReal(box.bottom - rect.bottom),
+      ]);
+
+  /// Builds a callout's appearance: the leader line with its arrowhead
+  /// (drawn first, in page space) and the text box on top.
+  ContentWriter _calloutContent(
+    PdfRect boxRect,
+    List<(double, double)> callout,
+    String text, {
+    required double fontSize,
+    required PdfTextFont font,
+    required PdfTextDirection textDirection,
+    PdfTextAlign? align,
+    required int color,
+    required int? fillColor,
+    required int? borderColor,
+    required double borderWidth,
+    required int lineColor,
+    required double lineWidth,
+    required PdfLineEnding ending,
+    int pageRotation = 0,
+  }) {
+    final leader = _lineContent(callout,
+        strokeColor: lineColor,
+        strokeWidth: lineWidth,
+        dashPattern: null,
+        closed: false,
+        fillColor: null,
+        startEnding: ending,
+        endEnding: PdfLineEnding.none,
+        hasAlpha: false);
+    final box = _freeTextContent(boxRect, text,
+        fontSize: fontSize,
+        font: font,
+        textDirection: textDirection,
+        align: align,
+        color: color,
+        fillColor: fillColor,
+        borderColor: borderColor,
+        borderWidth: borderWidth,
+        pageRotation: pageRotation);
+    return ContentWriter()
+      ..append(leader)
+      ..append(box);
+  }
+
+  /// Reads a callout's leader line (/CL) and arrow (/LE) when [a] is a
+  /// /FreeTextCallout, else null.
+  ({List<(double, double)> line, PdfLineEnding ending})? _calloutInfo(
+      PdfAnnotation a) {
+    final line = a.calloutLine;
+    if (line == null || line.length < 2) return null;
+    final le = document.cos.resolve(a.dict['LE']);
+    final ending = le is CosName
+        ? PdfLineEnding.fromName(le.value)
+        : PdfLineEnding.openArrow;
+    return (line: line, ending: ending);
+  }
+
+  /// The text-box sub-rect of a callout: [rect] inset by /RD (§12.5.6.19),
+  /// falling back to the whole rect when /RD is absent or malformed.
+  PdfRect _boxFromRd(PdfAnnotation a, PdfRect rect) {
+    final rd = document.cos.resolve(a.dict['RD']);
+    double d(int i) {
+      if (rd is! CosArray || rd.items.length <= i) return 0;
+      final v = document.cos.resolve(rd.items[i]);
+      if (v is CosInteger) return v.value.toDouble();
+      if (v is CosReal) return v.value;
+      return 0;
+    }
+
+    return PdfRect(rect.left + d(0), rect.bottom + d(3), rect.right - d(2),
+        rect.top - d(1));
+  }
+
   /// Adds a rich free-text annotation whose appearance can switch font,
   /// size, and text color between [runs].
   ///
@@ -3326,17 +3538,54 @@ extension PdfAnnotationEditing on PdfEditor {
           unicodeFont.resetUsage();
         }
         final PdfTextFont effectiveFont = unicodeFont ?? stdFont;
-        final w = _freeTextContent(to, text,
-            fontSize: style.fontSize,
-            font: effectiveFont,
-            // direction follows the text; /Q carries the explicit alignment
-            textDirection: PdfTextDirection.auto,
-            align: style.alignment,
-            color: style.color,
-            fillColor: style.fillColor,
-            borderColor: style.borderColor,
-            borderWidth: style.borderWidth,
-            pageRotation: pageRotation);
+        // A callout draws its leader line and box together, and its text box
+        // is a sub-rect of /Rect, so map both through the resize and keep /RD
+        // and /CL in step rather than filling the whole rect with text.
+        final callout = _calloutInfo(annotation);
+        final ContentWriter w;
+        if (callout != null) {
+          final from = annotation.rect;
+          final sx = from.width == 0 ? 1.0 : to.width / from.width;
+          final sy = from.height == 0 ? 1.0 : to.height / from.height;
+          (double, double) map((double, double) p) => (
+                to.left + (p.$1 - from.left) * sx,
+                to.bottom + (p.$2 - from.bottom) * sy,
+              );
+          final line = [for (final p in callout.line) map(p)];
+          final oldBox = _boxFromRd(annotation, from);
+          final box = PdfRect(
+            to.left + (oldBox.left - from.left) * sx,
+            to.bottom + (oldBox.bottom - from.bottom) * sy,
+            to.left + (oldBox.right - from.left) * sx,
+            to.bottom + (oldBox.top - from.bottom) * sy,
+          );
+          dict['RD'] = _rdArray(to, box);
+          w = _calloutContent(box, line, text,
+              fontSize: style.fontSize,
+              font: effectiveFont,
+              textDirection: PdfTextDirection.auto,
+              align: style.alignment,
+              color: style.color,
+              fillColor: style.fillColor,
+              borderColor: style.borderColor,
+              borderWidth: style.borderWidth,
+              lineColor: style.borderColor ?? style.color,
+              lineWidth: style.borderWidth > 0 ? style.borderWidth : 1,
+              ending: callout.ending,
+              pageRotation: pageRotation);
+        } else {
+          w = _freeTextContent(to, text,
+              fontSize: style.fontSize,
+              font: effectiveFont,
+              // direction follows the text; /Q carries the explicit alignment
+              textDirection: PdfTextDirection.auto,
+              align: style.alignment,
+              color: style.color,
+              fillColor: style.fillColor,
+              borderColor: style.borderColor,
+              borderWidth: style.borderWidth,
+              pageRotation: pageRotation);
+        }
         final CosDictionary fontResource = unicodeFont != null
             ? unicodeFont.buildResource(_updater.addObject)
             : _standardFont(stdFont);

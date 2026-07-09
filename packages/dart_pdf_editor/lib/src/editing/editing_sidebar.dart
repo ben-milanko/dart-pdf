@@ -271,7 +271,9 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   /// subtitle.
   String _title(PdfAnnotation annotation) => annotation is PdfWidgetAnnotation
       ? _fieldLabel(annotation.fieldType)
-      : _label(annotation.subtype);
+      : annotation.isCallout
+          ? 'Callout'
+          : _label(annotation.subtype);
 
   bool _matches(String query, int pageIndex, PdfAnnotation annotation) {
     if (query.isEmpty) return true;
@@ -333,7 +335,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 value: _checked.contains(slot),
                 onChanged: selectable ? (_) => _toggle(slot) : null,
               )
-            : Icon(_icon(annotation.subtype), size: 20),
+            : Icon(
+                annotation.isCallout
+                    ? Icons.chat_bubble_outline
+                    : _icon(annotation.subtype),
+                size: 20),
         title: Text(_title(annotation)),
         subtitle: detail.isEmpty
             ? null

@@ -738,6 +738,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   PdfRect? _textEditPageRect;
   bool _textEditExisting = false;
   PdfEditTool? _textEditTool;
+  // when non-null the open editor is a callout: this is the page-space point
+  // (the terminus) the committed box's leader line will point at
+  (double, double)? _textEditCalloutTarget;
   late final _RichTextEditingController _textEditText =
       _RichTextEditingController()..addListener(_onTextEditChanged);
   late final FocusNode _textEditFocus = FocusNode(onKeyEvent: _onTextEditKey)
@@ -2318,6 +2321,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     });
   }
 
+  /// Opens the inline text editor for a callout: the same box editor as
+  /// free text, but remembering the page-space [target] the leader line will
+  /// point at so the commit builds a callout instead of a plain box.
+  void _openCalloutEditor(Rect viewRect, Offset terminus) {
+    _textEditCalloutTarget = _geometry.toPagePoint(terminus);
+    _openTextEditor(viewRect, existing: false);
+  }
+
   /// Opens the inline editor over a text field's widget, prefilled with
   /// its value - the form tool's tap-to-fill. The commit goes into the
   /// field's /V instead of creating an annotation.
@@ -2394,6 +2405,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final color = _textEditColor;
     final fill = _textEditFill;
     final rotation = _textEditRotation;
+    final calloutTarget = _textEditCalloutTarget;
     _closeTextEditor();
     final before = _controller.document;
     if (existing) {
@@ -2403,7 +2415,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.setSelectedText(text);
       }
     } else if (text.isNotEmpty) {
-      if (richRuns != null) {
+      if (calloutTarget != null) {
+        _controller.addCallout(
+            widget.pageIndex, _geometry.toPageRect(rect), text, calloutTarget);
+      } else if (richRuns != null) {
         _controller.addFreeTextRich(
             widget.pageIndex, _geometry.toPageRect(rect), richRuns);
       } else {
@@ -2468,6 +2483,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // close because the user clicked another widget (e.g. a toolbar field)
     // does not - that new focus must be left alone
     final ownedFocus = _textEditFocus.hasFocus;
+    _textEditCalloutTarget = null;
     if (mounted) {
       setState(() {
         _textEditRect = null;
@@ -2557,6 +2573,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.measureSlope ||
             PdfEditTool.calibrate ||
             PdfEditTool.freeText ||
+            PdfEditTool.callout ||
             PdfEditTool.stamp ||
             PdfEditTool.image ||
             PdfEditTool.redact ||
@@ -3089,6 +3106,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _commitLineDrag(dragStart, dragCurrent);
         return;
       }
+      if (_tool == PdfEditTool.callout) {
+        // the drag draws the leader: press at the terminus, release where
+        // the box goes. A too-short drag drops a default-offset box.
+        final short = (dragCurrent - dragStart).distance < 8;
+        final anchor = short ? dragStart + const Offset(28, -28) : dragCurrent;
+        _openCalloutEditor(_defaultPlacementRect(anchor), dragStart);
+        return;
+      }
       if (viewRect.width < 4 || viewRect.height < 4) return; // a click
       if (_tool == PdfEditTool.freeText) {
         // type into the box just dragged out, instead of a dialog
@@ -3603,6 +3628,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // tapping without dragging out a box opens a default-sized one
         _openTextEditor(_defaultPlacementRect(details.localPosition),
             existing: false);
+      case PdfEditTool.callout:
+        // a plain tap makes the tap the terminus and offsets the box; a drag
+        // (handled in _panEnd) instead aims the box where the drag released
+        _openCalloutEditor(
+            _defaultPlacementRect(
+                details.localPosition + const Offset(28, -28)),
+            details.localPosition);
       case PdfEditTool.stamp:
         final stamp = _controller.activeStamp;
         if (stamp != null) {
@@ -4508,7 +4540,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         : null,
                     dragLine: _dragStart != null &&
                             _dragCurrent != null &&
-                            _lineDragTool
+                            (_lineDragTool || _tool == PdfEditTool.callout)
                         ? (_dragStart!, _dragCurrent!)
                         : null,
                     dragPath: polyPreview,

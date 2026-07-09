@@ -335,6 +335,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         Icons.text_fields,
         [
           _GroupTool.tool(PdfEditTool.freeText, Icons.text_fields, 'Text box'),
+          _GroupTool.tool(PdfEditTool.callout, Icons.chat_bubble_outline,
+              'Callout - drag from the point to where the box goes'),
           _GroupTool.tool(
               PdfEditTool.note, Icons.sticky_note_2_outlined, 'Note'),
           _GroupTool.tool(PdfEditTool.stamp, Icons.approval, 'Stamp'),

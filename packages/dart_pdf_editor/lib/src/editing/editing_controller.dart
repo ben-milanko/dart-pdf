@@ -145,6 +145,11 @@ enum PdfEditTool {
   /// Drag out a box, then type the text shown inside it (/FreeText).
   freeText,
 
+  /// Drag from the terminus you're pointing at to where the text box goes,
+  /// then type the text (a /FreeText callout with a leader line and arrow,
+  /// like Bluebeam's Callout tool).
+  callout,
+
   /// Tap to place a sticky note (/Text).
   note,
 
@@ -873,6 +878,7 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.measureArc => 'measureArc',
         PdfEditTool.measureVolume => 'measureVolume',
         PdfEditTool.freeText => 'freeText',
+        PdfEditTool.callout => 'callout',
         PdfEditTool.note => 'note',
         PdfEditTool.stamp => 'stamp',
         PdfEditTool.count => 'count',
@@ -922,7 +928,7 @@ class PdfEditingController extends ChangeNotifier {
         PdfEditTool.measureArc ||
         PdfEditTool.measureVolume =>
           const {'color', 'strokeWidth', 'opacity'},
-        PdfEditTool.freeText => const {
+        PdfEditTool.freeText || PdfEditTool.callout => const {
             'color',
             'fontSize',
             'fontFamily',
@@ -1934,6 +1940,27 @@ class PdfEditingController extends ChangeNotifier {
           author: author),
       pages: [pageIndex],
       contentPages: const <int>[]);
+
+  /// Places a callout: a [text] box at [rect] with a leader line pointing at
+  /// [target] on the page (both in page space). Mirrors [addFreeText] for the
+  /// box styling and points the arrow with the tool's stroke color/width.
+  void addCallout(
+          int pageIndex, PdfRect rect, String text, (double, double) target) =>
+      apply(
+          (e) => e.addCallout(pageIndex, rect, text, target,
+              fontSize: preferences.fontSize,
+              font: _activeFont ?? preferences.fontFamily,
+              align: preferences.textAlign,
+              color: _colorValue,
+              fillColor: _rgbOf(preferences.textFillColor),
+              borderColor: _rgbOf(preferences.textBorderColor),
+              borderWidth: preferences.strokeWidth,
+              lineColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
+              lineWidth: preferences.strokeWidth,
+              pageRotation: _page(pageIndex).rotation,
+              author: author),
+          pages: [pageIndex],
+          contentPages: const <int>[]);
 
   void addFreeTextRich(
           int pageIndex, PdfRect rect, List<PdfFreeTextRun> runs) =>

@@ -288,6 +288,11 @@ class ContentWriter {
           double a, double b, double c, double d, double e, double f) =>
       op('cm', [a, b, c, d, e, f]);
 
+  /// Appends [other]'s buffered operators verbatim. Lets a caller compose
+  /// content built by two helpers - e.g. a callout's leader line and its
+  /// text box - into a single stream.
+  void append(ContentWriter other) => _buffer.write(other._buffer.toString());
+
   Uint8List takeBytes() =>
       Uint8List.fromList(latin1.encode(_buffer.toString()));
 

@@ -738,8 +738,11 @@ class _PdfAnnotationPropertiesPanelState
     final slot = _controller.selectedAnnotationSlot!;
     return [
       ListTile(
-        leading: Icon(_icon(annotation.subtype)),
-        title: Text(_label(annotation.subtype)),
+        leading: Icon(annotation.isCallout
+            ? Icons.chat_bubble_outline
+            : _icon(annotation.subtype)),
+        title: Text(
+            annotation.isCallout ? 'Callout' : _label(annotation.subtype)),
         subtitle: Text('Page ${slot.$1 + 1}'),
       ),
       ..._styleControls(annotation),
