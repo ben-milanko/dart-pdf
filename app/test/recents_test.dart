@@ -16,10 +16,33 @@ void main() {
         ['/docs/a.pdf', '/docs/b.pdf']); // a moved to front, no dupe
   });
 
-  test('entries without a path are not reopenable', () async {
+  test('entries without a path or cache are not reopenable', () async {
     final store = RecentsStore();
-    await store.add(title: 'shared.pdf'); // mobile/web: no path
+    await store.add(title: 'shared.pdf'); // web: no path, no snapshot
     expect(store.items.single.isReopenable, isFalse);
+  });
+
+  test('a cache-backed entry is reopenable and reads from the snapshot',
+      () async {
+    final store = RecentsStore();
+    // Mobile: no durable path, but a private snapshot to read back.
+    await store.add(title: 'shared.pdf', cachePath: '/app/recent_pdfs/x.pdf');
+    final entry = store.items.single;
+    expect(entry.path, isNull);
+    expect(entry.isReopenable, isTrue);
+    expect(entry.readPath, '/app/recent_pdfs/x.pdf');
+    expect(entry.id, '/app/recent_pdfs/x.pdf'); // dedupes by snapshot
+  });
+
+  test('cache-backed entries persist and round-trip across loads', () async {
+    final a = RecentsStore();
+    await a.add(title: 'shared.pdf', cachePath: '/app/recent_pdfs/x.pdf');
+
+    final b = RecentsStore();
+    await b.load();
+    final entry = b.items.single;
+    expect(entry.cachePath, '/app/recent_pdfs/x.pdf');
+    expect(entry.isReopenable, isTrue);
   });
 
   test('persists across loads', () async {

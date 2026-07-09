@@ -8,7 +8,10 @@ import 'package:flutter/foundation.dart';
 /// placeholder, an [error] placeholder, or a two-file [comparison].
 class DocumentTab {
   DocumentTab.loading(
-      {required this.title, this.originPath, this.originBookmark})
+      {required this.title,
+      this.originPath,
+      this.originBookmark,
+      this.cachePath})
       : session = null,
         viewer = null,
         savedLength = 0,
@@ -23,6 +26,7 @@ class DocumentTab {
     required PdfEditingPreferences preferences,
     this.originPath,
     this.originBookmark,
+    this.cachePath,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
         savedLength = bytes.length,
@@ -36,6 +40,7 @@ class DocumentTab {
         viewer = null,
         originPath = null,
         originBookmark = null,
+        cachePath = null,
         savedLength = 0,
         compareBefore = null,
         compareAfter = null,
@@ -51,6 +56,7 @@ class DocumentTab {
         error = null,
         originPath = null,
         originBookmark = null,
+        cachePath = null,
         savedLength = 0,
         compareBefore = before,
         compareAfter = after,
@@ -67,6 +73,12 @@ class DocumentTab {
 
   /// macOS security-scoped bookmark for [originPath], when available.
   String? originBookmark;
+
+  /// The app-private byte snapshot backing a mobile pick (see pdf_cache.dart),
+  /// or null when the document has a real [originPath] (desktop) or can't be
+  /// snapshotted (web). Carried so the tab re-persists into the session and
+  /// keeps its Recent entry reopenable across edits.
+  final String? cachePath;
 
   /// Byte length of the last-saved revision. Revisions are byte prefixes of one
   /// buffer, so length uniquely identifies a revision - the document is dirty

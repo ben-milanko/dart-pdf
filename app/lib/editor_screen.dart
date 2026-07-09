@@ -17,6 +17,7 @@ import 'image_clipboard.dart';
 import 'image_export.dart';
 import 'incoming_file.dart';
 import 'ocr.dart';
+import 'pdf_cache.dart';
 import 'printing.dart';
 import 'recents.dart';
 import 'session_store.dart';
@@ -130,7 +131,9 @@ class _EditorScreenState extends State<EditorScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _recents.load();
+    _recents.load().then((_) {
+      if (mounted) _pruneRecentCache();
+    });
     // Files the OS opens in the app: the launch file, then any later opens.
     _incoming.start();
     _incomingSub = _incoming.files.listen(_openIncoming);
@@ -260,7 +263,11 @@ class _EditorScreenState extends State<EditorScreen>
     if (mounted && !_hasExplicitLaunchTarget) {
       for (final doc in documents) {
         // Skip anything already open (e.g. an OS file-open that arrived first).
-        if (_tabs.any((t) => t.originPath == doc.path)) continue;
+        final key = doc.readPath;
+        if (key != null &&
+            _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
+          continue;
+        }
         await _reopenSessionDocument(doc);
         if (!mounted) return;
       }
@@ -270,13 +277,19 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _reopenSessionDocument(SessionDocument doc) async {
+    final readPath = doc.readPath;
+    if (readPath == null) return;
+    // Desktop restores by its writable origin; a mobile pick has none and
+    // restores from its private snapshot instead.
+    final originPath = doc.path.isNotEmpty ? doc.path : null;
     final loading = _openLoading(
       doc.title,
-      originPath: doc.path,
+      originPath: originPath,
       originBookmark: doc.bookmark,
+      cachePath: doc.cachePath,
     );
     try {
-      final bytes = await readPdfAtPath(doc.path, bookmark: doc.bookmark);
+      final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       final opened = _replaceLoadingTab(
@@ -285,12 +298,17 @@ class _EditorScreenState extends State<EditorScreen>
           title: doc.title,
           bytes: bytes,
           preferences: _prefs,
-          originPath: doc.path,
+          originPath: originPath,
           originBookmark: doc.bookmark,
+          cachePath: doc.cachePath,
         ),
       );
       if (opened) {
-        _recents.add(title: doc.title, path: doc.path, bookmark: doc.bookmark);
+        _recents.add(
+            title: doc.title,
+            path: originPath,
+            cachePath: doc.cachePath,
+            bookmark: doc.bookmark);
       }
     } catch (_) {
       // The file is gone (moved/deleted): drop the placeholder quietly.
@@ -307,11 +325,30 @@ class _EditorScreenState extends State<EditorScreen>
     final seen = <String>{};
     for (final tab in _tabs) {
       final path = tab.originPath;
-      if (path == null || path.isEmpty || !seen.add(path)) continue;
+      final cachePath = tab.cachePath;
+      // Track by the writable origin (desktop) or the private snapshot
+      // (mobile); tabs with neither (web, or a derived/comparison tab) can't
+      // be read back and are skipped.
+      final key = (path != null && path.isNotEmpty) ? path : cachePath;
+      if (key == null || key.isEmpty || !seen.add(key)) continue;
       documents.add(SessionDocument(
-          title: tab.title, path: path, bookmark: tab.originBookmark));
+          title: tab.title,
+          path: path ?? '',
+          cachePath: cachePath,
+          bookmark: tab.originBookmark));
     }
     await _session.save(documents);
+  }
+
+  /// Deletes cached mobile snapshots that no Recent entry still references, so
+  /// the private store can't grow without bound as entries roll off the list.
+  /// A no-op on desktop/web (nothing is cached there).
+  void _pruneRecentCache() {
+    final keep = {
+      for (final entry in _recents.items)
+        if (entry.cachePath != null) entry.cachePath!,
+    };
+    unawaited(pruneCachedPdfs(keep));
   }
 
   // --- opening -------------------------------------------------------------
@@ -342,9 +379,12 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   DocumentTab _openLoading(String title,
-      {String? originPath, String? originBookmark}) {
+      {String? originPath, String? originBookmark, String? cachePath}) {
     final tab = DocumentTab.loading(
-        title: title, originPath: originPath, originBookmark: originBookmark);
+        title: title,
+        originPath: originPath,
+        originBookmark: originBookmark,
+        cachePath: cachePath);
     _addTab(tab);
     return tab;
   }
@@ -378,6 +418,12 @@ class _EditorScreenState extends State<EditorScreen>
     );
     try {
       final bytes = await bytesFuture;
+      // Without a reusable file origin (mobile), snapshot the bytes into the
+      // app's private store so this document can reopen from Recent / restore
+      // next launch without a fresh pick. A no-op on desktop (has an origin)
+      // and web (no writable store).
+      final cachePath =
+          originPath == null ? await cacheOpenedPdf(bytes) : null;
       // Let the loading tab paint before constructing the edit session, which
       // synchronously opens the PDF and can be noticeable for large files.
       await WidgetsBinding.instance.endOfFrame;
@@ -390,10 +436,15 @@ class _EditorScreenState extends State<EditorScreen>
           preferences: _prefs,
           originPath: originPath,
           originBookmark: originBookmark,
+          cachePath: cachePath,
         ),
       );
       if (opened) {
-        _recents.add(title: title, path: originPath, bookmark: originBookmark);
+        _recents.add(
+            title: title,
+            path: originPath,
+            cachePath: cachePath,
+            bookmark: originBookmark);
       }
     } catch (e) {
       if (!mounted) return;
@@ -557,18 +608,23 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _openRecent(RecentFile entry) async {
-    final path = entry.path;
-    if (path == null) {
+    final readPath = entry.readPath;
+    if (readPath == null) {
+      // No usable source (web): fall back to a fresh pick.
       await _pickAndOpen();
       return;
     }
+    // Desktop reopens by its writable origin; a mobile entry reads back its
+    // private snapshot but has no origin, so saves there still go save-as.
+    final originPath = entry.path;
     final loading = _openLoading(
       entry.title,
-      originPath: path,
+      originPath: originPath,
       originBookmark: entry.bookmark,
+      cachePath: entry.cachePath,
     );
     try {
-      final bytes = await readPdfAtPath(path, bookmark: entry.bookmark);
+      final bytes = await readPdfAtPath(readPath, bookmark: entry.bookmark);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       final opened = _replaceLoadingTab(
@@ -577,15 +633,21 @@ class _EditorScreenState extends State<EditorScreen>
           title: entry.title,
           bytes: bytes,
           preferences: _prefs,
-          originPath: path,
+          originPath: originPath,
           originBookmark: entry.bookmark,
+          cachePath: entry.cachePath,
         ),
       );
       if (opened) {
-        _recents.add(title: entry.title, path: path, bookmark: entry.bookmark);
+        _recents.add(
+            title: entry.title,
+            path: originPath,
+            cachePath: entry.cachePath,
+            bookmark: entry.bookmark);
       }
     } catch (e) {
       await _recents.remove(entry.id);
+      _pruneRecentCache();
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
@@ -603,6 +665,8 @@ class _EditorScreenState extends State<EditorScreen>
       for (final tab in _tabs)
         if (tab.originPath != null && tab.originPath!.isNotEmpty)
           tab.originPath!
+        else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
+          tab.cachePath!
         else
           tab.title,
     };

@@ -62,6 +62,17 @@ void main() {
     });
   }
 
+  // A mobile pick has no durable path; the session tracks its private byte
+  // snapshot ('c') instead. Reuse a real on-disk file as that snapshot so
+  // restore can read it back through the same path-based opener.
+  void seedCacheSession(List<({String title, String cachePath})> docs) {
+    SharedPreferences.setMockInitialValues({
+      'dart_pdf_editor_app.session': jsonEncode([
+        for (final d in docs) {'t': d.title, 'p': '', 'c': d.cachePath}
+      ]),
+    });
+  }
+
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
         matching: find.text(name),
@@ -91,6 +102,17 @@ void main() {
 
     expect(tabTitle('a.pdf'), findsOneWidget);
     expect(tabTitle('b.pdf'), findsOneWidget);
+  });
+
+  testWidgets('restores a mobile document from its private snapshot',
+      (tester) async {
+    // No reusable path (mobile), only a cached copy of the bytes.
+    final snapshot = seedFile('snapshot.pdf');
+    seedCacheSession([(title: 'shared.pdf', cachePath: snapshot)]);
+
+    await pumpEditor(tester);
+
+    expect(tabTitle('shared.pdf'), findsOneWidget);
   });
 
   testWidgets('drops a session document whose file is gone, no error tab',

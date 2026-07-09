@@ -9,6 +9,7 @@ class RecentFile {
   const RecentFile({
     required this.title,
     this.path,
+    this.cachePath,
     this.bookmark,
     required this.openedAt,
   });
@@ -16,9 +17,15 @@ class RecentFile {
   final String title;
 
   /// The on-disk path, when the document was opened from a real file (desktop).
-  /// Null on web/mobile, where re-opening needs a fresh pick (until Phase 2/3
-  /// persists reusable origin handles).
+  /// Null on web/mobile, where the picker hands back a sandboxed copy with no
+  /// durable path. This is also the writable origin for an in-place save, so
+  /// only a genuine picked path belongs here - never a [cachePath].
   final String? path;
+
+  /// The app-private snapshot of a mobile pick's bytes (see pdf_cache.dart).
+  /// Lets the entry reopen without a fresh pick when there is no reusable
+  /// [path]; not a writable origin, so saves still go through save-as.
+  final String? cachePath;
 
   /// macOS security-scoped bookmark for [path], when available.
   final String? bookmark;
@@ -27,15 +34,25 @@ class RecentFile {
   final int openedAt;
 
   /// Stable identity: the path when present (so the same file dedupes across
-  /// renames of the tab title), else the title.
-  String get id => path ?? title;
+  /// renames of the tab title), else the content-addressed cache path, else the
+  /// title.
+  String get id => path ?? cachePath ?? title;
+
+  /// The path to read the document back from - the real origin when present,
+  /// otherwise the private snapshot. Null when neither is available (web).
+  String? get readPath {
+    if (path != null && path!.isNotEmpty) return path;
+    if (cachePath != null && cachePath!.isNotEmpty) return cachePath;
+    return null;
+  }
 
   /// True when this entry can be reopened directly (we hold a usable path).
-  bool get isReopenable => path != null && path!.isNotEmpty;
+  bool get isReopenable => readPath != null;
 
   Map<String, dynamic> toJson() => {
         't': title,
         if (path != null) 'p': path,
+        if (cachePath != null) 'c': cachePath,
         if (bookmark != null) 'b': bookmark,
         'o': openedAt,
       };
@@ -43,6 +60,7 @@ class RecentFile {
   factory RecentFile.fromJson(Map<String, dynamic> j) => RecentFile(
         title: (j['t'] as String?) ?? 'Untitled',
         path: j['p'] as String?,
+        cachePath: j['c'] as String?,
         bookmark: j['b'] as String?,
         openedAt: (j['o'] as num?)?.toInt() ?? 0,
       );
@@ -87,10 +105,14 @@ class RecentsStore extends ChangeNotifier {
 
   /// Records (or refreshes) a recently opened document at the front.
   Future<void> add(
-      {required String title, String? path, String? bookmark}) async {
+      {required String title,
+      String? path,
+      String? cachePath,
+      String? bookmark}) async {
     final entry = RecentFile(
       title: title,
       path: path,
+      cachePath: cachePath,
       bookmark: bookmark,
       openedAt: DateTime.now().millisecondsSinceEpoch,
     );
