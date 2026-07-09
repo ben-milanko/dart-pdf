@@ -50,6 +50,11 @@ class _StripZoomDemoPageState extends State<StripZoomDemoPage> {
   int _transformEvents = 0;
   bool _rendering = false;
   bool _renderQueued = false;
+
+  /// Replay target: false = flat CanvasPdfDevice replay, true = Track B's
+  /// StripPdfDevice (re-bin per settle; sharp-during-gesture comes with
+  /// B3/Slug later).
+  bool _useStrips = false;
   double _lastReplayMs = 0;
   double _lastRasterMs = 0;
   double _recordMs = 0;
@@ -151,7 +156,11 @@ class _StripZoomDemoPageState extends State<StripZoomDemoPage> {
       final zoom = _currentZoom;
       final ratio = (_fitRatio * zoom).clamp(0.05, 8.0);
       var sw = Stopwatch()..start();
-      final picture = scene.replay(pixelRatio: ratio);
+      // Both modes are pure replay - no re-interpret, no re-decode. Strips
+      // additionally re-bin the geometry at this ratio (Track B device).
+      final picture = _useStrips
+          ? await scene.replayStrips(pixelRatio: ratio)
+          : scene.replay(pixelRatio: ratio);
       final replayMs = sw.elapsedMicroseconds / 1000.0;
       sw = Stopwatch()..start();
       final image = await picture.toImage(
@@ -197,6 +206,21 @@ class _StripZoomDemoPageState extends State<StripZoomDemoPage> {
       appBar: AppBar(
         title: const Text('Retained-scene zoom (experimental)'),
         actions: [
+          // Replay-target toggle: flat canvas replay vs strip re-bin.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('Flat replay')),
+                ButtonSegment(value: true, label: Text('Strip replay')),
+              ],
+              selected: {_useStrips},
+              onSelectionChanged: (selection) {
+                setState(() => _useStrips = selection.first);
+                unawaited(_rerender());
+              },
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.folder_open),
             tooltip: 'Open a PDF',
@@ -269,6 +293,7 @@ class _StripZoomDemoPageState extends State<StripZoomDemoPage> {
                 '$_fileName  p${_pageIndex + 1}/${document?.pageCount ?? 0}  '
                 'commands=${scene.commands.length}  '
                 'record(once)=${_recordMs.toStringAsFixed(1)}ms  '
+                'mode=${_useStrips ? 'strip' : 'flat'}  '
                 'zoom=${_currentZoom.toStringAsFixed(2)} '
                 '(raster@${_rasteredZoom.toStringAsFixed(2)})  '
                 'replay=${_lastReplayMs.toStringAsFixed(1)}ms '

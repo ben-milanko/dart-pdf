@@ -64,6 +64,27 @@ void main() {
       p1.dispose();
       p2.dispose();
 
+      // Strip replay (Track B device): not byte-identical by design (strips'
+      // analytic AA vs Skia's curve coverage), so assert shape + non-blank +
+      // close to the canvas raster on average. Re-bins per call.
+      final stripImage = await scene.rasterizeStrips(pixelRatio: 2.0);
+      final canvasImage = await scene.rasterize(pixelRatio: 2.0);
+      expect(stripImage.width, canvasImage.width);
+      expect(stripImage.height, canvasImage.height);
+      final sp = (await _bytes(stripImage)).buffer.asUint8List();
+      final cp = (await _bytes(canvasImage)).buffer.asUint8List();
+      var sum = 0;
+      var nonWhite = 0;
+      for (var i = 0; i < sp.length; i++) {
+        sum += (sp[i] - cp[i]).abs();
+        if (sp[i] != 0xFF) nonWhite++;
+      }
+      expect(nonWhite, greaterThan(0), reason: 'strip raster is blank');
+      expect(sum / sp.length, lessThan(2.0),
+          reason: 'strip raster far from canvas raster (mean channel diff)');
+      stripImage.dispose();
+      canvasImage.dispose();
+
       scene.dispose();
       picture.dispose();
     });

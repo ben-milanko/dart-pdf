@@ -11,6 +11,11 @@
 //                   re-interpret, no re-decode), then toImage.
 //   (c) full      - reference: full re-render (re-interpret + decode via the
 //                   warm PdfImageCache + paint) then toImage.
+//   (d) strips    - PdfRetainedScene.replayStrips: the command buffer is
+//                   re-binned into Track B's StripPdfDevice at the new ratio
+//                   (sparse-strip drawVertices + canvas fallback), then
+//                   toImage. Per-step strip telemetry (flushes/quads/atlas
+//                   texels/delegated paints) prints alongside.
 //
 // Each timed step splits into build (picture production), raster (toImage)
 // and readback (toByteData(rawRgba), forcing full realization so GPU-backed
@@ -127,6 +132,7 @@ void main() {
 
       final rows = <String>[];
       final stepRows = <String>[];
+      final telemetryRows = <String>[];
 
       for (final entry in fileNames) {
         // "name.pdf#12" selects a page for that file; bare names use
@@ -172,7 +178,10 @@ void main() {
           'a-current': _Sample(),
           'b-retained': _Sample(),
           'c-full': _Sample(),
+          'd-strips': _Sample(),
         };
+        // per zoom step: flushes, quads, atlas texels, delegated paints
+        final stripStats = [for (final _ in zoomSequence) (0, 0, 0, 0)];
         final perStep = {
           for (final key in samples.keys)
             key: [for (final _ in zoomSequence) _Sample()],
@@ -235,6 +244,26 @@ void main() {
               samples['c-full']!.add(buildC, rasterC, readbackC);
               perStep['c-full']![step].add(buildC, rasterC, readbackC);
             }
+
+            // (d) retained scene through the strip device: re-bin at ratio.
+            StripPdfDevice.resetStats();
+            t = Stopwatch()..start();
+            final stripPicture = await scene.replayStrips(pixelRatio: ratio);
+            final buildD = t.elapsedMicroseconds / 1000.0;
+            final (imageD, rasterD, readbackD) =
+                await _timeRaster(stripPicture, w, h);
+            stripPicture.dispose();
+            imageD.dispose();
+            if (record) {
+              samples['d-strips']!.add(buildD, rasterD, readbackD);
+              perStep['d-strips']![step].add(buildD, rasterD, readbackD);
+              stripStats[step] = (
+                StripPdfDevice.totalFlushes,
+                StripPdfDevice.totalStripQuads,
+                StripPdfDevice.totalAtlasTexels,
+                StripPdfDevice.totalDelegatedPaints,
+              );
+            }
           }
         }
 
@@ -255,6 +284,15 @@ void main() {
           stepRows.add('${label.padRight(44).substring(0, 44)} '
               'zoom=${zoomSequence[step].toStringAsFixed(1)} '
               '${parts.join('  ')}');
+        }
+
+        for (var step = 0; step < zoomSequence.length; step++) {
+          final (flushes, quads, texels, delegated) = stripStats[step];
+          telemetryRows.add('${label.padRight(44).substring(0, 44)} '
+              'zoom=${zoomSequence[step].toStringAsFixed(1)} '
+              'flushes=$flushes quads=$quads '
+              'atlasKB=${(texels * 4 / 1024).toStringAsFixed(0)} '
+              'delegated=$delegated');
         }
 
         scene.dispose();
@@ -280,6 +318,12 @@ void main() {
       // ignore: avoid_print
       print('\nper-zoom-step totals (ms, build+toImage+readback):');
       for (final row in stepRows) {
+        // ignore: avoid_print
+        print(row);
+      }
+      // ignore: avoid_print
+      print('\nstrip telemetry per zoom step (last pass, path d):');
+      for (final row in telemetryRows) {
         // ignore: avoid_print
         print(row);
       }

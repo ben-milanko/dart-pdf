@@ -24,6 +24,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import '../canvas_device.dart';
 import '../image_decoder.dart';
 import '../renderer.dart';
+import 'strip_device.dart';
 
 /// A page retained as a replayable scene: the recorded interpreter command
 /// buffer plus its decoded images, both produced exactly once in [record].
@@ -160,6 +161,64 @@ class PdfRetainedScene {
   void _replayOnto(Canvas canvas) {
     PdfPageRenderer.preparePageCanvas(canvas, page, plan);
     replayCommands(commands, CanvasPdfDevice(canvas, images: _images));
+  }
+
+  /// Replays the retained commands through Track B's [StripPdfDevice]
+  /// instead of [CanvasPdfDevice]: fills/strokes/glyphs are re-binned into
+  /// sparse strips at [pixelRatio] and drawn as shader-carrying
+  /// `drawVertices` batches; everything the strip device can't express
+  /// delegates to the canvas in painter's order. Async because the device's
+  /// atlas upload awaits `decodeImageFromPixels` inside `finish()`.
+  ///
+  /// The resulting picture is only valid at the recorded [pixelRatio]
+  /// (strip quads are device-pixel-aligned) - every zoom step is a re-bin,
+  /// which is exactly C1's premise. Still zero re-interpretation and zero
+  /// image re-decoding: the walk is a command replay and the image map is
+  /// the scene's own.
+  ///
+  /// Batching telemetry accumulates on [StripPdfDevice.totalFlushes] /
+  /// `totalStripQuads` / `totalAtlasTexels`; call
+  /// [StripPdfDevice.resetStats] around a step to read per-step deltas.
+  Future<ui.Picture> replayStrips({required double pixelRatio}) async {
+    assert(!_disposed, 'replay after dispose');
+    final size = pageSize;
+    final width = (size.width * pixelRatio).ceil().clamp(1, 1 << 14);
+    final height = (size.height * pixelRatio).ceil().clamp(1, 1 << 14);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(pixelRatio);
+    PdfPageRenderer.preparePageCanvas(canvas, page, plan);
+    final device = StripPdfDevice(
+      canvas,
+      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(
+          page, size, page.cropBox,
+          rotation: plan.rotation, pixelRatio: pixelRatio),
+      deviceWidth: width,
+      deviceHeight: height,
+      pixelRatio: pixelRatio,
+      images: _images,
+    );
+    try {
+      replayCommands(commands, device);
+      await device.finish(); // must precede endRecording (atlas decodes)
+      return recorder.endRecording();
+    } finally {
+      device.dispose();
+    }
+  }
+
+  /// Convenience: [replayStrips] + `toImage` at the exact raster size,
+  /// mirror of [rasterize].
+  Future<ui.Image> rasterizeStrips({required double pixelRatio}) async {
+    final picture = await replayStrips(pixelRatio: pixelRatio);
+    try {
+      final size = pageSize;
+      return await picture.toImage(
+        (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+    } finally {
+      picture.dispose();
+    }
   }
 
   /// Releases the scene's decoded images. Pictures already returned by
