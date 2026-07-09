@@ -96,7 +96,7 @@ void main() {
   // consistent by the rest.
   late String space;
 
-  ui.FragmentShader _shader(double mode, {double row = 0}) {
+  ui.FragmentShader shaderFor(double mode, {double row = 0}) {
     final s = program.fragmentShader();
     s.setFloat(0, _texSize.toDouble());
     s.setFloat(1, _texSize.toDouble());
@@ -108,7 +108,7 @@ void main() {
 
   // Expected texel under the detected space for a quad drawn with
   // pos origin (0,0) and tex origin (tx,ty).
-  List<int> _expect(int x, int y, int tx, int ty) =>
+  List<int> expectedTexel(int x, int y, int tx, int ty) =>
       space == 'texcoord' ? _texel(x + tx, y + ty) : _texel(x, y);
 
   setUpAll(() async {
@@ -119,7 +119,7 @@ void main() {
   testWidgets('probe: coordinate space of drawVertices + FragmentShader',
       (tester) async {
     await tester.runAsync(() async {
-      final shader = _shader(0);
+      final shader = shaderFor(0);
       final bytes = await _renderToBytes((canvas) {
         canvas.drawVertices(
             _quad(const ui.Rect.fromLTRB(0, 0, 32, 32),
@@ -150,7 +150,7 @@ void main() {
 
   testWidgets('probe: exact texel reads (identity mapping)', (tester) async {
     await tester.runAsync(() async {
-      final shader = _shader(1);
+      final shader = shaderFor(1);
       final bytes = await _renderToBytes((canvas) {
         canvas.drawVertices(
             _quad(const ui.Rect.fromLTRB(0, 0, 32, 32),
@@ -176,7 +176,7 @@ void main() {
   testWidgets('probe: texcoord-offset texel reads follow detected space',
       (tester) async {
     await tester.runAsync(() async {
-      final shader = _shader(1);
+      final shader = shaderFor(1);
       final bytes = await _renderToBytes((canvas) {
         canvas.drawVertices(
             _quad(const ui.Rect.fromLTRB(0, 0, 32, 32),
@@ -186,7 +186,7 @@ void main() {
       }, 32, 32);
 
       for (final p in const [(2, 3), (10, 20), (15, 15)]) {
-        final want = _expect(p.$1, p.$2, 16, 8);
+        final want = expectedTexel(p.$1, p.$2, 16, 8);
         // Rows >= 32 in the texture have varying alpha; the raw framebuffer
         // holds premultiplied values there, so only assert opaque texels.
         if (want[3] != 255) continue;
@@ -204,7 +204,7 @@ void main() {
   testWidgets('probe: RGBA channel select via step-mask dot', (tester) async {
     await tester.runAsync(() async {
       for (var row = 0; row < 4; row++) {
-        final shader = _shader(2, row: row.toDouble());
+        final shader = shaderFor(2, row: row.toDouble());
         final bytes = await _renderToBytes((canvas) {
           canvas.drawVertices(
               _quad(const ui.Rect.fromLTRB(0, 0, 16, 16),
@@ -213,7 +213,7 @@ void main() {
               ui.Paint()..shader = shader);
         }, 16, 16);
         for (final p in const [(1, 2), (7, 11), (14, 5)]) {
-          final texel = _expect(p.$1, p.$2, 8, 40);
+          final texel = expectedTexel(p.$1, p.$2, 8, 40);
           expect((_px(bytes, 16, p.$1, p.$2, 0) - texel[row]).abs(),
               lessThanOrEqualTo(1),
               reason: 'channel $row at ${p.$1},${p.$2}: '
@@ -229,7 +229,7 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       // Coverage = R channel of opaque texels (row < 32 => R = i).
-      final shader = _shader(2, row: 0);
+      final shader = shaderFor(2, row: 0);
       const color = 0xFFC84020; // ARGB: a=255 r=200 g=64 b=32
       final bytes = await _renderToBytes((canvas) {
         canvas.drawVertices(
@@ -259,7 +259,7 @@ void main() {
     await tester.runAsync(() async {
       // One shader instance: draw channel R at x<16, mutate to channel G,
       // draw at x>=16. Both draws must reflect their own uniform values.
-      final shader = _shader(2, row: 0);
+      final shader = shaderFor(2, row: 0);
       final bytes = await _renderToBytes((canvas) {
         canvas.drawVertices(
             _quad(const ui.Rect.fromLTRB(0, 0, 16, 16),
