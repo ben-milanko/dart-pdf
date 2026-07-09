@@ -420,6 +420,13 @@ class PdfPageRenderer {
     }
   }
 
+  /// Phase timing (microseconds) for the strips path, aggregated across
+  /// renders for the benchmark: interpret+strip-generation (the walk into
+  /// [StripPdfDevice]) and the final picture rasterization. Atlas-decode
+  /// and tape-replay phases live on [StripPdfDevice].
+  static int stripInterpretMicros = 0;
+  static int stripRasterMicros = 0;
+
   /// Strip-device bitmap render: interpret once through [StripPdfDevice]
   /// (recording strips + fallback ops in painter's order), then paint and
   /// rasterize. The picture is recorded with [pixelRatio] baked in so the
@@ -458,14 +465,19 @@ class PdfPageRenderer {
       pixelRatio: pixelRatio,
       images: images,
     );
+    final sw = Stopwatch()..start();
     final painting = PdfInterpreter(cos: cos, device: device)
       ..drawPageOperations(page, pageOps);
     if (plan.annotations) painting.drawAnnotations(page);
+    stripInterpretMicros += sw.elapsedMicroseconds;
     await device.finish();
 
     final picture = recorder.endRecording();
+    sw.reset();
     try {
-      return await picture.toImage(width, height);
+      final image = await picture.toImage(width, height);
+      stripRasterMicros += sw.elapsedMicroseconds;
+      return image;
     } finally {
       picture.dispose();
       device.dispose();

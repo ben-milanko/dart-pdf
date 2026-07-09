@@ -89,11 +89,20 @@ class StripPdfDevice implements PdfDevice {
   static int totalAtlasTexels = 0;
   static int totalDelegatedPaints = 0;
 
+  /// Phase timing (microseconds), aggregated across devices: time awaiting
+  /// alpha-atlas decodes vs replaying the tape (drawVertices + fallback
+  /// ops). The interpret+strip-generation and toImage phases are timed by
+  /// the renderer (see PdfPageRenderer profiling statics).
+  static int totalAtlasDecodeMicros = 0;
+  static int totalReplayMicros = 0;
+
   static void resetStats() {
     totalFlushes = 0;
     totalStripQuads = 0;
     totalAtlasTexels = 0;
     totalDelegatedPaints = 0;
+    totalAtlasDecodeMicros = 0;
+    totalReplayMicros = 0;
   }
 
   int get flushCount => _batches.length;
@@ -319,9 +328,12 @@ class StripPdfDevice implements PdfDevice {
     assert(!_finished, 'StripPdfDevice.finish() called twice');
     _finished = true;
     _flush();
+    final sw = Stopwatch()..start();
     final program = await _loadProgram();
     await Future.wait([for (final b in _batches) b.decodeAtlas()]);
+    totalAtlasDecodeMicros += sw.elapsedMicroseconds;
 
+    sw.reset();
     final fallback = CanvasPdfDevice(canvas, images: images);
     for (final entry in _tape) {
       if (entry is StripBatch) {
@@ -330,6 +342,7 @@ class StripPdfDevice implements PdfDevice {
         (entry as void Function(CanvasPdfDevice))(fallback);
       }
     }
+    totalReplayMicros += sw.elapsedMicroseconds;
   }
 
   /// Releases the decoded atlas images and vertex buffers. Call after the
@@ -341,16 +354,26 @@ class StripPdfDevice implements PdfDevice {
     }
   }
 
+  /// Debug/benchmark: draw batches with a plain paint instead of the
+  /// coverage shader (wrong output - quantifies the runtime-effect cost of
+  /// software rasterization).
+  static bool debugNoShader = false;
+
   void _drawBatch(ui.FragmentProgram program, StripBatch batch) {
-    final shader = program.fragmentShader()
-      ..setFloat(0, batch.atlasWidth.toDouble())
-      ..setFloat(1, batch.atlasHeight.toDouble())
-      ..setImageSampler(0, batch.atlas!);
-    final paint = ui.Paint()..shader = shader;
+    final paint = ui.Paint();
+    if (!debugNoShader) {
+      paint.shader = program.fragmentShader()
+        ..setFloat(0, batch.atlasWidth.toDouble())
+        ..setFloat(1, batch.atlasHeight.toDouble())
+        ..setImageSampler(0, batch.atlas!);
+    }
     canvas.save();
     canvas.transform(_deviceToPage);
     for (final chunk in batch.chunks) {
-      canvas.drawVertices(chunk, ui.BlendMode.modulate, paint);
+      // no-shader mode draws the vertex colors directly (wrong coverage,
+      // representative triangle-raster cost)
+      canvas.drawVertices(chunk,
+          debugNoShader ? ui.BlendMode.srcOver : ui.BlendMode.modulate, paint);
     }
     canvas.restore();
   }
