@@ -4093,11 +4093,30 @@ class PdfEditingController extends ChangeNotifier {
       _resizeWidget(_selected.last, to);
       return;
     }
+    if (annotation.isCallout) {
+      // a callout's resize handles size the text box; the terminus stays
+      // put and the leader stretches (Bluebeam's model)
+      apply((e) => e.reshapeCallout(_selected.last.$1, annotation, box: to),
+          pages: [_selected.last.$1], contentPages: const <int>[]);
+      return;
+    }
     apply(
         (e) => e.resizeAnnotation(_selected.last.$1, annotation, to,
             flipX: flipX,
             flipY: flipY,
             pageRotation: _page(_selected.last.$1).rotation),
+        pages: [_selected.last.$1],
+        contentPages: const <int>[]);
+  }
+
+  /// Moves a selected callout's arrow terminus to [target] (page space),
+  /// leaving the text box where it is - the leader stretches to follow.
+  /// A no-op unless a single callout is selected.
+  void reshapeSelectedCalloutTarget((double, double) target) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !annotation.isCallout) return;
+    apply(
+        (e) => e.reshapeCallout(_selected.last.$1, annotation, target: target),
         pages: [_selected.last.$1],
         contentPages: const <int>[]);
   }
@@ -4143,6 +4162,13 @@ class PdfEditingController extends ChangeNotifier {
     if (annotation.subtype == 'Widget') {
       // widgets never rotate, so the local frame is the rect itself
       _resizeWidget(_selected.last, localTo);
+      return;
+    }
+    if (annotation.isCallout) {
+      apply(
+          (e) => e.reshapeCallout(_selected.last.$1, annotation, box: localTo),
+          pages: [_selected.last.$1],
+          contentPages: const <int>[]);
       return;
     }
     apply(

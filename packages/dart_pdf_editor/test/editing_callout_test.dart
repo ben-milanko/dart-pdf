@@ -31,6 +31,37 @@ void main() {
       // the callout tool exposes the same box controls as free text
       expect(editing.toolUsesColor, isTrue);
     });
+
+    test('resizing a selected callout resizes the box, not the arrow', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      final terminus0 =
+          editing.document.page(0).annotations.single.calloutLine!.first;
+
+      editing.resizeSelected(const PdfRect(320, 610, 520, 690));
+
+      final a = editing.document.page(0).annotations.single;
+      expect(a.isCallout, isTrue);
+      expect(a.calloutLine!.first, terminus0, reason: 'arrow tip stays put');
+      expect(a.calloutBox!.left, closeTo(320, 0.5));
+      expect(a.calloutBox!.right, closeTo(520, 0.5));
+    });
+
+    test('reshapeSelectedCalloutTarget moves only the arrow', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      final box0 = editing.document.page(0).annotations.single.calloutBox!;
+
+      editing.reshapeSelectedCalloutTarget((560, 630));
+
+      final a = editing.document.page(0).annotations.single;
+      expect(a.calloutLine!.first, (560.0, 630.0));
+      expect(a.calloutBox!.left, closeTo(box0.left, 0.5));
+      expect(a.calloutBox!.top, closeTo(box0.top, 0.5));
+      expect(a.calloutBox!.bottom, closeTo(box0.bottom, 0.5));
+    });
   });
 
   group('callout tool in the viewer', () {
@@ -116,6 +147,29 @@ void main() {
       await tap(tester, view(450, 400)); // commit with no text
 
       expect(editing.document.page(0).annotations, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('dragging the terminus handle re-aims the arrow, box stays',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 480));
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+      final box0 = editing.document.page(0).annotations.single.calloutBox!;
+
+      // the terminus handle sits at the arrow tip (150, 480); drag it away
+      await drag(tester, view(150, 480), view(230, 430));
+      await tester.pump();
+
+      final a = editing.document.page(0).annotations.single;
+      expect(a.isCallout, isTrue);
+      final tip = a.calloutLine!.first;
+      expect(tip.$1, closeTo(230, 6), reason: 'arrow tip followed the drag');
+      expect(tip.$2, closeTo(430, 6));
+      expect(a.calloutBox!.left, closeTo(box0.left, 1), reason: 'box unmoved');
+      expect(a.calloutBox!.top, closeTo(box0.top, 1));
       await settle(tester);
     });
 

@@ -132,6 +132,56 @@ void main() {
     expect(annot.calloutLine, isNull);
   });
 
+  test('reshapeCallout with a new box keeps the terminus fixed', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addCallout(
+        0, const PdfRect(300, 600, 460, 660), 'move box', (120, 500));
+    final doc0 = PdfDocument.open(editor.save());
+    final a0 = doc0.page(0).annotations.single;
+    final terminus0 = a0.calloutLine!.first;
+
+    final editor2 = PdfEditor(doc0);
+    expect(
+        editor2.reshapeCallout(0, a0, box: const PdfRect(340, 620, 500, 680)),
+        isTrue);
+    final a = PdfDocument.open(editor2.save()).page(0).annotations.single;
+
+    expect(a.isCallout, isTrue);
+    expect(a.calloutLine!.first, terminus0, reason: 'terminus unchanged');
+    expect(a.calloutBox!.left, closeTo(340, 0.5));
+    expect(a.calloutBox!.top, closeTo(680, 0.5));
+  });
+
+  test('reshapeCallout with a new target keeps the box fixed', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addCallout(
+        0, const PdfRect(300, 600, 460, 660), 'move arrow', (120, 500));
+    final doc0 = PdfDocument.open(editor.save());
+    final a0 = doc0.page(0).annotations.single;
+    final box0 = a0.calloutBox!;
+
+    final editor2 = PdfEditor(doc0);
+    expect(editor2.reshapeCallout(0, a0, target: (560, 630)), isTrue);
+    final a = PdfDocument.open(editor2.save()).page(0).annotations.single;
+
+    expect(a.calloutLine!.first, (560.0, 630.0), reason: 'terminus moved');
+    expect(a.calloutBox!.left, closeTo(box0.left, 0.5));
+    expect(a.calloutBox!.right, closeTo(box0.right, 0.5));
+    expect(a.calloutBox!.top, closeTo(box0.top, 0.5));
+    expect(a.calloutBox!.bottom, closeTo(box0.bottom, 0.5));
+    // leader now attaches to the right edge, following the moved target
+    expect(a.calloutLine!.last.$1, closeTo(box0.right, 0.5));
+  });
+
+  test('reshapeCallout refuses a plain free text', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addFreeText(0, const PdfRect(72, 600, 240, 680), 'plain');
+    final doc0 = PdfDocument.open(editor.save());
+    final a0 = doc0.page(0).annotations.single;
+    final editor2 = PdfEditor(doc0);
+    expect(editor2.reshapeCallout(0, a0, target: (10, 10)), isFalse);
+  });
+
   test('resizing a callout scales its leader and keeps it a callout', () {
     final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
     editor.addCallout(

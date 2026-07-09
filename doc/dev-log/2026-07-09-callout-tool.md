@@ -72,3 +72,36 @@ joined to a point on the page by a leader line that ends in an arrow.
 Gotcha worth remembering: the 800×600 default test surface clips
 `view(x, y)` taps whose page-y is small - a commit tap must land inside the
 viewport (page-y ≳ 333 at `PdfViewerFit.width`).
+
+## Follow-up: preview arrow + independent terminus/box editing
+
+Review feedback drove three UX fixes:
+
+1. **Drag preview shows the arrow.** `_paintPathPreview` now draws an open
+   arrowhead at the *first* point for `PdfEditTool.callout` (the terminus is
+   the drag start, not the end like the arrow tool), matching the committed
+   `/OpenArrow`.
+2. **Leader stays visible while the box editor is open.** The preview painter
+   gained a `calloutLeader: (terminus, box, color, width)?` field, fed by
+   `_calloutLeaderPreview()`. `_paintCalloutLeader` draws the leader from the
+   terminus to the box's nearest edge + arrow, so the arrow doesn't vanish
+   between release and commit. The same helper feeds the leader while the
+   terminus handle is being dragged.
+3. **Terminus and text box move independently** (Bluebeam's model). New model
+   primitive `PdfEditor.reshapeCallout(annotation, {box, target})` rebuilds
+   `/CL`/`/RD`/`/Rect`/appearance from a new box and/or terminus, keeping the
+   other fixed and preserving text + style + ending. Wiring:
+   - `PdfAnnotation.calloutBox` reads the text-box sub-rect (/Rect inset by
+     /RD) - the counterpart to `calloutLine`.
+   - Overlay `_selectedViewRect` returns `calloutBox` for a callout, so the
+     resize handles + selection chrome hug the box, not the /Rect that also
+     encloses the leader/arrow. `resizeSelected`/`resizeSelectedLocal`
+     intercept callouts → `reshapeCallout(box:)` instead of scaling `/CL`.
+   - Overlay `_selectedVertexPoints` returns `[terminus]` for a callout, so
+     the Line/PolyLine vertex-handle machinery gives it one draggable handle
+     at the arrow tip; `_commitVertexDrag` routes callouts to
+     `reshapeSelectedCalloutTarget`. `showHandles` stays true (a callout isn't
+     `_selectedLineFamily`), so box handles and the terminus handle coexist.
+   Move (dragging the body) still translates the whole callout - only the
+   scale handle and the terminus handle are independent, which is what the
+   "scale handle scales both" complaint was about.

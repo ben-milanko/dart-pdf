@@ -320,6 +320,22 @@ class PdfAnnotation {
     return points;
   }
 
+  /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
+  /// distinct from /Rect which also encloses the leader line and arrowhead.
+  /// Null when this is not a callout.
+  PdfRect? get calloutBox {
+    if (!isCallout) return null;
+    final rd = document.cos.resolve(dict['RD']);
+    double d(int i) {
+      if (rd is! CosArray || rd.items.length <= i) return 0;
+      return _number(document.cos.resolve(rd.items[i])) ?? 0;
+    }
+
+    final r = rect;
+    return PdfRect(
+        r.left + d(0), r.bottom + d(3), r.right - d(2), r.top - d(1));
+  }
+
   /// The /Measure dictionary (§12.9): the scale and unit formats a
   /// measurement annotation (Line/PolyLine/Polygon) carries. Null when
   /// the annotation has no /Measure.

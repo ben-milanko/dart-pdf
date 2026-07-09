@@ -1876,6 +1876,79 @@ extension PdfAnnotationEditing on PdfEditor {
         rect.top - d(1));
   }
 
+  /// Rebuilds a callout from a new text [box] and/or arrow [target] (page
+  /// space), keeping the other where it is - so the box and terminus move
+  /// independently (Bluebeam's model: dragging one stretches the leader).
+  /// Preserves the text, style, and arrow ending; regenerates /CL, /RD,
+  /// /Rect, and the appearance. Returns false when [annotation] is not a
+  /// callout this editor can reproduce.
+  bool reshapeCallout(int pageIndex, PdfAnnotation annotation,
+      {PdfRect? box, (double, double)? target}) {
+    final info = _calloutInfo(annotation);
+    if (info == null) return false;
+    final style = annotation.freeTextStyle;
+    if (style == null) return false;
+    final stdFont = PdfStandardFont.tryFromName(style.fontName);
+    if (stdFont == null) return false;
+    final newBox = box ?? _boxFromRd(annotation, annotation.rect);
+    final newTarget = target ?? info.line.first;
+    final text = annotation.contents ?? '';
+
+    PdfUnicodeFont? unicodeFont;
+    if (text.codeUnits.any((c) => c > 0xFF)) {
+      unicodeFont = PdfUnicodeFont(stdFont);
+      unicodeFont.resetUsage();
+    }
+    final PdfTextFont effectiveFont = unicodeFont ?? stdFont;
+
+    final callout = _calloutLine(newBox, newTarget);
+    final leaderColor = style.borderColor ?? style.color;
+    final leaderWidth = style.borderWidth > 0 ? style.borderWidth : 1.0;
+    final endingPoints =
+        _endingExtent(info.ending, callout.first, callout[1], leaderWidth);
+    final rect = _pointBounds([
+      (newBox.left, newBox.bottom),
+      (newBox.right, newBox.top),
+      ...callout,
+      ...endingPoints,
+    ], math.max(style.borderWidth, leaderWidth));
+
+    final pageRotation = _appearancePageRotation(pageIndex, null);
+    final w = _calloutContent(newBox, callout, text,
+        fontSize: style.fontSize,
+        font: effectiveFont,
+        textDirection: PdfTextDirection.auto,
+        align: style.alignment,
+        color: style.color,
+        fillColor: style.fillColor,
+        borderColor: style.borderColor,
+        borderWidth: style.borderWidth,
+        lineColor: leaderColor,
+        lineWidth: leaderWidth,
+        ending: info.ending,
+        pageRotation: pageRotation);
+
+    final dict = annotation.dict;
+    dict['Rect'] = _rectArray(rect);
+    dict['CL'] = _pointArray(callout);
+    dict['RD'] = _rdArray(rect, newBox);
+    final fontResource = unicodeFont != null
+        ? unicodeFont.buildResource(_updater.addObject)
+        : _standardFont(stdFont);
+    final form = annotation.normalAppearance;
+    if (form != null) {
+      _replaceAppearance(dict, form, rect, w,
+          resources: _resources(font: fontResource));
+    } else {
+      dict['AP'] = CosDictionary({
+        'N': _updater
+            .addObject(_form(rect, w, resources: _resources(font: fontResource)))
+      });
+    }
+    _markAnnotationChanged(pageIndex, dict);
+    return true;
+  }
+
   /// Adds a rich free-text annotation whose appearance can switch font,
   /// size, and text color between [runs].
   ///
