@@ -426,7 +426,7 @@ _CommandImage? _decodeImageForCommand(
       : _imageRegionPlan(
           document, request, imageDecodeRegion, maxImageRatio, budgetScale);
   if (regionPlan != null) {
-    final decoded = regionPlan.outside
+    var decoded = regionPlan.outside
         ? _transparentPixel
         : predecoded == null
             ? decodePdfImagePixelsRegionScaled(
@@ -448,6 +448,31 @@ _CommandImage? _decodeImageForCommand(
                 regionPlan.targetWidth,
                 regionPlan.targetHeight,
               );
+    // The fast region decoder ([decodePdfImagePixelsRegionScaled]) only handles
+    // single-filter Flate RGB/gray/indexed streams; for any other image the
+    // general decoder handles - an Indexed 8-bit palette, an /SMask'd logo, an
+    // ICC/Lab/Separation colour space, 16-bit, a stacked filter - it returns
+    // null. Falling through from here would leave the visible slice at the
+    // full-page 2x cap, so those images stay soft under deep zoom while vector
+    // text sharpens - the exact asymmetry the detail patch exists to remove.
+    // Decode the whole image once and crop+downsample it to the visible region
+    // instead, so every decodable image type re-sharpens on zoom. (Images that
+    // need the platform JPEG codec still decode null here and ship un-decoded
+    // at native resolution, so they are already sharp.)
+    if (decoded == null && !regionPlan.outside && predecoded == null) {
+      final full = decodePdfImagePixels(document, request.stream);
+      if (full != null) {
+        decoded = _cropDownsampleDecodedPixels(
+          full,
+          regionPlan.sourceX,
+          regionPlan.sourceY,
+          regionPlan.sourceWidth,
+          regionPlan.sourceHeight,
+          regionPlan.targetWidth,
+          regionPlan.targetHeight,
+        );
+      }
+    }
     if (decoded != null) {
       final croppedRequest = _copyImageRequest(request,
           transform: regionPlan.transform, decoded: decoded);

@@ -386,6 +386,71 @@ void main() {
       expect(decoded.rgba, [0, 0, 0, 0]);
     });
 
+    test('imageDecodeRegion sharpens images the fast path declines (SMask)',
+        () {
+      // An /SMask'd image (a transparent logo, say) is exactly the kind the
+      // fast region decoder bails on, so before the general-decoder fallback it
+      // would drop through to the full-page cap and stay soft under deep zoom.
+      // Here the visible slice must still come back cropped + region-keyed.
+      final cos = CosDocument.open(buildClassicPdf());
+      final baseRaw = <int>[];
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          baseRaw.addAll([x * 40, y * 50, 7]);
+        }
+      }
+      final smask = CosStream(
+        CosDictionary({
+          'Type': const CosName('XObject'),
+          'Subtype': const CosName('Image'),
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(List<int>.filled(16, 128))),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList(zlib.encode(baseRaw)),
+      );
+      // The fast Flate region path must decline this (SMask present), so the
+      // fallback under test is the only way a region result comes back.
+      expect(
+        decodePdfImagePixelsRegionScaled(cos, stream, 1, 2, 1, 1, 1, 1),
+        isNull,
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(400, 0, 0, 400, 100, 200),
+      ));
+
+      final bytes = serializeCommands([command],
+          cos: cos,
+          decodeImages: true,
+          maxImagePixelRatio: 100,
+          imageDecodeRegion: const PdfRect(200, 300, 300, 400));
+
+      expect(bytes, isNotNull);
+      final restored = _imageCommands(deserializeCommands(bytes!)).single;
+      // Retargeted to the cropped slice, same as the fast-path region case.
+      expect(restored.request.transform.a, 100);
+      expect(restored.request.transform.d, 100);
+      final decoded = restored.request.decoded!;
+      expect(decoded.width, 1);
+      expect(decoded.height, 1);
+      // Base [40,100,7] premultiplied by the mask's alpha 128.
+      expect(decoded.rgba, [20, 50, 3, 128]);
+    });
+
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/'
           'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',
