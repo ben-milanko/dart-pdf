@@ -118,6 +118,26 @@ void main() {
       expect(editing.document.page(0).annotations, isEmpty);
       await settle(tester);
     });
+
+    testWidgets('a plain tap makes the tap the terminus and offsets the box',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.callout;
+      await tester.pump();
+
+      await tap(tester, view(250, 500)); // no drag: the tap is the terminus
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      await tester.enterText(find.byKey(editorKey), 'Tapped callout');
+      await tap(tester, view(450, 400)); // commit
+
+      final annot = editing.document.page(0).annotations.single;
+      expect(annot.isCallout, isTrue);
+      final line = annot.calloutLine!;
+      expect(line.first.$1, closeTo(250, 2));
+      expect(line.first.$2, closeTo(500, 2));
+      await settle(tester);
+    });
   });
 
   test('callout survives a save/reload round-trip', () {

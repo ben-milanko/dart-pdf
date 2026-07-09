@@ -85,6 +85,45 @@ void main() {
     expect(line.last.$1, 300.0, reason: 'attaches to the box left edge');
   });
 
+  test('the leader attaches to the box edge nearest the target', () {
+    // box is (300,600)-(460,660): left=300 right=460 bottom=600 top=660
+    ((double, double), List<(double, double)>) place((double, double) target) {
+      final doc = roundTrip(
+          (e) => e.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', target));
+      final line = doc.page(0).annotations.single.calloutLine!;
+      return (line.last, line);
+    }
+
+    // target to the right -> attaches on the right edge (x == 460)
+    expect(place((560, 630)).$1.$1, 460);
+    // target above -> attaches on the top edge (y == 660)
+    expect(place((380, 760)).$1.$2, 660);
+    // target below -> attaches on the bottom edge (y == 600)
+    expect(place((380, 500)).$1.$2, 600);
+    // target inside the box -> a straight 2-point leader, no knee
+    expect(place((380, 630)).$2, hasLength(2));
+  });
+
+  test('restyling a callout regenerates its leader + box', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addCallout(
+        0, const PdfRect(300, 600, 460, 660), 'restyle me', (120, 500),
+        color: 0x000000);
+    final doc0 = PdfDocument.open(editor.save());
+    final annot0 = doc0.page(0).annotations.single;
+
+    final editor2 = PdfEditor(doc0);
+    editor2.restyleAnnotation(0, annot0, color: 0x2060C0);
+    final doc = PdfDocument.open(editor2.save());
+    final annot = doc.page(0).annotations.single;
+
+    expect(annot.isCallout, isTrue);
+    expect(annot.calloutLine!.first, (120.0, 500.0));
+    final content = appearanceText(doc, annot);
+    expect(content, contains('120 500 m'), reason: 'leader still drawn');
+    expect(content, contains(' Tj'), reason: 'text still drawn');
+  });
+
   test('a plain free text is not a callout', () {
     final doc = roundTrip((e) =>
         e.addFreeText(0, const PdfRect(72, 600, 240, 680), 'plain text'));
