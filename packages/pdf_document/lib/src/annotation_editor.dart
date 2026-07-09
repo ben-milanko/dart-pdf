@@ -4048,9 +4048,16 @@ extension PdfAnnotationEditing on PdfEditor {
   double _cloudArcRadius(double strokeWidth) =>
       math.max(12.0, strokeWidth * 4.0);
 
+  /// Padding for the cloud's `/Rect` and form BBox. A scallop's apex sits
+  /// `_cloudArcRadius * _cloudBulgeFactor` past the polygon edge (plus half
+  /// the stroke) - and on a rectangle every point of an edge is at the box's
+  /// extreme, so the puffs protrude by the full bulge. `_pointBounds` insets
+  /// by only `pad / 2 + 1`, so the padding is doubled here; otherwise the
+  /// form BBox clips the outer half of every puff (the scallops render as
+  /// flattened brackets at the edges).
   double _cloudPadding(double strokeWidth) => math.max(
       _linePadding(strokeWidth),
-      _cloudArcRadius(strokeWidth) * _cloudBulgeFactor + strokeWidth);
+      2 * _cloudArcRadius(strokeWidth) * _cloudBulgeFactor + strokeWidth);
 
   ContentWriter _cloudPolygonContent(
     List<(double, double)> points, {

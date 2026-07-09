@@ -5760,9 +5760,12 @@ class _EditingPreviewPainter extends CustomPainter {
               ..style = PaintingStyle.fill);
       }
     }
-    if (tool == PdfEditTool.cloudPolygon) {
+    if (tool == PdfEditTool.cloudPolygon && points.length >= 3) {
       _paintCloudPolygon(canvas, points, color, fillColor, width, dashed);
     } else {
+      // For the cloud tool with fewer than three vertices there is no cloud
+      // to draw yet, so this rubber-bands the straight edge instead - placing
+      // the first side of a polygon cloud still gives live feedback.
       canvas.drawPath(dashed ? _dashPath(path, width) : path, paint);
     }
     if (tool == PdfEditTool.arrow) {
