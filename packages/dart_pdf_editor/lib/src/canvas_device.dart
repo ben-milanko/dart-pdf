@@ -131,6 +131,28 @@ class CanvasPdfDevice implements PdfDevice {
       double backdropLuminance = 0,
       double transferScale = 1,
       double transferOffset = 0}) {
+    beginSoftMaskComposite(
+        luminosity: luminosity,
+        backdrop: backdrop,
+        backdropLuminance: backdropLuminance,
+        transferScale: transferScale,
+        transferOffset: transferOffset);
+    drawMask();
+    finishSoftMaskComposite();
+  }
+
+  /// First half of [endSoftMasked]'s compositing: opens the dstIn layer the
+  /// mask group's content paints into (with the luminance/transfer colour
+  /// filter and the /BC backdrop). Split out for callers that must
+  /// interleave their own work with the mask draws - the strip device
+  /// flushes its batched quads between the mask content and
+  /// [finishSoftMaskComposite] - while keeping the exact canvas sequence.
+  void beginSoftMaskComposite(
+      {required bool luminosity,
+      required PdfRect backdrop,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {
     final hasTransfer = transferScale != 1 || transferOffset != 0;
     final paint = Paint()..blendMode = BlendMode.dstIn;
     if (luminosity) {
@@ -167,7 +189,11 @@ class CanvasPdfDevice implements PdfDevice {
         Paint()..color = Color.from(alpha: 1, red: g, green: g, blue: g),
       );
     }
-    drawMask();
+  }
+
+  /// Second half of [endSoftMasked]'s compositing: composites the mask into
+  /// the captured content (dstIn) and the masked content into the page.
+  void finishSoftMaskComposite() {
     canvas.restore(); // composite the mask into the content (dstIn)
     canvas.restore(); // composite the masked content into the page
     _knockout.removeLast();

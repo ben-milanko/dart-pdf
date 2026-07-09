@@ -51,6 +51,7 @@ flutter:
   # inside the SkSL-safe subset (no dynamic loop bounds, bit ops, texelFetch).
   shaders:
     - shaders/pdf_probe.frag
+    - shaders/pdf_strips.frag
   assets:
     - assets/web/pdf_render_worker.dart.js
     - assets/fonts/DejaVuSans.ttf

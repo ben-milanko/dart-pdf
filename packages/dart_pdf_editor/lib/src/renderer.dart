@@ -8,6 +8,19 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'strips/strip_device.dart';
+
+/// Which device family [PdfPageRenderer.renderImageWithPlan] paints with.
+enum PdfRenderDeviceMode {
+  /// The stock [CanvasPdfDevice] pipeline (default).
+  canvas,
+
+  /// Experimental sparse-strip shader device ([StripPdfDevice]): solid
+  /// fills/strokes/outline text batch into drawVertices+FragmentShader
+  /// draws, everything else falls back to the canvas device. Only the
+  /// pixelRatio-aware bitmap path honors this; picture paths stay canvas.
+  strips,
+}
 
 /// Immutable display inputs for rendering a page.
 ///
@@ -383,11 +396,20 @@ class PdfPageRenderer {
     );
   }
 
+  /// Experimental device selector for [renderImageWithPlan]. Static so the
+  /// benchmark/parity harnesses (and a future viewer flag) can flip every
+  /// render path at once; strip pictures bake the pixel ratio in, so only
+  /// the bitmap path (which knows the ratio) participates.
+  static PdfRenderDeviceMode deviceMode = PdfRenderDeviceMode.canvas;
+
   /// Renders [page] to a bitmap using a pre-computed display [plan].
   static Future<ui.Image> renderImageWithPlan(PdfPage page,
       {required PdfPageRenderPlan plan,
       double pixelRatio = 1,
       bool recorded = false}) async {
+    if (deviceMode == PdfRenderDeviceMode.strips && !recorded) {
+      return _renderImageStrips(page, plan, pixelRatio);
+    }
     final picture = recorded
         ? await renderPictureRecordedWithPlan(page, plan)
         : await renderPictureWithPlan(page, plan);
@@ -396,6 +418,86 @@ class PdfPageRenderer {
     } finally {
       picture.dispose();
     }
+  }
+
+  /// Strip-device bitmap render: interpret once through [StripPdfDevice]
+  /// (recording strips + fallback ops in painter's order), then paint and
+  /// rasterize. The picture is recorded with [pixelRatio] baked in so the
+  /// strip quads are device-pixel-aligned - matching [rasterize]'s output
+  /// geometry for the same ratio.
+  static Future<ui.Image> _renderImageStrips(
+      PdfPage page, PdfPageRenderPlan plan, double pixelRatio) async {
+    final cos = page.document.cos;
+    final pageOps = ContentStreamParser.parse(page.contentBytes());
+
+    final collector = ImageCollector();
+    final collecting =
+        PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
+          ..drawPageOperations(page, pageOps);
+    if (plan.annotations) collecting.drawAnnotations(page);
+    final images = await decodeImages(cos, collector.streams,
+        cache: PdfImageCache.instance);
+
+    final box = page.cropBox;
+    final size = plan.pageSize(page);
+    final width = (size.width * pixelRatio).ceil().clamp(1, 1 << 14);
+    final height = (size.height * pixelRatio).ceil().clamp(1, 1 << 14);
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.scale(pixelRatio);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: plan.rotation);
+
+    final device = StripPdfDevice(
+      canvas,
+      pageToDevice: _pageToDeviceMatrix(page, size, box,
+          rotation: plan.rotation, pixelRatio: pixelRatio),
+      deviceWidth: width,
+      deviceHeight: height,
+      pixelRatio: pixelRatio,
+      images: images,
+    );
+    final painting = PdfInterpreter(cos: cos, device: device)
+      ..drawPageOperations(page, pageOps);
+    if (plan.annotations) painting.drawAnnotations(page);
+    await device.finish();
+
+    final picture = recorder.endRecording();
+    try {
+      return await picture.toImage(width, height);
+    } finally {
+      picture.dispose();
+      device.dispose();
+      for (final image in images.values) {
+        image.dispose();
+      }
+    }
+  }
+
+  /// The page->device-pixel matrix matching [_applyPageTransform] followed
+  /// by a [pixelRatio] canvas scale (geometric application order: crop-box
+  /// shift, y-flip, /Rotate, ratio).
+  static PdfMatrix _pageToDeviceMatrix(PdfPage page, Size size, PdfRect box,
+      {int? rotation, required double pixelRatio}) {
+    var m = PdfMatrix.translation(-box.left, -box.bottom)
+        .concat(const PdfMatrix(1, 0, 0, -1, 0, 0))
+        .concat(PdfMatrix.translation(0, box.height));
+    switch (rotation ?? page.rotation) {
+      case 90:
+        m = m
+            .concat(const PdfMatrix(0, 1, -1, 0, 0, 0))
+            .concat(PdfMatrix.translation(size.width, 0));
+      case 180:
+        m = m
+            .concat(const PdfMatrix(-1, 0, 0, -1, 0, 0))
+            .concat(PdfMatrix.translation(size.width, size.height));
+      case 270:
+        m = m
+            .concat(const PdfMatrix(0, -1, 1, 0, 0, 0))
+            .concat(PdfMatrix.translation(0, size.height));
+    }
+    return m.concat(PdfMatrix.scaled(pixelRatio, pixelRatio));
   }
 
   /// Rasterizes an already-recorded page [picture] (sized [size] points) -
