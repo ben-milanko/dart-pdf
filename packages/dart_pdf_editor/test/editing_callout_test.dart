@@ -48,6 +48,22 @@ void main() {
       expect(a.calloutBox!.right, closeTo(520, 0.5));
     });
 
+    test('autosize fits the box and leaves the arrow tip alone', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..fontSize = 14
+        ..addCallout(0, const PdfRect(300, 600, 700, 700), 'Hi', (120, 500));
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      final tip0 =
+          editing.document.page(0).annotations.single.calloutLine!.first;
+
+      editing.autosizeSelectedTextBox();
+
+      final a = editing.document.page(0).annotations.single;
+      expect(a.isCallout, isTrue);
+      expect(a.calloutLine!.first, tip0, reason: 'arrow tip untouched');
+      expect(a.calloutBox!.width, lessThan(400), reason: 'box shrank to fit');
+    });
+
     test('reshapeSelectedCalloutTarget moves only the arrow', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
@@ -170,6 +186,34 @@ void main() {
       expect(tip.$2, closeTo(430, 6));
       expect(a.calloutBox!.left, closeTo(box0.left, 1), reason: 'box unmoved');
       expect(a.calloutBox!.top, closeTo(box0.top, 1));
+      await settle(tester);
+    });
+
+    testWidgets('dragging the base handle slides the base, box + tip stay',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 630));
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+      final a0 = editing.document.page(0).annotations.single;
+      final tip0 = a0.calloutLine!.first;
+      final base0 = a0.calloutLine!.last; // ~ (300, 630) on the left edge
+      final box0 = a0.calloutBox!;
+
+      // the base handle sits at the attach point; drag it inside toward the
+      // top edge - it snaps onto the perimeter there
+      await drag(tester, view(base0.$1, base0.$2), view(400, 640));
+      await tester.pump();
+
+      final a = editing.document.page(0).annotations.single;
+      expect(a.calloutLine!.first, tip0, reason: 'arrow tip unchanged');
+      final base = a.calloutLine!.last;
+      expect((base.$1 - base0.$1).abs() + (base.$2 - base0.$2).abs(),
+          greaterThan(5),
+          reason: 'the base moved');
+      expect(a.calloutBox!.left, closeTo(box0.left, 1), reason: 'box unmoved');
+      expect(a.calloutBox!.right, closeTo(box0.right, 1));
       await settle(tester);
     });
 

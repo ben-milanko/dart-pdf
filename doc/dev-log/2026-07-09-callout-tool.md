@@ -105,3 +105,33 @@ Review feedback drove three UX fixes:
    Move (dragging the body) still translates the whole callout - only the
    scale handle and the terminus handle are independent, which is what the
    "scale handle scales both" complaint was about.
+
+## Follow-up 2: stroke persistence, autosize scope, draggable base
+
+Three more review fixes:
+
+4. **Arrow width no longer changes when the terminus moves.** The leader
+   width/color weren't persisted independently of the box border, so a
+   callout with no distinct box border (the common case) lost its `/BS` and
+   `reshapeCallout` fell back to width 1. Fixed by making a callout's box
+   outline and leader **one shared stroke** (Bluebeam's model): `addCallout`
+   takes `strokeColor`/`strokeWidth` (dropped the separate `borderColor`/
+   `lineColor`/`lineWidth`), always writes `/BS` and a `/DA` `RG`, and the
+   controller falls the stroke back to the text color. `reshapeCallout` reads
+   the width/color straight back from `/BS`+`/DA`, so it round-trips.
+5. **Autosize only fits the text box.** `_autosizeTextRect` anchored on
+   `annotation.rect` (which for a callout spans the leader + arrow); it now
+   anchors on `annotation.calloutBox`, and the resize already routes through
+   `reshapeCallout(box:)`, so the terminus stays put.
+6. **The arrow base is draggable along the box.** `_calloutLine` now takes an
+   optional `attach` (clamped to the box perimeter via `_clampToBoxPerimeter`;
+   knee derived from the edge it lands on). `reshapeCallout(attach:)` pins the
+   base; when only the box changes it carries the base across by its relative
+   position and re-snaps to the new perimeter; when only the target changes it
+   leaves the base put. The overlay exposes a **second** vertex handle:
+   `_selectedVertexPoints` returns `[terminus, base]`, `_panEnd` captures the
+   dragged handle index, and `_commitVertexDrag(points, handle:)` routes
+   index 0 → `reshapeSelectedCalloutTarget`, index 1 →
+   `reshapeSelectedCalloutBase`. `PdfAnnotation.calloutLine.last` is the base.
+   The leader preview now carries `(terminus, base)` (was `(terminus, box)`)
+   so it's accurate while either handle drags.

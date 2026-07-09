@@ -1953,10 +1953,10 @@ class PdfEditingController extends ChangeNotifier {
               align: preferences.textAlign,
               color: _colorValue,
               fillColor: _rgbOf(preferences.textFillColor),
-              borderColor: _rgbOf(preferences.textBorderColor),
-              borderWidth: preferences.strokeWidth,
-              lineColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
-              lineWidth: preferences.strokeWidth,
+              // the box outline and leader share one stroke; fall back to the
+              // text color so the arrow always has a definite color/width
+              strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
+              strokeWidth: preferences.strokeWidth,
               pageRotation: _page(pageIndex).rotation,
               author: author),
           pages: [pageIndex],
@@ -4121,6 +4121,18 @@ class PdfEditingController extends ChangeNotifier {
         contentPages: const <int>[]);
   }
 
+  /// Moves a selected callout's arrow base (where the leader meets the text
+  /// box) to [attach], snapped to the box perimeter. The box and terminus
+  /// stay put. A no-op unless a single callout is selected.
+  void reshapeSelectedCalloutBase((double, double) attach) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !annotation.isCallout) return;
+    apply(
+        (e) => e.reshapeCallout(_selected.last.$1, annotation, attach: attach),
+        pages: [_selected.last.$1],
+        contentPages: const <int>[]);
+  }
+
   /// Resizes the selected form-field [widget] so its /Rect becomes [to],
   /// regenerating the field's appearance ([PdfEditor.resizeFormWidget]).
   /// The field is re-resolved by name inside the save (fields die with
@@ -4378,10 +4390,13 @@ class PdfEditingController extends ChangeNotifier {
     final height = math.max(18.0, lines.length * size * 1.2 + 2 * pad);
     final page = _page(_selected.last.$1);
     final bounds = page.cropBox;
-    final left = annotation.rect.left
+    // a callout autosizes its text box, not the /Rect that also spans the
+    // leader + arrow: anchor at the box's top-left so the arrow stays put
+    final anchor = annotation.calloutBox ?? annotation.rect;
+    final left = anchor.left
         .clamp(bounds.left, math.max(bounds.left, bounds.right - width))
         .toDouble();
-    final top = annotation.rect.top
+    final top = anchor.top
         .clamp(math.min(bounds.top, bounds.bottom + height), bounds.top)
         .toDouble();
     return PdfRect(left, top - height, left + width, top);

@@ -169,8 +169,79 @@ void main() {
     expect(a.calloutBox!.right, closeTo(box0.right, 0.5));
     expect(a.calloutBox!.top, closeTo(box0.top, 0.5));
     expect(a.calloutBox!.bottom, closeTo(box0.bottom, 0.5));
-    // leader now attaches to the right edge, following the moved target
-    expect(a.calloutLine!.last.$1, closeTo(box0.right, 0.5));
+    // the base stays pinned where it was (left edge) - moving the arrow tip
+    // doesn't slide the base around the box
+    expect(a.calloutLine!.last.$1, closeTo(box0.left, 0.5));
+  });
+
+  double bsWidth(PdfDocument doc, PdfAnnotation a) {
+    final bs = doc.cos.resolve(a.dict['BS']) as CosDictionary;
+    return switch (doc.cos.resolve(bs['W'])) {
+      CosInteger(:final value) => value.toDouble(),
+      CosReal(:final value) => value,
+      _ => double.nan,
+    };
+  }
+
+  test('the leader keeps its stroke width when the terminus moves', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    // a callout with no separate box border still has a definite stroke
+    editor.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500),
+        strokeColor: 0x000000, strokeWidth: 3);
+    final doc0 = PdfDocument.open(editor.save());
+    final a0 = doc0.page(0).annotations.single;
+    // /BS persists the width even without a distinct box-border color
+    expect(bsWidth(doc0, a0), 3);
+
+    final e2 = PdfEditor(doc0);
+    e2.reshapeCallout(0, a0, target: (140, 520));
+    final doc = PdfDocument.open(e2.save());
+    final a = doc.page(0).annotations.single;
+    expect(bsWidth(doc, a), 3,
+        reason: 'arrow width unchanged after moving the terminus');
+  });
+
+  test('reshapeCallout with a new attach slides the base along the box', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
+    final doc0 = PdfDocument.open(editor.save());
+    final a0 = doc0.page(0).annotations.single;
+    final terminus0 = a0.calloutLine!.first;
+
+    final e2 = PdfEditor(doc0);
+    // drag the base toward the top edge; it snaps onto the perimeter
+    expect(e2.reshapeCallout(0, a0, attach: (380, 655)), isTrue);
+    final a = PdfDocument.open(e2.save()).page(0).annotations.single;
+
+    expect(a.calloutLine!.first, terminus0, reason: 'terminus unchanged');
+    final base = a.calloutLine!.last;
+    // snapped to the top edge (y == 660), x near where we dragged
+    expect(base.$2, closeTo(660, 0.5));
+    expect(base.$1, closeTo(380, 0.5));
+    expect(a.calloutBox!.left, closeTo(300, 0.5), reason: 'box unchanged');
+  });
+
+  test('the base keeps its relative edge position when the box resizes', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
+    final doc0 = PdfDocument.open(editor.save());
+    final a0 = doc0.page(0).annotations.single;
+    // pin the base at the top edge, mid-box
+    final e1 = PdfEditor(doc0);
+    e1.reshapeCallout(0, a0, attach: (380, 660));
+    final doc1 = PdfDocument.open(e1.save());
+    final a1 = doc1.page(0).annotations.single;
+    expect(a1.calloutLine!.last.$2, closeTo(660, 0.5));
+
+    // grow the box; the base rides the top edge to the same fraction across
+    final e2 = PdfEditor(doc1);
+    e2.reshapeCallout(0, a1, box: const PdfRect(300, 600, 500, 700));
+    final a2 = PdfDocument.open(e2.save()).page(0).annotations.single;
+    final base = a2.calloutLine!.last;
+    expect(base.$2, closeTo(700, 0.5), reason: 'still on the (new) top edge');
+    // was at x=380 in a 160-wide box starting at 300 => 50% across;
+    // new box is 200 wide starting at 300 => 400
+    expect(base.$1, closeTo(400, 1));
   });
 
   test('reshapeCallout refuses a plain free text', () {

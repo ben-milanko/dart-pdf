@@ -1384,10 +1384,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_controller.selectedPage != widget.pageIndex) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
-    // a callout exposes just its terminus (the arrow tip) as a draggable
-    // handle, so the arrow can be re-aimed without touching the text box
+    // a callout exposes two handles: the terminus (arrow tip, index 0) and
+    // the base where the leader meets the box (index 1), so each can be
+    // dragged without disturbing the other or the text box
     if (annotation.calloutLine case final line?) {
-      return [_geometry.toViewOffset(line.first.$1, line.first.$2)];
+      return [
+        _geometry.toViewOffset(line.first.$1, line.first.$2),
+        _geometry.toViewOffset(line.last.$1, line.last.$2),
+      ];
     }
     if (annotation.line case final line?) {
       return [
@@ -2337,10 +2341,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _openTextEditor(viewRect, existing: false);
   }
 
-  /// The leader (terminus, box, color, width) to keep painted so a callout's
-  /// arrow stays visible: while its terminus handle is being dragged, and
+  /// The nearest point on [box]'s perimeter to [p] (view space, y-down) -
+  /// where the leader meets the box before the base is pinned.
+  static Offset _nearestBoxEdge(Rect box, Offset p) {
+    if (p.dx < box.left) {
+      return Offset(box.left, p.dy.clamp(box.top, box.bottom));
+    }
+    if (p.dx > box.right) {
+      return Offset(box.right, p.dy.clamp(box.top, box.bottom));
+    }
+    if (p.dy < box.top) return Offset(p.dx.clamp(box.left, box.right), box.top);
+    if (p.dy > box.bottom) {
+      return Offset(p.dx.clamp(box.left, box.right), box.bottom);
+    }
+    return box.center;
+  }
+
+  /// The leader (terminus, base, color, width) to keep painted so a callout's
+  /// arrow stays visible: while a terminus/base handle is being dragged, and
   /// while the box editor is open placing a new one. Null otherwise.
-  (Offset, Rect, Color, double)? _calloutLeaderPreview() {
+  (Offset, Offset, Color, double)? _calloutLeaderPreview() {
     if (_vertexHandle != null && _vertexPoints != null) {
       final annotation = _controller.selectedAnnotation;
       final box = _selectedViewRect;
@@ -2351,19 +2371,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         final style = annotation.freeTextStyle;
         final rgb = style?.borderColor ?? style?.color ?? 0x000000;
         final width = (style?.borderWidth ?? 1) * _geometry.scale;
+        final terminus = _vertexPoints!.first;
+        final base = _vertexPoints!.length > 1
+            ? _vertexPoints![1]
+            : _nearestBoxEdge(box, terminus);
         return (
-          _vertexPoints!.first,
-          box,
+          terminus,
+          base,
           Color(0xFF000000 | rgb),
           width > 0 ? width : _geometry.scale,
         );
       }
     }
     if (_textEditCalloutTarget != null && _textEditRect != null) {
+      final terminus = _geometry.toViewOffset(
+          _textEditCalloutTarget!.$1, _textEditCalloutTarget!.$2);
       return (
-        _geometry.toViewOffset(
-            _textEditCalloutTarget!.$1, _textEditCalloutTarget!.$2),
-        _textEditRect!,
+        terminus,
+        _nearestBoxEdge(_textEditRect!, terminus),
         _controller.textBorderColor ?? _controller.color,
         _controller.strokeWidth * _geometry.scale,
       );
@@ -2973,6 +2998,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final resizeFlipX = _resizeFlipX;
     final resizeFlipY = _resizeFlipY;
     final vertexPoints = _vertexHandle != null ? _vertexPoints : null;
+    final vertexHandle = _vertexHandle;
     final rotating = _rotateStartAngle != null;
     final rotateDelta = _rotateDelta;
     final marquee = _marqueeStart != null && _marqueeCurrent != null
@@ -3054,7 +3080,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           to: _selectedViewRect,
           rotation: rotateDelta);
     } else if (vertexPoints != null) {
-      _commitVertexDrag(vertexPoints);
+      _commitVertexDrag(vertexPoints, handle: vertexHandle);
     } else if (resizeRect != null) {
       final wrapStyle = _textResizeStyle;
       // captured before the commit: a Square/Circle regenerates at a
@@ -3251,12 +3277,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         depth: depth);
   }
 
-  void _commitVertexDrag(List<Offset> points) {
+  void _commitVertexDrag(List<Offset> points, {int? handle}) {
     final annotation = _controller.selectedAnnotation;
     if (annotation != null && annotation.isCallout && points.isNotEmpty) {
-      // the single handle is the terminus: re-aim the arrow, box stays put
-      _controller
-          .reshapeSelectedCalloutTarget(_geometry.toPagePoint(points.first));
+      // handle 0 is the terminus (re-aim the arrow), handle 1 is the base
+      // (slide where the leader meets the box); both leave the box in place
+      final idx = (handle ?? 0).clamp(0, points.length - 1);
+      final page = _geometry.toPagePoint(points[idx]);
+      if (idx == 1) {
+        _controller.reshapeSelectedCalloutBase(page);
+      } else {
+        _controller.reshapeSelectedCalloutTarget(page);
+      }
       return;
     }
     final tool = _selectedLineTool;
@@ -5195,10 +5227,10 @@ class _EditingPreviewPainter extends CustomPainter {
   final Rect? dragRect;
   final (Offset, Offset)? dragLine;
 
-  /// A callout leader to paint from its terminus to a text box while the box
-  /// is being placed/edited (before the annotation exists) or while its
-  /// terminus is being dragged: (terminus, box, color, strokeWidth).
-  final (Offset, Rect, Color, double)? calloutLeader;
+  /// A callout leader to paint from its terminus to its base while the box is
+  /// being placed/edited (before the annotation exists) or while the terminus
+  /// or base handle is being dragged: (terminus, base, color, strokeWidth).
+  final (Offset, Offset, Color, double)? calloutLeader;
   final List<Offset>? dragPath;
 
   /// The interior fill for an in-progress polygon [dragPath], so drawing a
@@ -5842,29 +5874,13 @@ class _EditingPreviewPainter extends CustomPainter {
     }
   }
 
-  /// Paints a callout leader from [terminus] to the edge of [box] nearest
-  /// it, with the open arrow at the terminus - mirrors the model's
-  /// `_calloutLine` + `/OpenArrow` so the on-screen preview matches what the
-  /// committed annotation draws.
+  /// Paints a callout leader from [terminus] to [base] with the open arrow at
+  /// the terminus - mirrors the model's `/OpenArrow` so the on-screen preview
+  /// matches what the committed annotation draws.
   void _paintCalloutLeader(
-      Canvas canvas, Offset terminus, Rect box, Color color, double width) {
-    // the attachment point on the box edge nearest the terminus (view space
-    // is y-down, so "top"/"bottom" are the model's flipped counterparts, but
-    // the nearest-edge geometry is symmetric)
-    late Offset attach;
-    if (terminus.dx < box.left) {
-      attach = Offset(box.left, terminus.dy.clamp(box.top, box.bottom));
-    } else if (terminus.dx > box.right) {
-      attach = Offset(box.right, terminus.dy.clamp(box.top, box.bottom));
-    } else if (terminus.dy < box.top) {
-      attach = Offset(terminus.dx.clamp(box.left, box.right), box.top);
-    } else if (terminus.dy > box.bottom) {
-      attach = Offset(terminus.dx.clamp(box.left, box.right), box.bottom);
-    } else {
-      attach = box.center; // terminus inside the box
-    }
+      Canvas canvas, Offset terminus, Offset base, Color color, double width) {
     _paintPathPreview(
-        canvas, [terminus, attach], PdfEditTool.callout, color, null, width,
+        canvas, [terminus, base], PdfEditTool.callout, color, null, width,
         false);
   }
 

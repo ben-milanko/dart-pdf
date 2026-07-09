@@ -1684,10 +1684,8 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfTextAlign? align,
     int color = 0x000000,
     int? fillColor,
-    int? borderColor = 0xD02020,
-    double borderWidth = 1,
-    int? lineColor,
-    double lineWidth = 1,
+    int strokeColor = 0xD02020,
+    double strokeWidth = 1,
     PdfLineEnding ending = PdfLineEnding.openArrow,
     int? pageRotation,
     String? author,
@@ -1705,17 +1703,19 @@ extension PdfAnnotationEditing on PdfEditor {
     final effectiveFont = unicodeFont ?? font;
     if (font is PdfEmbeddedFont) font.resetUsage();
 
-    final leaderColor = lineColor ?? borderColor ?? color;
+    // A callout's box outline and leader share one stroke (color + width),
+    // as in Bluebeam - and it's always persisted (/BS width + /DA RG) so a
+    // later reshape reproduces the same arrow instead of guessing.
     final callout = _calloutLine(boxRect, target);
     // /Rect and BBox must cover the box, the leader, and the arrowhead.
     final endingPoints =
-        _endingExtent(ending, callout.first, callout[1], lineWidth);
+        _endingExtent(ending, callout.first, callout[1], strokeWidth);
     final rect = _pointBounds([
       (boxRect.left, boxRect.bottom),
       (boxRect.right, boxRect.top),
       ...callout,
       ...endingPoints,
-    ], math.max(borderWidth, lineWidth));
+    ], strokeWidth);
 
     final w = _calloutContent(boxRect, callout, text,
         fontSize: fontSize,
@@ -1724,17 +1724,16 @@ extension PdfAnnotationEditing on PdfEditor {
         align: align,
         color: color,
         fillColor: fillColor,
-        borderColor: borderColor,
-        borderWidth: borderWidth,
-        lineColor: leaderColor,
-        lineWidth: lineWidth,
+        borderColor: strokeColor,
+        borderWidth: strokeWidth,
+        lineColor: strokeColor,
+        lineWidth: strokeWidth,
         ending: ending,
         pageRotation: effectivePageRotation);
 
     String rgb(int c) =>
         ContentWriter.rgbComponents(c).map(ContentWriter.fmt).join(' ');
-    final da = '${rgb(color)} rg '
-        '${borderColor != null ? '${rgb(borderColor)} RG ' : ''}'
+    final da = '${rgb(color)} rg ${rgb(strokeColor)} RG '
         '/${effectiveFont.resourceName} ${ContentWriter.fmt(fontSize)} Tf';
     final dict = _markupDict('FreeText', rect, fillColor ?? color, text, author)
       ..['DA'] = CosString.fromText(da)
@@ -1742,11 +1741,9 @@ extension PdfAnnotationEditing on PdfEditor {
       ..['CL'] = _pointArray(callout)
       ..['LE'] = CosName(ending.pdfName)
       ..['RD'] = _rdArray(rect, boxRect)
+      ..['BS'] = _borderStyle(strokeWidth)
       ..['Q'] = CosInteger(align?.quadding ??
           (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0));
-    if (borderColor != null && borderWidth > 0) {
-      dict['BS'] = _borderStyle(borderWidth);
-    }
     final CosDictionary fontResource;
     if (unicodeFont != null) {
       fontResource = unicodeFont.buildResource(_updater.addObject);
@@ -1765,34 +1762,69 @@ extension PdfAnnotationEditing on PdfEditor {
 
   /// The leader-line points for a callout whose text box is [box] and whose
   /// arrow points at [target]: `[target, knee, attach]`, where `attach`
-  /// meets the box edge nearest the target and `knee` gives the leader a
-  /// short stub into the box (Acrobat/Bluebeam house style). Collapses to
-  /// `[target, attach]` when a knee would be degenerate.
-  List<(double, double)> _calloutLine(PdfRect box, (double, double) target) {
+  /// meets the box (the caller's [attach], clamped to the perimeter, else the
+  /// edge nearest the target) and `knee` gives the leader a short stub out of
+  /// that edge (Acrobat/Bluebeam house style). Collapses to `[target, attach]`
+  /// when a knee would be degenerate.
+  List<(double, double)> _calloutLine(PdfRect box, (double, double) target,
+      {(double, double)? attach}) {
+    final a = attach != null
+        ? _clampToBoxPerimeter(box, attach)
+        : _calloutAttach(box, target);
+    final knee = _calloutKnee(box, a, target);
+    return knee == null ? [target, a] : [target, knee, a];
+  }
+
+  /// Where the leader meets [box] when the base isn't pinned: the point on the
+  /// edge facing [target].
+  (double, double) _calloutAttach(PdfRect box, (double, double) target) {
     final (tx, ty) = target;
-    const stub = 14.0;
     if (tx < box.left) {
-      final y = ty.clamp(box.bottom + 2, box.top - 2).toDouble();
-      final k = box.left - math.min(stub, (box.left - tx) * 0.5);
-      return [target, (k, y), (box.left, y)];
+      return (box.left, ty.clamp(box.bottom + 2, box.top - 2).toDouble());
     }
     if (tx > box.right) {
-      final y = ty.clamp(box.bottom + 2, box.top - 2).toDouble();
-      final k = box.right + math.min(stub, (tx - box.right) * 0.5);
-      return [target, (k, y), (box.right, y)];
+      return (box.right, ty.clamp(box.bottom + 2, box.top - 2).toDouble());
     }
     final x = tx.clamp(box.left + 2, box.right - 2).toDouble();
-    if (ty > box.top) {
-      final k = box.top + math.min(stub, (ty - box.top) * 0.5);
-      return [target, (x, k), (x, box.top)];
+    if (ty > box.top) return (x, box.top);
+    if (ty < box.bottom) return (x, box.bottom);
+    return (x, (box.bottom + box.top) / 2); // target inside the box
+  }
+
+  /// A short stub out of the edge [a] sits on, toward [target] - null when the
+  /// target is on the box's side of that edge (a straight leader reads better).
+  (double, double)? _calloutKnee(
+      PdfRect box, (double, double) a, (double, double) target) {
+    const stub = 14.0;
+    const eps = 0.5;
+    final (ax, ay) = a;
+    final (tx, ty) = target;
+    if ((ax - box.left).abs() < eps && tx < box.left) {
+      return (box.left - math.min(stub, (box.left - tx) * 0.5), ay);
     }
-    if (ty < box.bottom) {
-      final k = box.bottom - math.min(stub, (box.bottom - ty) * 0.5);
-      return [target, (x, k), (x, box.bottom)];
+    if ((ax - box.right).abs() < eps && tx > box.right) {
+      return (box.right + math.min(stub, (tx - box.right) * 0.5), ay);
     }
-    // Target lands inside the box: a straight stub to the near edge.
-    final cy = (box.bottom + box.top) / 2;
-    return [target, (x, cy)];
+    if ((ay - box.top).abs() < eps && ty > box.top) {
+      return (ax, box.top + math.min(stub, (ty - box.top) * 0.5));
+    }
+    if ((ay - box.bottom).abs() < eps && ty < box.bottom) {
+      return (ax, box.bottom - math.min(stub, (box.bottom - ty) * 0.5));
+    }
+    return null;
+  }
+
+  /// Snaps [p] onto the nearest point of [box]'s perimeter - how a dragged
+  /// arrow base stays glued to the text box edge.
+  (double, double) _clampToBoxPerimeter(PdfRect box, (double, double) p) {
+    final (px, py) = p;
+    final dl = (px - box.left).abs(), dr = (px - box.right).abs();
+    final db = (py - box.bottom).abs(), dt = (py - box.top).abs();
+    final m = math.min(math.min(dl, dr), math.min(db, dt));
+    if (m == dl) return (box.left, py.clamp(box.bottom, box.top).toDouble());
+    if (m == dr) return (box.right, py.clamp(box.bottom, box.top).toDouble());
+    if (m == db) return (px.clamp(box.left, box.right).toDouble(), box.bottom);
+    return (px.clamp(box.left, box.right).toDouble(), box.top);
   }
 
   /// The /RD (rectangle differences, §12.5.6.19) insets - left, top, right,
@@ -1883,15 +1915,32 @@ extension PdfAnnotationEditing on PdfEditor {
   /// /Rect, and the appearance. Returns false when [annotation] is not a
   /// callout this editor can reproduce.
   bool reshapeCallout(int pageIndex, PdfAnnotation annotation,
-      {PdfRect? box, (double, double)? target}) {
+      {PdfRect? box, (double, double)? target, (double, double)? attach}) {
     final info = _calloutInfo(annotation);
     if (info == null) return false;
     final style = annotation.freeTextStyle;
     if (style == null) return false;
     final stdFont = PdfStandardFont.tryFromName(style.fontName);
     if (stdFont == null) return false;
-    final newBox = box ?? _boxFromRd(annotation, annotation.rect);
+    final oldBox = _boxFromRd(annotation, annotation.rect);
+    final newBox = box ?? oldBox;
     final newTarget = target ?? info.line.first;
+    // Keep the arrow base pinned where the user left it: use an explicit
+    // [attach], else carry the current base across a box move/resize by its
+    // relative position on the box, then snap it to the (new) perimeter.
+    final currentAttach = info.line.last;
+    final (double, double) mappedAttach;
+    if (box != null && oldBox.width > 0 && oldBox.height > 0) {
+      final sx = newBox.width / oldBox.width;
+      final sy = newBox.height / oldBox.height;
+      mappedAttach = (
+        newBox.left + (currentAttach.$1 - oldBox.left) * sx,
+        newBox.bottom + (currentAttach.$2 - oldBox.bottom) * sy,
+      );
+    } else {
+      mappedAttach = currentAttach;
+    }
+    final newAttach = attach ?? mappedAttach;
     final text = annotation.contents ?? '';
 
     PdfUnicodeFont? unicodeFont;
@@ -1901,7 +1950,7 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final PdfTextFont effectiveFont = unicodeFont ?? stdFont;
 
-    final callout = _calloutLine(newBox, newTarget);
+    final callout = _calloutLine(newBox, newTarget, attach: newAttach);
     final leaderColor = style.borderColor ?? style.color;
     final leaderWidth = style.borderWidth > 0 ? style.borderWidth : 1.0;
     final endingPoints =
