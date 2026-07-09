@@ -106,6 +106,19 @@ class StripBuffer {
     }
     _alphaTexels[alphaColumns++] = texel;
   }
+
+  void _appendTexels(Uint32List texels) {
+    final need = alphaColumns + texels.length;
+    if (need > _alphaTexels.length) {
+      var cap = _alphaTexels.length * 2;
+      while (cap < need) {
+        cap *= 2;
+      }
+      _alphaTexels = Uint32List(cap)..setRange(0, alphaColumns, _alphaTexels);
+    }
+    _alphaTexels.setRange(alphaColumns, need, texels);
+    alphaColumns = need;
+  }
 }
 
 /// Fine-rasterizes fills, strokes, and glyph outlines into a [StripBuffer].
@@ -122,6 +135,11 @@ class StripBuffer {
 /// span is zeroed behind the scan.
 class StripGenerator {
   final StripBuffer strips = StripBuffer();
+
+  /// Replayable glyph strip cache consulted by [fillOutline]. Defaults to
+  /// the process-wide [GlyphStripCache.shared]; set null to rasterize every
+  /// glyph directly (unquantized - the pre-cache behavior).
+  GlyphStripCache? glyphCache = GlyphStripCache.shared;
 
   int _width = 0;
   int _height = 0;
@@ -237,8 +255,26 @@ class StripGenerator {
   /// Fills a cached em-space glyph [outline] through [emToDevice]
   /// (em space -> device pixels): transform-and-bin, no re-flattening.
   /// Glyph outlines fill nonzero (§9.4).
+  ///
+  /// With a [glyphCache] attached (the default), the glyph's emitted strips
+  /// are memoized per (outline identity, matrix quantized to 1/64,
+  /// subpixel offset quantized to 1/4 px) and replayed with an integer
+  /// translate + color override - repeat occurrences skip flattening,
+  /// binning, and fine raster entirely. Quantization moves a glyph by at
+  /// most 1/8 px; glyphs that leave the viewport (or exceed 512 px a side)
+  /// bypass the cache and render directly, unquantized.
   void fillOutline(FlattenedOutline outline, PdfMatrix emToDevice, int rgba) {
     if (_rowCount == 0) return;
+    final cache = glyphCache;
+    if (cache == null) {
+      _fillOutlineDirect(outline, emToDevice, rgba);
+      return;
+    }
+    _fillOutlineCached(cache, outline, emToDevice, rgba);
+  }
+
+  void _fillOutlineDirect(
+      FlattenedOutline outline, PdfMatrix emToDevice, int rgba) {
     final a = emToDevice.a, b = emToDevice.b, c = emToDevice.c;
     final d = emToDevice.d, e = emToDevice.e, f = emToDevice.f;
     var any = false;
@@ -266,6 +302,118 @@ class StripGenerator {
       any = true;
     }
     if (any) _finishShape(PdfFillRule.nonzero, rgba);
+  }
+
+  /// Cache-or-build-and-replay path of [fillOutline].
+  void _fillOutlineCached(GlyphStripCache cache, FlattenedOutline outline,
+      PdfMatrix emToDevice, int rgba) {
+    final bounds = outline.bounds;
+    if (bounds == null) return;
+
+    // Quantize: 2x2 in 1/64 steps, x offset in 1/4 px, y offset in 1/4 px
+    // within its 4-px strip row (strip y stays row-aligned under the
+    // integer part of the translate).
+    final qa = (emToDevice.a * 64).round();
+    final qb = (emToDevice.b * 64).round();
+    final qc = (emToDevice.c * 64).round();
+    final qd = (emToDevice.d * 64).round();
+    var ix = emToDevice.e.floor();
+    var qx = ((emToDevice.e - ix) * 4).round();
+    if (qx == 4) {
+      ix += 1;
+      qx = 0;
+    }
+    var iy = 4 * (emToDevice.f / 4).floor();
+    var qy = ((emToDevice.f - iy) * 4).round();
+    if (qy == 16) {
+      iy += 4;
+      qy = 0;
+    }
+
+    // Quantized matrix in the glyph-local frame (origin before the shift).
+    final la = qa / 64.0, lb = qb / 64.0, lc = qc / 64.0, ld = qd / 64.0;
+    final lx = qx * 0.25, ly = qy * 0.25;
+    // Device-space bbox of the em bounds through the local matrix.
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (final (ex, ey) in [
+      (bounds.left, bounds.top),
+      (bounds.right, bounds.top),
+      (bounds.left, bounds.bottom),
+      (bounds.right, bounds.bottom),
+    ]) {
+      final x = la * ex + lc * ey + lx;
+      final y = lb * ex + ld * ey + ly;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    if (!(minX.isFinite && minY.isFinite && maxX.isFinite && maxY.isFinite)) {
+      return;
+    }
+    // Row-aligned local origin shift so the glyph rasters at non-negative
+    // coordinates in a tight scratch viewport.
+    final sx = minX.floor();
+    final sy = 4 * (minY / 4).floor();
+    final w = maxX.ceil() - sx + 1;
+    final h = maxY.ceil() - sy + 1;
+    final dx = ix + sx, dy = iy + sy; // replay translate (dy multiple of 4)
+    if (w > GlyphStripCache.maxGlyphSide ||
+        h > GlyphStripCache.maxGlyphSide ||
+        dx < 0 ||
+        dy < 0 ||
+        dx + w > _width ||
+        dy + h > _rowCount * 4) {
+      cache.bypasses++;
+      _fillOutlineDirect(outline, emToDevice, rgba);
+      return;
+    }
+
+    final key = (outline, qa, qb, qc, qd, qx, qy);
+    var entry = cache._lookup(key);
+    if (entry == null) {
+      // Cache on second sight: one-shot keys (CAD labels at continuous
+      // positions blow the subpixel key space) would pay the build/store
+      // cost for nothing - first occurrence rasters directly, using the
+      // same quantized matrix so the glyph doesn't shift when its later
+      // occurrences replay from the cache.
+      if (!cache._secondSight(
+          identityHashCode(outline), qa, qb, qc, qd, qx, qy)) {
+        _fillOutlineDirect(
+            outline, PdfMatrix(la, lb, lc, ld, ix + lx, iy + ly), rgba);
+        return;
+      }
+      final local = PdfMatrix(la, lb, lc, ld, lx - sx, ly - sy);
+      entry = cache._build(key, outline, local, w, h);
+    }
+    _replayGlyph(entry, dx, dy, rgba);
+  }
+
+  /// Copies a cached glyph's strips into the main buffer with an integer
+  /// translate and the current color.
+  void _replayGlyph(CachedGlyphStrips g, int dx, int dy, int rgba) {
+    final n = g.stripCount;
+    if (n == 0) return;
+    final buf = strips;
+    final alphaBase = buf.alphaColumns;
+    final data = g.data;
+    buf._appendTexels(
+        Uint32List.sublistView(data, 3 * n, 3 * n + g.alphaTexelCount));
+    buf._ensureStrips(n);
+    var at = buf.length;
+    final xy = buf.xy, wf = buf.widthFlags, ao = buf.alphaOffset;
+    final col = buf.color;
+    final dxy = dx | (dy << 16);
+    for (var i = 0; i < n; i++) {
+      xy[at] = data[i] + dxy;
+      wf[at] = data[n + i];
+      final a = data[2 * n + i];
+      ao[at] = a == stripSolidSentinel ? a : a + alphaBase;
+      col[at] = rgba;
+      at++;
+    }
+    buf.length = at;
   }
 
   // ---- culling ---------------------------------------------------------
@@ -599,7 +747,11 @@ class StripGenerator {
         final rowBase = yi * stride;
         final yNext = (yi + 1.0) < p1y ? (yi + 1.0) : p1y;
         final dy = yNext - yCur;
-        final xnext = x + dxdy * dy;
+        // Stepwise x can drift one ulp past the (clamped) endpoints; a
+        // negative x would index the accumulator at -1 (glyph-local frames
+        // start exactly at 0, so this is not hypothetical).
+        var xnext = x + dxdy * dy;
+        if (xnext < 0) xnext = 0;
         final d = dy * dir;
         double xx0, xx1;
         if (x < xnext) {
@@ -802,5 +954,126 @@ class StripGenerator {
       a[s2 + x] = 0;
       a[s3 + x] = 0;
     }
+  }
+}
+
+/// Cache key: outline identity + quantized transform (2x2 in 1/64 steps,
+/// x offset in 1/4 px, y offset in 1/4 px within the 4-px strip row).
+typedef GlyphStripKey = (FlattenedOutline, int, int, int, int, int, int);
+
+/// One glyph's emitted strips in relocatable form, packed into a single
+/// allocation: `[xy... | widthFlags... | alphaOffset... | alphaTexels...]`
+/// with [stripCount] entries per strip section. xy is glyph-local
+/// (x | y<<16, y row-aligned), alphaOffset indexes the texel section,
+/// color is omitted (the replay overrides it). Immutable once built.
+class CachedGlyphStrips {
+  CachedGlyphStrips(this.data, this.stripCount, this.alphaTexelCount);
+
+  final Uint32List data;
+  final int stripCount;
+  final int alphaTexelCount;
+
+  int get alphaBytes => alphaTexelCount * 4;
+}
+
+/// LRU cache of rasterized glyph strips, replayed by [StripGenerator.fillOutline].
+///
+/// Keys are (immutable outline identity, quantized matrix), so entries
+/// never go stale - the caps just bound memory. One instance is safe to
+/// share across generators on the same isolate ([shared] is the default);
+/// entries retain their FlattenedOutline keys, so a hard [clear] releases
+/// font memory if needed.
+class GlyphStripCache {
+  GlyphStripCache({this.maxEntries = 32768, this.maxAlphaBytes = 32 << 20});
+
+  /// Process-wide default instance.
+  static final GlyphStripCache shared = GlyphStripCache();
+
+  /// Glyphs larger than this on either side (device px) bypass the cache.
+  static const int maxGlyphSide = 512;
+
+  final int maxEntries;
+  final int maxAlphaBytes;
+
+  final _entries = <GlyphStripKey, CachedGlyphStrips>{};
+  int _alphaBytes = 0;
+
+  int hits = 0;
+  int misses = 0;
+  int bypasses = 0;
+
+  /// First-sight draws that rendered directly (cache-on-second-sight gate).
+  int firstSights = 0;
+
+  int get entryCount => _entries.length;
+  int get alphaBytes => _alphaBytes;
+
+  void resetStats() {
+    hits = 0;
+    misses = 0;
+    bypasses = 0;
+    firstSights = 0;
+  }
+
+  void clear() {
+    _entries.clear();
+    _seen.clear();
+    _alphaBytes = 0;
+  }
+
+  /// Scratch generator for building entries (no cache of its own - the
+  /// builder calls the direct raster path explicitly).
+  StripGenerator? _scratch;
+
+  /// Approximate seen-before filter for the cache-on-second-sight gate.
+  /// Keyed by a HASH of the full key (collisions merely cache a one-shot
+  /// glyph early or delay a repeat by one draw - the exact record key
+  /// still guards entry correctness). Cleared wholesale when full.
+  final _seen = <int>{};
+  static const int _seenCap = 1 << 17;
+
+  bool _secondSight(
+      int outlineId, int qa, int qb, int qc, int qd, int qx, int qy) {
+    final h = Object.hash(outlineId, qa, qb, qc, qd, qx, qy);
+    if (_seen.contains(h)) return true;
+    if (_seen.length >= _seenCap) _seen.clear();
+    _seen.add(h);
+    firstSights++;
+    return false;
+  }
+
+  CachedGlyphStrips? _lookup(GlyphStripKey key) {
+    // Insertion-order (FIFO) eviction, no reinsert on hit: hits are the
+    // hot path and LinkedHashMap remove+insert per hit measurably churns;
+    // with thousands of entries FIFO evicts nearly as well as LRU here.
+    final entry = _entries[key];
+    if (entry != null) hits++;
+    return entry;
+  }
+
+  CachedGlyphStrips _build(GlyphStripKey key, FlattenedOutline outline,
+      PdfMatrix local, int w, int h) {
+    misses++;
+    final scratch = _scratch ??= (StripGenerator()..glyphCache = null);
+    scratch.begin(w, h);
+    scratch._fillOutlineDirect(outline, local, 0);
+    final s = scratch.strips;
+    final n = s.length;
+    final texels = s.alphaColumns;
+    final data = Uint32List(3 * n + texels);
+    data.setRange(0, n, s.xy);
+    data.setRange(n, 2 * n, s.widthFlags);
+    data.setRange(2 * n, 3 * n, s.alphaOffset);
+    data.setRange(3 * n, 3 * n + texels, s._alphaTexels);
+    final entry = CachedGlyphStrips(data, n, texels);
+    if (maxEntries > 0) {
+      _entries[key] = entry;
+      _alphaBytes += entry.alphaBytes;
+      while (_entries.length > maxEntries || _alphaBytes > maxAlphaBytes) {
+        final eldest = _entries.keys.first;
+        _alphaBytes -= _entries.remove(eldest)!.alphaBytes;
+      }
+    }
+    return entry;
   }
 }

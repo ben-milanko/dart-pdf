@@ -24,6 +24,7 @@ import 'dart:io';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
+// (GlyphStripCache comes from raster.dart)
 
 /// Per-run strip + delegation statistics.
 class StripStats {
@@ -172,6 +173,7 @@ class _Args {
   double scale = 2;
   int maxPages = 10;
   int repeat = 1;
+  bool glyphCache = true;
   String? out;
 }
 
@@ -189,6 +191,8 @@ _Args _parse(List<String> argv) {
         a.repeat = int.parse(next());
       case '--out':
         a.out = next();
+      case '--no-glyph-cache':
+        a.glyphCache = false;
       default:
         if (arg.startsWith('--')) {
           stderr.writeln('unknown flag $arg');
@@ -276,7 +280,9 @@ void main(List<String> argv) {
   final corpusIsDir =
       FileSystemEntity.typeSync(args.corpus) == FileSystemEntityType.directory;
 
-  final gen = StripGenerator(); // reused across pages and files
+  // reused across pages and files
+  final gen = StripGenerator()
+    ..glyphCache = args.glyphCache ? GlyphStripCache.shared : null;
   final best = <String, Map<String, Object?>>{};
   for (var r = 0; r < args.repeat; r++) {
     for (final file in files) {
@@ -324,8 +330,23 @@ void main(List<String> argv) {
     totalSolid += s['solidStrips'] as int;
     totalAlphaBytes += s['alphaBytes'] as int;
   }
+  final gc = GlyphStripCache.shared;
   final summary = {
     'pages': totalPages,
+    'glyphCache': args.glyphCache
+        ? {
+            'hits': gc.hits,
+            'misses': gc.misses,
+            'firstSights': gc.firstSights,
+            'bypasses': gc.bypasses,
+            'entries': gc.entryCount,
+            'alphaBytes': gc.alphaBytes,
+            'hitRate': (gc.hits + gc.misses) == 0
+                ? null
+                : double.parse(
+                    (gc.hits / (gc.hits + gc.misses)).toStringAsFixed(3)),
+          }
+        : null,
     'renderMsPerPage':
         totalPages == 0 ? null : double.parse((totalMs / totalPages).toStringAsFixed(2)),
     'stripsPerPage': totalPages == 0 ? null : totalStrips ~/ totalPages,
