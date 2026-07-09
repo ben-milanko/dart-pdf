@@ -973,6 +973,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _tool == PdfEditTool.measureArc ||
       _tool == PdfEditTool.measureVolume;
 
+  /// The cloud tool is a hybrid: a drag rubber-bands a rectangle, but a
+  /// tap starts (and each further tap extends) a free-form vertex list -
+  /// finished by a double-tap. This is true once at least one vertex has
+  /// been placed, so a drag no longer restarts the shape as a rectangle.
+  bool get _cloudPolyInProgress =>
+      _tool == PdfEditTool.cloudPolygon && (_polyPoints?.isNotEmpty ?? false);
+
   /// The number of clicks a fixed-arity poly tool takes before it
   /// auto-finishes - three for the angle and arc takeoffs - or null for an
   /// open-ended poly tool (finished by a double-tap).
@@ -2525,6 +2532,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _selectPanStart(details);
       return;
     }
+    if (_cloudPolyInProgress) {
+      // committing a cloud by clicks: a stray drag must not rubber-band a
+      // rectangle over the vertices already placed
+      return;
+    }
     switch (_tool) {
       case null:
         break; // eyedropper only - taps, no drags
@@ -3261,6 +3273,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       points.add(finalPoint);
     }
     final closed = _tool == PdfEditTool.polygon ||
+        _tool == PdfEditTool.cloudPolygon ||
         _tool == PdfEditTool.measureArea ||
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
@@ -3299,7 +3312,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       default:
         // distance/slope are drag tools (handled elsewhere); a poly gesture
         // with no measure kind active is a plain poly annotation.
-        if (_tool == PdfEditTool.polygon) {
+        if (_tool == PdfEditTool.cloudPolygon) {
+          _controller.addCloudPolygonPoints(widget.pageIndex, pagePoints);
+        } else if (_tool == PdfEditTool.polygon) {
           _controller.addPolygon(widget.pageIndex, pagePoints);
         } else {
           _controller.addPolyLine(widget.pageIndex, pagePoints);
@@ -3318,8 +3333,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       tool: _tool!,
       color: _controller.color.withValues(alpha: opacity),
       // a polygon's interior fill (so the commit afterimage matches the
-      // filled appearance, not just its outline)
-      fillColor: _tool == PdfEditTool.polygon && fill != null
+      // filled appearance, not just its outline); the cloud fills its
+      // straight footprint the same way
+      fillColor: (_tool == PdfEditTool.polygon ||
+                  _tool == PdfEditTool.cloudPolygon) &&
+              fill != null
           ? fill.withValues(alpha: opacity)
           : null,
       strokeWidth: _controller.strokeWidth * _geometry.scale,
@@ -3562,6 +3580,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_polyTool) {
       return;
     }
+    if (_tool == PdfEditTool.cloudPolygon) {
+      // a tap (not a drag) drops a cloud vertex; double-tap finishes it
+      _addPolyPoint(details.localPosition);
+      return;
+    }
     final (x, y) = _geometry.toPagePoint(details.localPosition);
     if (_selectMode) {
       // tapping the already-selected free text edits it in place,
@@ -3653,7 +3676,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
       return;
     }
-    if (!_polyTool) return;
+    if (!_polyTool && _tool != PdfEditTool.cloudPolygon) return;
     _finishPolyPath(_polyDoubleTapPosition);
     _polyDoubleTapPosition = null;
   }
@@ -3745,7 +3768,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         setState(() => _signaturePreview = event.localPosition);
       }
       cursor = SystemMouseCursors.precise;
-    } else if (_polyTool) {
+    } else if (_polyTool || _tool == PdfEditTool.cloudPolygon) {
+      // once a cloud vertex is down, the hover rubber-bands the next edge;
+      // before that the cloud tool still rubber-bands a rectangle on drag
       if (_polyPoints != null && event.localPosition != _polyHover) {
         setState(() => _polyHover = event.localPosition);
       }
@@ -4256,7 +4281,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             !identical(_afterDocument, _controller.document))) {
       _clearAfterimage();
     }
-    if (_polyPoints != null && !_polyTool) {
+    if (_polyPoints != null &&
+        !_polyTool &&
+        _tool != PdfEditTool.cloudPolygon) {
       _polyPoints = null;
       _polyHover = null;
     }
@@ -4445,9 +4472,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         onPanEnd: _panEnd,
         onTapUp: _onTapUp,
         onDoubleTapDown:
-            _polyTool || _tool == PdfEditTool.form ? _onDoubleTapDown : null,
+            _polyTool || _tool == PdfEditTool.cloudPolygon ||
+                    _tool == PdfEditTool.form
+                ? _onDoubleTapDown
+                : null,
         onDoubleTap:
-            _polyTool || _tool == PdfEditTool.form ? _onDoubleTap : null,
+            _polyTool || _tool == PdfEditTool.cloudPolygon ||
+                    _tool == PdfEditTool.form
+                ? _onDoubleTap
+                : null,
         child: MouseRegion(
           cursor: _cursor,
           onHover: _onHover,
@@ -5352,11 +5385,20 @@ class _EditingPreviewPainter extends CustomPainter {
           ..strokeJoin = StrokeJoin.round);
   }
 
+  /// Extra bulge past a semicircle so scallops read as overlapping puffs.
+  /// Mirrors `_cloudBulgeFactor` in pdf_document's annotation_editor so the
+  /// live preview matches the committed appearance stream.
+  static const double _cloudBulgeFactor = 1.15;
+
   Path _cloudPath(List<Offset> points, double strokeWidth) {
     final path = Path();
     if (points.length < 3) return path;
     final clockwise = _signedArea(points) < 0;
-    final radius = math.max(4.0, strokeWidth * 3.0);
+    // The appearance stream uses max(12, sw*4) *page* points; map that arc
+    // radius into view space (strokeWidth here is already scaled) so the
+    // preview and the saved cloud line up scallop-for-scallop.
+    final arc = math.max(12.0 * geometry.scale, strokeWidth * 4.0);
+    const k = 0.5522847498307936;
     var first = true;
     for (var i = 0; i < points.length; i++) {
       final a = points[i];
@@ -5364,36 +5406,38 @@ class _EditingPreviewPainter extends CustomPainter {
       final delta = b - a;
       final length = delta.distance;
       if (length < 0.01) continue;
-      final scallops = math.max(1, (length / (radius * 1.7)).round());
+      final scallops = math.max(1, (length / (2 * arc)).round());
       final unit = delta / length;
       final normal =
           clockwise ? Offset(-unit.dy, unit.dx) : Offset(unit.dy, -unit.dx);
-      const k = 0.5522847498307936;
+      final chord = length / scallops;
+      final r = chord / 2;
+      final bulge = math.min(r, arc) * _cloudBulgeFactor;
+      final ca = r * k; // apex control handle, along the edge
+      final cf = bulge * k; // foot control handle, perpendicular (outward)
       for (var j = 0; j < scallops; j++) {
         final t0 = j / scallops;
         final t1 = (j + 1) / scallops;
         final start = Offset.lerp(a, b, t0)!;
         final end = Offset.lerp(a, b, t1)!;
-        final chord = length / scallops;
-        final bulge = math.min(radius, chord * 0.55);
-        final mid = Offset.lerp(start, end, 0.5)! + normal * bulge;
+        final apex = Offset.lerp(start, end, 0.5)! + normal * bulge;
         if (first) {
           path.moveTo(start.dx, start.dy);
           first = false;
         }
         path.cubicTo(
-          start.dx + unit.dx * chord * k * 0.5,
-          start.dy + unit.dy * chord * k * 0.5,
-          mid.dx - unit.dx * chord * k * 0.5,
-          mid.dy - unit.dy * chord * k * 0.5,
-          mid.dx,
-          mid.dy,
+          start.dx + normal.dx * cf,
+          start.dy + normal.dy * cf,
+          apex.dx - unit.dx * ca,
+          apex.dy - unit.dy * ca,
+          apex.dx,
+          apex.dy,
         );
         path.cubicTo(
-          mid.dx + unit.dx * chord * k * 0.5,
-          mid.dy + unit.dy * chord * k * 0.5,
-          end.dx - unit.dx * chord * k * 0.5,
-          end.dy - unit.dy * chord * k * 0.5,
+          apex.dx + unit.dx * ca,
+          apex.dy + unit.dy * ca,
+          end.dx + normal.dx * cf,
+          end.dy + normal.dy * cf,
           end.dx,
           end.dy,
         );
