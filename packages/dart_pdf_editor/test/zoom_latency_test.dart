@@ -55,7 +55,9 @@ const _maxDimension = 8192.0;
 const _defaultFiles = [
   'Flutter_CTO_Report_2024_by_LeanCode.pdf', // office: report, text + images
   'INVOICE-1000664832.pdf', // office: invoice, text-heavy
-  'ly9-far-cad.pdf', // CAD: the known dense-vector stress case
+  // CAD: the known dense-vector stress case; page 4 is its heaviest sheet
+  // (~677k content operators - page 0 is a light title sheet).
+  'ly9-far-cad.pdf#4',
 ];
 
 class _Sample {
@@ -126,7 +128,14 @@ void main() {
       final rows = <String>[];
       final stepRows = <String>[];
 
-      for (final name in fileNames) {
+      for (final entry in fileNames) {
+        // "name.pdf#12" selects a page for that file; bare names use
+        // ZOOM_LATENCY_PAGE.
+        final hash = entry.lastIndexOf('#');
+        final name = hash < 0 ? entry : entry.substring(0, hash);
+        final filePage = hash < 0
+            ? pageIndex
+            : int.tryParse(entry.substring(hash + 1)) ?? pageIndex;
         final path = name.startsWith('/') ? name : '${dir.path}/$name';
         final file = File(path);
         if (!file.existsSync()) {
@@ -135,7 +144,7 @@ void main() {
           continue;
         }
         final doc = PdfDocument.open(file.readAsBytesSync());
-        final page = doc.page(pageIndex.clamp(0, doc.pageCount - 1));
+        final page = doc.page(filePage.clamp(0, doc.pageCount - 1));
         const plan = PdfPageRenderPlan();
         final size = plan.pageSize(page);
         final fit = [targetWidth / size.width, targetHeight / size.height]
@@ -150,9 +159,9 @@ void main() {
         final scene = await PdfRetainedScene.record(page, plan: plan);
         final recordMs = sw.elapsedMicroseconds / 1000.0;
 
-        final label = name.split('/').last;
+        final label = '${name.split('/').last}#$filePage';
         // ignore: avoid_print
-        print('zoom-latency: $label page=$pageIndex '
+        print('zoom-latency: $label page=$filePage '
             'size=${size.width.toStringAsFixed(0)}x'
             '${size.height.toStringAsFixed(0)}pt fit=${fit.toStringAsFixed(2)} '
             'commands=${scene.commands.length} '
