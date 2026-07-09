@@ -14,3 +14,4 @@ library;
 export 'src/gpu/gpu_device.dart' show GpuPdfDevice, PdfGpuPipelines;
 export 'src/gpu/gpu_geometry.dart';
 export 'src/gpu/gpu_renderer.dart';
+export 'src/gpu/gpu_strips.dart';

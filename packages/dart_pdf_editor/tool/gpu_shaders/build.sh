@@ -33,7 +33,9 @@ bundle=$(cat <<EOF
   "PdfTextureVertex":  {"type": "vertex",   "file": "$src/pdf_texture.vert"},
   "PdfTextureFragment":{"type": "fragment", "file": "$src/pdf_texture.frag"},
   "PdfGradientVertex": {"type": "vertex",   "file": "$src/pdf_gradient.vert"},
-  "PdfGradientFragment":{"type": "fragment","file": "$src/pdf_gradient.frag"}
+  "PdfGradientFragment":{"type": "fragment","file": "$src/pdf_gradient.frag"},
+  "PdfStripVertex":    {"type": "vertex",   "file": "$src/pdf_strip.vert"},
+  "PdfStripFragment":  {"type": "fragment", "file": "$src/pdf_strip.frag"}
 }
 EOF
 )

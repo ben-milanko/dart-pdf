@@ -41,6 +41,11 @@ class PdfGpuPipelines {
             library['PdfTextureVertex']!, library['PdfTextureFragment']!),
         gradient = context.createRenderPipeline(
             library['PdfGradientVertex']!, library['PdfGradientFragment']!),
+        strip = context.createRenderPipeline(
+            library['PdfStripVertex']!, library['PdfStripFragment']!),
+        stripVertInfo = library['PdfStripVertex']!.getUniformSlot('VertInfo'),
+        stripFragInfo = library['PdfStripFragment']!.getUniformSlot('FragInfo'),
+        stripSampler = library['PdfStripFragment']!.getUniformSlot('alpha_tex'),
         textureFragInfo =
             library['PdfTextureFragment']!.getUniformSlot('FragInfo'),
         textureSampler = library['PdfTextureFragment']!.getUniformSlot('tex'),
@@ -72,6 +77,14 @@ class PdfGpuPipelines {
   final gpu.RenderPipeline solid;
   final gpu.RenderPipeline texture;
   final gpu.RenderPipeline gradient;
+
+  /// Sparse-strip pipeline (vello_hybrid-style CPU coverage): per-vertex
+  /// premultiplied color scaled by a coverage byte fetched from an RGBA8
+  /// alpha atlas. See [StripBatch] in gpu_strips.dart.
+  final gpu.RenderPipeline strip;
+  final gpu.UniformSlot stripVertInfo;
+  final gpu.UniformSlot stripFragInfo;
+  final gpu.UniformSlot stripSampler;
   final gpu.UniformSlot textureFragInfo;
   final gpu.UniformSlot textureSampler;
   final gpu.UniformSlot gradientInfo;
