@@ -343,6 +343,19 @@ class FlattenedOutline {
   /// Em-space polylines. Fill semantics: every subpath is implicitly closed.
   final List<FlatSubpath> subpaths;
 
+  bool _boundsDone = false;
+  FlatBounds? _bounds;
+
+  /// Em-space bounds of the flattened outline (memoized), or null when the
+  /// outline is empty.
+  FlatBounds? get bounds {
+    if (!_boundsDone) {
+      _bounds = FlatBounds.of(subpaths);
+      _boundsDone = true;
+    }
+    return _bounds;
+  }
+
   static final Expando<FlattenedOutline> _cache = Expando('FlattenedOutline');
 
   /// The cached flattening of [outline], flattening on first sight.
