@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Mobile: Recent files and the last session now reopen without a fresh pick.
+  Opened PDFs are snapshotted into the app's private store, so tapping a Recent
+  entry (or relaunching) reopens the document directly instead of showing "Pick
+  again to reopen".
+
 ## 1.4.0
 
 - Add color processing for replacing document colors across selected pages or

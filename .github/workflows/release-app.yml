@@ -324,7 +324,7 @@ jobs:
             WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "NoRepair" 1
 
             WriteRegStr HKCU "Software\Classes\DartPDF.pdf" "" "PDF document"
-            WriteRegStr HKCU "Software\Classes\DartPDF.pdf\DefaultIcon" "" "`$INSTDIR\dart_pdf_editor_app.exe,0"
+            WriteRegStr HKCU "Software\Classes\DartPDF.pdf\DefaultIcon" "" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
             WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" "%1"'
             WriteRegStr HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf" ""
             System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'

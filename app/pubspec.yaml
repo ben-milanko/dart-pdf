@@ -33,6 +33,11 @@ dependencies:
   # bytes are printed verbatim - no re-layout.
   printing: ^5.13.0
   shared_preferences: ^2.3.0
+  # Snapshots mobile picks into the app's private store so Recent entries and
+  # the last session can be reopened without a fresh pick (see pdf_cache.dart).
+  path_provider: ^2.1.6
+  # Content-addresses those snapshots so reopening the same PDF reuses one file.
+  crypto: ^3.0.0
   desktop_drop: ^0.7.0
   # Polls GitHub Releases for a newer build (in-app update checker). Works on
   # the web build too, though the updater skips the check there.

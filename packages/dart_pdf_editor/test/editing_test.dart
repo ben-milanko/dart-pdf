@@ -577,6 +577,51 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('cloud polygon tool taps points and double-taps to finish',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudPolygon;
+      await tester.pump();
+
+      await tester.tapAt(view(100, 700));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(250, 720));
+      await tester.pump(const Duration(milliseconds: 400));
+      // one vertex short of a closed polygon: nothing committed yet
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await tester.tapAt(view(180, 620));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(180, 620));
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Polygon');
+      expect(annotation.hasCloudyBorder, isTrue);
+      expect(annotation.vertices, hasLength(3),
+          reason: 'three tapped vertices, the double-tap not double-counted');
+      expect(annotation.vertices!.first.$1, closeTo(100, 1));
+      expect(annotation.vertices!.first.$2, closeTo(700, 1));
+      await settle(tester);
+    });
+
+    testWidgets('a drag after the first cloud vertex does not add a rectangle',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudPolygon;
+      await tester.pump();
+
+      // place one vertex, then drag: the drag must be ignored, not commit a
+      // rectangle over the in-progress polygon
+      await tester.tapAt(view(120, 700));
+      await tester.pump(const Duration(milliseconds: 400));
+      await drag(tester, view(200, 650), view(300, 560));
+      await tester.pump();
+
+      expect(editing.document.page(0).annotations, isEmpty);
+      await settle(tester);
+    });
+
     testWidgets('dragging with the arrow tool adds a dashed Line',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

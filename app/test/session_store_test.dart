@@ -44,4 +44,25 @@ void main() {
     final restored = await store.load();
     expect(restored.map((d) => d.path), ['/k.pdf']);
   });
+
+  test('a cache-backed document (mobile) round-trips and restores', () async {
+    final a = SessionStore();
+    await a.save(const [
+      SessionDocument(
+          title: 'shared.pdf', path: '', cachePath: '/app/recent_pdfs/x.pdf'),
+    ]);
+
+    final b = SessionStore();
+    final restored = await b.load();
+    expect(restored.single.cachePath, '/app/recent_pdfs/x.pdf');
+    expect(restored.single.readPath, '/app/recent_pdfs/x.pdf');
+  });
+
+  test('a document with neither path nor cache is dropped on load', () async {
+    SharedPreferences.setMockInitialValues({
+      'dart_pdf_editor_app.session': '[{"t":"orphan.pdf","p":""}]',
+    });
+    final store = SessionStore();
+    expect(await store.load(), isEmpty);
+  });
 }

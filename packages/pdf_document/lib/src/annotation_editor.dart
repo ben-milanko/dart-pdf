@@ -4038,8 +4038,26 @@ extension PdfAnnotationEditing on PdfEditor {
   double _linePadding(double strokeWidth, {bool dashed = false}) =>
       strokeWidth + (dashed ? strokeWidth : 0);
 
-  double _cloudPadding(double strokeWidth) =>
-      math.max(_linePadding(strokeWidth), math.max(4.0, strokeWidth * 3.0));
+  /// Extra bulge past a semicircle so the scallops read as overlapping
+  /// puffs (with cusps between them) instead of flat half-circles.
+  static const double _cloudBulgeFactor = 1.15;
+
+  /// Target radius of one cloud scallop, in page points. Independent of the
+  /// (usually hairline) stroke so the puffs stay fluffy; grows only when the
+  /// stroke itself is heavy enough to crowd them.
+  double _cloudArcRadius(double strokeWidth) =>
+      math.max(12.0, strokeWidth * 4.0);
+
+  /// Padding for the cloud's `/Rect` and form BBox. A scallop's apex sits
+  /// `_cloudArcRadius * _cloudBulgeFactor` past the polygon edge (plus half
+  /// the stroke) - and on a rectangle every point of an edge is at the box's
+  /// extreme, so the puffs protrude by the full bulge. `_pointBounds` insets
+  /// by only `pad / 2 + 1`, so the padding is doubled here; otherwise the
+  /// form BBox clips the outer half of every puff (the scallops render as
+  /// flattened brackets at the edges).
+  double _cloudPadding(double strokeWidth) => math.max(
+      _linePadding(strokeWidth),
+      2 * _cloudArcRadius(strokeWidth) * _cloudBulgeFactor + strokeWidth);
 
   ContentWriter _cloudPolygonContent(
     List<(double, double)> points, {
@@ -4082,7 +4100,8 @@ extension PdfAnnotationEditing on PdfEditor {
       ContentWriter w, List<(double, double)> points, double strokeWidth) {
     if (points.length < 3) return;
     final clockwise = _signedArea(points) < 0;
-    final radius = math.max(4.0, strokeWidth * 3.0);
+    final arc = _cloudArcRadius(strokeWidth);
+    const k = 0.5522847498307936;
     var first = true;
     for (var i = 0; i < points.length; i++) {
       final a = points[i];
@@ -4091,7 +4110,8 @@ extension PdfAnnotationEditing on PdfEditor {
       final dy = b.$2 - a.$2;
       final length = math.sqrt(dx * dx + dy * dy);
       if (length < 0.01) continue;
-      final scallops = math.max(1, (length / (radius * 1.7)).round());
+      // Spread whole scallops evenly along the edge, ~one per arc diameter.
+      final scallops = math.max(1, (length / (2 * arc)).round());
       final ux = dx / length;
       final uy = dy / length;
       // For clockwise polygons the interior is on the right side of each
@@ -4099,38 +4119,31 @@ extension PdfAnnotationEditing on PdfEditor {
       // normal to make the cloud bulge outward.
       final nx = clockwise ? -uy : uy;
       final ny = clockwise ? ux : -ux;
-      final k = 0.5522847498307936;
+      final chord = length / scallops;
+      final r = chord / 2; // half the foot-to-foot span
+      final bulge = math.min(r, arc) * _cloudBulgeFactor; // apex height
+      final ca = r * k; // apex control handle, along the edge
+      final cf = bulge * k; // foot control handle, perpendicular (outward)
       for (var j = 0; j < scallops; j++) {
         final t0 = j / scallops;
         final t1 = (j + 1) / scallops;
-        final mx0 = a.$1 + dx * t0;
-        final my0 = a.$2 + dy * t0;
-        final mx1 = a.$1 + dx * t1;
-        final my1 = a.$2 + dy * t1;
-        final chord = length / scallops;
-        final bulge = math.min(radius, chord * 0.55);
-        final cx = (mx0 + mx1) / 2 + nx * bulge;
-        final cy = (my0 + my1) / 2 + ny * bulge;
+        final sx = a.$1 + dx * t0;
+        final sy = a.$2 + dy * t0;
+        final ex = a.$1 + dx * t1;
+        final ey = a.$2 + dy * t1;
+        final apx = (sx + ex) / 2 + nx * bulge;
+        final apy = (sy + ey) / 2 + ny * bulge;
         if (first) {
-          w.moveTo(mx0, my0);
+          w.moveTo(sx, sy);
           first = false;
         }
-        w.curveTo(
-          mx0 + ux * chord * k * 0.5,
-          my0 + uy * chord * k * 0.5,
-          cx - ux * chord * k * 0.5,
-          cy - uy * chord * k * 0.5,
-          cx,
-          cy,
-        );
-        w.curveTo(
-          cx + ux * chord * k * 0.5,
-          cy + uy * chord * k * 0.5,
-          mx1 - ux * chord * k * 0.5,
-          my1 - uy * chord * k * 0.5,
-          mx1,
-          my1,
-        );
+        // Two quarter-arcs meeting at the apex: the feet leave the edge
+        // perpendicular (giving each puff a distinct neck/cusp), the apex
+        // runs parallel to the edge.
+        w.curveTo(sx + nx * cf, sy + ny * cf, apx - ux * ca, apy - uy * ca,
+            apx, apy);
+        w.curveTo(apx + ux * ca, apy + uy * ca, ex + nx * cf, ey + ny * cf,
+            ex, ey);
       }
     }
     w.closePath();

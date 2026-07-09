@@ -1660,25 +1660,35 @@ class PdfEditingController extends ChangeNotifier {
       pages: [pageIndex],
       contentPages: const <int>[]);
 
-  void addCloudPolygon(int pageIndex, PdfRect rect) => apply(
-      (e) => e.addPolygon(
-            pageIndex,
-            [
-              (rect.left, rect.bottom),
-              (rect.right, rect.bottom),
-              (rect.right, rect.top),
-              (rect.left, rect.top),
-            ],
-            strokeColor: _colorValue,
-            strokeWidth: preferences.strokeWidth,
-            fillColor: _rgbOf(preferences.shapeFillColor),
-            opacity: preferences.opacity,
-            dashPattern: _lineDashPattern,
-            cloudy: true,
-            author: author,
-          ),
-      pages: [pageIndex],
-      contentPages: const <int>[]);
+  /// Drag out a rectangular cloudy /Polygon from an axis-aligned [rect].
+  void addCloudPolygon(int pageIndex, PdfRect rect) => addCloudPolygonPoints(
+        pageIndex,
+        [
+          (rect.left, rect.bottom),
+          (rect.right, rect.bottom),
+          (rect.right, rect.top),
+          (rect.left, rect.top),
+        ],
+      );
+
+  /// Click out a cloudy /Polygon from an arbitrary vertex list (3+ points).
+  void addCloudPolygonPoints(
+          int pageIndex, List<(double, double)> points) =>
+      apply(
+        (e) => e.addPolygon(
+          pageIndex,
+          points,
+          strokeColor: _colorValue,
+          strokeWidth: preferences.strokeWidth,
+          fillColor: _rgbOf(preferences.shapeFillColor),
+          opacity: preferences.opacity,
+          dashPattern: _lineDashPattern,
+          cloudy: true,
+          author: author,
+        ),
+        pages: [pageIndex],
+        contentPages: const <int>[],
+      );
 
   // ---------------------------------------------------------------------
   // measurements (§12.9)
