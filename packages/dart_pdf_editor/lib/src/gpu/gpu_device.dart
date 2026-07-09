@@ -25,9 +25,13 @@ import 'dart:typed_data';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
+// The strip core re-declares flatten helpers (FlatSubpath etc.) that this
+// backend also has locally in gpu_geometry.dart - keep it prefixed.
+import 'package:pdf_graphics/raster.dart' as rs;
 
 import '../image_decoder.dart' show pdfImageKey;
 import 'gpu_geometry.dart';
+import 'gpu_strips.dart';
 
 /// The compiled pipelines + shaders for [GpuPdfDevice], built once per
 /// process from the bundled shaderbundle asset.
@@ -104,8 +108,13 @@ class GpuPdfDevice implements PdfDevice {
     required this.widthPx,
     required this.heightPx,
     this.textures = const {},
+    this.strips = false,
   }) {
     _scissor = _Rect(0, 0, widthPx.toDouble(), heightPx.toDouble());
+    if (strips) {
+      _stripGen = rs.StripGenerator()..begin(widthPx, heightPx);
+      _stripBatch = StripBatch(context: context, pipelines: pipelines);
+    }
     pass
       ..setCullMode(gpu.CullMode.none)
       ..setWindingOrder(gpu.WindingOrder.counterClockwise)
@@ -127,6 +136,18 @@ class GpuPdfDevice implements PdfDevice {
 
   /// Pre-uploaded image textures keyed by [pdfImageKey] (premultiplied RGBA).
   final Map<Object, gpu.Texture> textures;
+
+  /// Sparse-strip mode (Track A): path fills (and in A2 strokes/glyphs)
+  /// rasterize CPU-side into 4px coverage strips and draw antialiased
+  /// through the strip pipeline instead of aliased triangles - vello_hybrid
+  /// AA without MSAA. Non-strip draws (images, gradients, meshes, text)
+  /// stay on the existing pipelines, flush-interleaved in painter's order.
+  final bool strips;
+  rs.StripGenerator? _stripGen;
+  StripBatch? _stripBatch;
+  // The scissor the pending strip batch was started under (flush on change,
+  // mirroring the solid batch).
+  _Rect? _stripScissor;
 
   /// Approximated/skipped features and how often each was hit - honesty
   /// counters for the benchmark writeup.
@@ -281,6 +302,14 @@ class GpuPdfDevice implements PdfDevice {
 
   @override
   void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
+    if (strips) {
+      final a = (alpha * _alphaScale).clamp(0.0, 1.0);
+      if (a <= 0) return;
+      _ensureStripBatch();
+      _stripGen!.fillPath(path, pageToDevice, rule, rs.premulRgba8(color, a));
+      _tally('fill-strips');
+      return;
+    }
     final subs = flattenPath(path, pageToDevice);
     if (subs.isEmpty) return;
     final a = (alpha * _alphaScale).clamp(0.0, 1.0);
@@ -577,6 +606,7 @@ class GpuPdfDevice implements PdfDevice {
       _flushText();
     }
     _flushSolid(); // only one deferred batch open at a time
+    _flushStrips();
     if (!_textOpen) {
       _textOpen = true;
       _textR = r;
@@ -839,6 +869,18 @@ class GpuPdfDevice implements PdfDevice {
   @override
   void strokePath(
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
+    if (strips) {
+      final a = (alpha * _alphaScale).clamp(0.0, 1.0);
+      if (a <= 0) return;
+      _ensureStripBatch();
+      // Contour expansion + nonzero coverage resolve CPU-side in one shape,
+      // so translucent strokes don't double-blend at joins (an improvement
+      // over the aliased path's opaque-only batching).
+      _stripGen!
+          .strokePath(path, pageToDevice, stroke, rs.premulRgba8(color, a));
+      _tally('stroke-strips');
+      return;
+    }
     var subs = flattenPath(path, pageToDevice);
     if (subs.isEmpty) return;
     final scale = pageToDevice.scaleFactor;
@@ -888,6 +930,24 @@ class GpuPdfDevice implements PdfDevice {
       final runToDevice = run.transform.concat(pageToDevice);
       final scale = runToDevice.scaleFactor;
       if (scale > 0 && scale.isFinite) {
+        if (strips) {
+          // Strip mode: cached em-space flattened outlines transform-and-bin
+          // straight into the coverage strips - antialiased glyphs, no
+          // stencil pass.
+          _ensureStripBatch();
+          final rgba = rs.premulRgba8(run.color, a);
+          final gen = _stripGen!;
+          for (final glyph in run.glyphs!) {
+            final outline = glyph.outline;
+            if (outline == null) continue;
+            final emToDevice =
+                PdfMatrix.translation(glyph.offset, glyph.offsetY)
+                    .concat(runToDevice);
+            gen.fillOutline(rs.FlattenedOutline.of(outline), emToDevice, rgba);
+          }
+          _tally('text-strips');
+          return;
+        }
         _appendGlyphRun(run, runToDevice, scale, a);
         return;
       }
@@ -945,6 +1005,7 @@ class GpuPdfDevice implements PdfDevice {
     }
     _flushText();
     _flushSolid();
+    _flushStrips();
     _applyScissor(_scissor);
     _setStencilState(_stencilDefault);
 
@@ -993,6 +1054,7 @@ class GpuPdfDevice implements PdfDevice {
   void finish() {
     _flushText();
     _flushSolid();
+    _flushStrips();
   }
 
   // ---- pass-state elision ---------------------------------------------------
@@ -1108,10 +1170,61 @@ class GpuPdfDevice implements PdfDevice {
 
   void _ensureSolidBatch() {
     _flushText();
+    _flushStrips();
     if (_solidScissor != null && !_solidScissor!.equals(_scissor)) {
       _flushSolid();
     }
     _solidScissor ??= _scissor;
+  }
+
+  /// Opens (or re-targets) the strip batch: flushes the other deferred
+  /// batches so painter's order holds, and flushes pending strips when the
+  /// clip changed (the batch draws under one scissor).
+  void _ensureStripBatch() {
+    _flushText();
+    _flushSolid();
+    if (_stripScissor != null && !_stripScissor!.equals(_scissor)) {
+      _flushStrips();
+    }
+    _stripScissor ??= _scissor;
+  }
+
+  /// Draws the pending strip batch: one atlas upload + one draw. Fresh
+  /// atlas texture per flush - the previous flush's draws reference their
+  /// own texture at submit time, so it must not be overwritten.
+  void _flushStrips() {
+    final gen = _stripGen;
+    if (gen == null) return;
+    final buf = gen.strips;
+    if (buf.length == 0) {
+      _stripScissor = null;
+      return;
+    }
+    _applyScissor(_stripScissor ?? _scissor);
+    _setStencilState(_stencilDefault);
+    _stripBatch!
+      ..setStrips(
+          count: buf.length,
+          xy: buf.xy,
+          widthFlags: buf.widthFlags,
+          alphaOffset: buf.alphaOffset,
+          color: buf.color,
+          alphas: buf.alphas,
+          alphaTexels: buf.alphaColumns)
+      ..encode(pass, hostBuffer, widthPx: widthPx, heightPx: heightPx);
+    // encode() binds its own pipeline/blend and clears bindings.
+    _boundPipeline = null;
+    _blendState = -1;
+    _tally('draw-strip-batch');
+    _tally('strips', buf.length);
+    _tally('strip-alpha-texels', buf.alphaColumns);
+    var px = 0;
+    for (var i = 0; i < buf.length; i++) {
+      px += (buf.widthFlags[i] & 0xFFFF) * 4;
+    }
+    _tally('strip-px', px);
+    gen.begin(widthPx, heightPx);
+    _stripScissor = null;
   }
 
   /// Ear-clips a single-subpath polygon straight into the solid batch.
@@ -1206,6 +1319,7 @@ class GpuPdfDevice implements PdfDevice {
   void _stencilRaw(Float64List triangles,
       {required PdfFillRule rule, required bool union, _Rect? scissor}) {
     _flushSolid();
+    _flushStrips();
     _applyScissor(scissor ?? _scissor);
     final verts = Float32List(triangles.length);
     for (var i = 0; i < triangles.length; i += 2) {

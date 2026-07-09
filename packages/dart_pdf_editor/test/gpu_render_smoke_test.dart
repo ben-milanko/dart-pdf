@@ -51,6 +51,12 @@ void main() {
       }
       await loadSystemFonts();
       final outDir = Platform.environment['GPU_RENDER_OUT'];
+      // Same env knobs as the benchmark harness, so this test doubles as
+      // the AA-evidence render (strips vs MSAA vs aliased PNG dumps).
+      PdfGpuPageRenderer.msaaEnabled =
+          Platform.environment['PDF_GPU_MSAA'] != '0';
+      PdfGpuPageRenderer.stripsEnabled =
+          Platform.environment['PDF_GPU_STRIPS'] == '1';
 
       for (final (path, pageIndex) in _pages) {
         final file = File(path);

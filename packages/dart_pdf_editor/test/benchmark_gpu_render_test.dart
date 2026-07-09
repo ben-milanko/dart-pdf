@@ -68,6 +68,10 @@ void main() {
       // PDF_GPU_MSAA=0 renders aliased (minimum fixed cost per page).
       PdfGpuPageRenderer.msaaEnabled =
           Platform.environment['PDF_GPU_MSAA'] != '0';
+      // PDF_GPU_STRIPS=1 routes fills through CPU sparse coverage strips
+      // (AA without MSAA - Track A); strip mode ignores msaaEnabled.
+      PdfGpuPageRenderer.stripsEnabled =
+          Platform.environment['PDF_GPU_STRIPS'] == '1';
       await loadSystemFonts();
       final corpus = Directory(dir);
       final files = corpus

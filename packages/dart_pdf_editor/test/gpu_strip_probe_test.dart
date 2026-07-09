@@ -11,12 +11,17 @@
 //     test/gpu_strip_probe_test.dart
 //
 // Skips when the GPU context is unavailable (plain `flutter test`).
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/gpu.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_graphics/pdf_graphics.dart'
+    show PdfColor, PdfFillRule, PdfLineTo, PdfMatrix, PdfMoveTo, PdfPath;
+import 'package:pdf_graphics/raster.dart'
+    show StripGenerator, premulRgba8, stripSolidSentinel;
 import 'package:vector_math/vector_math.dart' as vm;
 
 /// Builds the strip generator's SoA arrays by hand.
@@ -46,7 +51,7 @@ class _StripsBuilder {
   void solid(int x, int y, int width, int rgba) {
     xy.add(x | (y << 16));
     widthFlags.add(width);
-    alphaOffset.add(stripSolidOffset);
+    alphaOffset.add(stripSolidSentinel);
     color.add(rgba);
   }
 }
@@ -102,7 +107,7 @@ void main() {
       final batch = StripBatch(context: context, pipelines: pipelines, atlasWidth: 64)
         ..setStrips(
           count: strips.count,
-          xy: Int32List.fromList(strips.xy),
+          xy: Uint32List.fromList(strips.xy),
           widthFlags: Uint32List.fromList(strips.widthFlags),
           alphaOffset: Uint32List.fromList(strips.alphaOffset),
           color: Uint32List.fromList(strips.color),
@@ -167,6 +172,148 @@ void main() {
       expect(px(bx + 1, by + 1, 0), 255); // interior from alpha texel 255
       expect(px(bx + 30, by + 30, 0), 255); // interior from solid strip
       expect(px(bx + 30, by + 30, 3), 255); // solid strip alpha
+    });
+  });
+
+  testWidgets('StripGenerator star matches the MSAA stencil path',
+      (tester) async {
+    await tester.runAsync(() async {
+      late final gpu.GpuContext context;
+      try {
+        context = gpu.gpuContext;
+        // ignore: unnecessary_statements
+        context.defaultColorFormat;
+      } catch (e) {
+        markTestSkipped('flutter_gpu unavailable in this tester: $e');
+        return;
+      }
+      final pipelines = PdfGpuPipelines.instance(context);
+      const w = 128, h = 128;
+
+      // Classic self-intersecting 5-point star, even-odd (hollow core):
+      // exercises the generator's winding machinery, not just boxes.
+      final pts = <double>[];
+      for (var i = 0; i < 5; i++) {
+        final ang = -math.pi / 2 + i * 4 * math.pi / 5;
+        pts.addAll([64 + 52 * math.cos(ang), 64 + 52 * math.sin(ang)]);
+      }
+      final star = PdfPath([
+        PdfMoveTo(pts[0], pts[1]),
+        for (var i = 1; i < 5; i++) PdfLineTo(pts[2 * i], pts[2 * i + 1]),
+      ]);
+      const color = PdfColor(0.2, 0.4, 0.8);
+
+      Future<Uint8List> readback(gpu.Texture texture) async {
+        final image = texture.asImage();
+        final data =
+            (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+        return data.buffer.asUint8List();
+      }
+
+      // (a) CPU strips -> strip pipeline, aliased 1-sample target.
+      final gen = StripGenerator()..begin(w, h);
+      gen.fillPath(star, PdfMatrix.identity, PdfFillRule.evenOdd,
+          premulRgba8(color, 1.0));
+      final buf = gen.strips;
+      final batch = StripBatch(context: context, pipelines: pipelines)
+        ..setStrips(
+          count: buf.length,
+          xy: buf.xy,
+          widthFlags: buf.widthFlags,
+          alphaOffset: buf.alphaOffset,
+          color: buf.color,
+          alphas: buf.alphas,
+          alphaTexels: buf.alphaColumns,
+        );
+      final stripTarget = context.createTexture(
+          gpu.StorageMode.devicePrivate, w, h,
+          format: context.defaultColorFormat);
+      {
+        final commandBuffer = context.createCommandBuffer();
+        final pass =
+            commandBuffer.createRenderPass(gpu.RenderTarget.singleColor(
+          gpu.ColorAttachment(
+              texture: stripTarget, clearValue: vm.Vector4(0, 0, 0, 0)),
+        ));
+        batch.encode(pass, context.createHostBuffer(),
+            widthPx: w, heightPx: h);
+        commandBuffer.submit();
+      }
+      final stripBytes = await readback(stripTarget);
+
+      // (b) The existing even-odd route: GpuPdfDevice stencil-then-cover
+      // into a 4x MSAA target (the AA quality reference).
+      final resolve = context.createTexture(gpu.StorageMode.devicePrivate,
+          w, h,
+          format: context.defaultColorFormat);
+      final msaaColor = context.createTexture(
+          gpu.StorageMode.deviceTransient, w, h,
+          format: context.defaultColorFormat, sampleCount: 4);
+      final stencil = context.createTexture(
+          gpu.StorageMode.deviceTransient, w, h,
+          format: context.defaultStencilFormat, sampleCount: 4);
+      {
+        final commandBuffer = context.createCommandBuffer();
+        final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
+          colorAttachments: [
+            gpu.ColorAttachment(
+              texture: msaaColor,
+              resolveTexture: resolve,
+              clearValue: vm.Vector4(0, 0, 0, 0),
+              storeAction: gpu.StoreAction.multisampleResolve,
+            ),
+          ],
+          depthStencilAttachment: gpu.DepthStencilAttachment(
+            texture: stencil,
+            stencilClearValue: 0,
+          ),
+        ));
+        final device = GpuPdfDevice(
+          context: context,
+          pass: pass,
+          hostBuffer: context.createHostBuffer(),
+          pipelines: pipelines,
+          pageToDevice: PdfMatrix.identity,
+          widthPx: w,
+          heightPx: h,
+        );
+        device.fillPath(star, color, PdfFillRule.evenOdd, 1.0);
+        device.finish();
+        commandBuffer.submit();
+      }
+      final msaaBytes = await readback(resolve);
+
+      // Same shape, two AA mechanisms: interiors identical, edges within a
+      // sample-position wobble. Mean channel diff must be edge-only small.
+      var sum = 0;
+      var maxInterior = 0;
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          for (var c = 0; c < 4; c++) {
+            final i = (y * w + x) * 4 + c;
+            final d = (stripBytes[i] - msaaBytes[i]).abs();
+            sum += d;
+            // Off-edge pixels (both fully in or fully out in both images)
+            // must agree exactly.
+            final s = stripBytes[i], m = msaaBytes[i];
+            final extremeBoth = (s == 0 || s == 255) && (m == 0 || m == 255);
+            if (extremeBoth && d > 0) maxInterior = math.max(maxInterior, d);
+          }
+        }
+      }
+      final mean = sum / (w * h * 4);
+      expect(buf.length, greaterThan(0));
+      expect(mean, lessThan(2.5),
+          reason: 'strips vs MSAA mean channel diff should be edge-only');
+      expect(maxInterior, 0,
+          reason: 'fully-covered/empty pixels must match exactly');
+
+      // Hollow core (even-odd) and solid arm spot checks against both.
+      int at(Uint8List b, int x, int y, int c) => b[(y * w + x) * 4 + c];
+      expect(at(stripBytes, 64, 64, 3), 0); // core is hollow
+      expect(at(msaaBytes, 64, 64, 3), 0);
+      expect(at(stripBytes, 64, 20, 3), 255); // top arm solid
+      expect(at(msaaBytes, 64, 20, 3), 255);
     });
   });
 }

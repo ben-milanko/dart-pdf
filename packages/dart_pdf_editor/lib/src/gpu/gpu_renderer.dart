@@ -83,6 +83,12 @@ class PdfGpuPageRenderer {
   /// edges, minimum fixed cost.
   static bool msaaEnabled = true;
 
+  /// Whether path fills render as CPU-generated sparse coverage strips
+  /// (vello_hybrid-style, Track A): antialiased fills at aliased-pipeline
+  /// cost. Strip mode renders into a plain 1-sample target - MSAA is
+  /// redundant with strip AA, so [msaaEnabled] is ignored while this is on.
+  static bool stripsEnabled = false;
+
   static Future<ui.Image> renderImage(PdfPage page,
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
@@ -124,7 +130,8 @@ class PdfGpuPageRenderer {
     final width = (size.width * pixelRatio).ceil().clamp(1, 1 << 14);
     final height = (size.height * pixelRatio).ceil().clamp(1, 1 << 14);
 
-    final useMsaa = msaaEnabled && context.doesSupportOffscreenMSAA;
+    final useMsaa =
+        msaaEnabled && !stripsEnabled && context.doesSupportOffscreenMSAA;
     final colorFormat = context.defaultColorFormat;
     // The resolve texture is fresh per render (its ui.Image is handed to the
     // caller), but the MSAA color + stencil attachments are consumed inside
@@ -195,6 +202,7 @@ class PdfGpuPageRenderer {
       widthPx: width,
       heightPx: height,
       textures: textures,
+      strips: stripsEnabled,
     );
 
     lap(); // exclude target/pass setup from the paint phase

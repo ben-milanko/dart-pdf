@@ -43,6 +43,11 @@ void main() {
     }
     await tester.runAsync(() async {
       await loadSystemFonts();
+      // Same env knobs as the benchmark harness.
+      PdfGpuPageRenderer.msaaEnabled =
+          Platform.environment['PDF_GPU_MSAA'] != '0';
+      PdfGpuPageRenderer.stripsEnabled =
+          Platform.environment['PDF_GPU_STRIPS'] == '1';
       final cases = overrideFile != null
           ? [for (final p in overridePages) (overrideFile, p, 'ad-hoc')]
           : _pages;
