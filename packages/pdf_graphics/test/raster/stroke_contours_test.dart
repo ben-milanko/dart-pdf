@@ -192,12 +192,17 @@ void main() {
     }
   });
 
-  test('hairline width is clamped to 1 device px', () {
-    final c = expand([
+  test('sub-pixel widths stroke exactly; width 0 is the 1-px hairline', () {
+    // 0.5-px stroke: half-covered band, like Skia's sub-pixel stroking
+    final thin = expand([
       poly([2, 6, 22, 6])
-    ], width: 0.01);
-    final ring = contourRing(c, 0);
-    expect(ringArea(ring).abs(), closeTo(20 * 1, 1e-6));
+    ], width: 0.5);
+    expect(ringArea(contourRing(thin, 0)).abs(), closeTo(20 * 0.5, 1e-9));
+    // PDF width 0 = thinnest renderable = 1 device px
+    final hairline = expand([
+      poly([2, 6, 22, 6])
+    ], width: 0);
+    expect(ringArea(contourRing(hairline, 0)).abs(), closeTo(20 * 1, 1e-9));
   });
 
   test('dashed stroke through StripGenerator matches two rectangles', () {

@@ -321,11 +321,15 @@ List<FlatSubpath> dashSubpaths(
 /// Flattening tolerance for cached em-space glyph outlines, in em units.
 ///
 /// The cache is scale-free (one flatten serves every occurrence of the
-/// glyph), so the tolerance is picked for the common text range: 1/256 em
-/// keeps the polyline within 0.25 device px of the true curve up to a
-/// 64-px em (32 pt text at pixel ratio 2) and within 0.5 px at a 128-px em.
-/// Display-sized text trades a slightly softer curve for never re-flattening.
-const double glyphFlattenTolerance = 1 / 256;
+/// glyph), so the tolerance is picked for the common text range: 1/1024 em
+/// keeps the polyline within 0.023 device px of the true curve at a 24-px
+/// em (12 pt text at pixel ratio 2) and within 0.125 px at a 128-px em.
+/// Ghent parity showed 1/256 was visible: at body-text sizes its ~0.1-px
+/// curve error against Skia's own flattening pushed glyph-edge pixels past
+/// the 8/channel diff threshold. Wang's bound scales point count with
+/// 1/sqrt(tolerance), so this costs only 2x the points of 1/256, flattened
+/// once per glyph.
+const double glyphFlattenTolerance = 1 / 1024;
 
 /// A glyph outline flattened once in em space (y-up, origin on the
 /// baseline) and cached per outline identity.

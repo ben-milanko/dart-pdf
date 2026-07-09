@@ -6,12 +6,18 @@
 // `min(1, |w|)` flattens back to full coverage (no cancellation).
 //
 // Geometry semantics match the flutter_gpu experiment's
-// appendStrokeTriangles: width is the full stroke width in device pixels
-// (clamped to >= 1 so hairlines stay renderable), joins are 0 miter
-// (falling back to bevel past the miter limit), 1 round, 2 bevel; caps are
-// 0 butt, 1 round, 2 projecting square (§8.4.3.3-4). Dashing is the
-// caller's job via [dashSubpaths] - dashes are re-cut polylines, so they
-// flow through here unchanged.
+// appendStrokeTriangles except for hairlines: width is the full stroke
+// width in device pixels, drawn EXACTLY - a 0.5-px stroke becomes a
+// 0.5-px contour whose antialiased coverage is a half-covered band, the
+// same as Skia's sub-pixel stroking (the GPU experiment clamped to >= 1 px
+// because its aliased raster would otherwise drop thin strokes; a
+// coverage-based consumer must not - Ghent's 0.25-pt X patches showed the
+// clamp as a fat-stroke parity failure). Width <= 0 is the PDF hairline
+// ("thinnest renderable", §8.4.3.2) and draws 1 device px. Joins are
+// 0 miter (falling back to bevel past the miter limit), 1 round, 2 bevel;
+// caps are 0 butt, 1 round, 2 projecting square (§8.4.3.3-4). Dashing is
+// the caller's job via [dashSubpaths] - dashes are re-cut polylines, so
+// they flow through here unchanged.
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -98,7 +104,7 @@ void strokeToContours(
   required double miterLimit,
   required StrokeContours out,
 }) {
-  final hw = math.max(width, 1.0) / 2;
+  final hw = (width <= 0 ? 1.0 : width) / 2;
 
   void wedge(double px, double py, double ax, double ay, double bx, double by) {
     out._beginRing();
