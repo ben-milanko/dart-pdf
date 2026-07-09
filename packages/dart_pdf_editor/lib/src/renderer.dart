@@ -418,6 +418,20 @@ class PdfPageRenderer {
     }
   }
 
+  /// Paints the paper background and sets [canvas] up in PDF user space for
+  /// [page] under [plan] - the shared preamble every replay target runs
+  /// before feeding interpreter output (or a recorded command buffer) to a
+  /// painting device. Public so alternative replay paths (the experimental
+  /// retained-scene zoom in `strips/strip_scene.dart`) reuse the exact
+  /// transform stack instead of duplicating it.
+  static void preparePageCanvas(
+      Canvas canvas, PdfPage page, PdfPageRenderPlan plan) {
+    final size = plan.pageSize(page);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, page.cropBox,
+        rotation: plan.rotation);
+  }
+
   /// Rasterizes only [region] (in page points, y-down raster space) of a
   /// recorded page [picture] at [pixelRatio] - the deep-zoom detail patch.
   static Future<ui.Image> rasterizeRegion(

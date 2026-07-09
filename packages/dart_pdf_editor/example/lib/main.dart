@@ -16,6 +16,7 @@ import 'demo_document.dart';
 import 'persistent_cache.dart';
 import 'platform_fonts.dart';
 import 'recent_files.dart';
+import 'strip_zoom_demo.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
@@ -378,6 +379,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
           child: _appMenuTile(
             icon: Icons.auto_awesome,
             title: 'Open the interactive demo',
+          ),
+        ),
+        PopupMenuItem(
+          // Track C experiment: record-once/replay-on-zoom scene, kept off
+          // the viewer chrome deliberately - see strip_zoom_demo.dart.
+          value: () => unawaited(Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const StripZoomDemoPage()))),
+          child: _appMenuTile(
+            icon: Icons.zoom_in,
+            title: 'Retained-scene zoom (experimental)',
           ),
         ),
         ..._recentMenuItems(menuContext),
