@@ -181,7 +181,10 @@ class StripGenerator {
   void fillPath(PdfPath path, PdfMatrix transform, PdfFillRule rule, int rgba,
       {double tolerance = 0.25}) {
     if (path.isEmpty || _rowCount == 0) return;
-    if (_cullPath(path, transform)) return;
+    // The bbox pre-cull is a full extra pass over the path; for tiny paths
+    // (the CAD common case: 4-segment quads by the tens of thousands)
+    // flatten-and-bin is just as cheap and the binning clips anyway.
+    if (path.segments.length > 8 && _cullPath(path, transform)) return;
     _flattenEdges(path, transform, tolerance);
     _finishShape(rule, rgba);
   }
@@ -640,7 +643,11 @@ class StripGenerator {
       }
     }
 
-    // Prefix-sum + fill rule + strip emission over the touched span.
+    // Prefix-sum + fill rule + strip emission over the touched span. The
+    // accumulator is zeroed behind the scan in the same pass (fused - no
+    // second traversal), with fast paths for fully-transparent and
+    // fully-covered columns (the two dominant cases: gaps between islands
+    // and fill interiors).
     final x0 = _rowMinX[r];
     final xMax = _rowMaxX[r];
     var xEnd = xMax;
@@ -648,6 +655,7 @@ class StripGenerator {
     final y = r << 2;
     final buf = strips;
     final baseFlags = evenOdd ? stripFlagEvenOdd : 0;
+    final s1 = stride, s2 = 2 * stride, s3 = 3 * stride;
 
     var acc0 = 0.0, acc1 = 0.0, acc2 = 0.0, acc3 = 0.0;
     var mode = 0; // 0 none, 1 solid run, 2 mixed strip
@@ -656,10 +664,26 @@ class StripGenerator {
     var pending = 0; // trailing all-255 columns inside a mixed strip
 
     for (var x = x0; x <= xEnd; x++) {
-      acc0 += a[x];
-      acc1 += a[stride + x];
-      acc2 += a[2 * stride + x];
-      acc3 += a[3 * stride + x];
+      final d0 = a[x];
+      if (d0 != 0) {
+        acc0 += d0;
+        a[x] = 0;
+      }
+      final d1 = a[s1 + x];
+      if (d1 != 0) {
+        acc1 += d1;
+        a[s1 + x] = 0;
+      }
+      final d2 = a[s2 + x];
+      if (d2 != 0) {
+        acc2 += d2;
+        a[s2 + x] = 0;
+      }
+      final d3 = a[s3 + x];
+      if (d3 != 0) {
+        acc3 += d3;
+        a[s3 + x] = 0;
+      }
       // fill rule, manually inlined per scanline (hot loop)
       var v0 = acc0, v1 = acc1, v2 = acc2, v3 = acc3;
       if (evenOdd) {
@@ -672,14 +696,21 @@ class StripGenerator {
       if (v1 < 0) v1 = -v1;
       if (v2 < 0) v2 = -v2;
       if (v3 < 0) v3 = -v3;
-      if (v0 > 1) v0 = 1;
-      if (v1 > 1) v1 = 1;
-      if (v2 > 1) v2 = 1;
-      if (v3 > 1) v3 = 1;
-      final a32 = (v0 * 255 + 0.5).toInt() |
-          ((v1 * 255 + 0.5).toInt() << 8) |
-          ((v2 * 255 + 0.5).toInt() << 16) |
-          ((v3 * 255 + 0.5).toInt() << 24);
+      int a32;
+      if (v0 == 0 && v1 == 0 && v2 == 0 && v3 == 0) {
+        a32 = 0;
+      } else if (v0 >= 1 && v1 >= 1 && v2 >= 1 && v3 >= 1) {
+        a32 = 0xFFFFFFFF;
+      } else {
+        if (v0 > 1) v0 = 1;
+        if (v1 > 1) v1 = 1;
+        if (v2 > 1) v2 = 1;
+        if (v3 > 1) v3 = 1;
+        a32 = (v0 * 255 + 0.5).toInt() |
+            ((v1 * 255 + 0.5).toInt() << 8) |
+            ((v2 * 255 + 0.5).toInt() << 16) |
+            ((v3 * 255 + 0.5).toInt() << 24);
+      }
 
       if (a32 == 0) {
         if (mode == 1) {
@@ -761,13 +792,15 @@ class StripGenerator {
       }
     }
 
-    // Zero only the touched span (accumulation writes at most one cell past
-    // ceil(max x)).
+    // The scan zeroed [x0, xEnd]; accumulation can also write up to
+    // xMax + 1 (the spill cell past ceil(max x)) - zero the tail.
     var zEnd = xMax + 2;
     if (zEnd > stride) zEnd = stride;
-    a.fillRange(x0, zEnd, 0);
-    a.fillRange(stride + x0, stride + zEnd, 0);
-    a.fillRange(2 * stride + x0, 2 * stride + zEnd, 0);
-    a.fillRange(3 * stride + x0, 3 * stride + zEnd, 0);
+    for (var x = xEnd + 1; x < zEnd; x++) {
+      a[x] = 0;
+      a[s1 + x] = 0;
+      a[s2 + x] = 0;
+      a[s3 + x] = 0;
+    }
   }
 }
