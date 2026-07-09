@@ -77,8 +77,9 @@ class DocumentTab {
   /// The app-private byte snapshot backing a mobile pick (see pdf_cache.dart),
   /// or null when the document has a real [originPath] (desktop) or can't be
   /// snapshotted (web). Carried so the tab re-persists into the session and
-  /// keeps its Recent entry reopenable across edits.
-  final String? cachePath;
+  /// keeps its Recent entry reopenable across edits. Written just after open on
+  /// mobile, once the snapshot is on disk, so it stays off the open hot path.
+  String? cachePath;
 
   /// Byte length of the last-saved revision. Revisions are byte prefixes of one
   /// buffer, so length uniquely identifies a revision - the document is dirty

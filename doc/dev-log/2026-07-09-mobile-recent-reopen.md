@@ -29,9 +29,11 @@ session restores on relaunch.
   re-persists into the session and keeps its Recent entry reopenable across
   edits.
 - `editor_screen.dart` wiring:
-  - `_openLoadedBytes` snapshots the bytes when there's no `originPath`
-    (`cacheOpenedPdf`), threading `cachePath` into the tab and the Recent entry.
-    No-op on desktop (has an origin) and web (no store).
+  - `_openLoadedBytes` opens the tab first, then snapshots the bytes **off the
+    open hot path** (`_snapshotOpenedDocument`, `unawaited`) when there's no
+    `originPath` and `canCacheRecentPdfs`; the tab's `cachePath` + the Recent
+    entry are written once the snapshot lands. No-op on desktop (has an origin)
+    and web (no store).
   - `_openRecent` reads back `entry.readPath`, but the reopened tab's writable
     origin stays `entry.path` (null on mobile). `_reopenSessionDocument` and
     `_persistSession` mirror this (track by path, else snapshot).
@@ -45,11 +47,16 @@ session restores on relaunch.
 
 ## Gotchas
 
-- `defaultTargetPlatform` is `android` under `flutter_test`, so `cacheOpenedPdf`
-  actually runs the `path_provider` channel there - with no mock it throws
-  `MissingPluginException`, which is caught and returns null. Widget tests that
-  don't mock `path_provider` simply get no snapshot (desktop-equivalent), which
-  is fine.
+- `defaultTargetPlatform` is `android` under `flutter_test`, so the snapshot
+  path is live there and `cacheOpenedPdf` calls the `path_provider` channel.
+  With no mock that Future does **not** resolve under the fake-async zone, so
+  the snapshot **must not** sit on the open hot path: an earlier version awaited
+  `cacheOpenedPdf` before replacing the loading placeholder, which left the
+  loading spinner up forever and hung every `pumpAndSettle` in `tabs_menu_test`
+  / `drop_insert_test` (green on `main`, red on the PR). The fix opens the tab
+  first and snapshots via `unawaited(_snapshotOpenedDocument(...))`; a pending
+  method-channel Future schedules no frames/timers, so `pumpAndSettle` and test
+  teardown stay clean.
 - Content-addressing means a Recent entry snapshots the bytes *as opened*; an
   edited-then-reopened Recent shows the originally-opened version (same as
   desktop reopening the on-disk file, minus any later on-disk change).

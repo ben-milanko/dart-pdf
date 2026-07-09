@@ -418,33 +418,29 @@ class _EditorScreenState extends State<EditorScreen>
     );
     try {
       final bytes = await bytesFuture;
-      // Without a reusable file origin (mobile), snapshot the bytes into the
-      // app's private store so this document can reopen from Recent / restore
-      // next launch without a fresh pick. A no-op on desktop (has an origin)
-      // and web (no writable store).
-      final cachePath =
-          originPath == null ? await cacheOpenedPdf(bytes) : null;
       // Let the loading tab paint before constructing the edit session, which
       // synchronously opens the PDF and can be noticeable for large files.
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
-      final opened = _replaceLoadingTab(
-        loading,
-        DocumentTab.document(
-          title: title,
-          bytes: bytes,
-          preferences: _prefs,
-          originPath: originPath,
-          originBookmark: originBookmark,
-          cachePath: cachePath,
-        ),
+      final tab = DocumentTab.document(
+        title: title,
+        bytes: bytes,
+        preferences: _prefs,
+        originPath: originPath,
+        originBookmark: originBookmark,
       );
+      final opened = _replaceLoadingTab(loading, tab);
       if (opened) {
-        _recents.add(
-            title: title,
-            path: originPath,
-            cachePath: cachePath,
-            bookmark: originBookmark);
+        // With a reusable file origin (desktop) or no writable store (web),
+        // record the recent right away. Without one (mobile), snapshot the
+        // bytes off the open hot path - awaiting the disk write here would hold
+        // the loading placeholder up - and record the recent once it lands.
+        if (originPath == null && canCacheRecentPdfs) {
+          unawaited(_snapshotOpenedDocument(tab, bytes));
+        } else {
+          _recents.add(
+              title: title, path: originPath, bookmark: originBookmark);
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -456,6 +452,25 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       );
     }
+  }
+
+  /// Snapshots a just-opened mobile document's [bytes] into the app's private
+  /// store so it can reopen from Recent / restore next launch without a fresh
+  /// pick, then records the recent (and re-persists the session) once the
+  /// snapshot is on disk. Runs off the open hot path - the tab is already
+  /// visible - so a slow disk write never blocks the loading placeholder.
+  Future<void> _snapshotOpenedDocument(DocumentTab tab, Uint8List bytes) async {
+    final cachePath = await cacheOpenedPdf(bytes);
+    if (!mounted || !_tabs.contains(tab)) return;
+    if (cachePath == null) {
+      // The snapshot failed: still record a (non-reopenable) recent.
+      _recents.add(title: tab.title, bookmark: tab.originBookmark);
+      return;
+    }
+    tab.cachePath = cachePath;
+    _recents.add(
+        title: tab.title, cachePath: cachePath, bookmark: tab.originBookmark);
+    unawaited(_persistSession());
   }
 
   Future<void> _pickAndOpen() async {
