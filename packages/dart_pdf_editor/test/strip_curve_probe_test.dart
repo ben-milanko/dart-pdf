@@ -20,7 +20,10 @@ void main() {
         PdfCubicTo(0.8, 0.2, 0.4, 0.05, 0.1, 0.1),
         const PdfClosePath(),
       ]);
-      const emToDev = PdfMatrix(24, 0, 0, 24, 4.3, 3.7);
+      // translation on the glyph cache's 1/4-px quantization grid so the
+      // em-cached path (which quantizes subpixel offsets) rasters at
+      // exactly this transform
+      const emToDev = PdfMatrix(24, 0, 0, 24, 4.25, 3.75);
 
       Future<Uint8List> raster(void Function(ui.Canvas) draw) async {
         final rec = ui.PictureRecorder();
@@ -42,7 +45,7 @@ void main() {
         path.cubicTo(0.8, 0.2, 0.4, 0.05, 0.1, 0.1);
         path.close();
         canvas.save();
-        canvas.translate(4.3, 3.7);
+        canvas.translate(4.25, 3.75);
         canvas.scale(24, 24);
         canvas.drawPath(path, ui.Paint()..color = const ui.Color(0xFF000000));
         canvas.restore();
