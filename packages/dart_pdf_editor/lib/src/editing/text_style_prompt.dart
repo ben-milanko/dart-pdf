@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfStandardFont, PdfTextStyle;
+    show PdfStandardFont, PdfStandardFontFamily, PdfTextStyle;
 
 import 'editing_font_controls.dart';
 
@@ -88,6 +88,7 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
     final style = PdfTextStyle(
       color: _fill == null ? null : (_fill!.toARGB32() & 0xFFFFFF),
       fontSize: _sizeTouched ? _size : null,
+      family: _styleTouched ? _font.family : null,
       bold: _styleTouched ? _font.isBold : null,
       italic: _styleTouched ? _font.isItalic : null,
     );
@@ -136,6 +137,34 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                   ),
                 ),
               ]),
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(children: [
+                  const SizedBox(width: 86, child: Text('Font')),
+                  DropdownButton<PdfStandardFontFamily>(
+                    key: const ValueKey('pdf-styled-family'),
+                    value: _font.family,
+                    isDense: true,
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      for (final family in PdfStandardFontFamily.values)
+                        DropdownMenuItem(
+                          value: family,
+                          key: ValueKey('pdf-styled-family-${family.name}'),
+                          child: Text(family.label),
+                        ),
+                    ],
+                    onChanged: (family) {
+                      if (family == null) return;
+                      setState(() {
+                        _font = PdfStandardFont.styled(family,
+                            bold: _font.isBold, italic: _font.isItalic);
+                        _styleTouched = true;
+                      });
+                    },
+                  ),
+                ]),
+              ),
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(children: [

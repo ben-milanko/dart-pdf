@@ -9,10 +9,17 @@ replacement.
 ## Core (`pdf_document`)
 
 - New `PdfTextStyle` value class (`content_editor.dart`): nullable
-  `color` (0xRRGGBB fill), `fontSize`, `bold`, `italic`. A null field
-  keeps the run's existing value, so `PdfTextStyle(color: …)` recolours
-  without touching the face/size. `isEmpty` is the "plain replacement"
-  sentinel.
+  `color` (0xRRGGBB fill), `fontSize`, `family` (sans/serif/mono), `bold`,
+  `italic`. A null field keeps the run's existing value, so
+  `PdfTextStyle(color: …)` recolours without touching the face/size.
+  `isEmpty` is the "plain replacement" sentinel.
+- `family`/`bold`/`italic` all drive `_styledVariant`, which substitutes a
+  base-14 face (`PdfStandardFont.styled`): `family` picks the family
+  outright (else the run's own, else sans), bold/italic layer on top. So a
+  family change works exactly like a weight change - even against an
+  embedded run - and there is **no** "text box" to resize: page content
+  text is absolutely-positioned glyphs, not a framed box, so size + the
+  existing paragraph reflow are the only "make it bigger/re-fit" levers.
 - `replaceText(..., PdfTextStyle? style)` + convenience
   `replaceStyledText(index, find, replace, style)`. When `style` is
   non-empty the simple-font run goes through the new

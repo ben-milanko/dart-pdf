@@ -9,7 +9,8 @@ part of 'editor.dart';
 /// simple-font (non-/Type0) text runs; composite runs are still replaced
 /// but keep their original colour, size, and face.
 class PdfTextStyle {
-  const PdfTextStyle({this.color, this.fontSize, this.bold, this.italic});
+  const PdfTextStyle(
+      {this.color, this.fontSize, this.family, this.bold, this.italic});
 
   /// Nonstroking fill colour as `0xRRGGBB`, or null to keep the run's colour.
   final int? color;
@@ -17,10 +18,16 @@ class PdfTextStyle {
   /// Font size in points, or null to keep the run's size.
   final double? fontSize;
 
+  /// Switch the replacement to a base-14 family (sans/serif/mono), or null to
+  /// keep the run's family. Like [bold]/[italic] this substitutes a base-14
+  /// face (Helvetica/Times/Courier), so it lands even when the original is an
+  /// embedded font.
+  final PdfStandardFontFamily? family;
+
   /// Force bold on (`true`) or off (`false`), or null to keep the run's
-  /// weight. A weight/slant change substitutes a base-14 variant
-  /// (Helvetica/Times/Courier) chosen to match the run's family, so it lands
-  /// even when the original face is embedded and has no bold cut.
+  /// weight. A weight/slant/[family] change substitutes a base-14 variant
+  /// chosen to match the run's family (unless [family] overrides it), so it
+  /// lands even when the original face is embedded and has no bold cut.
   final bool? bold;
 
   /// Force italic/oblique on (`true`) or off (`false`), or null to keep the
@@ -30,18 +37,23 @@ class PdfTextStyle {
   /// True when no attribute is set - a plain replacement, styled like the
   /// text it replaces.
   bool get isEmpty =>
-      color == null && fontSize == null && bold == null && italic == null;
+      color == null &&
+      fontSize == null &&
+      family == null &&
+      bold == null &&
+      italic == null;
 
   @override
   bool operator ==(Object other) =>
       other is PdfTextStyle &&
       other.color == color &&
       other.fontSize == fontSize &&
+      other.family == family &&
       other.bold == bold &&
       other.italic == italic;
 
   @override
-  int get hashCode => Object.hash(color, fontSize, bold, italic);
+  int get hashCode => Object.hash(color, fontSize, family, bold, italic);
 }
 
 /// Content editing tiers: stamping new content, deleting elements, and
@@ -258,8 +270,8 @@ extension PdfContentEditing on PdfEditor {
   /// and restores the surrounding state afterward, so text following a
   /// styled correction on the same line keeps its own appearance and stays
   /// put (the replacement is re-measured against the styled font/size). A
-  /// bold/italic change substitutes a base-14 variant matched to the run's
-  /// family, so it works even against embedded faces. Styling is applied to
+  /// family/bold/italic change substitutes a base-14 face (Helvetica/Times/
+  /// Courier), so it works even against embedded fonts. Styling is applied to
   /// simple-font runs only; composite (/Type0) runs are corrected without
   /// restyling.
   int replaceStyledText(int index, String find, String replace,
@@ -430,14 +442,16 @@ extension PdfContentEditing on PdfEditor {
     return base is CosName ? PdfStandardFont.tryFromName(base.value) : null;
   }
 
-  /// The base-14 variant a weight/slant change asks for: the run's own family
-  /// (defaulting to sans) with [style]'s bold/italic applied. Null when
-  /// [style] changes neither weight nor slant (colour/size only).
+  /// The base-14 variant a family/weight/slant change asks for: [style]'s
+  /// family (or the run's own, defaulting to sans) with its bold/italic
+  /// applied. Null when [style] changes none of those (colour/size only).
   PdfStandardFont? _styledVariant(CosDictionary? font, PdfTextStyle style) {
-    if (style.bold == null && style.italic == null) return null;
+    if (style.family == null && style.bold == null && style.italic == null) {
+      return null;
+    }
     final base = _fontStandard(font);
     return PdfStandardFont.styled(
-      base?.family ?? PdfStandardFontFamily.sans,
+      style.family ?? base?.family ?? PdfStandardFontFamily.sans,
       bold: style.bold ?? base?.isBold ?? false,
       italic: style.italic ?? base?.isItalic ?? false,
     );

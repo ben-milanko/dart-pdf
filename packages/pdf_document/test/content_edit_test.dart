@@ -446,6 +446,22 @@ void main() {
       expect(oblique, isNotEmpty);
     });
 
+    test('changing the font family substitutes a base-14 family', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(family: PdfStandardFontFamily.serif));
+      final fonts =
+          out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
+      final serif = fonts.entries.values
+          .map((v) => out.cos.resolve(v))
+          .whereType<CosDictionary>()
+          .where((f) => f['BaseFont'] == const CosName('Times-Roman'));
+      expect(serif, isNotEmpty);
+      expect(pageText(out), contains('(Hi) Tj'));
+    });
+
     test('restores a /cs + scn nonstroking colour after the replacement', () {
       final out = styledEdit(
           'BT /F1 12 Tf /DeviceRGB cs 0 0 1 scn 72 700 Td (Hello World) Tj ET',

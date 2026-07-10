@@ -258,6 +258,39 @@ void main() {
       expect(captured!.style.color, 0xE53935);
     });
 
+    testWidgets('choosing a font family reports it in the style',
+        (tester) async {
+      PdfStyledTextEdit? captured;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  captured = await showPdfStyledTextPrompt(context,
+                      initial: 'Hello');
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-family')));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-styled-family-serif')).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-ok')));
+      await tester.pumpAndSettle();
+
+      expect(captured, isNotNull);
+      expect(captured!.style.family, PdfStandardFontFamily.serif);
+    });
+
     testWidgets('the fill "More colors…" button opens the custom picker',
         (tester) async {
       PdfStyledTextEdit? captured;
