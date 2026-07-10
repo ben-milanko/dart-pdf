@@ -153,7 +153,7 @@ class StripPlanBinner extends StripBinningDevice {
 //     u32 flushOrdinal, u32 stripCount, u32 atlasWidth, u32 atlasHeight
 //     u32 atlasByteLength + raw atlas bytes
 //     u32 chunkCount, then per chunk:
-//       u32 quadCount
+//       u32 quadCount, u32 alphaBase
 //       raw positions (quadCount*8 f32), texcoords (quadCount*8 f32),
 //           colors (quadCount*4 i32), indices (quadCount*6 u16)
 
@@ -190,6 +190,7 @@ Uint8List encodeStripPlan(StripPlan plan) {
     for (final chunk in batch.chunks) {
       final quads = chunk.positions.length ~/ 8;
       w.u32(quads);
+      w.u32(chunk.alphaBase);
       w.rawView(chunk.positions.buffer, chunk.positions.offsetInBytes,
           chunk.positions.lengthInBytes);
       w.rawView(
@@ -234,6 +235,7 @@ StripPlan decodeStripPlan(Uint8List bytes) {
     for (var c = 0; c < chunkCount; c++) {
       final quads = r.u32();
       chunks.add(StripChunkData(
+        r.u32(),
         r.f32List(quads * 8),
         r.f32List(quads * 8),
         r.i32List(quads * 4),

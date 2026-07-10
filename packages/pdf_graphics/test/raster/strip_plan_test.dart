@@ -224,6 +224,7 @@ void main() {
       expect(d.atlasPixels, a.atlasPixels);
       expect(d.chunks.length, a.chunks.length);
       for (var c = 0; c < a.chunks.length; c++) {
+        expect(d.chunks[c].alphaBase, a.chunks[c].alphaBase);
         expect(d.chunks[c].positions, a.chunks[c].positions);
         expect(d.chunks[c].textureCoordinates,
             a.chunks[c].textureCoordinates);

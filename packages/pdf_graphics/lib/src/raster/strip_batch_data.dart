@@ -20,11 +20,31 @@ const int stripAtlasWidth = 1024;
 /// 65535 / 4 quads; batches chunk at this many strips per draw.
 const int stripMaxQuadsPerDraw = 16000;
 
+/// Maximum alpha-texel span (u texcoord range) of one draw's strips.
+///
+/// Impeller does not pass drawVertices texcoords to the fragment shader as
+/// raw varyings the way Skia does: it renders the paint's shader into a
+/// snapshot texture covering the texcoord BOUNDS and samples that, so a
+/// batch whose global alpha indices ran to ~500k texels (a dense CAD sheet)
+/// asked for a 500k x 8 snapshot - over the 16384 max texture size - and
+/// drew NOTHING (silent blank strips on exactly the pages the router
+/// targets). Chunks therefore also split by alpha span, with texcoords
+/// REBASED to each chunk's first alpha texel ([StripChunkData.alphaBase],
+/// added back by the shader's uBase uniform), keeping every snapshot within
+/// 8192 x 8. A single strip wider than the cap still draws alone (its span
+/// is bounded by the 16384 viewport clamp, inside the texture limit).
+const int stripMaxAlphaColumnsPerDraw = 8192;
+
 /// One `drawVertices`-sized slice of a [StripBatchData]: raw vertex arrays
 /// for up to [stripMaxQuadsPerDraw] strip quads.
 class StripChunkData {
-  StripChunkData(this.positions, this.textureCoordinates, this.colors,
-      this.indices);
+  StripChunkData(this.alphaBase, this.positions, this.textureCoordinates,
+      this.colors, this.indices);
+
+  /// Global alpha-texel index of this chunk's texcoord origin: the shader
+  /// computes the atlas index as `uBase + u` so per-chunk u stays within
+  /// [stripMaxAlphaColumnsPerDraw] (see that constant for why).
+  final int alphaBase;
 
   /// Quad corner positions in device pixels, 8 floats per strip.
   final Float32List positions;
@@ -74,10 +94,31 @@ class StripBatchData {
     if (n == 0) return null;
 
     final chunks = <StripChunkData>[];
-    for (var start = 0; start < n; start += stripMaxQuadsPerDraw) {
-      final count = (n - start) < stripMaxQuadsPerDraw
-          ? (n - start)
-          : stripMaxQuadsPerDraw;
+    var start = 0;
+    while (start < n) {
+      // Chunk end: capped by quad count (Uint16 indices) and by the alpha
+      // span of the chunk's MIXED strips (Impeller snapshot limit; alpha
+      // offsets are appended monotonically, so a streaming scan suffices).
+      // Solid strips carry constant u = 0 (their sample is ignored) and
+      // never widen the span.
+      var base = -1;
+      var end = start;
+      while (end < n && end - start < stripMaxQuadsPerDraw) {
+        final wf = strips.widthFlags[end];
+        if (wf & stripFlagSolid == 0) {
+          final off = strips.alphaOffset[end];
+          final w = wf & 0xFFFF;
+          if (base < 0) base = off;
+          if (off + w - base > stripMaxAlphaColumnsPerDraw && end > start) {
+            break;
+          }
+        }
+        end++;
+      }
+      if (end == start) end = start + 1; // lone over-wide strip: own chunk
+      if (base < 0) base = 0; // solid-only chunk
+
+      final count = end - start;
       final positions = Float32List(count * 8);
       final texs = Float32List(count * 8);
       final colors = Int32List(count * 4);
@@ -101,10 +142,13 @@ class StripBatchData {
         positions[p + 6] = x + w;
         positions[p + 7] = y + 4;
 
-        // u: global texel index range; v: [0,4) mixed, [4,8) solid. Solid
-        // quads keep u in [0,w) so the (ignored) sample stays in-atlas.
-        final u0 = solid ? 0.0 : strips.alphaOffset[i].toDouble();
-        final u1 = u0 + w;
+        // u: chunk-relative texel index range (the shader adds the chunk's
+        // alphaBase back); v: [0,4) mixed, [4,8) solid. Solid quads carry
+        // constant u = 0 - the sample is ignored (cov = 1) and the atlas
+        // always has a texel 0, so the dead fetch stays in-atlas without
+        // widening the chunk's texcoord bounds.
+        final u0 = solid ? 0.0 : (strips.alphaOffset[i] - base).toDouble();
+        final u1 = solid ? 0.0 : u0 + w;
         final v0 = solid ? 4.0 : 0.0;
         final v1 = v0 + 4;
         texs[p] = u0;
@@ -132,7 +176,8 @@ class StripBatchData {
         indices[ix + 4] = vBase + 3;
         indices[ix + 5] = vBase + 2;
       }
-      chunks.add(StripChunkData(positions, texs, colors, indices));
+      chunks.add(StripChunkData(base, positions, texs, colors, indices));
+      start = end;
     }
 
     // Alpha atlas: column texels row-major by global index, final row

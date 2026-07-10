@@ -11,7 +11,12 @@ import 'dart:ui' as ui;
 import 'package:pdf_graphics/raster.dart';
 
 export 'package:pdf_graphics/raster.dart'
-    show StripBatchData, StripChunkData, stripAtlasWidth, stripMaxQuadsPerDraw;
+    show
+        StripBatchData,
+        StripChunkData,
+        stripAtlasWidth,
+        stripMaxAlphaColumnsPerDraw,
+        stripMaxQuadsPerDraw;
 
 /// A flush batch: everything needed to draw its strips with one shader
 /// paint - [chunks] drawVertices calls sharing one [atlas].
@@ -27,12 +32,19 @@ class StripBatch {
                 colors: chunk.colors,
                 indices: chunk.indices),
         ],
+        chunkAlphaBases = [
+          for (final chunk in data.chunks) chunk.alphaBase,
+        ],
         atlasPixels = data.atlasPixels,
         atlasWidth = data.atlasWidth,
         atlasHeight = data.atlasHeight,
         stripCount = data.stripCount;
 
   final List<ui.Vertices> chunks;
+
+  /// Per-chunk texcoord origin (global alpha-texel index), fed to the
+  /// shader's uBase - see [StripChunkData.alphaBase].
+  final List<int> chunkAlphaBases;
   final Uint8List atlasPixels; // rgba8888, atlasWidth * atlasHeight * 4
   final int atlasWidth;
   final int atlasHeight;

@@ -422,7 +422,8 @@ class StripPdfDevice extends StripBinningDevice {
     }
     for (var c = 0; c < local.chunks.length; c++) {
       final a = local.chunks[c], b = fromPlan.chunks[c];
-      if (a.positions.length != b.positions.length ||
+      if (a.alphaBase != b.alphaBase ||
+          a.positions.length != b.positions.length ||
           !bytesEqual(a.indices, b.indices) ||
           !bytesEqual(a.colors, b.colors)) {
         fail('chunk $c vertex data differs');
@@ -437,19 +438,23 @@ class StripPdfDevice extends StripBinningDevice {
   }
 
   void _drawBatch(ui.FragmentProgram program, StripBatch batch) {
-    final paint = ui.Paint();
-    if (!debugNoShader) {
-      paint.shader = program.fragmentShader()
-        ..setFloat(0, batch.atlasWidth.toDouble())
-        ..setFloat(1, batch.atlasHeight.toDouble())
-        ..setImageSampler(0, batch.atlas!);
-    }
     canvas.save();
     canvas.transform(_deviceToPage);
-    for (final chunk in batch.chunks) {
+    for (var i = 0; i < batch.chunks.length; i++) {
+      final paint = ui.Paint();
+      if (!debugNoShader) {
+        // One shader instance per chunk: texcoords are chunk-relative (so
+        // Impeller's shader-snapshot texture stays within limits) and uBase
+        // restores the chunk's global alpha-texel origin.
+        paint.shader = program.fragmentShader()
+          ..setFloat(0, batch.atlasWidth.toDouble())
+          ..setFloat(1, batch.atlasHeight.toDouble())
+          ..setFloat(2, batch.chunkAlphaBases[i].toDouble())
+          ..setImageSampler(0, batch.atlas!);
+      }
       // no-shader mode draws the vertex colors directly (wrong coverage,
       // representative triangle-raster cost)
-      canvas.drawVertices(chunk,
+      canvas.drawVertices(batch.chunks[i],
           debugNoShader ? ui.BlendMode.srcOver : ui.BlendMode.modulate, paint);
     }
     canvas.restore();
