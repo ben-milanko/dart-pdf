@@ -10,7 +10,12 @@ part of 'editor.dart';
 /// but keep their original colour, size, and face.
 class PdfTextStyle {
   const PdfTextStyle(
-      {this.color, this.fontSize, this.family, this.bold, this.italic});
+      {this.color,
+      this.fontSize,
+      this.family,
+      this.embeddedFont,
+      this.bold,
+      this.italic});
 
   /// Nonstroking fill colour as `0xRRGGBB`, or null to keep the run's colour.
   final int? color;
@@ -21,8 +26,15 @@ class PdfTextStyle {
   /// Switch the replacement to a base-14 family (sans/serif/mono), or null to
   /// keep the run's family. Like [bold]/[italic] this substitutes a base-14
   /// face (Helvetica/Times/Courier), so it lands even when the original is an
-  /// embedded font.
+  /// embedded font. Ignored when [embeddedFont] is set.
   final PdfStandardFontFamily? family;
+
+  /// Draw the replacement in this embedded font, embedding it into the page
+  /// (as an Identity-H composite) so any of its glyphs render everywhere.
+  /// Takes precedence over [family]/[bold]/[italic]. Null keeps the run's own
+  /// face (subject to [family]/[bold]/[italic]). Falls back to the base-14
+  /// path when the font can't draw the whole replacement.
+  final PdfEmbeddedFont? embeddedFont;
 
   /// Force bold on (`true`) or off (`false`), or null to keep the run's
   /// weight. A weight/slant/[family] change substitutes a base-14 variant
@@ -40,6 +52,7 @@ class PdfTextStyle {
       color == null &&
       fontSize == null &&
       family == null &&
+      embeddedFont == null &&
       bold == null &&
       italic == null;
 
@@ -49,11 +62,23 @@ class PdfTextStyle {
       other.color == color &&
       other.fontSize == fontSize &&
       other.family == family &&
+      identical(other.embeddedFont, embeddedFont) &&
       other.bold == bold &&
       other.italic == italic;
 
   @override
-  int get hashCode => Object.hash(color, fontSize, family, bold, italic);
+  int get hashCode => Object.hash(color, fontSize, family,
+      identityHashCode(embeddedFont), bold, italic);
+}
+
+/// Tracks an embedded font used by a styled replacement across the runs of
+/// one [PdfContentEditing.replaceText] call: its page /Font resource name
+/// (allocated lazily on first use) so [PdfEmbeddedFont.buildResource] can be
+/// flushed once at the end.
+class _StyledEmbed {
+  _StyledEmbed(this.font);
+  final PdfEmbeddedFont font;
+  String? name;
 }
 
 /// Content editing tiers: stamping new content, deleting elements, and
@@ -168,6 +193,9 @@ extension PdfContentEditing on PdfEditor {
             name, () => _Type0Editing.tryCreate(this, page, name, f, fallbackFonts));
 
     final styled = style != null && !style.isEmpty;
+    // an embedded-font restyle embeds the chosen face once, after the runs
+    final styledEmbed =
+        style?.embeddedFont == null ? null : _StyledEmbed(style!.embeddedFont!);
     final ops = elements.operations;
     final rewritten = <ContentOperation>[];
     var count = 0;
@@ -213,12 +241,17 @@ extension PdfContentEditing on PdfEditor {
           run.add(ops[i]);
           i++;
         }
-        final simpleRewrite = findBytes != null && replaceBytes != null
-            ? (styled
+        // find must be Latin-1 to locate it in a simple-font run; replace may
+        // be non-Latin-1 only when it will be drawn in an embedded font.
+        final simpleRewrite = findBytes == null
+            ? (run, 0)
+            : (styled
                 ? _rewriteStyledTextRun(page, run, font, fontName, fontSize,
-                    findBytes, replaceBytes, style, restoreColorOps)
-                : _rewriteTextRun(run, font, findBytes, replaceBytes))
-            : (run, 0);
+                    findBytes, replaceBytes, replace, style, restoreColorOps,
+                    styledEmbed)
+                : (replaceBytes != null
+                    ? _rewriteTextRun(run, font, findBytes, replaceBytes)
+                    : (run, 0)));
         final (ops_, n) = _isType0(cos, font) && fontName != null
             ? (type0For(fontName, font!)
                     ?.rewriteRun(run, find, replace, fontSize) ??
@@ -253,6 +286,13 @@ extension PdfContentEditing on PdfEditor {
       // fonts they were added to before re-serializing the page.
       for (final ctx in type0Cache.values) {
         if (ctx != null && ctx.isDirty) ctx.commit();
+      }
+      // embed the styled replacement's font as a page /Font resource once all
+      // its glyphs have been recorded.
+      if (styledEmbed != null && styledEmbed.name != null) {
+        final built =
+            styledEmbed.font.buildResource(_updater.addObject).entries.values.first;
+        _ownFontResources(page)[styledEmbed.name!] = _updater.addObject(built);
       }
       ops
         ..clear()
@@ -294,9 +334,11 @@ extension PdfContentEditing on PdfEditor {
       String? fontName,
       double fontSize,
       List<int> findBytes,
-      List<int> replaceBytes,
+      List<int>? replaceBytes,
+      String replace,
       PdfTextStyle style,
-      List<ContentOperation> restoreColorOps) {
+      List<ContentOperation> restoreColorOps,
+      _StyledEmbed? embed) {
     if (_isType0(document.cos, font)) return (run, 0);
 
     final cells = _runCells(run);
@@ -314,20 +356,48 @@ extension PdfContentEditing on PdfEditor {
     final origWidthOf = _widthsFor(font);
     final totalChars = logical.length;
 
-    // resolve the styled font: a base-14 variant when bold/italic is asked
-    // for, otherwise the run's own font (only its colour/size may change).
-    final variant = _styledVariant(font, style);
-    final double Function(int) styledWidthOf;
+    // resolve the styled face and the show op that draws the replacement in
+    // it: the given embedded font (as Identity-H glyph ids) when it can render
+    // the whole replacement, else a base-14 variant for a family/weight/slant
+    // change, else the run's own font (only colour/size may change). The show
+    // op and its width are constant across matches, so build them once.
+    final runes = replace.runes.toList();
+    final useEmbed =
+        embed != null && runes.every((r) => embed.font.glyphForRune(r) != 0);
     final String? styledFontName;
-    if (variant != null) {
-      final own = _fontStandard(font);
-      styledFontName = own == variant && fontName != null
-          ? fontName // the run is already this exact face
-          : _standardFontResource(page, variant);
-      styledWidthOf = (code) => variant.widthOf(code).toDouble();
+    final double newWidthEm;
+    final CosString replShow;
+    if (useEmbed) {
+      styledFontName = _embeddedFontResource(page, embed);
+      replShow = CosString(_hexBytes(embed.font.encodeHex(replace)), isHex: true);
+      var w = 0.0;
+      for (final r in runes) {
+        w += embed.font.advanceForGlyph(embed.font.glyphForRune(r));
+      }
+      newWidthEm = w;
+    } else if (replaceBytes == null) {
+      // a non-Latin-1 replacement can only be drawn by an embedded font that
+      // carries its glyphs; without one there is nothing safe to emit.
+      return (run, 0);
     } else {
-      styledFontName = fontName;
-      styledWidthOf = origWidthOf;
+      final variant = _styledVariant(font, style);
+      final double Function(int) styledWidthOf;
+      if (variant != null) {
+        final own = _fontStandard(font);
+        styledFontName = own == variant && fontName != null
+            ? fontName // the run is already this exact face
+            : _standardFontResource(page, variant);
+        styledWidthOf = (code) => variant.widthOf(code).toDouble();
+      } else {
+        styledFontName = fontName;
+        styledWidthOf = origWidthOf;
+      }
+      var w = 0.0;
+      for (final b in replaceBytes) {
+        w += styledWidthOf(b);
+      }
+      newWidthEm = w;
+      replShow = CosString(Uint8List.fromList(replaceBytes));
     }
     final styledSize = style.fontSize ?? fontSize;
     final fontChanged = styledFontName != fontName || styledSize != fontSize;
@@ -352,18 +422,13 @@ extension PdfContentEditing on PdfEditor {
           oldWidth +=
               cells[k].byte != null ? origWidthOf(cells[k].byte!) : -cells[k].kern!;
         }
-        var newWidth = 0.0;
-        for (final b in replaceBytes) {
-          newWidth += styledWidthOf(b);
-        }
         flushPending();
         // open the style
         if (style.color != null) out.add(_colorOp(style.color!));
         if (fontChanged && styledFontName != null) {
           out.add(_tfOp(styledFontName, styledSize));
         }
-        out.add(ContentOperation(
-            'Tj', [CosString(Uint8List.fromList(replaceBytes))]));
+        out.add(ContentOperation('Tj', [replShow]));
         // close it: restore font, then colour, for whatever follows
         if (fontChanged && fontName != null) {
           out.add(_tfOp(fontName, fontSize));
@@ -374,7 +439,7 @@ extension PdfContentEditing on PdfEditor {
         // keep the rest of the line put; the compensation is applied in the
         // restored (original size) context, so convert the new width back.
         if (end < totalChars && fontSize != 0) {
-          final kern = newWidth * styledSize / fontSize - oldWidth;
+          final kern = newWidthEm * styledSize / fontSize - oldWidth;
           if (kern.abs() >= 0.001) {
             out.add(ContentOperation('TJ', [
               CosArray([_numberObject(kern)])
@@ -497,6 +562,30 @@ extension PdfContentEditing on PdfEditor {
       'Encoding': const CosName('WinAnsiEncoding'),
     }));
     return name;
+  }
+
+  /// The page /Font resource name reserved for [embed]'s font, allocating an
+  /// `Emb…` slot (and starting fresh glyph accumulation) on first use. The
+  /// entry itself is written by [replaceText]'s commit, once every replacement
+  /// glyph is recorded.
+  String _embeddedFontResource(PdfPage page, _StyledEmbed embed) {
+    final existing = embed.name;
+    if (existing != null) return existing;
+    embed.font.resetUsage();
+    final fonts = _ownFontResources(page);
+    var i = 0;
+    while (fonts.containsKey('Emb$i')) {
+      i++;
+    }
+    return embed.name = 'Emb$i';
+  }
+
+  static Uint8List _hexBytes(String hex) {
+    final out = Uint8List(hex.length ~/ 2);
+    for (var i = 0; i + 1 < hex.length; i += 2) {
+      out[i ~/ 2] = int.parse(hex.substring(i, i + 2), radix: 16);
+    }
+    return out;
   }
 
   static ContentOperation _colorOp(int rgb) => ContentOperation(

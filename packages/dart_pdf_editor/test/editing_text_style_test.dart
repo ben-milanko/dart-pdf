@@ -138,7 +138,7 @@ void main() {
       final editing = await pumpToolbar(
         tester,
         styledTextPrompt: (context,
-            {required initial, palette = const <Color>[]}) async {
+            {required initial, palette = const <Color>[], pickFont}) async {
           prompted = true;
           expect(initial, 'Hello World');
           return const PdfStyledTextEdit(
@@ -165,7 +165,7 @@ void main() {
       final editing = await pumpToolbar(
         tester,
         styledTextPrompt: (context,
-            {required initial, palette = const <Color>[]}) async =>
+                {required initial, palette = const <Color>[], pickFont}) async =>
             null,
       );
       editing.tool = PdfEditTool.content;
@@ -289,6 +289,44 @@ void main() {
 
       expect(captured, isNotNull);
       expect(captured!.style.family, PdfStandardFontFamily.serif);
+    });
+
+    testWidgets('the Font button uses the supplied picker (standard font)',
+        (tester) async {
+      PdfStyledTextEdit? captured;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  captured = await showPdfStyledTextPrompt(
+                    context,
+                    initial: 'Hello',
+                    pickFont: (_) async => PdfStandardFont.timesBold,
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // the normal-font-picker button is shown instead of the fallback dropdown
+      expect(find.byKey(const ValueKey('pdf-styled-font')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-styled-family')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-font')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-ok')));
+      await tester.pumpAndSettle();
+
+      expect(captured, isNotNull);
+      expect(captured!.style.family, PdfStandardFontFamily.serif);
+      expect(captured!.style.bold, isTrue);
+      expect(captured!.style.embeddedFont, isNull);
     });
 
     testWidgets('the fill "More colors…" button opens the custom picker',

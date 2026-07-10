@@ -20,6 +20,18 @@ replacement.
   embedded run - and there is **no** "text box" to resize: page content
   text is absolutely-positioned glyphs, not a framed box, so size + the
   existing paragraph reflow are the only "make it bigger/re-fit" levers.
+- `PdfTextStyle.embeddedFont` (a `PdfEmbeddedFont`) draws the replacement in
+  an arbitrary embedded face, embedded into the page as an Identity-H
+  composite. `_rewriteStyledTextRun` emits the replacement as 2-byte glyph
+  ids in a new `Emb…` /Font resource (via `encodeHex`), restores the
+  original `Tf`, and the resource is flushed once after all runs
+  (`buildResource`, reusing the Type0 fallback machinery). It takes
+  precedence over family/bold/italic. Because it draws by glyph id, the
+  replacement need **not** be Latin-1: the run gate loosened to
+  `findBytes != null` (find must still be Latin-1 to locate it in the simple
+  run, but replace can be any Unicode the embedded font carries - Cyrillic,
+  Greek, …). When the font can't draw a non-Latin-1 replacement and there's
+  no base-14 fallback, the run is left untouched.
 - `replaceText(..., PdfTextStyle? style)` + convenience
   `replaceStyledText(index, find, replace, style)`. When `style` is
   non-empty the simple-font run goes through the new
@@ -75,6 +87,15 @@ replacement.
   (Text fill / Text border / Shape fill) now delegates to it, so the popup
   and the dialog render the exact same swatch row. Same keys
   (`pdf-text-fill-*` etc.) - existing tune-popup tests unchanged.
+- The dialog's **Font** row uses the editor's *normal* font menu
+  (`showPdfFontMenu`) rather than a bespoke control: the toolbar passes a
+  `pickFont` callback (`PdfStyledFontPicker`) that opens the shared menu
+  with `onSelected` (so it doesn't disturb the controller's own default
+  font) and returns the chosen `PdfTextFont`. A standard pick sets
+  family/bold/italic; an embedded pick sets `embeddedFont` (precedence).
+  When no `pickFont` is supplied (standalone `showPdfStyledTextPrompt`), the
+  row falls back to a Sans/Serif/Mono dropdown so the dialog still works
+  without a controller.
 - Controller: `replaceStyledSelectedElementText(text, style,
   {fallbackFonts})` mirrors `replaceSelectedElementText`.
 - Toolbar: a new `pdf-style-element-text` button ("Edit text & style",

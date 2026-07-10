@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfStandardFont, PdfStandardFontFamily, PdfTextStyle;
+    show
+        PdfEmbeddedFont,
+        PdfStandardFont,
+        PdfStandardFontFamily,
+        PdfTextFont,
+        PdfTextStyle;
 
 import 'editing_font_controls.dart';
 
@@ -28,12 +33,19 @@ class PdfStyledTextEdit {
   final PdfTextStyle style;
 }
 
+/// Opens the app's font menu and returns the chosen font (a standard family
+/// or an embedded face), or null if cancelled. Supplied by the toolbar so the
+/// styled dialog reuses the same font picker as the rest of the editor.
+typedef PdfStyledFontPicker = Future<PdfTextFont?> Function(
+    BuildContext context);
+
 /// Signature of the prompt the content tool uses to edit a text element's
 /// characters *and* its style at once. Returns null when the user cancels.
 typedef PdfStyledTextPrompt = Future<PdfStyledTextEdit?> Function(
   BuildContext context, {
   required String initial,
   List<Color> palette,
+  PdfStyledFontPicker? pickFont,
 });
 
 /// The default [PdfStyledTextPrompt]: a Material dialog that reuses the
@@ -44,22 +56,30 @@ typedef PdfStyledTextPrompt = Future<PdfStyledTextEdit?> Function(
 /// Every override is opt-in: the size, style, and colour rows leave the
 /// run's existing value alone until the user touches them, so an untouched
 /// dialog is a plain text replacement (all [PdfTextStyle] fields null).
+///
+/// [pickFont] wires the "Font" row to the editor's normal font menu (standard
+/// families, bundled/platform/custom faces); when null the row falls back to a
+/// Sans/Serif/Mono dropdown so the dialog still works standalone.
 Future<PdfStyledTextEdit?> showPdfStyledTextPrompt(
   BuildContext context, {
   required String initial,
   List<Color> palette = defaultStyledTextPalette,
+  PdfStyledFontPicker? pickFont,
 }) {
   return showDialog<PdfStyledTextEdit>(
     context: context,
-    builder: (context) => _StyledTextDialog(initial: initial, palette: palette),
+    builder: (context) =>
+        _StyledTextDialog(initial: initial, palette: palette, pickFont: pickFont),
   );
 }
 
 class _StyledTextDialog extends StatefulWidget {
-  const _StyledTextDialog({required this.initial, required this.palette});
+  const _StyledTextDialog(
+      {required this.initial, required this.palette, this.pickFont});
 
   final String initial;
   final List<Color> palette;
+  final PdfStyledFontPicker? pickFont;
 
   @override
   State<_StyledTextDialog> createState() => _StyledTextDialogState();
@@ -73,6 +93,7 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
   // control is touched. FontStyleToggles works on an absolute font, so a
   // separate flag records whether the style was changed at all.
   PdfStandardFont _font = PdfStandardFont.helvetica;
+  PdfEmbeddedFont? _embedded;
   bool _styleTouched = false;
   double _size = 14;
   bool _sizeTouched = false;
@@ -84,15 +105,37 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
     super.dispose();
   }
 
+  // the button/dropdown label for the current font pick
+  String get _fontLabel =>
+      _embedded?.familyName ?? (_styleTouched ? _font.family.label : 'Keep');
+
   void _submit() {
+    // an embedded pick takes precedence and carries its own weight/slant, so
+    // the base-14 family/bold/italic only apply when no embedded font is set
+    final useStd = _embedded == null && _styleTouched;
     final style = PdfTextStyle(
       color: _fill == null ? null : (_fill!.toARGB32() & 0xFFFFFF),
       fontSize: _sizeTouched ? _size : null,
-      family: _styleTouched ? _font.family : null,
-      bold: _styleTouched ? _font.isBold : null,
-      italic: _styleTouched ? _font.isItalic : null,
+      embeddedFont: _embedded,
+      family: useStd ? _font.family : null,
+      bold: useStd ? _font.isBold : null,
+      italic: useStd ? _font.isItalic : null,
     );
     Navigator.of(context).pop(PdfStyledTextEdit(_text.text, style));
+  }
+
+  Future<void> _openFontMenu() async {
+    final picked = await widget.pickFont!(context);
+    if (picked == null || !mounted) return;
+    setState(() {
+      _styleTouched = true;
+      if (picked is PdfEmbeddedFont) {
+        _embedded = picked;
+      } else if (picked is PdfStandardFont) {
+        _embedded = null;
+        _font = picked;
+      }
+    });
   }
 
   @override
@@ -141,28 +184,44 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(children: [
                   const SizedBox(width: 86, child: Text('Font')),
-                  DropdownButton<PdfStandardFontFamily>(
-                    key: const ValueKey('pdf-styled-family'),
-                    value: _font.family,
-                    isDense: true,
-                    underline: const SizedBox.shrink(),
-                    items: [
-                      for (final family in PdfStandardFontFamily.values)
-                        DropdownMenuItem(
-                          value: family,
-                          key: ValueKey('pdf-styled-family-${family.name}'),
-                          child: Text(family.label),
-                        ),
-                    ],
-                    onChanged: (family) {
-                      if (family == null) return;
-                      setState(() {
-                        _font = PdfStandardFont.styled(family,
-                            bold: _font.isBold, italic: _font.isItalic);
-                        _styleTouched = true;
-                      });
-                    },
-                  ),
+                  if (widget.pickFont != null)
+                    OutlinedButton.icon(
+                      key: const ValueKey('pdf-styled-font'),
+                      icon: const Icon(Icons.font_download_outlined, size: 18),
+                      label: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 150),
+                        child: Text(_fontLabel,
+                            overflow: TextOverflow.ellipsis, maxLines: 1),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: _openFontMenu,
+                    )
+                  else
+                    DropdownButton<PdfStandardFontFamily>(
+                      key: const ValueKey('pdf-styled-family'),
+                      value: _font.family,
+                      isDense: true,
+                      underline: const SizedBox.shrink(),
+                      items: [
+                        for (final family in PdfStandardFontFamily.values)
+                          DropdownMenuItem(
+                            value: family,
+                            key: ValueKey('pdf-styled-family-${family.name}'),
+                            child: Text(family.label),
+                          ),
+                      ],
+                      onChanged: (family) {
+                        if (family == null) return;
+                        setState(() {
+                          _font = PdfStandardFont.styled(family,
+                              bold: _font.isBold, italic: _font.isItalic);
+                          _styleTouched = true;
+                        });
+                      },
+                    ),
                 ]),
               ),
               Padding(

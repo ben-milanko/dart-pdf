@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -460,6 +461,73 @@ void main() {
           .where((f) => f['BaseFont'] == const CosName('Times-Roman'));
       expect(serif, isNotEmpty);
       expect(pageText(out), contains('(Hi) Tj'));
+    });
+
+    test('draws the replacement in a supplied embedded font', () {
+      final fontBytes = File('test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      final embedded = PdfEmbeddedFont.parse(fontBytes);
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET'));
+      final editor = PdfEditor(doc)
+        ..replaceStyledText(
+            0, 'Hello', 'Hi', PdfTextStyle(embeddedFont: embedded));
+      final out = PdfDocument.open(editor.save());
+
+      // a new Type0 page /Font resource was embedded and the replacement
+      // switches to it, then restores /F1 for the following text
+      final fonts =
+          out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
+      final embName = fonts.entries.keys.firstWhere((k) => k.startsWith('Emb'));
+      final embFont = out.cos.resolve(fonts[embName]) as CosDictionary;
+      expect(embFont['Subtype'], const CosName('Type0'));
+      expect(embFont['Encoding'], const CosName('Identity-H'));
+      final text = pageText(out);
+      expect(text, contains('/$embName 12 Tf'));
+      expect(text, contains('/F1 12 Tf'));
+      // the replacement stays readable through the new font's /ToUnicode
+      final reader = PdfPageElements.of(out, 0)
+          .elements
+          .where((e) => e.kind == PdfElementKind.text)
+          .map((e) => e.text)
+          .join();
+      expect(reader, contains('Hi'));
+      expect(reader, contains('World'));
+    });
+
+    test('embedded font types non-Latin-1 text a simple font could not', () {
+      final fontBytes = File('test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      final embedded = PdfEmbeddedFont.parse(fontBytes);
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET'));
+      // Cyrillic — outside Latin-1, so only drawable via the embedded font
+      final editor = PdfEditor(doc)
+        ..replaceStyledText(
+            0, 'Hello', 'Привет', PdfTextStyle(embeddedFont: embedded));
+      final out = PdfDocument.open(editor.save());
+      final reader = PdfPageElements.of(out, 0)
+          .elements
+          .where((e) => e.kind == PdfElementKind.text)
+          .map((e) => e.text)
+          .join();
+      expect(reader, contains('Привет'));
+      expect(reader, contains('World'));
+    });
+
+    test('leaves the run untouched when nothing can draw the replacement', () {
+      // U+4E00 (CJK 一) is non-Latin-1 and absent from DejaVu Sans, so there
+      // is no safe way to draw it - the run is left exactly as it was
+      final fontBytes = File('test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      final embedded = PdfEmbeddedFont.parse(fontBytes);
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET'));
+      final editor = PdfEditor(doc)
+        ..replaceStyledText(0, 'Hello', '一',
+            PdfTextStyle(embeddedFont: embedded, color: 0xFF0000));
+      final out = PdfDocument.open(editor.save());
+      final fonts =
+          out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
+      expect(fonts.entries.keys.where((k) => k.startsWith('Emb')), isEmpty);
+      expect(pageText(out), contains('(Hello World) Tj'));
     });
 
     test('restores a /cs + scn nonstroking colour after the replacement', () {

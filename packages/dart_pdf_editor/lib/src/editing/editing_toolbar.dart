@@ -4,7 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
-    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign, PdfTextFont;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -596,6 +596,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       context,
       initial: element.text ?? '',
       palette: widget.palette,
+      pickFont: _pickStyledFont,
     );
     if (result == null) return;
     if (result.text.isEmpty ||
@@ -607,6 +608,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final fallbacks = await loadFallbackFonts();
     controller.replaceStyledSelectedElementText(result.text, result.style,
         fallbackFonts: fallbacks);
+  }
+
+  /// Opens the editor's normal font menu (the same one the tune popup and
+  /// properties panel use) for the styled-text dialog, returning the chosen
+  /// font without touching the controller's own default.
+  Future<PdfTextFont?> _pickStyledFont(BuildContext context) async {
+    PdfTextFont? chosen;
+    await showPdfFontMenu(
+      context: context,
+      controller: controller,
+      fontPicker: widget.fontPicker,
+      onSelected: (font) => chosen = font,
+    );
+    return chosen;
   }
 
   Future<void> _reflowElementText(BuildContext context) async {
