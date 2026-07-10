@@ -13,6 +13,7 @@ import 'render_scheduler.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
 import 'retained_scene.dart';
+import 'strips/strip_device.dart';
 
 /// Displays a single PDF page, rendered natively in Dart.
 ///
@@ -189,18 +190,24 @@ class PdfPageView extends StatefulWidget {
   /// (fixed atlas-decode/replay overhead, and Impeller already rasterizes
   /// light flat pictures quickly).
   ///
-  /// Default FALSE, and it must stay off on software backends: the SkSL
-  /// interpreter runs the coverage shader per fragment, making strips ~2x
-  /// slower than the canvas there, and there is no reliable runtime
-  /// Impeller detection - so the embedding app opts in where it knows its
-  /// backend (measured on Impeller/Metal: a dense CAD sheet reaches sharp
-  /// pixels ~3.5x sooner per zoom settle). The honest trade: the strip
-  /// re-bin runs on the UI thread (~300 ms per settle on that CAD sheet),
-  /// blocking longer than the nested re-raster's cheap UI-thread half but
-  /// finishing far sooner overall. Off-thread strip generation in the
-  /// render worker (the strip core is deliberately dart:ui-free for
-  /// exactly that) is the path to default-on.
+  /// Strip routing only engages on Impeller
+  /// (`ui.ImageFilter.isShaderFilterSupported`, public API that is true iff
+  /// Impeller is the runtime backend): software Skia's SkSL interpreter
+  /// runs the coverage shader per fragment, making strips ~2x slower than
+  /// the canvas there, so on software/web backends this flag is inert and
+  /// dense pages keep the classic cached-picture zoom path. Measured on
+  /// Impeller/Metal: the dense CAD sheet reaches sharp pixels ~4x sooner
+  /// per zoom settle - and with a render worker attached the ~270 ms strip
+  /// re-bin runs on the worker isolate ([PdfRenderWorker.binStrips]), so
+  /// the UI thread only uploads the precomputed batches and replays the
+  /// tape. Without a worker (or when it declines) the re-bin runs locally
+  /// on the UI thread, the honest cost of the fastest available settle.
   static bool stripZoomReplay = false;
+
+  /// Test hook for the Impeller gate: `flutter test` runs on software Skia
+  /// where `ui.ImageFilter.isShaderFilterSupported` is false, so strip
+  /// router tests force the decision. Null (production) asks the engine.
+  static bool? debugStripZoomReplayBackendOverride;
 
   @override
   State<PdfPageView> createState() => _PdfPageViewState();
@@ -336,6 +343,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       // screen. The in-flight one can't be preempted; this clears the backlog.
       oldWidget.renderWorker
           ?.cancel(oldWidget.previewIndex, priority: oldWidget.renderPriority);
+      oldWidget.renderWorker?.cancelBinStrips(oldWidget.previewIndex,
+          priority: oldWidget.renderPriority);
     }
     if (!identical(oldWidget.previewCache, widget.previewCache) ||
         oldWidget.previewIndex != widget.previewIndex) {
@@ -408,6 +417,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     // fallback). No-op if nothing is queued for it.
     widget.renderWorker
         ?.cancel(widget.previewIndex, priority: widget.renderPriority);
+    widget.renderWorker?.cancelBinStrips(widget.previewIndex,
+        priority: widget.renderPriority);
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _dropPicture();
     _image?.dispose();
@@ -426,10 +437,21 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// Adopts [scene] as the page's retained scene, disposing the previous
   /// one. Outstanding pictures replayed from the old scene keep painting
   /// (they hold their own image refs); only new replays need the new scene.
-  void _setScene(PdfRetainedScene? scene) {
+  ///
+  /// [fromWorker] marks a scene built from a worker-recorded command buffer
+  /// (its geometry carries the wire codec's float32 truncation and its
+  /// content matches what the worker would re-record). ONLY such scenes may
+  /// consume worker-binned strip plans; locally-recorded scenes - the
+  /// worker declined, or an editing flow recorded with skipAnnotation -
+  /// keep local binning, because a worker re-record could desync from them.
+  void _setScene(PdfRetainedScene? scene, {bool fromWorker = false}) {
     _scene?.dispose();
     _scene = scene;
+    _sceneFromWorker = scene != null && fromWorker;
   }
+
+  /// Whether [_scene] came from the render worker (see [_setScene]).
+  bool _sceneFromWorker = false;
 
   void _dropDetail() {
     _detailGeneration++;
@@ -512,8 +534,9 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// Both paths go through a recorded command buffer, so alongside the
   /// picture they also return the [PdfRetainedScene] built from that same
   /// buffer (null when [PdfPageView.retainedZoomReplay] is off) - the caller
-  /// adopts it once the render is known not to be superseded.
-  Future<(ui.Picture, PdfRetainedScene?)?> _interpretPicture() async {
+  /// adopts it once the render is known not to be superseded - and whether
+  /// the buffer came from the worker (see [_setScene]'s fromWorker).
+  Future<(ui.Picture, PdfRetainedScene?, bool)?> _interpretPicture() async {
     final pageIndex = widget.previewIndex;
     final worker = widget.renderWorker;
     if (worker != null && worker.isActive) {
@@ -533,15 +556,16 @@ class _PdfPageViewState extends State<PdfPageView> {
       // what the worker exists to avoid. Note we DON'T gate on the render
       // generation here: a newer same-page render (e.g. a zoom mid-interpret)
       // reuses this very future, so the picture must still be produced for it.
-      if (_abandoned(pageIndex)) return (_emptyPicture(), null);
+      if (_abandoned(pageIndex)) return (_emptyPicture(), null, false);
       if (commands != null) {
         if (_renderPaused) return null;
         _lastInterpretPath = 'worker';
         _logImageStats(pageIndex, commands);
-        return _replayableFromCommands(commands);
+        final (picture, scene) = await _replayableFromCommands(commands);
+        return (picture, scene, true);
       }
     }
-    if (_abandoned(pageIndex)) return (_emptyPicture(), null);
+    if (_abandoned(pageIndex)) return (_emptyPicture(), null, false);
     if (_renderPaused) return null;
     // The worker may be active yet decline this page (it returns null), in
     // which case the interpret runs here - the log must say so, not 'worker'.
@@ -551,6 +575,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         await PdfPageRenderer.renderPictureRecordedWithPlan(
             widget.page, _renderPlan),
         null,
+        false,
       );
     }
     // Same record + decode renderPictureRecordedWithPlan runs internally,
@@ -563,9 +588,9 @@ class _PdfPageViewState extends State<PdfPageView> {
       // path serves this page's zooms.
       final picture = scene.replay(pixelRatio: 1);
       scene.dispose();
-      return (picture, null);
+      return (picture, null, false);
     }
-    return (scene.replay(pixelRatio: 1), scene);
+    return (scene.replay(pixelRatio: 1), scene, false);
   }
 
   /// Whether a page recorded as [commandCount] top-level commands should
@@ -576,13 +601,24 @@ class _PdfPageViewState extends State<PdfPageView> {
   static bool _retainScene(int commandCount) =>
       PdfPageView.retainedZoomReplay &&
       (commandCount <= PdfPageView.retainedZoomReplayMaxCommands ||
-          PdfPageView.stripZoomReplay);
+          (PdfPageView.stripZoomReplay && _stripBackendSupported));
+
+  /// Whether the runtime backend draws strip batches profitably: Impeller
+  /// only (`ui.ImageFilter.isShaderFilterSupported` is public API that is
+  /// true iff Impeller is enabled). Consulted by BOTH the retention
+  /// decision ([_retainScene], at scene-adoption time) and the settle
+  /// router ([_stripReplayScene]) so a dense page retained for strips
+  /// actually strips - the two must never disagree.
+  static bool get _stripBackendSupported =>
+      PdfPageView.debugStripZoomReplayBackendOverride ??
+      ui.ImageFilter.isShaderFilterSupported;
 
   /// Whether [scene]'s zoom re-rasters route through the strip device: the
-  /// opt-in flag, and only above the ceiling (under it the flat canvas
-  /// replay wins - see [PdfPageView.stripZoomReplay]).
+  /// flag, the Impeller backend gate, and only above the ceiling (under it
+  /// the flat canvas replay wins - see [PdfPageView.stripZoomReplay]).
   static bool _stripReplayScene(PdfRetainedScene scene) =>
       PdfPageView.stripZoomReplay &&
+      _stripBackendSupported &&
       scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands;
 
   /// Builds the picture (and, unless [PdfPageView.retainedZoomReplay] is
@@ -638,7 +674,7 @@ class _PdfPageViewState extends State<PdfPageView> {
           scene.dispose();
           return;
         }
-        _setScene(scene);
+        _setScene(scene, fromWorker: true);
         _picture = Future.value(scene.replay(pixelRatio: 1));
       } else {
         _picture = PdfPageRenderer.pictureFromCommandsWithPlan(
@@ -746,14 +782,17 @@ class _PdfPageViewState extends State<PdfPageView> {
         if (!_superseded(generation, pageIndex)) _render();
         return;
       }
-      final (interpretedPicture, interpretedScene) = interpreted;
+      final (interpretedPicture, interpretedScene, sceneFromWorker) =
+          interpreted;
       if (_superseded(generation, pageIndex)) {
         interpretedPicture.dispose();
         interpretedScene?.dispose();
         return;
       }
       _picture = Future.value(interpretedPicture);
-      if (interpretedScene != null) _setScene(interpretedScene);
+      if (interpretedScene != null) {
+        _setScene(interpretedScene, fromWorker: sceneFromWorker);
+      }
       picture = interpretedPicture;
     }
     sw.stop();
@@ -785,15 +824,23 @@ class _PdfPageViewState extends State<PdfPageView> {
       // one is held - Impeller rasterizes that several times faster than the
       // nested drawPicture re-raster, with byte-identical output. Dense
       // pages retained under PdfPageView.stripZoomReplay re-bin through the
-      // strip shader device instead. Fallback paths (no scene, or the kill
-      // switch) re-raster the cached picture.
+      // strip shader device instead - with the re-bin itself offloaded to
+      // the render worker when the scene is worker-backed (the plan comes
+      // back precomputed; null plan = local bin). Fallback paths (no scene,
+      // or the kill switch) re-raster the cached picture.
       final scene = PdfPageView.retainedZoomReplay ? _scene : null;
-      final image = scene != null
-          ? await (_stripReplayScene(scene)
-              ? scene.rasterizeStrips(pixelRatio: effective)
-              : scene.rasterize(pixelRatio: effective))
-          : await PdfPageRenderer.rasterize(
-              picture, _renderPlan.pageSize(widget.page), effective);
+      final ui.Image image;
+      if (scene != null && _stripReplayScene(scene)) {
+        final stripPlan = await _workerStripPlan(scene, pixelRatio: effective);
+        if (_superseded(generation, pageIndex)) return;
+        image = await scene.rasterizeStrips(
+            pixelRatio: effective, stripPlan: stripPlan);
+      } else if (scene != null) {
+        image = await scene.rasterize(pixelRatio: effective);
+      } else {
+        image = await PdfPageRenderer.rasterize(
+            picture, _renderPlan.pageSize(widget.page), effective);
+      }
       if (_superseded(generation, pageIndex)) {
         image.dispose();
         return;
@@ -877,8 +924,17 @@ class _PdfPageViewState extends State<PdfPageView> {
     ratio =
         math.min(ratio, _maxDimension / math.max(region.width, region.height));
 
-    final workerPicture =
-        await _detailPictureFromWorker(region, ratio, widget.previewIndex);
+    // Strip-routed dense pages skip the worker's region record: replaying
+    // its picture is a nested-picture re-raster - the slow path strips
+    // exist to avoid - so they go straight to the strip region replay
+    // below (with a worker-binned plan when the scene is worker-backed).
+    // The region-resolution image re-decode the worker record offers is
+    // orthogonal and stays for canvas-routed pages.
+    final heldScene = PdfPageView.retainedZoomReplay ? _scene : null;
+    final stripDetail = heldScene != null && _stripReplayScene(heldScene);
+    final workerPicture = stripDetail
+        ? null
+        : await _detailPictureFromWorker(region, ratio, widget.previewIndex);
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       workerPicture?.dispose();
       return false;
@@ -917,13 +973,25 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
     // Same replay-over-nested-raster swap as the full-page path: the deep-
     // zoom patch replays only [region] from the retained scene when held
-    // (through the strip device for dense pages under stripZoomReplay).
+    // (through the strip device for dense pages under stripZoomReplay,
+    // worker-binned when the scene is worker-backed - a pan at deep zoom
+    // fires these repeatedly, so each fresh region cancels the previous
+    // region's still-queued bin inside _workerStripPlan).
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
-    final image = scene != null
-        ? await (_stripReplayScene(scene)
-            ? scene.rasterizeRegionStrips(region, pixelRatio: ratio)
-            : scene.rasterizeRegion(region, pixelRatio: ratio))
-        : await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
+    final ui.Image image;
+    if (scene != null && _stripReplayScene(scene)) {
+      final stripPlan =
+          await _workerStripPlan(scene, pixelRatio: ratio, region: region);
+      if (!mounted || generation != _detailGeneration || _renderPaused) {
+        return false;
+      }
+      image = await scene.rasterizeRegionStrips(region,
+          pixelRatio: ratio, stripPlan: stripPlan);
+    } else if (scene != null) {
+      image = await scene.rasterizeRegion(region, pixelRatio: ratio);
+    } else {
+      image = await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
+    }
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       image.dispose();
       return false;
@@ -934,6 +1002,46 @@ class _PdfPageViewState extends State<PdfPageView> {
       _detailFraction = fraction;
     });
     return true;
+  }
+
+  /// Asks the render worker to bin this page's strips for the exact device
+  /// geometry the strip replay is about to construct ([stripGeometry] /
+  /// [stripRegionGeometry] of [scene]), or null to bin locally: no worker /
+  /// worker declined, a locally-recorded scene (see [_setScene]'s
+  /// fromWorker), or a debug-delegate flag forcing local routing (the
+  /// worker isolate has its own statics and would bin the full routing,
+  /// desyncing flush ordinals).
+  ///
+  /// Any still-queued bin for this page is cancelled first, so a newer
+  /// settle/region supersedes an older one in the worker queue; the
+  /// cancelled caller's null resolves under a stale generation and is
+  /// discarded by its guard without falling back to a local bin.
+  Future<StripPlan?> _workerStripPlan(PdfRetainedScene scene,
+      {required double pixelRatio, Rect? region}) async {
+    if (!_sceneFromWorker) return null;
+    final worker = widget.renderWorker;
+    if (worker == null || !worker.isActive) return null;
+    if (StripPdfDevice.debugDelegateAll ||
+        StripPdfDevice.debugDelegateFills ||
+        StripPdfDevice.debugDelegateStrokes ||
+        StripPdfDevice.debugDelegateText) {
+      return null;
+    }
+    final geometry = region == null
+        ? scene.stripGeometry(pixelRatio: pixelRatio)
+        : scene.stripRegionGeometry(region, pixelRatio: pixelRatio);
+    final m = geometry.pageToDevice;
+    worker.cancelBinStrips(widget.previewIndex,
+        priority: widget.renderPriority);
+    return worker.binStrips(
+      widget.previewIndex,
+      annotations: scene.plan.annotations,
+      pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
+      deviceWidth: geometry.width,
+      deviceHeight: geometry.height,
+      pixelRatio: pixelRatio,
+      priority: widget.renderPriority,
+    );
   }
 
   Future<ui.Picture?> _detailPictureFromWorker(

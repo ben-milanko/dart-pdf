@@ -73,7 +73,8 @@ double _meanAbsDiff(Uint8List a, Uint8List b) {
 
 /// Pumps until the page's RawImage raster reaches [width] px (the async
 /// strip replay takes a few event-loop turns for the atlas decode).
-Future<ui.Image> _settleRaster(WidgetTester tester, int width) async {
+/// Shared with strip_plan_device_test.
+Future<ui.Image> settleRaster(WidgetTester tester, int width) async {
   for (var i = 0; i < 40; i++) {
     await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 5)));
@@ -135,9 +136,14 @@ void main() {
       (tester) async {
     PdfPageView.retainedZoomReplayMaxCommands = 0; // every page is "dense"
     PdfPageView.stripZoomReplay = true;
+    // flutter test runs on software Skia where the Impeller gate
+    // (ui.ImageFilter.isShaderFilterSupported) is false; force it on so the
+    // router logic itself is exercised.
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
     addTearDown(() {
       PdfPageView.retainedZoomReplayMaxCommands = 20000;
       PdfPageView.stripZoomReplay = false;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
     });
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -149,13 +155,13 @@ void main() {
 
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(1));
-    final base = await _settleRaster(tester, 612);
+    final base = await settleRaster(tester, 612);
     expect(base.width, 612);
 
     // the zoom settle must re-bin through the strip device
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(3));
-    final zoomed = await _settleRaster(tester, 612 * 3);
+    final zoomed = await settleRaster(tester, 612 * 3);
     expect(zoomed.width, 612 * 3);
     expect(StripPdfDevice.totalStripQuads, greaterThan(0),
         reason: 'the zoom re-raster must have binned strip quads');
@@ -165,9 +171,13 @@ void main() {
       'flag off: over-ceiling pages keep the cached-picture path, '
       'no strip activity', (tester) async {
     PdfPageView.retainedZoomReplayMaxCommands = 0;
-    expect(PdfPageView.stripZoomReplay, isFalse,
-        reason: 'stripZoomReplay must default off');
-    addTearDown(() => PdfPageView.retainedZoomReplayMaxCommands = 20000);
+    PdfPageView.stripZoomReplay = false;
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.stripZoomReplay = false;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+    });
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
     final doc = PdfDocument.open(buildVectorPdf());
@@ -178,14 +188,42 @@ void main() {
 
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(1));
-    final base = await _settleRaster(tester, 612);
+    final base = await settleRaster(tester, 612);
     expect(base.width, 612);
 
     await tester.pumpWidget(at(3));
-    final zoomed = await _settleRaster(tester, 612 * 3);
+    final zoomed = await settleRaster(tester, 612 * 3);
     expect(zoomed.width, 612 * 3);
     expect(StripPdfDevice.totalFlushes, 0,
         reason: 'flag off must never touch the strip device');
   });
 
+  testWidgets(
+      'backend gate off: the flag is inert on non-Impeller backends',
+      (tester) async {
+    PdfPageView.retainedZoomReplayMaxCommands = 0;
+    PdfPageView.stripZoomReplay = true;
+    PdfPageView.debugStripZoomReplayBackendOverride = false; // "software"
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.stripZoomReplay = false;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildVectorPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+        child:
+            SizedBox(width: 612, child: PdfPageView(page: page, scale: scale)));
+
+    StripPdfDevice.resetStats();
+    await tester.pumpWidget(at(1));
+    await settleRaster(tester, 612);
+    await tester.pumpWidget(at(3));
+    final zoomed = await settleRaster(tester, 612 * 3);
+    expect(zoomed.width, 612 * 3);
+    expect(StripPdfDevice.totalFlushes, 0,
+        reason: 'the gate must keep strips off software backends');
+  });
 }

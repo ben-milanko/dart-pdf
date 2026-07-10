@@ -22,6 +22,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'canvas_device.dart';
 import 'image_decoder.dart';
 import 'renderer.dart';
+import 'render_worker.dart';
 import 'strips/strip_device.dart';
 
 /// A page retained as a replayable scene: the recorded interpreter command
@@ -162,6 +163,40 @@ class PdfRetainedScene {
     replayCommands(commands, CanvasPdfDevice(canvas, images: _images));
   }
 
+  /// The strip device geometry a full-page strip replay at [pixelRatio]
+  /// uses: the page->device-pixel matrix and the viewport in pixels. Public
+  /// so [PdfPageView] can send the EXACT same six coefficients to
+  /// [PdfRenderWorker.binStrips] that [replayStrips] will construct its
+  /// device with - the plan's stale-geometry guard compares them with `==`.
+  ({PdfMatrix pageToDevice, int width, int height}) stripGeometry(
+      {required double pixelRatio}) {
+    final size = pageSize;
+    return (
+      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(
+          page, size, page.cropBox,
+          rotation: plan.rotation, pixelRatio: pixelRatio),
+      width: (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
+      height: (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
+    );
+  }
+
+  /// [stripGeometry]'s region variant - mirrors [replayRegionStrips]'s
+  /// device construction (the page matrix concatenated with the region
+  /// translation, viewport = the region raster).
+  ({PdfMatrix pageToDevice, int width, int height}) stripRegionGeometry(
+      Rect region,
+      {required double pixelRatio}) {
+    return (
+      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(
+              page, pageSize, page.cropBox,
+              rotation: plan.rotation, pixelRatio: pixelRatio)
+          .concat(PdfMatrix.translation(
+              -region.left * pixelRatio, -region.top * pixelRatio)),
+      width: (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
+      height: (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
+    );
+  }
+
   /// Replays the retained commands through a [StripPdfDevice] instead of
   /// [CanvasPdfDevice]: fills/strokes/outline glyphs are re-binned into
   /// sparse strips at [pixelRatio] and drawn as shader-carrying
@@ -174,75 +209,89 @@ class PdfRetainedScene {
   /// re-bin. Still zero re-interpretation and zero image re-decoding: the
   /// walk is a command replay and the image map is the scene's own.
   ///
+  /// [stripPlan] skips even the re-bin: a worker-binned [StripPlan] for
+  /// this exact geometry (see [stripGeometry] and
+  /// [PdfRenderWorker.binStrips]) is consumed batch-by-batch, so the UI
+  /// thread only creates engine objects and replays the tape. A stale or
+  /// desynced plan transparently falls back to a local re-bin (counted in
+  /// [StripPdfDevice.totalPlanMismatches]).
+  ///
   /// Batching telemetry accumulates on [StripPdfDevice.totalFlushes] /
   /// `totalStripQuads` / `totalAtlasTexels`; call
   /// [StripPdfDevice.resetStats] around a step to read per-step deltas.
-  Future<ui.Picture> replayStrips({required double pixelRatio}) async {
+  Future<ui.Picture> replayStrips(
+      {required double pixelRatio, StripPlan? stripPlan}) async {
     assert(!_disposed, 'replay after dispose');
-    final size = pageSize;
-    final width = (size.width * pixelRatio).ceil().clamp(1, 1 << 14);
-    final height = (size.height * pixelRatio).ceil().clamp(1, 1 << 14);
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder)..scale(pixelRatio);
-    PdfPageRenderer.preparePageCanvas(canvas, page, plan);
-    final device = StripPdfDevice(
-      canvas,
-      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(
-          page, size, page.cropBox,
-          rotation: plan.rotation, pixelRatio: pixelRatio),
-      deviceWidth: width,
-      deviceHeight: height,
-      pixelRatio: pixelRatio,
-      images: _images,
-    );
     try {
-      replayCommands(commands, device);
-      await device.finish(); // must precede endRecording
-      return recorder.endRecording();
-    } finally {
-      device.dispose();
+      return await _stripPicture(stripGeometry(pixelRatio: pixelRatio), null,
+          pixelRatio, stripPlan);
+    } on StripPlanMismatchError {
+      // The plan desynced mid-walk (only detectable at finish, before any
+      // painting committed): discard and re-bin locally.
+      return _stripPicture(
+          stripGeometry(pixelRatio: pixelRatio), null, pixelRatio, null);
     }
   }
 
   /// Region variant of [replayStrips]: only [region] (page points, y-down
   /// raster space, like [replayRegion]) lands at the picture origin, at
   /// [pixelRatio]. The strip viewport is the region raster, so offscreen
-  /// geometry is clipped during binning rather than drawn.
+  /// geometry is clipped during binning rather than drawn. A [stripPlan]
+  /// must have been binned for [stripRegionGeometry] of the same region.
   Future<ui.Picture> replayRegionStrips(Rect region,
-      {required double pixelRatio}) async {
+      {required double pixelRatio, StripPlan? stripPlan}) async {
     assert(!_disposed, 'replay after dispose');
-    final width = (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
-    final height = (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
+    final geometry = stripRegionGeometry(region, pixelRatio: pixelRatio);
+    try {
+      return await _stripPicture(geometry, region, pixelRatio, stripPlan);
+    } on StripPlanMismatchError {
+      return _stripPicture(geometry, region, pixelRatio, null);
+    }
+  }
+
+  /// Shared device construction + replay for the strip paths. [region] null
+  /// is the full page. Throws [StripPlanMismatchError] (recording discarded,
+  /// nothing painted) when [stripPlan] desyncs.
+  Future<ui.Picture> _stripPicture(
+      ({PdfMatrix pageToDevice, int width, int height}) geometry,
+      Rect? region,
+      double pixelRatio,
+      StripPlan? stripPlan) async {
     final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder)
-      ..scale(pixelRatio)
-      ..translate(-region.left, -region.top);
+    final canvas = Canvas(recorder)..scale(pixelRatio);
+    if (region != null) canvas.translate(-region.left, -region.top);
     PdfPageRenderer.preparePageCanvas(canvas, page, plan);
     final device = StripPdfDevice(
       canvas,
-      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(
-              page, pageSize, page.cropBox,
-              rotation: plan.rotation, pixelRatio: pixelRatio)
-          .concat(PdfMatrix.translation(
-              -region.left * pixelRatio, -region.top * pixelRatio)),
-      deviceWidth: width,
-      deviceHeight: height,
+      pageToDevice: geometry.pageToDevice,
+      deviceWidth: geometry.width,
+      deviceHeight: geometry.height,
       pixelRatio: pixelRatio,
       images: _images,
+      precomputed: stripPlan,
     );
+    final ui.Picture picture;
     try {
+      final sw = Stopwatch()..start();
       replayCommands(commands, device);
+      StripPdfDevice.totalRouteMicros += sw.elapsedMicroseconds;
       await device.finish(); // must precede endRecording
-      return recorder.endRecording();
-    } finally {
+      picture = recorder.endRecording();
+    } catch (_) {
+      recorder.endRecording().dispose();
       device.dispose();
+      rethrow;
     }
+    device.dispose();
+    return picture;
   }
 
   /// Convenience: [replayStrips] + `toImage`, the strip-router counterpart
   /// of [rasterize].
-  Future<ui.Image> rasterizeStrips({required double pixelRatio}) async {
-    final picture = await replayStrips(pixelRatio: pixelRatio);
+  Future<ui.Image> rasterizeStrips(
+      {required double pixelRatio, StripPlan? stripPlan}) async {
+    final picture =
+        await replayStrips(pixelRatio: pixelRatio, stripPlan: stripPlan);
     try {
       final size = pageSize;
       return await picture.toImage(
@@ -257,8 +306,9 @@ class PdfRetainedScene {
   /// Convenience: [replayRegionStrips] + `toImage`, the strip-router
   /// counterpart of [rasterizeRegion].
   Future<ui.Image> rasterizeRegionStrips(Rect region,
-      {required double pixelRatio}) async {
-    final picture = await replayRegionStrips(region, pixelRatio: pixelRatio);
+      {required double pixelRatio, StripPlan? stripPlan}) async {
+    final picture = await replayRegionStrips(region,
+        pixelRatio: pixelRatio, stripPlan: stripPlan);
     try {
       return await picture.toImage(
         (region.width * pixelRatio).ceil().clamp(1, 1 << 14),

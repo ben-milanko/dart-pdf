@@ -32,7 +32,14 @@ import 'package:pdf_graphics/raster.dart';
 import '../canvas_device.dart';
 import 'strip_batch.dart';
 
-export 'package:pdf_graphics/raster.dart' show stripFlattenTolerance;
+export 'package:pdf_graphics/raster.dart'
+    show
+        StripPlan,
+        StripPlanBinner,
+        StripPlanMismatchError,
+        decodeStripPlan,
+        encodeStripPlan,
+        stripFlattenTolerance;
 
 /// [PdfDevice] that batches strip-rasterized paint into shader draws and
 /// routes everything else through an internal [CanvasPdfDevice] fallback.
@@ -41,20 +48,97 @@ export 'package:pdf_graphics/raster.dart' show stripFlattenTolerance;
 /// `await finish()` before ending the picture recording; call [dispose]
 /// after `endRecording()` to release the atlas images.
 class StripPdfDevice extends StripBinningDevice {
-  StripPdfDevice(
-    this.canvas, {
+  /// [precomputed] feeds the device a worker-binned [StripPlan] instead of
+  /// binning locally: generator feeds are skipped entirely and each flush
+  /// point consumes the plan batch tagged with its ordinal. The plan must
+  /// have been binned for this exact geometry - [usablePlan] guards that
+  /// (and the debug-delegate flags, which force local binning) - and
+  /// [finish] verifies the flush-point count and full consumption before
+  /// painting anything, throwing [StripPlanMismatchError] on desync so the
+  /// caller can transparently re-run with local binning.
+  factory StripPdfDevice(
+    ui.Canvas canvas, {
+    required PdfMatrix pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    Map<Object, ui.Image> images = const {},
+    StripPlan? precomputed,
+  }) =>
+      StripPdfDevice._(
+        canvas,
+        usablePlan(precomputed,
+            pageToDevice: pageToDevice,
+            deviceWidth: deviceWidth,
+            deviceHeight: deviceHeight),
+        pageToDevice: pageToDevice,
+        deviceWidth: deviceWidth,
+        deviceHeight: deviceHeight,
+        pixelRatio: pixelRatio,
+        images: images,
+      );
+
+  StripPdfDevice._(
+    this.canvas,
+    this._plan, {
     required super.pageToDevice,
     required super.deviceWidth,
     required super.deviceHeight,
     required super.pixelRatio,
-    this.images = const {},
+    required this.images,
   })  : _deviceToPage = _invertToMatrix4(pageToDevice),
         super(
+          // A usable plan replaces local binning entirely; the debug
+          // verification mode bins locally TOO so emitBatch can compare.
+          binningEnabled: _plan == null || debugVerifyPrecomputed,
           delegateAll: debugDelegateAll,
           delegateFills: debugDelegateFills,
           delegateStrokes: debugDelegateStrokes,
           delegateText: debugDelegateText,
         );
+
+  /// The validated precomputed plan (null = local binning) and the index of
+  /// the next unconsumed plan batch.
+  final StripPlan? _plan;
+  int _planNext = 0;
+
+  /// Whether this device consumes a precomputed plan (after validation).
+  bool get usesPrecomputedPlan => _plan != null;
+
+  /// Validates [plan] for a device about to be constructed with this
+  /// geometry: null when no plan, when any debug-delegate flag forces local
+  /// binning (the flags change ROUTING and the plan's producer ran without
+  /// them), or - counted in [totalPlanMismatches] - when the plan was binned
+  /// for different geometry (stale zoom/region). The matrix comparison is
+  /// exact: the six coefficients round-trip bit-exactly through the worker.
+  static StripPlan? usablePlan(
+    StripPlan? plan, {
+    required PdfMatrix pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+  }) {
+    if (plan == null) return null;
+    if (debugDelegateAll ||
+        debugDelegateFills ||
+        debugDelegateStrokes ||
+        debugDelegateText) {
+      return null;
+    }
+    final m = plan.pageToDevice;
+    if (plan.deviceWidth != deviceWidth ||
+        plan.deviceHeight != deviceHeight ||
+        plan.tolerance != stripFlattenTolerance ||
+        m.a != pageToDevice.a ||
+        m.b != pageToDevice.b ||
+        m.c != pageToDevice.c ||
+        m.d != pageToDevice.d ||
+        m.e != pageToDevice.e ||
+        m.f != pageToDevice.f) {
+      totalPlanMismatches++;
+      return null;
+    }
+    return plan;
+  }
 
   final ui.Canvas canvas;
 
@@ -83,6 +167,19 @@ class StripPdfDevice extends StripBinningDevice {
   static int totalAtlasDecodeMicros = 0;
   static int totalReplayMicros = 0;
 
+  /// Time spent synchronously routing the command list through the device
+  /// (binning included when local; only routing + plan-batch upload when
+  /// precomputed) - accumulated by [PdfRetainedScene]'s strip replays. With
+  /// [totalReplayMicros] this is the UI-thread-blocking share of a settle.
+  static int totalRouteMicros = 0;
+
+  /// Precomputed plans rejected (stale geometry) or failing verification at
+  /// [finish] - each one transparently fell back to local binning.
+  static int totalPlanMismatches = 0;
+
+  /// Pictures painted from a verified precomputed plan (no local binning).
+  static int totalPlanPictures = 0;
+
   static void resetStats() {
     totalFlushes = 0;
     totalStripQuads = 0;
@@ -90,6 +187,9 @@ class StripPdfDevice extends StripBinningDevice {
     totalDelegatedPaints = 0;
     totalAtlasDecodeMicros = 0;
     totalReplayMicros = 0;
+    totalRouteMicros = 0;
+    totalPlanMismatches = 0;
+    totalPlanPictures = 0;
   }
 
   int get flushCount => _batches.length;
@@ -120,10 +220,27 @@ class StripPdfDevice extends StripBinningDevice {
   static bool debugDelegateStrokes = false;
   static bool debugDelegateText = false;
 
+  /// Debug/test: with a precomputed plan, ALSO bin locally at every flush
+  /// point and assert the plan's batch matches (ordinal presence, strip
+  /// count, vertex arrays, atlas bytes) - the strongest form of the
+  /// flush-ordinal parity invariant. Test-only; throws [StateError] on the
+  /// first divergence.
+  static bool debugVerifyPrecomputed = false;
+
   // ---- StripBinningDevice hooks ------------------------------------------
 
   @override
   void emitBatch(int ordinal, StripBatchData? data) {
+    final plan = _plan;
+    if (plan != null) {
+      StripBatchData? planData;
+      if (_planNext < plan.batches.length &&
+          plan.batches[_planNext].flushOrdinal == ordinal) {
+        planData = plan.batches[_planNext++];
+      }
+      if (debugVerifyPrecomputed) _verifyAgainstPlan(ordinal, data, planData);
+      data = planData;
+    }
     if (data == null) return;
     final batch = StripBatch.fromData(data);
     _tape.add(batch);
@@ -225,6 +342,20 @@ class StripPdfDevice extends StripBinningDevice {
     assert(!_finished, 'StripPdfDevice.finish() called twice');
     _finished = true;
     flushPending();
+    final plan = _plan;
+    if (plan != null &&
+        (flushPointCount != plan.totalFlushPoints ||
+            _planNext != plan.batches.length)) {
+      // Desync is only detectable once the walk is complete; nothing has
+      // painted yet (painting starts below), so the caller can discard the
+      // recording and re-run with local binning.
+      totalPlanMismatches++;
+      throw StripPlanMismatchError(
+          'flush points: device $flushPointCount vs plan '
+          '${plan.totalFlushPoints}; consumed $_planNext of '
+          '${plan.batches.length} batches');
+    }
+    if (plan != null && !debugVerifyPrecomputed) totalPlanPictures++;
     final sw = Stopwatch()..start();
     final program = await _loadProgram();
     await Future.wait([for (final b in _batches) b.decodeAtlas()]);
@@ -255,6 +386,55 @@ class StripPdfDevice extends StripBinningDevice {
   /// coverage shader (wrong output - quantifies the runtime-effect cost of
   /// software rasterization).
   static bool debugNoShader = false;
+
+  /// debugVerifyPrecomputed: byte-compares the locally-binned [local] batch
+  /// with the plan's [fromPlan] at flush point [ordinal].
+  static void _verifyAgainstPlan(
+      int ordinal, StripBatchData? local, StripBatchData? fromPlan) {
+    void fail(String what) => throw StateError(
+        'precomputed plan diverges at flush point $ordinal: $what');
+    if ((local == null) != (fromPlan == null)) {
+      fail('local ${local == null ? 'empty' : 'batch'} vs plan '
+          '${fromPlan == null ? 'empty' : 'batch'}');
+    }
+    if (local == null || fromPlan == null) return;
+    if (local.stripCount != fromPlan.stripCount) {
+      fail('stripCount ${local.stripCount} vs ${fromPlan.stripCount}');
+    }
+    if (local.atlasWidth != fromPlan.atlasWidth ||
+        local.atlasHeight != fromPlan.atlasHeight) {
+      fail('atlas ${local.atlasWidth}x${local.atlasHeight} vs '
+          '${fromPlan.atlasWidth}x${fromPlan.atlasHeight}');
+    }
+    bool bytesEqual(List<int> a, List<int> b) {
+      if (a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) return false;
+      }
+      return true;
+    }
+
+    if (!bytesEqual(local.atlasPixels, fromPlan.atlasPixels)) {
+      fail('atlas bytes differ');
+    }
+    if (local.chunks.length != fromPlan.chunks.length) {
+      fail('chunk count ${local.chunks.length} vs ${fromPlan.chunks.length}');
+    }
+    for (var c = 0; c < local.chunks.length; c++) {
+      final a = local.chunks[c], b = fromPlan.chunks[c];
+      if (a.positions.length != b.positions.length ||
+          !bytesEqual(a.indices, b.indices) ||
+          !bytesEqual(a.colors, b.colors)) {
+        fail('chunk $c vertex data differs');
+      }
+      for (var i = 0; i < a.positions.length; i++) {
+        if (a.positions[i] != b.positions[i] ||
+            a.textureCoordinates[i] != b.textureCoordinates[i]) {
+          fail('chunk $c float data differs at $i');
+        }
+      }
+    }
+  }
 
   void _drawBatch(ui.FragmentProgram program, StripBatch batch) {
     final paint = ui.Paint();
