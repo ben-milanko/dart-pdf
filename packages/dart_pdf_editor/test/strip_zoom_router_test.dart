@@ -89,6 +89,13 @@ Future<ui.Image> settleRaster(WidgetTester tester, int width) async {
 }
 
 void main() {
+  test('stripZoomReplay defaults ON, guarded by the Impeller gate', () {
+    expect(PdfPageView.stripZoomReplay, isTrue,
+        reason: 'worker binning + the backend gate made this the default');
+    expect(PdfPageView.debugStripZoomReplayBackendOverride, isNull,
+        reason: 'production asks the engine (isShaderFilterSupported)');
+  });
+
   testWidgets('strip replay stays visually equivalent to the canvas replay',
       (tester) async {
     await tester.runAsync(() async {
@@ -142,7 +149,7 @@ void main() {
     PdfPageView.debugStripZoomReplayBackendOverride = true;
     addTearDown(() {
       PdfPageView.retainedZoomReplayMaxCommands = 20000;
-      PdfPageView.stripZoomReplay = false;
+      PdfPageView.stripZoomReplay = true; // the default
       PdfPageView.debugStripZoomReplayBackendOverride = null;
     });
     tester.view.devicePixelRatio = 1.0;
@@ -175,7 +182,7 @@ void main() {
     PdfPageView.debugStripZoomReplayBackendOverride = true;
     addTearDown(() {
       PdfPageView.retainedZoomReplayMaxCommands = 20000;
-      PdfPageView.stripZoomReplay = false;
+      PdfPageView.stripZoomReplay = true; // the default
       PdfPageView.debugStripZoomReplayBackendOverride = null;
     });
     tester.view.devicePixelRatio = 1.0;
@@ -206,7 +213,7 @@ void main() {
     PdfPageView.debugStripZoomReplayBackendOverride = false; // "software"
     addTearDown(() {
       PdfPageView.retainedZoomReplayMaxCommands = 20000;
-      PdfPageView.stripZoomReplay = false;
+      PdfPageView.stripZoomReplay = true; // the default
       PdfPageView.debugStripZoomReplayBackendOverride = null;
     });
     tester.view.devicePixelRatio = 1.0;

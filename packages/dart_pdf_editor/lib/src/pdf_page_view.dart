@@ -181,14 +181,24 @@ class PdfPageView extends StatefulWidget {
   /// retained replay costs about one frame.
   static int retainedZoomReplayMaxCommands = 20000;
 
-  /// Opt-in strip routing for pages ABOVE [retainedZoomReplayMaxCommands]:
-  /// when true they DO retain their scene, and zoom-driven re-rasters (full
-  /// page and deep-zoom detail patch) replay it through the sparse-strip
-  /// shader device ([PdfRetainedScene.rasterizeStrips]) at the new ratio
-  /// instead of re-rasterizing the cached nested picture. Pages under the
-  /// ceiling keep the flat canvas replay - strips lose on office pages
-  /// (fixed atlas-decode/replay overhead, and Impeller already rasterizes
-  /// light flat pictures quickly).
+  /// Strip routing for pages ABOVE [retainedZoomReplayMaxCommands]: they DO
+  /// retain their scene, and zoom-driven re-rasters (full page and deep-zoom
+  /// detail patch) replay it through the sparse-strip shader device
+  /// ([PdfRetainedScene.rasterizeStrips]) at the new ratio instead of
+  /// re-rasterizing the cached nested picture. Pages under the ceiling keep
+  /// the flat canvas replay - strips lose on office pages (fixed
+  /// atlas-decode/replay overhead, and Impeller already rasterizes light
+  /// flat pictures quickly).
+  ///
+  /// Default TRUE since worker-isolate strip binning landed: the two
+  /// concerns that kept #210's router opt-in are gone. (1) Backend: the
+  /// Impeller gate below turns the flag off automatically where strips
+  /// lose, so no host knowledge is needed. (2) UI-thread cost: with a
+  /// render worker attached the ~340 ms re-bin runs off-thread and the
+  /// settle blocks the UI ~35 ms (measured, ly9-far-cad p4) - decode the
+  /// plan, create engine objects, replay the tape. Set false to restore
+  /// the cached-picture zoom path for dense pages if a regression is ever
+  /// suspected in the field.
   ///
   /// Strip routing only engages on Impeller
   /// (`ui.ImageFilter.isShaderFilterSupported`, public API that is true iff
@@ -202,7 +212,7 @@ class PdfPageView extends StatefulWidget {
   /// the UI thread only uploads the precomputed batches and replays the
   /// tape. Without a worker (or when it declines) the re-bin runs locally
   /// on the UI thread, the honest cost of the fastest available settle.
-  static bool stripZoomReplay = false;
+  static bool stripZoomReplay = true;
 
   /// Test hook for the Impeller gate: `flutter test` runs on software Skia
   /// where `ui.ImageFilter.isShaderFilterSupported` is false, so strip

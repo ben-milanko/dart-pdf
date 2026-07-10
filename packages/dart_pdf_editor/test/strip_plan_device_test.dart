@@ -206,7 +206,7 @@ void main() {
     PdfPageView.debugStripZoomReplayBackendOverride = true;
     addTearDown(() {
       PdfPageView.retainedZoomReplayMaxCommands = 20000;
-      PdfPageView.stripZoomReplay = false;
+      PdfPageView.stripZoomReplay = true; // the default
       PdfPageView.debugStripZoomReplayBackendOverride = null;
     });
     tester.view.devicePixelRatio = 1.0;
