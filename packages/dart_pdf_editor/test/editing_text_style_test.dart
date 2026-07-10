@@ -137,7 +137,8 @@ void main() {
       var prompted = false;
       final editing = await pumpToolbar(
         tester,
-        styledTextPrompt: (context, {required initial}) async {
+        styledTextPrompt: (context,
+            {required initial, palette = const <Color>[]}) async {
           prompted = true;
           expect(initial, 'Hello World');
           return const PdfStyledTextEdit(
@@ -163,7 +164,9 @@ void main() {
     testWidgets('cancelling the prompt changes nothing', (tester) async {
       final editing = await pumpToolbar(
         tester,
-        styledTextPrompt: (context, {required initial}) async => null,
+        styledTextPrompt: (context,
+            {required initial, palette = const <Color>[]}) async =>
+            null,
       );
       editing.tool = PdfEditTool.content;
       expect(selectElementByText(editing, 'Hello World'), isTrue);
@@ -175,7 +178,7 @@ void main() {
   });
 
   group('showPdfStyledTextPrompt dialog', () {
-    testWidgets('returns edited text with bold selected', (tester) async {
+    Future<PdfStyledTextEdit?> openDialog(WidgetTester tester) async {
       PdfStyledTextEdit? result;
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -194,21 +197,65 @@ void main() {
       ));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+      return result;
+    }
 
-      expect(find.byKey(const ValueKey('pdf-styled-text-field')),
-          findsOneWidget);
+    testWidgets('reuses the Bold/Italic toggles and fill swatches',
+        (tester) async {
+      await openDialog(tester);
+      // the shared style controls are present
+      expect(find.byKey(const ValueKey('pdf-styled-bold')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-styled-italic')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-styled-size')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-styled-fill-none')), findsOneWidget);
+    });
+
+    testWidgets('an untouched dialog is a plain replacement', (tester) async {
+      await openDialog(tester);
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-styled-text-field')), 'Goodbye');
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-ok')));
+      await tester.pumpAndSettle();
+      // nothing touched → every style field stays null (keep the run's values)
+    });
+
+    testWidgets('bold selected forces the style, fill swatch sets colour',
+        (tester) async {
+      PdfStyledTextEdit? captured;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  captured = await showPdfStyledTextPrompt(context,
+                      initial: 'Hello',
+                      palette: const [Color(0xFFE53935)]);
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
       await tester.enterText(
           find.byKey(const ValueKey('pdf-styled-text-field')), 'Goodbye');
       await tester.tap(find.byKey(const ValueKey('pdf-styled-bold')));
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-fill-0')));
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('pdf-styled-ok')));
       await tester.pumpAndSettle();
 
-      expect(result, isNotNull);
-      expect(result!.text, 'Goodbye');
-      expect(result!.style.bold, isTrue);
-      expect(result!.style.italic, isNull);
-      expect(result!.style.color, isNull);
+      expect(captured, isNotNull);
+      expect(captured!.text, 'Goodbye');
+      expect(captured!.style.bold, isTrue);
+      // FontStyleToggles reports a whole font, so touching style sets both axes
+      expect(captured!.style.italic, isFalse);
+      expect(captured!.style.color, 0xE53935);
     });
   });
 }

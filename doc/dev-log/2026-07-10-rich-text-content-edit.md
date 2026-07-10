@@ -55,11 +55,19 @@ replacement.
 
 ## UI (`dart_pdf_editor`)
 
-- `text_style_prompt.dart`: `showPdfStyledTextPrompt` -> a dialog with a
-  text field, Bold/Italic `FilterChip`s (opt-in: selected forces on,
-  unselected leaves the attribute null/unchanged), a size field ("keep"
-  when blank), and a colour swatch that opens `showPdfColorPicker`.
-  Returns `PdfStyledTextEdit(text, style)`.
+- `text_style_prompt.dart`: `showPdfStyledTextPrompt` -> a dialog that
+  **reuses the toolbar's text-box style controls** (Ben's review ask on
+  #207): the shared `FontStyleToggles` (Bold/Italic), a font-size slider,
+  and a `PdfColorSwatchRow` for the fill, above a text field. Returns
+  `PdfStyledTextEdit(text, style)`. Overrides are opt-in - size/style/fill
+  stay null (keep the run's value) until touched, so an untouched dialog is
+  a plain replacement. `FontStyleToggles` reports a whole font, so touching
+  the style sets both bold and italic absolutely.
+- To share the colour row, `PdfColorSwatchRow` (+ its `_NoneSlashPainter`)
+  moved into `editing_font_controls.dart`; the toolbar's `_boxColorRow`
+  (Text fill / Text border / Shape fill) now delegates to it, so the popup
+  and the dialog render the exact same swatch row. Same keys
+  (`pdf-text-fill-*` etc.) - existing tune-popup tests unchanged.
 - Controller: `replaceStyledSelectedElementText(text, style,
   {fallbackFonts})` mirrors `replaceSelectedElementText`.
 - Toolbar: a new `pdf-style-element-text` button ("Edit text & style",

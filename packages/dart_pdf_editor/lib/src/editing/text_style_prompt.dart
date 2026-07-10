@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:pdf_document/pdf_document.dart' show PdfTextStyle;
+import 'package:pdf_document/pdf_document.dart'
+    show PdfStandardFont, PdfTextStyle;
 
-import 'editing_color_picker.dart';
+import 'editing_font_controls.dart';
+
+/// The quick-pick colours the styled-text dialog offers by default - the
+/// same set the toolbar uses. Overridden by the host's own palette when the
+/// toolbar opens the dialog.
+const List<Color> defaultStyledTextPalette = [
+  Color(0xFFE53935), // red
+  Color(0xFFFFD100), // marker yellow
+  Color(0xFF43A047), // green
+  Color(0xFF1E88E5), // blue
+  Color(0xFF000000), // black
+];
 
 /// The result of the styled-text editor ([showPdfStyledTextPrompt]): the new
 /// [text] plus the [style] overrides to apply to it.
@@ -21,28 +33,33 @@ class PdfStyledTextEdit {
 typedef PdfStyledTextPrompt = Future<PdfStyledTextEdit?> Function(
   BuildContext context, {
   required String initial,
+  List<Color> palette,
 });
 
-/// The default [PdfStyledTextPrompt]: a Material dialog with a text field, a
-/// colour swatch, a size field, and bold / italic toggles.
+/// The default [PdfStyledTextPrompt]: a Material dialog that reuses the
+/// toolbar's text-box style controls - the Bold/Italic [FontStyleToggles], a
+/// font-size slider, and a [PdfColorSwatchRow] for the fill - above a text
+/// field.
 ///
-/// The toggles and colour are opt-in overrides - untouched, they leave the
-/// existing appearance alone (the returned [PdfTextStyle] field stays null);
-/// selecting bold or italic forces it on for the whole replacement.
+/// Every override is opt-in: the size, style, and colour rows leave the
+/// run's existing value alone until the user touches them, so an untouched
+/// dialog is a plain text replacement (all [PdfTextStyle] fields null).
 Future<PdfStyledTextEdit?> showPdfStyledTextPrompt(
   BuildContext context, {
   required String initial,
+  List<Color> palette = defaultStyledTextPalette,
 }) {
   return showDialog<PdfStyledTextEdit>(
     context: context,
-    builder: (context) => _StyledTextDialog(initial: initial),
+    builder: (context) => _StyledTextDialog(initial: initial, palette: palette),
   );
 }
 
 class _StyledTextDialog extends StatefulWidget {
-  const _StyledTextDialog({required this.initial});
+  const _StyledTextDialog({required this.initial, required this.palette});
 
   final String initial;
+  final List<Color> palette;
 
   @override
   State<_StyledTextDialog> createState() => _StyledTextDialogState();
@@ -51,33 +68,28 @@ class _StyledTextDialog extends StatefulWidget {
 class _StyledTextDialogState extends State<_StyledTextDialog> {
   late final TextEditingController _text =
       TextEditingController(text: widget.initial);
-  final TextEditingController _size = TextEditingController();
-  bool _bold = false;
-  bool _italic = false;
-  Color? _color;
+
+  // Overrides are opt-in: each stays null (keep the run's value) until its
+  // control is touched. FontStyleToggles works on an absolute font, so a
+  // separate flag records whether the style was changed at all.
+  PdfStandardFont _font = PdfStandardFont.helvetica;
+  bool _styleTouched = false;
+  double _size = 14;
+  bool _sizeTouched = false;
+  Color? _fill;
 
   @override
   void dispose() {
     _text.dispose();
-    _size.dispose();
     super.dispose();
   }
 
-  Future<void> _pickColor() async {
-    final picked = await showPdfColorPicker(
-      context,
-      initial: _color ?? const Color(0xFF000000),
-    );
-    if (picked != null) setState(() => _color = picked);
-  }
-
   void _submit() {
-    final size = double.tryParse(_size.text.trim());
     final style = PdfTextStyle(
-      color: _color == null ? null : (_color!.toARGB32() & 0xFFFFFF),
-      fontSize: size != null && size > 0 ? size : null,
-      bold: _bold ? true : null,
-      italic: _italic ? true : null,
+      color: _fill == null ? null : (_fill!.toARGB32() & 0xFFFFFF),
+      fontSize: _sizeTouched ? _size : null,
+      bold: _styleTouched ? _font.isBold : null,
+      italic: _styleTouched ? _font.isItalic : null,
     );
     Navigator.of(context).pop(PdfStyledTextEdit(_text.text, style));
   }
@@ -86,82 +98,67 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Edit text & style'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              key: const ValueKey('pdf-styled-text-field'),
-              controller: _text,
-              autofocus: true,
-              maxLines: 1,
-              decoration: const InputDecoration(labelText: 'Text'),
-              onSubmitted: (_) => _submit(),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                FilterChip(
-                  key: const ValueKey('pdf-styled-bold'),
-                  label: const Text('Bold',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  selected: _bold,
-                  onSelected: (v) => setState(() => _bold = v),
-                ),
-                const SizedBox(width: 8),
-                FilterChip(
-                  key: const ValueKey('pdf-styled-italic'),
-                  label: const Text('Italic',
-                      style: TextStyle(fontStyle: FontStyle.italic)),
-                  selected: _italic,
-                  onSelected: (v) => setState(() => _italic = v),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
+      content: SizedBox(
+        width: 320,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                key: const ValueKey('pdf-styled-text-field'),
+                controller: _text,
+                autofocus: true,
+                maxLines: 1,
+                decoration: const InputDecoration(labelText: 'Text'),
+                onSubmitted: (_) => _submit(),
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                const SizedBox(width: 86, child: Text('Font size')),
                 Expanded(
-                  child: TextField(
+                  child: Slider(
                     key: const ValueKey('pdf-styled-size'),
-                    controller: _size,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Size (pt)',
-                      hintText: 'keep',
-                    ),
+                    value: _size,
+                    min: 6,
+                    max: 96,
+                    onChanged: (v) => setState(() {
+                      _size = v.roundToDouble();
+                      _sizeTouched = true;
+                    }),
                   ),
                 ),
-                const SizedBox(width: 16),
-                InkWell(
-                  key: const ValueKey('pdf-styled-color'),
-                  onTap: _pickColor,
-                  borderRadius: BorderRadius.circular(4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: _color ?? Colors.transparent,
-                          border: Border.all(color: Colors.grey),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: _color == null
-                            ? const Icon(Icons.format_color_text, size: 18)
-                            : null,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(_color == null ? 'Colour' : 'Colour'),
-                    ],
+                SizedBox(
+                  width: 52,
+                  child: Text(
+                    _sizeTouched ? '${_size.round()} pt' : 'keep',
+                    textAlign: TextAlign.right,
                   ),
                 ),
-              ],
-            ),
-          ],
+              ]),
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(children: [
+                  const SizedBox(width: 86, child: Text('Style')),
+                  FontStyleToggles(
+                    keyPrefix: 'pdf-styled',
+                    font: _font,
+                    onChanged: (font) => setState(() {
+                      _font = font;
+                      _styleTouched = true;
+                    }),
+                  ),
+                ]),
+              ),
+              PdfColorSwatchRow(
+                label: 'Text fill',
+                keyPrefix: 'pdf-styled-fill',
+                value: _fill,
+                palette: widget.palette,
+                onChanged: (color) => setState(() => _fill = color),
+              ),
+            ],
+          ),
         ),
       ),
       actions: [

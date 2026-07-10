@@ -595,6 +595,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final result = await widget.styledTextPrompt(
       context,
       initial: element.text ?? '',
+      palette: widget.palette,
     );
     if (result == null) return;
     if (result.text.isEmpty ||
@@ -2961,75 +2962,21 @@ class _StyleMenuState extends State<_StyleMenu> {
 
   /// One text-box color row: a "none" swatch, the palette, and a custom
   /// picker. [onChanged] receives the chosen color, or null for none.
+  /// Shares [PdfColorSwatchRow] with the content text-style dialog.
   Widget _boxColorRow({
     required BuildContext context,
     required String label,
     required String keyPrefix,
     required Color? value,
     required ValueChanged<Color?> onChanged,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    Widget swatch(
-            {required Key key,
-            required Color? color,
-            required bool selected,
-            required VoidCallback onTap}) =>
-        Padding(
-          // 1px keeps six swatches + the picker inside the menu's 268px
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-          child: InkWell(
-            key: key,
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                color: color ?? const Color(0xFFFFFFFF),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: selected ? scheme.primary : scheme.outline,
-                  width: selected ? 3 : 1,
-                ),
-              ),
-              child: color == null
-                  ? const CustomPaint(painter: _NoneSlashPainter())
-                  : null,
-            ),
-          ),
-        );
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(children: [
-        SizedBox(width: 86, child: Text(label)),
-        swatch(
-          key: ValueKey('$keyPrefix-none'),
-          color: null,
-          selected: value == null,
-          onTap: () => onChanged(null),
-        ),
-        for (var i = 0; i < widget.palette.length; i++)
-          swatch(
-            key: ValueKey('$keyPrefix-$i'),
-            color: widget.palette[i],
-            selected: value != null &&
-                (value.toARGB32() & 0xFFFFFF) ==
-                    (widget.palette[i].toARGB32() & 0xFFFFFF),
-            onTap: () => onChanged(widget.palette[i]),
-          ),
-        IconButton(
-          icon: const Icon(Icons.palette_outlined, size: 18),
-          tooltip: 'More colors…',
-          visualDensity: VisualDensity.compact,
-          onPressed: () async {
-            final picked = await showPdfColorPicker(context,
-                initial: value ?? const Color(0xFFFFFFFF));
-            if (picked != null) onChanged(picked);
-          },
-        ),
-      ]),
-    );
-  }
+  }) =>
+      PdfColorSwatchRow(
+        label: label,
+        keyPrefix: keyPrefix,
+        value: value,
+        palette: widget.palette,
+        onChanged: onChanged,
+      );
 
   /// A short human label for a line ending in the picker.
   static String _endingLabel(PdfLineEnding ending) => switch (ending) {
@@ -3628,21 +3575,3 @@ class _LineEndingPainter extends CustomPainter {
       old.ending != ending || old.atEnd != atEnd || old.color != color;
 }
 
-/// The "no color" swatch's red diagonal slash.
-class _NoneSlashPainter extends CustomPainter {
-  const _NoneSlashPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawLine(
-        Offset(3, size.height - 3),
-        Offset(size.width - 3, 3),
-        Paint()
-          ..color = const Color(0xFFE53935)
-          ..strokeWidth = 1.5
-          ..strokeCap = StrokeCap.round);
-  }
-
-  @override
-  bool shouldRepaint(_NoneSlashPainter oldDelegate) => false;
-}
