@@ -77,6 +77,20 @@ void runPdfRenderWorker() {
       return;
     }
 
+    if (kind == 'bin') {
+      // Strip-plan binning is not offloaded on the web yet (the web client's
+      // binStrips inherits the declining default and never sends this), but
+      // reply null rather than silently dropping the message so a future or
+      // mismatched client degrades to a local bin instead of hanging its
+      // in-flight slot.
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      scope.postMessage(JSObject()
+        ..setProperty('kind'.toJS, 'result'.toJS)
+        ..setProperty('id'.toJS, id.toJS)
+        ..setProperty('buffer'.toJS, null));
+      return;
+    }
+
     if (kind != 'record') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;

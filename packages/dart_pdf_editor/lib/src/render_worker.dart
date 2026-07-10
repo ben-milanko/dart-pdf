@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_graphics/raster.dart' show StripPlan;
 
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
@@ -107,6 +108,8 @@ PdfRenderWorker startPdfRenderWorker(Uint8List bytes,
 /// editing session must dispose and restart the worker when the document's
 /// bytes change (or simply not use one).
 abstract class PdfRenderWorker {
+  const PdfRenderWorker();
+
   /// Starts the platform's worker over [bytes] (the document image the page
   /// indices passed to [record] refer to). Native: a long-lived background
   /// isolate that opens its own [PdfDocument]. Web: a Web Worker over the
@@ -205,6 +208,53 @@ abstract class PdfRenderWorker {
   /// [PdfPageView] does this by abandoning when it is unmounted or superseded.
   void cancel(int pageIndex, {int priority = 0});
 
+  /// Bins page [pageIndex]'s sparse strips off-thread for the exact device
+  /// geometry a strip-routed zoom settle is about to rasterize, returning a
+  /// [StripPlan] the caller feeds to `StripPdfDevice(precomputed:)` (via
+  /// `PdfRetainedScene.rasterizeStrips(stripPlan:)`), or null when the page
+  /// can't be binned off-thread - the platform has no worker, the worker
+  /// failed/was disposed/was cancelled, or the page declines - and the
+  /// caller bins locally.
+  ///
+  /// [pageToDevice] is the six coefficients (a, b, c, d, e, f) of the
+  /// page-space -> device-pixel [PdfMatrix] the consuming device will be
+  /// constructed with (the scene's own zoom/region transform); they round-
+  /// trip bit-exactly, so the device's stale-plan guard can compare them
+  /// with `==`. [deviceWidth]/[deviceHeight] are the strip viewport in
+  /// pixels and [pixelRatio] the ratio baked into the matrix.
+  ///
+  /// [annotations] must match the recording the caller's retained scene was
+  /// built from - the worker re-records the page in its own isolate
+  /// (interpretation is deterministic, so the command list matches the
+  /// scene's) and replays it through a headless strip binner.
+  ///
+  /// [priority] shares [record]'s queue ordering; the default 0 is the
+  /// on-screen page - a zoom settle IS the visible page, so it preempts
+  /// background prefetch exactly like a visible record.
+  ///
+  /// The base implementation declines (null): platforms and wrappers that
+  /// don't offload strip binning - the stub and the web worker today -
+  /// inherit it.
+  Future<StripPlan?> binStrips(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    int priority = 0,
+  }) async =>
+      null;
+
+  /// Drops any QUEUED (not yet started) [binStrips] request for [pageIndex]
+  /// at [priority], completing its future with null. Superseded settles
+  /// call this so the worker's next slot bins the geometry the user is
+  /// actually looking at instead of a stale one; the abandoning caller must
+  /// not fall back to a local bin for the superseded settle (PdfPageView's
+  /// generation guard takes care of that). In-flight preemption rides the
+  /// same cooperative cancellation as [cancel].
+  void cancelBinStrips(int pageIndex, {int priority = 0}) {}
+
   /// Whether this worker actually offloads. False for the null fallback, so
   /// callers can skip the round-trip and render locally without asking.
   bool get isActive;
@@ -243,7 +293,7 @@ abstract class PdfRenderWorker {
 /// bypass the ordinary pool through a lazily-created one-off worker. A page
 /// jump should not wait behind several already-started background records that
 /// cannot receive cancellation until their synchronous parse step yields.
-class PdfPooledRenderWorker implements PdfRenderWorker {
+class PdfPooledRenderWorker extends PdfRenderWorker {
   /// Starts [size] platform workers over copies of [bytes]. [size] is clamped to
   /// at least 1; a pool of 1 is just a single worker with this routing wrapper.
   PdfPooledRenderWorker(Uint8List bytes, int size)
@@ -381,6 +431,38 @@ class PdfPooledRenderWorker implements PdfRenderWorker {
     _cancelWorkerFor(pageIndex, priority).cancel(pageIndex, priority: priority);
   }
 
+  /// Strip binning routes by the STATIC page index, not the least-loaded
+  /// worker: each worker keeps a small per-isolate command cache (plus the
+  /// process-global glyph/shape strip caches) warm for the pages it has
+  /// binned, and a zoom session hammers ONE page with a fresh geometry per
+  /// settle - stable affinity turns every settle after the first into a
+  /// command-cache hit, while least-loaded routing would scatter the
+  /// settles across workers and re-record the page on each of them.
+  @override
+  Future<StripPlan?> binStrips(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    int priority = 0,
+  }) =>
+      _workers[_staticWorkerIndex(pageIndex)].binStrips(
+        pageIndex,
+        annotations: annotations,
+        pageToDevice: pageToDevice,
+        deviceWidth: deviceWidth,
+        deviceHeight: deviceHeight,
+        pixelRatio: pixelRatio,
+        priority: priority,
+      );
+
+  @override
+  void cancelBinStrips(int pageIndex, {int priority = 0}) =>
+      _workers[_staticWorkerIndex(pageIndex)]
+          .cancelBinStrips(pageIndex, priority: priority);
+
   @override
   void dispose() {
     _routes.clear();
@@ -446,7 +528,7 @@ typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
 /// requests pile up before any finishes. Sharing the in-flight future collapses
 /// those repeats into one decode per page. A scrolled-away page is cancelled
 /// for every sharer at once, which is correct - none of them want it any more.
-class PdfCachingRenderWorker implements PdfRenderWorker {
+class PdfCachingRenderWorker extends PdfRenderWorker {
   PdfCachingRenderWorker(this._inner, {int? budgetBytes})
       : _budgetBytes = budgetBytes ?? pdfRenderWorkerCacheBudgetBytes;
 
@@ -563,6 +645,34 @@ class PdfCachingRenderWorker implements PdfRenderWorker {
   @override
   void cancel(int pageIndex, {int priority = 0}) =>
       _inner.cancel(pageIndex, priority: priority);
+
+  /// Pure passthrough - strip plans are never cached. A plan is only valid
+  /// for the exact zoom/region matrix it was binned for, and every settle
+  /// carries a fresh one, so a cache entry could never be re-used (and a
+  /// CAD-sheet plan is tens of MB the LRU would evict real records for).
+  @override
+  Future<StripPlan?> binStrips(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    int priority = 0,
+  }) =>
+      _inner.binStrips(
+        pageIndex,
+        annotations: annotations,
+        pageToDevice: pageToDevice,
+        deviceWidth: deviceWidth,
+        deviceHeight: deviceHeight,
+        pixelRatio: pixelRatio,
+        priority: priority,
+      );
+
+  @override
+  void cancelBinStrips(int pageIndex, {int priority = 0}) =>
+      _inner.cancelBinStrips(pageIndex, priority: priority);
 
   @override
   void dispose() {

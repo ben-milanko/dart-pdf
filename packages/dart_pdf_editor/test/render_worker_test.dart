@@ -31,7 +31,7 @@ PdfImageRequest? _firstImage(List<PdfRenderCommand> commands) {
 /// PdfPageView's worker render path - including the progressive vector-first
 /// pass - runs deterministically under pump(). Honors [decodeImages] exactly
 /// like the real backends.
-class _SyncWorker implements PdfRenderWorker {
+class _SyncWorker extends PdfRenderWorker {
   _SyncWorker(this._bytes);
 
   final Uint8List _bytes;
@@ -900,7 +900,7 @@ void main() {
 /// A [PdfRenderWorker] that records each [record] call and returns a synthetic
 /// buffer of a chosen decoded weight - for exercising [PdfCachingRenderWorker]
 /// without a real isolate or document.
-class _CountingWorker implements PdfRenderWorker {
+class _CountingWorker extends PdfRenderWorker {
   _CountingWorker({this.decodedPixels = 0, this.returnNull = false});
 
   /// Decoded pixels carried by each returned buffer (an N×N image, so the
@@ -954,7 +954,7 @@ class _CountingWorker implements PdfRenderWorker {
   }
 }
 
-class _ManualWorker implements PdfRenderWorker {
+class _ManualWorker extends PdfRenderWorker {
   final calls = <(int, bool, bool, double?)>[];
   final priorities = <int>[];
   final cancels = <(int, int)>[];
@@ -1004,7 +1004,7 @@ class _ManualWorker implements PdfRenderWorker {
   }
 }
 
-class _HangingWorker implements PdfRenderWorker {
+class _HangingWorker extends PdfRenderWorker {
   final callsByKey = <(int, int), int>{};
   final cancels = <(int, int)>[];
   final _pending = <Completer<List<PdfRenderCommand>?>>[];

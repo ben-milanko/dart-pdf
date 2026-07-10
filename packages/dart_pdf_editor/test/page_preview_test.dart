@@ -493,7 +493,7 @@ void main() {
   });
 }
 
-class _PreviewWorker implements PdfRenderWorker {
+class _PreviewWorker extends PdfRenderWorker {
   final calls = <(int, bool, double?)>[];
 
   @override
@@ -525,7 +525,7 @@ class _PreviewWorker implements PdfRenderWorker {
   void dispose() {}
 }
 
-class _DecliningWorker implements PdfRenderWorker {
+class _DecliningWorker extends PdfRenderWorker {
   final calls = <(int, bool, double?)>[];
 
   @override
@@ -550,7 +550,7 @@ class _DecliningWorker implements PdfRenderWorker {
   void dispose() {}
 }
 
-class _VectorOnlyWorker implements PdfRenderWorker {
+class _VectorOnlyWorker extends PdfRenderWorker {
   final commandLimits = <int?>[];
 
   @override

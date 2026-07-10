@@ -77,7 +77,7 @@ PdfRenderWorker startRenderWorker(Uint8List bytes) {
   }
 }
 
-class _WebRenderWorker implements PdfRenderWorker {
+class _WebRenderWorker extends PdfRenderWorker {
   _WebRenderWorker(Uint8List bytes, String scriptUrl) {
     final worker = web.Worker(scriptUrl.toJS);
     _worker = worker;
