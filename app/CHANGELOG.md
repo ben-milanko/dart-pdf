@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Windows: Snapshots now copy to the system clipboard instead of failing with
+  "Could not copy snapshot to clipboard". The desktop clipboard channel had no
+  Windows handler, so the image never reached the OS clipboard.
 - Mobile: Recent files and the last session now reopen without a fresh pick.
   Opened PDFs are snapshotted into the app's private store, so tapping a Recent
   entry (or relaunching) reopens the document directly instead of showing "Pick
