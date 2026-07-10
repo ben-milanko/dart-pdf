@@ -205,6 +205,50 @@ void main() {
     });
   });
 
+  group('AA evaluator', () {
+    test('dual-ray AA coverage tracks supersampled area coverage', () {
+      for (final char in ['a', 'g', 'B', 'o']) {
+        final quads = outlineToQuads(outlineOf(char));
+        final bands = buildBands(quads, bandCount: 8);
+        const size = 24.0;
+        const w = 32, h = 32;
+        const m = PdfMatrix(size, 0, 0, -size, 4, 26);
+        final inv = m.inverted()!;
+        var sum = 0.0;
+        var maxD = 0.0;
+        for (var py = 0; py < h; py++) {
+          for (var px = 0; px < w; px++) {
+            // ground truth: supersampled binary winding (area coverage)
+            var inside = 0;
+            const ss = 8;
+            for (var sy = 0; sy < ss; sy++) {
+              for (var sx = 0; sx < ss; sx++) {
+                final ex = inv.transformX(px + (sx + 0.5) / ss, py + (sy + 0.5) / ss);
+                final ey = inv.transformY(px + (sx + 0.5) / ss, py + (sy + 0.5) / ss);
+                if (glyphWindingAt(quads, bands, ex, ey) != 0) inside++;
+              }
+            }
+            final want = inside / (ss * ss);
+            final ex = inv.transformX(px + 0.5, py + 0.5);
+            final ey = inv.transformY(px + 0.5, py + 0.5);
+            final got = glyphCoverageAA(quads, bands, ex, ey, size, size);
+            final d = (got - want).abs();
+            sum += d;
+            if (d > maxD) maxD = d;
+          }
+        }
+        final mean = 255 * sum / (w * h);
+        // ignore: avoid_print
+        print('AA-REF: "$char" mean ${mean.toStringAsFixed(2)}/255 '
+            'max ${(255 * maxD).toStringAsFixed(0)}/255');
+        // The dual-ray approximation is not exact area coverage (corners,
+        // thin features), but must track it closely on body text.
+        expect(mean, lessThanOrEqualTo(4.0),
+            reason: '"\$char" AA coverage drifts from area coverage');
+      }
+    });
+  });
+
   group('texel encoding', () {
     test('fixed point roundtrips within 1/8192 em', () {
       for (final v in [-3.999, -1.0, -0.123456, 0.0, 0.5, 1.25, 3.999]) {
@@ -231,10 +275,10 @@ void main() {
       expect(curveCount, quads.length);
 
       final decoded = <QuadCurve>[];
-      final decodedBands = <List<int>>[];
       final curveBase = 1 +
-          bandCount +
-          bands.bands.fold<int>(0, (a, b) => a + b.length);
+          2 * bandCount +
+          bands.bands.fold<int>(0, (a, b) => a + b.length) +
+          bands.vBands.fold<int>(0, (a, b) => a + b.length);
       for (var b = 0; b < bandCount; b++) {
         final (offset, count) = texel(1 + b);
         final refs = <int>[];
@@ -243,9 +287,16 @@ void main() {
           expect((curveTexel - curveBase) % 3, 0);
           refs.add((curveTexel - curveBase) ~/ 3);
         }
-        decodedBands.add(refs);
         expect(refs, bands.bands[b].toList(),
-            reason: 'band $b reference list');
+            reason: 'horizontal band $b reference list');
+        final (vOffset, vCount) = texel(1 + bandCount + b);
+        final vRefs = <int>[];
+        for (var i = 0; i < vCount; i++) {
+          final (curveTexel, _) = texel(vOffset + i);
+          vRefs.add((curveTexel - curveBase) ~/ 3);
+        }
+        expect(vRefs, bands.vBands[b].toList(),
+            reason: 'vertical band $b reference list');
       }
       for (var i = 0; i < curveCount; i++) {
         final (x0, y0) = texel(curveBase + 3 * i);
