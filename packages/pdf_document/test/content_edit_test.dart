@@ -431,6 +431,34 @@ void main() {
       expect(pageText(out), contains('] TJ'));
     });
 
+    test('italic substitutes the oblique base-14 variant', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(italic: true));
+      final fonts =
+          out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
+      final oblique = fonts.entries.values
+          .map((v) => out.cos.resolve(v))
+          .whereType<CosDictionary>()
+          .where((f) => f['BaseFont'] == const CosName('Helvetica-Oblique'));
+      expect(oblique, isNotEmpty);
+    });
+
+    test('restores a /cs + scn nonstroking colour after the replacement', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf /DeviceRGB cs 0 0 1 scn 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(color: 0xFF0000));
+      final afterHi = pageText(out);
+      final tail = afterHi.substring(afterHi.indexOf('(Hi) Tj'));
+      // the colourspace and its scn value are both put back for " World"
+      expect(tail, contains('/DeviceRGB cs'));
+      expect(tail, contains('0 0 1 scn'));
+    });
+
     test('an empty style behaves like a plain replaceText', () {
       final out = styledEdit(
           'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
