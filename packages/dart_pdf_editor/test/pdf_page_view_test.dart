@@ -40,6 +40,37 @@ void main() {
     expect(zoomed.width, 612 * 3);
   });
 
+  testWidgets(
+      'pages denser than retainedZoomReplayMaxCommands zoom via the '
+      'cached-picture fallback', (tester) async {
+    // Force every page over the density ceiling: no scene is retained and
+    // the zoom re-raster must take the classic nested-picture path (the
+    // same code retainedZoomReplay=false uses). Same assertions as the
+    // retained-path test above - the two paths are byte-identical, so only
+    // the raster geometry is observable.
+    PdfPageView.retainedZoomReplayMaxCommands = 0;
+    addTearDown(() => PdfPageView.retainedZoomReplayMaxCommands = 20000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+        child:
+            SizedBox(width: 612, child: PdfPageView(page: page, scale: scale)));
+
+    await tester.pumpWidget(at(1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    final base = tester.widget<RawImage>(find.byType(RawImage)).image!;
+    expect(base.width, 612);
+
+    await tester.pumpWidget(at(3));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    final zoomed = tester.widget<RawImage>(find.byType(RawImage)).image!;
+    expect(zoomed.width, 612 * 3);
+  });
+
   testWidgets('raster resolution follows the on-screen width', (tester) async {
     // Regression: rasters were sized from the page's nominal point size,
     // so a page stretched across a wide window (or a big external

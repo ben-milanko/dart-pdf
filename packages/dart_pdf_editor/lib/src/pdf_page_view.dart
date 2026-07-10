@@ -12,11 +12,16 @@ import 'preview_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
+import 'retained_scene.dart';
 
 /// Displays a single PDF page, rendered natively in Dart.
 ///
-/// The page is interpreted once into a [ui.Picture]; changing [scale] only
-/// re-rasterizes that cached picture, so zoom-driven re-renders are cheap.
+/// The page is interpreted once into a [ui.Picture] and, by default, its
+/// command transcript is retained as a [PdfRetainedScene]; changing [scale]
+/// replays that scene into a fresh flat picture at the new resolution -
+/// no re-interpretation, no image re-decoding, and no nested-picture
+/// re-raster (which Impeller rasterizes several times slower than a flat
+/// replay of the same draws).
 /// Past the full-page raster caps, a detail patch covering the visible
 /// part of the page (inflated for panning headroom) renders at full
 /// resolution on top of the capped base - single patch, not a tile grid,
@@ -152,12 +157,43 @@ class PdfPageView extends StatefulWidget {
   /// patch can follow the viewport without the viewer knowing about it.
   final int settleGeneration;
 
+  /// Kill switch for the retained-scene zoom replay. When true (the
+  /// default) the page's recorded command buffer and decoded images are
+  /// retained alongside the cached picture, and zoom re-rasters replay them
+  /// into a flat picture at the new ratio - byte-identical output
+  /// (retained_scene_test.dart), several times faster under Impeller. Set
+  /// false to restore the previous behavior (re-rasterize the cached
+  /// [ui.Picture]) if a regression is ever suspected in the field.
+  static bool retainedZoomReplay = true;
+
+  /// Command-count ceiling above which a page does NOT retain its scene and
+  /// keeps the classic cached-picture zoom path.
+  ///
+  /// Replay cost is linear in the command count and runs on the UI thread
+  /// (~0.7 µs/command measured), so a dense CAD sheet - the corpus stress
+  /// case records ~99k commands - would pay ~65 ms of UI-thread replay per
+  /// zoom settle where the nested-picture path pays ~3 ms and ships the
+  /// raster off-thread. Not retaining (rather than retaining-but-not-
+  /// replaying) also skips the command buffer's memory (~31 MB for that
+  /// sheet) on exactly the pages where replay is never used. Office pages
+  /// record a few hundred commands; at the 20k default a worst-case
+  /// retained replay costs about one frame.
+  static int retainedZoomReplayMaxCommands = 20000;
+
   @override
   State<PdfPageView> createState() => _PdfPageViewState();
 }
 
 class _PdfPageViewState extends State<PdfPageView> {
   Future<ui.Picture>? _picture;
+
+  /// The page retained as a replayable scene (commands + decoded images),
+  /// produced by the same interpret that yielded [_picture]. Zoom re-rasters
+  /// replay it into a flat picture at the new ratio instead of re-reading
+  /// the nested cached picture. Null on fallback paths (then the classic
+  /// [_picture] re-raster runs) and when [PdfPageView.retainedZoomReplay]
+  /// is off. Lives and dies with [_picture] (see [_dropPicture]).
+  PdfRetainedScene? _scene;
   ui.Image? _image;
   int _renderGeneration = 0;
   double? _pixelRatio;
@@ -361,7 +397,16 @@ class _PdfPageViewState extends State<PdfPageView> {
   void _dropPicture() {
     _picture?.then((picture) => picture.dispose());
     _picture = null;
+    _setScene(null); // the scene transcribes the same content as the picture
     _rasteredRatio = null; // the next picture must re-raster, not be skipped
+  }
+
+  /// Adopts [scene] as the page's retained scene, disposing the previous
+  /// one. Outstanding pictures replayed from the old scene keep painting
+  /// (they hold their own image refs); only new replays need the new scene.
+  void _setScene(PdfRetainedScene? scene) {
+    _scene?.dispose();
+    _scene = scene;
   }
 
   void _dropDetail() {
@@ -441,7 +486,12 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// records the page on a background isolate and replays the returned
   /// command buffer here (cheap); image-bearing pages come back null and
   /// fall through to the local recorded render.
-  Future<ui.Picture?> _interpretPicture() async {
+  ///
+  /// Both paths go through a recorded command buffer, so alongside the
+  /// picture they also return the [PdfRetainedScene] built from that same
+  /// buffer (null when [PdfPageView.retainedZoomReplay] is off) - the caller
+  /// adopts it once the render is known not to be superseded.
+  Future<(ui.Picture, PdfRetainedScene?)?> _interpretPicture() async {
     final pageIndex = widget.previewIndex;
     final worker = widget.renderWorker;
     if (worker != null && worker.isActive) {
@@ -461,22 +511,64 @@ class _PdfPageViewState extends State<PdfPageView> {
       // what the worker exists to avoid. Note we DON'T gate on the render
       // generation here: a newer same-page render (e.g. a zoom mid-interpret)
       // reuses this very future, so the picture must still be produced for it.
-      if (_abandoned(pageIndex)) return _emptyPicture();
+      if (_abandoned(pageIndex)) return (_emptyPicture(), null);
       if (commands != null) {
         if (_renderPaused) return null;
         _lastInterpretPath = 'worker';
         _logImageStats(pageIndex, commands);
-        return PdfPageRenderer.pictureFromCommandsWithPlan(
-            widget.page, commands, _renderPlan);
+        return _replayableFromCommands(commands);
       }
     }
-    if (_abandoned(pageIndex)) return _emptyPicture();
+    if (_abandoned(pageIndex)) return (_emptyPicture(), null);
     if (_renderPaused) return null;
     // The worker may be active yet decline this page (it returns null), in
     // which case the interpret runs here - the log must say so, not 'worker'.
     _lastInterpretPath = 'recorded';
-    return PdfPageRenderer.renderPictureRecordedWithPlan(
-        widget.page, _renderPlan);
+    if (!PdfPageView.retainedZoomReplay) {
+      return (
+        await PdfPageRenderer.renderPictureRecordedWithPlan(
+            widget.page, _renderPlan),
+        null,
+      );
+    }
+    // Same record + decode renderPictureRecordedWithPlan runs internally,
+    // but the command buffer and decoded images are kept for zoom replays
+    // instead of being discarded after the 1:1 replay below.
+    final scene = await PdfRetainedScene.record(widget.page, plan: _renderPlan);
+    if (!_retainScene(scene.commands.length)) {
+      // Too dense to replay per zoom settle: take the 1:1 picture (it holds
+      // its own image refs) and drop the scene - the classic cached-picture
+      // path serves this page's zooms.
+      final picture = scene.replay(pixelRatio: 1);
+      scene.dispose();
+      return (picture, null);
+    }
+    return (scene.replay(pixelRatio: 1), scene);
+  }
+
+  /// Whether a page recorded as [commandCount] top-level commands should
+  /// retain its scene - the [PdfPageView.retainedZoomReplay] switch plus the
+  /// [PdfPageView.retainedZoomReplayMaxCommands] density ceiling.
+  static bool _retainScene(int commandCount) =>
+      PdfPageView.retainedZoomReplay &&
+      commandCount <= PdfPageView.retainedZoomReplayMaxCommands;
+
+  /// Builds the picture (and, unless [PdfPageView.retainedZoomReplay] is
+  /// off, the retained scene) from a recorded command buffer. One decode
+  /// pass serves both, and the picture IS the scene's own 1:1 replay, so
+  /// the pair can never disagree.
+  Future<(ui.Picture, PdfRetainedScene?)> _replayableFromCommands(
+      List<PdfRenderCommand> commands) async {
+    if (!_retainScene(commands.length)) {
+      return (
+        await PdfPageRenderer.pictureFromCommandsWithPlan(
+            widget.page, commands, _renderPlan),
+        null,
+      );
+    }
+    final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
+        plan: _renderPlan);
+    return (scene.replay(pixelRatio: 1), scene);
   }
 
   /// Progressive rendering's fast first pass: records the page WITHOUT decoding
@@ -502,11 +594,24 @@ class _PdfPageViewState extends State<PdfPageView> {
 
     if (!PdfPageRenderer.hasImageDraws(commands)) {
       // Image-free page: this fast buffer already is the complete page. Cache
-      // it so the full pass reuses it instead of recording a second time; the
-      // normal raster path below paints it.
+      // it (and its retained scene) so the full pass reuses it instead of
+      // recording a second time; the normal raster path below paints it.
       _lastInterpretPath = 'worker';
-      _picture = PdfPageRenderer.pictureFromCommandsWithPlan(
-          widget.page, commands, _renderPlan);
+      if (_retainScene(commands.length)) {
+        // No images to decode, so this completes synchronously in practice.
+        final scene = await PdfRetainedScene.fromCommands(
+            widget.page, commands,
+            plan: _renderPlan);
+        if (_superseded(generation, pageIndex)) {
+          scene.dispose();
+          return;
+        }
+        _setScene(scene);
+        _picture = Future.value(scene.replay(pixelRatio: 1));
+      } else {
+        _picture = PdfPageRenderer.pictureFromCommandsWithPlan(
+            widget.page, commands, _renderPlan);
+      }
       return;
     }
 
@@ -609,12 +714,15 @@ class _PdfPageViewState extends State<PdfPageView> {
         if (!_superseded(generation, pageIndex)) _render();
         return;
       }
+      final (interpretedPicture, interpretedScene) = interpreted;
       if (_superseded(generation, pageIndex)) {
-        interpreted.dispose();
+        interpretedPicture.dispose();
+        interpretedScene?.dispose();
         return;
       }
-      _picture = Future.value(interpreted);
-      picture = interpreted;
+      _picture = Future.value(interpretedPicture);
+      if (interpretedScene != null) _setScene(interpretedScene);
+      picture = interpretedPicture;
     }
     sw.stop();
     // Bail before logging when superseded - an abandoned interpret (page
@@ -641,8 +749,15 @@ class _PdfPageViewState extends State<PdfPageView> {
         _render();
         return;
       }
-      final image = await PdfPageRenderer.rasterize(
-          picture, _renderPlan.pageSize(widget.page), effective);
+      // Replay the retained scene into a flat picture at the new ratio when
+      // one is held - Impeller rasterizes that several times faster than the
+      // nested drawPicture re-raster, with byte-identical output. Fallback
+      // paths (no scene, or the kill switch) re-raster the cached picture.
+      final scene = PdfPageView.retainedZoomReplay ? _scene : null;
+      final image = scene != null
+          ? await scene.rasterize(pixelRatio: effective)
+          : await PdfPageRenderer.rasterize(
+              picture, _renderPlan.pageSize(widget.page), effective);
       if (_superseded(generation, pageIndex)) {
         image.dispose();
         return;
@@ -764,7 +879,12 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       return false;
     }
-    final image = await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
+    // Same replay-over-nested-raster swap as the full-page path: the deep-
+    // zoom patch replays only [region] from the retained scene when held.
+    final scene = PdfPageView.retainedZoomReplay ? _scene : null;
+    final image = scene != null
+        ? await scene.rasterizeRegion(region, pixelRatio: ratio)
+        : await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       image.dispose();
       return false;

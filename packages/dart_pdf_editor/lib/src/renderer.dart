@@ -231,7 +231,7 @@ class PdfPageRenderer {
       PdfPage page, List<PdfRenderCommand> commands, PdfPageRenderPlan plan,
       {bool includeImages = true}) async {
     final requests = <PdfImageRequest>[];
-    if (includeImages) _collectImageRequests(commands, requests);
+    if (includeImages) collectImageRequests(commands, requests);
     final images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
@@ -259,7 +259,7 @@ class PdfPageRenderer {
   static (int count, int pixels) decodedImageStats(
       List<PdfRenderCommand> commands) {
     final requests = <PdfImageRequest>[];
-    _collectImageRequests(commands, requests);
+    collectImageRequests(commands, requests);
     var count = 0;
     var pixels = 0;
     for (final request in requests) {
@@ -277,20 +277,20 @@ class PdfPageRenderer {
   /// to decide whether a slower full (image-decoding) pass needs to follow it.
   static bool hasImageDraws(List<PdfRenderCommand> commands) {
     final requests = <PdfImageRequest>[];
-    _collectImageRequests(commands, requests);
+    collectImageRequests(commands, requests);
     return requests.isNotEmpty;
   }
 
   /// Gathers every image draw request in [commands], descending into soft-mask
   /// groups (whose own commands can draw images), in replay order.
-  static void _collectImageRequests(
+  static void collectImageRequests(
       List<PdfRenderCommand> commands, List<PdfImageRequest> out) {
     for (final command in commands) {
       switch (command) {
         case PdfDrawImageCommand(:final request):
           out.add(request);
         case PdfEndSoftMaskedCommand(:final maskCommands):
-          _collectImageRequests(maskCommands, out);
+          collectImageRequests(maskCommands, out);
         default:
           break;
       }
@@ -416,6 +416,19 @@ class PdfPageRenderer {
     } finally {
       scaled.dispose();
     }
+  }
+
+  /// Paints the paper background and sets [canvas] up in PDF user space for
+  /// [page] under [plan] - the shared preamble every replay target runs
+  /// before feeding interpreter output (or a recorded command buffer) to a
+  /// painting device. Public so alternative replay paths ([PdfRetainedScene])
+  /// reuse the exact transform stack instead of duplicating it.
+  static void preparePageCanvas(
+      Canvas canvas, PdfPage page, PdfPageRenderPlan plan) {
+    final size = plan.pageSize(page);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, page.cropBox,
+        rotation: plan.rotation);
   }
 
   /// Rasterizes only [region] (in page points, y-down raster space) of a

@@ -53,6 +53,7 @@ export 'src/raster_cache.dart';
 export 'src/render_scheduler.dart';
 export 'src/render_worker.dart';
 export 'src/renderer.dart';
+export 'src/retained_scene.dart';
 export 'src/search_panel.dart';
 export 'src/scrollbar.dart';
 export 'src/theme.dart';
