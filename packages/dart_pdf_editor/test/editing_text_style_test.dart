@@ -109,7 +109,7 @@ void main() {
   group('Edit text & style toolbar action', () {
     Future<PdfEditingController> pumpToolbar(
       WidgetTester tester, {
-      required PdfStyledTextPrompt styledTextPrompt,
+      PdfStyledTextPrompt? styledTextPrompt,
     }) async {
       final editing = PdfEditingController(buildTextPdf(singleLine));
       final viewer = PdfViewerController();
@@ -123,7 +123,8 @@ void main() {
             builder: (context, _) => PdfEditingToolbar(
               controller: editing,
               viewerController: viewer,
-              styledTextPrompt: styledTextPrompt,
+              // default to the real prompt when none is supplied
+              styledTextPrompt: styledTextPrompt ?? showPdfStyledTextPrompt,
             ),
           ),
         ),
@@ -159,6 +160,38 @@ void main() {
       expect(editing.isModified, isTrue);
       final text = pageText(editing.document);
       expect(text, contains('0 0 1 rg'));
+    });
+
+    testWidgets('real dialog drives the normal font menu end to end',
+        (tester) async {
+      final editing = await pumpToolbar(tester); // real styled prompt
+      editing.tool = PdfEditTool.content;
+      expect(selectElementByText(editing, 'Hello World'), isTrue);
+      await tester.pump();
+
+      // open the real "Edit text & style" dialog
+      await tester.tap(find.byKey(const ValueKey('pdf-style-element-text')));
+      await tester.pumpAndSettle();
+      // its Font row is the normal picker button, not the fallback dropdown
+      expect(find.byKey(const ValueKey('pdf-styled-font')), findsOneWidget);
+
+      // open the shared font menu and pick the serif family
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-font')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-ok')));
+      await tester.pumpAndSettle();
+
+      expect(editing.isModified, isTrue);
+      final doc = editing.document;
+      final fonts =
+          doc.cos.resolve(doc.page(0).resources['Font']) as CosDictionary;
+      final serif = fonts.entries.values
+          .map((v) => doc.cos.resolve(v))
+          .whereType<CosDictionary>()
+          .any((f) => f['BaseFont'] == const CosName('Times-Roman'));
+      expect(serif, isTrue, reason: 'the replacement switched to Times');
     });
 
     testWidgets('cancelling the prompt changes nothing', (tester) async {
