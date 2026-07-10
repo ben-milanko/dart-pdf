@@ -4815,6 +4815,27 @@ class PdfEditingController extends ChangeNotifier {
     return count;
   }
 
+  /// Like [replaceSelectedElementText] but restyles the replacement with
+  /// [style] (fill colour, size, bold, italic) via [PdfEditor.replaceText].
+  ///
+  /// Styling lands on simple-font runs; a composite (/Type0) element is still
+  /// re-typed but keeps its original colour, size, and face. Returns how many
+  /// runs changed.
+  int replaceStyledSelectedElementText(String text, PdfTextStyle style,
+      {List<PdfEmbeddedFont> fallbackFonts = const []}) {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null || !canEditSelectedElementText) {
+      return 0;
+    }
+    var count = 0;
+    apply(
+        (e) => count = e.replaceText(selected.$1, element.text!, text,
+            fallbackFonts: fallbackFonts, style: style),
+        pages: [selected.$1]);
+    return count;
+  }
+
   /// Replaces the selected page-content image with [imageBytes] (PNG or JPEG).
   ///
   /// The original image draw is removed from the content stream and the new

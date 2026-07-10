@@ -1,5 +1,49 @@
 part of 'editor.dart';
 
+/// A uniform style override applied to the replacement text of
+/// [PdfContentEditing.replaceText] / [PdfContentEditing.replaceStyledText].
+///
+/// Each field left null keeps the matched run's existing value for that
+/// attribute, so `PdfTextStyle(color: 0xFF0000)` recolours a replacement
+/// while leaving its font and size untouched. Styling is applied to
+/// simple-font (non-/Type0) text runs; composite runs are still replaced
+/// but keep their original colour, size, and face.
+class PdfTextStyle {
+  const PdfTextStyle({this.color, this.fontSize, this.bold, this.italic});
+
+  /// Nonstroking fill colour as `0xRRGGBB`, or null to keep the run's colour.
+  final int? color;
+
+  /// Font size in points, or null to keep the run's size.
+  final double? fontSize;
+
+  /// Force bold on (`true`) or off (`false`), or null to keep the run's
+  /// weight. A weight/slant change substitutes a base-14 variant
+  /// (Helvetica/Times/Courier) chosen to match the run's family, so it lands
+  /// even when the original face is embedded and has no bold cut.
+  final bool? bold;
+
+  /// Force italic/oblique on (`true`) or off (`false`), or null to keep the
+  /// run's slant.
+  final bool? italic;
+
+  /// True when no attribute is set - a plain replacement, styled like the
+  /// text it replaces.
+  bool get isEmpty =>
+      color == null && fontSize == null && bold == null && italic == null;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfTextStyle &&
+      other.color == color &&
+      other.fontSize == fontSize &&
+      other.bold == bold &&
+      other.italic == italic;
+
+  @override
+  int get hashCode => Object.hash(color, fontSize, bold, italic);
+}
+
 /// Content editing tiers: stamping new content, deleting elements, and
 /// replacing text runs.
 extension PdfContentEditing on PdfEditor {
@@ -80,8 +124,13 @@ extension PdfContentEditing on PdfEditor {
   /// bundles none. When given, such a replacement is drawn in the first
   /// fallback that can render it (style-matched to the document font); when
   /// omitted, an undrawable replacement leaves the run untouched.
+  ///
+  /// [style] applies a uniform rich-text override (fill colour, size, bold,
+  /// italic) to the replacement - see [replaceStyledText], which this
+  /// forwards to. Styling only affects simple-font runs; a composite
+  /// (/Type0) run is still corrected but keeps its original appearance.
   int replaceText(int index, String find, String replace,
-      {List<PdfEmbeddedFont> fallbackFonts = const []}) {
+      {List<PdfEmbeddedFont> fallbackFonts = const [], PdfTextStyle? style}) {
     if (find.isEmpty) throw ArgumentError.value(find, 'find', 'is empty');
     // the simple-font path is byte-encoded; non-Latin-1 strings can only be
     // matched/drawn by the composite path, so leave these null there.
@@ -106,12 +155,17 @@ extension PdfContentEditing on PdfEditor {
         type0Cache.putIfAbsent(
             name, () => _Type0Editing.tryCreate(this, page, name, f, fallbackFonts));
 
+    final styled = style != null && !style.isEmpty;
     final ops = elements.operations;
     final rewritten = <ContentOperation>[];
     var count = 0;
     CosDictionary? font; // the font active at the current operation
     String? fontName; // its /Font resource key
     var fontSize = 0.0; // its size, for fallback Tf switches
+    // the nonstroking colour operators active at the current operation, so a
+    // styled replacement can restore them for whatever text follows it.
+    var restoreColorOps = <ContentOperation>[_colorOp(0x000000)];
+    ContentOperation? pendingCs; // last /cs, re-emitted before an sc/scn
 
     var i = 0;
     while (i < ops.length) {
@@ -126,6 +180,17 @@ extension PdfContentEditing on PdfEditor {
         i++;
         continue;
       }
+      if (styled) {
+        // track the active fill colour so styled replacements can restore it
+        switch (op.operator) {
+          case 'rg' || 'g' || 'k' || 'sc' || 'scn':
+            restoreColorOps = op.operator == 'sc' || op.operator == 'scn'
+                ? [if (pendingCs != null) pendingCs, op]
+                : [op];
+          case 'cs':
+            pendingCs = op;
+        }
+      }
       if (op.operator == 'Tj' || op.operator == 'TJ') {
         // a run is a maximal stretch of adjacent show operators: text
         // state (font, position) is constant across it, so the strings
@@ -136,13 +201,17 @@ extension PdfContentEditing on PdfEditor {
           run.add(ops[i]);
           i++;
         }
+        final simpleRewrite = findBytes != null && replaceBytes != null
+            ? (styled
+                ? _rewriteStyledTextRun(page, run, font, fontName, fontSize,
+                    findBytes, replaceBytes, style, restoreColorOps)
+                : _rewriteTextRun(run, font, findBytes, replaceBytes))
+            : (run, 0);
         final (ops_, n) = _isType0(cos, font) && fontName != null
             ? (type0For(fontName, font!)
                     ?.rewriteRun(run, find, replace, fontSize) ??
                 (run, 0))
-            : (findBytes != null && replaceBytes != null
-                ? _rewriteTextRun(run, font, findBytes, replaceBytes)
-                : (run, 0));
+            : simpleRewrite;
         rewritten.addAll(ops_);
         count += n;
         continue;
@@ -180,6 +249,250 @@ extension PdfContentEditing on PdfEditor {
     }
     return count;
   }
+
+  /// Replaces [find] with [replace] on page [index] and restyles the
+  /// replacement per [style] (fill colour, size, bold, italic). A convenience
+  /// wrapper over [replaceText] - see it for match/re-flow semantics.
+  ///
+  /// Styling brackets each replaced span with its own colour/`Tf` operators
+  /// and restores the surrounding state afterward, so text following a
+  /// styled correction on the same line keeps its own appearance and stays
+  /// put (the replacement is re-measured against the styled font/size). A
+  /// bold/italic change substitutes a base-14 variant matched to the run's
+  /// family, so it works even against embedded faces. Styling is applied to
+  /// simple-font runs only; composite (/Type0) runs are corrected without
+  /// restyling.
+  int replaceStyledText(int index, String find, String replace,
+          PdfTextStyle style,
+          {List<PdfEmbeddedFont> fallbackFonts = const []}) =>
+      replaceText(index, find, replace,
+          fallbackFonts: fallbackFonts, style: style);
+
+  /// Rewrites one run of show operators like [_rewriteTextRun] but applies
+  /// [style] to each replacement: the replaced bytes are drawn in their own
+  /// show op bracketed by colour / `Tf` operators, then the run's prior
+  /// colour ([restoreColorOps]) and font ([fontName]/[fontSize]) are put back
+  /// so following text is unaffected. The replacement is re-measured against
+  /// the styled font and size and a compensating `TJ` adjustment keeps the
+  /// rest of the line in place.
+  (List<ContentOperation>, int) _rewriteStyledTextRun(
+      PdfPage page,
+      List<ContentOperation> run,
+      CosDictionary? font,
+      String? fontName,
+      double fontSize,
+      List<int> findBytes,
+      List<int> replaceBytes,
+      PdfTextStyle style,
+      List<ContentOperation> restoreColorOps) {
+    if (_isType0(document.cos, font)) return (run, 0);
+
+    final cells = _runCells(run);
+    final charCell = <int>[];
+    final logical = <int>[];
+    for (var c = 0; c < cells.length; c++) {
+      if (cells[c].byte case final int b) {
+        charCell.add(c);
+        logical.add(b);
+      }
+    }
+    final matches = _findAll(logical, findBytes);
+    if (matches.isEmpty) return (run, 0);
+
+    final origWidthOf = _widthsFor(font);
+    final totalChars = logical.length;
+
+    // resolve the styled font: a base-14 variant when bold/italic is asked
+    // for, otherwise the run's own font (only its colour/size may change).
+    final variant = _styledVariant(font, style);
+    final double Function(int) styledWidthOf;
+    final String? styledFontName;
+    if (variant != null) {
+      final own = _fontStandard(font);
+      styledFontName = own == variant && fontName != null
+          ? fontName // the run is already this exact face
+          : _standardFontResource(page, variant);
+      styledWidthOf = (code) => variant.widthOf(code).toDouble();
+    } else {
+      styledFontName = fontName;
+      styledWidthOf = origWidthOf;
+    }
+    final styledSize = style.fontSize ?? fontSize;
+    final fontChanged = styledFontName != fontName || styledSize != fontSize;
+
+    final out = <ContentOperation>[];
+    final pending = <({int? byte, double? kern})>[];
+    void flushPending() {
+      if (pending.isEmpty) return;
+      out.addAll(_emitSimpleCells(pending));
+      pending.clear();
+    }
+
+    var count = 0;
+    var cell = 0;
+    var m = 0;
+    while (cell < cells.length) {
+      if (m < matches.length && cell == charCell[matches[m].$1]) {
+        final (_, end) = matches[m];
+        final last = charCell[end - 1];
+        var oldWidth = 0.0;
+        for (var k = cell; k <= last; k++) {
+          oldWidth +=
+              cells[k].byte != null ? origWidthOf(cells[k].byte!) : -cells[k].kern!;
+        }
+        var newWidth = 0.0;
+        for (final b in replaceBytes) {
+          newWidth += styledWidthOf(b);
+        }
+        flushPending();
+        // open the style
+        if (style.color != null) out.add(_colorOp(style.color!));
+        if (fontChanged && styledFontName != null) {
+          out.add(_tfOp(styledFontName, styledSize));
+        }
+        out.add(ContentOperation(
+            'Tj', [CosString(Uint8List.fromList(replaceBytes))]));
+        // close it: restore font, then colour, for whatever follows
+        if (fontChanged && fontName != null) {
+          out.add(_tfOp(fontName, fontSize));
+        }
+        if (style.color != null) {
+          out.addAll(restoreColorOps.map(_cloneOp));
+        }
+        // keep the rest of the line put; the compensation is applied in the
+        // restored (original size) context, so convert the new width back.
+        if (end < totalChars && fontSize != 0) {
+          final kern = newWidth * styledSize / fontSize - oldWidth;
+          if (kern.abs() >= 0.001) {
+            out.add(ContentOperation('TJ', [
+              CosArray([_numberObject(kern)])
+            ]));
+          }
+        }
+        count++;
+        cell = last + 1;
+        m++;
+      } else {
+        pending.add(cells[cell]);
+        cell++;
+      }
+    }
+    flushPending();
+    return (out, count);
+  }
+
+  /// Coalesces flattened cells back into one show op (a `Tj` for a single
+  /// plain string, else a `TJ` array with adjacent kerns merged).
+  static List<ContentOperation> _emitSimpleCells(
+      List<({int? byte, double? kern})> cells) {
+    final items = <CosObject>[];
+    final buffer = <int>[];
+    var kern = 0.0;
+    void flushString() {
+      if (buffer.isNotEmpty) {
+        items.add(CosString(Uint8List.fromList(buffer)));
+        buffer.clear();
+      }
+    }
+
+    void flushKern() {
+      if (kern.abs() >= 0.001) items.add(_numberObject(kern));
+      kern = 0;
+    }
+
+    for (final c in cells) {
+      if (c.byte case final int b) {
+        flushKern();
+        buffer.add(b);
+      } else {
+        flushString();
+        kern += c.kern!;
+      }
+    }
+    flushString();
+    flushKern();
+    if (items.isEmpty) return const [];
+    if (items.length == 1 && items[0] is CosString) {
+      return [
+        ContentOperation('Tj', [items[0]])
+      ];
+    }
+    return [
+      ContentOperation('TJ', [CosArray(items)])
+    ];
+  }
+
+  /// The base-14 [PdfStandardFont] the /BaseFont of [font] maps to, or null
+  /// when it isn't clearly one of the three standard families.
+  PdfStandardFont? _fontStandard(CosDictionary? font) {
+    if (font == null) return null;
+    final base = document.cos.resolve(font['BaseFont']);
+    return base is CosName ? PdfStandardFont.tryFromName(base.value) : null;
+  }
+
+  /// The base-14 variant a weight/slant change asks for: the run's own family
+  /// (defaulting to sans) with [style]'s bold/italic applied. Null when
+  /// [style] changes neither weight nor slant (colour/size only).
+  PdfStandardFont? _styledVariant(CosDictionary? font, PdfTextStyle style) {
+    if (style.bold == null && style.italic == null) return null;
+    final base = _fontStandard(font);
+    return PdfStandardFont.styled(
+      base?.family ?? PdfStandardFontFamily.sans,
+      bold: style.bold ?? base?.isBold ?? false,
+      italic: style.italic ?? base?.isItalic ?? false,
+    );
+  }
+
+  /// The page's own (materialized) /Font resource dictionary.
+  CosDictionary _ownFontResources(PdfPage page) {
+    final cos = document.cos;
+    final res = _ownResources(page);
+    final existing = cos.resolve(res['Font']);
+    if (existing is CosDictionary && res['Font'] is! CosReference) {
+      return existing;
+    }
+    final fonts =
+        CosDictionary({if (existing is CosDictionary) ...existing.entries});
+    res['Font'] = fonts;
+    return fonts;
+  }
+
+  /// A page /Font resource name for base-14 [font], reusing a matching entry
+  /// or allocating a fresh `StFn` one.
+  String _standardFontResource(PdfPage page, PdfStandardFont font) {
+    final cos = document.cos;
+    final fonts = _ownFontResources(page);
+    for (final entry in fonts.entries.entries) {
+      final f = cos.resolve(entry.value);
+      if (f is CosDictionary &&
+          f['BaseFont'] == CosName(font.baseFont) &&
+          f['Encoding'] == const CosName('WinAnsiEncoding') &&
+          cos.resolve(f['Subtype']) == const CosName('Type1')) {
+        return entry.key;
+      }
+    }
+    var i = 1;
+    while (fonts.containsKey('StF$i')) {
+      i++;
+    }
+    final name = 'StF$i';
+    fonts[name] = _updater.addObject(CosDictionary({
+      'Type': const CosName('Font'),
+      'Subtype': const CosName('Type1'),
+      'BaseFont': CosName(font.baseFont),
+      'Encoding': const CosName('WinAnsiEncoding'),
+    }));
+    return name;
+  }
+
+  static ContentOperation _colorOp(int rgb) => ContentOperation(
+      'rg', [for (final v in ContentWriter.rgbComponents(rgb)) _numberObject(v)]);
+
+  static ContentOperation _tfOp(String name, double size) =>
+      ContentOperation('Tf', [CosName(name), _numberObject(size)]);
+
+  static ContentOperation _cloneOp(ContentOperation op) =>
+      ContentOperation(op.operator, List<CosObject>.of(op.operands));
 
   /// [s] as Latin-1 bytes, or null when it has a code unit past 0xFF (the
   /// simple-font path can't represent it; the composite path uses the string

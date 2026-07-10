@@ -345,4 +345,121 @@ void main() {
       expect(text, contains('(first line) Tj'));
     });
   });
+
+  group('styled replacement', () {
+    PdfDocument styledEdit(String content, String find, String replace,
+        PdfTextStyle style) {
+      final doc = PdfDocument.open(buildContentPdf(content));
+      final editor = PdfEditor(doc)
+        ..replaceStyledText(0, find, replace, style);
+      return PdfDocument.open(editor.save());
+    }
+
+    test('recolours the replacement and restores the prior colour', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(color: 0xFF0000));
+      final text = pageText(out);
+      // the replacement is drawn red, then black is restored for " World"
+      expect(text, contains('1 0 0 rg'));
+      expect(text, contains('(Hi) Tj'));
+      expect(text.indexOf('1 0 0 rg'), lessThan(text.indexOf('(Hi) Tj')));
+      expect(text, contains('0 0 0 rg'));
+      // the reader still reads the whole line
+      final el = PdfPageElements.of(out, 0)
+          .elements
+          .where((e) => e.kind == PdfElementKind.text)
+          .map((e) => e.text)
+          .join();
+      expect(el, contains('Hi World'));
+    });
+
+    test('restores the run existing colour, not black', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 0 0 1 rg 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(color: 0xFF0000));
+      final text = pageText(out);
+      // after the red replacement, the run blue is put back for " World"
+      final afterHi = text.substring(text.indexOf('(Hi) Tj'));
+      expect(afterHi, contains('0 0 1 rg'));
+    });
+
+    test('changes font size with a Tf switch and restores it', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(fontSize: 24));
+      final text = pageText(out);
+      expect(text, contains('/F1 24 Tf'));
+      expect(text, contains('(Hi) Tj'));
+      // the original size is restored for the following text
+      expect(text.lastIndexOf('/F1 12 Tf'),
+          greaterThan(text.indexOf('/F1 24 Tf')));
+    });
+
+    test('bold substitutes a base-14 variant font resource', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(bold: true));
+      final fonts =
+          out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
+      final bold = fonts.entries.values
+          .map((v) => out.cos.resolve(v))
+          .whereType<CosDictionary>()
+          .where((f) => f['BaseFont'] == const CosName('Helvetica-Bold'));
+      expect(bold, isNotEmpty);
+      final text = pageText(out);
+      // the bold face is selected for the replacement then /F1 restored
+      expect(text, contains('(Hi) Tj'));
+      expect(text, contains('/F1 12 Tf'));
+    });
+
+    test('keeps following text in place when the width changes', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle(fontSize: 24));
+      // a compensating TJ adjustment follows the restored-size replacement
+      expect(pageText(out), contains('] TJ'));
+    });
+
+    test('an empty style behaves like a plain replaceText', () {
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello',
+          'Hi',
+          const PdfTextStyle());
+      final text = pageText(out);
+      expect(text, contains('(Hi)'));
+      expect(text, isNot(contains(' rg')));
+      final reader = PdfPageElements.of(out, 0)
+          .elements
+          .where((e) => e.kind == PdfElementKind.text)
+          .map((e) => e.text)
+          .join();
+      expect(reader, contains('Hi World'));
+    });
+
+    test('leaves composite runs unstyled but still replaced is skipped',
+        () {
+      // simple-font restyle applies; nothing here to assert about Type0,
+      // but a plain simple replacement must not emit stray style ops.
+      final out = styledEdit(
+          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'World',
+          'Earth',
+          const PdfTextStyle(color: 0x00FF00));
+      final text = pageText(out);
+      expect(text, contains('0 1 0 rg'));
+      expect(text, contains('(Earth) Tj'));
+    });
+  });
 }

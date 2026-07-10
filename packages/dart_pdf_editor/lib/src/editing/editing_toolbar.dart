@@ -21,6 +21,7 @@ import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 import 'text_prompt.dart';
+import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
 
 /// Builds a custom widget inside [PdfEditingToolbar].
@@ -86,6 +87,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.styledTextPrompt = showPdfStyledTextPrompt,
     this.imagePicker,
     this.onExportSelectedContentImage,
     this.fontPicker,
@@ -117,6 +119,10 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How the "Edit text & style" button asks for replacement text plus
+  /// rich-text overrides (colour, size, bold, italic).
+  final PdfStyledTextPrompt styledTextPrompt;
 
   /// How selected page-content images are replaced from the element strip.
   final PdfImagePicker? imagePicker;
@@ -581,6 +587,25 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     // document's own (possibly subsetted) font lacks
     final fallbacks = await loadFallbackFonts();
     controller.replaceSelectedElementText(text, fallbackFonts: fallbacks);
+  }
+
+  Future<void> _editElementTextStyle(BuildContext context) async {
+    final element = controller.selectedElement;
+    if (element == null) return;
+    final result = await widget.styledTextPrompt(
+      context,
+      initial: element.text ?? '',
+    );
+    if (result == null) return;
+    if (result.text.isEmpty ||
+        (result.text == element.text && result.style.isEmpty)) {
+      return;
+    }
+    // bundled fallbacks let composite (/Type0) edits draw characters the
+    // document's own (possibly subsetted) font lacks
+    final fallbacks = await loadFallbackFonts();
+    controller.replaceStyledSelectedElementText(result.text, result.style,
+        fallbackFonts: fallbacks);
   }
 
   Future<void> _reflowElementText(BuildContext context) async {
@@ -1338,6 +1363,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onPressed: () => _editElementText(context),
         ),
         IconButton(
+          key: const ValueKey('pdf-style-element-text'),
+          icon: const Icon(Icons.format_color_text),
+          tooltip: 'Edit text & style',
+          onPressed: () => _editElementTextStyle(context),
+        ),
+        IconButton(
           key: const ValueKey('pdf-reflow-element-text'),
           icon: const Icon(Icons.wrap_text),
           tooltip: 'Reflow paragraph',
@@ -1793,12 +1824,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onPressed: controller.deleteSelectedElement,
         ),
         if (controller.canEditSelectedElementText) ...[
+          // the mobile dock is width-constrained, so its single edit button
+          // opens the styled editor (a superset of plain replace - it edits
+          // the text and, optionally, its colour/size/weight).
           IconButton(
             key: const ValueKey('pdf-replace-element-text'),
-            icon: const Icon(Icons.edit),
-            tooltip: 'Replace text',
+            icon: const Icon(Icons.format_color_text),
+            tooltip: 'Edit text & style',
             visualDensity: VisualDensity.compact,
-            onPressed: () => _editElementText(context),
+            onPressed: () => _editElementTextStyle(context),
           ),
           IconButton(
             key: const ValueKey('pdf-reflow-element-text'),
