@@ -458,7 +458,7 @@ class PdfPageRenderer {
 
     final device = StripPdfDevice(
       canvas,
-      pageToDevice: _pageToDeviceMatrix(page, size, box,
+      pageToDevice: pageToDeviceMatrix(page, size, box,
           rotation: plan.rotation, pixelRatio: pixelRatio),
       deviceWidth: width,
       deviceHeight: height,
@@ -489,8 +489,9 @@ class PdfPageRenderer {
 
   /// The page->device-pixel matrix matching [_applyPageTransform] followed
   /// by a [pixelRatio] canvas scale (geometric application order: crop-box
-  /// shift, y-flip, /Rotate, ratio).
-  static PdfMatrix _pageToDeviceMatrix(PdfPage page, Size size, PdfRect box,
+  /// shift, y-flip, /Rotate, ratio). Public so [PdfRetainedScene] can feed
+  /// a [StripPdfDevice] the exact transform its canvas preamble implies.
+  static PdfMatrix pageToDeviceMatrix(PdfPage page, Size size, PdfRect box,
       {int? rotation, required double pixelRatio}) {
     var m = PdfMatrix.translation(-box.left, -box.bottom)
         .concat(const PdfMatrix(1, 0, 0, -1, 0, 0))

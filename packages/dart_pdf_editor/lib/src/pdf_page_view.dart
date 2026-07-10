@@ -180,6 +180,28 @@ class PdfPageView extends StatefulWidget {
   /// retained replay costs about one frame.
   static int retainedZoomReplayMaxCommands = 20000;
 
+  /// Opt-in strip routing for pages ABOVE [retainedZoomReplayMaxCommands]:
+  /// when true they DO retain their scene, and zoom-driven re-rasters (full
+  /// page and deep-zoom detail patch) replay it through the sparse-strip
+  /// shader device ([PdfRetainedScene.rasterizeStrips]) at the new ratio
+  /// instead of re-rasterizing the cached nested picture. Pages under the
+  /// ceiling keep the flat canvas replay - strips lose on office pages
+  /// (fixed atlas-decode/replay overhead, and Impeller already rasterizes
+  /// light flat pictures quickly).
+  ///
+  /// Default FALSE, and it must stay off on software backends: the SkSL
+  /// interpreter runs the coverage shader per fragment, making strips ~2x
+  /// slower than the canvas there, and there is no reliable runtime
+  /// Impeller detection - so the embedding app opts in where it knows its
+  /// backend (measured on Impeller/Metal: a dense CAD sheet reaches sharp
+  /// pixels ~3.5x sooner per zoom settle). The honest trade: the strip
+  /// re-bin runs on the UI thread (~300 ms per settle on that CAD sheet),
+  /// blocking longer than the nested re-raster's cheap UI-thread half but
+  /// finishing far sooner overall. Off-thread strip generation in the
+  /// render worker (the strip core is deliberately dart:ui-free for
+  /// exactly that) is the path to default-on.
+  static bool stripZoomReplay = false;
+
   @override
   State<PdfPageView> createState() => _PdfPageViewState();
 }
@@ -548,10 +570,20 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   /// Whether a page recorded as [commandCount] top-level commands should
   /// retain its scene - the [PdfPageView.retainedZoomReplay] switch plus the
-  /// [PdfPageView.retainedZoomReplayMaxCommands] density ceiling.
+  /// [PdfPageView.retainedZoomReplayMaxCommands] density ceiling. With
+  /// [PdfPageView.stripZoomReplay] on, over-ceiling pages retain too: their
+  /// zooms re-bin through the strip device instead of the flat replay.
   static bool _retainScene(int commandCount) =>
       PdfPageView.retainedZoomReplay &&
-      commandCount <= PdfPageView.retainedZoomReplayMaxCommands;
+      (commandCount <= PdfPageView.retainedZoomReplayMaxCommands ||
+          PdfPageView.stripZoomReplay);
+
+  /// Whether [scene]'s zoom re-rasters route through the strip device: the
+  /// opt-in flag, and only above the ceiling (under it the flat canvas
+  /// replay wins - see [PdfPageView.stripZoomReplay]).
+  static bool _stripReplayScene(PdfRetainedScene scene) =>
+      PdfPageView.stripZoomReplay &&
+      scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands;
 
   /// Builds the picture (and, unless [PdfPageView.retainedZoomReplay] is
   /// off, the retained scene) from a recorded command buffer. One decode
@@ -751,11 +783,15 @@ class _PdfPageViewState extends State<PdfPageView> {
       }
       // Replay the retained scene into a flat picture at the new ratio when
       // one is held - Impeller rasterizes that several times faster than the
-      // nested drawPicture re-raster, with byte-identical output. Fallback
-      // paths (no scene, or the kill switch) re-raster the cached picture.
+      // nested drawPicture re-raster, with byte-identical output. Dense
+      // pages retained under PdfPageView.stripZoomReplay re-bin through the
+      // strip shader device instead. Fallback paths (no scene, or the kill
+      // switch) re-raster the cached picture.
       final scene = PdfPageView.retainedZoomReplay ? _scene : null;
       final image = scene != null
-          ? await scene.rasterize(pixelRatio: effective)
+          ? await (_stripReplayScene(scene)
+              ? scene.rasterizeStrips(pixelRatio: effective)
+              : scene.rasterize(pixelRatio: effective))
           : await PdfPageRenderer.rasterize(
               picture, _renderPlan.pageSize(widget.page), effective);
       if (_superseded(generation, pageIndex)) {
@@ -880,10 +916,13 @@ class _PdfPageViewState extends State<PdfPageView> {
       return false;
     }
     // Same replay-over-nested-raster swap as the full-page path: the deep-
-    // zoom patch replays only [region] from the retained scene when held.
+    // zoom patch replays only [region] from the retained scene when held
+    // (through the strip device for dense pages under stripZoomReplay).
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
     final image = scene != null
-        ? await scene.rasterizeRegion(region, pixelRatio: ratio)
+        ? await (_stripReplayScene(scene)
+            ? scene.rasterizeRegionStrips(region, pixelRatio: ratio)
+            : scene.rasterizeRegion(region, pixelRatio: ratio))
         : await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       image.dispose();

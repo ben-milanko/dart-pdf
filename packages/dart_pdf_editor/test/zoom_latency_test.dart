@@ -11,6 +11,12 @@
 //                   re-interpret, no re-decode), then toImage.
 //   (c) full      - reference: full re-render (re-interpret + decode via the
 //                   warm PdfImageCache + paint) then toImage.
+//   (d) strips    - PdfRetainedScene.replayStrips: the command buffer is
+//                   re-binned into the sparse-strip shader device at the new
+//                   ratio (drawVertices + canvas fallback), then toImage -
+//                   pdf_page_view's over-ceiling path when
+//                   PdfPageView.stripZoomReplay is on. Per-step telemetry
+//                   (flushes/quads/atlas texels/delegated) prints alongside.
 //
 // Each timed step splits into build (picture production), raster (toImage)
 // and readback (toByteData(rawRgba), forcing full realization so GPU-backed
@@ -33,6 +39,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/strips.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -116,11 +123,15 @@ class _Sample {
 
 /// The zoom path PdfPageView takes for a page of this density: retained
 /// replay (b) up to the command ceiling, the classic cached-picture
-/// re-raster (a) above it (or when the kill switch is off).
-String _viewerPath(int commandCount) => PdfPageView.retainedZoomReplay &&
-        commandCount <= PdfPageView.retainedZoomReplayMaxCommands
-    ? 'b-retained'
-    : 'a-current';
+/// re-raster (a) above it (or when the kill switch is off) - unless the
+/// opt-in strip router sends over-ceiling pages to (d).
+String _viewerPath(int commandCount) {
+  if (!PdfPageView.retainedZoomReplay) return 'a-current';
+  if (commandCount <= PdfPageView.retainedZoomReplayMaxCommands) {
+    return 'b-retained';
+  }
+  return PdfPageView.stripZoomReplay ? 'd-strips' : 'a-current';
+}
 
 double _effectiveRatio(Size size, double desired) {
   final width = math.max(1.0, size.width);
@@ -170,6 +181,7 @@ void main() {
 
       final rows = <String>[];
       final stepRows = <String>[];
+      final telemetryRows = <String>[];
 
       for (final entry in fileNames) {
         // "name.pdf#12" selects a page for that file; bare names use
@@ -229,7 +241,10 @@ void main() {
           'a-current': _Sample(),
           'b-retained': _Sample(),
           'c-full': _Sample(),
+          'd-strips': _Sample(),
         };
+        // per zoom step: flushes, quads, atlas texels, delegated paints
+        final stripStats = [for (final _ in zoomSequence) (0, 0, 0, 0)];
         final perStep = {
           for (final key in samples.keys)
             key: [for (final _ in zoomSequence) _Sample()],
@@ -292,6 +307,28 @@ void main() {
               samples['c-full']!.add(buildC, rasterC, readbackC);
               perStep['c-full']![step].add(buildC, rasterC, readbackC);
             }
+
+            // (d) retained scene through the strip device: re-bin at ratio
+            // (what pdf_page_view does for over-ceiling pages when
+            // PdfPageView.stripZoomReplay is on).
+            StripPdfDevice.resetStats();
+            t = Stopwatch()..start();
+            final stripPicture = await scene.replayStrips(pixelRatio: ratio);
+            final buildD = t.elapsedMicroseconds / 1000.0;
+            final (imageD, rasterD, readbackD) =
+                await _timeRaster(stripPicture, w, h);
+            stripPicture.dispose();
+            imageD.dispose();
+            if (record) {
+              samples['d-strips']!.add(buildD, rasterD, readbackD);
+              perStep['d-strips']![step].add(buildD, rasterD, readbackD);
+              stripStats[step] = (
+                StripPdfDevice.totalFlushes,
+                StripPdfDevice.totalStripQuads,
+                StripPdfDevice.totalAtlasTexels,
+                StripPdfDevice.totalDelegatedPaints,
+              );
+            }
           }
         }
 
@@ -312,6 +349,15 @@ void main() {
           stepRows.add('${label.padRight(44).substring(0, 44)} '
               'zoom=${zoomSequence[step].toStringAsFixed(1)} '
               '${parts.join('  ')}');
+        }
+
+        for (var step = 0; step < zoomSequence.length; step++) {
+          final (flushes, quads, texels, delegated) = stripStats[step];
+          telemetryRows.add('${label.padRight(44).substring(0, 44)} '
+              'zoom=${zoomSequence[step].toStringAsFixed(1)} '
+              'flushes=$flushes quads=$quads '
+              'atlasKB=${(texels * 4 / 1024).toStringAsFixed(0)} '
+              'delegated=$delegated');
         }
 
         scene.dispose();
@@ -337,6 +383,12 @@ void main() {
       // ignore: avoid_print
       print('\nper-zoom-step totals (ms, build+toImage+readback):');
       for (final row in stepRows) {
+        // ignore: avoid_print
+        print(row);
+      }
+      // ignore: avoid_print
+      print('\nstrip telemetry per zoom step (last pass, path d):');
+      for (final row in telemetryRows) {
         // ignore: avoid_print
         print(row);
       }
