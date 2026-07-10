@@ -257,5 +257,39 @@ void main() {
       expect(captured!.style.italic, isFalse);
       expect(captured!.style.color, 0xE53935);
     });
+
+    testWidgets('the fill "More colors…" button opens the custom picker',
+        (tester) async {
+      PdfStyledTextEdit? captured;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  captured = await showPdfStyledTextPrompt(context,
+                      initial: 'Hello');
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // open the shared swatch row's custom picker and accept its default
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-fill-more')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-styled-ok')));
+      await tester.pumpAndSettle();
+
+      expect(captured, isNotNull);
+      // a colour came back from the picker (the row's default white)
+      expect(captured!.style.color, isNotNull);
+    });
   });
 }
