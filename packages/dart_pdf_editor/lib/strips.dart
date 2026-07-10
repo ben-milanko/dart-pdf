@@ -3,5 +3,6 @@
 /// Not exported from the main dart_pdf_editor barrel.
 library;
 
+export 'src/strips/slug_batch.dart';
 export 'src/strips/strip_batch.dart';
 export 'src/strips/strip_device.dart';
