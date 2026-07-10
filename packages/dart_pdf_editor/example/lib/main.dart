@@ -13,16 +13,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'demo_brand_assets.dart';
 import 'demo_document.dart';
+import 'error_log.dart';
+import 'feedback.dart';
 import 'persistent_cache.dart';
 import 'platform_fonts.dart';
 import 'recent_files.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
-
-/// A plain-language GitHub issue form for app feedback from end users.
-final _feedbackUrl = Uri.parse(
-    'https://github.com/ben-milanko/dart-pdf/issues/new?template=app_feedback.yml');
 
 /// The published Flutter package the example is built on.
 final _pubDevUrl = Uri.parse('https://pub.dev/packages/dart_pdf_editor');
@@ -99,7 +97,12 @@ void main() {
   if (Uri.base.queryParameters['perf'] == '1') {
     PdfPerfLog.enabled = true;
   }
-  runApp(const ViewerApp());
+  // Capture uncaught framework, platform, and async errors into the in-app
+  // log so a user can attach them to feedback (see AppLog / the feedback
+  // dialog). install() also returns the zone handler for the async path.
+  final onZoneError = AppLog.instance.install();
+  AppLog.instance.info('App started (version $kAppVersion)');
+  runZonedGuarded(() => runApp(const ViewerApp()), onZoneError);
 }
 
 class ViewerApp extends StatefulWidget {
@@ -134,8 +137,10 @@ class _ViewerAppState extends State<ViewerApp> {
   Future<void> _loadPlatformFonts() async {
     try {
       pdfPlatformFonts = await loadPlatformFonts();
-    } catch (_) {
+    } catch (e, s) {
       // Font discovery is best-effort; the menu degrades to its other choices.
+      AppLog.instance
+          .warning('Platform font discovery failed', error: e, stackTrace: s);
     }
   }
 
@@ -285,6 +290,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Opens the feedback dialog: the user reviews the diagnostics captured this
+  /// session and opens the GitHub feedback form with the report prefilled.
+  void _openFeedback() {
+    unawaited(showFeedbackDialog(
+      context,
+      onOpen: _openLink,
+      onCopied: () => _toast('Diagnostics copied to clipboard'),
+    ));
+  }
+
   void _cycleTheme() {
     _prefs.themeMode = switch (_prefs.themeMode) {
       ThemeMode.system => ThemeMode.light,
@@ -424,7 +439,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
         const PopupMenuDivider(),
         PopupMenuItem(
-          value: () => _openLink(_feedbackUrl),
+          value: _openFeedback,
           child: _appMenuTile(
             icon: Icons.feedback_outlined,
             title: 'Supply feedback…',
@@ -743,7 +758,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       );
       unawaited(_recents.record(file.name, bytes));
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance
+          .error('Could not open ${file.name}', error: e, stackTrace: s);
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
@@ -780,7 +797,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ));
         _activeIndex = _tabs.length - 1;
       });
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance
+          .error('Could not open ${file.name}', error: e, stackTrace: s);
       _openError(file.name, 'Could not open ${file.name}\n$e');
     }
   }
@@ -801,7 +820,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       );
       unawaited(_recents.record(name, bytes));
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance.error('Could not open $path', error: e, stackTrace: s);
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
@@ -841,7 +861,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       );
       unawaited(_recents.touch(entry.id));
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance
+          .error('Could not reopen ${entry.title}', error: e, stackTrace: s);
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
@@ -894,7 +916,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
           final path = pdfSavePathWithExtension(location.path);
           await file.saveTo(path);
           _toast('Saved to $path');
-        } catch (e) {
+        } catch (e, s) {
+          AppLog.instance.error('Save failed', error: e, stackTrace: s);
           _toast('Save failed: $e');
         }
     }
@@ -932,7 +955,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
         try {
           await file.saveTo(location.path);
           _toast('Saved $name - paste back into the PDF with ⌘V');
-        } catch (e) {
+        } catch (e, s) {
+          AppLog.instance.error('Save failed', error: e, stackTrace: s);
           _toast('Save failed: $e');
         }
     }
@@ -971,7 +995,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (stem.isEmpty) stem = 'page';
       final name = '$stem-p${pageIndex + 1}.${isPng ? 'png' : 'jpg'}';
       await _saveImageBytes(bytes, name, isPng ? 'image/png' : 'image/jpeg');
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance.error('Image export failed', error: e, stackTrace: s);
       if (mounted) _toast('Export failed: $e');
     }
   }
@@ -1005,7 +1030,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
         try {
           await file.saveTo(location.path);
           _toast('Saved $name');
-        } catch (e) {
+        } catch (e, s) {
+          AppLog.instance.error('Save failed', error: e, stackTrace: s);
           _toast('Save failed: $e');
         }
     }
@@ -1124,11 +1150,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
       Navigator.of(context, rootNavigator: true).pop(); // dismiss progress
       _openBytes(result, '${tab.title} (OCR)');
       _toast('OCR added $spans text spans - the page text is now selectable');
-    } on VlmOcrException catch (e) {
+    } on VlmOcrException catch (e, s) {
+      AppLog.instance.error('OCR failed: ${e.message}', error: e, stackTrace: s);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       _toast('OCR failed: ${e.message}');
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance.error('OCR failed', error: e, stackTrace: s);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       _toast('OCR failed: $e');

@@ -80,6 +80,12 @@ body:
     attributes:
       label: Anything else?
       description: Add anything that might help. It is fine to leave this blank.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: The app fills this in automatically when you use "Supply feedback…". It lists the app version, your platform, and any errors from this session - no document contents. You can edit or clear it before submitting.
+      render: text
   - type: checkboxes
     id: privacy
     attributes:
