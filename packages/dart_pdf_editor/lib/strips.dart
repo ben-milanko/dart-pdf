@@ -8,5 +8,6 @@
 /// direct/off-label use.
 library;
 
+export 'src/strips/slug_batch.dart';
 export 'src/strips/strip_batch.dart';
 export 'src/strips/strip_device.dart';

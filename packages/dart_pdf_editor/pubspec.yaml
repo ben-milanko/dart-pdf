@@ -53,6 +53,7 @@ flutter:
   shaders:
     - shaders/pdf_probe.frag
     - shaders/pdf_strips.frag
+    - shaders/pdf_slug.frag
   assets:
     - assets/web/pdf_render_worker.dart.js
     - assets/fonts/DejaVuSans.ttf
