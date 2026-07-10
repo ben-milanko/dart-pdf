@@ -141,6 +141,16 @@ class StripGenerator {
   /// glyph directly (unquantized - the pre-cache behavior).
   GlyphStripCache? glyphCache = GlyphStripCache.shared;
 
+  /// Replayable stroke/fill strip cache consulted by [fillPath] and
+  /// [strokePath] for small paths (repeated CAD symbols, hatch strokes,
+  /// dimension arrows). Content-keyed - repeated geometry rarely shares
+  /// object identity, so the key is the translation-invariant quantized
+  /// outline (1/64 px deltas from the first point) plus stroke/fill
+  /// parameters and a 1/8-px anchor subpixel phase (the glyph cache's
+  /// scheme, finer grid; y phase stays within the 4-px strip row so
+  /// replays are row-aligned). Set null to rasterize every path directly (unquantized).
+  ShapeStripCache? shapeCache = ShapeStripCache.shared;
+
   int _width = 0;
   int _height = 0;
   int _rowCount = 0;
@@ -196,9 +206,24 @@ class StripGenerator {
 
   /// Fills [path] (page space) mapped through [transform] into device
   /// space. [rgba] is a premultiplied color from [premulRgba8].
+  ///
+  /// With a [shapeCache] attached (the default), small paths are memoized
+  /// by content (quantized outline + subpixel phase) and replayed with an
+  /// integer translate + color override; see [ShapeStripCache].
   void fillPath(PdfPath path, PdfMatrix transform, PdfFillRule rule, int rgba,
       {double tolerance = 0.25}) {
     if (path.isEmpty || _rowCount == 0) return;
+    final cache = shapeCache;
+    if (cache != null &&
+        path.segments.length <= ShapeStripCache.maxSegments &&
+        _shapeCached(cache, path, transform, rule, null, rgba, tolerance)) {
+      return;
+    }
+    _fillPathDirect(path, transform, rule, rgba, tolerance);
+  }
+
+  void _fillPathDirect(PdfPath path, PdfMatrix transform, PdfFillRule rule,
+      int rgba, double tolerance) {
     // The bbox pre-cull is a full extra pass over the path; for tiny paths
     // (the CAD common case: 4-segment quads by the tens of thousands)
     // flatten-and-bin is just as cheap and the binning clips anyway.
@@ -210,10 +235,26 @@ class StripGenerator {
   /// Strokes [path] (page space, stroke parameters in page space like
   /// [PdfDevice.strokePath]) by expanding to closed contours and filling
   /// them nonzero.
+  ///
+  /// Cached like [fillPath] when a [shapeCache] is attached; stroke
+  /// parameters (device width, caps, joins, dashes - quantized to 1/64 px)
+  /// join the content key.
   void strokePath(
       PdfPath path, PdfMatrix transform, PdfStroke stroke, int rgba,
       {double tolerance = 0.25}) {
     if (path.isEmpty || _rowCount == 0) return;
+    final cache = shapeCache;
+    if (cache != null &&
+        path.segments.length <= ShapeStripCache.maxSegments &&
+        _shapeCached(cache, path, transform, PdfFillRule.nonzero, stroke,
+            rgba, tolerance)) {
+      return;
+    }
+    _strokePathDirect(path, transform, stroke, rgba, tolerance);
+  }
+
+  void _strokePathDirect(PdfPath path, PdfMatrix transform, PdfStroke stroke,
+      int rgba, double tolerance) {
     final sf = transform.scaleFactor;
     var subs = flattenPath(path, transform, tolerance: tolerance);
     if (subs.isEmpty) return;
@@ -392,14 +433,19 @@ class StripGenerator {
 
   /// Copies a cached glyph's strips into the main buffer with an integer
   /// translate and the current color.
-  void _replayGlyph(CachedGlyphStrips g, int dx, int dy, int rgba) {
-    final n = g.stripCount;
+  void _replayGlyph(CachedGlyphStrips g, int dx, int dy, int rgba) =>
+      _replayStrips(g.data, g.stripCount, g.alphaTexelCount, dx, dy, rgba);
+
+  /// Copies a relocatable strip blob (`[xy | widthFlags | alphaOffset |
+  /// alphaTexels]`, [n] strips) into the main buffer with an integer
+  /// translate and a color override.
+  void _replayStrips(
+      Uint32List data, int n, int alphaTexelCount, int dx, int dy, int rgba) {
     if (n == 0) return;
     final buf = strips;
     final alphaBase = buf.alphaColumns;
-    final data = g.data;
     buf._appendTexels(
-        Uint32List.sublistView(data, 3 * n, 3 * n + g.alphaTexelCount));
+        Uint32List.sublistView(data, 3 * n, 3 * n + alphaTexelCount));
     buf._ensureStrips(n);
     var at = buf.length;
     final xy = buf.xy, wf = buf.widthFlags, ao = buf.alphaOffset;
@@ -414,6 +460,410 @@ class StripGenerator {
       at++;
     }
     buf.length = at;
+  }
+
+  // ---- content-keyed stroke/fill strip cache -----------------------------
+
+  /// Scratch content record for the shape under consideration; layout in
+  /// [ShapeStripCache]'s doc comment. Reused across draws.
+  Int32List _shapeBuf = Int32List(512);
+  int _shapeLen = 0;
+
+  void _shapePush(int v) {
+    if (_shapeLen == _shapeBuf.length) {
+      _shapeBuf = Int32List(_shapeBuf.length * 2)
+        ..setRange(0, _shapeLen, _shapeBuf);
+    }
+    _shapeBuf[_shapeLen++] = v;
+  }
+
+  /// Tries the content-keyed cache path for a fill ([stroke] null) or
+  /// stroke. Returns true when the draw was fully handled (replayed, or
+  /// rasterized from the quantized content record); false sends the caller
+  /// to the direct, unquantized path (offscreen/oversized/degenerate
+  /// shapes - mirroring the glyph cache's bypass).
+  bool _shapeCached(ShapeStripCache cache, PdfPath path, PdfMatrix m,
+      PdfFillRule rule, PdfStroke? stroke, int rgba, double tolerance) {
+    // ---- build the content record (one transform pass over the path) ----
+    _shapeLen = 0;
+    final isStroke = stroke != null;
+    _shapePush((rule == PdfFillRule.evenOdd ? 1 : 0) | (isStroke ? 2 : 0));
+    _shapePush((tolerance * 1024).round());
+    final qxSlot = _shapeLen;
+    _shapePush(0); // qx - patched below once the anchor is known
+    final qySlot = _shapeLen;
+    _shapePush(0); // qy
+    var qWidth = 0, qCap = 0, qJoin = 0, qMiter = 0;
+    if (isStroke) {
+      final sf = m.scaleFactor;
+      qWidth = (stroke.width * sf * 64).round();
+      if (qWidth < 0 || qWidth > ShapeStripCache.maxShapeSide << 6) {
+        cache.bypasses++;
+        return false;
+      }
+      qCap = stroke.cap;
+      qJoin = stroke.join;
+      qMiter = (stroke.miterLimit * 64).round().clamp(0, 1 << 20);
+      _shapePush(qWidth);
+      _shapePush(qCap);
+      _shapePush(qJoin);
+      _shapePush(qMiter);
+      _shapePush((stroke.dashPhase * sf * 64).round().clamp(-(1 << 26),
+          1 << 26));
+      _shapePush(stroke.dashArray.length);
+      for (final d in stroke.dashArray) {
+        _shapePush((d * sf * 64).round().clamp(-(1 << 26), 1 << 26));
+      }
+    }
+    var hasAnchor = false;
+    var ax = 0.0, ay = 0.0;
+    var minDx = 0, maxDx = 0, minDy = 0, maxDy = 0;
+    // Whether the stroke can produce joins (>= 2 drawing segments in one
+    // subpath, a closing join, or a cubic - whose flattening joins at every
+    // polyline vertex). Single straight hatch/dimension segments - the hot
+    // CAD case - have none, so they skip the conservative miter pad.
+    var hasJoins = false;
+    var subpathDraws = 0;
+    // Quantized deltas beyond ~262k px can't be a cacheable small shape
+    // (and could stress 32-bit storage) - bail to the direct path.
+    const limit = 1 << 24;
+    var ok = true;
+    void pt(double x, double y) {
+      final dx = m.transformX(x, y), dy = m.transformY(x, y);
+      if (!dx.isFinite || !dy.isFinite) {
+        ok = false;
+        return;
+      }
+      if (!hasAnchor) {
+        ax = dx;
+        ay = dy;
+        hasAnchor = true;
+      }
+      final qdx = ((dx - ax) * 64).round();
+      final qdy = ((dy - ay) * 64).round();
+      if (qdx.abs() > limit || qdy.abs() > limit) {
+        ok = false;
+        return;
+      }
+      if (qdx < minDx) minDx = qdx;
+      if (qdx > maxDx) maxDx = qdx;
+      if (qdy < minDy) minDy = qdy;
+      if (qdy > maxDy) maxDy = qdy;
+      _shapePush(qdx);
+      _shapePush(qdy);
+    }
+
+    for (final segment in path.segments) {
+      switch (segment) {
+        case PdfMoveTo(:final x, :final y):
+          _shapePush(_shapeOpMove);
+          subpathDraws = 0;
+          pt(x, y);
+        case PdfLineTo(:final x, :final y):
+          _shapePush(_shapeOpLine);
+          if (++subpathDraws >= 2) hasJoins = true;
+          pt(x, y);
+        case PdfCubicTo():
+          _shapePush(_shapeOpCubic);
+          hasJoins = true;
+          pt(segment.x1, segment.y1);
+          pt(segment.x2, segment.y2);
+          pt(segment.x3, segment.y3);
+        case PdfClosePath():
+          _shapePush(_shapeOpClose);
+          if (subpathDraws >= 1) hasJoins = true;
+      }
+      if (!ok) return false;
+    }
+    if (!hasAnchor) return false;
+
+    // ---- anchor subpixel phase (the glyph cache's scheme, at 1/8 px:
+    // fills/strokes shift whole long edges when snapped, and the coarser
+    // 1/4-px grid measurably moved Ghent parity page means; 1/8 px halves
+    // the error for a 4x key-space cost the hit rates absorb). The y phase
+    // stays within the 4-px strip row so replays are row-aligned. ----
+    var ix = ax.floor();
+    var qx = ((ax - ix) * 8).round();
+    if (qx == 8) {
+      ix += 1;
+      qx = 0;
+    }
+    var iy = 4 * (ay / 4).floor();
+    var qy = ((ay - iy) * 8).round();
+    if (qy == 32) {
+      iy += 4;
+      qy = 0;
+    }
+    _shapeBuf[qxSlot] = qx;
+    _shapeBuf[qySlot] = qy;
+
+    // ---- local-frame bounds (from quantized content only, so every
+    // occurrence of a key derives the identical build frame) ----
+    final lx = qx * 0.125, ly = qy * 0.125;
+    var minX = lx + minDx / 64.0, maxX = lx + maxDx / 64.0;
+    var minY = ly + minDy / 64.0, maxY = ly + maxDy / 64.0;
+    if (isStroke) {
+      final width = qWidth / 64.0;
+      final hw = (width <= 0 ? 1.0 : width) / 2;
+      final joinFactor =
+          hasJoins && qJoin == 0 ? math.max(qMiter / 64.0, 1.0) : 1.0;
+      final capFactor = qCap == 2 ? 1.4143 : 1.0;
+      final pad = hw * math.max(joinFactor, capFactor) + 1.0;
+      minX -= pad;
+      minY -= pad;
+      maxX += pad;
+      maxY += pad;
+    }
+    final sx = minX.floor();
+    final sy = 4 * (minY / 4).floor();
+    final w = maxX.ceil() - sx + 1;
+    final h = maxY.ceil() - sy + 1;
+    final dx = ix + sx, dy = iy + sy; // replay translate (dy multiple of 4)
+    if (w > ShapeStripCache.maxShapeSide ||
+        h > ShapeStripCache.maxShapeSide ||
+        dx < 0 ||
+        dy < 0 ||
+        dx + w > _width ||
+        dy + h > _rowCount * 4) {
+      cache.bypasses++;
+      return false;
+    }
+
+    final hash = _shapeHash(_shapeBuf, _shapeLen);
+    final entry = cache._peek(hash);
+    if (entry != null) {
+      if (_shapeContentEquals(entry.content, _shapeBuf, _shapeLen)) {
+        cache.hits++;
+        cache._promote(hash, entry);
+        _replayStrips(
+            entry.data, entry.stripCount, entry.alphaTexelCount, dx, dy, rgba);
+        return true;
+      }
+      // 32-bit hash collision between distinct shapes: never replay - render
+      // this draw from its own quantized content. The stored entry stays.
+      cache.collisions++;
+      _rasterShapeContent(_shapeBuf, _shapeLen, ix.toDouble(), iy.toDouble(),
+          rgba);
+      return true;
+    }
+    if (!cache._secondSight(hash)) {
+      // First sight renders directly - but from the same quantized content,
+      // so this draw is byte-identical to the replays that follow once the
+      // key recurs (cache state never shifts pixels between renders).
+      _rasterShapeContent(_shapeBuf, _shapeLen, ix.toDouble(), iy.toDouble(),
+          rgba);
+      return true;
+    }
+    final built = cache._build(_shapeBuf, _shapeLen, hash, sx, sy, w, h);
+    _replayStrips(
+        built.data, built.stripCount, built.alphaTexelCount, dx, dy, rgba);
+    return true;
+  }
+
+  static bool _shapeContentEquals(Int32List stored, Int32List buf, int len) {
+    if (stored.length != len) return false;
+    for (var i = 0; i < len; i++) {
+      if (stored[i] != buf[i]) return false;
+    }
+    return true;
+  }
+
+  /// Jenkins one-at-a-time over the content ints; every step stays within
+  /// 32 bits (web-safe - no products past 2^53).
+  static int _shapeHash(Int32List c, int len) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < len; i++) {
+      h = (h + (c[i] & 0xFFFFFFFF)) & 0xFFFFFFFF;
+      h = (h + ((h << 10) & 0xFFFFFFFF)) & 0xFFFFFFFF;
+      h ^= h >>> 6;
+    }
+    h = (h + ((h << 3) & 0xFFFFFFFF)) & 0xFFFFFFFF;
+    h ^= h >>> 11;
+    h = (h + ((h << 15) & 0xFFFFFFFF)) & 0xFFFFFFFF;
+    return h;
+  }
+
+  static const int _shapeOpMove = 0;
+  static const int _shapeOpLine = 1;
+  static const int _shapeOpCubic = 2;
+  static const int _shapeOpClose = 3;
+
+  /// Rasterizes a shape content record with its anchor placed at
+  /// `(ox + qx/4, oy + qy/4)`: the first-sight/collision path passes the
+  /// anchor's integer device position, the cache build passes the local
+  /// frame shift. Mirrors the direct paths' semantics exactly (fill: pen
+  /// survives a close; stroke: flattenPath's close-is-final rule).
+  void _rasterShapeContent(Int32List c, int len, double ox, double oy,
+      int rgba) {
+    final flags = c[0];
+    final tolerance = c[1] / 1024.0;
+    final bx = ox + c[2] * 0.125;
+    final by = oy + c[3] * 0.125;
+    var p = 4;
+    if (flags & 2 != 0) {
+      final width = c[p++] / 64.0;
+      final cap = c[p++];
+      final join = c[p++];
+      final miterLimit = c[p++] / 64.0;
+      final phase = c[p++] / 64.0;
+      final nDash = c[p++];
+      List<double>? dashes;
+      var anyDash = false;
+      if (nDash > 0) {
+        dashes = List<double>.filled(nDash, 0);
+        for (var i = 0; i < nDash; i++) {
+          final d = c[p++] / 64.0;
+          dashes[i] = d;
+          if (d > 0) anyDash = true;
+        }
+      }
+      var subs = _flattenShapeContent(c, p, len, bx, by, tolerance);
+      if (subs.isEmpty) return;
+      if (anyDash) subs = dashSubpaths(subs, dashes!, phase);
+      _contours.clear();
+      strokeToContours(subs,
+          width: width,
+          cap: cap,
+          join: join,
+          miterLimit: miterLimit,
+          out: _contours);
+      fillContours(_contours, rgba);
+    } else {
+      _edgesFromShapeContent(c, p, len, bx, by, tolerance);
+      _finishShape(
+          flags & 1 != 0 ? PdfFillRule.evenOdd : PdfFillRule.nonzero, rgba);
+    }
+  }
+
+  /// [flattenPath] semantics over a content record (device-space quantized
+  /// points, already transformed).
+  List<FlatSubpath> _flattenShapeContent(
+      Int32List c, int start, int len, double bx, double by,
+      double tolerance) {
+    final out = <FlatSubpath>[];
+    DoubleBuilder? current;
+    var closed = false;
+    var startX = 0.0, startY = 0.0, lastX = 0.0, lastY = 0.0;
+
+    void finish() {
+      final done = current;
+      if (done != null && done.length >= 4) {
+        out.add(FlatSubpath(Float64List.fromList(done.view), closed: closed));
+      }
+      current = null;
+      closed = false;
+    }
+
+    var p = start;
+    while (p < len) {
+      final op = c[p++];
+      if (op == _shapeOpMove) {
+        finish();
+        lastX = startX = bx + c[p++] / 64.0;
+        lastY = startY = by + c[p++] / 64.0;
+        current = DoubleBuilder(64)..add2(startX, startY);
+      } else if (op == _shapeOpLine) {
+        final x = bx + c[p++] / 64.0, y = by + c[p++] / 64.0;
+        if (current == null) continue;
+        lastX = x;
+        lastY = y;
+        current!.add2(x, y);
+      } else if (op == _shapeOpCubic) {
+        final x1 = bx + c[p++] / 64.0, y1 = by + c[p++] / 64.0;
+        final x2 = bx + c[p++] / 64.0, y2 = by + c[p++] / 64.0;
+        final x3 = bx + c[p++] / 64.0, y3 = by + c[p++] / 64.0;
+        final cur = current;
+        if (cur == null) continue;
+        final d1 =
+            math.max((lastX - 2 * x1 + x2).abs(), (lastY - 2 * y1 + y2).abs());
+        final d2 =
+            math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
+        final d = math.max(d1, d2);
+        final n = d <= tolerance
+            ? 1
+            : math.sqrt(3 * d / (4 * tolerance)).ceil().clamp(1, 128);
+        for (var i = 1; i <= n; i++) {
+          final t = i / n;
+          final mt = 1 - t;
+          final a = mt * mt * mt, b = 3 * mt * mt * t, cc = 3 * mt * t * t;
+          final e = t * t * t;
+          cur.add2(a * lastX + b * x1 + cc * x2 + e * x3,
+              a * lastY + b * y1 + cc * y2 + e * y3);
+        }
+        lastX = x3;
+        lastY = y3;
+      } else {
+        // close
+        final cur = current;
+        if (cur == null) continue;
+        if (lastX != startX || lastY != startY) {
+          cur.add2(startX, startY);
+        }
+        closed = true;
+        lastX = startX;
+        lastY = startY;
+        finish();
+      }
+    }
+    finish();
+    return out;
+  }
+
+  /// [_flattenEdges] semantics over a content record.
+  void _edgesFromShapeContent(Int32List c, int start, int len, double bx,
+      double by, double tolerance) {
+    _subpathOpen = false;
+    var p = start;
+    while (p < len) {
+      final op = c[p++];
+      if (op == _shapeOpMove) {
+        _closeSubpath();
+        _penX = _startX = bx + c[p++] / 64.0;
+        _penY = _startY = by + c[p++] / 64.0;
+        _subpathOpen = true;
+      } else if (op == _shapeOpLine) {
+        final x = bx + c[p++] / 64.0, y = by + c[p++] / 64.0;
+        if (!_subpathOpen) continue;
+        _edge(_penX, _penY, x, y);
+        _penX = x;
+        _penY = y;
+      } else if (op == _shapeOpCubic) {
+        final x1 = bx + c[p++] / 64.0, y1 = by + c[p++] / 64.0;
+        final x2 = bx + c[p++] / 64.0, y2 = by + c[p++] / 64.0;
+        final x3 = bx + c[p++] / 64.0, y3 = by + c[p++] / 64.0;
+        if (!_subpathOpen) continue;
+        final d1 = math.max(
+            (_penX - 2 * x1 + x2).abs(), (_penY - 2 * y1 + y2).abs());
+        final d2 =
+            math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
+        final d = math.max(d1, d2);
+        final n = d <= tolerance
+            ? 1
+            : math.sqrt(3 * d / (4 * tolerance)).ceil().clamp(1, 128);
+        var px = _penX, py = _penY;
+        for (var i = 1; i <= n; i++) {
+          final t = i / n;
+          final mt = 1 - t;
+          final ba = mt * mt * mt, bb = 3 * mt * mt * t, bc = 3 * mt * t * t;
+          final be = t * t * t;
+          final qx = ba * _penX + bb * x1 + bc * x2 + be * x3;
+          final qy = ba * _penY + bb * y1 + bc * y2 + be * y3;
+          _edge(px, py, qx, qy);
+          px = qx;
+          py = qy;
+        }
+        _penX = x3;
+        _penY = y3;
+      } else {
+        // close
+        if (!_subpathOpen) continue;
+        _closeSubpath();
+        _penX = _startX;
+        _penY = _startY;
+        _subpathOpen = true; // pen stays; a following lineTo reopens
+      }
+    }
+    _closeSubpath();
   }
 
   // ---- culling ---------------------------------------------------------
@@ -1054,7 +1504,9 @@ class GlyphStripCache {
   CachedGlyphStrips _build(GlyphStripKey key, FlattenedOutline outline,
       PdfMatrix local, int w, int h) {
     misses++;
-    final scratch = _scratch ??= (StripGenerator()..glyphCache = null);
+    final scratch = _scratch ??= (StripGenerator()
+      ..glyphCache = null
+      ..shapeCache = null);
     scratch.begin(w, h);
     scratch._fillOutlineDirect(outline, local, 0);
     final s = scratch.strips;
@@ -1074,6 +1526,199 @@ class GlyphStripCache {
         _alphaBytes -= _entries.remove(eldest)!.alphaBytes;
       }
     }
+    return entry;
+  }
+}
+
+/// One shape's emitted strips in relocatable form (same packed layout as
+/// [CachedGlyphStrips]) plus the full content record the entry was keyed
+/// on - the map key is a 32-bit content hash, so every hit re-verifies the
+/// content before replaying (a collision falls back to direct raster, never
+/// to the wrong pixels).
+class CachedShapeStrips {
+  CachedShapeStrips(this.data, this.stripCount, this.alphaTexelCount,
+      this.content);
+
+  final Uint32List data;
+  final int stripCount;
+  final int alphaTexelCount;
+
+  /// The verified content record: `[flags, qTol, qx, qy,` stroke params +
+  /// dashes when flags bit 1 is set, `]` then interleaved segment opcodes
+  /// and 1/64-px quantized point deltas from the anchor.
+  final Int32List content;
+
+  /// Whole-entry footprint (strip blob + content record) - what the cache
+  /// budget counts, since shape entries are tiny and numerous (the strip
+  /// data, not the alpha texels, dominates).
+  int get dataBytes => data.lengthInBytes + content.lengthInBytes;
+}
+
+/// Content-keyed cache of rasterized stroke/fill strips, replayed by
+/// [StripGenerator.fillPath] and [StripGenerator.strokePath].
+///
+/// The glyph cache's design (relocatable strip blobs, subpixel-phase
+/// quantization with the y phase kept inside the 4-px strip row,
+/// cache-on-second-sight) applied to geometry without shared
+/// object identity: dense CAD sheets redraw the same hatch strokes,
+/// dimension arrows, and symbol fills thousands of times as distinct
+/// [PdfPath] instances, so the key is the shape's *content* - segment
+/// opcodes + point deltas from the first point quantized to 1/64 px,
+/// stroke/fill parameters, flatten tolerance, and the anchor's subpixel
+/// phase. Quantization moves geometry by at most 1/16 px (anchor snap) +
+/// 1/128 px (deltas) - half the glyph cache's budget, because snapping a
+/// fill shifts whole edges rather than one glyph.
+///
+/// Only paths with at most [maxSegments] segments attempt the cache (the
+/// content walk costs one transform pass + hash, which huge one-off
+/// clip/boundary paths must not pay), and - like glyphs - shapes larger
+/// than [maxShapeSide] device px or not fully inside the viewport bypass
+/// to the direct unquantized raster.
+class ShapeStripCache {
+  ShapeStripCache({this.maxEntries = 131072, this.maxBytes = 64 << 20});
+
+  /// Process-wide default instance.
+  static final ShapeStripCache shared = ShapeStripCache();
+
+  /// Shapes larger than this on either side (device px, stroke pad
+  /// included) bypass the cache.
+  static const int maxShapeSide = 512;
+
+  /// Paths with more segments than this never attempt the cache: the
+  /// content walk + hash would tax every huge one-off boundary path, and
+  /// plotted symbols/hatches stay far below it.
+  static const int maxSegments = 64;
+
+  /// Live-entry cap across both generations. Dense CAD documents carry
+  /// ~25-40k distinct small-shape keys per 10-page render; each generation
+  /// (half this cap) must hold a whole document's working set or its own
+  /// render rotates its early keys out and every recurrence turns into a
+  /// full rebuild (measured slower than no cache at all on ly9-far-cad at
+  /// a 16k cap). Steady state on the heavy corpus is ~40k entries /
+  /// ~20 MB; the cap is headroom, not expected occupancy.
+  final int maxEntries;
+
+  /// Byte budget over [CachedShapeStrips.dataBytes] (strip blob + content),
+  /// across both generations.
+  final int maxBytes;
+
+  // Two-generation storage: inserts and promotions go to the current
+  // generation; when it reaches half the budget the previous generation is
+  // dropped wholesale and the maps rotate. Unlike per-entry FIFO eviction
+  // (which at capacity churns one remove+alloc per insert forever and
+  // rebuild-storms on cyclic access), rotation reclaims memory in O(1)
+  // bulk drops and anything still hot survives via promotion on its next
+  // verified hit.
+  var _current = <int, CachedShapeStrips>{};
+  var _previous = <int, CachedShapeStrips>{};
+  int _currentBytes = 0;
+  int _previousBytes = 0;
+
+  int hits = 0;
+  int misses = 0;
+  int bypasses = 0;
+
+  /// First-sight draws that rendered directly (cache-on-second-sight gate).
+  int firstSights = 0;
+
+  /// Draws whose 32-bit content hash matched a stored entry with different
+  /// content; rendered directly (correctness never rides on the hash).
+  int collisions = 0;
+
+  int get entryCount => _current.length + _previous.length;
+  int get dataBytes => _currentBytes + _previousBytes;
+
+  void resetStats() {
+    hits = 0;
+    misses = 0;
+    bypasses = 0;
+    firstSights = 0;
+    collisions = 0;
+  }
+
+  void clear() {
+    _current = {};
+    _previous = {};
+    _currentBytes = 0;
+    _previousBytes = 0;
+    _seenA = {};
+    _seenB = {};
+  }
+
+  /// Scratch generator for building entries (its own caches off).
+  StripGenerator? _scratch;
+
+  // Approximate seen-before filter for the cache-on-second-sight gate,
+  // keyed by the content hash - also two rotating generations, so it
+  // behaves as a sliding window instead of periodic total amnesia (a
+  // wholesale clear used to land, deterministically, mid-way through the
+  // corpus sweep and reset the gate exactly when WAT_L0001_S rendered -
+  // its keys then never got past first sight).
+  // Window sizing is a measured trade: these generations (window = 64-128k
+  // sightings) comfortably span any single document's render, so zoom
+  // re-bins and page revisits always cache. A 2x window was tried to also
+  // catch repeats across a whole 49-file corpus sweep - it admitted so
+  // many sweep-scale one-shots that entry generations thrashed (202k vs
+  // 48k builds) and the corpus mean got worse, while WAT_L0001_S stayed
+  // flat. Cross-document-sweep reuse is not a pattern worth buying.
+  var _seenA = <int>{};
+  var _seenB = <int>{};
+  static const int _seenGenCap = 1 << 16;
+
+  bool _secondSight(int hash) {
+    if (_seenA.contains(hash) || _seenB.contains(hash)) return true;
+    if (_seenA.length >= _seenGenCap) {
+      _seenB = _seenA;
+      _seenA = {};
+    }
+    _seenA.add(hash);
+    firstSights++;
+    return false;
+  }
+
+  CachedShapeStrips? _peek(int hash) => _current[hash] ?? _previous[hash];
+
+  /// Moves a content-verified hit from the previous generation into the
+  /// current one so it survives the next rotation.
+  void _promote(int hash, CachedShapeStrips entry) {
+    final moved = _previous.remove(hash);
+    if (moved == null) return;
+    _previousBytes -= moved.dataBytes;
+    _insert(hash, moved);
+  }
+
+  void _insert(int hash, CachedShapeStrips entry) {
+    if (maxEntries <= 0) return;
+    if (_current.length >= (maxEntries >> 1).clamp(1, maxEntries) ||
+        _currentBytes >= maxBytes >> 1) {
+      _previous = _current;
+      _previousBytes = _currentBytes;
+      _current = {};
+      _currentBytes = 0;
+    }
+    _current[hash] = entry;
+    _currentBytes += entry.dataBytes;
+  }
+
+  CachedShapeStrips _build(
+      Int32List buf, int len, int hash, int sx, int sy, int w, int h) {
+    misses++;
+    final scratch = _scratch ??= (StripGenerator()
+      ..glyphCache = null
+      ..shapeCache = null);
+    scratch.begin(w, h);
+    scratch._rasterShapeContent(buf, len, -sx.toDouble(), -sy.toDouble(), 0);
+    final s = scratch.strips;
+    final n = s.length;
+    final texels = s.alphaColumns;
+    final data = Uint32List(3 * n + texels);
+    data.setRange(0, n, s.xy);
+    data.setRange(n, 2 * n, s.widthFlags);
+    data.setRange(2 * n, 3 * n, s.alphaOffset);
+    data.setRange(3 * n, 3 * n + texels, s._alphaTexels);
+    final content = Int32List(len)..setRange(0, len, buf);
+    final entry = CachedShapeStrips(data, n, texels, content);
+    _insert(hash, entry);
     return entry;
   }
 }

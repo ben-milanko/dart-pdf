@@ -174,6 +174,7 @@ class _Args {
   int maxPages = 10;
   int repeat = 1;
   bool glyphCache = true;
+  bool shapeCache = true;
   String? out;
 }
 
@@ -193,6 +194,8 @@ _Args _parse(List<String> argv) {
         a.out = next();
       case '--no-glyph-cache':
         a.glyphCache = false;
+      case '--no-shape-cache':
+        a.shapeCache = false;
       default:
         if (arg.startsWith('--')) {
           stderr.writeln('unknown flag $arg');
@@ -282,7 +285,8 @@ void main(List<String> argv) {
 
   // reused across pages and files
   final gen = StripGenerator()
-    ..glyphCache = args.glyphCache ? GlyphStripCache.shared : null;
+    ..glyphCache = args.glyphCache ? GlyphStripCache.shared : null
+    ..shapeCache = args.shapeCache ? ShapeStripCache.shared : null;
   final best = <String, Map<String, Object?>>{};
   for (var r = 0; r < args.repeat; r++) {
     for (final file in files) {
@@ -331,6 +335,7 @@ void main(List<String> argv) {
     totalAlphaBytes += s['alphaBytes'] as int;
   }
   final gc = GlyphStripCache.shared;
+  final sc = ShapeStripCache.shared;
   final summary = {
     'pages': totalPages,
     'glyphCache': args.glyphCache
@@ -345,6 +350,21 @@ void main(List<String> argv) {
                 ? null
                 : double.parse(
                     (gc.hits / (gc.hits + gc.misses)).toStringAsFixed(3)),
+          }
+        : null,
+    'shapeCache': args.shapeCache
+        ? {
+            'hits': sc.hits,
+            'misses': sc.misses,
+            'firstSights': sc.firstSights,
+            'bypasses': sc.bypasses,
+            'collisions': sc.collisions,
+            'entries': sc.entryCount,
+            'dataBytes': sc.dataBytes,
+            'hitRate': (sc.hits + sc.misses) == 0
+                ? null
+                : double.parse(
+                    (sc.hits / (sc.hits + sc.misses)).toStringAsFixed(3)),
           }
         : null,
     'renderMsPerPage':

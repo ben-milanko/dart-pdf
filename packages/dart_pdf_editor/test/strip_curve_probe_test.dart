@@ -13,16 +13,19 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       const w = 32, h = 32;
-      // glyph-ish bowl in em units (0..1), drawn at a 24-px em
+      // glyph-ish bowl in em units (0..1), drawn at a 24-px em. The first
+      // point sits at 0.125 em = 3.0 px so the fill path's anchor lands on
+      // the shape cache's 1/4-px quantization grid (see below).
       final em = PdfPath([
-        PdfMoveTo(0.1, 0.1),
+        PdfMoveTo(0.125, 0.125),
         PdfCubicTo(0.1, 0.9, 0.5, 1.0, 0.9, 0.55),
-        PdfCubicTo(0.8, 0.2, 0.4, 0.05, 0.1, 0.1),
+        PdfCubicTo(0.8, 0.2, 0.4, 0.05, 0.125, 0.125),
         const PdfClosePath(),
       ]);
-      // translation on the glyph cache's 1/4-px quantization grid so the
-      // em-cached path (which quantizes subpixel offsets) rasters at
-      // exactly this transform
+      // translation on the strip caches' 1/4-px quantization grid so both
+      // memoized paths raster at exactly this transform: the glyph cache
+      // quantizes the matrix offset (4.25, 3.75), the shape cache the
+      // transformed first point (7.25, 6.75)
       const emToDev = PdfMatrix(24, 0, 0, 24, 4.25, 3.75);
 
       Future<Uint8List> raster(void Function(ui.Canvas) draw) async {
@@ -40,9 +43,9 @@ void main() {
       }
 
       final skia = await raster((canvas) {
-        final path = ui.Path()..moveTo(0.1, 0.1);
+        final path = ui.Path()..moveTo(0.125, 0.125);
         path.cubicTo(0.1, 0.9, 0.5, 1.0, 0.9, 0.55);
-        path.cubicTo(0.8, 0.2, 0.4, 0.05, 0.1, 0.1);
+        path.cubicTo(0.8, 0.2, 0.4, 0.05, 0.125, 0.125);
         path.close();
         canvas.save();
         canvas.translate(4.25, 3.75);

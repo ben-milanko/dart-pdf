@@ -132,7 +132,12 @@ void main() {
 
     test('fillSubpaths raw entry matches fillPath', () {
       const pts = [3.2, 3.7, 20.4, 5.1, 12.6, 19.3];
-      final a = StripGenerator()..begin(24, 24);
+      // fillSubpaths is the raw unquantized entry; pin the shape cache off
+      // so fillPath takes the same direct path (the cached path quantizes
+      // to the 1/4-px grid by design - see shape_cache_test.dart).
+      final a = StripGenerator()
+        ..shapeCache = null
+        ..begin(24, 24);
       a.fillPath(polyPath(pts), PdfMatrix.identity, PdfFillRule.nonzero,
           black);
       final b = StripGenerator()..begin(24, 24);
