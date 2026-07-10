@@ -7,6 +7,11 @@
 // Everything else (images, gradients, meshes, substituted text, non-normal
 // blends, knockout groups) delegates to the ordinary CanvasPdfDevice.
 //
+// The routing/state/flush logic lives in pdf_graphics' StripBinningDevice
+// (dart:ui-free) so a worker isolate can bin the exact same batches; this
+// subclass only owns the dart:ui half: the tape of fallback closures, the
+// StripBatch uploads, and the shader draw.
+//
 // Because dart:ui has no synchronous pixels->ui.Image path, the device
 // records its work on a tape (strip batches interleaved with fallback
 // device ops in painter's order) during the synchronous interpreter walk
@@ -27,13 +32,7 @@ import 'package:pdf_graphics/raster.dart';
 import '../canvas_device.dart';
 import 'strip_batch.dart';
 
-/// Curve-flattening tolerance (device px) for strip-routed paths. The
-/// raster core's 0.25 default (the GPU experiment's) leaves curve edges up
-/// to 0.25 px off the true curve - against Skia's much finer flattening
-/// that showed up as 50/255 coverage diffs on glyph-sized cubics. 0.02 px
-/// keeps curve-edge parity within a few counts for ~3.5x the segment count
-/// on curves (Wang's n grows with 1/sqrt(tolerance)); lines are unaffected.
-const double stripFlattenTolerance = 0.02;
+export 'package:pdf_graphics/raster.dart' show stripFlattenTolerance;
 
 /// [PdfDevice] that batches strip-rasterized paint into shader draws and
 /// routes everything else through an internal [CanvasPdfDevice] fallback.
@@ -41,46 +40,34 @@ const double stripFlattenTolerance = 0.02;
 /// Usage: construct per page, feed it a full interpreter walk, then
 /// `await finish()` before ending the picture recording; call [dispose]
 /// after `endRecording()` to release the atlas images.
-class StripPdfDevice implements PdfDevice {
+class StripPdfDevice extends StripBinningDevice {
   StripPdfDevice(
     this.canvas, {
-    required this.pageToDevice,
-    required this.deviceWidth,
-    required this.deviceHeight,
-    required this.pixelRatio,
+    required super.pageToDevice,
+    required super.deviceWidth,
+    required super.deviceHeight,
+    required super.pixelRatio,
     this.images = const {},
-  }) : _deviceToPage = _invertToMatrix4(pageToDevice) {
-    _generator.begin(deviceWidth, deviceHeight);
-  }
+  })  : _deviceToPage = _invertToMatrix4(pageToDevice),
+        super(
+          delegateAll: debugDelegateAll,
+          delegateFills: debugDelegateFills,
+          delegateStrokes: debugDelegateStrokes,
+          delegateText: debugDelegateText,
+        );
 
   final ui.Canvas canvas;
-
-  /// Page space (PDF user space, y-up) -> device pixels (y-down), including
-  /// /Rotate and [pixelRatio]. Must match the canvas transform in effect
-  /// when [finish] paints, or the strips land off the page.
-  final PdfMatrix pageToDevice;
-
-  final int deviceWidth;
-  final int deviceHeight;
-
-  /// The ratio baked into [pageToDevice]; recorded strips are only valid at
-  /// this ratio.
-  final double pixelRatio;
 
   /// Pre-decoded images for the fallback device (same map as
   /// [CanvasPdfDevice.images]).
   final Map<Object, ui.Image> images;
 
-  final StripGenerator _generator = StripGenerator();
   final Float64List _deviceToPage;
 
   /// Painter's-order tape: [StripBatch]es interleaved with fallback ops.
   final List<Object> _tape = [];
   final List<StripBatch> _batches = [];
 
-  PdfBlendMode _blend = PdfBlendMode.normal;
-  final List<bool> _groupKnockout = [];
-  final List<bool> _savedClip = [];
   bool _finished = false;
 
   // ---- stats (aggregated across devices for the benchmark) --------------
@@ -121,6 +108,11 @@ class StripPdfDevice implements PdfDevice {
 
   /// Debug: route every paint through the fallback (no strips at all) to
   /// isolate tape/pipeline effects from strip rasterization quality.
+  ///
+  /// The debug-delegate flags change ROUTING, so they force local binning:
+  /// callers must not feed a device a worker-binned plan while any of them
+  /// is set (the worker isolate carries its own statics and would bin the
+  /// full routing, desyncing flush ordinals).
   static bool debugDelegateAll = false;
 
   /// Debug: per-primitive fallback routing, for parity bisection.
@@ -128,32 +120,12 @@ class StripPdfDevice implements PdfDevice {
   static bool debugDelegateStrokes = false;
   static bool debugDelegateText = false;
 
-  /// Whether paint ops may take the strip path right now: normal blend and
-  /// not directly inside a knockout group (knockout elements composite with
-  /// BlendMode.src, which the batched srcOver quads can't express).
-  bool get _stripsActive =>
-      !debugDelegateAll &&
-      _blend == PdfBlendMode.normal &&
-      (_groupKnockout.isEmpty || !_groupKnockout.last);
+  // ---- StripBinningDevice hooks ------------------------------------------
 
-  /// Straight (non-premultiplied) ARGB for ui.Vertices colors; Skia
-  /// premultiplies before BlendMode.modulate applies the coverage.
-  static int _argb(PdfColor color, double alpha) {
-    int ch(double v) {
-      final c = v < 0 ? 0.0 : (v > 1 ? 1.0 : v);
-      return (c * 255 + 0.5).toInt();
-    }
-
-    return (ch(alpha) << 24) |
-        (ch(color.red) << 16) |
-        (ch(color.green) << 8) |
-        ch(color.blue);
-  }
-
-  void _flush() {
-    final batch = StripBatch.of(_generator.strips);
-    if (batch == null) return;
-    _generator.strips.reset();
+  @override
+  void emitBatch(int ordinal, StripBatchData? data) {
+    if (data == null) return;
+    final batch = StripBatch.fromData(data);
     _tape.add(batch);
     _batches.add(batch);
     totalFlushes++;
@@ -161,9 +133,8 @@ class StripPdfDevice implements PdfDevice {
     totalAtlasTexels += batch.atlasWidth * batch.atlasHeight;
   }
 
-  /// Records a fallback op that paints: pending strips must land first.
-  void _delegatePaint(void Function(CanvasPdfDevice d) op) {
-    _flush();
+  /// Records a fallback op that paints (the base already flushed).
+  void _paint(void Function(CanvasPdfDevice d) op) {
     totalDelegatedPaints++;
     _tape.add(op);
   }
@@ -171,152 +142,78 @@ class StripPdfDevice implements PdfDevice {
   /// Records a fallback op that only mutates state (no pixels).
   void _state(void Function(CanvasPdfDevice d) op) => _tape.add(op);
 
-  // ---- PdfDevice --------------------------------------------------------
+  @override
+  void delegateSave() => _state((d) => d.save());
 
   @override
-  void save() {
-    _savedClip.add(false);
-    _state((d) => d.save());
-  }
+  void delegateRestore() => _state((d) => d.restore());
 
   @override
-  void restore() {
-    // Strips batched under a clip must draw before the restore pops it.
-    if (_savedClip.isNotEmpty && _savedClip.removeLast()) _flush();
-    _state((d) => d.restore());
-  }
+  void delegateClipPath(PdfPath path, PdfFillRule rule) =>
+      _state((d) => d.clipPath(path, rule));
 
   @override
-  void clipPath(PdfPath path, PdfFillRule rule) {
-    _flush(); // strips batched before the clip must not be clipped by it
-    if (_savedClip.isNotEmpty) _savedClip[_savedClip.length - 1] = true;
-    _state((d) => d.clipPath(path, rule));
-  }
+  void delegateSetBlendMode(PdfBlendMode mode) =>
+      _state((d) => d.setBlendMode(mode));
 
   @override
-  void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
-    if (!_stripsActive || debugDelegateFills) {
-      _delegatePaint((d) => d.fillPath(path, color, rule, alpha));
-      return;
-    }
-    _generator.fillPath(path, pageToDevice, rule, _argb(color, alpha),
-        tolerance: stripFlattenTolerance);
-  }
+  void delegateBeginGroup(double alpha, {required bool knockout}) =>
+      _state((d) => d.beginGroup(alpha, knockout: knockout));
 
   @override
-  void strokePath(
-      PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
-    if (!_stripsActive || debugDelegateStrokes) {
-      _delegatePaint((d) => d.strokePath(path, color, stroke, alpha));
-      return;
-    }
-    // Skia renders strokes thinner than one device pixel as a 1-px hairline
-    // with the alpha modulated by the width (not a true sub-pixel band);
-    // match it so thin CAD/print linework is parity-identical.
-    var deviceStroke = stroke;
-    var a = alpha;
-    final sf = pageToDevice.scaleFactor;
-    final deviceWidth = stroke.width * sf;
-    if (deviceWidth < 1 && sf > 0) {
-      deviceStroke = stroke.copyWith(width: 1 / sf);
-      if (deviceWidth > 0) a *= deviceWidth;
-    }
-    _generator.strokePath(path, pageToDevice, deviceStroke, _argb(color, a),
-        tolerance: stripFlattenTolerance);
-  }
+  void delegateEndGroup() => _state((d) => d.endGroup());
 
   @override
-  void fillPathGradient(
-      PdfPath path, PdfFillRule rule, PdfGradient gradient, double alpha) {
-    _delegatePaint((d) => d.fillPathGradient(path, rule, gradient, alpha));
-  }
+  void delegateBeginSoftMasked() => _state((d) => d.beginSoftMasked());
 
   @override
-  void fillMesh(PdfMesh mesh, double alpha) {
-    _delegatePaint((d) => d.fillMesh(mesh, alpha));
-  }
-
-  @override
-  void drawText(PdfTextRun run) {
-    if (run.invisible) return;
-    final glyphs = run.glyphs;
-    if (!_stripsActive ||
-        debugDelegateText ||
-        glyphs == null ||
-        !run.fill ||
-        run.strokeColor != null ||
-        run.gradient != null) {
-      // substituted-font runs, stroked/gradient text, knockout/blended runs
-      _delegatePaint((d) => d.drawText(run));
-      return;
-    }
-    final color = _argb(run.color, 1);
-    for (final glyph in glyphs) {
-      final outline = glyph.outline;
-      if (outline == null) continue;
-      final emToDevice = PdfMatrix.translation(glyph.offset, glyph.offsetY)
-          .concat(run.transform)
-          .concat(pageToDevice);
-      _generator.fillOutline(FlattenedOutline.of(outline), emToDevice, color);
-    }
-  }
-
-  @override
-  void drawImage(PdfImageRequest request) {
-    _delegatePaint((d) => d.drawImage(request));
-  }
-
-  @override
-  void setBlendMode(PdfBlendMode mode) {
-    _blend = mode;
-    _state((d) => d.setBlendMode(mode));
-  }
-
-  @override
-  void beginGroup(double alpha, {bool knockout = false}) {
-    _flush(); // the group's layer must not capture earlier strips
-    _groupKnockout.add(knockout);
-    _state((d) => d.beginGroup(alpha, knockout: knockout));
-  }
-
-  @override
-  void endGroup() {
-    _flush(); // strips inside the group must land inside its layer
-    if (_groupKnockout.isNotEmpty) _groupKnockout.removeLast();
-    _state((d) => d.endGroup());
-  }
-
-  @override
-  void beginSoftMasked() {
-    _flush(); // earlier strips must not be captured by the content layer
-    _groupKnockout.add(false);
-    _state((d) => d.beginSoftMasked());
-  }
-
-  @override
-  void endSoftMasked({
+  void delegateBeginSoftMaskComposite({
     required bool luminosity,
     required PdfRect backdrop,
-    required void Function() drawMask,
-    double backdropLuminance = 0,
-    double transferScale = 1,
-    double transferOffset = 0,
+    required double backdropLuminance,
+    required double transferScale,
+    required double transferOffset,
   }) {
-    _flush(); // masked content strips land inside the content layer
-    if (_groupKnockout.isNotEmpty) _groupKnockout.removeLast();
+    // The mask group's draws happen at interpret time and append to the
+    // tape between the composite halves - the fallback's own endSoftMasked
+    // would re-run them at replay time instead.
     _state((d) => d.beginSoftMaskComposite(
         luminosity: luminosity,
         backdrop: backdrop,
         backdropLuminance: backdropLuminance,
         transferScale: transferScale,
         transferOffset: transferOffset));
-    // The mask group's draws happen NOW (interpret time) and append to the
-    // tape between the composite halves - the fallback's own endSoftMasked
-    // would re-run them at replay time instead.
-    drawMask();
-    _flush();
-    _state((d) => d.finishSoftMaskComposite());
   }
+
+  @override
+  void delegateFinishSoftMaskComposite() =>
+      _state((d) => d.finishSoftMaskComposite());
+
+  @override
+  void delegateFillPath(
+          PdfPath path, PdfColor color, PdfFillRule rule, double alpha) =>
+      _paint((d) => d.fillPath(path, color, rule, alpha));
+
+  @override
+  void delegateStrokePath(
+          PdfPath path, PdfColor color, PdfStroke stroke, double alpha) =>
+      _paint((d) => d.strokePath(path, color, stroke, alpha));
+
+  @override
+  void delegateFillPathGradient(
+          PdfPath path, PdfFillRule rule, PdfGradient gradient, double alpha) =>
+      _paint((d) => d.fillPathGradient(path, rule, gradient, alpha));
+
+  @override
+  void delegateFillMesh(PdfMesh mesh, double alpha) =>
+      _paint((d) => d.fillMesh(mesh, alpha));
+
+  @override
+  void delegateDrawText(PdfTextRun run) => _paint((d) => d.drawText(run));
+
+  @override
+  void delegateDrawImage(PdfImageRequest request) =>
+      _paint((d) => d.drawImage(request));
 
   // ---- painting ---------------------------------------------------------
 
@@ -327,7 +224,7 @@ class StripPdfDevice implements PdfDevice {
   Future<void> finish() async {
     assert(!_finished, 'StripPdfDevice.finish() called twice');
     _finished = true;
-    _flush();
+    flushPending();
     final sw = Stopwatch()..start();
     final program = await _loadProgram();
     await Future.wait([for (final b in _batches) b.decodeAtlas()]);
