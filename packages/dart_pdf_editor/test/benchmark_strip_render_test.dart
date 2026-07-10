@@ -45,6 +45,12 @@ void main() {
       PdfPageRenderer.deviceMode = PdfRenderDeviceMode.strips;
       StripPdfDevice.debugNoShader =
           Platform.environment['STRIP_BENCH_NO_SHADER'] == '1';
+      // PDF_BENCHMARK_SLUG=1: outline text renders as Slug glyph quads
+      // (B3) instead of strip binning.
+      StripPdfDevice.slugGlyphs =
+          Platform.environment['PDF_BENCHMARK_SLUG'] == '1';
+      SlugGlyphData.totalBuildMicros = 0;
+      SlugGlyphData.totalBuilds = 0;
       try {
         final corpus = Directory(dir);
         final files = corpus
@@ -115,6 +121,16 @@ void main() {
           'rasterMsPerPage': pages == 0
               ? null
               : PdfPageRenderer.stripRasterMicros / 1000 / pages,
+          'slugQuadsPerPage':
+              pages == 0 ? null : StripPdfDevice.totalSlugQuads ~/ pages,
+          'slugAtlasKBPerPage': pages == 0
+              ? null
+              : StripPdfDevice.totalSlugAtlasTexels * 4 ~/ 1024 ~/ pages,
+          // one-time per-outline curve-stream builds (Expando-cached for
+          // the process lifetime; final pass replays hits only)
+          'slugBuilds': SlugGlyphData.totalBuilds,
+          'slugBuildMsTotal': double.parse(
+              (SlugGlyphData.totalBuildMicros / 1000).toStringAsFixed(1)),
         };
         // ignore: avoid_print
         print('  strip stats: $stripStats');
@@ -142,6 +158,7 @@ void main() {
       } finally {
         PdfPageRenderer.deviceMode = PdfRenderDeviceMode.canvas;
         StripPdfDevice.debugNoShader = false;
+        StripPdfDevice.slugGlyphs = false;
       }
     });
   }, timeout: const Timeout(Duration(minutes: 60)));

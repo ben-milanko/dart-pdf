@@ -45,6 +45,7 @@ import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/strips.dart';
 
 import 'render_smoke_test.dart' show loadSystemFonts;
 
@@ -59,13 +60,23 @@ const _relaxedFraction = 0.002;
 const _edgeContrast = 48;
 
 /// Mean absolute channel difference allowed per page (backstop, 0..255).
-final double _maxMeanDiff = _impeller ? 8.0 : 2.0;
+/// Slug glyph mode (STRIP_PARITY_SLUG=1) widens the Skia backstop to 3.5:
+/// its dual-ray analytic AA disagrees with Skia's exact-area coverage on
+/// every glyph edge pixel (symmetric per-edge noise, measured ~zero signed
+/// bias), which on text-dense Ghent pages accumulates to means of 2-3/255
+/// at 100% edge share and ~zero off-edge fraction - AA-model difference,
+/// not displacement.
+final double _maxMeanDiff = _impeller ? 8.0 : (_slug ? 3.5 : 2.0);
 
 /// Off-edge (structural) differing-pixel fraction allowed per page.
 final double _structuralFraction = _impeller ? 0.01 : _strictFraction;
 
 /// See the header: Impeller's MSAA canvas baseline needs looser thresholds.
 final bool _impeller = Platform.environment['STRIP_PARITY_IMPELLER'] == '1';
+
+/// STRIP_PARITY_SLUG=1 renders the strip side with Slug glyph quads (B3)
+/// instead of strip-binned outlines.
+final bool _slug = Platform.environment['STRIP_PARITY_SLUG'] == '1';
 
 class _PageStat {
   _PageStat(this.name, this.page);
@@ -98,6 +109,7 @@ void main() {
   }
   final filter = Platform.environment['STRIP_PARITY_FILTER'];
 
+
   final files = root
       .listSync(recursive: true)
       .whereType<File>()
@@ -124,6 +136,7 @@ void main() {
                     pixelRatio: _pixelRatio)
                 .timeout(const Duration(seconds: 90));
             PdfPageRenderer.deviceMode = PdfRenderDeviceMode.strips;
+            StripPdfDevice.slugGlyphs = _slug;
             final stripImage = await PdfPageRenderer.renderImage(doc.page(i),
                     pixelRatio: _pixelRatio)
                 .timeout(const Duration(seconds: 90));
@@ -137,6 +150,7 @@ void main() {
         }
       } finally {
         PdfPageRenderer.deviceMode = PdfRenderDeviceMode.canvas;
+        StripPdfDevice.slugGlyphs = false;
       }
 
       // ---- distribution report ----
@@ -164,6 +178,14 @@ void main() {
             'edge-share ${(100 * s.edgeShare).toStringAsFixed(0)}% '
             'mean ${s.meanDiff.toStringAsFixed(2)} '
             '${s.structuralPass ? "(edge-only, within relaxed gate)" : "(STRUCTURAL)"}');
+      }
+
+      // the gate's actual failures, wherever they sort in the strict list
+      for (final s in stats.where((s) => !s.structuralPass)) {
+        // ignore: avoid_print
+        print('  gate-fail ${s.name} p${s.page}: '
+            'off-edge ${(100 * (s.strictDiff - s.edgeDiff) / s.pixels).toStringAsFixed(3)}% '
+            'mean ${s.meanDiff.toStringAsFixed(2)}');
       }
 
       for (final s in blank) {
