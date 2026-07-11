@@ -67,20 +67,25 @@ class StripPdfDevice extends StripBinningDevice {
     Map<Object, ui.Image> images = const {},
     StripPlan? precomputed,
     double slugMinGlyphPx = 4,
-  }) =>
-      StripPdfDevice._(
-        canvas,
-        usablePlan(precomputed,
-            pageToDevice: pageToDevice,
-            deviceWidth: deviceWidth,
-            deviceHeight: deviceHeight),
-        pageToDevice: pageToDevice,
-        deviceWidth: deviceWidth,
-        deviceHeight: deviceHeight,
-        pixelRatio: pixelRatio,
-        images: images,
-        slugMinGlyphPx: slugMinGlyphPx,
-      );
+    bool? enableSlugGlyphs,
+  }) {
+    final slugEnabled = enableSlugGlyphs ?? slugGlyphs;
+    return StripPdfDevice._(
+      canvas,
+      usablePlan(precomputed,
+          pageToDevice: pageToDevice,
+          deviceWidth: deviceWidth,
+          deviceHeight: deviceHeight,
+          slugEnabled: slugEnabled),
+      pageToDevice: pageToDevice,
+      deviceWidth: deviceWidth,
+      deviceHeight: deviceHeight,
+      pixelRatio: pixelRatio,
+      images: images,
+      slugMinGlyphPx: slugMinGlyphPx,
+      slugEnabled: slugEnabled,
+    );
+  }
 
   StripPdfDevice._(
     this.canvas,
@@ -91,8 +96,9 @@ class StripPdfDevice extends StripBinningDevice {
     required super.pixelRatio,
     required this.images,
     required this.slugMinGlyphPx,
+    required bool slugEnabled,
   })  : _deviceToPage = _invertToMatrix4(pageToDevice),
-        _slugEnabled = slugGlyphs,
+        _slugEnabled = slugEnabled,
         super(
           // A usable plan replaces local binning entirely; the debug
           // verification mode bins locally TOO so emitBatch can compare.
@@ -122,9 +128,15 @@ class StripPdfDevice extends StripBinningDevice {
     required PdfMatrix pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
+    bool slugEnabled = false,
   }) {
     if (plan == null) return null;
-    if (slugGlyphs) return null;
+    // Worker plans currently route outline text into strips. Slug changes
+    // that routing, so a caller explicitly recording a transform-time Slug
+    // picture must bin locally rather than consume a structurally different
+    // plan. The normal dense-page raster path keeps slugEnabled false and
+    // continues consuming worker plans unchanged.
+    if (slugEnabled) return null;
     if (debugDelegateAll ||
         debugDelegateFills ||
         debugDelegateStrokes ||
@@ -157,6 +169,12 @@ class StripPdfDevice extends StripBinningDevice {
   final double slugMinGlyphPx;
   SlugBatchBuilder? _slugBuilder;
   final List<SlugBatch> _slugBatches = [];
+  int _slugQuadCount = 0;
+  int _slugFallbackOutlineRuns = 0;
+
+  /// Per-device Slug routing result, unlike the aggregate benchmark stats.
+  int get slugQuadCount => _slugQuadCount;
+  int get slugFallbackOutlineRuns => _slugFallbackOutlineRuns;
 
   final ui.Canvas canvas;
 
@@ -388,6 +406,7 @@ class StripPdfDevice extends StripBinningDevice {
     // painter order without changing StripBinningDevice's flush ordinals.
     flushPending();
     if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+      _slugFallbackOutlineRuns++;
       super.drawText(run);
       return;
     }
@@ -435,6 +454,7 @@ class StripPdfDevice extends StripBinningDevice {
     _slugBatches.add(batch);
     totalFlushes++;
     totalSlugQuads += batch.quadCount;
+    _slugQuadCount += batch.quadCount;
     totalSlugAtlasTexels += batch.atlasWidth * batch.atlasHeight;
   }
 

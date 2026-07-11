@@ -242,6 +242,24 @@ class PdfPageView extends StatefulWidget {
   /// on the UI thread, the honest cost of the fastest available settle.
   static bool stripZoomReplay = true;
 
+  /// Keeps a Slug-routed retained picture live on web for ordinary-size
+  /// pages instead of flattening it into a bitmap on every zoom settle.
+  /// CanvasKit evaluates the curve shader under the current canvas transform,
+  /// so outline text stays sharp throughout a pinch and the page pays no
+  /// settle readback. The complete painter-order picture stays live (rather
+  /// than lifting glyphs into one topmost overlay), preserving text/vector
+  /// occlusion, clips, groups, and soft masks exactly.
+  ///
+  /// Dense pages above [retainedZoomReplayMaxCommands] keep the worker-planned
+  /// strip raster path. Building their Slug picture locally would put the
+  /// expensive bin walk back on the browser UI thread and undo #224.
+  /// Image-bearing pages also stay raster-backed so the deep-zoom region patch
+  /// can continue replacing embedded images at their requested resolution.
+  static bool webSlugGlyphLayer = true;
+
+  /// Test hook for [webSlugGlyphLayer]. Null uses [kIsWeb].
+  static bool? debugWebSlugGlyphLayerBackendOverride;
+
   /// Test hook for the Impeller gate: `flutter test` runs on software Skia
   /// where `ui.ImageFilter.isShaderFilterSupported` is false, so strip
   /// router tests force the decision. Null (production) asks the engine.
@@ -278,6 +296,12 @@ class PdfPageView extends StatefulWidget {
 
 class _PdfPageViewState extends State<PdfPageView> {
   Future<ui.Picture>? _picture;
+
+  /// Web-only retained strip picture whose outline-text draws use the Slug
+  /// curve shader. Unlike [_image], this remains vector/shader-backed under
+  /// the viewer's live transform and is reused across every zoom settle.
+  ui.Picture? _slugPicture;
+  bool _slugPictureRejected = false;
 
   /// The page retained as a replayable scene (commands + decoded images),
   /// produced by the same interpret that yielded [_picture]. Zoom re-rasters
@@ -375,13 +399,18 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// A background prerender landed somewhere; if this page is still
   /// showing its placeholder, its preview may just have arrived.
   void _onPreviewCacheChanged() {
-    if (!mounted || _image != null || _preview != null) return;
+    if (!mounted ||
+        _image != null ||
+        _slugPicture != null ||
+        _preview != null) {
+      return;
+    }
     setState(_refreshPreview);
   }
 
   void _refreshPreview() {
     final cache = widget.previewCache;
-    if (cache == null || _image != null) return;
+    if (cache == null || _image != null || _slugPicture != null) return;
     final next = cache.imageFor(widget.previewIndex);
     if (next == null) return; // keep whatever we already hold
     _preview?.dispose();
@@ -533,6 +562,8 @@ class _PdfPageViewState extends State<PdfPageView> {
   void _dropPicture() {
     _picture?.then((picture) => picture.dispose());
     _picture = null;
+    _slugPicture?.dispose();
+    _slugPicture = null;
     _setScene(null); // the scene transcribes the same content as the picture
     _rasteredRatio = null; // the next picture must re-raster, not be skipped
   }
@@ -551,6 +582,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     _scene?.dispose();
     _scene = scene;
     _sceneFromWorker = scene != null && fromWorker;
+    _slugPictureRejected = false;
     // a speculative bin's geometry was computed against the previous scene;
     // with the scene identity changed it is meaningless, so drop it (the
     // next _workerStripPlan's cancelBinStrips reaps the worker-side job)
@@ -732,6 +764,14 @@ class _PdfPageViewState extends State<PdfPageView> {
       PdfPageView.stripZoomReplay &&
       _stripBackendSupported &&
       scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands;
+
+  static bool _slugPictureScene(PdfRetainedScene? scene) =>
+      scene != null &&
+      PdfPageView.webSlugGlyphLayer &&
+      (PdfPageView.debugWebSlugGlyphLayerBackendOverride ?? kIsWeb) &&
+      scene.hasSlugTextCandidates &&
+      !PdfPageRenderer.hasImageDraws(scene.commands) &&
+      scene.commands.length <= PdfPageView.retainedZoomReplayMaxCommands;
 
   /// Builds the picture (and, unless [PdfPageView.retainedZoomReplay] is
   /// off, the retained scene) from a recorded command buffer. One decode
@@ -918,6 +958,67 @@ class _PdfPageViewState extends State<PdfPageView> {
           first: true);
     }
     final effective = _effectiveRatio();
+    final retainedScene = PdfPageView.retainedZoomReplay ? _scene : null;
+
+    // On web, keep one Slug-routed picture live under the viewer transform.
+    // Record at 1 px/pt: Skia reevaluates the curve shader under later CTMs,
+    // which is the property this path exists to preserve. This replaces the
+    // base raster rather than overlaying it, so text is never double-painted
+    // and painter order remains the command stream's exact order.
+    if (_slugPictureScene(retainedScene) && !_slugPictureRejected) {
+      if (_slugPicture == null) {
+        var slugStats = (quads: 0, fallbackOutlineRuns: 0);
+        final slugPicture = await retainedScene!.replayStrips(
+          pixelRatio: 1,
+          slugGlyphs: true,
+          onSlugStats: (stats) => slugStats = stats,
+        );
+        if (_superseded(generation, pageIndex)) {
+          slugPicture.dispose();
+          return;
+        }
+        // Minified or atlas-overflow outline runs fall back to pixel-aligned
+        // strips. Keeping that picture under a transform would blur those
+        // runs, so use the normal raster path unless every outline run took
+        // Slug and at least one glyph was emitted.
+        if (slugStats.quads == 0 || slugStats.fallbackOutlineRuns != 0) {
+          slugPicture.dispose();
+          _slugPictureRejected = true;
+        } else {
+          setState(() {
+            _slugPicture = slugPicture;
+            _image?.dispose();
+            _image = null;
+            _preview?.dispose();
+            _preview = null;
+            _rasteredRatio = effective;
+          });
+          _dropDetail();
+          final cache = widget.previewCache;
+          if (cache != null &&
+              !cache.isFresh(widget.previewIndex, widget.page,
+                  requireImages: true)) {
+            unawaited(cache.putFromPicture(
+                widget.previewIndex, widget.page, picture,
+                rotation: widget.rotation));
+          }
+          widget.onRasterReady?.call();
+          return;
+        }
+      } else {
+        // No replay and no GPU readback on a zoom settle; the existing
+        // picture will be painted under the new InteractiveViewer transform.
+        _rasteredRatio = effective;
+      }
+      if (_slugPicture != null) return;
+    }
+    if (_slugPicture != null) {
+      setState(() {
+        _slugPicture?.dispose();
+        _slugPicture = null;
+        _rasteredRatio = null;
+      });
+    }
     // Skip the full-page readback when the cached raster is already at
     // this resolution: a settle that only moved the detail patch reaches
     // here too (one combined callback paces base + detail through the
@@ -939,7 +1040,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       // the render worker when the scene is worker-backed (the plan comes
       // back precomputed; null plan = local bin). Fallback paths (no scene,
       // or the kill switch) re-raster the cached picture.
-      final scene = PdfPageView.retainedZoomReplay ? _scene : null;
+      final scene = retainedScene;
       final ui.Image image;
       if (scene != null && _stripReplayScene(scene)) {
         final stripPlan = await _workerStripPlan(scene, pixelRatio: effective);
@@ -1448,11 +1549,17 @@ class _PdfPageViewState extends State<PdfPageView> {
           final h = inner.maxHeight;
           final detail = _detailImage;
           final fraction = _detailFraction;
+          final slugPicture = _slugPicture;
           return Stack(
               alignment: Alignment.topLeft,
               fit: StackFit.expand,
               children: [
-                if (_image == null)
+                if (slugPicture != null)
+                  CustomPaint(
+                    key: const ValueKey('pdf-page-slug-picture'),
+                    painter: _SlugPagePicturePainter(slugPicture, size),
+                  )
+                else if (_image == null)
                   // before the first render lands: the low-res preview if
                   // the cache has one (fast scroll past a known page), else
                   // a placeholder matching the paper so nothing flashes. A
@@ -1476,7 +1583,10 @@ class _PdfPageViewState extends State<PdfPageView> {
                     fit: BoxFit.contain,
                     filterQuality: FilterQuality.medium,
                   ),
-                if (detail != null && fraction != null && w.isFinite)
+                if (slugPicture == null &&
+                    detail != null &&
+                    fraction != null &&
+                    w.isFinite)
                   Positioned(
                     left: fraction.left * w,
                     top: fraction.top * h,
@@ -1493,6 +1603,32 @@ class _PdfPageViewState extends State<PdfPageView> {
       );
     });
   }
+}
+
+/// Paints a retained page picture into the page widget's fitted dimensions.
+/// The picture remains in PDF-point coordinates; the surrounding viewer's
+/// transform therefore reaches its Slug runtime shader instead of scaling a
+/// previously-rasterized image.
+class _SlugPagePicturePainter extends CustomPainter {
+  const _SlugPagePicturePainter(this.picture, this.sourceSize);
+
+  final ui.Picture picture;
+  final Size sourceSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (sourceSize.width <= 0 || sourceSize.height <= 0) return;
+    canvas.save();
+    canvas.scale(
+        size.width / sourceSize.width, size.height / sourceSize.height);
+    canvas.drawPicture(picture);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _SlugPagePicturePainter oldDelegate) =>
+      !identical(picture, oldDelegate.picture) ||
+      sourceSize != oldDelegate.sourceSize;
 }
 
 /// A worker strip bin requested speculatively while the zoom gesture was

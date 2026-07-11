@@ -49,6 +49,31 @@ class PdfRetainedScene {
   /// The interpreter's transcript of the page, in paint order.
   final List<PdfRenderCommand> commands;
 
+  /// Whether the transcript contains embedded-outline text that can benefit
+  /// from the web Slug picture. Base-14/substituted text has no glyph
+  /// outlines and stays on the cheaper normal raster path.
+  bool get hasSlugTextCandidates => _hasSlugText(commands);
+
+  static bool _hasSlugText(List<PdfRenderCommand> commands) {
+    for (final command in commands) {
+      switch (command) {
+        case PdfDrawTextCommand(:final run):
+          if (!run.invisible &&
+              run.glyphs != null &&
+              run.fill &&
+              run.strokeColor == null &&
+              run.gradient == null) {
+            return true;
+          }
+        case PdfEndSoftMaskedCommand(:final maskCommands):
+          if (_hasSlugText(maskCommands)) return true;
+        default:
+          break;
+      }
+    }
+    return false;
+  }
+
   /// Decoded images keyed by [pdfImageKey], owned by this scene.
   final Map<Object, ui.Image> _images;
 
@@ -172,8 +197,7 @@ class PdfRetainedScene {
       {required double pixelRatio}) {
     final size = pageSize;
     return (
-      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(
-          page, size, page.cropBox,
+      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(page, size, page.cropBox,
           rotation: plan.rotation, pixelRatio: pixelRatio),
       width: (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
       height: (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
@@ -220,16 +244,20 @@ class PdfRetainedScene {
   /// `totalStripQuads` / `totalAtlasTexels`; call
   /// [StripPdfDevice.resetStats] around a step to read per-step deltas.
   Future<ui.Picture> replayStrips(
-      {required double pixelRatio, StripPlan? stripPlan}) async {
+      {required double pixelRatio,
+      StripPlan? stripPlan,
+      bool slugGlyphs = false,
+      void Function(({int quads, int fallbackOutlineRuns}))?
+          onSlugStats}) async {
     assert(!_disposed, 'replay after dispose');
     try {
       return await _stripPicture(stripGeometry(pixelRatio: pixelRatio), null,
-          pixelRatio, stripPlan);
+          pixelRatio, stripPlan, slugGlyphs, onSlugStats);
     } on StripPlanMismatchError {
       // The plan desynced mid-walk (only detectable at finish, before any
       // painting committed): discard and re-bin locally.
-      return _stripPicture(
-          stripGeometry(pixelRatio: pixelRatio), null, pixelRatio, null);
+      return _stripPicture(stripGeometry(pixelRatio: pixelRatio), null,
+          pixelRatio, null, slugGlyphs, onSlugStats);
     }
   }
 
@@ -239,13 +267,19 @@ class PdfRetainedScene {
   /// geometry is clipped during binning rather than drawn. A [stripPlan]
   /// must have been binned for [stripRegionGeometry] of the same region.
   Future<ui.Picture> replayRegionStrips(Rect region,
-      {required double pixelRatio, StripPlan? stripPlan}) async {
+      {required double pixelRatio,
+      StripPlan? stripPlan,
+      bool slugGlyphs = false,
+      void Function(({int quads, int fallbackOutlineRuns}))?
+          onSlugStats}) async {
     assert(!_disposed, 'replay after dispose');
     final geometry = stripRegionGeometry(region, pixelRatio: pixelRatio);
     try {
-      return await _stripPicture(geometry, region, pixelRatio, stripPlan);
+      return await _stripPicture(
+          geometry, region, pixelRatio, stripPlan, slugGlyphs, onSlugStats);
     } on StripPlanMismatchError {
-      return _stripPicture(geometry, region, pixelRatio, null);
+      return _stripPicture(
+          geometry, region, pixelRatio, null, slugGlyphs, onSlugStats);
     }
   }
 
@@ -256,7 +290,10 @@ class PdfRetainedScene {
       ({PdfMatrix pageToDevice, int width, int height}) geometry,
       Rect? region,
       double pixelRatio,
-      StripPlan? stripPlan) async {
+      StripPlan? stripPlan,
+      bool slugGlyphs,
+      void Function(({int quads, int fallbackOutlineRuns}))?
+          onSlugStats) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(pixelRatio);
     if (region != null) canvas.translate(-region.left, -region.top);
@@ -269,6 +306,7 @@ class PdfRetainedScene {
       pixelRatio: pixelRatio,
       images: _images,
       precomputed: stripPlan,
+      enableSlugGlyphs: slugGlyphs,
     );
     final ui.Picture picture;
     try {
@@ -276,6 +314,10 @@ class PdfRetainedScene {
       replayCommands(commands, device);
       StripPdfDevice.totalRouteMicros += sw.elapsedMicroseconds;
       await device.finish(); // must precede endRecording
+      onSlugStats?.call((
+        quads: device.slugQuadCount,
+        fallbackOutlineRuns: device.slugFallbackOutlineRuns,
+      ));
       picture = recorder.endRecording();
     } catch (_) {
       recorder.endRecording().dispose();
