@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart'
@@ -274,6 +275,14 @@ class PdfPageView extends StatefulWidget {
   /// transform so it cannot cover the sharp Slug base with stale raster text.
   static bool webSlugGlyphLayer = true;
 
+  /// Defers a cold deep-zoom page's ordinary full-image refinement until its
+  /// visible detail patch has rasterized and reached a frame.
+  ///
+  /// The detail request already outranks the full request in the worker queue;
+  /// this additionally prevents the full decode from starting while the main
+  /// thread turns the returned detail commands into the sharp on-screen patch.
+  static bool deferFullRenderUntilDetailPaint = true;
+
   /// Test hook for [webSlugGlyphLayer]. Null uses [kIsWeb].
   static bool? debugWebSlugGlyphLayerBackendOverride;
 
@@ -342,6 +351,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   ui.Image? _detailImage;
   Rect? _detailFraction; // patch placement as fractions of the page
   int _detailGeneration = 0;
+  Future<bool>? _progressiveDetailFuture;
 
   /// Clone of this page's cached low-res preview; painted while no full
   /// raster exists, dropped (to free the buffer) the moment one lands.
@@ -951,7 +961,19 @@ class _PdfPageViewState extends State<PdfPageView> {
       // can itself take seconds on a wide CAD sheet, while this region replay
       // is small and lands almost immediately.
       PdfPerfLog.log('vector-first region page=$pageIndex');
-      unawaited(_updateDetail(detailGeometry: progressiveDetail));
+      final paintReady = Completer<bool>();
+      final detailFuture = _updateDetail(
+        detailGeometry: progressiveDetail,
+        onPaint: () {
+          if (!paintReady.isCompleted) paintReady.complete(true);
+        },
+      );
+      _progressiveDetailFuture = paintReady.future;
+      unawaited(
+        detailFuture.then((ready) {
+          if (!paintReady.isCompleted) paintReady.complete(ready);
+        }),
+      );
       return;
     }
 
@@ -1059,6 +1081,18 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (firstInterpret && (!previewFresh || needsRegionBootstrap)) {
       await _paintVectorFirst(generation, pageIndex);
       if (_superseded(generation, pageIndex)) return;
+      final progressiveDetail = _progressiveDetailFuture;
+      _progressiveDetailFuture = null;
+      if (PdfPageView.deferFullRenderUntilDetailPaint &&
+          progressiveDetail != null) {
+        final detailReady = await progressiveDetail;
+        if (_superseded(generation, pageIndex)) return;
+        if (detailReady) {
+          PdfPerfLog.log('full refine waits for detail paint page=$pageIndex');
+          await SchedulerBinding.instance.endOfFrame;
+          if (_superseded(generation, pageIndex)) return;
+        }
+      }
     }
     final cached = _picture;
     final ui.Picture picture;
@@ -1280,7 +1314,10 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// Renders (or drops) the deep-zoom patch: the visible slice of the
   /// page, inflated by half a viewport on each side, at the resolution
   /// the zoom actually asks for.
-  Future<bool> _updateDetail({_DetailGeometry? detailGeometry}) async {
+  Future<bool> _updateDetail({
+    _DetailGeometry? detailGeometry,
+    VoidCallback? onPaint,
+  }) async {
     final generation = ++_detailGeneration;
     if (_renderPaused) return false;
 
@@ -1359,7 +1396,9 @@ class _PdfPageViewState extends State<PdfPageView> {
           _detailImage = vectorImage;
           _detailFraction = fraction;
         });
+        onPaint?.call();
         progressiveReady = true;
+        _logDetailPaintAfterFrame(generation, detailClock, source: 'vector');
         PdfPerfLog.log(
           'detail vector page=${widget.previewIndex} '
           'elapsed=${detailClock.elapsedMilliseconds}ms',
@@ -1387,6 +1426,12 @@ class _PdfPageViewState extends State<PdfPageView> {
         _detailImage = workerStripImage;
         _detailFraction = fraction;
       });
+      onPaint?.call();
+      _logDetailPaintAfterFrame(
+        generation,
+        detailClock,
+        source: 'worker-strip',
+      );
       return true;
     }
     if (workerPicture != null) {
@@ -1405,6 +1450,12 @@ class _PdfPageViewState extends State<PdfPageView> {
         _detailImage = image;
         _detailFraction = fraction;
       });
+      onPaint?.call();
+      _logDetailPaintAfterFrame(
+        generation,
+        detailClock,
+        source: 'worker-picture',
+      );
       return true;
     }
 
@@ -1467,7 +1518,24 @@ class _PdfPageViewState extends State<PdfPageView> {
       _detailImage = image;
       _detailFraction = fraction;
     });
+    onPaint?.call();
+    _logDetailPaintAfterFrame(generation, detailClock, source: 'local');
     return true;
+  }
+
+  void _logDetailPaintAfterFrame(
+    int generation,
+    Stopwatch clock, {
+    required String source,
+  }) {
+    if (!PdfPerfLog.enabled) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _detailGeneration) return;
+      PdfPerfLog.log(
+        'detail paint page=${widget.previewIndex} source=$source '
+        'elapsed=${clock.elapsedMicroseconds / 1000.0}ms',
+      );
+    });
   }
 
   /// Conservative image-overlap test for the transparent-image progressive

@@ -47,6 +47,7 @@ void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
   var reuseTranscripts = true;
+  var collectTimings = false;
   PdfCancellationToken? activeToken;
   int? activeRequestId;
   final transcriptCache = PdfWorkerTranscriptCache();
@@ -67,12 +68,16 @@ void runPdfRenderWorker() {
       // reply below, or the main thread waits on it forever. A null document
       // simply declines every page to a local render.
       var shared = false;
+      Stopwatch? openClock;
       try {
         shared =
             (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
         reuseTranscripts =
             (data.getProperty('reuseTranscripts'.toJS) as JSBoolean?)?.toDart ??
-                true;
+            true;
+        collectTimings =
+            (data.getProperty('timings'.toJS) as JSBoolean?)?.toDart ?? false;
+        if (collectTimings) openClock = Stopwatch()..start();
         final buffer = data.getProperty('bytes'.toJS) as JSObject;
         final bytes = shared
             ? _jsUint8View(buffer).toDart
@@ -82,11 +87,14 @@ void runPdfRenderWorker() {
         document = null; // bad transfer / broken document → local renders
       }
       // ALWAYS reply ready, even on failure, so the client never hangs.
-      scope.postMessage(
-        JSObject()
-          ..setProperty('kind'.toJS, 'ready'.toJS)
-          ..setProperty('shared'.toJS, shared.toJS),
-      );
+      openClock?.stop();
+      final ready = JSObject()
+        ..setProperty('kind'.toJS, 'ready'.toJS)
+        ..setProperty('shared'.toJS, shared.toJS);
+      if (openClock != null) {
+        ready.setProperty('openUs'.toJS, openClock.elapsedMicroseconds.toJS);
+      }
+      scope.postMessage(ready);
       return;
     }
 
@@ -128,6 +136,8 @@ void runPdfRenderWorker() {
       activeToken = token;
       activeRequestId = id;
       () async {
+        final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
+        final workerClock = collectTimings ? (Stopwatch()..start()) : null;
         Uint8List? out;
         Uint8List? detailPlan;
         String? error;
@@ -153,6 +163,7 @@ void runPdfRenderWorker() {
                 pixelRatio,
                 region,
                 token,
+                timings: timings,
               );
               out = detail?.$1;
               detailPlan = detail?.$2;
@@ -168,6 +179,7 @@ void runPdfRenderWorker() {
                 pixelRatio,
                 slugGlyphs,
                 token,
+                timings: timings,
               );
             }
           }
@@ -181,10 +193,25 @@ void runPdfRenderWorker() {
           activeToken = null;
           activeRequestId = null;
         }
+        workerClock?.stop();
         if (detailPlan == null) {
-          _postResult(scope, id, out, error);
+          _postResult(
+            scope,
+            id,
+            out,
+            error,
+            timings,
+            workerClock?.elapsedMicroseconds,
+          );
         } else {
-          _postDetailResult(scope, id, out!, detailPlan);
+          _postDetailResult(
+            scope,
+            id,
+            out!,
+            detailPlan,
+            timings,
+            workerClock?.elapsedMicroseconds,
+          );
         }
       }();
       return;
@@ -210,7 +237,8 @@ void runPdfRenderWorker() {
         (data.getProperty('regionRight'.toJS) as JSNumber?)?.toDartDouble;
     final regionTop =
         (data.getProperty('regionTop'.toJS) as JSNumber?)?.toDartDouble;
-    final imageDecodeRegion = regionLeft != null &&
+    final imageDecodeRegion =
+        regionLeft != null &&
             regionBottom != null &&
             regionRight != null &&
             regionTop != null
@@ -224,6 +252,8 @@ void runPdfRenderWorker() {
     // the message handler returns void (see the note above) while a subsequent
     // 'cancel' message can still flip token.cancelled mid-walk.
     () async {
+      final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
+      final workerClock = collectTimings ? (Stopwatch()..start()) : null;
       Uint8List? out;
       String? error;
       final doc = document;
@@ -240,6 +270,7 @@ void runPdfRenderWorker() {
             commandLimit,
             imageDecodeRegion,
             token,
+            timings: timings,
           );
         }
       } on PdfCancelledException {
@@ -255,7 +286,15 @@ void runPdfRenderWorker() {
         activeRequestId = null;
       }
 
-      _postResult(scope, id, out, error);
+      workerClock?.stop();
+      _postResult(
+        scope,
+        id,
+        out,
+        error,
+        timings,
+        workerClock?.elapsedMicroseconds,
+      );
     }();
   }).toJS;
 }
@@ -265,10 +304,13 @@ void _postResult(
   int id,
   Uint8List? out,
   String? error,
+  PdfWorkerPhaseTimings? timings,
+  int? workerUs,
 ) {
   final result = JSObject()
     ..setProperty('kind'.toJS, 'result'.toJS)
     ..setProperty('id'.toJS, id.toJS);
+  _attachTimings(result, timings, workerUs);
   if (out == null) {
     result.setProperty('buffer'.toJS, null);
     if (error != null) result.setProperty('error'.toJS, error.toJS);
@@ -286,6 +328,8 @@ void _postDetailResult(
   int id,
   Uint8List commands,
   Uint8List plan,
+  PdfWorkerPhaseTimings? timings,
+  int? workerUs,
 ) {
   final commandBuffer = Uint8List.fromList(commands).buffer.toJS;
   final planBuffer = Uint8List.fromList(plan).buffer.toJS;
@@ -294,7 +338,24 @@ void _postDetailResult(
     ..setProperty('id'.toJS, id.toJS)
     ..setProperty('buffer'.toJS, commandBuffer)
     ..setProperty('planBuffer'.toJS, planBuffer);
+  _attachTimings(result, timings, workerUs);
   scope.postMessage(result, <JSAny>[commandBuffer, planBuffer].toJS);
+}
+
+void _attachTimings(
+  JSObject result,
+  PdfWorkerPhaseTimings? timings,
+  int? workerUs,
+) {
+  if (timings == null || workerUs == null) return;
+  result
+    ..setProperty('workerUs'.toJS, workerUs.toJS)
+    ..setProperty('parseUs'.toJS, timings.parseUs.toJS)
+    ..setProperty('interpretUs'.toJS, timings.interpretUs.toJS)
+    ..setProperty('serializeUs'.toJS, timings.serializeUs.toJS)
+    ..setProperty('decodeUs'.toJS, timings.decodeUs.toJS)
+    ..setProperty('binUs'.toJS, timings.binUs.toJS)
+    ..setProperty('transcriptHit'.toJS, timings.transcriptHit.toJS);
 }
 
 JSUint8Array _jsUint8View(JSObject buffer) {
@@ -318,8 +379,9 @@ Future<Uint8List?> _recordPageAsync(
   bool decodeImages,
   int? commandLimit,
   PdfRect? imageDecodeRegion,
-  PdfCancellationToken token,
-) async {
+  PdfCancellationToken token, {
+  PdfWorkerPhaseTimings? timings,
+}) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
   List<PdfRenderCommand> commands;
@@ -328,18 +390,28 @@ Future<Uint8List?> _recordPageAsync(
     // here would defeat their latency bound. Ordinary progressive records have
     // no limit and populate the shared transcript below.
     final previewOperationLimit = decodeImages ? null : commandLimit;
+    final parseClock = timings == null ? null : (Stopwatch()..start());
     final ops = ContentStreamParser.parse(
       page.contentBytes(),
       operationLimit: previewOperationLimit,
     );
+    if (parseClock != null) {
+      parseClock.stop();
+      timings!.parseUs += parseClock.elapsedMicroseconds;
+    }
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(
       cos: document.cos,
       device: recorder,
       cancellation: token,
     );
+    final interpretClock = timings == null ? null : (Stopwatch()..start());
     await interpreter.drawPageOperationsAsync(page, ops, yieldInterval: 4096);
     if (annotations) interpreter.drawAnnotations(page);
+    if (interpretClock != null) {
+      interpretClock.stop();
+      timings!.interpretUs += interpretClock.elapsedMicroseconds;
+    }
     commands = recorder.commands;
   } else {
     final transcript = await cache.transcriptFor(
@@ -348,12 +420,18 @@ Future<Uint8List?> _recordPageAsync(
       annotations,
       token,
       yieldInterval: 4096,
+      timings: timings,
     );
     if (transcript == null) return null;
     commands = transcript.sourceCommands;
   }
   if (decodeImages) {
+    final decodeClock = timings == null ? null : (Stopwatch()..start());
     commands = await _withBrowserDecodedImages(document.cos, commands, token);
+    if (decodeClock != null) {
+      decodeClock.stop();
+      timings!.decodeUs += decodeClock.elapsedMicroseconds;
+    }
   }
   // Decode the page's images in the worker too: the buffer carries
   // premultiplied RGBA so the main thread only runs the engine codec. On web
@@ -363,7 +441,8 @@ Future<Uint8List?> _recordPageAsync(
   // postMessage boundary, so a sheet-sized raster underlay ships at a few MB
   // instead of hundreds. decodeImages false skips the decode entirely for the
   // fast vector-first pass of progressive rendering.
-  return serializeCommands(
+  final serializeClock = timings == null ? null : (Stopwatch()..start());
+  final result = serializeCommands(
     commands,
     cos: document.cos,
     decodeImages: decodeImages,
@@ -373,6 +452,11 @@ Future<Uint8List?> _recordPageAsync(
     commandLimit: commandLimit,
     compactStateScopes: true,
   );
+  if (serializeClock != null) {
+    serializeClock.stop();
+    timings!.serializeUs += serializeClock.elapsedMicroseconds;
+  }
+  return result;
 }
 
 Future<Uint8List?> _binStripsAsync(
@@ -385,14 +469,16 @@ Future<Uint8List?> _binStripsAsync(
   int deviceHeight,
   double pixelRatio,
   bool slugGlyphs,
-  PdfCancellationToken token,
-) async {
+  PdfCancellationToken token, {
+  PdfWorkerPhaseTimings? timings,
+}) async {
   final transcript = await cache.transcriptFor(
     document,
     pageIndex,
     annotations,
     token,
     yieldInterval: 4096,
+    timings: timings,
   );
   if (transcript == null) return null;
   final binner = StripPlanBinner(
@@ -409,7 +495,12 @@ Future<Uint8List?> _binStripsAsync(
     pixelRatio: pixelRatio,
     slugGlyphs: slugGlyphs,
   );
+  final binClock = timings == null ? null : (Stopwatch()..start());
   await binner.bin(transcript.wireCommands, cancellation: token);
+  if (binClock != null) {
+    binClock.stop();
+    timings!.binUs += binClock.elapsedMicroseconds;
+  }
   return encodeStripPlan(binner.finish());
 }
 
@@ -427,14 +518,16 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   int deviceHeight,
   double pixelRatio,
   PdfRect imageDecodeRegion,
-  PdfCancellationToken token,
-) async {
+  PdfCancellationToken token, {
+  PdfWorkerPhaseTimings? timings,
+}) async {
   final transcript = await cache.transcriptFor(
     document,
     pageIndex,
     annotations,
     token,
     yieldInterval: 4096,
+    timings: timings,
   );
   if (transcript == null) return null;
   var sourceCommands = transcript.sourceCommands;
@@ -442,12 +535,18 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
 
   // DCT images use the browser codec on web. Other image formats continue
   // through serializeCommands' pure-Dart, region-aware decoder.
+  final decodeClock = timings == null ? null : (Stopwatch()..start());
   sourceCommands = await _withBrowserDecodedImages(
     document.cos,
     sourceCommands,
     token,
   );
+  if (decodeClock != null) {
+    decodeClock.stop();
+    timings!.decodeUs += decodeClock.elapsedMicroseconds;
+  }
   if (token.cancelled) throw const PdfCancelledException();
+  final serializeClock = timings == null ? null : (Stopwatch()..start());
   final commandBuffer = serializeCommands(
     sourceCommands,
     cos: document.cos,
@@ -456,6 +555,10 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     imageDecodeRegion: imageDecodeRegion,
     compactStateScopes: true,
   );
+  if (serializeClock != null) {
+    serializeClock.stop();
+    timings!.serializeUs += serializeClock.elapsedMicroseconds;
+  }
   if (commandBuffer == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
 
@@ -473,7 +576,12 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     deviceHeight: deviceHeight,
     pixelRatio: pixelRatio,
   );
+  final binClock = timings == null ? null : (Stopwatch()..start());
   await binner.bin(commands, cancellation: token);
+  if (binClock != null) {
+    binClock.stop();
+    timings!.binUs += binClock.elapsedMicroseconds;
+  }
   return (commandBuffer, encodeStripPlan(binner.finish()));
 }
 
@@ -500,13 +608,13 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           out.add(PdfDrawImageCommand(_withDecodedPixels(request, decoded)));
         }
       case PdfEndSoftMaskedCommand(
-          :final luminosity,
-          :final backdrop,
-          :final maskCommands,
-          :final backdropLuminance,
-          :final transferScale,
-          :final transferOffset,
-        ):
+        :final luminosity,
+        :final backdrop,
+        :final maskCommands,
+        :final backdropLuminance,
+        :final transferScale,
+        :final transferOffset,
+      ):
         final decodedMaskCommands = await _withBrowserDecodedImages(
           cos,
           maskCommands,
@@ -533,16 +641,15 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
 PdfImageRequest _withDecodedPixels(
   PdfImageRequest request,
   PdfDecodedPixels decoded,
-) =>
-    PdfImageRequest(
-      stream: request.stream,
-      transform: request.transform,
-      alpha: request.alpha,
-      isStencil: request.isStencil,
-      stencilColor: request.stencilColor,
-      isInline: request.isInline,
-      decoded: decoded,
-    );
+) => PdfImageRequest(
+  stream: request.stream,
+  transform: request.transform,
+  alpha: request.alpha,
+  isStencil: request.isStencil,
+  stencilColor: request.stencilColor,
+  isInline: request.isInline,
+  decoded: decoded,
+);
 
 Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
   CosDocument cos,
@@ -556,8 +663,8 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
   final dctName = filters.contains('DCTDecode')
       ? 'DCTDecode'
       : filters.contains('DCT')
-          ? 'DCT'
-          : null;
+      ? 'DCT'
+      : null;
   final dctMaskBytes = pdfImageDctSoftMaskBytes(cos, dict);
   if (dctName == null && dctMaskBytes == null) return null;
 
@@ -609,10 +716,12 @@ Future<PdfImageBase?> _decodeBrowserJpegBase(
     'DeviceRGB' => 3,
     _ => 0,
   };
-  final ranges =
-      components > 0 ? pdfImageDecodeRanges(cos, dict, components) : null;
-  final colorKey =
-      components > 0 ? pdfImageColorKeyRanges(cos, dict, components) : null;
+  final ranges = components > 0
+      ? pdfImageDecodeRanges(cos, dict, components)
+      : null;
+  final colorKey = components > 0
+      ? pdfImageColorKeyRanges(cos, dict, components)
+      : null;
   if (ranges != null || colorKey != null) {
     pdfApplyImageDecodeAndColorKey(decoded.rgba, components, ranges, colorKey);
   }

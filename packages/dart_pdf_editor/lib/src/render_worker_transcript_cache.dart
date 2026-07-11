@@ -11,6 +11,21 @@ class PdfWorkerTranscript {
   final List<PdfRenderCommand> wireCommands;
 }
 
+/// Optional worker-side phase accumulator used by the web performance trace.
+///
+/// Callers create this only while performance logging is enabled, so ordinary
+/// rendering pays no stopwatch or allocation cost. Times are cumulative
+/// because a detail request can serialize both a transcript and its final
+/// image-bearing command buffer.
+class PdfWorkerPhaseTimings {
+  int parseUs = 0;
+  int interpretUs = 0;
+  int serializeUs = 0;
+  int decodeUs = 0;
+  int binUs = 0;
+  bool transcriptHit = false;
+}
+
 /// Bounded per-worker LRU of image-free page command transcripts.
 ///
 /// A worker owns one immutable document revision, so `(page, annotations)` is
@@ -30,9 +45,9 @@ class PdfWorkerTranscriptCache {
 
   int get length => _entries.length;
   int get retainedCommandCount => _entries.values.fold(
-        0,
-        (total, entry) => total + entry.sourceCommands.length,
-      );
+    0,
+    (total, entry) => total + entry.sourceCommands.length,
+  );
 
   Future<PdfWorkerTranscript?> transcriptFor(
     PdfDocument document,
@@ -40,25 +55,33 @@ class PdfWorkerTranscriptCache {
     bool annotations,
     PdfCancellationToken token, {
     int? yieldInterval,
+    PdfWorkerPhaseTimings? timings,
   }) async {
     if (token.cancelled) throw const PdfCancelledException();
     final key = (pageIndex, annotations);
     final hit = _entries.remove(key);
     if (hit != null) {
       hits++;
+      timings?.transcriptHit = true;
       _entries[key] = hit;
       return hit;
     }
     misses++;
     if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
     final page = document.page(pageIndex);
+    final parseClock = timings == null ? null : (Stopwatch()..start());
     final ops = ContentStreamParser.parse(page.contentBytes());
+    if (parseClock != null) {
+      parseClock.stop();
+      timings!.parseUs += parseClock.elapsedMicroseconds;
+    }
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(
       cos: document.cos,
       device: recorder,
       cancellation: token,
     );
+    final interpretClock = timings == null ? null : (Stopwatch()..start());
     if (yieldInterval == null) {
       await interpreter.drawPageOperationsAsync(page, ops);
     } else {
@@ -69,7 +92,12 @@ class PdfWorkerTranscriptCache {
       );
     }
     if (annotations) interpreter.drawAnnotations(page);
+    if (interpretClock != null) {
+      interpretClock.stop();
+      timings!.interpretUs += interpretClock.elapsedMicroseconds;
+    }
     if (token.cancelled) throw const PdfCancelledException();
+    final serializeClock = timings == null ? null : (Stopwatch()..start());
     final buffer = serializeCommands(
       recorder.commands,
       cos: document.cos,
@@ -77,6 +105,10 @@ class PdfWorkerTranscriptCache {
       imagePlaceholders: true,
       compactStateScopes: true,
     );
+    if (serializeClock != null) {
+      serializeClock.stop();
+      timings!.serializeUs += serializeClock.elapsedMicroseconds;
+    }
     if (buffer == null) return null;
     final transcript = PdfWorkerTranscript(
       List<PdfRenderCommand>.unmodifiable(recorder.commands),

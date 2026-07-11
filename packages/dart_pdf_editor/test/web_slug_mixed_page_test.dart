@@ -22,6 +22,22 @@ Future<void> _waitFor(WidgetTester tester, Finder finder,
   fail('$label did not arrive');
 }
 
+Future<void> _waitUntil(
+  WidgetTester tester,
+  bool Function() predicate, {
+  String label = 'condition',
+}) async {
+  for (var i = 0; i < 500; i++) {
+    await tester.pump();
+    final exception = tester.takeException();
+    if (exception != null) fail('$label failed: $exception');
+    if (predicate()) return;
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+  }
+  fail('$label did not arrive');
+}
+
 void main() {
   testWidgets('mixed Slug picture preserves image/text/vector painter order',
       (tester) async {
@@ -118,7 +134,7 @@ void main() {
         reason: 'settles must reuse the transform-time Slug picture');
   });
 
-  testWidgets('visible detail does not wait for the full-page image record',
+  testWidgets('visible detail paints before the full-page image record starts',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -166,6 +182,11 @@ void main() {
         ),
       ),
     ));
+
+    await _waitUntil(tester, () => worker.regionRecordStarted.isCompleted,
+        label: 'held region record');
+    expect(worker.fullRecordStarted.isCompleted, isFalse,
+        reason: 'full refinement must not overlap detail rasterization');
 
     await _waitFor(tester, find.byKey(const ValueKey('pdf-page-detail-image')),
         label: 'region-first high-resolution detail');

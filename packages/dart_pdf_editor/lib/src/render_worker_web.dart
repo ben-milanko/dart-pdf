@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_document/pdf_document.dart';
@@ -92,6 +93,7 @@ class _WebRenderWorker extends PdfRenderWorker {
     _wlog('worker constructed from $scriptUrl');
 
     final init = JSObject()..setProperty('kind'.toJS, 'init'.toJS);
+    init.setProperty('timings'.toJS, (_perfClock != null).toJS);
     init.setProperty(
       'reuseTranscripts'.toJS,
       pdfRenderWorkerReuseTranscripts.toJS,
@@ -130,6 +132,13 @@ class _WebRenderWorker extends PdfRenderWorker {
 
   _WebRenderWorker.disabled() : _failed = true;
 
+  static int _nextWorkerNumber = 0;
+
+  final int _workerNumber = _nextWorkerNumber++;
+  final Stopwatch? _perfClock = PdfPerfLog.enabled
+      ? (Stopwatch()..start())
+      : null;
+
   web.Worker? _worker;
   final _queue = <_WebPending>[];
   _WebPending? _inFlight;
@@ -161,7 +170,14 @@ class _WebRenderWorker extends PdfRenderWorker {
     if (kind == 'ready') {
       final shared =
           (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
-      _wlog('ready (worker opened the document, sharedBytes=$shared)');
+      final openUs = (data.getProperty('openUs'.toJS) as JSNumber?)?.toDartInt;
+      final startupUs = _perfClock?.elapsedMicroseconds;
+      _wlog(
+        'ready worker=$_workerNumber '
+        '(worker opened the document, sharedBytes=$shared)'
+        '${startupUs == null ? '' : ' startup=${_traceMs(startupUs)}'}'
+        '${openUs == null ? '' : ' open=${_traceMs(openUs)}'}',
+      );
       _readyWatchdog?.cancel();
       _readyWatchdog = null;
       _ready = true;
@@ -184,6 +200,7 @@ class _WebRenderWorker extends PdfRenderWorker {
     _recordWatchdog?.cancel();
     _recordWatchdog = null;
     _consecutiveTimeouts = 0; // a reply landed: the worker is alive
+    request.trace?.receive(data, _perfClock!.elapsedMicroseconds);
     final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
     final planBuffer = data.getProperty('planBuffer'.toJS) as JSArrayBuffer?;
     final buffers = buffer == null
@@ -245,13 +262,27 @@ class _WebRenderWorker extends PdfRenderWorker {
       commandLimit,
       imageDecodeRegion,
     );
+    _trace(request);
     _queue.add(request);
     _pump();
     final buffers = await request.completer.future;
-    if (buffers == null || buffers.length != 1) return null;
+    if (buffers == null || buffers.length != 1) {
+      request.trace?.log(_workerNumber, request, outcome: 'declined');
+      return null;
+    }
     try {
-      return deserializeCommands(buffers.single);
+      final deserializeClock = request.trace == null
+          ? null
+          : (Stopwatch()..start());
+      final commands = deserializeCommands(buffers.single);
+      if (deserializeClock != null) {
+        deserializeClock.stop();
+        request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
+      }
+      request.trace?.log(_workerNumber, request, outcome: 'ok');
+      return commands;
     } catch (_) {
+      request.trace?.log(_workerNumber, request, outcome: 'corrupt');
       return null; // corrupt buffer → render locally rather than crash
     }
   }
@@ -279,13 +310,27 @@ class _WebRenderWorker extends PdfRenderWorker {
       pixelRatio,
       slugGlyphs,
     );
+    _trace(request);
     _queue.add(request);
     _pump();
     final buffers = await request.completer.future;
-    if (buffers == null || buffers.length != 1) return null;
+    if (buffers == null || buffers.length != 1) {
+      request.trace?.log(_workerNumber, request, outcome: 'declined');
+      return null;
+    }
     try {
-      return decodeStripPlan(buffers.single);
+      final deserializeClock = request.trace == null
+          ? null
+          : (Stopwatch()..start());
+      final plan = decodeStripPlan(buffers.single);
+      if (deserializeClock != null) {
+        deserializeClock.stop();
+        request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
+      }
+      request.trace?.log(_workerNumber, request, outcome: 'ok');
+      return plan;
     } catch (_) {
+      request.trace?.log(_workerNumber, request, outcome: 'corrupt');
       return null;
     }
   }
@@ -319,18 +364,38 @@ class _WebRenderWorker extends PdfRenderWorker {
       pixelRatio,
       imageDecodeRegion,
     );
+    _trace(request);
     _queue.add(request);
     _pump();
     final buffers = await request.completer.future;
-    if (buffers == null || buffers.length != 2) return null;
+    if (buffers == null || buffers.length != 2) {
+      request.trace?.log(_workerNumber, request, outcome: 'declined');
+      return null;
+    }
     try {
-      return PdfStripDetail(
+      final deserializeClock = request.trace == null
+          ? null
+          : (Stopwatch()..start());
+      final detail = PdfStripDetail(
         deserializeCommands(buffers[0]),
         decodeStripPlan(buffers[1]),
       );
+      if (deserializeClock != null) {
+        deserializeClock.stop();
+        request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
+      }
+      request.trace?.log(_workerNumber, request, outcome: 'ok');
+      return detail;
     } catch (_) {
+      request.trace?.log(_workerNumber, request, outcome: 'corrupt');
       return null;
     }
+  }
+
+  void _trace(_WebPending request) {
+    final clock = _perfClock;
+    if (clock == null) return;
+    request.trace = _WebRequestTrace(clock.elapsedMicroseconds);
   }
 
   /// Sends the highest-priority queued request to the worker when it is idle
@@ -379,6 +444,8 @@ class _WebRenderWorker extends PdfRenderWorker {
     }
     final request = _queue.removeAt(best)..id = _nextId++;
     _inFlight = request;
+    final clock = _perfClock;
+    if (clock != null) request.trace?.sentUs = clock.elapsedMicroseconds;
     final message = JSObject()
       ..setProperty('kind'.toJS, request.kind.name.toJS)
       ..setProperty('id'.toJS, request.id.toJS)
@@ -556,12 +623,12 @@ class _WebPending {
     this.decodeImages,
     this.commandLimit,
     this.imageDecodeRegion,
-  )   : kind = _WebRequestKind.record,
-        pageToDevice = null,
-        deviceWidth = 0,
-        deviceHeight = 0,
-        binPixelRatio = 0,
-        slugGlyphs = false;
+  ) : kind = _WebRequestKind.record,
+      pageToDevice = null,
+      deviceWidth = 0,
+      deviceHeight = 0,
+      binPixelRatio = 0,
+      slugGlyphs = false;
 
   _WebPending.bin(
     this.priority,
@@ -573,11 +640,11 @@ class _WebPending {
     this.deviceHeight,
     this.binPixelRatio,
     this.slugGlyphs,
-  )   : kind = _WebRequestKind.bin,
-        imagePixelRatio = null,
-        decodeImages = false,
-        commandLimit = null,
-        imageDecodeRegion = null;
+  ) : kind = _WebRequestKind.bin,
+      imagePixelRatio = null,
+      decodeImages = false,
+      commandLimit = null,
+      imageDecodeRegion = null;
 
   _WebPending.detail(
     this.priority,
@@ -589,11 +656,11 @@ class _WebPending {
     this.deviceHeight,
     this.binPixelRatio,
     this.imageDecodeRegion,
-  )   : kind = _WebRequestKind.detail,
-        imagePixelRatio = null,
-        decodeImages = true,
-        commandLimit = null,
-        slugGlyphs = false;
+  ) : kind = _WebRequestKind.detail,
+      imagePixelRatio = null,
+      decodeImages = true,
+      commandLimit = null,
+      slugGlyphs = false;
 
   final _WebRequestKind kind;
   final int priority;
@@ -612,7 +679,59 @@ class _WebPending {
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;
+  _WebRequestTrace? trace;
 }
+
+class _WebRequestTrace {
+  _WebRequestTrace(this.queuedUs);
+
+  final int queuedUs;
+  int sentUs = 0;
+  int receivedUs = 0;
+  int workerUs = 0;
+  int parseUs = 0;
+  int interpretUs = 0;
+  int serializeUs = 0;
+  int decodeUs = 0;
+  int binUs = 0;
+  int deserializeUs = 0;
+  bool transcriptHit = false;
+
+  void receive(JSObject data, int nowUs) {
+    receivedUs = nowUs;
+    workerUs = _intProperty(data, 'workerUs');
+    parseUs = _intProperty(data, 'parseUs');
+    interpretUs = _intProperty(data, 'interpretUs');
+    serializeUs = _intProperty(data, 'serializeUs');
+    decodeUs = _intProperty(data, 'decodeUs');
+    binUs = _intProperty(data, 'binUs');
+    transcriptHit =
+        (data.getProperty('transcriptHit'.toJS) as JSBoolean?)?.toDart ?? false;
+  }
+
+  void log(int workerNumber, _WebPending request, {required String outcome}) {
+    final queueUs = sentUs > 0 ? sentUs - queuedUs : 0;
+    final roundTripUs = receivedUs > 0 && sentUs > 0 ? receivedUs - sentUs : 0;
+    final transferUs = math.max(0, roundTripUs - workerUs);
+    final totalUs = receivedUs > 0 ? receivedUs - queuedUs + deserializeUs : 0;
+    _wlog(
+      'phase worker=$workerNumber kind=${request.kind.name} '
+      'page=${request.pageIndex} outcome=$outcome '
+      'queue=${_traceMs(queueUs)} worker=${_traceMs(workerUs)} '
+      'parse=${_traceMs(parseUs)} interpret=${_traceMs(interpretUs)} '
+      'decode=${_traceMs(decodeUs)} serialize=${_traceMs(serializeUs)} '
+      'bin=${_traceMs(binUs)} transfer=${_traceMs(transferUs)} '
+      'deserialize=${_traceMs(deserializeUs)} total=${_traceMs(totalUs)} '
+      'transcript=${transcriptHit ? 'hit' : 'miss'}',
+    );
+  }
+}
+
+int _intProperty(JSObject object, String name) =>
+    (object.getProperty(name.toJS) as JSNumber?)?.toDartInt ?? 0;
+
+String _traceMs(int microseconds) =>
+    '${(microseconds / 1000).toStringAsFixed(1)}ms';
 
 JSObject? _sharedDocumentBuffer(Uint8List bytes) {
   if (!_canUseSharedDocumentBytes) return null;
