@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_graphics/raster.dart' show StripPlan, decodeStripPlan;
 import 'package:web/web.dart' as web;
 
 import 'perf_log.dart';
@@ -181,10 +182,13 @@ class _WebRenderWorker extends PdfRenderWorker {
     final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
     final bytes = buffer?.toDart.asUint8List();
     final err = (data.getProperty('error'.toJS) as JSString?)?.toDart;
-    _wlog('result page=${request.pageIndex} '
+    _wlog('result kind=${request.kind.name} page=${request.pageIndex} '
         '${bytes == null ? 'declined (null) → local' : '${bytes.length}B → worker'}'
         '${err == null ? '' : '\n  worker error: $err'}');
-    if (bytes == null && request.requeueAfterPreemption && !_disposed) {
+    if (bytes == null &&
+        request.kind == _WebRequestKind.record &&
+        request.requeueAfterPreemption &&
+        !_disposed) {
       request
         ..requeueAfterPreemption = false
         ..id = -1;
@@ -210,7 +214,7 @@ class _WebRenderWorker extends PdfRenderWorker {
           'failed=$_failed) → local');
       return null;
     }
-    final request = _WebPending(priority, _seq++, pageIndex, annotations,
+    final request = _WebPending.record(priority, _seq++, pageIndex, annotations,
         imagePixelRatio, decodeImages, commandLimit, imageDecodeRegion);
     _queue.add(request);
     _pump();
@@ -220,6 +224,38 @@ class _WebRenderWorker extends PdfRenderWorker {
       return deserializeCommands(bytes);
     } catch (_) {
       return null; // corrupt buffer → render locally rather than crash
+    }
+  }
+
+  @override
+  Future<StripPlan?> binStrips(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    int priority = 0,
+  }) async {
+    if (_disposed || _failed || pageToDevice.length != 6) return null;
+    final request = _WebPending.bin(
+      priority,
+      _seq++,
+      pageIndex,
+      annotations,
+      List<double>.of(pageToDevice),
+      deviceWidth,
+      deviceHeight,
+      pixelRatio,
+    );
+    _queue.add(request);
+    _pump();
+    final bytes = await request.completer.future;
+    if (bytes == null) return null;
+    try {
+      return decodeStripPlan(bytes);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -247,7 +283,9 @@ class _WebRenderWorker extends PdfRenderWorker {
         }
       }
       if (_queue[bestQueued].priority < _inFlight!.priority) {
-        _inFlight!.requeueAfterPreemption = true;
+        if (_inFlight!.kind == _WebRequestKind.record) {
+          _inFlight!.requeueAfterPreemption = true;
+        }
         worker.postMessage(JSObject()
           ..setProperty('kind'.toJS, 'cancel'.toJS)
           ..setProperty('id'.toJS, _inFlight!.id.toJS));
@@ -266,22 +304,33 @@ class _WebRenderWorker extends PdfRenderWorker {
     final request = _queue.removeAt(best)..id = _nextId++;
     _inFlight = request;
     final message = JSObject()
-      ..setProperty('kind'.toJS, 'record'.toJS)
+      ..setProperty('kind'.toJS, request.kind.name.toJS)
       ..setProperty('id'.toJS, request.id.toJS)
       ..setProperty('page'.toJS, request.pageIndex.toJS)
-      ..setProperty('annotations'.toJS, request.annotations.toJS)
-      ..setProperty('decodeImages'.toJS, request.decodeImages.toJS);
-    final ratio = request.imagePixelRatio;
-    if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
-    final limit = request.commandLimit;
-    if (limit != null) message.setProperty('commandLimit'.toJS, limit.toJS);
-    final region = request.imageDecodeRegion;
-    if (region != null) {
+      ..setProperty('annotations'.toJS, request.annotations.toJS);
+    if (request.kind == _WebRequestKind.record) {
+      message.setProperty('decodeImages'.toJS, request.decodeImages.toJS);
+      final ratio = request.imagePixelRatio;
+      if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
+      final limit = request.commandLimit;
+      if (limit != null) message.setProperty('commandLimit'.toJS, limit.toJS);
+      final region = request.imageDecodeRegion;
+      if (region != null) {
+        message
+          ..setProperty('regionLeft'.toJS, region.left.toJS)
+          ..setProperty('regionBottom'.toJS, region.bottom.toJS)
+          ..setProperty('regionRight'.toJS, region.right.toJS)
+          ..setProperty('regionTop'.toJS, region.top.toJS);
+      }
+    } else {
+      final matrix = request.pageToDevice!;
+      for (var i = 0; i < 6; i++) {
+        message.setProperty('m$i'.toJS, matrix[i].toJS);
+      }
       message
-        ..setProperty('regionLeft'.toJS, region.left.toJS)
-        ..setProperty('regionBottom'.toJS, region.bottom.toJS)
-        ..setProperty('regionRight'.toJS, region.right.toJS)
-        ..setProperty('regionTop'.toJS, region.top.toJS);
+        ..setProperty('deviceWidth'.toJS, request.deviceWidth.toJS)
+        ..setProperty('deviceHeight'.toJS, request.deviceHeight.toJS)
+        ..setProperty('pixelRatio'.toJS, request.binPixelRatio.toJS);
     }
     worker.postMessage(message);
 
@@ -325,7 +374,9 @@ class _WebRenderWorker extends PdfRenderWorker {
     // handled by _pump when a higher-priority request arrives.
     var dropped = 0;
     _queue.removeWhere((request) {
-      if (request.pageIndex != pageIndex || request.priority != priority) {
+      if (request.kind != _WebRequestKind.record ||
+          request.pageIndex != pageIndex ||
+          request.priority != priority) {
         return false;
       }
       if (!request.completer.isCompleted) request.completer.complete(null);
@@ -335,6 +386,27 @@ class _WebRenderWorker extends PdfRenderWorker {
     if (dropped > 0) {
       _wlog(
           'cancel page=$pageIndex priority=$priority dropped=$dropped queued');
+    }
+  }
+
+  @override
+  void cancelBinStrips(int pageIndex, {int priority = 0}) {
+    if (_disposed || _failed) return;
+    _queue.removeWhere((request) {
+      if (request.kind != _WebRequestKind.bin ||
+          request.pageIndex != pageIndex ||
+          request.priority != priority) {
+        return false;
+      }
+      if (!request.completer.isCompleted) request.completer.complete(null);
+      return true;
+    });
+    final inFlight = _inFlight;
+    if (inFlight != null &&
+        inFlight.kind == _WebRequestKind.bin &&
+        inFlight.pageIndex == pageIndex &&
+        inFlight.priority == priority) {
+      _worker?.postMessage(JSObject()..setProperty('kind'.toJS, 'cancel'.toJS));
     }
   }
 
@@ -374,10 +446,12 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-/// One queued record request and its pending result (mirrors the isolate
-/// backend's `_PendingRequest`).
+enum _WebRequestKind { record, bin }
+
+/// One queued record or strip-bin request (mirrors the isolate backend's
+/// `_PendingRequest`).
 class _WebPending {
-  _WebPending(
+  _WebPending.record(
       this.priority,
       this.seq,
       this.pageIndex,
@@ -385,8 +459,29 @@ class _WebPending {
       this.imagePixelRatio,
       this.decodeImages,
       this.commandLimit,
-      this.imageDecodeRegion);
+      this.imageDecodeRegion)
+      : kind = _WebRequestKind.record,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0;
 
+  _WebPending.bin(
+      this.priority,
+      this.seq,
+      this.pageIndex,
+      this.annotations,
+      this.pageToDevice,
+      this.deviceWidth,
+      this.deviceHeight,
+      this.binPixelRatio)
+      : kind = _WebRequestKind.bin,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null;
+
+  final _WebRequestKind kind;
   final int priority;
   final int seq;
   final int pageIndex;
@@ -395,6 +490,10 @@ class _WebPending {
   final bool decodeImages;
   final int? commandLimit;
   final PdfRect? imageDecodeRegion;
+  final List<double>? pageToDevice;
+  final int deviceWidth;
+  final int deviceHeight;
+  final double binPixelRatio;
   final completer = Completer<Uint8List?>();
   bool requeueAfterPreemption = false;
   int id = -1;

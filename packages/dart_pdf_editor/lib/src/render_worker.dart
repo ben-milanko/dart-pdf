@@ -245,9 +245,9 @@ abstract class PdfRenderWorker {
   /// on-screen page - a zoom settle IS the visible page, so it preempts
   /// background prefetch exactly like a visible record.
   ///
-  /// The base implementation declines (null): platforms and wrappers that
-  /// don't offload strip binning - the stub and the web worker today -
-  /// inherit it.
+  /// The base implementation declines (null) for platforms and wrappers that
+  /// do not offload strip binning. Native isolates and Web Workers override
+  /// it; the unsupported-platform stub inherits the fallback.
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,

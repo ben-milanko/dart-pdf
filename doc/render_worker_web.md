@@ -16,8 +16,9 @@ falls back to local rendering on the main thread.
 ```
 main app  ──postMessage(init: ArrayBuffer)──▶  Web Worker (pdf_render_worker.dart.js)
           ──postMessage(record: page,id)───▶     opens the PdfDocument once,
+          ──postMessage(bin: geometry,id)──▶     records/caches strip commands,
           ◀─postMessage(ready)──────────────     serializeCommands(page) off-thread,
-          ◀─postMessage(result: ArrayBuffer)─     transfers the buffer back
+          ◀─postMessage(result: ArrayBuffer)─     transfers commands/plans back
 
 main app: deserializeCommands + PdfPageRenderer.pictureFromCommands (cheap replay
           + a final engine codec upload) on the main thread, like the isolate.
@@ -33,6 +34,14 @@ never the Flate inflate / colour-convert. That matters on the web because there
 is no separate raster thread; an on-main-thread decode would block frames. Images
 that need the platform JPEG codec (a non-CMYK DCTDecode base) ship un-decoded
 and decode on the main thread as before.
+
+Dense-page strip plans use the same worker queue and transferable result shape.
+The worker keeps a two-entry LRU of wire-round-tripped command recordings, so
+repeat zoom settles re-bin stable command objects without re-interpreting the
+page and preserve the glyph/shape strip caches. `cancelBinStrips` drops queued
+plans and cooperatively stops an in-flight stale geometry. The main-side pool
+keeps the native static-page affinity, so one zoom session repeatedly reaches
+the same worker cache.
 
 ## Do I have to do anything?
 
@@ -138,6 +147,15 @@ priority queue and protocol, and the app is wired up:
   `{kind:'cancel'}` message) fires within a few hundred operators. The
   cancelled job resolves to null (local render); the preempting request gets
   the worker's next slot immediately.
+
+- **Strip binning and routing** (issue #217): `binStrips` is a real Web Worker
+  request instead of the old null fallback. Encoded plans transfer as
+  `ArrayBuffer`s, decode on the main side, and feed the same sparse-strip
+  device used by native Impeller. A production-shaped browser probe verified
+  an 11-batch worker plan byte-for-byte against local binning and successfully
+  rasterized its plan-fed output at 612×792. Web therefore participates in
+  the dense-page strip route; native software Skia remains gated out because
+  its shader interpreter loses to the canvas path.
 
 Still open:
 

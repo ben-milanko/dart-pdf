@@ -227,13 +227,14 @@ class PdfPageView extends StatefulWidget {
   /// the cached-picture zoom path for dense pages if a regression is ever
   /// suspected in the field.
   ///
-  /// Strip routing only engages on Impeller
-  /// (`ui.ImageFilter.isShaderFilterSupported`, public API that is true iff
-  /// Impeller is the runtime backend): software Skia's SkSL interpreter
-  /// runs the coverage shader per fragment, making strips ~2x slower than
-  /// the canvas there, so on software/web backends this flag is inert and
-  /// dense pages keep the classic cached-picture zoom path. Measured on
-  /// Impeller/Metal: the dense CAD sheet reaches sharp pixels ~4x sooner
+  /// Strip routing engages on Impeller and web. Native software Skia's SkSL
+  /// interpreter runs the coverage shader per fragment, making strips ~2x
+  /// slower than the canvas there, so that backend keeps the classic cached-
+  /// picture zoom path. The web strip device and worker plan protocol are
+  /// browser-validated together (CanvasKit/skwasm load the package fragment
+  /// asset and produce the same plan-fed raster), while keeping the expensive
+  /// bin walk off the main browser thread. Measured on Impeller/Metal: the
+  /// dense CAD sheet reaches sharp pixels ~4x sooner
   /// per zoom settle - and with a render worker attached the ~270 ms strip
   /// re-bin runs on the worker isolate ([PdfRenderWorker.binStrips]), so
   /// the UI thread only uploads the precomputed batches and replays the
@@ -714,15 +715,15 @@ class _PdfPageViewState extends State<PdfPageView> {
       (commandCount <= PdfPageView.retainedZoomReplayMaxCommands ||
           (PdfPageView.stripZoomReplay && _stripBackendSupported));
 
-  /// Whether the runtime backend draws strip batches profitably: Impeller
-  /// only (`ui.ImageFilter.isShaderFilterSupported` is public API that is
-  /// true iff Impeller is enabled). Consulted by BOTH the retention
+  /// Whether the runtime backend supports the strip route: web (validated
+  /// through the worker/device probe) or native Impeller
+  /// (`ui.ImageFilter.isShaderFilterSupported`). Consulted by BOTH the retention
   /// decision ([_retainScene], at scene-adoption time) and the settle
   /// router ([_stripReplayScene]) so a dense page retained for strips
   /// actually strips - the two must never disagree.
   static bool get _stripBackendSupported =>
       PdfPageView.debugStripZoomReplayBackendOverride ??
-      ui.ImageFilter.isShaderFilterSupported;
+      (kIsWeb || ui.ImageFilter.isShaderFilterSupported);
 
   /// Whether [scene]'s zoom re-rasters route through the strip device: the
   /// flag, the Impeller backend gate, and only above the ceiling (under it

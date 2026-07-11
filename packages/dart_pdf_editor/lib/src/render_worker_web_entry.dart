@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
 /// Runs the render worker inside a dedicated Web Worker.
@@ -34,11 +35,15 @@ import 'package:web/web.dart' as web;
 /// - `{kind:'cancel', id}` → cancels only the matching active request, so a
 ///   late message cannot abort its successor; a match abandons the interpreter
 ///   walk early and replies with `buffer:null`.
+/// - `{kind:'bin', id, page, annotations, m0..m5, deviceWidth, deviceHeight,
+///   pixelRatio}` → replies with an encoded `StripPlan` in the same result
+///   shape (null = bin locally).
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
   PdfCancellationToken? activeToken;
   int? activeRequestId;
+  final binCache = _BinCommandCache();
 
   // The handler MUST stay synchronous (return void): `.toJS` cannot convert a
   // Future-returning function, so an `async` handler fails `dart compile js`
@@ -92,16 +97,53 @@ void runPdfRenderWorker() {
     }
 
     if (kind == 'bin') {
-      // Strip-plan binning is not offloaded on the web yet (the web client's
-      // binStrips inherits the declining default and never sends this), but
-      // reply null rather than silently dropping the message so a future or
-      // mismatched client degrades to a local bin instead of hanging its
-      // in-flight slot.
       final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
-      scope.postMessage(JSObject()
-        ..setProperty('kind'.toJS, 'result'.toJS)
-        ..setProperty('id'.toJS, id.toJS)
-        ..setProperty('buffer'.toJS, null));
+      final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
+      final annotations =
+          (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+      final matrix = <double>[
+        for (var i = 0; i < 6; i++)
+          (data.getProperty('m$i'.toJS) as JSNumber).toDartDouble,
+      ];
+      final deviceWidth =
+          (data.getProperty('deviceWidth'.toJS) as JSNumber).toDartInt;
+      final deviceHeight =
+          (data.getProperty('deviceHeight'.toJS) as JSNumber).toDartInt;
+      final pixelRatio =
+          (data.getProperty('pixelRatio'.toJS) as JSNumber).toDartDouble;
+      final token = PdfCancellationToken();
+      activeToken = token;
+      activeRequestId = id;
+      () async {
+        Uint8List? out;
+        String? error;
+        final doc = document;
+        try {
+          if (doc != null) {
+            out = await _binStripsAsync(
+              doc,
+              binCache,
+              page,
+              annotations,
+              matrix,
+              deviceWidth,
+              deviceHeight,
+              pixelRatio,
+              token,
+            );
+          }
+        } on PdfCancelledException {
+          out = null;
+        } catch (e, st) {
+          out = null;
+          error = '$e\n$st';
+        }
+        if (identical(activeToken, token)) {
+          activeToken = null;
+          activeRequestId = null;
+        }
+        _postResult(scope, id, out, error);
+      }();
       return;
     }
 
@@ -160,21 +202,26 @@ void runPdfRenderWorker() {
         activeRequestId = null;
       }
 
-      final result = JSObject()
-        ..setProperty('kind'.toJS, 'result'.toJS)
-        ..setProperty('id'.toJS, id.toJS);
-      if (out == null) {
-        result.setProperty('buffer'.toJS, null);
-        if (error != null) result.setProperty('error'.toJS, error.toJS);
-        scope.postMessage(result);
-      } else {
-        // Copy to an exact-length buffer, then transfer it (zero-copy).
-        final jsBuffer = Uint8List.fromList(out).buffer.toJS;
-        result.setProperty('buffer'.toJS, jsBuffer);
-        scope.postMessage(result, <JSAny>[jsBuffer].toJS);
-      }
+      _postResult(scope, id, out, error);
     }();
   }).toJS;
+}
+
+void _postResult(web.DedicatedWorkerGlobalScope scope, int id, Uint8List? out,
+    String? error) {
+  final result = JSObject()
+    ..setProperty('kind'.toJS, 'result'.toJS)
+    ..setProperty('id'.toJS, id.toJS);
+  if (out == null) {
+    result.setProperty('buffer'.toJS, null);
+    if (error != null) result.setProperty('error'.toJS, error.toJS);
+    scope.postMessage(result);
+    return;
+  }
+  // Copy to an exact-length buffer, then transfer it (zero-copy).
+  final jsBuffer = Uint8List.fromList(out).buffer.toJS;
+  result.setProperty('buffer'.toJS, jsBuffer);
+  scope.postMessage(result, <JSAny>[jsBuffer].toJS);
 }
 
 JSUint8Array _jsUint8View(JSObject buffer) {
@@ -226,6 +273,67 @@ Future<Uint8List?> _recordPageAsync(
       imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
       commandLimit: commandLimit);
+}
+
+Future<Uint8List?> _binStripsAsync(
+  PdfDocument document,
+  _BinCommandCache cache,
+  int pageIndex,
+  bool annotations,
+  List<double> matrix,
+  int deviceWidth,
+  int deviceHeight,
+  double pixelRatio,
+  PdfCancellationToken token,
+) async {
+  final commands =
+      await cache.commandsFor(document, pageIndex, annotations, token);
+  if (commands == null) return null;
+  final binner = StripPlanBinner(
+    pageToDevice: PdfMatrix(
+        matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]),
+    deviceWidth: deviceWidth,
+    deviceHeight: deviceHeight,
+    pixelRatio: pixelRatio,
+  );
+  await binner.bin(commands, cancellation: token);
+  return encodeStripPlan(binner.finish());
+}
+
+/// Per-worker LRU of wire-round-tripped page recordings used by strip bins.
+/// Stable command identity preserves glyph/shape strip-cache hits across
+/// repeated zoom settles, and the wire round trip matches the main scene's
+/// float32 geometry exactly.
+class _BinCommandCache {
+  final _entries = <(int, bool), List<PdfRenderCommand>>{};
+  static const int _capacity = 2;
+
+  Future<List<PdfRenderCommand>?> commandsFor(PdfDocument document,
+      int pageIndex, bool annotations, PdfCancellationToken token) async {
+    final key = (pageIndex, annotations);
+    final hit = _entries.remove(key);
+    if (hit != null) {
+      _entries[key] = hit;
+      return hit;
+    }
+    if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
+    final page = document.page(pageIndex);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    final interpreter = PdfInterpreter(
+        cos: document.cos, device: recorder, cancellation: token);
+    await interpreter.drawPageOperationsAsync(page, ops);
+    if (annotations) interpreter.drawAnnotations(page);
+    final buffer = serializeCommands(recorder.commands,
+        cos: document.cos, decodeImages: false, imagePlaceholders: true);
+    if (buffer == null) return null;
+    final commands = deserializeCommands(buffer);
+    _entries[key] = commands;
+    while (_entries.length > _capacity) {
+      _entries.remove(_entries.keys.first);
+    }
+    return commands;
+  }
 }
 
 Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
