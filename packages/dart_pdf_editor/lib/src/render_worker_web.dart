@@ -92,6 +92,10 @@ class _WebRenderWorker extends PdfRenderWorker {
     _wlog('worker constructed from $scriptUrl');
 
     final init = JSObject()..setProperty('kind'.toJS, 'init'.toJS);
+    init.setProperty(
+      'reuseTranscripts'.toJS,
+      pdfRenderWorkerReuseTranscripts.toJS,
+    );
     final sharedBuffer = _sharedDocumentBuffer(bytes);
     if (sharedBuffer != null) {
       init
@@ -552,12 +556,12 @@ class _WebPending {
     this.decodeImages,
     this.commandLimit,
     this.imageDecodeRegion,
-  ) : kind = _WebRequestKind.record,
-      pageToDevice = null,
-      deviceWidth = 0,
-      deviceHeight = 0,
-      binPixelRatio = 0,
-      slugGlyphs = false;
+  )   : kind = _WebRequestKind.record,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false;
 
   _WebPending.bin(
     this.priority,
@@ -569,11 +573,11 @@ class _WebPending {
     this.deviceHeight,
     this.binPixelRatio,
     this.slugGlyphs,
-  ) : kind = _WebRequestKind.bin,
-      imagePixelRatio = null,
-      decodeImages = false,
-      commandLimit = null,
-      imageDecodeRegion = null;
+  )   : kind = _WebRequestKind.bin,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null;
 
   _WebPending.detail(
     this.priority,
@@ -585,11 +589,11 @@ class _WebPending {
     this.deviceHeight,
     this.binPixelRatio,
     this.imageDecodeRegion,
-  ) : kind = _WebRequestKind.detail,
-      imagePixelRatio = null,
-      decodeImages = true,
-      commandLimit = null,
-      slugGlyphs = false;
+  )   : kind = _WebRequestKind.detail,
+        imagePixelRatio = null,
+        decodeImages = true,
+        commandLimit = null,
+        slugGlyphs = false;
 
   final _WebRequestKind kind;
   final int priority;

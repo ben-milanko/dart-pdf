@@ -8,6 +8,8 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
+import 'render_worker_transcript_cache.dart';
+
 /// Runs the render worker inside a dedicated Web Worker.
 ///
 /// dart_pdf_editor ships a prebuilt worker as a Flutter package asset, so most
@@ -44,9 +46,10 @@ import 'package:web/web.dart' as web;
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
+  var reuseTranscripts = true;
   PdfCancellationToken? activeToken;
   int? activeRequestId;
-  final binCache = _BinCommandCache();
+  final transcriptCache = PdfWorkerTranscriptCache();
 
   // The handler MUST stay synchronous (return void): `.toJS` cannot convert a
   // Future-returning function, so an `async` handler fails `dart compile js`
@@ -67,6 +70,9 @@ void runPdfRenderWorker() {
       try {
         shared =
             (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
+        reuseTranscripts =
+            (data.getProperty('reuseTranscripts'.toJS) as JSBoolean?)?.toDart ??
+                true;
         final buffer = data.getProperty('bytes'.toJS) as JSObject;
         final bytes = shared
             ? _jsUint8View(buffer).toDart
@@ -138,7 +144,7 @@ void runPdfRenderWorker() {
               );
               final detail = await _recordStripDetailAsync(
                 doc,
-                binCache,
+                transcriptCache,
                 page,
                 annotations,
                 matrix,
@@ -153,7 +159,7 @@ void runPdfRenderWorker() {
             } else {
               out = await _binStripsAsync(
                 doc,
-                binCache,
+                transcriptCache,
                 page,
                 annotations,
                 matrix,
@@ -225,6 +231,8 @@ void runPdfRenderWorker() {
         if (doc != null) {
           out = await _recordPageAsync(
             doc,
+            transcriptCache,
+            reuseTranscripts,
             page,
             annotations,
             imagePixelRatio,
@@ -302,6 +310,8 @@ JSUint8Array _jsUint8View(JSObject buffer) {
 /// `dart:isolate`, which does not exist on web, so this entry can't share it.
 Future<Uint8List?> _recordPageAsync(
   PdfDocument document,
+  PdfWorkerTranscriptCache cache,
+  bool reuseTranscripts,
   int pageIndex,
   bool annotations,
   double? imagePixelRatio,
@@ -312,25 +322,36 @@ Future<Uint8List?> _recordPageAsync(
 ) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
-  final previewOperationLimit = decodeImages ? null : commandLimit;
-  final ops = ContentStreamParser.parse(
-    page.contentBytes(),
-    operationLimit: previewOperationLimit,
-  );
-  final recorder = RecordingPdfDevice();
-  final interpreter = PdfInterpreter(
-    cos: document.cos,
-    device: recorder,
-    cancellation: token,
-  );
-  // A browser zero-delay timer is commonly clamped to several milliseconds.
-  // Yielding every 512 operators therefore spends seconds in timers on dense
-  // CAD streams. 4096 keeps cancellation checks within a small frame while
-  // removing most of that artificial latency; native isolates retain the
-  // interpreter's more conservative default.
-  await interpreter.drawPageOperationsAsync(page, ops, yieldInterval: 4096);
-  if (annotations) interpreter.drawAnnotations(page);
-  var commands = recorder.commands;
+  List<PdfRenderCommand> commands;
+  if (!reuseTranscripts || (!decodeImages && commandLimit != null)) {
+    // Long-jump previews intentionally stop early; building a full transcript
+    // here would defeat their latency bound. Ordinary progressive records have
+    // no limit and populate the shared transcript below.
+    final previewOperationLimit = decodeImages ? null : commandLimit;
+    final ops = ContentStreamParser.parse(
+      page.contentBytes(),
+      operationLimit: previewOperationLimit,
+    );
+    final recorder = RecordingPdfDevice();
+    final interpreter = PdfInterpreter(
+      cos: document.cos,
+      device: recorder,
+      cancellation: token,
+    );
+    await interpreter.drawPageOperationsAsync(page, ops, yieldInterval: 4096);
+    if (annotations) interpreter.drawAnnotations(page);
+    commands = recorder.commands;
+  } else {
+    final transcript = await cache.transcriptFor(
+      document,
+      pageIndex,
+      annotations,
+      token,
+      yieldInterval: 4096,
+    );
+    if (transcript == null) return null;
+    commands = transcript.sourceCommands;
+  }
   if (decodeImages) {
     commands = await _withBrowserDecodedImages(document.cos, commands, token);
   }
@@ -356,7 +377,7 @@ Future<Uint8List?> _recordPageAsync(
 
 Future<Uint8List?> _binStripsAsync(
   PdfDocument document,
-  _BinCommandCache cache,
+  PdfWorkerTranscriptCache cache,
   int pageIndex,
   bool annotations,
   List<double> matrix,
@@ -366,13 +387,14 @@ Future<Uint8List?> _binStripsAsync(
   bool slugGlyphs,
   PdfCancellationToken token,
 ) async {
-  final commands = await cache.commandsFor(
+  final transcript = await cache.transcriptFor(
     document,
     pageIndex,
     annotations,
     token,
+    yieldInterval: 4096,
   );
-  if (commands == null) return null;
+  if (transcript == null) return null;
   final binner = StripPlanBinner(
     pageToDevice: PdfMatrix(
       matrix[0],
@@ -387,7 +409,7 @@ Future<Uint8List?> _binStripsAsync(
     pixelRatio: pixelRatio,
     slugGlyphs: slugGlyphs,
   );
-  await binner.bin(commands, cancellation: token);
+  await binner.bin(transcript.wireCommands, cancellation: token);
   return encodeStripPlan(binner.finish());
 }
 
@@ -397,7 +419,7 @@ Future<Uint8List?> _binStripsAsync(
 /// replays it.
 Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfDocument document,
-  _BinCommandCache cache,
+  PdfWorkerTranscriptCache cache,
   int pageIndex,
   bool annotations,
   List<double> matrix,
@@ -407,13 +429,15 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfRect imageDecodeRegion,
   PdfCancellationToken token,
 ) async {
-  var sourceCommands = await cache.sourceCommandsFor(
+  final transcript = await cache.transcriptFor(
     document,
     pageIndex,
     annotations,
     token,
+    yieldInterval: 4096,
   );
-  if (sourceCommands == null) return null;
+  if (transcript == null) return null;
+  var sourceCommands = transcript.sourceCommands;
   if (token.cancelled) throw const PdfCancelledException();
 
   // DCT images use the browser codec on web. Other image formats continue
@@ -451,86 +475,6 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   );
   await binner.bin(commands, cancellation: token);
   return (commandBuffer, encodeStripPlan(binner.finish()));
-}
-
-/// Per-worker LRU of wire-round-tripped page recordings used by strip bins.
-/// Stable command identity preserves glyph/shape strip-cache hits across
-/// repeated zoom settles, and the wire round trip matches the main scene's
-/// float32 geometry exactly.
-class _BinCommandCache {
-  final _entries = <(int, bool), _BinCommandEntry>{};
-  static const int _capacity = 2;
-
-  Future<List<PdfRenderCommand>?> commandsFor(
-    PdfDocument document,
-    int pageIndex,
-    bool annotations,
-    PdfCancellationToken token,
-  ) async =>
-      (await _entryFor(document, pageIndex, annotations, token))?.wireCommands;
-
-  Future<List<PdfRenderCommand>?> sourceCommandsFor(
-    PdfDocument document,
-    int pageIndex,
-    bool annotations,
-    PdfCancellationToken token,
-  ) async =>
-      (await _entryFor(
-        document,
-        pageIndex,
-        annotations,
-        token,
-      ))
-          ?.sourceCommands;
-
-  Future<_BinCommandEntry?> _entryFor(
-    PdfDocument document,
-    int pageIndex,
-    bool annotations,
-    PdfCancellationToken token,
-  ) async {
-    final key = (pageIndex, annotations);
-    final hit = _entries.remove(key);
-    if (hit != null) {
-      _entries[key] = hit;
-      return hit;
-    }
-    if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
-    final page = document.page(pageIndex);
-    final ops = ContentStreamParser.parse(page.contentBytes());
-    final recorder = RecordingPdfDevice();
-    final interpreter = PdfInterpreter(
-      cos: document.cos,
-      device: recorder,
-      cancellation: token,
-    );
-    await interpreter.drawPageOperationsAsync(page, ops);
-    if (annotations) interpreter.drawAnnotations(page);
-    final buffer = serializeCommands(
-      recorder.commands,
-      cos: document.cos,
-      decodeImages: false,
-      imagePlaceholders: true,
-      compactStateScopes: true,
-    );
-    if (buffer == null) return null;
-    final entry = _BinCommandEntry(
-      recorder.commands,
-      deserializeCommands(buffer),
-    );
-    _entries[key] = entry;
-    while (_entries.length > _capacity) {
-      _entries.remove(_entries.keys.first);
-    }
-    return entry;
-  }
-}
-
-class _BinCommandEntry {
-  const _BinCommandEntry(this.sourceCommands, this.wireCommands);
-
-  final List<PdfRenderCommand> sourceCommands;
-  final List<PdfRenderCommand> wireCommands;
 }
 
 Future<List<PdfRenderCommand>> _withBrowserDecodedImages(

@@ -53,6 +53,7 @@ class _BenchmarkAppState extends State<_BenchmarkApp> {
   Future<void> _run() async {
     PdfRenderWorker? worker;
     PdfRetainedScene? baseScene;
+    final previousReuseTranscripts = pdfRenderWorkerReuseTranscripts;
     try {
       if (_cadUrl.isEmpty) throw StateError('CAD_PERF_URL is required');
       if (_samples < 3) throw StateError('CAD_PERF_SAMPLES must be >= 3');
@@ -71,6 +72,10 @@ class _BenchmarkAppState extends State<_BenchmarkApp> {
         '${document.pageCount} pages; warming page ${pageIndex + 1}',
       );
 
+      // Preserve #240's historical control path after #241: its "legacy"
+      // record must still re-interpret each region, while combined detail uses
+      // the worker transcript cache introduced by #245.
+      pdfRenderWorkerReuseTranscripts = false;
       worker = PdfRenderWorker.startUncached(bytes);
       if (!worker.isActive) throw StateError('web render worker unavailable');
       final baseCommands = await worker.record(
@@ -163,6 +168,7 @@ class _BenchmarkAppState extends State<_BenchmarkApp> {
     } finally {
       baseScene?.dispose();
       worker?.dispose();
+      pdfRenderWorkerReuseTranscripts = previousReuseTranscripts;
     }
   }
 

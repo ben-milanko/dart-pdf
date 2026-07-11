@@ -477,6 +477,27 @@ void main() {
     expect(workers[0].binCancels, isEmpty);
   });
 
+  test('pool keeps record and detail phases on one page-affine worker',
+      () async {
+    final workers = [for (var i = 0; i < 3; i++) _BinLogWorker()];
+    final pool = PdfPooledRenderWorker.fromWorkers(workers);
+    addTearDown(pool.dispose);
+
+    await pool.record(4, priority: 7, decodeImages: false);
+    await pool.record(4, priority: 0, decodeImages: true);
+    await pool.binStrips(4,
+        annotations: true,
+        pageToDevice: const [1, 0, 0, 1, 0, 0],
+        deviceWidth: 10,
+        deviceHeight: 10,
+        pixelRatio: 1);
+
+    expect(workers[1].recordCalls, [(4, 7), (4, 0)]);
+    expect(workers[1].binCalls, [4]);
+    expect(workers[0].recordCalls, isEmpty);
+    expect(workers[2].recordCalls, isEmpty);
+  });
+
   test('caching wrapper passes bins straight through (never cached)', () async {
     final inner = _BinLogWorker();
     final caching = PdfCachingRenderWorker(inner);
@@ -521,6 +542,7 @@ void main() {
 
 /// Minimal fake that logs binStrips traffic and returns an empty plan.
 class _BinLogWorker extends PdfRenderWorker {
+  final recordCalls = <(int, int)>[];
   final binCalls = <int>[];
   final binCancels = <(int, int)>[];
 
@@ -529,13 +551,15 @@ class _BinLogWorker extends PdfRenderWorker {
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-          {bool annotations = true,
-          int priority = 0,
-          double? imagePixelRatio,
-          bool decodeImages = true,
-          int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
-      null;
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) async {
+    recordCalls.add((pageIndex, priority));
+    return null;
+  }
 
   @override
   Future<StripPlan?> binStrips(
