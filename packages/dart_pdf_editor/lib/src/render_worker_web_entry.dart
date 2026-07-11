@@ -31,12 +31,14 @@ import 'package:web/web.dart' as web;
 /// - `{kind:'record', id, page, annotations}` → replies `{kind:'result', id,
 ///   buffer:ArrayBuffer|null}` (null = the page can't be offloaded; the main
 ///   thread renders it locally).
-/// - `{kind:'cancel'}` → sets the active cancellation token so the in-flight
-///   interpreter walk abandons early, replying with `buffer:null`.
+/// - `{kind:'cancel', id}` → cancels only the matching active request, so a
+///   late message cannot abort its successor; a match abandons the interpreter
+///   walk early and replies with `buffer:null`.
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
   PdfCancellationToken? activeToken;
+  int? activeRequestId;
 
   // The handler MUST stay synchronous (return void): `.toJS` cannot convert a
   // Future-returning function, so an `async` handler fails `dart compile js`
@@ -73,7 +75,19 @@ void runPdfRenderWorker() {
     }
 
     if (kind == 'cancel') {
-      activeToken?.cancelled = true;
+      final id = (data.getProperty('id'.toJS) as JSNumber?)?.toDartInt;
+      if (id != null && id == activeRequestId) {
+        activeToken?.cancelled = true;
+      } else if (id != null) {
+        final ignored = JSObject()
+          ..setProperty('kind'.toJS, 'cancelIgnored'.toJS)
+          ..setProperty('targetId'.toJS, id.toJS);
+        final active = activeRequestId;
+        if (active != null) {
+          ignored.setProperty('activeId'.toJS, active.toJS);
+        }
+        scope.postMessage(ignored);
+      }
       return;
     }
 
@@ -120,6 +134,7 @@ void runPdfRenderWorker() {
 
     final token = PdfCancellationToken();
     activeToken = token;
+    activeRequestId = id;
     // Fire-and-forget: launch the cancellable walk without awaiting it here, so
     // the message handler returns void (see the note above) while a subsequent
     // 'cancel' message can still flip token.cancelled mid-walk.
@@ -140,7 +155,10 @@ void runPdfRenderWorker() {
       }
       // Only clear the active token if it is still ours - a newer record may
       // have replaced it while this one was running.
-      if (identical(activeToken, token)) activeToken = null;
+      if (identical(activeToken, token)) {
+        activeToken = null;
+        activeRequestId = null;
+      }
 
       final result = JSObject()
         ..setProperty('kind'.toJS, 'result'.toJS)

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -8,6 +9,15 @@ import 'package:pdf_graphics/raster.dart'
     show StripPlan, StripPlanBinner, decodeStripPlan, encodeStripPlan;
 
 import 'render_worker.dart';
+
+/// Test hook: hold a requested cancellation until the cancelled job answers
+/// and the next queued request is dispatched. That deterministically recreates
+/// the late-signal race request-scoped cancellation must reject.
+bool debugDeferPdfRenderWorkerCancelUntilNextRequest = false;
+
+/// Number of stale request-scoped cancel messages ignored by native workers.
+/// Test/diagnostic counter; reset it before a focused probe.
+int debugPdfRenderWorkerIgnoredStaleCancels = 0;
 
 /// Native backend: a long-lived background isolate that opens its own
 /// [PdfDocument] from the bytes once and records pages on request, sending the
@@ -47,6 +57,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   int _seq = 0;
   bool _disposed = false;
   bool _spawnFailed = false;
+  int? _deferredCancelId;
 
   @override
   bool get isActive => !_disposed && !_spawnFailed;
@@ -67,6 +78,16 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     _fromWorker.listen((message) {
       if (message is List<SendPort>) {
         handshake.complete(message);
+        return;
+      }
+      if (message is List<Object?> &&
+          message.isNotEmpty &&
+          message.first == 'cancelIgnored') {
+        debugPdfRenderWorkerIgnoredStaleCancels++;
+        developer.log(
+          'ignored stale cancel target=${message[1]} active=${message[2]}',
+          name: 'dart_pdf_editor.render_worker',
+        );
         return;
       }
       // [int id, TransferableTypedData? data, ...] - null means "render
@@ -101,6 +122,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
                 data.materialize().asUint8List(),
             ]);
       _pump();
+      _deliverDeferredCancelToNextRequest();
     });
     final isolate = await Isolate.spawn(
       _workerMain,
@@ -248,7 +270,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         if (_inFlight!.kind == _RequestKind.record) {
           _inFlight!.requeueAfterPreemption = true;
         }
-        _toCancelPort?.send(null);
+        _cancelRequest(_inFlight!);
       }
       return;
     }
@@ -330,10 +352,9 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   /// across callers, so preempting one would null a waiter shared with a
   /// caller that still wants it.
   ///
-  /// The in-flight signal carries a benign pre-existing race (the same one
-  /// the priority-preemption path in [_pump] accepts): it can land on the
-  /// worker after the job already completed and cancel the NEXT job instead,
-  /// whose caller then resolves null and falls back to a local render/bin.
+  /// The cancel message carries the target request id. A signal that arrives
+  /// after that job replied is ignored by the worker instead of cancelling the
+  /// next request occupying the slot (issue #220).
   void _cancelKind(_RequestKind kind, int pageIndex, int priority) {
     if (_disposed) return;
     _queue.removeWhere((request) {
@@ -351,8 +372,31 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         inFlight.kind == kind &&
         inFlight.pageIndex == pageIndex &&
         inFlight.priority == priority) {
-      _toCancelPort?.send(null);
+      _cancelRequest(inFlight);
     }
+  }
+
+  void _cancelRequest(_PendingRequest request) {
+    if (debugDeferPdfRenderWorkerCancelUntilNextRequest) {
+      _deferredCancelId = request.id;
+      return;
+    }
+    _toCancelPort?.send(request.id);
+  }
+
+  void _deliverDeferredCancelToNextRequest() {
+    final id = _deferredCancelId;
+    if (!debugDeferPdfRenderWorkerCancelUntilNextRequest ||
+        id == null ||
+        _inFlight == null) {
+      return;
+    }
+    _deferredCancelId = null;
+    // Give the worker event loop time to enter the just-dispatched request;
+    // this branch exists only for the deterministic late-delivery test hook.
+    Timer(const Duration(milliseconds: 5), () {
+      if (!_disposed) _toCancelPort?.send(id);
+    });
   }
 
   @override
@@ -479,8 +523,16 @@ void _workerMain(_WorkerInit init) {
   final binCommands = _BinCommandCache();
 
   PdfCancellationToken? activeToken;
-  cancelPort.listen((_) {
-    activeToken?.cancelled = true;
+  int? activeRequestId;
+  cancelPort.listen((message) {
+    // A cancel can arrive after its target already replied and the next job
+    // became active. Ignore that stale id instead of aborting the next (often
+    // urgent) page. This is the native half of issue #220.
+    if (message is int && message == activeRequestId) {
+      activeToken?.cancelled = true;
+    } else if (message is int) {
+      init.reply.send(['cancelIgnored', message, activeRequestId]);
+    }
   });
 
   requests.listen((message) async {
@@ -492,6 +544,7 @@ void _workerMain(_WorkerInit init) {
 
     final token = PdfCancellationToken();
     activeToken = token;
+    activeRequestId = id;
     Uint8List? buffer;
     Uint8List? detailPlanBuffer;
     try {
@@ -550,7 +603,10 @@ void _workerMain(_WorkerInit init) {
     } catch (_) {
       buffer = null; // any failure → caller renders this page locally
     }
-    activeToken = null;
+    if (activeRequestId == id) {
+      activeToken = null;
+      activeRequestId = null;
+    }
     if (buffer == null) {
       init.reply.send([id, null]);
     } else if (detailPlanBuffer != null) {
