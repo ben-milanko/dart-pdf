@@ -3708,6 +3708,42 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _springBackHorizontal();
   }
 
+  /// A one-finger touch pan after zoom must drive both the list scroll extent
+  /// and the transform's zoom window. Leaving it to the ListView strands the
+  /// transform translation created by the pinch: the list reaches its own
+  /// top/bottom while part of the zoomed page is still outside the viewport.
+  void _onZoomedTouchPanStart(DragStartDetails details) {
+    _panFlinger.stop();
+    _touchFlinger.stop();
+    _hBounceController.stop();
+    _touchPanning = true;
+    _beginMotionRenderHold();
+  }
+
+  void _onZoomedTouchPanUpdate(DragUpdateDetails details) {
+    _touchGrabPanBy(details.delta);
+  }
+
+  void _onZoomedTouchPanEnd(DragEndDetails details) {
+    _flingViewport(details.velocity);
+  }
+
+  void _onZoomedTouchPanCancel() {
+    _springBackHorizontal();
+  }
+
+  bool get _zoomedTouchPanEnabled {
+    if (!_zoomed) return false;
+    final editing = widget.editing;
+    // An armed tool, eyedropper, or selected annotation mounts an editing
+    // overlay whose touch pan already calls _touchGrabPanBy. Do not enter the
+    // arena twice for those gestures.
+    return editing == null ||
+        (editing.tool == null &&
+            !editing.isPickingColor &&
+            !editing.hasAnnotationSelection);
+  }
+
   /// Settles a finished zoom gesture into the layout/transform regime
   /// split: total zoom at or below 1 lives in the page layout, above 1
   /// in the InteractiveViewer transform. Shared by touch pinches and
@@ -4061,8 +4097,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         // (_onTrackpadPanZoomUpdate drives the position directly); wheel
         // events - including web trackpad pans, which arrive as wheel -
         // are refused by these physics and handled by _onPointerSignal.
-        physics:
-            editing?.tool != null ? const NeverScrollableScrollPhysics() : null,
+        physics: editing?.tool != null || _zoomed
+            ? const NeverScrollableScrollPhysics()
+            : null,
         // every page's extent is known up front, so give the sliver exact
         // geometry instead of letting it estimate from built children -
         // estimates drift on long mixed-size documents, landing jumps
@@ -4274,6 +4311,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                           ..onStart = _onPinchStart
                           ..onUpdate = _onPinchUpdate
                           ..onEnd = _onPinchEnd,
+                      ),
+                      // At zoom, the ListView's drag reaches only its
+                      // untransformed extent. This pan spills edge motion into
+                      // the transform so every page edge remains reachable.
+                      _ZoomedTouchPanRecognizer:
+                          GestureRecognizerFactoryWithHandlers<
+                              _ZoomedTouchPanRecognizer>(
+                        () => _ZoomedTouchPanRecognizer(debugOwner: this),
+                        (recognizer) => recognizer
+                          ..isEnabled = (() => _zoomedTouchPanEnabled)
+                          ..onStart = _onZoomedTouchPanStart
+                          ..onUpdate = _onZoomedTouchPanUpdate
+                          ..onEnd = _onZoomedTouchPanEnd
+                          ..onCancel = _onZoomedTouchPanCancel,
                       ),
                     },
                     // plain wheel events the list can't use (at its extents)
@@ -5346,6 +5397,30 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
 
   @override
   String get debugDescription => 'eager pinch';
+}
+
+/// Owns one-pointer touch/stylus drags only while the viewer is zoomed. It
+/// stays out of the arena at fit scale so the ListView retains normal platform
+/// scrolling; when a second finger lands, [_EagerPinchRecognizer] claims the
+/// pinch before either pan crosses touch slop.
+class _ZoomedTouchPanRecognizer extends PanGestureRecognizer {
+  _ZoomedTouchPanRecognizer({super.debugOwner})
+      : super(supportedDevices: {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.invertedStylus,
+        });
+
+  bool Function()? isEnabled;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    if (isEnabled?.call() != true) return;
+    super.addAllowedPointer(event);
+  }
+
+  @override
+  String get debugDescription => 'zoomed touch pan';
 }
 
 /// Touch text selection: long-press to select. Sits in the same arena
