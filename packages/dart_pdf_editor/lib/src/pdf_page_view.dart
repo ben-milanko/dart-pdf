@@ -5,7 +5,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
-import 'package:pdf_graphics/pdf_graphics.dart' show PdfRenderCommand;
+import 'package:pdf_graphics/pdf_graphics.dart'
+    show PdfMatrix, PdfRenderCommand;
 
 import 'perf_log.dart';
 import 'preview_cache.dart';
@@ -47,6 +48,7 @@ class PdfPageView extends StatefulWidget {
     this.trustContentStamp = false,
     this.destructiveStamp = 0,
     this.renderWorker,
+    this.transformScale,
   });
 
   final PdfPage page;
@@ -63,6 +65,15 @@ class PdfPageView extends StatefulWidget {
   /// thread. Image-bearing pages and the null fallback render locally. Must
   /// be a worker started over the same bytes [page] belongs to.
   final PdfRenderWorker? renderWorker;
+
+  /// The viewer's LIVE zoom scale (the InteractiveViewer matrix's scale on
+  /// every change), as opposed to [scale], which the viewer only updates at
+  /// the debounced zoom settle. When set alongside [renderWorker], a dense
+  /// strip-routed page uses it to bin its strip plan speculatively while the
+  /// gesture quiesces: the settle then consumes the already-in-flight worker
+  /// plan instead of starting the ~290 ms bin from scratch. Null (the
+  /// default) disables speculation; settles behave exactly as before.
+  final ValueListenable<double>? transformScale;
 
   /// Shared low-res previews (see [PdfPagePreviewCache]): while this
   /// page's full render is pending - most visibly under [renderHold]
@@ -196,7 +207,11 @@ class PdfPageView extends StatefulWidget {
   /// lose, so no host knowledge is needed. (2) UI-thread cost: with a
   /// render worker attached the ~340 ms re-bin runs off-thread and the
   /// settle blocks the UI ~35 ms (measured, ly9-far-cad p4) - decode the
-  /// plan, create engine objects, replay the tape. Set false to restore
+  /// plan, create engine objects, replay the tape. With [transformScale]
+  /// wired (the viewer does), the bin is additionally requested
+  /// speculatively while the zoom gesture quiesces, so most of the worker's
+  /// bin wall time overlaps the viewer's own 200 ms settle debounce and the
+  /// settle only waits for the residual. Set false to restore
   /// the cached-picture zoom path for dense pages if a regression is ever
   /// suspected in the field.
   ///
@@ -218,6 +233,22 @@ class PdfPageView extends StatefulWidget {
   /// where `ui.ImageFilter.isShaderFilterSupported` is false, so strip
   /// router tests force the decision. Null (production) asks the engine.
   static bool? debugStripZoomReplayBackendOverride;
+
+  /// Settles that consumed a speculatively-binned worker strip plan (the
+  /// [transformScale]-driven pre-request matched the settle's geometry
+  /// exactly and resolved to a plan). Test telemetry, following the
+  /// [StripPdfDevice.totalPlanMismatches] pattern.
+  static int debugSpeculativePlanHits = 0;
+
+  /// Speculative worker strip plans that were dropped unconsumed (the
+  /// settle asked for a different geometry, a region bin superseded them,
+  /// or the scene changed) or resolved null when consumed.
+  static int debugSpeculativePlanMisses = 0;
+
+  static void debugResetSpeculativeStats() {
+    debugSpeculativePlanHits = 0;
+    debugSpeculativePlanMisses = 0;
+  }
 
   @override
   State<PdfPageView> createState() => _PdfPageViewState();
@@ -281,7 +312,27 @@ class _PdfPageViewState extends State<PdfPageView> {
     super.initState();
     widget.renderHold?.addListener(_onRenderHoldChanged);
     widget.previewCache?.addListener(_onPreviewCacheChanged);
+    widget.transformScale?.addListener(_onTransformScaleChanged);
     _refreshPreview();
+  }
+
+  /// How long the live transform must stay quiet before a speculative strip
+  /// bin fires. During active motion matrix events arrive every frame, so
+  /// this timer keeps resetting and nothing fires; once motion pauses 50 ms
+  /// we bin speculatively - 150 ms of the viewer's 200 ms settle debounce
+  /// then overlaps the ~290 ms worker bin. Firing on every tick instead
+  /// would cancel-churn the worker continuously for no benefit.
+  static const _speculateDebounce = Duration(milliseconds: 50);
+
+  Timer? _speculateTimer;
+
+  /// The in-flight/completed speculative worker bin (geometry + future) the
+  /// next full-page settle may consume. See [_speculateStripPlan].
+  _SpeculativeStripPlan? _speculativeStripPlan;
+
+  void _onTransformScaleChanged() {
+    _speculateTimer?.cancel();
+    _speculateTimer = Timer(_speculateDebounce, _speculateStripPlan);
   }
 
   void _onRenderHoldChanged() {
@@ -345,6 +396,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (!identical(oldWidget.renderScheduler, widget.renderScheduler)) {
       oldWidget.renderScheduler?.cancel(this);
       // the new scheduler picks this page up on its next _render
+    }
+    if (!identical(oldWidget.transformScale, widget.transformScale)) {
+      oldWidget.transformScale?.removeListener(_onTransformScaleChanged);
+      widget.transformScale?.addListener(_onTransformScaleChanged);
     }
     if (oldWidget.previewIndex != widget.previewIndex) {
       // The lazy list reused this State for a different page (it scrolled into
@@ -420,6 +475,11 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void dispose() {
     widget.renderHold?.removeListener(_onRenderHoldChanged);
+    widget.transformScale?.removeListener(_onTransformScaleChanged);
+    _speculateTimer?.cancel();
+    // any pending speculative bin is reaped by the cancelBinStrips below;
+    // its null result resolves into a future nobody awaits any more
+    _speculativeStripPlan = null;
     widget.renderScheduler?.cancel(this);
     // Scrolled out of the cache window: drop this page's queued worker request
     // so the worker's next slot serves a page still on screen (the abandoned
@@ -427,8 +487,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     // fallback). No-op if nothing is queued for it.
     widget.renderWorker
         ?.cancel(widget.previewIndex, priority: widget.renderPriority);
-    widget.renderWorker?.cancelBinStrips(widget.previewIndex,
-        priority: widget.renderPriority);
+    widget.renderWorker
+        ?.cancelBinStrips(widget.previewIndex, priority: widget.renderPriority);
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _dropPicture();
     _image?.dispose();
@@ -458,6 +518,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     _scene?.dispose();
     _scene = scene;
     _sceneFromWorker = scene != null && fromWorker;
+    // a speculative bin's geometry was computed against the previous scene;
+    // with the scene identity changed it is meaningless, so drop it (the
+    // next _workerStripPlan's cancelBinStrips reaps the worker-side job)
+    _speculativeStripPlan = null;
   }
 
   /// Whether [_scene] came from the render worker (see [_setScene]).
@@ -474,21 +538,28 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   /// The resolution the current zoom actually wants, uncapped.
-  double _desiredRatio() {
+  double _desiredRatio() => _desiredRatioAt(widget.scale);
+
+  /// [_desiredRatio] at an explicit [scale] instead of [PdfPageView.scale],
+  /// so speculation can price the scale a settle is ABOUT to apply.
+  double _desiredRatioAt(double scale) {
     final size = _renderPlan.pageSize(widget.page);
     final width = math.max(1.0, size.width);
     // pages display fit-width, so the raster must match the on-screen
     // width - a 612pt page across a wide window needs far more pixels
     // than its nominal point size
     final fitWidth = (_layoutWidth ?? width) / width;
-    return math.max(fitWidth * (_pixelRatio ?? 1.0) * widget.scale, 0.05);
+    return math.max(fitWidth * (_pixelRatio ?? 1.0) * scale, 0.05);
   }
 
-  double _effectiveRatio() {
+  double _effectiveRatio() => _effectiveRatioAt(widget.scale);
+
+  /// [_effectiveRatio] at an explicit [scale] (see [_desiredRatioAt]).
+  double _effectiveRatioAt(double scale) {
     final size = _renderPlan.pageSize(widget.page);
     final width = math.max(1.0, size.width);
     final height = math.max(1.0, size.height);
-    var ratio = _desiredRatio();
+    var ratio = _desiredRatioAt(scale);
     ratio = math.min(ratio, math.sqrt(_maxPixels / (width * height)));
     ratio = math.min(ratio, _maxDimension / math.max(width, height));
     return math.max(ratio, 0.05);
@@ -677,8 +748,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       _lastInterpretPath = 'worker';
       if (_retainScene(commands.length)) {
         // No images to decode, so this completes synchronously in practice.
-        final scene = await PdfRetainedScene.fromCommands(
-            widget.page, commands,
+        final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
             plan: _renderPlan);
         if (_superseded(generation, pageIndex)) {
           scene.dispose();
@@ -1014,32 +1084,126 @@ class _PdfPageViewState extends State<PdfPageView> {
     return true;
   }
 
-  /// Asks the render worker to bin this page's strips for the exact device
-  /// geometry the strip replay is about to construct ([stripGeometry] /
-  /// [stripRegionGeometry] of [scene]), or null to bin locally: no worker /
-  /// worker declined, a locally-recorded scene (see [_setScene]'s
-  /// fromWorker), or a debug-delegate flag forcing local routing (the
-  /// worker isolate has its own statics and would bin the full routing,
-  /// desyncing flush ordinals).
-  ///
-  /// Any still-queued bin for this page is cancelled first, so a newer
-  /// settle/region supersedes an older one in the worker queue; the
-  /// cancelled caller's null resolves under a stale generation and is
-  /// discarded by its guard without falling back to a local bin.
-  Future<StripPlan?> _workerStripPlan(PdfRetainedScene scene,
-      {required double pixelRatio, Rect? region}) async {
-    if (!_sceneFromWorker) return null;
+  /// Whether worker strip binning may be asked for at all - shared by
+  /// [_workerStripPlan] and [_speculateStripPlan] so the two paths' guards
+  /// can't drift: a worker-recorded scene, a live worker, and no
+  /// debug-delegate flag forcing local routing (the worker isolate has its
+  /// own statics and would bin the full routing, desyncing flush ordinals).
+  bool get _workerBinningEligible {
+    if (!_sceneFromWorker) return false;
     final worker = widget.renderWorker;
-    if (worker == null || !worker.isActive) return null;
+    if (worker == null || !worker.isActive) return false;
     if (StripPdfDevice.debugDelegateAll ||
         StripPdfDevice.debugDelegateFills ||
         StripPdfDevice.debugDelegateStrokes ||
         StripPdfDevice.debugDelegateText) {
-      return null;
+      return false;
     }
+    return true;
+  }
+
+  /// Fired by [_speculateTimer] once the live transform has been quiet for
+  /// [_speculateDebounce]: pre-requests the worker strip plan for the
+  /// geometry the upcoming zoom settle will ask for, so the ~290 ms worker
+  /// bin overlaps the viewer's 200 ms settle debounce instead of starting
+  /// after it. [_workerStripPlan] consumes the stored future when the
+  /// settle's geometry matches exactly.
+  void _speculateStripPlan() {
+    final transformScale = widget.transformScale;
+    if (!mounted || transformScale == null || _renderPaused) return;
+    if (!PdfPageView.retainedZoomReplay) return;
+    final scene = _scene;
+    if (scene == null || !_stripReplayScene(scene)) return;
+    if (!_workerBinningEligible) return;
+    // Anticipate the scale the settle will pass: this mirrors the viewer's
+    // _renderScale quantization in _PdfViewerState._onTransformChanged
+    // (pdf_viewer.dart) EXACTLY and the two must stay in sync - a drift
+    // makes every speculation a geometry miss, silently re-paying the full
+    // bin wait the feature exists to avoid.
+    final live = math.max(1.0, transformScale.value);
+    final anticipated =
+        (live - widget.scale).abs() > 0.1 * widget.scale ? live : widget.scale;
+    final eff = _effectiveRatioAt(anticipated);
+    // Mirror _renderNow's staleness gate: when the settle won't re-raster
+    // the full page (resolution unchanged within 1%), don't bin for it.
+    // This also keeps speculation quiet at deep zoom, where the effective
+    // ratio is pixel-capped and stops moving - it must never compete with
+    // the detail patch's region bins.
+    if (_image != null &&
+        _rasteredRatio != null &&
+        (eff - _rasteredRatio!).abs() <= _rasteredRatio! * 0.01) {
+      return;
+    }
+    final geometry = scene.stripGeometry(pixelRatio: eff);
+    final pending = _speculativeStripPlan;
+    if (pending != null && pending.matches(geometry, eff)) return; // no churn
+    final worker = widget.renderWorker!;
+    // supersede any previous speculative bin (queued or in-flight)
+    worker.cancelBinStrips(widget.previewIndex,
+        priority: widget.renderPriority);
+    final m = geometry.pageToDevice;
+    _speculativeStripPlan = _SpeculativeStripPlan(
+      geometry,
+      eff,
+      worker.binStrips(
+        widget.previewIndex,
+        annotations: scene.plan.annotations,
+        pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
+        deviceWidth: geometry.width,
+        deviceHeight: geometry.height,
+        pixelRatio: eff,
+        // the SAME priority as the settle's own bin, so speculation is
+        // never preempted by (nor preempts) equal-priority work
+        priority: widget.renderPriority,
+      ),
+    );
+  }
+
+  /// Asks the render worker to bin this page's strips for the exact device
+  /// geometry the strip replay is about to construct ([stripGeometry] /
+  /// [stripRegionGeometry] of [scene]), or null to bin locally: no worker /
+  /// worker declined, a locally-recorded scene (see [_setScene]'s
+  /// fromWorker), or a debug-delegate flag forcing local routing (see
+  /// [_workerBinningEligible]).
+  ///
+  /// A full-page call first checks [_speculativeStripPlan]: when the
+  /// transform-quiescence speculation already requested this EXACT geometry
+  /// (all six matrix coefficients, width, height, pixelRatio), the stored
+  /// future is consumed instead of starting a fresh bin - the worker has
+  /// been binning through the viewer's settle debounce, so only the
+  /// residual wait is paid.
+  ///
+  /// Otherwise any still-queued or in-flight bin for this page is cancelled
+  /// first, so a newer settle/region supersedes an older one in the worker
+  /// queue; the cancelled caller's null resolves under a stale generation
+  /// and is discarded by its guard without falling back to a local bin.
+  Future<StripPlan?> _workerStripPlan(PdfRetainedScene scene,
+      {required double pixelRatio, Rect? region}) async {
+    if (!_workerBinningEligible) return null;
+    final worker = widget.renderWorker!;
     final geometry = region == null
         ? scene.stripGeometry(pixelRatio: pixelRatio)
         : scene.stripRegionGeometry(region, pixelRatio: pixelRatio);
+    final speculative = _speculativeStripPlan;
+    if (speculative != null) {
+      _speculativeStripPlan = null;
+      if (region == null && speculative.matches(geometry, pixelRatio)) {
+        final plan = await speculative.plan;
+        if (plan != null) {
+          PdfPageView.debugSpeculativePlanHits++;
+          return plan;
+        }
+        // The speculative bin was cancelled/declined (a preemption, a
+        // worker death). Fall through to a fresh request - exactly today's
+        // semantics for a settle that finds no plan in flight.
+        PdfPageView.debugSpeculativePlanMisses++;
+      } else {
+        // Wrong geometry (or a region bin): the cancelBinStrips below
+        // reaps the stale speculative job; its stored future resolves null
+        // unobserved.
+        PdfPageView.debugSpeculativePlanMisses++;
+      }
+    }
     final m = geometry.pageToDevice;
     worker.cancelBinStrips(widget.previewIndex,
         priority: widget.renderPriority);
@@ -1166,5 +1330,35 @@ class _PdfPageViewState extends State<PdfPageView> {
         }),
       );
     });
+  }
+}
+
+/// A worker strip bin requested speculatively while the zoom gesture was
+/// quiescing (see `_PdfPageViewState._speculateStripPlan`): the exact device
+/// geometry it was binned for, and the in-flight/completed plan future the
+/// settle consumes when its geometry matches.
+class _SpeculativeStripPlan {
+  _SpeculativeStripPlan(this.geometry, this.pixelRatio, this.plan);
+
+  final ({PdfMatrix pageToDevice, int width, int height}) geometry;
+  final double pixelRatio;
+  final Future<StripPlan?> plan;
+
+  /// Exact match only - all six matrix coefficients, the pixel viewport,
+  /// and the ratio compare with `==` (the coefficients round-trip the wire
+  /// codec bit-exactly, so a matching settle really is the same geometry).
+  bool matches(({PdfMatrix pageToDevice, int width, int height}) other,
+      double otherPixelRatio) {
+    final a = geometry.pageToDevice;
+    final b = other.pageToDevice;
+    return pixelRatio == otherPixelRatio &&
+        geometry.width == other.width &&
+        geometry.height == other.height &&
+        a.a == b.a &&
+        a.b == b.b &&
+        a.c == b.c &&
+        a.d == b.d &&
+        a.e == b.e &&
+        a.f == b.f;
   }
 }

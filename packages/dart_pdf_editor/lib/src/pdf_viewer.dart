@@ -1308,6 +1308,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final zoomed = target > 1.01;
       setState(() {
         if (zoomed != _zoomed) _zoomed = zoomed;
+        // NOTE: this quantization rule (max(1, scale), 10% dead band) is
+        // mirrored by _PdfPageViewState._speculateStripPlan to anticipate
+        // the settle's scale while the gesture quiesces - keep the two in
+        // sync or every speculative strip bin becomes a geometry miss.
         if ((target - _renderScale).abs() > 0.1 * _renderScale) {
           _renderScale = target;
         }
@@ -4869,6 +4873,9 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         renderScheduler: widget.renderScheduler,
         previewCache: widget.previewCache,
         renderWorker: widget.renderWorker,
+        // the live matrix scale lets dense strip-routed pages bin their
+        // settle's strip plan speculatively while the gesture quiesces
+        transformScale: widget.transformScale,
         previewIndex: widget.index,
       ),
       if (annotationLayerController != null)
