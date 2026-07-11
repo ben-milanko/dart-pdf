@@ -69,14 +69,37 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         handshake.complete(message);
         return;
       }
-      // [int id, TransferableTypedData? data] - null means "render locally".
+      // [int id, TransferableTypedData? data, ...] - null means "render
+      // locally". Combined strip-detail responses carry command and plan
+      // buffers as two separately transferable payloads.
       final response = message as List<Object?>;
       final id = response[0] as int;
       final request = _inFlight;
       if (request == null || request.id != id) return; // stale (disposed)
       _inFlight = null;
-      final data = response[1] as TransferableTypedData?;
-      request.completer.complete(data?.materialize().asUint8List());
+      final first = response[1] as TransferableTypedData?;
+      if (first == null && request.requeueAfterPreemption && !_disposed) {
+        // A higher-priority page cut in while this RECORD was interpreting.
+        // Keep its original future alive and put the work back behind the
+        // urgent request. PdfCachingRenderWorker may have several callers
+        // sharing that future; completing null here would make every waiter
+        // lose the record even though only its worker time slice was
+        // preempted. Explicit cancel() never sets this flag and still drops a
+        // stale queued record immediately.
+        request
+          ..requeueAfterPreemption = false
+          ..id = -1;
+        _queue.add(request);
+        _pump();
+        return;
+      }
+      request.completer.complete(first == null
+          ? null
+          : [
+              first.materialize().asUint8List(),
+              for (final data in response.skip(2).cast<TransferableTypedData>())
+                data.materialize().asUint8List(),
+            ]);
       _pump();
     });
     final isolate = await Isolate.spawn(
@@ -120,10 +143,10 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         imageDecodeRegion);
     _queue.add(request);
     _pump();
-    final bytes = await request.completer.future;
-    if (bytes == null) return null;
+    final buffers = await request.completer.future;
+    if (buffers == null) return null;
     try {
-      return deserializeCommands(bytes);
+      return deserializeCommands(buffers.single);
     } catch (_) {
       return null; // corrupt buffer → render locally rather than crash
     }
@@ -151,12 +174,49 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         pixelRatio);
     _queue.add(request);
     _pump();
-    final bytes = await request.completer.future;
-    if (bytes == null) return null;
+    final buffers = await request.completer.future;
+    if (buffers == null) return null;
     try {
-      return decodeStripPlan(bytes);
+      return decodeStripPlan(buffers.single);
     } catch (_) {
       return null; // corrupt plan → bin locally rather than crash
+    }
+  }
+
+  @override
+  Future<PdfStripDetail?> recordStripDetail(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    required PdfRect imageDecodeRegion,
+    int priority = 0,
+  }) async {
+    if (_disposed || _spawnFailed) return null;
+    final request = _PendingRequest.detail(
+      priority,
+      _seq++,
+      pageIndex,
+      annotations,
+      List.of(pageToDevice),
+      deviceWidth,
+      deviceHeight,
+      pixelRatio,
+      imageDecodeRegion,
+    );
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 2) return null;
+    try {
+      return PdfStripDetail(
+        deserializeCommands(buffers[0]),
+        decodeStripPlan(buffers[1]),
+      );
+    } catch (_) {
+      return null;
     }
   }
 
@@ -185,6 +245,9 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         }
       }
       if (_queue[bestQueued].priority < _inFlight!.priority) {
+        if (_inFlight!.kind == _RequestKind.record) {
+          _inFlight!.requeueAfterPreemption = true;
+        }
         _toCancelPort?.send(null);
       }
       return;
@@ -214,7 +277,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         request.imageDecodeRegion?.right,
         request.imageDecodeRegion?.top,
       ]);
-    } else {
+    } else if (request.kind == _RequestKind.bin) {
       port.send([
         'bin',
         request.id,
@@ -225,6 +288,21 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         request.deviceHeight,
         request.binPixelRatio,
       ]);
+    } else {
+      port.send([
+        'detail',
+        request.id,
+        request.pageIndex,
+        request.annotations,
+        request.pageToDevice,
+        request.deviceWidth,
+        request.deviceHeight,
+        request.binPixelRatio,
+        request.imageDecodeRegion!.left,
+        request.imageDecodeRegion!.bottom,
+        request.imageDecodeRegion!.right,
+        request.imageDecodeRegion!.top,
+      ]);
     }
   }
 
@@ -233,8 +311,10 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       _cancelKind(_RequestKind.record, pageIndex, priority);
 
   @override
-  void cancelBinStrips(int pageIndex, {int priority = 0}) =>
-      _cancelKind(_RequestKind.bin, pageIndex, priority);
+  void cancelBinStrips(int pageIndex, {int priority = 0}) {
+    _cancelKind(_RequestKind.bin, pageIndex, priority);
+    _cancelKind(_RequestKind.detail, pageIndex, priority);
+  }
 
   /// Drops matching QUEUED requests of one [kind]. Completing with null makes
   /// their futures resolve to a local render/bin - the abandoning caller
@@ -299,7 +379,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _RequestKind { record, bin }
+enum _RequestKind { record, bin, detail }
 
 /// One queued request (a page record or a strip bin) and its pending result.
 class _PendingRequest {
@@ -333,6 +413,21 @@ class _PendingRequest {
         commandLimit = null,
         imageDecodeRegion = null;
 
+  _PendingRequest.detail(
+      this.priority,
+      this.seq,
+      this.pageIndex,
+      this.annotations,
+      this.pageToDevice,
+      this.deviceWidth,
+      this.deviceHeight,
+      this.binPixelRatio,
+      this.imageDecodeRegion)
+      : kind = _RequestKind.detail,
+        imagePixelRatio = null,
+        decodeImages = true,
+        commandLimit = null;
+
   final _RequestKind kind;
   final int priority;
   final int seq;
@@ -351,7 +446,8 @@ class _PendingRequest {
   final int deviceHeight;
   final double binPixelRatio;
 
-  final completer = Completer<Uint8List?>();
+  final completer = Completer<List<Uint8List>?>();
+  bool requeueAfterPreemption = false;
   int id = -1;
 }
 
@@ -397,6 +493,7 @@ void _workerMain(_WorkerInit init) {
     final token = PdfCancellationToken();
     activeToken = token;
     Uint8List? buffer;
+    Uint8List? detailPlanBuffer;
     try {
       if (document != null) {
         if (kind == 'bin') {
@@ -410,6 +507,22 @@ void _workerMain(_WorkerInit init) {
               request[6] as int,
               request[7] as double,
               token);
+        } else if (kind == 'detail') {
+          final result = await _recordStripDetailAsync(
+            document,
+            binCommands,
+            pageIndex,
+            annotations,
+            (request[4] as List<Object?>).cast<double>(),
+            request[5] as int,
+            request[6] as int,
+            request[7] as double,
+            PdfRect(request[8] as double, request[9] as double,
+                request[10] as double, request[11] as double),
+            token,
+          );
+          buffer = result?.$1;
+          detailPlanBuffer = result?.$2;
         } else {
           final imagePixelRatio = request[4] as double?;
           final decodeImages = request[5] as bool;
@@ -438,10 +551,20 @@ void _workerMain(_WorkerInit init) {
       buffer = null; // any failure → caller renders this page locally
     }
     activeToken = null;
-    init.reply.send([
-      id,
-      buffer == null ? null : TransferableTypedData.fromList([buffer]),
-    ]);
+    if (buffer == null) {
+      init.reply.send([id, null]);
+    } else if (detailPlanBuffer != null) {
+      init.reply.send([
+        id,
+        TransferableTypedData.fromList([buffer]),
+        TransferableTypedData.fromList([detailPlanBuffer]),
+      ]);
+    } else {
+      init.reply.send([
+        id,
+        TransferableTypedData.fromList([buffer])
+      ]);
+    }
   });
 }
 
@@ -502,6 +625,52 @@ Future<Uint8List?> _binStripsAsync(
   return encodeStripPlan(binner.finish());
 }
 
+/// Produces the two halves of a deep-zoom detail patch in one queued worker
+/// job. The cached weightless recording avoids another content-stream parse
+/// after the page's first strip settle; only the region image decode and the
+/// cancellable bin replay repeat as the viewport moves.
+Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
+  PdfDocument document,
+  _BinCommandCache cache,
+  int pageIndex,
+  bool annotations,
+  List<double> matrix,
+  int deviceWidth,
+  int deviceHeight,
+  double pixelRatio,
+  PdfRect imageDecodeRegion,
+  PdfCancellationToken token,
+) async {
+  final sourceCommands =
+      await cache.sourceCommandsFor(document, pageIndex, annotations, token);
+  if (sourceCommands == null) return null;
+  if (token.cancelled) throw const PdfCancelledException();
+
+  final commandBuffer = serializeCommands(
+    sourceCommands,
+    cos: document.cos,
+    decodeImages: true,
+    maxImagePixelRatio: pixelRatio,
+    imageDecodeRegion: imageDecodeRegion,
+  );
+  if (commandBuffer == null) return null;
+  if (token.cancelled) throw const PdfCancelledException();
+
+  // Bin the exact round-tripped commands the UI receives. Region image
+  // cropping can retarget image transforms, so planning from baseCommands
+  // would make the pair structurally inconsistent.
+  final commands = deserializeCommands(commandBuffer);
+  final binner = StripPlanBinner(
+    pageToDevice: PdfMatrix(
+        matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]),
+    deviceWidth: deviceWidth,
+    deviceHeight: deviceHeight,
+    pixelRatio: pixelRatio,
+  );
+  await binner.bin(commands, cancellation: token);
+  return (commandBuffer, encodeStripPlan(binner.finish()));
+}
+
 /// Tiny per-worker LRU of the command lists strip bins replay, keyed
 /// (pageIndex, annotations). A zoom session hammers one page with a fresh
 /// geometry per settle, so 2 entries is plenty - and keeping the SAME list
@@ -518,11 +687,25 @@ Future<Uint8List?> _binStripsAsync(
 /// [PdfRenderWorker.record] declines, so their scenes were locally recorded
 /// and never ask for worker plans anyway.
 class _BinCommandCache {
-  final _entries = <(int, bool), List<PdfRenderCommand>>{};
+  final _entries = <(int, bool), _BinCommandEntry>{};
   static const int _capacity = 2;
 
   Future<List<PdfRenderCommand>?> commandsFor(PdfDocument document,
-      int pageIndex, bool annotations, PdfCancellationToken token) async {
+          int pageIndex, bool annotations, PdfCancellationToken token) async =>
+      (await _entryFor(document, pageIndex, annotations, token))?.wireCommands;
+
+  /// Original document-backed commands for a fresh serialization that must
+  /// resolve/decode image COS streams. The wire-round-tripped commands used by
+  /// [commandsFor] deliberately detach that object graph; feeding those back
+  /// to [serializeCommands] works for vector geometry but can no longer safely
+  /// resolve every image dependency.
+  Future<List<PdfRenderCommand>?> sourceCommandsFor(PdfDocument document,
+          int pageIndex, bool annotations, PdfCancellationToken token) async =>
+      (await _entryFor(document, pageIndex, annotations, token))
+          ?.sourceCommands;
+
+  Future<_BinCommandEntry?> _entryFor(PdfDocument document, int pageIndex,
+      bool annotations, PdfCancellationToken token) async {
     final key = (pageIndex, annotations);
     final hit = _entries.remove(key);
     if (hit != null) {
@@ -540,11 +723,21 @@ class _BinCommandCache {
     final buffer = serializeCommands(recorder.commands,
         cos: document.cos, decodeImages: false, imagePlaceholders: true);
     if (buffer == null) return null;
-    final commands = deserializeCommands(buffer);
-    _entries[key] = commands;
+    final entry = _BinCommandEntry(
+      recorder.commands,
+      deserializeCommands(buffer),
+    );
+    _entries[key] = entry;
     while (_entries.length > _capacity) {
       _entries.remove(_entries.keys.first);
     }
-    return commands;
+    return entry;
   }
+}
+
+class _BinCommandEntry {
+  const _BinCommandEntry(this.sourceCommands, this.wireCommands);
+
+  final List<PdfRenderCommand> sourceCommands;
+  final List<PdfRenderCommand> wireCommands;
 }

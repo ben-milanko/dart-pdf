@@ -52,6 +52,11 @@ import 'shading.dart';
 /// programming error, asserted on read.
 const int _formatVersion = 1;
 
+/// Microseconds spent reconstructing worker command buffers on the consuming
+/// isolate. Accumulated for performance probes; this is the UI-thread half of
+/// the record path and intentionally mirrors `decodeStripPlanMicros`.
+int deserializeCommandsMicros = 0;
+
 // Command tags. Stable within a build; order mirrors the sealed hierarchy.
 const int _tSave = 0;
 const int _tRestore = 1;
@@ -259,10 +264,13 @@ PdfDecodedPixels _capImageResolution(
 
 /// Reconstructs the command buffer written by [serializeCommands].
 List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
+  final sw = Stopwatch()..start();
   final r = _Reader(bytes);
   final version = r.u8();
   assert(version == _formatVersion, 'render command format version mismatch');
-  return _readCommands(r);
+  final commands = _readCommands(r);
+  deserializeCommandsMicros += sw.elapsedMicroseconds;
+  return commands;
 }
 
 void _writeCommands(
@@ -290,9 +298,17 @@ void _writeCommands(
 
 List<PdfRenderCommand> _readCommands(_Reader r) {
   final n = r.u32();
-  final out = <PdfRenderCommand>[];
+  // The wire format gives us the exact count. Pre-size instead of growing a
+  // 100k-command CAD page through repeated capacity reallocations on the UI
+  // isolate. Keep the list growable to preserve deserializeCommands' public
+  // behavior for callers that append diagnostic commands.
+  final out = List<PdfRenderCommand>.filled(
+    n,
+    const PdfSaveCommand(),
+    growable: true,
+  );
   for (var i = 0; i < n; i++) {
-    out.add(_readCommand(r));
+    out[i] = _readCommand(r);
   }
   return out;
 }
@@ -808,7 +824,8 @@ PdfRenderCommand _readCommand(_Reader r) {
       if (r.boolean()) {
         final width = r.u32();
         final height = r.u32();
-        decoded = PdfDecodedPixels(r.bytes(), width, height);
+        decoded =
+            PdfDecodedPixels(r.bytes(allowLargeView: true), width, height);
       }
       // isInline forces value (content) cache keying on replay: the
       // reconstructed stream is a fresh object every record, so stream-identity
@@ -898,19 +915,19 @@ void _writePath(_Writer w, PdfPath path) {
 
 PdfPath _readPath(_Reader r) {
   final n = r.u32();
-  final segments = <PdfPathSegment>[];
+  final segments = List<PdfPathSegment>.filled(
+    n,
+    const PdfClosePath(),
+    growable: true,
+  );
   for (var i = 0; i < n; i++) {
-    switch (r.u8()) {
-      case 0:
-        segments.add(PdfMoveTo(r.f32(), r.f32()));
-      case 1:
-        segments.add(PdfLineTo(r.f32(), r.f32()));
-      case 2:
-        segments.add(
-            PdfCubicTo(r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()));
-      case 3:
-        segments.add(const PdfClosePath());
-    }
+    segments[i] = switch (r.u8()) {
+      0 => PdfMoveTo(r.f32(), r.f32()),
+      1 => PdfLineTo(r.f32(), r.f32()),
+      2 => PdfCubicTo(r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()),
+      3 => const PdfClosePath(),
+      _ => throw FormatException('unknown path segment tag'),
+    };
   }
   return PdfPath(segments);
 }
@@ -1068,13 +1085,17 @@ PdfTextRun _readTextRun(_Reader r) {
   List<PdfGlyphPlacement>? glyphs;
   if (r.boolean()) {
     final n = r.u32();
-    glyphs = <PdfGlyphPlacement>[];
+    glyphs = List<PdfGlyphPlacement>.filled(
+      n,
+      const PdfGlyphPlacement(offset: 0),
+      growable: true,
+    );
     for (var i = 0; i < n; i++) {
       final offset = r.f64();
       final offsetY = r.f64();
       final outline = r.boolean() ? _readPath(r) : null;
-      glyphs.add(PdfGlyphPlacement(
-          offset: offset, offsetY: offsetY, outline: outline));
+      glyphs[i] =
+          PdfGlyphPlacement(offset: offset, offsetY: offsetY, outline: outline);
     }
   }
   final invisible = r.boolean();
@@ -1220,7 +1241,7 @@ CosObject _readCos(_Reader r) {
       return CosArray([for (var i = 0; i < n; i++) _readCos(r)]);
     case _cStream:
       final dict = _readCos(r) as CosDictionary;
-      return CosStream(dict, r.bytes());
+      return CosStream(dict, r.bytes(allowLargeView: true));
     case _cDict:
       final n = r.u32();
       final entries = <String, CosObject>{};
@@ -1372,11 +1393,16 @@ class _Reader {
     return v.toInt();
   }
 
-  /// Reads a length-prefixed raw byte run as a copy (a sublist view would alias
-  /// the whole transferred buffer and keep it alive).
-  Uint8List bytes() {
+  /// Reads a length-prefixed raw byte run. Small values are copied so a tiny
+  /// COS string cannot pin a multi-megabyte transferred command buffer. Large
+  /// image streams/pixel planes may instead keep a zero-copy view: those bytes
+  /// dominate the buffer and are retained by the command list anyway, so
+  /// copying them only adds UI-thread latency and a second large allocation.
+  Uint8List bytes({bool allowLargeView = false}) {
     final n = u32();
-    final out = Uint8List.fromList(Uint8List.sublistView(_bytes, _o, _o + n));
+    final slice = Uint8List.sublistView(_bytes, _o, _o + n);
+    final out =
+        allowLargeView && n >= (1 << 20) ? slice : Uint8List.fromList(slice);
     _o += n;
     return out;
   }

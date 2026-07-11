@@ -1004,20 +1004,33 @@ class _PdfPageViewState extends State<PdfPageView> {
     ratio =
         math.min(ratio, _maxDimension / math.max(region.width, region.height));
 
-    // Strip-routed dense pages skip the worker's region record: replaying
-    // its picture is a nested-picture re-raster - the slow path strips
-    // exist to avoid - so they go straight to the strip region replay
-    // below (with a worker-binned plan when the scene is worker-backed).
-    // The region-resolution image re-decode the worker record offers is
-    // orthogonal and stays for canvas-routed pages.
+    // Dense strip-routed pages ask for one combined worker result: commands
+    // whose images were decoded for this region plus the StripPlan binned
+    // from those exact commands. That keeps the flat strip replay, restores
+    // region-resolution images, and pays one worker queue/transfer round trip
+    // instead of serial record + bin requests. Unsupported backends fall
+    // through to the retained base scene below.
     final heldScene = PdfPageView.retainedZoomReplay ? _scene : null;
     final stripDetail = heldScene != null && _stripReplayScene(heldScene);
+    final workerStripImage = stripDetail
+        ? await _detailStripImageFromWorker(
+            heldScene, region, ratio, widget.previewIndex, generation)
+        : null;
     final workerPicture = stripDetail
         ? null
         : await _detailPictureFromWorker(region, ratio, widget.previewIndex);
     if (!mounted || generation != _detailGeneration || _renderPaused) {
+      workerStripImage?.dispose();
       workerPicture?.dispose();
       return false;
+    }
+    if (workerStripImage != null) {
+      setState(() {
+        _detailImage?.dispose();
+        _detailImage = workerStripImage;
+        _detailFraction = fraction;
+      });
+      return true;
     }
     if (workerPicture != null) {
       final image =
@@ -1233,6 +1246,58 @@ class _PdfPageViewState extends State<PdfPageView> {
     _logImageStats(pageIndex, commands);
     return PdfPageRenderer.pictureFromCommandsWithPlan(
         widget.page, commands, _renderPlan);
+  }
+
+  Future<ui.Image?> _detailStripImageFromWorker(
+    PdfRetainedScene baseScene,
+    Rect rasterRegion,
+    double ratio,
+    int pageIndex,
+    int generation,
+  ) async {
+    if (!_workerBinningEligible) return null;
+    final worker = widget.renderWorker!;
+    final geometry =
+        baseScene.stripRegionGeometry(rasterRegion, pixelRatio: ratio);
+    final m = geometry.pageToDevice;
+    worker.cancelBinStrips(pageIndex, priority: widget.renderPriority);
+    final detail = await worker.recordStripDetail(
+      pageIndex,
+      annotations: baseScene.plan.annotations,
+      pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
+      deviceWidth: geometry.width,
+      deviceHeight: geometry.height,
+      pixelRatio: ratio,
+      imageDecodeRegion: _pdfRegionForRasterRegion(rasterRegion),
+      priority: widget.renderPriority,
+    );
+    if (_abandoned(pageIndex) ||
+        generation != _detailGeneration ||
+        _renderPaused ||
+        detail == null) {
+      return null;
+    }
+    _logImageStats(pageIndex, detail.commands);
+    final scene = await PdfRetainedScene.fromCommands(
+      widget.page,
+      detail.commands,
+      plan: _renderPlan,
+    );
+    if (_abandoned(pageIndex) ||
+        generation != _detailGeneration ||
+        _renderPaused) {
+      scene.dispose();
+      return null;
+    }
+    try {
+      return await scene.rasterizeRegionStrips(
+        rasterRegion,
+        pixelRatio: ratio,
+        stripPlan: detail.plan,
+      );
+    } finally {
+      scene.dispose();
+    }
   }
 
   PdfRect _pdfRegionForRasterRegion(Rect region) {

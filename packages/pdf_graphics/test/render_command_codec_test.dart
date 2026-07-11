@@ -308,6 +308,37 @@ void main() {
       expect(restored.request.decoded!.rgba, decoded.rgba);
     });
 
+    test('large decoded pixel planes stay zero-copy on deserialize', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(512),
+          'Height': const CosInteger(512),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+      );
+      final decoded = PdfDecodedPixels(Uint8List(512 * 512 * 4), 512, 512);
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: PdfMatrix.identity,
+        decoded: decoded,
+      ));
+
+      final bytes = serializeCommands([command], cos: cos, decodeImages: true)!;
+      final restored = _imageCommands(deserializeCommands(bytes)).single;
+      expect(restored.request.decoded!.rgba.buffer.lengthInBytes,
+          bytes.buffer.lengthInBytes,
+          reason: 'a large pixel payload should view the transferred buffer '
+              'instead of copying it again on the UI isolate');
+      // The public result remains growable after the pre-sizing optimization.
+      final commands = deserializeCommands(bytes);
+      commands.add(const PdfSaveCommand());
+      expect(commands, hasLength(2));
+    });
+
     test('imageDecodeRegion crops pixels and retargets the image transform',
         () {
       final cos = CosDocument.open(buildClassicPdf());

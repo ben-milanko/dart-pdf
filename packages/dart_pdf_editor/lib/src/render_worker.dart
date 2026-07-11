@@ -71,6 +71,19 @@ int pdfRenderWorkerCacheBudgetBytes = defaultPdfRenderWorkerCacheBudgetBytes;
 /// guard covers native and pooled workers.
 Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 
+/// One combined deep-zoom worker result.
+///
+/// [commands] carry images decoded for the requested visible region and
+/// [plan] was binned from those exact commands and device geometry. The pair
+/// must be consumed together; using the plan with another command recording
+/// may trip the strip device's stale-plan guard.
+class PdfStripDetail {
+  const PdfStripDetail(this.commands, this.plan);
+
+  final List<PdfRenderCommand> commands;
+  final StripPlan plan;
+}
+
 /// Documents with at least this many pages use a [PdfPooledRenderWorker] via
 /// [startPdfRenderWorker]; shorter ones use a single worker because extra
 /// startup and memory usually cost more than the parallelism saves.
@@ -242,6 +255,32 @@ abstract class PdfRenderWorker {
     required int deviceWidth,
     required int deviceHeight,
     required double pixelRatio,
+    int priority = 0,
+  }) async =>
+      null;
+
+  /// Records a region-detail command buffer and bins that exact buffer for a
+  /// strip-routed deep-zoom patch in one worker job.
+  ///
+  /// A separate [record] followed by [binStrips] pays two queue/transfer
+  /// round trips and, because one platform worker serves jobs serially, the
+  /// two waits stack. This combined request decodes images for
+  /// [imageDecodeRegion] at [pixelRatio], bins the resulting commands for the
+  /// supplied device geometry, and returns both together. Replaying
+  /// [PdfStripDetail.commands] with [PdfStripDetail.plan] therefore preserves
+  /// painter order while giving the detail patch region-resolution images.
+  ///
+  /// The base implementation declines. Native workers override it; other
+  /// backends keep the existing base-scene strip fallback until they support
+  /// the combined protocol.
+  Future<PdfStripDetail?> recordStripDetail(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    required PdfRect imageDecodeRegion,
     int priority = 0,
   }) async =>
       null;
@@ -463,6 +502,28 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       );
 
   @override
+  Future<PdfStripDetail?> recordStripDetail(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    required PdfRect imageDecodeRegion,
+    int priority = 0,
+  }) =>
+      _workers[_staticWorkerIndex(pageIndex)].recordStripDetail(
+        pageIndex,
+        annotations: annotations,
+        pageToDevice: pageToDevice,
+        deviceWidth: deviceWidth,
+        deviceHeight: deviceHeight,
+        pixelRatio: pixelRatio,
+        imageDecodeRegion: imageDecodeRegion,
+        priority: priority,
+      );
+
+  @override
   void cancelBinStrips(int pageIndex, {int priority = 0}) =>
       _workers[_staticWorkerIndex(pageIndex)]
           .cancelBinStrips(pageIndex, priority: priority);
@@ -671,6 +732,31 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
         pixelRatio: pixelRatio,
+        priority: priority,
+      );
+
+  /// Pure passthrough: region details are transient and geometry-specific,
+  /// like strip plans, so retaining them in the full-page record LRU would
+  /// evict reusable page buffers for data that cannot be reused.
+  @override
+  Future<PdfStripDetail?> recordStripDetail(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    required PdfRect imageDecodeRegion,
+    int priority = 0,
+  }) =>
+      _inner.recordStripDetail(
+        pageIndex,
+        annotations: annotations,
+        pageToDevice: pageToDevice,
+        deviceWidth: deviceWidth,
+        deviceHeight: deviceHeight,
+        pixelRatio: pixelRatio,
+        imageDecodeRegion: imageDecodeRegion,
         priority: priority,
       );
 

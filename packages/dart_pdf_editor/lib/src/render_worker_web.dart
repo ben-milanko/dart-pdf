@@ -176,6 +176,15 @@ class _WebRenderWorker extends PdfRenderWorker {
     _wlog('result page=${request.pageIndex} '
         '${bytes == null ? 'declined (null) → local' : '${bytes.length}B → worker'}'
         '${err == null ? '' : '\n  worker error: $err'}');
+    if (bytes == null && request.requeueAfterPreemption && !_disposed) {
+      request
+        ..requeueAfterPreemption = false
+        ..id = -1;
+      _queue.add(request);
+      _wlog('requeued preempted shared record page=${request.pageIndex}');
+      _pump();
+      return;
+    }
     request.completer.complete(bytes);
     _pump();
   }
@@ -230,6 +239,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         }
       }
       if (_queue[bestQueued].priority < _inFlight!.priority) {
+        _inFlight!.requeueAfterPreemption = true;
         worker.postMessage(JSObject()..setProperty('kind'.toJS, 'cancel'.toJS));
       }
       return;
@@ -376,6 +386,7 @@ class _WebPending {
   final int? commandLimit;
   final PdfRect? imageDecodeRegion;
   final completer = Completer<Uint8List?>();
+  bool requeueAfterPreemption = false;
   int id = -1;
 }
 
