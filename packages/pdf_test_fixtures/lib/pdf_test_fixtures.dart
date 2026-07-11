@@ -694,6 +694,57 @@ Uint8List buildEmbeddedFontPdf() {
   return out.takeBytes();
 }
 
+/// Embedded-font page with an inline RGB image behind the text and a solid
+/// vector rectangle painted after it. Exercises mixed image/Slug painter
+/// order: neither the image nor the later occluder may be lifted around text.
+Uint8List buildEmbeddedFontImagePdf() {
+  final font = buildTestTrueTypeFont();
+  const content = 'q 300 0 0 120 50 620 cm '
+      'BI /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 '
+      '/Filter /ASCIIHexDecode ID E0E8FF> EI Q '
+      'BT /F1 24 Tf 72 700 Td 0 0 0 rg (AB) Tj ET '
+      '0.9 0.2 0.2 rg 88 700 14 24 re f';
+  final bodies = <Uint8List>[
+    ascii('<< /Type /Catalog /Pages 2 0 R >>'),
+    ascii('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+    ascii('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>'),
+    ascii('<< /Length ${content.length} >>\nstream\n$content\nendstream'),
+    ascii('<< /Type /Font /Subtype /TrueType /BaseFont /TestFont '
+        '/FirstChar 65 /LastChar 66 /Widths [600 1000] '
+        '/Encoding /WinAnsiEncoding /FontDescriptor 7 0 R >>'),
+    (BytesBuilder()
+          ..add(ascii('<< /Length ${font.length} /Length1 ${font.length} >>'
+              '\nstream\n'))
+          ..add(font)
+          ..add(ascii('\nendstream')))
+        .takeBytes(),
+    ascii('<< /Type /FontDescriptor /FontName /TestFont /Flags 32 '
+        '/FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 '
+        '/Descent -200 /CapHeight 800 /StemV 80 /FontFile2 6 0 R >>'),
+  ];
+  final out = BytesBuilder()..add(ascii('%PDF-1.4\n'));
+  final offsets = <int>[];
+  for (var i = 0; i < bodies.length; i++) {
+    offsets.add(out.length);
+    out.add(ascii('${i + 1} 0 obj\n'));
+    out.add(bodies[i]);
+    out.add(ascii('\nendobj\n'));
+  }
+  final xrefOffset = out.length;
+  final buffer = StringBuffer()
+    ..write('xref\n0 ${bodies.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  out.add(ascii(buffer.toString()));
+  return out.takeBytes();
+}
+
 /// Builds a minimal CFF (Type1C) font: glyph 0 = .notdef, glyph 1 = an
 /// 800x800 square at the origin, mapped to character code 65 ('A') with
 /// advance width 660 (via nominalWidthX 600 + leading operand 60).

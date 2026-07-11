@@ -71,7 +71,9 @@ void main() {
         (tester.widget<CustomPaint>(slugFinder).painter! as dynamic).picture;
     final firstQuads = StripPdfDevice.totalSlugQuads;
 
-    await tester.pumpWidget(at(3));
+    await tester.pumpWidget(at(8));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)));
     await tester.pump();
     expect(slugFinder, findsOneWidget);
     final zoomPicture =
@@ -81,7 +83,7 @@ void main() {
     expect(StripPdfDevice.totalSlugQuads, firstQuads,
         reason: 'zoom must reuse the retained Slug picture without replaying');
     expect(find.byType(RawImage), findsNothing,
-        reason: 'zoom must not flatten the Slug layer into a new bitmap');
+        reason: 'an image-free Slug scene needs no deep-zoom raster patch');
   });
 
   testWidgets('substituted text keeps the cheaper raster path', (tester) async {

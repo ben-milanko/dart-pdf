@@ -264,8 +264,10 @@ class PdfPageView extends StatefulWidget {
   /// worker-built Slug/strip plan and only upload/replay it on the UI thread;
   /// if the worker declines they keep the ordinary worker-planned strip
   /// raster path rather than binning Slug locally.
-  /// Image-bearing pages also stay raster-backed so the deep-zoom region patch
-  /// can continue replacing embedded images at their requested resolution.
+  /// Image-bearing pages keep the same complete painter-order picture. At a
+  /// capped deep zoom, a full-composite region raster supplies higher decode
+  /// resolution while stationary and is removed during the next live
+  /// transform so it cannot cover the sharp Slug base with stale raster text.
   static bool webSlugGlyphLayer = true;
 
   /// Test hook for [webSlugGlyphLayer]. Null uses [kIsWeb].
@@ -396,6 +398,12 @@ class _PdfPageViewState extends State<PdfPageView> {
       widget.transformChanges ?? widget.transformScale;
 
   void _onLiveTransformChanged() {
+    // A settled detail patch is a complete high-resolution raster composite.
+    // Drop it at the first live transform tick when a painter-order Slug
+    // picture sits underneath, so stale raster text cannot scale over and
+    // hide the transform-sharp glyphs during pinch/pan. The next settle
+    // rebuilds the complete detail composite for image resolution.
+    if (_slugPicture != null && _detailImage != null) _dropDetail();
     _speculateTimer?.cancel();
     _speculateTimer = Timer(_speculateDebounce, _speculateStripPlan);
   }
@@ -592,6 +600,8 @@ class _PdfPageViewState extends State<PdfPageView> {
   void _setScene(PdfRetainedScene? scene, {bool fromWorker = false}) {
     _scene?.dispose();
     _scene = scene;
+    _sceneHasImageDraws =
+        scene != null && PdfPageRenderer.hasImageDraws(scene.commands);
     _sceneFromWorker = scene != null && fromWorker;
     _slugPictureRejected = false;
     // a speculative bin's geometry was computed against the previous scene;
@@ -603,6 +613,12 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   /// Whether [_scene] came from the render worker (see [_setScene]).
   bool _sceneFromWorker = false;
+
+  /// Whether the retained command stream paints any PDF images.
+  ///
+  /// Cached at scene adoption so deep-zoom settles do not rescan a dense CAD
+  /// page's command list on every pan.
+  bool _sceneHasImageDraws = false;
 
   void _dropDetail() {
     _detailGeneration++;
@@ -783,7 +799,6 @@ class _PdfPageViewState extends State<PdfPageView> {
       PdfPageView.webSlugGlyphLayer &&
       (PdfPageView.debugWebSlugGlyphLayerBackendOverride ?? kIsWeb) &&
       scene.hasSlugTextCandidates &&
-      !PdfPageRenderer.hasImageDraws(scene.commands) &&
       (scene.commands.length <= PdfPageView.retainedZoomReplayMaxCommands ||
           _workerBinningEligible);
 
@@ -1044,6 +1059,10 @@ class _PdfPageViewState extends State<PdfPageView> {
                   widget.previewIndex, widget.page, picture,
                   rotation: widget.rotation));
             }
+            await _updateDetail();
+            if (_abandoned(pageIndex) || !identical(_scene, retainedScene)) {
+              return;
+            }
             widget.onRasterReady?.call();
             return;
           }
@@ -1053,7 +1072,10 @@ class _PdfPageViewState extends State<PdfPageView> {
         // picture will be painted under the new InteractiveViewer transform.
         _rasteredRatio = effective;
       }
-      if (_slugPicture != null) return;
+      if (_slugPicture != null) {
+        await _updateDetail();
+        return;
+      }
     }
     if (_slugPicture != null) {
       setState(() {
@@ -1131,6 +1153,17 @@ class _PdfPageViewState extends State<PdfPageView> {
   Future<bool> _updateDetail() async {
     final generation = ++_detailGeneration;
     if (_renderPaused) return false;
+
+    // A Slug page picture is already transform-sharp for text and vector
+    // content. Image-free pages therefore gain nothing from a deep-zoom
+    // raster patch: it only re-records the whole page in the worker, performs
+    // a GPU readback, and then scales stale pixels over the sharp picture
+    // during the next pan. Mixed pages still need the patch for sharper PDF
+    // images, so retain the normal path whenever the scene draws an image.
+    if (_slugPicture != null && !_sceneHasImageDraws) {
+      _dropDetail();
+      return true;
+    }
     final detailGeometry = _detailGeometryAt(widget.scale);
     if (detailGeometry == null) {
       _dropDetail();
@@ -1648,16 +1681,14 @@ class _PdfPageViewState extends State<PdfPageView> {
                     fit: BoxFit.contain,
                     filterQuality: FilterQuality.medium,
                   ),
-                if (slugPicture == null &&
-                    detail != null &&
-                    fraction != null &&
-                    w.isFinite)
+                if (detail != null && fraction != null && w.isFinite)
                   Positioned(
                     left: fraction.left * w,
                     top: fraction.top * h,
                     width: fraction.width * w,
                     height: fraction.height * h,
                     child: RawImage(
+                      key: const ValueKey('pdf-page-detail-image'),
                       image: detail,
                       fit: BoxFit.fill,
                       filterQuality: FilterQuality.medium,
