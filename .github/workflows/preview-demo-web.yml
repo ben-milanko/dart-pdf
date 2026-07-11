@@ -61,10 +61,12 @@ jobs:
           if-no-files-found: error
 
   deploy:
-    # Fork PRs do not receive repository secrets. Same-repo PRs deploy only the
-    # static build artifact from the build job; this job does not check out or
-    # execute repository code with Firebase credentials available.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Fork and Dependabot PRs do not receive repository secrets. Other same-repo
+    # PRs deploy only the static build artifact from the build job; this job does
+    # not check out or execute repository code with Firebase credentials available.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     needs: build
     runs-on: ubuntu-latest
     permissions:
