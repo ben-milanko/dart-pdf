@@ -117,8 +117,9 @@ class _WebRenderWorker extends PdfRenderWorker {
     _readyWatchdog = Timer(pdfRenderWorkerReadyTimeout, () {
       if (_ready || _disposed || _failed) return;
       _wlog(
-          'ready watchdog fired after ${pdfRenderWorkerReadyTimeout.inSeconds}'
-          's - worker never opened the document; falling back to local');
+        'ready watchdog fired after ${pdfRenderWorkerReadyTimeout.inSeconds}'
+        's - worker never opened the document; falling back to local',
+      );
       _fail();
     });
   }
@@ -180,12 +181,24 @@ class _WebRenderWorker extends PdfRenderWorker {
     _recordWatchdog = null;
     _consecutiveTimeouts = 0; // a reply landed: the worker is alive
     final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
-    final bytes = buffer?.toDart.asUint8List();
+    final planBuffer = data.getProperty('planBuffer'.toJS) as JSArrayBuffer?;
+    final buffers = buffer == null
+        ? null
+        : <Uint8List>[
+            buffer.toDart.asUint8List(),
+            if (planBuffer != null) planBuffer.toDart.asUint8List(),
+          ];
+    final byteLength = buffers?.fold<int>(
+      0,
+      (sum, bytes) => sum + bytes.length,
+    );
     final err = (data.getProperty('error'.toJS) as JSString?)?.toDart;
-    _wlog('result kind=${request.kind.name} page=${request.pageIndex} '
-        '${bytes == null ? 'declined (null) → local' : '${bytes.length}B → worker'}'
-        '${err == null ? '' : '\n  worker error: $err'}');
-    if (bytes == null &&
+    _wlog(
+      'result kind=${request.kind.name} page=${request.pageIndex} '
+      '${buffers == null ? 'declined (null) → local' : '${byteLength}B → worker'}'
+      '${err == null ? '' : '\n  worker error: $err'}',
+    );
+    if (buffers == null &&
         request.kind == _WebRequestKind.record &&
         request.requeueAfterPreemption &&
         !_disposed) {
@@ -197,31 +210,43 @@ class _WebRenderWorker extends PdfRenderWorker {
       _pump();
       return;
     }
-    request.completer.complete(bytes);
+    request.completer.complete(buffers);
     _pump();
   }
 
   @override
-  Future<List<PdfRenderCommand>?> record(int pageIndex,
-      {bool annotations = true,
-      int priority = 0,
-      double? imagePixelRatio,
-      bool decodeImages = true,
-      int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+  }) async {
     if (_disposed || _failed) {
-      _wlog('record page=$pageIndex skipped (disposed=$_disposed '
-          'failed=$_failed) → local');
+      _wlog(
+        'record page=$pageIndex skipped (disposed=$_disposed '
+        'failed=$_failed) → local',
+      );
       return null;
     }
-    final request = _WebPending.record(priority, _seq++, pageIndex, annotations,
-        imagePixelRatio, decodeImages, commandLimit, imageDecodeRegion);
+    final request = _WebPending.record(
+      priority,
+      _seq++,
+      pageIndex,
+      annotations,
+      imagePixelRatio,
+      decodeImages,
+      commandLimit,
+      imageDecodeRegion,
+    );
     _queue.add(request);
     _pump();
-    final bytes = await request.completer.future;
-    if (bytes == null) return null;
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 1) return null;
     try {
-      return deserializeCommands(bytes);
+      return deserializeCommands(buffers.single);
     } catch (_) {
       return null; // corrupt buffer → render locally rather than crash
     }
@@ -252,10 +277,53 @@ class _WebRenderWorker extends PdfRenderWorker {
     );
     _queue.add(request);
     _pump();
-    final bytes = await request.completer.future;
-    if (bytes == null) return null;
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 1) return null;
     try {
-      return decodeStripPlan(bytes);
+      return decodeStripPlan(buffers.single);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<PdfStripDetail?> recordStripDetail(
+    int pageIndex, {
+    required bool annotations,
+    required List<double> pageToDevice,
+    required int deviceWidth,
+    required int deviceHeight,
+    required double pixelRatio,
+    required PdfRect imageDecodeRegion,
+    int priority = 0,
+  }) async {
+    if (_disposed ||
+        _failed ||
+        pageToDevice.length != 6 ||
+        deviceWidth <= 0 ||
+        deviceHeight <= 0) {
+      return null;
+    }
+    final request = _WebPending.detail(
+      priority,
+      _seq++,
+      pageIndex,
+      annotations,
+      List<double>.of(pageToDevice),
+      deviceWidth,
+      deviceHeight,
+      pixelRatio,
+      imageDecodeRegion,
+    );
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 2) return null;
+    try {
+      return PdfStripDetail(
+        deserializeCommands(buffers[0]),
+        decodeStripPlan(buffers[1]),
+      );
     } catch (_) {
       return null;
     }
@@ -288,9 +356,11 @@ class _WebRenderWorker extends PdfRenderWorker {
         if (_inFlight!.kind == _WebRequestKind.record) {
           _inFlight!.requeueAfterPreemption = true;
         }
-        worker.postMessage(JSObject()
-          ..setProperty('kind'.toJS, 'cancel'.toJS)
-          ..setProperty('id'.toJS, _inFlight!.id.toJS));
+        worker.postMessage(
+          JSObject()
+            ..setProperty('kind'.toJS, 'cancel'.toJS)
+            ..setProperty('id'.toJS, _inFlight!.id.toJS),
+        );
       }
       return;
     }
@@ -334,6 +404,14 @@ class _WebRenderWorker extends PdfRenderWorker {
         ..setProperty('deviceHeight'.toJS, request.deviceHeight.toJS)
         ..setProperty('pixelRatio'.toJS, request.binPixelRatio.toJS)
         ..setProperty('slugGlyphs'.toJS, request.slugGlyphs.toJS);
+      if (request.kind == _WebRequestKind.detail) {
+        final region = request.imageDecodeRegion!;
+        message
+          ..setProperty('regionLeft'.toJS, region.left.toJS)
+          ..setProperty('regionBottom'.toJS, region.bottom.toJS)
+          ..setProperty('regionRight'.toJS, region.right.toJS)
+          ..setProperty('regionTop'.toJS, region.top.toJS);
+      }
     }
     worker.postMessage(message);
 
@@ -352,17 +430,21 @@ class _WebRenderWorker extends PdfRenderWorker {
       _recordWatchdog = null;
       _consecutiveTimeouts++;
       if (_consecutiveTimeouts >= pdfRenderWorkerTimeoutsBeforeFail) {
-        _wlog('record watchdog: page=${request.pageIndex} timed out after '
-            '${pdfRenderWorkerRecordTimeout.inSeconds}s - '
-            '$_consecutiveTimeouts misses in a row; worker is dead, '
-            'falling back to local for all pages');
+        _wlog(
+          'record watchdog: page=${request.pageIndex} timed out after '
+          '${pdfRenderWorkerRecordTimeout.inSeconds}s - '
+          '$_consecutiveTimeouts misses in a row; worker is dead, '
+          'falling back to local for all pages',
+        );
         _fail();
         return;
       }
-      _wlog('record watchdog: page=${request.pageIndex} timed out after '
-          '${pdfRenderWorkerRecordTimeout.inSeconds}s - dropping this page to '
-          'local; worker stays up ($_consecutiveTimeouts/'
-          '$pdfRenderWorkerTimeoutsBeforeFail before giving up)');
+      _wlog(
+        'record watchdog: page=${request.pageIndex} timed out after '
+        '${pdfRenderWorkerRecordTimeout.inSeconds}s - dropping this page to '
+        'local; worker stays up ($_consecutiveTimeouts/'
+        '$pdfRenderWorkerTimeoutsBeforeFail before giving up)',
+      );
       if (!request.completer.isCompleted) request.completer.complete(null);
       _pump(); // serve the next queued page
     });
@@ -388,7 +470,8 @@ class _WebRenderWorker extends PdfRenderWorker {
     });
     if (dropped > 0) {
       _wlog(
-          'cancel page=$pageIndex priority=$priority dropped=$dropped queued');
+        'cancel page=$pageIndex priority=$priority dropped=$dropped queued',
+      );
     }
   }
 
@@ -396,7 +479,8 @@ class _WebRenderWorker extends PdfRenderWorker {
   void cancelBinStrips(int pageIndex, {int priority = 0}) {
     if (_disposed || _failed) return;
     _queue.removeWhere((request) {
-      if (request.kind != _WebRequestKind.bin ||
+      if ((request.kind != _WebRequestKind.bin &&
+              request.kind != _WebRequestKind.detail) ||
           request.pageIndex != pageIndex ||
           request.priority != priority) {
         return false;
@@ -406,10 +490,15 @@ class _WebRenderWorker extends PdfRenderWorker {
     });
     final inFlight = _inFlight;
     if (inFlight != null &&
-        inFlight.kind == _WebRequestKind.bin &&
+        (inFlight.kind == _WebRequestKind.bin ||
+            inFlight.kind == _WebRequestKind.detail) &&
         inFlight.pageIndex == pageIndex &&
         inFlight.priority == priority) {
-      _worker?.postMessage(JSObject()..setProperty('kind'.toJS, 'cancel'.toJS));
+      _worker?.postMessage(
+        JSObject()
+          ..setProperty('kind'.toJS, 'cancel'.toJS)
+          ..setProperty('id'.toJS, inFlight.id.toJS),
+      );
     }
   }
 
@@ -449,42 +538,58 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _WebRequestKind { record, bin }
+enum _WebRequestKind { record, bin, detail }
 
 /// One queued record or strip-bin request (mirrors the isolate backend's
 /// `_PendingRequest`).
 class _WebPending {
   _WebPending.record(
-      this.priority,
-      this.seq,
-      this.pageIndex,
-      this.annotations,
-      this.imagePixelRatio,
-      this.decodeImages,
-      this.commandLimit,
-      this.imageDecodeRegion)
-      : kind = _WebRequestKind.record,
-        pageToDevice = null,
-        deviceWidth = 0,
-        deviceHeight = 0,
-        binPixelRatio = 0,
-        slugGlyphs = false;
+    this.priority,
+    this.seq,
+    this.pageIndex,
+    this.annotations,
+    this.imagePixelRatio,
+    this.decodeImages,
+    this.commandLimit,
+    this.imageDecodeRegion,
+  ) : kind = _WebRequestKind.record,
+      pageToDevice = null,
+      deviceWidth = 0,
+      deviceHeight = 0,
+      binPixelRatio = 0,
+      slugGlyphs = false;
 
   _WebPending.bin(
-      this.priority,
-      this.seq,
-      this.pageIndex,
-      this.annotations,
-      this.pageToDevice,
-      this.deviceWidth,
-      this.deviceHeight,
-      this.binPixelRatio,
-      this.slugGlyphs)
-      : kind = _WebRequestKind.bin,
-        imagePixelRatio = null,
-        decodeImages = false,
-        commandLimit = null,
-        imageDecodeRegion = null;
+    this.priority,
+    this.seq,
+    this.pageIndex,
+    this.annotations,
+    this.pageToDevice,
+    this.deviceWidth,
+    this.deviceHeight,
+    this.binPixelRatio,
+    this.slugGlyphs,
+  ) : kind = _WebRequestKind.bin,
+      imagePixelRatio = null,
+      decodeImages = false,
+      commandLimit = null,
+      imageDecodeRegion = null;
+
+  _WebPending.detail(
+    this.priority,
+    this.seq,
+    this.pageIndex,
+    this.annotations,
+    this.pageToDevice,
+    this.deviceWidth,
+    this.deviceHeight,
+    this.binPixelRatio,
+    this.imageDecodeRegion,
+  ) : kind = _WebRequestKind.detail,
+      imagePixelRatio = null,
+      decodeImages = true,
+      commandLimit = null,
+      slugGlyphs = false;
 
   final _WebRequestKind kind;
   final int priority;
@@ -500,7 +605,7 @@ class _WebPending {
   final int deviceHeight;
   final double binPixelRatio;
   final bool slugGlyphs;
-  final completer = Completer<Uint8List?>();
+  final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;
 }

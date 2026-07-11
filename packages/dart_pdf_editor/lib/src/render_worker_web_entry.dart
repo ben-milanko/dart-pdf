@@ -38,6 +38,9 @@ import 'package:web/web.dart' as web;
 /// - `{kind:'bin', id, page, annotations, m0..m5, deviceWidth, deviceHeight,
 ///   pixelRatio, slugGlyphs}` → replies with an encoded `StripPlan` in the same result
 ///   shape (null = bin locally).
+/// - `{kind:'detail', id, page, annotations, m0..m5, deviceWidth, deviceHeight,
+///   pixelRatio, regionLeft..regionTop}` → replies with transferable command
+///   and plan buffers produced by one cancellable worker job.
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
@@ -73,9 +76,11 @@ void runPdfRenderWorker() {
         document = null; // bad transfer / broken document → local renders
       }
       // ALWAYS reply ready, even on failure, so the client never hangs.
-      scope.postMessage(JSObject()
-        ..setProperty('kind'.toJS, 'ready'.toJS)
-        ..setProperty('shared'.toJS, shared.toJS));
+      scope.postMessage(
+        JSObject()
+          ..setProperty('kind'.toJS, 'ready'.toJS)
+          ..setProperty('shared'.toJS, shared.toJS),
+      );
       return;
     }
 
@@ -96,7 +101,7 @@ void runPdfRenderWorker() {
       return;
     }
 
-    if (kind == 'bin') {
+    if (kind == 'bin' || kind == 'detail') {
       final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
       final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
       final annotations =
@@ -118,22 +123,47 @@ void runPdfRenderWorker() {
       activeRequestId = id;
       () async {
         Uint8List? out;
+        Uint8List? detailPlan;
         String? error;
         final doc = document;
         try {
           if (doc != null) {
-            out = await _binStripsAsync(
-              doc,
-              binCache,
-              page,
-              annotations,
-              matrix,
-              deviceWidth,
-              deviceHeight,
-              pixelRatio,
-              slugGlyphs,
-              token,
-            );
+            if (kind == 'detail') {
+              final region = PdfRect(
+                (data.getProperty('regionLeft'.toJS) as JSNumber).toDartDouble,
+                (data.getProperty('regionBottom'.toJS) as JSNumber)
+                    .toDartDouble,
+                (data.getProperty('regionRight'.toJS) as JSNumber).toDartDouble,
+                (data.getProperty('regionTop'.toJS) as JSNumber).toDartDouble,
+              );
+              final detail = await _recordStripDetailAsync(
+                doc,
+                binCache,
+                page,
+                annotations,
+                matrix,
+                deviceWidth,
+                deviceHeight,
+                pixelRatio,
+                region,
+                token,
+              );
+              out = detail?.$1;
+              detailPlan = detail?.$2;
+            } else {
+              out = await _binStripsAsync(
+                doc,
+                binCache,
+                page,
+                annotations,
+                matrix,
+                deviceWidth,
+                deviceHeight,
+                pixelRatio,
+                slugGlyphs,
+                token,
+              );
+            }
           }
         } on PdfCancelledException {
           out = null;
@@ -145,7 +175,11 @@ void runPdfRenderWorker() {
           activeToken = null;
           activeRequestId = null;
         }
-        _postResult(scope, id, out, error);
+        if (detailPlan == null) {
+          _postResult(scope, id, out, error);
+        } else {
+          _postDetailResult(scope, id, out!, detailPlan);
+        }
       }();
       return;
     }
@@ -189,8 +223,16 @@ void runPdfRenderWorker() {
       final doc = document;
       try {
         if (doc != null) {
-          out = await _recordPageAsync(doc, page, annotations, imagePixelRatio,
-              decodeImages, commandLimit, imageDecodeRegion, token);
+          out = await _recordPageAsync(
+            doc,
+            page,
+            annotations,
+            imagePixelRatio,
+            decodeImages,
+            commandLimit,
+            imageDecodeRegion,
+            token,
+          );
         }
       } on PdfCancelledException {
         out = null;
@@ -210,8 +252,12 @@ void runPdfRenderWorker() {
   }).toJS;
 }
 
-void _postResult(web.DedicatedWorkerGlobalScope scope, int id, Uint8List? out,
-    String? error) {
+void _postResult(
+  web.DedicatedWorkerGlobalScope scope,
+  int id,
+  Uint8List? out,
+  String? error,
+) {
   final result = JSObject()
     ..setProperty('kind'.toJS, 'result'.toJS)
     ..setProperty('id'.toJS, id.toJS);
@@ -227,6 +273,22 @@ void _postResult(web.DedicatedWorkerGlobalScope scope, int id, Uint8List? out,
   scope.postMessage(result, <JSAny>[jsBuffer].toJS);
 }
 
+void _postDetailResult(
+  web.DedicatedWorkerGlobalScope scope,
+  int id,
+  Uint8List commands,
+  Uint8List plan,
+) {
+  final commandBuffer = Uint8List.fromList(commands).buffer.toJS;
+  final planBuffer = Uint8List.fromList(plan).buffer.toJS;
+  final result = JSObject()
+    ..setProperty('kind'.toJS, 'result'.toJS)
+    ..setProperty('id'.toJS, id.toJS)
+    ..setProperty('buffer'.toJS, commandBuffer)
+    ..setProperty('planBuffer'.toJS, planBuffer);
+  scope.postMessage(result, <JSAny>[commandBuffer, planBuffer].toJS);
+}
+
 JSUint8Array _jsUint8View(JSObject buffer) {
   final constructor = globalContext['Uint8Array'] as JSFunction?;
   if (constructor == null) throw StateError('Uint8Array is not available');
@@ -239,22 +301,28 @@ JSUint8Array _jsUint8View(JSObject buffer) {
 /// Duplicated from the isolate backend deliberately: that file imports
 /// `dart:isolate`, which does not exist on web, so this entry can't share it.
 Future<Uint8List?> _recordPageAsync(
-    PdfDocument document,
-    int pageIndex,
-    bool annotations,
-    double? imagePixelRatio,
-    bool decodeImages,
-    int? commandLimit,
-    PdfRect? imageDecodeRegion,
-    PdfCancellationToken token) async {
+  PdfDocument document,
+  int pageIndex,
+  bool annotations,
+  double? imagePixelRatio,
+  bool decodeImages,
+  int? commandLimit,
+  PdfRect? imageDecodeRegion,
+  PdfCancellationToken token,
+) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
   final previewOperationLimit = decodeImages ? null : commandLimit;
-  final ops = ContentStreamParser.parse(page.contentBytes(),
-      operationLimit: previewOperationLimit);
+  final ops = ContentStreamParser.parse(
+    page.contentBytes(),
+    operationLimit: previewOperationLimit,
+  );
   final recorder = RecordingPdfDevice();
-  final interpreter =
-      PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
+  final interpreter = PdfInterpreter(
+    cos: document.cos,
+    device: recorder,
+    cancellation: token,
+  );
   // A browser zero-delay timer is commonly clamped to several milliseconds.
   // Yielding every 512 operators therefore spends seconds in timers on dense
   // CAD streams. 4096 keeps cancellation checks within a small frame while
@@ -274,14 +342,16 @@ Future<Uint8List?> _recordPageAsync(
   // postMessage boundary, so a sheet-sized raster underlay ships at a few MB
   // instead of hundreds. decodeImages false skips the decode entirely for the
   // fast vector-first pass of progressive rendering.
-  return serializeCommands(commands,
-      cos: document.cos,
-      decodeImages: decodeImages,
-      maxImagePixelRatio: imagePixelRatio,
-      imageDecodeRegion: imageDecodeRegion,
-      imagePlaceholders: !decodeImages,
-      commandLimit: commandLimit,
-      compactStateScopes: true);
+  return serializeCommands(
+    commands,
+    cos: document.cos,
+    decodeImages: decodeImages,
+    maxImagePixelRatio: imagePixelRatio,
+    imageDecodeRegion: imageDecodeRegion,
+    imagePlaceholders: !decodeImages,
+    commandLimit: commandLimit,
+    compactStateScopes: true,
+  );
 }
 
 Future<Uint8List?> _binStripsAsync(
@@ -296,12 +366,22 @@ Future<Uint8List?> _binStripsAsync(
   bool slugGlyphs,
   PdfCancellationToken token,
 ) async {
-  final commands =
-      await cache.commandsFor(document, pageIndex, annotations, token);
+  final commands = await cache.commandsFor(
+    document,
+    pageIndex,
+    annotations,
+    token,
+  );
   if (commands == null) return null;
   final binner = StripPlanBinner(
     pageToDevice: PdfMatrix(
-        matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]),
+      matrix[0],
+      matrix[1],
+      matrix[2],
+      matrix[3],
+      matrix[4],
+      matrix[5],
+    ),
     deviceWidth: deviceWidth,
     deviceHeight: deviceHeight,
     pixelRatio: pixelRatio,
@@ -311,16 +391,104 @@ Future<Uint8List?> _binStripsAsync(
   return encodeStripPlan(binner.finish());
 }
 
+/// Produces the image-bearing command buffer and the plan binned from that
+/// exact round trip in one web-worker job. Keeping the pair together prevents
+/// a region-cropped image transform from drifting away from the plan that
+/// replays it.
+Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
+  PdfDocument document,
+  _BinCommandCache cache,
+  int pageIndex,
+  bool annotations,
+  List<double> matrix,
+  int deviceWidth,
+  int deviceHeight,
+  double pixelRatio,
+  PdfRect imageDecodeRegion,
+  PdfCancellationToken token,
+) async {
+  var sourceCommands = await cache.sourceCommandsFor(
+    document,
+    pageIndex,
+    annotations,
+    token,
+  );
+  if (sourceCommands == null) return null;
+  if (token.cancelled) throw const PdfCancelledException();
+
+  // DCT images use the browser codec on web. Other image formats continue
+  // through serializeCommands' pure-Dart, region-aware decoder.
+  sourceCommands = await _withBrowserDecodedImages(
+    document.cos,
+    sourceCommands,
+    token,
+  );
+  if (token.cancelled) throw const PdfCancelledException();
+  final commandBuffer = serializeCommands(
+    sourceCommands,
+    cos: document.cos,
+    decodeImages: true,
+    maxImagePixelRatio: pixelRatio,
+    imageDecodeRegion: imageDecodeRegion,
+    compactStateScopes: true,
+  );
+  if (commandBuffer == null) return null;
+  if (token.cancelled) throw const PdfCancelledException();
+
+  final commands = deserializeCommands(commandBuffer);
+  final binner = StripPlanBinner(
+    pageToDevice: PdfMatrix(
+      matrix[0],
+      matrix[1],
+      matrix[2],
+      matrix[3],
+      matrix[4],
+      matrix[5],
+    ),
+    deviceWidth: deviceWidth,
+    deviceHeight: deviceHeight,
+    pixelRatio: pixelRatio,
+  );
+  await binner.bin(commands, cancellation: token);
+  return (commandBuffer, encodeStripPlan(binner.finish()));
+}
+
 /// Per-worker LRU of wire-round-tripped page recordings used by strip bins.
 /// Stable command identity preserves glyph/shape strip-cache hits across
 /// repeated zoom settles, and the wire round trip matches the main scene's
 /// float32 geometry exactly.
 class _BinCommandCache {
-  final _entries = <(int, bool), List<PdfRenderCommand>>{};
+  final _entries = <(int, bool), _BinCommandEntry>{};
   static const int _capacity = 2;
 
-  Future<List<PdfRenderCommand>?> commandsFor(PdfDocument document,
-      int pageIndex, bool annotations, PdfCancellationToken token) async {
+  Future<List<PdfRenderCommand>?> commandsFor(
+    PdfDocument document,
+    int pageIndex,
+    bool annotations,
+    PdfCancellationToken token,
+  ) async =>
+      (await _entryFor(document, pageIndex, annotations, token))?.wireCommands;
+
+  Future<List<PdfRenderCommand>?> sourceCommandsFor(
+    PdfDocument document,
+    int pageIndex,
+    bool annotations,
+    PdfCancellationToken token,
+  ) async =>
+      (await _entryFor(
+        document,
+        pageIndex,
+        annotations,
+        token,
+      ))
+          ?.sourceCommands;
+
+  Future<_BinCommandEntry?> _entryFor(
+    PdfDocument document,
+    int pageIndex,
+    bool annotations,
+    PdfCancellationToken token,
+  ) async {
     final key = (pageIndex, annotations);
     final hit = _entries.remove(key);
     if (hit != null) {
@@ -332,22 +500,37 @@ class _BinCommandCache {
     final ops = ContentStreamParser.parse(page.contentBytes());
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(
-        cos: document.cos, device: recorder, cancellation: token);
+      cos: document.cos,
+      device: recorder,
+      cancellation: token,
+    );
     await interpreter.drawPageOperationsAsync(page, ops);
     if (annotations) interpreter.drawAnnotations(page);
-    final buffer = serializeCommands(recorder.commands,
-        cos: document.cos,
-        decodeImages: false,
-        imagePlaceholders: true,
-        compactStateScopes: true);
+    final buffer = serializeCommands(
+      recorder.commands,
+      cos: document.cos,
+      decodeImages: false,
+      imagePlaceholders: true,
+      compactStateScopes: true,
+    );
     if (buffer == null) return null;
-    final commands = deserializeCommands(buffer);
-    _entries[key] = commands;
+    final entry = _BinCommandEntry(
+      recorder.commands,
+      deserializeCommands(buffer),
+    );
+    _entries[key] = entry;
     while (_entries.length > _capacity) {
       _entries.remove(_entries.keys.first);
     }
-    return commands;
+    return entry;
   }
+}
+
+class _BinCommandEntry {
+  const _BinCommandEntry(this.sourceCommands, this.wireCommands);
+
+  final List<PdfRenderCommand> sourceCommands;
+  final List<PdfRenderCommand> wireCommands;
 }
 
 Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
@@ -378,19 +561,24 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           :final maskCommands,
           :final backdropLuminance,
           :final transferScale,
-          :final transferOffset
+          :final transferOffset,
         ):
-        final decodedMaskCommands =
-            await _withBrowserDecodedImages(cos, maskCommands, token);
+        final decodedMaskCommands = await _withBrowserDecodedImages(
+          cos,
+          maskCommands,
+          token,
+        );
         if (!identical(decodedMaskCommands, maskCommands)) changed = true;
-        out.add(PdfEndSoftMaskedCommand(
-          luminosity: luminosity,
-          backdrop: backdrop,
-          maskCommands: decodedMaskCommands,
-          backdropLuminance: backdropLuminance,
-          transferScale: transferScale,
-          transferOffset: transferOffset,
-        ));
+        out.add(
+          PdfEndSoftMaskedCommand(
+            luminosity: luminosity,
+            backdrop: backdrop,
+            maskCommands: decodedMaskCommands,
+            backdropLuminance: backdropLuminance,
+            transferScale: transferScale,
+            transferOffset: transferOffset,
+          ),
+        );
       default:
         out.add(command);
     }
@@ -413,7 +601,9 @@ PdfImageRequest _withDecodedPixels(
     );
 
 Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
-    CosDocument cos, CosStream stream) async {
+  CosDocument cos,
+  CosStream stream,
+) async {
   if (!_browserImageDecodeAvailable) return null;
   final dict = stream.dictionary;
   if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) return null;
@@ -460,12 +650,7 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
     );
   }
   final masked = pdfApplyImageAlpha(base.rgba, base.width, base.height, mask);
-  return _finishBrowserDecoded(
-    masked.$1,
-    masked.$2,
-    masked.$3,
-    hasAlpha: true,
-  );
+  return _finishBrowserDecoded(masked.$1, masked.$2, masked.$3, hasAlpha: true);
 }
 
 Future<PdfImageBase?> _decodeBrowserJpegBase(
@@ -487,8 +672,12 @@ Future<PdfImageBase?> _decodeBrowserJpegBase(
   if (ranges != null || colorKey != null) {
     pdfApplyImageDecodeAndColorKey(decoded.rgba, components, ranges, colorKey);
   }
-  return PdfImageBase(decoded.rgba, decoded.width, decoded.height,
-      opaque: colorKey == null);
+  return PdfImageBase(
+    decoded.rgba,
+    decoded.width,
+    decoded.height,
+    opaque: colorKey == null,
+  );
 }
 
 Future<PdfImageSoftMask?> _decodeBrowserJpegMask(Uint8List jpeg) async {
@@ -501,8 +690,12 @@ Future<PdfImageSoftMask?> _decodeBrowserJpegMask(Uint8List jpeg) async {
   return PdfImageSoftMask(alpha, decoded.width, decoded.height);
 }
 
-PdfDecodedPixels _finishBrowserDecoded(Uint8List rgba, int width, int height,
-    {required bool hasAlpha}) {
+PdfDecodedPixels _finishBrowserDecoded(
+  Uint8List rgba,
+  int width,
+  int height, {
+  required bool hasAlpha,
+}) {
   if (hasAlpha) pdfPremultiplyRgba(rgba);
   return PdfDecodedPixels(rgba, width, height);
 }

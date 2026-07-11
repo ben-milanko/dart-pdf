@@ -490,10 +490,14 @@ class _PdfPageViewState extends State<PdfPageView> {
       // this slot): cancel the old page's queued worker request - the user
       // scrolled past it, so decoding it now would only delay the page now on
       // screen. The in-flight one can't be preempted; this clears the backlog.
-      oldWidget.renderWorker
-          ?.cancel(oldWidget.previewIndex, priority: oldWidget.renderPriority);
-      oldWidget.renderWorker?.cancelBinStrips(oldWidget.previewIndex,
-          priority: oldWidget.renderPriority);
+      oldWidget.renderWorker?.cancel(
+        oldWidget.previewIndex,
+        priority: oldWidget.renderPriority,
+      );
+      oldWidget.renderWorker?.cancelBinStrips(
+        oldWidget.previewIndex,
+        priority: oldWidget.renderPriority,
+      );
     }
     if (!identical(oldWidget.previewCache, widget.previewCache) ||
         oldWidget.previewIndex != widget.previewIndex) {
@@ -570,10 +574,14 @@ class _PdfPageViewState extends State<PdfPageView> {
     // so the worker's next slot serves a page still on screen (the abandoned
     // result is ignored - _interpretPicture's !mounted guard skips the local
     // fallback). No-op if nothing is queued for it.
-    widget.renderWorker
-        ?.cancel(widget.previewIndex, priority: widget.renderPriority);
-    widget.renderWorker
-        ?.cancelBinStrips(widget.previewIndex, priority: widget.renderPriority);
+    widget.renderWorker?.cancel(
+      widget.previewIndex,
+      priority: widget.renderPriority,
+    );
+    widget.renderWorker?.cancelBinStrips(
+      widget.previewIndex,
+      priority: widget.renderPriority,
+    );
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _dropPicture();
     _image?.dispose();
@@ -601,8 +609,11 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// consume worker-binned strip plans; locally-recorded scenes - the
   /// worker declined, or an editing flow recorded with skipAnnotation -
   /// keep local binning, because a worker re-record could desync from them.
-  void _setScene(PdfRetainedScene? scene,
-      {bool fromWorker = false, bool vectorOnly = false}) {
+  void _setScene(
+    PdfRetainedScene? scene, {
+    bool fromWorker = false,
+    bool vectorOnly = false,
+  }) {
     _scene?.dispose();
     _scene = scene;
     _sceneHasImageDraws =
@@ -677,7 +688,9 @@ class _PdfPageViewState extends State<PdfPageView> {
     final width = math.max(1.0, size.width);
     final height = math.max(1.0, size.height);
     final ratio = math.min(
-        _effectiveRatio(), math.sqrt(_previewMaxPixels / (width * height)));
+      _effectiveRatio(),
+      math.sqrt(_previewMaxPixels / (width * height)),
+    );
     return math.max(ratio, 0.05);
   }
 
@@ -728,11 +741,15 @@ class _PdfPageViewState extends State<PdfPageView> {
       // resolution so a CAD raster underlay isn't decoded/shipped/rasterized
       // at its native 100+ megapixels (the deep-zoom patch re-rasters the
       // visible region for sharper zoom).
-      final commands = await worker.record(pageIndex,
-          annotations: widget.showAnnotations,
-          priority: widget.renderPriority,
-          imagePixelRatio: math.min(_effectiveRatio(),
-              widget.workerImagePixelRatioCap ?? double.infinity));
+      final commands = await worker.record(
+        pageIndex,
+        annotations: widget.showAnnotations,
+        priority: widget.renderPriority,
+        imagePixelRatio: math.min(
+          _effectiveRatio(),
+          widget.workerImagePixelRatioCap ?? double.infinity,
+        ),
+      );
       // Abandoned while the worker ran - the State was disposed or the lazy
       // list recycled it onto another page (this is the cancel() path: a
       // cancelled request returns null). Skip the local fallback: the page is
@@ -757,7 +774,9 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (!PdfPageView.retainedZoomReplay) {
       return (
         await PdfPageRenderer.renderPictureRecordedWithPlan(
-            widget.page, _renderPlan),
+          widget.page,
+          _renderPlan,
+        ),
         null,
         false,
       );
@@ -819,16 +838,23 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// pass serves both, and the picture IS the scene's own 1:1 replay, so
   /// the pair can never disagree.
   Future<(ui.Picture, PdfRetainedScene?)> _replayableFromCommands(
-      List<PdfRenderCommand> commands) async {
+    List<PdfRenderCommand> commands,
+  ) async {
     if (!_retainScene(commands.length)) {
       return (
         await PdfPageRenderer.pictureFromCommandsWithPlan(
-            widget.page, commands, _renderPlan),
+          widget.page,
+          commands,
+          _renderPlan,
+        ),
         null,
       );
     }
-    final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
-        plan: _renderPlan);
+    final scene = await PdfRetainedScene.fromCommands(
+      widget.page,
+      commands,
+      plan: _renderPlan,
+    );
     return (scene.replay(pixelRatio: 1), scene);
   }
 
@@ -849,12 +875,14 @@ class _PdfPageViewState extends State<PdfPageView> {
     // the scheduler drains the cache window around it.
     final visibleDetailRequested =
         _detailGeometryAt(widget.scale, force: true, inflation: 0.125) != null;
-    final commands = await worker.record(pageIndex,
-        annotations: widget.showAnnotations,
-        priority: visibleDetailRequested
-            ? widget.renderPriority - 100
-            : widget.renderPriority,
-        decodeImages: false);
+    final commands = await worker.record(
+      pageIndex,
+      annotations: widget.showAnnotations,
+      priority: visibleDetailRequested
+          ? widget.renderPriority - 100
+          : widget.renderPriority,
+      decodeImages: false,
+    );
     if (_superseded(generation, pageIndex) ||
         _renderPaused ||
         commands == null) {
@@ -869,8 +897,11 @@ class _PdfPageViewState extends State<PdfPageView> {
       _lastInterpretResultBytes = 0;
       if (_retainScene(commands.length)) {
         // No images to decode, so this completes synchronously in practice.
-        final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
-            plan: _renderPlan);
+        final scene = await PdfRetainedScene.fromCommands(
+          widget.page,
+          commands,
+          plan: _renderPlan,
+        );
         if (_superseded(generation, pageIndex)) {
           scene.dispose();
           return;
@@ -879,7 +910,10 @@ class _PdfPageViewState extends State<PdfPageView> {
         _picture = Future.value(scene.replay(pixelRatio: 1));
       } else {
         _picture = PdfPageRenderer.pictureFromCommandsWithPlan(
-            widget.page, commands, _renderPlan);
+          widget.page,
+          commands,
+          _renderPlan,
+        );
       }
       return;
     }
@@ -888,16 +922,25 @@ class _PdfPageViewState extends State<PdfPageView> {
     // for the full-page image decode. Retain this lightweight placeholder
     // scene long enough to route that worker request now; the normal full
     // record below still replaces it and warms the complete page base.
-    final progressiveDetail =
-        _detailGeometryAt(widget.scale, force: true, inflation: 0.125);
+    final progressiveDetail = _detailGeometryAt(
+      widget.scale,
+      force: true,
+      inflation: 0.125,
+    );
     final needsDetail = progressiveDetail != null;
-    PdfPerfLog.log('vector-first detail page=$pageIndex '
-        'scale=${widget.scale.toStringAsFixed(2)} eligible=$needsDetail '
-        'retained=${_retainScene(commands.length)} '
-        'commands=${commands.length}');
+    PdfPerfLog.log(
+      'vector-first detail page=$pageIndex '
+      'scale=${widget.scale.toStringAsFixed(2)} eligible=$needsDetail '
+      'retained=${_retainScene(commands.length)} '
+      'commands=${commands.length}',
+    );
     if (needsDetail && _retainScene(commands.length)) {
-      final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
-          plan: _renderPlan, includeImages: false);
+      final scene = await PdfRetainedScene.fromCommands(
+        widget.page,
+        commands,
+        plan: _renderPlan,
+        includeImages: false,
+      );
       if (_superseded(generation, pageIndex) || _renderPaused) {
         scene.dispose();
         return;
@@ -913,16 +956,20 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
 
     final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
-        widget.page, commands, _renderPlan,
-        includeImages: false);
+      widget.page,
+      commands,
+      _renderPlan,
+      includeImages: false,
+    );
     if (_superseded(generation, pageIndex) || _renderPaused) {
       picture.dispose();
       return;
     }
     final image = await PdfPageRenderer.rasterize(
-        picture,
-        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
-        _vectorFirstRatio());
+      picture,
+      PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
+      _vectorFirstRatio(),
+    );
     picture.dispose();
     // Adopt the vector raster only if the full pass hasn't already landed (a
     // landed full raster has a non-null _rasteredRatio). Deliberately leave
@@ -951,8 +998,10 @@ class _PdfPageViewState extends State<PdfPageView> {
   int _logImageStats(int pageIndex, List<PdfRenderCommand> commands) {
     final (count, pixels) = PdfPageRenderer.decodedImageStats(commands);
     if (count > 0 && PdfPerfLog.enabled) {
-      PdfPerfLog.log('images page=$pageIndex count=$count '
-          'decodedMpx=${(pixels / 1e6).toStringAsFixed(1)}');
+      PdfPerfLog.log(
+        'images page=$pageIndex count=$count '
+        'decodedMpx=${(pixels / 1e6).toStringAsFixed(1)}',
+      );
     }
     return pixels * 4;
   }
@@ -1040,14 +1089,18 @@ class _PdfPageViewState extends State<PdfPageView> {
     // as a 'recorded' interpret would be a phantom UI-thread cost.
     if (_superseded(generation, pageIndex)) return;
     if (firstInterpret) {
-      PdfPerfLog.interpret(pageIndex,
-          path: _lastInterpretPath,
-          interpretMs: sw.elapsedMicroseconds / 1000.0,
-          first: true);
-      widget.performance?.observe(PdfPerformanceSample(
-        workerRecordDuration: sw.elapsed,
-        resultBytes: _lastInterpretResultBytes,
-      ));
+      PdfPerfLog.interpret(
+        pageIndex,
+        path: _lastInterpretPath,
+        interpretMs: sw.elapsedMicroseconds / 1000.0,
+        first: true,
+      );
+      widget.performance?.observe(
+        PdfPerformanceSample(
+          workerRecordDuration: sw.elapsed,
+          resultBytes: _lastInterpretResultBytes,
+        ),
+      );
     }
     final effective = _effectiveRatio();
     final retainedScene = PdfPageView.retainedZoomReplay ? _scene : null;
@@ -1109,11 +1162,19 @@ class _PdfPageViewState extends State<PdfPageView> {
             _dropDetail();
             final cache = widget.previewCache;
             if (cache != null &&
-                !cache.isFresh(widget.previewIndex, widget.page,
-                    requireImages: true)) {
-              unawaited(cache.putFromPicture(
-                  widget.previewIndex, widget.page, picture,
-                  rotation: widget.rotation));
+                !cache.isFresh(
+                  widget.previewIndex,
+                  widget.page,
+                  requireImages: true,
+                )) {
+              unawaited(
+                cache.putFromPicture(
+                  widget.previewIndex,
+                  widget.page,
+                  picture,
+                  rotation: widget.rotation,
+                ),
+              );
             }
             await _updateDetail();
             if (_abandoned(pageIndex) || !identical(_scene, retainedScene)) {
@@ -1167,12 +1228,17 @@ class _PdfPageViewState extends State<PdfPageView> {
         final stripPlan = await _workerStripPlan(scene, pixelRatio: effective);
         if (_superseded(generation, pageIndex)) return;
         image = await scene.rasterizeStrips(
-            pixelRatio: effective, stripPlan: stripPlan);
+          pixelRatio: effective,
+          stripPlan: stripPlan,
+        );
       } else if (scene != null) {
         image = await scene.rasterize(pixelRatio: effective);
       } else {
         image = await PdfPageRenderer.rasterize(
-            picture, _renderPlan.pageSize(widget.page), effective);
+          picture,
+          _renderPlan.pageSize(widget.page),
+          effective,
+        );
       }
       if (_superseded(generation, pageIndex)) {
         image.dispose();
@@ -1192,11 +1258,19 @@ class _PdfPageViewState extends State<PdfPageView> {
       // prerender hasn't reached (and refresh after edits)
       final cache = widget.previewCache;
       if (cache != null &&
-          !cache.isFresh(widget.previewIndex, widget.page,
-              requireImages: true)) {
-        unawaited(cache.putFromPicture(
-            widget.previewIndex, widget.page, picture,
-            rotation: widget.rotation));
+          !cache.isFresh(
+            widget.previewIndex,
+            widget.page,
+            requireImages: true,
+          )) {
+        unawaited(
+          cache.putFromPicture(
+            widget.previewIndex,
+            widget.page,
+            picture,
+            rotation: widget.rotation,
+          ),
+        );
       }
     }
     final detailReady = await _updateDetail();
@@ -1240,22 +1314,30 @@ class _PdfPageViewState extends State<PdfPageView> {
     final progressivePriority =
         _sceneIsVectorOnly ? widget.renderPriority - 1 : widget.renderPriority;
     final detailClock = Stopwatch()..start();
-    PdfPerfLog.log('detail request page=${widget.previewIndex} '
-        'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly');
+    PdfPerfLog.log(
+      'detail request page=${widget.previewIndex} '
+      'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly',
+    );
     final workerStripFuture = stripDetail
         ? _detailStripImageFromWorker(
-            heldScene, region, ratio, widget.previewIndex, generation,
-            priority: progressivePriority)
+            heldScene,
+            region,
+            ratio,
+            widget.previewIndex,
+            generation,
+            priority: progressivePriority,
+          )
         : Future<ui.Image?>.value();
-    // Web workers do not currently implement the combined strip-detail
-    // protocol. A progressive vector-only scene therefore falls back to the
-    // ordinary region-record path (still complete, just flat-rasterized) so
-    // visible image pixels do not wait for the full-page buffer. Its distinct,
-    // higher priority also lets the worker pool place it on an idle sibling
-    // instead of leasing it behind the same page's long full record.
-    final workerPictureFuture = !stripDetail || (kIsWeb && _sceneIsVectorOnly)
-        ? _detailPictureFromWorker(region, ratio, widget.previewIndex,
-            priority: progressivePriority)
+    // Non-strip pages keep the ordinary region-record path. Dense strip pages
+    // use recordStripDetail on every worker backend so commands and the plan
+    // come from one geometry-consistent, cancellable job.
+    final workerPictureFuture = !stripDetail
+        ? _detailPictureFromWorker(
+            region,
+            ratio,
+            widget.previewIndex,
+            priority: progressivePriority,
+          )
         : Future<ui.Picture?>.value();
 
     // The progressive scene already has every vector/text command. Replay
@@ -1267,8 +1349,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (_sceneIsVectorOnly &&
         heldScene != null &&
         !_imagesIntersectRegion(heldScene.commands, region)) {
-      final vectorImage =
-          await heldScene.rasterizeRegion(region, pixelRatio: ratio);
+      final vectorImage = await heldScene.rasterizeRegion(
+        region,
+        pixelRatio: ratio,
+      );
       if (mounted && generation == _detailGeneration && !_renderPaused) {
         setState(() {
           _detailImage?.dispose();
@@ -1276,8 +1360,10 @@ class _PdfPageViewState extends State<PdfPageView> {
           _detailFraction = fraction;
         });
         progressiveReady = true;
-        PdfPerfLog.log('detail vector page=${widget.previewIndex} '
-            'elapsed=${detailClock.elapsedMilliseconds}ms');
+        PdfPerfLog.log(
+          'detail vector page=${widget.previewIndex} '
+          'elapsed=${detailClock.elapsedMilliseconds}ms',
+        );
       } else {
         vectorImage.dispose();
       }
@@ -1285,9 +1371,11 @@ class _PdfPageViewState extends State<PdfPageView> {
 
     final workerStripImage = await workerStripFuture;
     final workerPicture = await workerPictureFuture;
-    PdfPerfLog.log('detail worker page=${widget.previewIndex} '
-        'elapsed=${detailClock.elapsedMilliseconds}ms '
-        'stripImage=${workerStripImage != null} picture=${workerPicture != null}');
+    PdfPerfLog.log(
+      'detail worker page=${widget.previewIndex} '
+      'elapsed=${detailClock.elapsedMilliseconds}ms '
+      'stripImage=${workerStripImage != null} picture=${workerPicture != null}',
+    );
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       workerStripImage?.dispose();
       workerPicture?.dispose();
@@ -1302,8 +1390,11 @@ class _PdfPageViewState extends State<PdfPageView> {
       return true;
     }
     if (workerPicture != null) {
-      final image =
-          await PdfPageRenderer.rasterizeRegion(workerPicture, region, ratio);
+      final image = await PdfPageRenderer.rasterizeRegion(
+        workerPicture,
+        region,
+        ratio,
+      );
       workerPicture.dispose();
       if (!mounted || generation != _detailGeneration || _renderPaused) {
         image.dispose();
@@ -1333,8 +1424,10 @@ class _PdfPageViewState extends State<PdfPageView> {
       }
       if (widget.renderHold?.value ?? false) return false;
     }
-    final picture = await (_picture ??=
-        PdfPageRenderer.renderPictureWithPlan(widget.page, _renderPlan));
+    final picture = await (_picture ??= PdfPageRenderer.renderPictureWithPlan(
+      widget.page,
+      _renderPlan,
+    ));
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       return false;
     }
@@ -1347,13 +1440,19 @@ class _PdfPageViewState extends State<PdfPageView> {
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
     final ui.Image image;
     if (scene != null && _stripReplayScene(scene)) {
-      final stripPlan =
-          await _workerStripPlan(scene, pixelRatio: ratio, region: region);
+      final stripPlan = await _workerStripPlan(
+        scene,
+        pixelRatio: ratio,
+        region: region,
+      );
       if (!mounted || generation != _detailGeneration || _renderPaused) {
         return false;
       }
-      image = await scene.rasterizeRegionStrips(region,
-          pixelRatio: ratio, stripPlan: stripPlan);
+      image = await scene.rasterizeRegionStrips(
+        region,
+        pixelRatio: ratio,
+        stripPlan: stripPlan,
+      );
     } else if (scene != null) {
       image = await scene.rasterizeRegion(region, pixelRatio: ratio);
     } else {
@@ -1376,7 +1475,9 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// when no image draw reaches the visible region; otherwise the soft base
   /// stays up until the image-complete worker region replaces it.
   bool _imagesIntersectRegion(
-      List<PdfRenderCommand> commands, Rect rasterRegion) {
+    List<PdfRenderCommand> commands,
+    Rect rasterRegion,
+  ) {
     final region = _pdfRegionForRasterRegion(rasterRegion);
     bool overlaps(List<PdfRenderCommand> list) {
       for (final command in list) {
@@ -1421,8 +1522,11 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// live-transform speculation, and the settled render. Null means the page
   /// needs no detail patch (unless [force] is set), is not currently visible,
   /// or has no usable region.
-  _DetailGeometry? _detailGeometryAt(double scale,
-      {bool force = false, double inflation = 0.5}) {
+  _DetailGeometry? _detailGeometryAt(
+    double scale, {
+    bool force = false,
+    double inflation = 0.5,
+  }) {
     final desired = _desiredRatioAt(scale);
     final effective = _effectiveRatioAt(scale);
     if (!force && desired <= effective * 1.05) return null;
@@ -1467,10 +1571,14 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (region.width <= 0 || region.height <= 0) return null;
     // the patch obeys the same pixel budget as the base
     var ratio = desired;
-    ratio =
-        math.min(ratio, math.sqrt(_maxPixels / (region.width * region.height)));
-    ratio =
-        math.min(ratio, _maxDimension / math.max(region.width, region.height));
+    ratio = math.min(
+      ratio,
+      math.sqrt(_maxPixels / (region.width * region.height)),
+    );
+    ratio = math.min(
+      ratio,
+      _maxDimension / math.max(region.width, region.height),
+    );
     return _DetailGeometry(fraction, region, ratio);
   }
 
@@ -1536,8 +1644,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (pending != null && pending.matches(geometry, eff)) return; // no churn
     final worker = widget.renderWorker!;
     // supersede any previous speculative bin (queued or in-flight)
-    worker.cancelBinStrips(widget.previewIndex,
-        priority: widget.renderPriority);
+    worker.cancelBinStrips(
+      widget.previewIndex,
+      priority: widget.renderPriority,
+    );
     _speculativeStripDetail = null;
     final m = geometry.pageToDevice;
     _speculativeStripPlan = _SpeculativeStripPlan(
@@ -1558,8 +1668,10 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   void _speculateStripDetail(PdfRetainedScene scene, _DetailGeometry detail) {
-    final geometry =
-        scene.stripRegionGeometry(detail.region, pixelRatio: detail.pixelRatio);
+    final geometry = scene.stripRegionGeometry(
+      detail.region,
+      pixelRatio: detail.pixelRatio,
+    );
     final decodeRegion = _pdfRegionForRasterRegion(detail.region);
     final pending = _speculativeStripDetail;
     if (pending != null &&
@@ -1567,8 +1679,10 @@ class _PdfPageViewState extends State<PdfPageView> {
       return; // the live transform settled on the same region; no churn
     }
     final worker = widget.renderWorker!;
-    worker.cancelBinStrips(widget.previewIndex,
-        priority: widget.renderPriority);
+    worker.cancelBinStrips(
+      widget.previewIndex,
+      priority: widget.renderPriority,
+    );
     _speculativeStripPlan = null;
     final m = geometry.pageToDevice;
     _speculativeStripDetail = _SpeculativeStripDetail(
@@ -1606,8 +1720,11 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// first, so a newer settle/region supersedes an older one in the worker
   /// queue; the cancelled caller's null resolves under a stale generation
   /// and is discarded by its guard without falling back to a local bin.
-  Future<StripPlan?> _workerStripPlan(PdfRetainedScene scene,
-      {required double pixelRatio, Rect? region}) async {
+  Future<StripPlan?> _workerStripPlan(
+    PdfRetainedScene scene, {
+    required double pixelRatio,
+    Rect? region,
+  }) async {
     if (!_workerBinningEligible) return null;
     final worker = widget.renderWorker!;
     final geometry = region == null
@@ -1634,8 +1751,10 @@ class _PdfPageViewState extends State<PdfPageView> {
       }
     }
     final m = geometry.pageToDevice;
-    worker.cancelBinStrips(widget.previewIndex,
-        priority: widget.renderPriority);
+    worker.cancelBinStrips(
+      widget.previewIndex,
+      priority: widget.renderPriority,
+    );
     return worker.binStrips(
       widget.previewIndex,
       annotations: scene.plan.annotations,
@@ -1655,8 +1774,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     final worker = widget.renderWorker!;
     final geometry = scene.stripGeometry(pixelRatio: 1);
     final m = geometry.pageToDevice;
-    worker.cancelBinStrips(widget.previewIndex,
-        priority: widget.renderPriority);
+    worker.cancelBinStrips(
+      widget.previewIndex,
+      priority: widget.renderPriority,
+    );
     return worker.binStrips(
       widget.previewIndex,
       annotations: scene.plan.annotations,
@@ -1670,31 +1791,46 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   Future<ui.Picture?> _detailPictureFromWorker(
-      Rect rasterRegion, double ratio, int pageIndex,
-      {int? priority}) async {
+    Rect rasterRegion,
+    double ratio,
+    int pageIndex, {
+    int? priority,
+  }) async {
     final worker = widget.renderWorker;
     if (worker == null || !worker.isActive) return null;
     final decodeRegion = _pdfRegionForRasterRegion(rasterRegion);
-    final commands = await worker.record(pageIndex,
-        annotations: widget.showAnnotations,
-        priority: priority ?? widget.renderPriority,
-        imagePixelRatio: ratio,
-        imageDecodeRegion: decodeRegion);
+    final commands = await worker.record(
+      pageIndex,
+      annotations: widget.showAnnotations,
+      priority: priority ?? widget.renderPriority,
+      imagePixelRatio: ratio,
+      imageDecodeRegion: decodeRegion,
+    );
     if (_abandoned(pageIndex) || commands == null) return null;
     if (_renderPaused) return null;
     _logImageStats(pageIndex, commands);
     return PdfPageRenderer.pictureFromCommandsWithPlan(
-        widget.page, commands, _renderPlan);
+      widget.page,
+      commands,
+      _renderPlan,
+    );
   }
 
-  Future<ui.Image?> _detailStripImageFromWorker(PdfRetainedScene baseScene,
-      Rect rasterRegion, double ratio, int pageIndex, int generation,
-      {int? priority}) async {
+  Future<ui.Image?> _detailStripImageFromWorker(
+    PdfRetainedScene baseScene,
+    Rect rasterRegion,
+    double ratio,
+    int pageIndex,
+    int generation, {
+    int? priority,
+  }) async {
     if (!_workerBinningEligible) return null;
     final worker = widget.renderWorker!;
     final requestPriority = priority ?? widget.renderPriority;
-    final geometry =
-        baseScene.stripRegionGeometry(rasterRegion, pixelRatio: ratio);
+    final geometry = baseScene.stripRegionGeometry(
+      rasterRegion,
+      pixelRatio: ratio,
+    );
     final decodeRegion = _pdfRegionForRasterRegion(rasterRegion);
     PdfStripDetail? detail;
     final speculative = _speculativeStripDetail;
@@ -1778,7 +1914,11 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   (double, double) _pdfPointForRasterPoint(
-      double x, double y, PdfRect box, int rotation) {
+    double x,
+    double y,
+    PdfRect box,
+    int rotation,
+  ) {
     final w = box.width;
     final h = box.height;
     final (u, v) = switch (rotation) {
@@ -1792,70 +1932,77 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   @override
   Widget build(BuildContext context) {
-    final size =
-        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    final size = PdfPageRenderer.pageSize(
+      widget.page,
+      rotation: widget.rotation,
+    );
     final hasArea = size.width > 0 && size.height > 0;
-    return LayoutBuilder(builder: (context, constraints) {
-      final width = constraints.maxWidth;
-      if (width.isFinite && width > 0) _noteLayoutWidth(width);
-      return AspectRatio(
-        aspectRatio: hasArea ? size.width / size.height : 1,
-        child: LayoutBuilder(builder: (context, inner) {
-          final w = inner.maxWidth;
-          final h = inner.maxHeight;
-          final detail = _detailImage;
-          final fraction = _detailFraction;
-          final slugPicture = _slugPicture;
-          return Stack(
-              alignment: Alignment.topLeft,
-              fit: StackFit.expand,
-              children: [
-                if (slugPicture != null)
-                  CustomPaint(
-                    key: const ValueKey('pdf-page-slug-picture'),
-                    painter: _SlugPagePicturePainter(slugPicture, size),
-                  )
-                else if (_image == null)
-                  // before the first render lands: the low-res preview if
-                  // the cache has one (fast scroll past a known page), else
-                  // a placeholder matching the paper so nothing flashes. A
-                  // translucent paper color washes over white, matching the
-                  // renderer's white-backed raster.
-                  _preview == null
-                      ? (widget.pageColor.a < 1.0
-                          ? ColoredBox(
-                              color: const Color(0xFFFFFFFF),
-                              child: ColoredBox(color: widget.pageColor),
-                            )
-                          : ColoredBox(color: widget.pageColor))
-                      : RawImage(
-                          image: _preview,
-                          fit: BoxFit.contain,
-                          filterQuality: FilterQuality.medium,
-                        )
-                else
-                  RawImage(
-                    image: _image,
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.medium,
-                  ),
-                if (detail != null && fraction != null && w.isFinite)
-                  Positioned(
-                    left: fraction.left * w,
-                    top: fraction.top * h,
-                    width: fraction.width * w,
-                    height: fraction.height * h,
-                    child: RawImage(
-                      key: const ValueKey('pdf-page-detail-image'),
-                      image: detail,
-                      fit: BoxFit.fill,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        if (width.isFinite && width > 0) _noteLayoutWidth(width);
+        return AspectRatio(
+          aspectRatio: hasArea ? size.width / size.height : 1,
+          child: LayoutBuilder(
+            builder: (context, inner) {
+              final w = inner.maxWidth;
+              final h = inner.maxHeight;
+              final detail = _detailImage;
+              final fraction = _detailFraction;
+              final slugPicture = _slugPicture;
+              return Stack(
+                alignment: Alignment.topLeft,
+                fit: StackFit.expand,
+                children: [
+                  if (slugPicture != null)
+                    CustomPaint(
+                      key: const ValueKey('pdf-page-slug-picture'),
+                      painter: _SlugPagePicturePainter(slugPicture, size),
+                    )
+                  else if (_image == null)
+                    // before the first render lands: the low-res preview if
+                    // the cache has one (fast scroll past a known page), else
+                    // a placeholder matching the paper so nothing flashes. A
+                    // translucent paper color washes over white, matching the
+                    // renderer's white-backed raster.
+                    _preview == null
+                        ? (widget.pageColor.a < 1.0
+                            ? ColoredBox(
+                                color: const Color(0xFFFFFFFF),
+                                child: ColoredBox(color: widget.pageColor),
+                              )
+                            : ColoredBox(color: widget.pageColor))
+                        : RawImage(
+                            image: _preview,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.medium,
+                          )
+                  else
+                    RawImage(
+                      image: _image,
+                      fit: BoxFit.contain,
                       filterQuality: FilterQuality.medium,
                     ),
-                  ),
-              ]);
-        }),
-      );
-    });
+                  if (detail != null && fraction != null && w.isFinite)
+                    Positioned(
+                      left: fraction.left * w,
+                      top: fraction.top * h,
+                      width: fraction.width * w,
+                      height: fraction.height * h,
+                      child: RawImage(
+                        key: const ValueKey('pdf-page-detail-image'),
+                        image: detail,
+                        fit: BoxFit.fill,
+                        filterQuality: FilterQuality.medium,
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -1874,7 +2021,9 @@ class _SlugPagePicturePainter extends CustomPainter {
     if (sourceSize.width <= 0 || sourceSize.height <= 0) return;
     canvas.save();
     canvas.scale(
-        size.width / sourceSize.width, size.height / sourceSize.height);
+      size.width / sourceSize.width,
+      size.height / sourceSize.height,
+    );
     canvas.drawPicture(picture);
     canvas.restore();
   }
@@ -1899,8 +2048,10 @@ class _SpeculativeStripPlan {
   /// Exact match only - all six matrix coefficients, the pixel viewport,
   /// and the ratio compare with `==` (the coefficients round-trip the wire
   /// codec bit-exactly, so a matching settle really is the same geometry).
-  bool matches(({PdfMatrix pageToDevice, int width, int height}) other,
-          double otherPixelRatio) =>
+  bool matches(
+    ({PdfMatrix pageToDevice, int width, int height}) other,
+    double otherPixelRatio,
+  ) =>
       pixelRatio == otherPixelRatio && _sameStripGeometry(geometry, other);
 }
 
@@ -1915,15 +2066,22 @@ class _DetailGeometry {
 /// A combined region-detail job issued from the translated live viewport.
 class _SpeculativeStripDetail {
   const _SpeculativeStripDetail(
-      this.geometry, this.pixelRatio, this.decodeRegion, this.detail);
+    this.geometry,
+    this.pixelRatio,
+    this.decodeRegion,
+    this.detail,
+  );
 
   final ({PdfMatrix pageToDevice, int width, int height}) geometry;
   final double pixelRatio;
   final PdfRect decodeRegion;
   final Future<PdfStripDetail?> detail;
 
-  bool matches(({PdfMatrix pageToDevice, int width, int height}) other,
-          double otherPixelRatio, PdfRect otherDecodeRegion) =>
+  bool matches(
+    ({PdfMatrix pageToDevice, int width, int height}) other,
+    double otherPixelRatio,
+    PdfRect otherDecodeRegion,
+  ) =>
       pixelRatio == otherPixelRatio &&
       _sameStripGeometry(geometry, other) &&
       decodeRegion.left == otherDecodeRegion.left &&

@@ -275,9 +275,8 @@ abstract class PdfRenderWorker {
   /// [PdfStripDetail.commands] with [PdfStripDetail.plan] therefore preserves
   /// painter order while giving the detail patch region-resolution images.
   ///
-  /// The base implementation declines. Native workers override it; other
-  /// backends keep the existing base-scene strip fallback until they support
-  /// the combined protocol.
+  /// The base implementation declines. Native isolates and Web Workers
+  /// override it; unsupported platforms keep the base-scene strip fallback.
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,

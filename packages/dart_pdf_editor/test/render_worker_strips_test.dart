@@ -14,7 +14,7 @@
 //    affinity) for both binStrips and cancelBinStrips;
 //  - the caching wrapper passes bins straight through (plans are never
 //    cached - every settle has a fresh matrix);
-//  - the abstract default (which the stub and web backends inherit)
+//  - the abstract default (which the unsupported-platform stub inherits)
 //    declines with null.
 import 'dart:typed_data';
 import 'dart:ui' show Rect;
