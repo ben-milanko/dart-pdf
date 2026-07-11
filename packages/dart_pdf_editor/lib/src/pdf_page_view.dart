@@ -6,7 +6,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart'
-    show PdfMatrix, PdfRenderCommand;
+    show
+        PdfDrawImageCommand,
+        PdfEndSoftMaskedCommand,
+        PdfMatrix,
+        PdfRenderCommand;
 
 import 'perf_log.dart';
 import 'performance_policy.dart';
@@ -597,12 +601,14 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// consume worker-binned strip plans; locally-recorded scenes - the
   /// worker declined, or an editing flow recorded with skipAnnotation -
   /// keep local binning, because a worker re-record could desync from them.
-  void _setScene(PdfRetainedScene? scene, {bool fromWorker = false}) {
+  void _setScene(PdfRetainedScene? scene,
+      {bool fromWorker = false, bool vectorOnly = false}) {
     _scene?.dispose();
     _scene = scene;
     _sceneHasImageDraws =
         scene != null && PdfPageRenderer.hasImageDraws(scene.commands);
     _sceneFromWorker = scene != null && fromWorker;
+    _sceneIsVectorOnly = scene != null && vectorOnly;
     _slugPictureRejected = false;
     // a speculative bin's geometry was computed against the previous scene;
     // with the scene identity changed it is meaningless, so drop it (the
@@ -613,6 +619,12 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   /// Whether [_scene] came from the render worker (see [_setScene]).
   bool _sceneFromWorker = false;
+
+  /// The retained scene currently carries image placeholders from the
+  /// progressive vector-first record. It can route a visible-region worker
+  /// request, but must not be used as that detail's local fallback because
+  /// its image pixels are deliberately absent. The full record replaces it.
+  bool _sceneIsVectorOnly = false;
 
   /// Whether the retained command stream paints any PDF images.
   ///
@@ -864,6 +876,34 @@ class _PdfPageViewState extends State<PdfPageView> {
       return;
     }
 
+    // In a zoomed view the visible region can sharpen without waiting
+    // for the full-page image decode. Retain this lightweight placeholder
+    // scene long enough to route that worker request now; the normal full
+    // record below still replaces it and warms the complete page base.
+    final progressiveDetail =
+        _detailGeometryAt(widget.scale, force: true, inflation: 0.125);
+    final needsDetail = progressiveDetail != null;
+    PdfPerfLog.log('vector-first detail page=$pageIndex '
+        'scale=${widget.scale.toStringAsFixed(2)} eligible=$needsDetail '
+        'retained=${_retainScene(commands.length)} '
+        'commands=${commands.length}');
+    if (needsDetail && _retainScene(commands.length)) {
+      final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
+          plan: _renderPlan);
+      if (_superseded(generation, pageIndex) || _renderPaused) {
+        scene.dispose();
+        return;
+      }
+      _setScene(scene, fromWorker: true, vectorOnly: true);
+      // Keep the already-painted soft preview as the base and sharpen the
+      // visible slice directly. Rasterizing a full-page vector preview first
+      // can itself take seconds on a wide CAD sheet, while this region replay
+      // is small and lands almost immediately.
+      PdfPerfLog.log('vector-first region page=$pageIndex');
+      unawaited(_updateDetail(detailGeometry: progressiveDetail));
+      return;
+    }
+
     final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
         widget.page, commands, _renderPlan,
         includeImages: false);
@@ -950,8 +990,16 @@ class _PdfPageViewState extends State<PdfPageView> {
     // vector/text immediately (images skipped) so a heavy raster underlay -
     // which can take seconds to decode - doesn't leave the page blank
     // meanwhile. The full pass below then re-rasters with the images in.
-    if (firstInterpret &&
-        !(widget.previewCache?.isFresh(pageIndex, widget.page) ?? false)) {
+    final previewFresh =
+        widget.previewCache?.isFresh(pageIndex, widget.page) ?? false;
+    // A cached preview is enough to avoid another vector-only first paint at
+    // fit scale. Once zoomed, however, the lightweight worker recording also
+    // bootstraps the visible-region request that can beat a slow full-page
+    // image decode. Ask for it even when soft preview pixels already exist.
+    final needsRegionBootstrap = widget.scale > 1.05 &&
+        _scene == null &&
+        (widget.renderWorker?.isActive ?? false);
+    if (firstInterpret && (!previewFresh || needsRegionBootstrap)) {
       await _paintVectorFirst(generation, pageIndex);
       if (_superseded(generation, pageIndex)) return;
     }
@@ -1150,7 +1198,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// Renders (or drops) the deep-zoom patch: the visible slice of the
   /// page, inflated by half a viewport on each side, at the resolution
   /// the zoom actually asks for.
-  Future<bool> _updateDetail() async {
+  Future<bool> _updateDetail({_DetailGeometry? detailGeometry}) async {
     final generation = ++_detailGeneration;
     if (_renderPaused) return false;
 
@@ -1164,7 +1212,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       _dropDetail();
       return true;
     }
-    final detailGeometry = _detailGeometryAt(widget.scale);
+    detailGeometry ??= _detailGeometryAt(widget.scale);
     if (detailGeometry == null) {
       _dropDetail();
       return true;
@@ -1181,13 +1229,57 @@ class _PdfPageViewState extends State<PdfPageView> {
     // through to the retained base scene below.
     final heldScene = PdfPageView.retainedZoomReplay ? _scene : null;
     final stripDetail = heldScene != null && _stripReplayScene(heldScene);
-    final workerStripImage = stripDetail
-        ? await _detailStripImageFromWorker(
-            heldScene, region, ratio, widget.previewIndex, generation)
-        : null;
-    final workerPicture = stripDetail
-        ? null
-        : await _detailPictureFromWorker(region, ratio, widget.previewIndex);
+    final progressivePriority =
+        _sceneIsVectorOnly ? widget.renderPriority - 1 : widget.renderPriority;
+    final detailClock = Stopwatch()..start();
+    PdfPerfLog.log('detail request page=${widget.previewIndex} '
+        'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly');
+    final workerStripFuture = stripDetail
+        ? _detailStripImageFromWorker(
+            heldScene, region, ratio, widget.previewIndex, generation,
+            priority: progressivePriority)
+        : Future<ui.Image?>.value();
+    // Web workers do not currently implement the combined strip-detail
+    // protocol. A progressive vector-only scene therefore falls back to the
+    // ordinary region-record path (still complete, just flat-rasterized) so
+    // visible image pixels do not wait for the full-page buffer. Its distinct,
+    // higher priority also lets the worker pool place it on an idle sibling
+    // instead of leasing it behind the same page's long full record.
+    final workerPictureFuture = !stripDetail || (kIsWeb && _sceneIsVectorOnly)
+        ? _detailPictureFromWorker(region, ratio, widget.previewIndex,
+            priority: progressivePriority)
+        : Future<ui.Picture?>.value();
+
+    // The progressive scene already has every vector/text command. Replay
+    // that visible slice immediately while the worker fills in its image
+    // pixels: CAD linework becomes sharp after the lightweight recording,
+    // rather than after a second multi-megabyte command transfer. A later
+    // complete worker patch replaces this one at the same geometry.
+    var progressiveReady = false;
+    if (_sceneIsVectorOnly &&
+        heldScene != null &&
+        !_imagesIntersectRegion(heldScene.commands, region)) {
+      final vectorImage =
+          await heldScene.rasterizeRegion(region, pixelRatio: ratio);
+      if (mounted && generation == _detailGeneration && !_renderPaused) {
+        setState(() {
+          _detailImage?.dispose();
+          _detailImage = vectorImage;
+          _detailFraction = fraction;
+        });
+        progressiveReady = true;
+        PdfPerfLog.log('detail vector page=${widget.previewIndex} '
+            'elapsed=${detailClock.elapsedMilliseconds}ms');
+      } else {
+        vectorImage.dispose();
+      }
+    }
+
+    final workerStripImage = await workerStripFuture;
+    final workerPicture = await workerPictureFuture;
+    PdfPerfLog.log('detail worker page=${widget.previewIndex} '
+        'elapsed=${detailClock.elapsedMilliseconds}ms '
+        'stripImage=${workerStripImage != null} picture=${workerPicture != null}');
     if (!mounted || generation != _detailGeneration || _renderPaused) {
       workerStripImage?.dispose();
       workerPicture?.dispose();
@@ -1216,6 +1308,11 @@ class _PdfPageViewState extends State<PdfPageView> {
       });
       return true;
     }
+
+    // A progressive scene contains image placeholders. If its worker region
+    // request was cancelled or declined, wait for the ordinary full record
+    // instead of painting a vector-only patch as if it were complete.
+    if (_sceneIsVectorOnly) return progressiveReady;
 
     // never interpret the page for the first time inline here - that is
     // the scheduler's job (or, bare, the hold's); the next settle
@@ -1266,14 +1363,62 @@ class _PdfPageViewState extends State<PdfPageView> {
     return true;
   }
 
-  /// Computes the exact patch geometry shared by live-transform speculation
-  /// and the settled render. Null means the page needs no detail patch (the
-  /// base raster is already sharp enough), is not currently visible, or has
-  /// no usable region.
-  _DetailGeometry? _detailGeometryAt(double scale) {
+  /// Conservative image-overlap test for the transparent-image progressive
+  /// scene. Its local replay is only a visually complete CAD/vector patch
+  /// when no image draw reaches the visible region; otherwise the soft base
+  /// stays up until the image-complete worker region replaces it.
+  bool _imagesIntersectRegion(
+      List<PdfRenderCommand> commands, Rect rasterRegion) {
+    final region = _pdfRegionForRasterRegion(rasterRegion);
+    bool overlaps(List<PdfRenderCommand> list) {
+      for (final command in list) {
+        switch (command) {
+          case PdfDrawImageCommand(:final request):
+            final m = request.transform;
+            final xs = [
+              m.transformX(0, 0),
+              m.transformX(1, 0),
+              m.transformX(1, 1),
+              m.transformX(0, 1),
+            ];
+            final ys = [
+              m.transformY(0, 0),
+              m.transformY(1, 0),
+              m.transformY(1, 1),
+              m.transformY(0, 1),
+            ];
+            final left = xs.reduce(math.min);
+            final right = xs.reduce(math.max);
+            final bottom = ys.reduce(math.min);
+            final top = ys.reduce(math.max);
+            if (right > region.left &&
+                left < region.right &&
+                top > region.bottom &&
+                bottom < region.top) {
+              return true;
+            }
+          case PdfEndSoftMaskedCommand(:final maskCommands):
+            if (overlaps(maskCommands)) return true;
+          default:
+            break;
+        }
+      }
+      return false;
+    }
+
+    return overlaps(commands);
+  }
+
+  /// Computes the exact patch geometry shared by progressive rendering,
+  /// live-transform speculation, and the settled render. Null means the page
+  /// needs no detail patch (unless [force] is set), is not currently visible,
+  /// or has no usable region.
+  _DetailGeometry? _detailGeometryAt(double scale,
+      {bool force = false, double inflation = 0.5}) {
     final desired = _desiredRatioAt(scale);
     final effective = _effectiveRatioAt(scale);
-    if (desired <= effective * 1.05) return null;
+    if (!force && desired <= effective * 1.05) return null;
+    if (force && scale <= 1.05) return null;
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.attached || !box.hasSize) return null;
     final pageRect = Rect.fromPoints(
@@ -1286,15 +1431,22 @@ class _PdfPageViewState extends State<PdfPageView> {
       return null;
     }
 
-    // visible slice as fractions of the page, inflated 50% per side
+    // Visible slice as fractions of the page. Settled cap-driven patches use
+    // 50% per-side panning headroom. The progressive region-first request is
+    // deliberately tighter: its job is to beat the still-warming full page,
+    // and a large guard band would re-decode most of that page again.
     final fraction = Rect.fromLTRB(
-      ((visible.left - pageRect.left - visible.width / 2) / pageRect.width)
+      ((visible.left - pageRect.left - visible.width * inflation) /
+              pageRect.width)
           .clamp(0.0, 1.0),
-      ((visible.top - pageRect.top - visible.height / 2) / pageRect.height)
+      ((visible.top - pageRect.top - visible.height * inflation) /
+              pageRect.height)
           .clamp(0.0, 1.0),
-      ((visible.right - pageRect.left + visible.width / 2) / pageRect.width)
+      ((visible.right - pageRect.left + visible.width * inflation) /
+              pageRect.width)
           .clamp(0.0, 1.0),
-      ((visible.bottom - pageRect.top + visible.height / 2) / pageRect.height)
+      ((visible.bottom - pageRect.top + visible.height * inflation) /
+              pageRect.height)
           .clamp(0.0, 1.0),
     );
     final size = _renderPlan.pageSize(widget.page);
@@ -1510,13 +1662,14 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   Future<ui.Picture?> _detailPictureFromWorker(
-      Rect rasterRegion, double ratio, int pageIndex) async {
+      Rect rasterRegion, double ratio, int pageIndex,
+      {int? priority}) async {
     final worker = widget.renderWorker;
     if (worker == null || !worker.isActive) return null;
     final decodeRegion = _pdfRegionForRasterRegion(rasterRegion);
     final commands = await worker.record(pageIndex,
         annotations: widget.showAnnotations,
-        priority: widget.renderPriority,
+        priority: priority ?? widget.renderPriority,
         imagePixelRatio: ratio,
         imageDecodeRegion: decodeRegion);
     if (_abandoned(pageIndex) || commands == null) return null;
@@ -1526,15 +1679,12 @@ class _PdfPageViewState extends State<PdfPageView> {
         widget.page, commands, _renderPlan);
   }
 
-  Future<ui.Image?> _detailStripImageFromWorker(
-    PdfRetainedScene baseScene,
-    Rect rasterRegion,
-    double ratio,
-    int pageIndex,
-    int generation,
-  ) async {
+  Future<ui.Image?> _detailStripImageFromWorker(PdfRetainedScene baseScene,
+      Rect rasterRegion, double ratio, int pageIndex, int generation,
+      {int? priority}) async {
     if (!_workerBinningEligible) return null;
     final worker = widget.renderWorker!;
+    final requestPriority = priority ?? widget.renderPriority;
     final geometry =
         baseScene.stripRegionGeometry(rasterRegion, pixelRatio: ratio);
     final decodeRegion = _pdfRegionForRasterRegion(rasterRegion);
@@ -1555,7 +1705,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
     if (detail == null) {
       final m = geometry.pageToDevice;
-      worker.cancelBinStrips(pageIndex, priority: widget.renderPriority);
+      worker.cancelBinStrips(pageIndex, priority: requestPriority);
       detail = await worker.recordStripDetail(
         pageIndex,
         annotations: baseScene.plan.annotations,
@@ -1564,7 +1714,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         deviceHeight: geometry.height,
         pixelRatio: ratio,
         imageDecodeRegion: decodeRegion,
-        priority: widget.renderPriority,
+        priority: requestPriority,
       );
     }
     if (_abandoned(pageIndex) ||

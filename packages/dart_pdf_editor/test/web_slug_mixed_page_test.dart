@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -5,6 +6,7 @@ import 'package:dart_pdf_editor/strips.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show PdfRenderCommand;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 Future<void> _waitFor(WidgetTester tester, Finder finder,
@@ -115,4 +117,160 @@ void main() {
     expect(StripPdfDevice.totalSlugQuads, quads,
         reason: 'settles must reuse the transform-time Slug picture');
   });
+
+  testWidgets('visible detail does not wait for the full-page image record',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = buildEmbeddedFontImagePdf();
+    final page = PdfDocument.open(bytes).page(0);
+    final previews = PdfPagePreviewCache();
+    await tester.runAsync(() async {
+      final picture = await PdfPageRenderer.renderPictureRecorded(page);
+      try {
+        await previews.putFromPicture(0, page, picture);
+      } finally {
+        picture.dispose();
+      }
+    });
+    expect(previews.isFresh(0, page), isTrue,
+        reason: 'the regression starts with soft cached preview pixels');
+    final worker =
+        _DeferredFullRecordWorker(PdfRenderWorker.startUncached(bytes));
+    addTearDown(previews.dispose);
+    addTearDown(worker.dispose);
+
+    await tester.pumpWidget(Align(
+      alignment: Alignment.topLeft,
+      child: OverflowBox(
+        alignment: Alignment.topLeft,
+        maxWidth: double.infinity,
+        maxHeight: double.infinity,
+        child: Transform.translate(
+          offset: const Offset(0, -500),
+          child: Transform.scale(
+            alignment: Alignment.topLeft,
+            scale: 2,
+            child: SizedBox(
+              width: 612,
+              height: 792,
+              child: PdfPageView(
+                page: page,
+                scale: 8,
+                renderWorker: worker,
+                previewCache: previews,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    await _waitFor(tester, find.byKey(const ValueKey('pdf-page-detail-image')),
+        label: 'region-first high-resolution detail');
+    expect(worker.fullRecordStarted.isCompleted, isTrue,
+        reason: 'the ordinary full-page image record should still warm');
+    expect(worker.fullRecordReleased, isFalse,
+        reason: 'visible detail must land while the full-page record is held');
+    expect(worker.regionRecordStarted.isCompleted, isTrue);
+    expect(worker.regionRecordReleased, isFalse,
+        reason:
+            'sharp vector detail must also beat the complete region record');
+  });
+}
+
+/// Holds the image-complete full-page and region records while delegating the
+/// vector-first request, proving visible vector detail can paint independently
+/// of either expensive result.
+class _DeferredFullRecordWorker extends PdfRenderWorker {
+  _DeferredFullRecordWorker(this._inner);
+
+  final PdfRenderWorker _inner;
+  final fullRecordStarted = Completer<void>();
+  final _fullRecord = Completer<List<PdfRenderCommand>?>();
+  final regionRecordStarted = Completer<void>();
+  final _regionRecord = Completer<List<PdfRenderCommand>?>();
+
+  bool get fullRecordReleased => _fullRecord.isCompleted;
+  bool get regionRecordReleased => _regionRecord.isCompleted;
+
+  @override
+  bool get isActive => _inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit,
+      PdfRect? imageDecodeRegion}) {
+    if (decodeImages && imageDecodeRegion != null) {
+      if (!regionRecordStarted.isCompleted) regionRecordStarted.complete();
+      return _regionRecord.future;
+    }
+    if (decodeImages && imageDecodeRegion == null) {
+      if (!fullRecordStarted.isCompleted) fullRecordStarted.complete();
+      return _fullRecord.future;
+    }
+    return _inner.record(pageIndex,
+        annotations: annotations,
+        priority: priority,
+        imagePixelRatio: imagePixelRatio,
+        decodeImages: decodeImages,
+        commandLimit: commandLimit,
+        imageDecodeRegion: imageDecodeRegion);
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  Future<StripPlan?> binStrips(int pageIndex,
+          {required bool annotations,
+          required List<double> pageToDevice,
+          required int deviceWidth,
+          required int deviceHeight,
+          required double pixelRatio,
+          bool slugGlyphs = false,
+          int priority = 0}) =>
+      _inner.binStrips(pageIndex,
+          annotations: annotations,
+          pageToDevice: pageToDevice,
+          deviceWidth: deviceWidth,
+          deviceHeight: deviceHeight,
+          pixelRatio: pixelRatio,
+          slugGlyphs: slugGlyphs,
+          priority: priority);
+
+  @override
+  Future<PdfStripDetail?> recordStripDetail(int pageIndex,
+          {required bool annotations,
+          required List<double> pageToDevice,
+          required int deviceWidth,
+          required int deviceHeight,
+          required double pixelRatio,
+          required PdfRect imageDecodeRegion,
+          int priority = 0}) =>
+      _inner.recordStripDetail(pageIndex,
+          annotations: annotations,
+          pageToDevice: pageToDevice,
+          deviceWidth: deviceWidth,
+          deviceHeight: deviceHeight,
+          pixelRatio: pixelRatio,
+          imageDecodeRegion: imageDecodeRegion,
+          priority: priority);
+
+  @override
+  void cancelBinStrips(int pageIndex, {int priority = 0}) =>
+      _inner.cancelBinStrips(pageIndex, priority: priority);
+
+  @override
+  void dispose() {
+    if (!_fullRecord.isCompleted) _fullRecord.complete(null);
+    if (!_regionRecord.isCompleted) _regionRecord.complete(null);
+    _inner.dispose();
+  }
 }
