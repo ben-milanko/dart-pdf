@@ -118,10 +118,9 @@ class PdfRetainedScene {
     bool Function(PdfAnnotation)? skipAnnotation,
   }) async {
     final cos = page.document.cos;
-    final pageOps = ContentStreamParser.parse(page.contentBytes());
     final recorder = RecordingPdfDevice();
     final recording = PdfInterpreter(cos: cos, device: recorder)
-      ..drawPageOperations(page, pageOps);
+      ..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
     final images = await decodeImages(cos, recorder.imageRequests,
         cache: PdfImageCache.instance);

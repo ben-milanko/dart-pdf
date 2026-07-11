@@ -179,14 +179,13 @@ class PdfPageRenderer {
       PdfPage page, PdfPageRenderPlan plan,
       {bool Function(PdfAnnotation)? skipAnnotation}) async {
     final cos = page.document.cos;
-    final pageOps = ContentStreamParser.parse(page.contentBytes());
 
     // Record the page into a flat command buffer. This single walk also
     // discovers every image (the recording device's drawImage calls), so the
     // separate scan-only collect pass [renderPicture] runs is unnecessary here.
     final recorder = RecordingPdfDevice();
     final recording = PdfInterpreter(cos: cos, device: recorder)
-      ..drawPageOperations(page, pageOps);
+      ..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
 
     final images = await decodeImages(cos, recorder.imageRequests,

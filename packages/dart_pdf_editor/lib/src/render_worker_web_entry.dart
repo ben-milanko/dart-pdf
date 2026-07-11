@@ -352,6 +352,7 @@ void _attachTimings(
     ..setProperty('workerUs'.toJS, workerUs.toJS)
     ..setProperty('parseUs'.toJS, timings.parseUs.toJS)
     ..setProperty('interpretUs'.toJS, timings.interpretUs.toJS)
+    ..setProperty('streamUs'.toJS, timings.streamUs.toJS)
     ..setProperty('serializeUs'.toJS, timings.serializeUs.toJS)
     ..setProperty('decodeUs'.toJS, timings.decodeUs.toJS)
     ..setProperty('binUs'.toJS, timings.binUs.toJS)
@@ -390,23 +391,24 @@ Future<Uint8List?> _recordPageAsync(
     // here would defeat their latency bound. Ordinary progressive records have
     // no limit and populate the shared transcript below.
     final previewOperationLimit = decodeImages ? null : commandLimit;
-    final parseClock = timings == null ? null : (Stopwatch()..start());
-    final ops = ContentStreamParser.parse(
-      page.contentBytes(),
-      operationLimit: previewOperationLimit,
-    );
-    if (parseClock != null) {
-      parseClock.stop();
-      timings!.parseUs += parseClock.elapsedMicroseconds;
-    }
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(
       cos: document.cos,
       device: recorder,
       cancellation: token,
     );
+    final streamClock = timings == null ? null : (Stopwatch()..start());
+    await interpreter.drawPageContentAsync(
+      page,
+      page.contentBytes(),
+      operationLimit: previewOperationLimit,
+      yieldInterval: 4096,
+    );
+    if (streamClock != null) {
+      streamClock.stop();
+      timings!.streamUs += streamClock.elapsedMicroseconds;
+    }
     final interpretClock = timings == null ? null : (Stopwatch()..start());
-    await interpreter.drawPageOperationsAsync(page, ops, yieldInterval: 4096);
     if (annotations) interpreter.drawAnnotations(page);
     if (interpretClock != null) {
       interpretClock.stop();

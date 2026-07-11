@@ -645,12 +645,11 @@ Future<Uint8List?> _recordPageAsync(
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
   final previewOperationLimit = decodeImages ? null : commandLimit;
-  final ops = ContentStreamParser.parse(page.contentBytes(),
-      operationLimit: previewOperationLimit);
   final recorder = RecordingPdfDevice();
   final interpreter =
       PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
-  await interpreter.drawPageOperationsAsync(page, ops);
+  await interpreter.drawPageContentAsync(page, page.contentBytes(),
+      operationLimit: previewOperationLimit);
   if (annotations) interpreter.drawAnnotations(page);
   return serializeCommands(recorder.commands,
       cos: document.cos,
@@ -781,11 +780,10 @@ class _BinCommandCache {
     }
     if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
     final page = document.page(pageIndex);
-    final ops = ContentStreamParser.parse(page.contentBytes());
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(
         cos: document.cos, device: recorder, cancellation: token);
-    await interpreter.drawPageOperationsAsync(page, ops);
+    await interpreter.drawPageContentAsync(page, page.contentBytes());
     if (annotations) interpreter.drawAnnotations(page);
     final buffer = serializeCommands(recorder.commands,
         cos: document.cos,

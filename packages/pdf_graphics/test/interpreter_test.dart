@@ -1176,6 +1176,55 @@ void main() {
       );
     });
 
+    test('drawPageContent streams the same device calls as a parsed list', () {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final content = page.contentBytes();
+
+      final materialized = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: materialized).drawPageOperations(
+        page,
+        ContentStreamParser.parse(content),
+      );
+      final streaming = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: streaming)
+          .drawPageContent(page, content);
+
+      expect(streaming.calls, materialized.calls);
+      expect(streaming.fills.length, materialized.fills.length);
+      expect(streaming.strokes.length, materialized.strokes.length);
+      expect(streaming.texts.length, materialized.texts.length);
+      expect(streaming.images.length, materialized.images.length);
+    });
+
+    test('drawPageContentAsync can cancel while parsing and interpreting',
+        () async {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final token = PdfCancellationToken();
+      final device = RecordingDevice();
+      final interpreter = PdfInterpreter(
+        cos: doc.cos,
+        device: device,
+        cancellation: token,
+      );
+
+      Future<void>.delayed(Duration.zero).then((_) {
+        token.cancelled = true;
+      });
+
+      await expectLater(
+        interpreter.drawPageContentAsync(
+          page,
+          page.contentBytes(),
+          yieldInterval: 1024,
+        ),
+        throwsA(isA<PdfCancelledException>()),
+      );
+    });
+
     test('no token means no cancellation overhead', () {
       final bytes = heavyPdf();
       final doc = PdfDocument.open(bytes);

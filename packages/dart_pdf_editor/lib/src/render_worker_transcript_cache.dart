@@ -20,6 +20,8 @@ class PdfWorkerTranscript {
 class PdfWorkerPhaseTimings {
   int parseUs = 0;
   int interpretUs = 0;
+  /// Combined parse + interpret time for incremental content streaming.
+  int streamUs = 0;
   int serializeUs = 0;
   int decodeUs = 0;
   int binUs = 0;
@@ -69,28 +71,27 @@ class PdfWorkerTranscriptCache {
     misses++;
     if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
     final page = document.page(pageIndex);
-    final parseClock = timings == null ? null : (Stopwatch()..start());
-    final ops = ContentStreamParser.parse(page.contentBytes());
-    if (parseClock != null) {
-      parseClock.stop();
-      timings!.parseUs += parseClock.elapsedMicroseconds;
-    }
     final recorder = RecordingPdfDevice();
     final interpreter = PdfInterpreter(
       cos: document.cos,
       device: recorder,
       cancellation: token,
     );
-    final interpretClock = timings == null ? null : (Stopwatch()..start());
+    final streamClock = timings == null ? null : (Stopwatch()..start());
     if (yieldInterval == null) {
-      await interpreter.drawPageOperationsAsync(page, ops);
+      await interpreter.drawPageContentAsync(page, page.contentBytes());
     } else {
-      await interpreter.drawPageOperationsAsync(
+      await interpreter.drawPageContentAsync(
         page,
-        ops,
+        page.contentBytes(),
         yieldInterval: yieldInterval,
       );
     }
+    if (streamClock != null) {
+      streamClock.stop();
+      timings!.streamUs += streamClock.elapsedMicroseconds;
+    }
+    final interpretClock = timings == null ? null : (Stopwatch()..start());
     if (annotations) interpreter.drawAnnotations(page);
     if (interpretClock != null) {
       interpretClock.stop();

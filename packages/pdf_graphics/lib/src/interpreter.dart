@@ -498,8 +498,32 @@ class PdfInterpreter {
   final StringBuffer _textBuffer = StringBuffer();
   bool _textBufferInUse = false;
 
-  void drawPage(PdfPage page) =>
-      drawPageOperations(page, ContentStreamParser.parse(page.contentBytes()));
+  void drawPage(PdfPage page) => drawPageContent(page, page.contentBytes());
+
+  /// Parses and interprets [content] incrementally without retaining a
+  /// page-sized [ContentOperation] list.
+  ///
+  /// This is the preferred path when the content is consumed once. Renderers
+  /// that deliberately interpret the same page more than once should parse a
+  /// list once and use [drawPageOperations] for each pass instead.
+  void drawPageContent(PdfPage page, Uint8List content, {int? operationLimit}) {
+    _state = _GraphicsState();
+    _visibilityStack.clear();
+    _mcidStack.clear();
+    _pageBox = page.mediaBox;
+    device.save();
+    try {
+      _runCursor(
+        ContentStreamParser.cursor(content, operationLimit: operationLimit),
+        page.resources,
+        0,
+      );
+      final mask = _state.softMask;
+      if (mask != null) _finalizeSoftMask(mask);
+    } finally {
+      device.restore();
+    }
+  }
 
   /// Runs an already-parsed page content stream. Parsing (and the underlying
   /// stream decompression) dominates rendering on graphics-rich pages, so a
@@ -544,6 +568,36 @@ class PdfInterpreter {
     device.save();
     try {
       await _runAsync(operations, page.resources, 0, yieldInterval);
+      final mask = _state.softMask;
+      if (mask != null) _finalizeSoftMask(mask);
+    } finally {
+      device.restore();
+    }
+  }
+
+  /// Async, cancellable counterpart to [drawPageContent].
+  ///
+  /// Parsing and interpretation advance together, yielding after each
+  /// [yieldInterval] operations. This removes the uncancellable synchronous
+  /// parse prefix and avoids retaining every parsed operation in render
+  /// workers that only record the page once.
+  Future<void> drawPageContentAsync(PdfPage page, Uint8List content,
+      {int? operationLimit, int yieldInterval = _yieldInterval}) async {
+    if (yieldInterval <= 0) {
+      throw ArgumentError.value(yieldInterval, 'yieldInterval', 'must be > 0');
+    }
+    _state = _GraphicsState();
+    _visibilityStack.clear();
+    _mcidStack.clear();
+    _pageBox = page.mediaBox;
+    device.save();
+    try {
+      await _runCursorAsync(
+        ContentStreamParser.cursor(content, operationLimit: operationLimit),
+        page.resources,
+        0,
+        yieldInterval,
+      );
       final mask = _state.softMask;
       if (mask != null) _finalizeSoftMask(mask);
     } finally {
@@ -1008,6 +1062,24 @@ class PdfInterpreter {
     }
   }
 
+  void _runCursor(
+      ContentOperationCursor cursor, CosDictionary resources, int formDepth) {
+    final previousDepth = _currentFormDepth;
+    final previousVisibilityDepth = _visibilityStack.length;
+    _currentFormDepth = formDepth;
+    try {
+      _runCursorOps(cursor, resources, formDepth);
+    } finally {
+      while (_visibilityStack.length > previousVisibilityDepth) {
+        _visibilityStack.removeLast();
+      }
+      while (_mcidStack.length > previousVisibilityDepth) {
+        _mcidStack.removeLast();
+      }
+      _currentFormDepth = previousDepth;
+    }
+  }
+
   Future<void> _runAsync(List<ContentOperation> ops, CosDictionary resources,
       int formDepth, int yieldInterval) async {
     final previousDepth = _currentFormDepth;
@@ -1015,6 +1087,24 @@ class PdfInterpreter {
     _currentFormDepth = formDepth;
     try {
       await _runOpsAsync(ops, resources, formDepth, yieldInterval);
+    } finally {
+      while (_visibilityStack.length > previousVisibilityDepth) {
+        _visibilityStack.removeLast();
+      }
+      while (_mcidStack.length > previousVisibilityDepth) {
+        _mcidStack.removeLast();
+      }
+      _currentFormDepth = previousDepth;
+    }
+  }
+
+  Future<void> _runCursorAsync(ContentOperationCursor cursor,
+      CosDictionary resources, int formDepth, int yieldInterval) async {
+    final previousDepth = _currentFormDepth;
+    final previousVisibilityDepth = _visibilityStack.length;
+    _currentFormDepth = formDepth;
+    try {
+      await _runCursorOpsAsync(cursor, resources, formDepth, yieldInterval);
     } finally {
       while (_visibilityStack.length > previousVisibilityDepth) {
         _visibilityStack.removeLast();
@@ -1045,11 +1135,46 @@ class PdfInterpreter {
     }
   }
 
+  Future<void> _runCursorOpsAsync(ContentOperationCursor cursor,
+      CosDictionary resources, int formDepth, int yieldInterval) async {
+    final token = cancellation;
+    var opCount = 0;
+    while (true) {
+      final op = cursor.nextOperation();
+      if (op == null) return;
+      if (++opCount % yieldInterval == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (token != null && token.cancelled) {
+          throw const PdfCancelledException();
+        }
+      } else if (token != null &&
+          opCount & (_cancelCheckInterval - 1) == 0 &&
+          token.cancelled) {
+        throw const PdfCancelledException();
+      }
+      _execOp(op, resources, formDepth);
+    }
+  }
+
   void _runOps(
       List<ContentOperation> ops, CosDictionary resources, int formDepth) {
     final token = cancellation;
     var opCount = 0;
     for (final op in ops) {
+      if (token != null && ++opCount & (_cancelCheckInterval - 1) == 0) {
+        if (token.cancelled) throw const PdfCancelledException();
+      }
+      _execOp(op, resources, formDepth);
+    }
+  }
+
+  void _runCursorOps(
+      ContentOperationCursor cursor, CosDictionary resources, int formDepth) {
+    final token = cancellation;
+    var opCount = 0;
+    while (true) {
+      final op = cursor.nextOperation();
+      if (op == null) return;
       if (token != null && ++opCount & (_cancelCheckInterval - 1) == 0) {
         if (token.cancelled) throw const PdfCancelledException();
       }

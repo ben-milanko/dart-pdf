@@ -20,6 +20,7 @@ void main() {
     expect(firstTimings.transcriptHit, isFalse);
     expect(firstTimings.parseUs, greaterThanOrEqualTo(0));
     expect(firstTimings.interpretUs, greaterThanOrEqualTo(0));
+    expect(firstTimings.streamUs, greaterThanOrEqualTo(0));
     expect(firstTimings.serializeUs, greaterThanOrEqualTo(0));
     final hitTimings = PdfWorkerPhaseTimings();
     final hit = await cache.transcriptFor(
@@ -33,6 +34,7 @@ void main() {
     expect(hitTimings.transcriptHit, isTrue);
     expect(hitTimings.parseUs, 0);
     expect(hitTimings.interpretUs, 0);
+    expect(hitTimings.streamUs, 0);
     expect(hitTimings.serializeUs, 0);
     expect(cache.hits, 1);
     expect(cache.misses, 1);

@@ -691,6 +691,7 @@ class _WebRequestTrace {
   int workerUs = 0;
   int parseUs = 0;
   int interpretUs = 0;
+  int streamUs = 0;
   int serializeUs = 0;
   int decodeUs = 0;
   int binUs = 0;
@@ -702,6 +703,7 @@ class _WebRequestTrace {
     workerUs = _intProperty(data, 'workerUs');
     parseUs = _intProperty(data, 'parseUs');
     interpretUs = _intProperty(data, 'interpretUs');
+    streamUs = _intProperty(data, 'streamUs');
     serializeUs = _intProperty(data, 'serializeUs');
     decodeUs = _intProperty(data, 'decodeUs');
     binUs = _intProperty(data, 'binUs');
@@ -719,6 +721,7 @@ class _WebRequestTrace {
       'page=${request.pageIndex} outcome=$outcome '
       'queue=${_traceMs(queueUs)} worker=${_traceMs(workerUs)} '
       'parse=${_traceMs(parseUs)} interpret=${_traceMs(interpretUs)} '
+      'stream=${_traceMs(streamUs)} '
       'decode=${_traceMs(decodeUs)} serialize=${_traceMs(serializeUs)} '
       'bin=${_traceMs(binUs)} transfer=${_traceMs(transferUs)} '
       'deserialize=${_traceMs(deserializeUs)} total=${_traceMs(totalUs)} '
