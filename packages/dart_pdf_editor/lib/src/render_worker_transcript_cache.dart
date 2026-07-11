@@ -26,7 +26,6 @@ class PdfWorkerTranscript {
 class PdfWorkerPhaseTimings {
   int parseUs = 0;
   int interpretUs = 0;
-
   /// Combined parse + interpret time for incremental content streaming.
   int streamUs = 0;
   int serializeUs = 0;
