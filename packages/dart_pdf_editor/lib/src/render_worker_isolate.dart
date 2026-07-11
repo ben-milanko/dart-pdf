@@ -9,6 +9,8 @@ import 'package:pdf_graphics/raster.dart'
     show StripPlan, StripPlanBinner, decodeStripPlan, encodeStripPlan;
 
 import 'render_worker.dart';
+import 'render_worker_transcript_cache.dart'
+    show compactTranscriptSourceCommands, retainedCommandGraphsWeight;
 
 /// Test hook: hold a requested cancellation until the cancelled job answers
 /// and the next queued request is dispatched. That deterministically recreates
@@ -751,10 +753,17 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
 /// local re-bin of that scene. Pages whose content can't round-trip (an
 /// inline image with page-resource dependencies) decline - the same pages
 /// [PdfRenderWorker.record] declines, so their scenes were locally recorded
-/// and never ask for worker plans anyway.
+/// and never ask for worker plans anyway. A command-slot budget supplements
+/// the two-entry cap while always retaining the most recently used page.
 class _BinCommandCache {
   final _entries = <(int, bool), _BinCommandEntry>{};
   static const int _capacity = 2;
+  static const int _maxRetainedCommands = 250000;
+
+  int get _retainedCommandWeight => _entries.values.fold(
+        0,
+        (total, entry) => total + entry.retainedCommandWeight,
+      );
 
   Future<List<PdfRenderCommand>?> commandsFor(PdfDocument document,
           int pageIndex, bool annotations, PdfCancellationToken token) async =>
@@ -791,12 +800,22 @@ class _BinCommandCache {
         imagePlaceholders: true,
         compactStateScopes: true);
     if (buffer == null) return null;
+    recorder.commands.clear();
+    final wireCommands =
+        List<PdfRenderCommand>.unmodifiable(deserializeCommands(buffer));
+    final sourceCommands = compactTranscriptSourceCommands(
+      wireCommands,
+      recorder.imageRequests,
+    );
+    if (sourceCommands == null) return null;
     final entry = _BinCommandEntry(
-      recorder.commands,
-      deserializeCommands(buffer),
+      sourceCommands,
+      wireCommands,
     );
     _entries[key] = entry;
-    while (_entries.length > _capacity) {
+    while (_entries.length > 1 &&
+        (_entries.length > _capacity ||
+            _retainedCommandWeight > _maxRetainedCommands)) {
       _entries.remove(_entries.keys.first);
     }
     return entry;
@@ -804,8 +823,11 @@ class _BinCommandCache {
 }
 
 class _BinCommandEntry {
-  const _BinCommandEntry(this.sourceCommands, this.wireCommands);
+  _BinCommandEntry(this.sourceCommands, this.wireCommands)
+      : retainedCommandWeight =
+            retainedCommandGraphsWeight(sourceCommands, wireCommands);
 
   final List<PdfRenderCommand> sourceCommands;
   final List<PdfRenderCommand> wireCommands;
+  final int retainedCommandWeight;
 }

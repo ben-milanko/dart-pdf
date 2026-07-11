@@ -2,8 +2,20 @@ import 'package:dart_pdf_editor/src/render_worker_transcript_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'strip_zoom_router_test.dart' show buildVectorPdf;
+
+PdfDrawImageCommand? _firstImage(List<PdfRenderCommand> commands) {
+  for (final command in commands) {
+    if (command is PdfDrawImageCommand) return command;
+    if (command is PdfEndSoftMaskedCommand) {
+      final nested = _firstImage(command.maskCommands);
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
 
 void main() {
   test('transcript cache hits, bounds entries, and reports eviction', () async {
@@ -40,6 +52,10 @@ void main() {
     expect(cache.misses, 1);
     expect(cache.length, 1);
     expect(cache.retainedCommandCount, greaterThan(0));
+    expect(identical(first!.sourceCommands, first.wireCommands), isTrue,
+        reason: 'image-free wire commands are self-contained');
+    expect(first.retainedCommandWeight,
+        retainedCommandGraphWeight(first.wireCommands));
 
     await cache.transcriptFor(document, 0, false, PdfCancellationToken());
     expect(cache.length, 1);
@@ -66,5 +82,112 @@ void main() {
       throwsA(isA<PdfCancelledException>()),
     );
     expect(cache.length, 0);
+  });
+
+  test('retained command weight evicts old entries but keeps one hot oversize',
+      () async {
+    final document = PdfDocument.open(buildVectorPdf());
+    final cache = PdfWorkerTranscriptCache(
+      capacity: 4,
+      maxRetainedCommands: 1,
+    );
+    final first = await cache.transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+    );
+    expect(cache.length, 1);
+    expect(cache.retainedCommandWeight, greaterThan(1));
+
+    await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    expect(cache.length, 1,
+        reason: 'the newly used oversize entry remains reusable');
+    expect(cache.evictions, 1);
+
+    final reloaded = await cache.transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+    );
+    expect(identical(reloaded, first), isFalse);
+    expect(cache.evictions, 2);
+  });
+
+  test('image-bearing transcripts keep the document-backed source graph',
+      () async {
+    final bytes = PdfImageDocument.fromImageBytes([buildTestJpeg()]);
+    final document = PdfDocument.open(bytes);
+    final cache = PdfWorkerTranscriptCache();
+    final transcript = await cache.transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+    );
+    final baseline = await PdfWorkerTranscriptCache(
+      deduplicateCommands: false,
+    ).transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+    );
+
+    expect(transcript, isNotNull);
+    expect(
+        identical(transcript!.sourceCommands, transcript.wireCommands), isFalse,
+        reason: 'later detail decode still needs the original COS stream');
+    final sourceImage = _firstImage(transcript.sourceCommands)!;
+    final wireImage = _firstImage(transcript.wireCommands)!;
+    expect(sourceImage.request.isInline, isFalse,
+        reason: 'the compact source keeps the original XObject identity');
+    expect(wireImage.request.isInline, isTrue,
+        reason: 'the wire graph stays detached and value-keyed');
+    expect(sourceImage.request.transform, wireImage.request.transform,
+        reason: 'source replay keeps the exact float32 wire geometry');
+    final compactBytes = serializeCommands(
+      transcript.sourceCommands,
+      cos: document.cos,
+      decodeImages: false,
+      compactStateScopes: true,
+    );
+    final baselineBytes = serializeCommands(
+      baseline!.sourceCommands,
+      cos: document.cos,
+      decodeImages: false,
+      compactStateScopes: true,
+    );
+    expect(compactBytes, baselineBytes,
+        reason: 'hybrid image source must serialize byte-identically');
+    expect(
+      transcript.retainedCommandWeight,
+      lessThanOrEqualTo(retainedCommandGraphWeight(transcript.sourceCommands) +
+          retainedCommandGraphWeight(transcript.wireCommands)),
+      reason: 'compact views never retain more commands than separate graphs',
+    );
+  });
+
+  test('deduplication remains switchable for the benchmark A/B', () async {
+    final document = PdfDocument.open(buildVectorPdf());
+    final baseline = await PdfWorkerTranscriptCache(
+      deduplicateCommands: false,
+    ).transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+    );
+    final optimized = await PdfWorkerTranscriptCache().transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+    );
+
+    expect(identical(baseline!.sourceCommands, baseline.wireCommands), isFalse);
+    expect(optimized!.retainedCommandWeight,
+        lessThan(baseline.retainedCommandWeight));
   });
 }
