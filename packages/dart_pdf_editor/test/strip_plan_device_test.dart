@@ -238,4 +238,125 @@ void main() {
         reason: 'the settle must consume a worker-binned plan');
     expect(StripPdfDevice.totalPlanMismatches, 0);
   });
+
+  // Speculative binning: while the gesture quiesces (the live transformScale
+  // stops moving for 50 ms), the page pre-requests the worker plan for the
+  // geometry the settle will ask for; the settle then consumes it instead of
+  // starting a fresh bin.
+  testWidgets('a zoom settle consumes the plan speculated while the gesture '
+      'quiesced', (tester) async {
+    PdfPageView.retainedZoomReplayMaxCommands = 0; // every page is "dense"
+    PdfPageView.stripZoomReplay = true;
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    PdfPageView.debugResetSpeculativeStats();
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.stripZoomReplay = true; // the default
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+      PdfPageView.debugResetSpeculativeStats();
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = buildVectorPdf();
+    final doc = PdfDocument.open(bytes);
+    final page = doc.page(0);
+    late PdfRenderWorker worker;
+    await tester.runAsync(() async {
+      worker = PdfRenderWorker.start(bytes);
+    });
+    addTearDown(worker.dispose);
+
+    final live = ValueNotifier<double>(1.0);
+    addTearDown(live.dispose);
+    Widget at(double scale, int settleGeneration) => Center(
+        child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+                page: page,
+                scale: scale,
+                settleGeneration: settleGeneration,
+                renderWorker: worker,
+                transformScale: live)));
+
+    await tester.pumpWidget(at(1, 0));
+    await router.settleRaster(tester, 612);
+
+    // The gesture moves to 3x, then quiesces past the 50 ms debounce: the
+    // page speculatively requests the worker bin for the settle's geometry.
+    live.value = 3.0;
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(PdfPageView.debugSpeculativePlanHits, 0);
+    expect(PdfPageView.debugSpeculativePlanMisses, 0);
+
+    // The viewer's settle: the same quantized scale, a bumped generation.
+    StripPdfDevice.resetStats();
+    await tester.pumpWidget(at(3, 1));
+    final zoomed = await router.settleRaster(tester, 612 * 3);
+    expect(zoomed.width, 612 * 3);
+    expect(PdfPageView.debugSpeculativePlanHits, 1,
+        reason: 'the settle must consume the speculative plan');
+    expect(PdfPageView.debugSpeculativePlanMisses, 0);
+    expect(StripPdfDevice.totalPlanPictures, greaterThan(0),
+        reason: 'the speculative plan must feed the strip device');
+    expect(StripPdfDevice.totalPlanMismatches, 0);
+  });
+
+  testWidgets('a settle at a different scale than speculated misses and '
+      'still renders from a fresh worker plan', (tester) async {
+    PdfPageView.retainedZoomReplayMaxCommands = 0; // every page is "dense"
+    PdfPageView.stripZoomReplay = true;
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    PdfPageView.debugResetSpeculativeStats();
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.stripZoomReplay = true; // the default
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+      PdfPageView.debugResetSpeculativeStats();
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = buildVectorPdf();
+    final doc = PdfDocument.open(bytes);
+    final page = doc.page(0);
+    late PdfRenderWorker worker;
+    await tester.runAsync(() async {
+      worker = PdfRenderWorker.start(bytes);
+    });
+    addTearDown(worker.dispose);
+
+    final live = ValueNotifier<double>(1.0);
+    addTearDown(live.dispose);
+    Widget at(double scale, int settleGeneration) => Center(
+        child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+                page: page,
+                scale: scale,
+                settleGeneration: settleGeneration,
+                renderWorker: worker,
+                transformScale: live)));
+
+    await tester.pumpWidget(at(1, 0));
+    await router.settleRaster(tester, 612);
+
+    // Speculate for 2x...
+    live.value = 2.0;
+    await tester.pump(const Duration(milliseconds: 60));
+
+    // ...but settle at 3x: wrong geometry, so the speculative plan is
+    // dropped (a miss) and a fresh request serves the settle - output is
+    // still a plan-fed strip raster at the right size.
+    StripPdfDevice.resetStats();
+    await tester.pumpWidget(at(3, 1));
+    final zoomed = await router.settleRaster(tester, 612 * 3);
+    expect(zoomed.width, 612 * 3);
+    expect(PdfPageView.debugSpeculativePlanHits, 0);
+    expect(PdfPageView.debugSpeculativePlanMisses, 1,
+        reason: 'the mismatched speculation must be counted');
+    expect(StripPdfDevice.totalPlanPictures, greaterThan(0),
+        reason: 'a fresh worker plan must still land');
+    expect(StripPdfDevice.totalPlanMismatches, 0);
+  });
 }

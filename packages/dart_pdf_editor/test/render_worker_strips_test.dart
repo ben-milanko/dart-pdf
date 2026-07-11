@@ -7,12 +7,17 @@
 //    truncation as the buffer the caller's scene holds);
 //  - the isolate queue's kind-scoped cancel (cancelBinStrips drops queued
 //    bins without touching queued records, and vice versa);
+//  - cancelBinStrips also preempts a matching IN-FLIGHT bin (the worker
+//    abandons it mid-walk and the future resolves null) - what lets a
+//    newer speculative/settle geometry supersede a running stale bin;
 //  - pool routing by the STATIC page index (worker-side command-cache
 //    affinity) for both binStrips and cancelBinStrips;
 //  - the caching wrapper passes bins straight through (plans are never
 //    cached - every settle has a fresh matrix);
 //  - the abstract default (which the stub and web backends inherit)
 //    declines with null.
+import 'dart:typed_data';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -22,6 +27,43 @@ import 'package:pdf_graphics/raster.dart';
 import 'strip_zoom_router_test.dart' show buildVectorPdf;
 
 List<double> _coeffs(PdfMatrix m) => [m.a, m.b, m.c, m.d, m.e, m.f];
+
+/// A one-page PDF dense enough (thousands of interpreter ops) that a bin
+/// job reliably spans several of the worker's cooperative yield points, so
+/// an in-flight cancel deterministically lands mid-walk.
+Uint8List buildDenseVectorPdf({int rects = 4000}) {
+  final content = StringBuffer();
+  for (var i = 0; i < rects; i++) {
+    final x = (i * 7) % 550;
+    final y = (i * 13) % 730;
+    content.write('${(i % 10) / 10} 0 0 rg $x $y 8 6 re f ');
+  }
+  final body = content.toString();
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << >> >>',
+    '<< /Length ${body.length} >>\nstream\n$body\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return Uint8List.fromList(buffer.toString().codeUnits);
+}
 
 void main() {
   testWidgets('isolate binStrips matches a local bin of the recorded buffer',
@@ -123,6 +165,38 @@ void main() {
       expect(await record2, isNull, reason: 'cancelled record resolves null');
       expect(await bin2, isNotNull,
           reason: 'the bin must survive a record cancel for the same page');
+    });
+  });
+
+  testWidgets('cancelBinStrips preempts a matching in-flight bin',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildDenseVectorPdf();
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
+      // Warm up so the isolate is spawned and idle: the next binStrips is
+      // dispatched (in flight) synchronously, not parked in the queue.
+      expect(await worker.record(0), isNotNull);
+
+      Future<StripPlan?> bin() => worker.binStrips(0,
+          annotations: true,
+          pageToDevice: const [1, 0, 0, 1, 0, 0],
+          deviceWidth: 612,
+          deviceHeight: 792,
+          pixelRatio: 1);
+
+      final stale = bin(); // in flight on the worker now
+      worker.cancelBinStrips(0); // same (page, priority): preempt mid-walk
+      expect(
+          await stale.timeout(const Duration(seconds: 30)), isNull,
+          reason: 'the preempted in-flight bin must resolve null');
+
+      // The worker survives the preemption and serves the next identical
+      // request with a real plan.
+      final fresh = await bin().timeout(const Duration(seconds: 30));
+      expect(fresh, isNotNull,
+          reason: 'a fresh bin after the preemption must succeed');
+      expect(fresh!.batches, isNotEmpty);
     });
   });
 

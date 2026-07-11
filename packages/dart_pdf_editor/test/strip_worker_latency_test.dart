@@ -9,7 +9,13 @@
 //   (W) worker-plan - worker.binStrips(...) off-thread, then
 //                     scene.replayStrips(ratio, stripPlan:): the UI thread
 //                     only decodes the plan, creates engine objects, and
-//                     replays the tape.
+//                     replays the tape;
+//   (P) primed      - worker.binStrips(...) issued 200 ms BEFORE the settle
+//                     is measured (the debounce the viewer gives for free -
+//                     PdfPageView's transformScale speculation), then the
+//                     RESIDUAL wait of that same future + the identical
+//                     build/toImage/readback. Models production speculation
+//                     honestly: the worker bins while the gesture settles.
 //
 // Reported per path: total settle latency (bin/plan wait + build + toImage
 // + readback) and the UI-THREAD BLOCKING share - the synchronous sections
@@ -211,6 +217,7 @@ void main() {
 
         final local = _PathSample();
         final workerPlan = _PathSample();
+        final primed = _PathSample();
         final perPassBinWait = List<double>.filled(passes + 1, 0);
 
         for (var pass = 0; pass <= passes; pass++) {
@@ -280,10 +287,57 @@ void main() {
                   readback: readbackW,
                   uiBlock: uiBlockW);
             }
+
+            // (P) primed: issue the bin, then wait out the 200 ms settle
+            // debounce the viewer gives for free (the speculative bin fires
+            // ~50 ms into it; being generous to neither side, the full
+            // debounce is modelled). Only the residual await is the settle's
+            // perceived bin wait.
+            StripPdfDevice.resetStats();
+            final decodeP0 = raster.decodeStripPlanMicros;
+            final primedFuture = worker.binStrips(pageIndex,
+                annotations: true,
+                pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
+                deviceWidth: geometry.width,
+                deviceHeight: geometry.height,
+                pixelRatio: ratio);
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+            t = Stopwatch()..start();
+            final primedPlan = await primedFuture;
+            final planWaitP = t.elapsedMicroseconds / 1000.0;
+            expect(primedPlan, isNotNull,
+                reason: '$label must bin off-thread (primed)');
+            t = Stopwatch()..start();
+            final primedPicture = await scene.replayStrips(
+                pixelRatio: ratio, stripPlan: primedPlan);
+            final buildP = t.elapsedMicroseconds / 1000.0;
+            expect(StripPdfDevice.totalPlanMismatches, 0);
+            expect(StripPdfDevice.totalPlanPictures, 1,
+                reason: 'the primed plan must actually be consumed');
+            final uiBlockP = (StripPdfDevice.totalRouteMicros +
+                    StripPdfDevice.totalReplayMicros +
+                    (raster.decodeStripPlanMicros - decodeP0)) /
+                1000.0;
+            final (imageP, rasterP, readbackP) =
+                await _timeRaster(primedPicture, w, h);
+            primedPicture.dispose();
+            imageP.dispose();
+            if (record) {
+              primed.add(
+                  planWait: planWaitP,
+                  build: buildP,
+                  rasterize: rasterP,
+                  readback: readbackP,
+                  uiBlock: uiBlockP);
+            }
           }
         }
 
-        for (final (key, s) in [('L-local-bin', local), ('W-worker', workerPlan)]) {
+        for (final (key, s) in [
+          ('L-local-bin', local),
+          ('W-worker', workerPlan),
+          ('P-primed', primed),
+        ]) {
           rows.add('${label.padRight(28).substring(0, 28)} '
               '${key.padRight(12)} '
               '${s.meanPlanWait.toStringAsFixed(1).padLeft(8)} '
