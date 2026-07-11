@@ -21,14 +21,19 @@ extension PdfFormFilling on PdfEditor {
   /// /V stores [value] verbatim (UTF-16BE when it leaves Latin-1); the
   /// generated appearance replaces characters the byte-encoded
   /// appearance fonts cannot show with spaces.
-  void setTextValue(PdfFormField field, String value,
-      {bool? multiline,
-      PdfTextDirection textDirection = PdfTextDirection.auto}) {
+  void setTextValue(
+    PdfFormField field,
+    String value, {
+    bool? multiline,
+    PdfTextDirection textDirection = PdfTextDirection.auto,
+  }) {
     _checkFillable(field, const {PdfFieldType.text});
     if (multiline != null && multiline != field.isMultiline) {
-      field.dict['Ff'] = CosInteger(multiline
-          ? field.flags | PdfFormField.multilineFlag
-          : field.flags & ~PdfFormField.multilineFlag);
+      field.dict['Ff'] = CosInteger(
+        multiline
+            ? field.flags | PdfFormField.multilineFlag
+            : field.flags & ~PdfFormField.multilineFlag,
+      );
     }
     field.dict['V'] = CosString.fromText(value);
     _regenerateVariableText(field, value, textDirection: textDirection);
@@ -41,8 +46,9 @@ extension PdfFormFilling on PdfEditor {
   /// widget's /MK background and border.
   void setButtonImage(PdfFormField field, PdfEmbeddableImage image) {
     _checkFillable(field, const {PdfFieldType.pushButton});
-    final imageRef = _updater
-        .addObject(image.toXObject((smask) => _updater.addObject(smask)));
+    final imageRef = _updater.addObject(
+      image.toXObject((smask) => _updater.addObject(smask)),
+    );
     for (final widget in field.widgets) {
       final rect = pdfRectFrom(document.cos, widget['Rect']);
       if (rect == null || rect.width <= 0 || rect.height <= 0) continue;
@@ -58,10 +64,14 @@ extension PdfFormFilling on PdfEditor {
         ..drawXObject('Img0')
         ..restore();
 
-      final form = _widgetForm(w, h, writer,
-          resources: CosDictionary({
-            'XObject': CosDictionary({'Img0': imageRef})
-          }));
+      final form = _widgetForm(
+        w,
+        h,
+        writer,
+        resources: CosDictionary({
+          'XObject': CosDictionary({'Img0': imageRef}),
+        }),
+      );
       _setNormalAppearance(widget, form);
       if (!identical(widget, field.dict)) _stageFormDict(field, widget);
     }
@@ -82,8 +92,11 @@ extension PdfFormFilling on PdfEditor {
   void setRadioValue(PdfFormField field, String onState) {
     _checkFillable(field, const {PdfFieldType.radioGroup});
     if (onState != 'Off' && !field.onStates.contains(onState)) {
-      throw ArgumentError.value(onState, 'onState',
-          'not an option of "${field.name}" (${field.onStates.join(', ')})');
+      throw ArgumentError.value(
+        onState,
+        'onState',
+        'not an option of "${field.name}" (${field.onStates.join(', ')})',
+      );
     }
     _selectButtonState(field, onState);
   }
@@ -107,10 +120,11 @@ extension PdfFormFilling on PdfEditor {
         field.flags & PdfFormField.editFlag != 0;
     if (index < 0 && options.isNotEmpty && !editable) {
       throw ArgumentError.value(
-          value,
-          'value',
-          'not an option of "${field.name}" '
-              '(${options.map((o) => o.$1).join(', ')})');
+        value,
+        'value',
+        'not an option of "${field.name}" '
+            '(${options.map((o) => o.$1).join(', ')})',
+      );
     }
     field.dict['V'] = CosString.fromText(export);
     if (field.type == PdfFieldType.listBox && index >= 0) {
@@ -276,12 +290,16 @@ extension PdfFormFilling on PdfEditor {
   /// emit '?'. /V keeps the original text.
   static String sanitizeFieldText(String text) {
     if (text.codeUnits.every((c) => c <= 0xFF)) return text;
-    return String.fromCharCodes(
-        [for (final c in text.codeUnits) c <= 0xFF ? c : 0x20]);
+    return String.fromCharCodes([
+      for (final c in text.codeUnits) c <= 0xFF ? c : 0x20,
+    ]);
   }
 
-  void _regenerateVariableText(PdfFormField field, String rawText,
-      {PdfTextDirection textDirection = PdfTextDirection.auto}) {
+  void _regenerateVariableText(
+    PdfFormField field,
+    String rawText, {
+    PdfTextDirection textDirection = PdfTextDirection.auto,
+  }) {
     final cos = document.cos;
     final da = _parseDefaultAppearance(field.defaultAppearance);
     final fontDict = _formFont(field.form, da.fontName);
@@ -394,7 +412,11 @@ extension PdfFormFilling on PdfEditor {
   /// Background and border from the widget's /MK appearance
   /// characteristics (§12.5.6.19), drawn in form space.
   void _paintWidgetDecorations(
-      ContentWriter writer, CosDictionary widget, double w, double h) {
+    ContentWriter writer,
+    CosDictionary widget,
+    double w,
+    double h,
+  ) {
     final cos = document.cos;
     final mk = cos.resolve(widget['MK']);
     if (mk is! CosDictionary) return;
@@ -457,8 +479,12 @@ extension PdfFormFilling on PdfEditor {
 
   /// A widget appearance form: BBox [0 0 w h], mapped onto /Rect by the
   /// §12.5.5 algorithm.
-  CosStream _widgetForm(double w, double h, ContentWriter content,
-      {CosDictionary? resources}) {
+  CosStream _widgetForm(
+    double w,
+    double h,
+    ContentWriter content, {
+    CosDictionary? resources,
+  }) {
     final bytes = content.takeBytes();
     final dict = CosDictionary({
       'Type': const CosName('XObject'),
@@ -493,7 +519,8 @@ extension PdfFormFilling on PdfEditor {
   /// Splits a /DA string into the font selection and the remaining
   /// (color) operators, replayed verbatim into the appearance.
   ({String fontName, double fontSize, String colorOps}) _parseDefaultAppearance(
-      String? da) {
+    String? da,
+  ) {
     final tokens =
         (da ?? '').split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
     var fontName = 'Helv';
@@ -530,7 +557,10 @@ extension PdfFormFilling on PdfEditor {
   /// is indirect, the dict itself when direct, or generated Helvetica as
   /// the lenient fallback for forms with broken /DR.
   CosDictionary _appearanceFontResource(
-      PdfAcroForm form, String name, CosDictionary? fontDict) {
+    PdfAcroForm form,
+    String name,
+    CosDictionary? fontDict,
+  ) {
     if (fontDict == null) return _helvetica(name: name);
     final ref = document.cos.referenceTo(fontDict);
     return CosDictionary({name: ref ?? fontDict});
@@ -567,8 +597,12 @@ extension PdfFormFilling on PdfEditor {
 
   /// Greedy word wrap using [measure]; a single overlong word overflows
   /// (and is clipped by the appearance).
-  List<String> _wrapWith(double Function(String, double) measure, String text,
-      double fontSize, double maxWidth) {
+  List<String> _wrapWith(
+    double Function(String, double) measure,
+    String text,
+    double fontSize,
+    double maxWidth,
+  ) {
     final lines = <String>[];
     for (final paragraph in text.split('\n')) {
       var line = '';
@@ -592,8 +626,9 @@ extension PdfFormFilling on PdfEditor {
   void _checkFillable(PdfFormField field, Set<PdfFieldType> expected) {
     if (!expected.contains(field.type)) {
       throw ArgumentError(
-          'field "${field.name}" is a ${field.type.name}, expected '
-          '${expected.map((t) => t.name).join(' or ')}');
+        'field "${field.name}" is a ${field.type.name}, expected '
+        '${expected.map((t) => t.name).join(' or ')}',
+      );
     }
     if (field.isReadOnly) {
       throw StateError('field "${field.name}" is read-only');
@@ -601,6 +636,16 @@ extension PdfFormFilling on PdfEditor {
   }
 
   void _finishFieldEdit(PdfFormField field) {
+    final pages = <int>{};
+    var unknownPage = false;
+    for (var i = 0; i < field.widgets.length; i++) {
+      final page = field.widgetPageIndex(i);
+      if (page < 0) {
+        unknownPage = true;
+      } else {
+        pages.add(page);
+      }
+    }
     // A reconciled field holds its canonical value on the /Fields dict we
     // just wrote; the adopted page widgets may still carry the producer's
     // stale /V, which would otherwise shadow it on read-back. Drop it so
@@ -617,6 +662,7 @@ extension PdfFormFilling on PdfEditor {
       form.dict['NeedAppearances'] = const CosBoolean(false);
       _stageFormDict(field, form.dict);
     }
+    _markVisual(unknownPage ? null : pages);
   }
 
   /// Stages the first indirect object whose serialization carries

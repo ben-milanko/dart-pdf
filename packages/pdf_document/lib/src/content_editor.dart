@@ -9,13 +9,14 @@ part of 'editor.dart';
 /// simple-font (non-/Type0) text runs; composite runs are still replaced
 /// but keep their original colour, size, and face.
 class PdfTextStyle {
-  const PdfTextStyle(
-      {this.color,
-      this.fontSize,
-      this.family,
-      this.embeddedFont,
-      this.bold,
-      this.italic});
+  const PdfTextStyle({
+    this.color,
+    this.fontSize,
+    this.family,
+    this.embeddedFont,
+    this.bold,
+    this.italic,
+  });
 
   /// Nonstroking fill colour as `0xRRGGBB`, or null to keep the run's colour.
   final int? color;
@@ -67,8 +68,14 @@ class PdfTextStyle {
       other.italic == italic;
 
   @override
-  int get hashCode => Object.hash(color, fontSize, family,
-      identityHashCode(embeddedFont), bold, italic);
+  int get hashCode => Object.hash(
+        color,
+        fontSize,
+        family,
+        identityHashCode(embeddedFont),
+        bold,
+        italic,
+      );
 }
 
 /// Tracks an embedded font used by a styled replacement across the runs of
@@ -96,7 +103,7 @@ extension PdfContentEditing on PdfEditor {
       ..add(latin1.encode('q\n'))
       ..add(stamp.content.takeBytes())
       ..add(latin1.encode('Q\n'));
-    _appendContent(page, wrapped.takeBytes());
+    _appendContent(index, page, wrapped.takeBytes());
   }
 
   /// Tier 2 - element deletion. Removes the [ids] listed in [elements]
@@ -127,7 +134,10 @@ extension PdfContentEditing on PdfEditor {
     }
     if (drop.isEmpty) return;
     _setContent(
-        page, elements.serialize(drop: drop, replacements: replacements));
+      elements.pageIndex,
+      page,
+      elements.serialize(drop: drop, replacements: replacements),
+    );
   }
 
   /// Tier 3 - text editing. Replaces occurrences of [find] with [replace]
@@ -166,8 +176,13 @@ extension PdfContentEditing on PdfEditor {
   /// italic) to the replacement - see [replaceStyledText], which this
   /// forwards to. Styling only affects simple-font runs; a composite
   /// (/Type0) run is still corrected but keeps its original appearance.
-  int replaceText(int index, String find, String replace,
-      {List<PdfEmbeddedFont> fallbackFonts = const [], PdfTextStyle? style}) {
+  int replaceText(
+    int index,
+    String find,
+    String replace, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+    PdfTextStyle? style,
+  }) {
     if (find.isEmpty) throw ArgumentError.value(find, 'find', 'is empty');
     // the simple-font path is byte-encoded; non-Latin-1 strings can only be
     // matched/drawn by the composite path, so leave these null there.
@@ -190,7 +205,9 @@ extension PdfContentEditing on PdfEditor {
     final type0Cache = <String, _Type0Editing?>{};
     _Type0Editing? type0For(String name, CosDictionary f) =>
         type0Cache.putIfAbsent(
-            name, () => _Type0Editing.tryCreate(this, page, name, f, fallbackFonts));
+          name,
+          () => _Type0Editing.tryCreate(this, page, name, f, fallbackFonts),
+        );
 
     final styled = style != null && !style.isEmpty;
     // an embedded-font restyle embeds the chosen face once, after the runs
@@ -246,15 +263,27 @@ extension PdfContentEditing on PdfEditor {
         final simpleRewrite = findBytes == null
             ? (run, 0)
             : (styled
-                ? _rewriteStyledTextRun(page, run, font, fontName, fontSize,
-                    findBytes, replaceBytes, replace, style, restoreColorOps,
-                    styledEmbed)
+                ? _rewriteStyledTextRun(
+                    page,
+                    run,
+                    font,
+                    fontName,
+                    fontSize,
+                    findBytes,
+                    replaceBytes,
+                    replace,
+                    style,
+                    restoreColorOps,
+                    styledEmbed,
+                  )
                 : (replaceBytes != null
                     ? _rewriteTextRun(run, font, findBytes, replaceBytes)
                     : (run, 0)));
         final (ops_, n) = _isType0(cos, font) && fontName != null
-            ? (type0For(fontName, font!)
-                    ?.rewriteRun(run, find, replace, fontSize) ??
+            ? (type0For(
+                  fontName,
+                  font!,
+                )?.rewriteRun(run, find, replace, fontSize) ??
                 (run, 0))
             : simpleRewrite;
         rewritten.addAll(ops_);
@@ -290,14 +319,17 @@ extension PdfContentEditing on PdfEditor {
       // embed the styled replacement's font as a page /Font resource once all
       // its glyphs have been recorded.
       if (styledEmbed != null && styledEmbed.name != null) {
-        final built =
-            styledEmbed.font.buildResource(_updater.addObject).entries.values.first;
+        final built = styledEmbed.font
+            .buildResource(_updater.addObject)
+            .entries
+            .values
+            .first;
         _ownFontResources(page)[styledEmbed.name!] = _updater.addObject(built);
       }
       ops
         ..clear()
         ..addAll(rewritten);
-      _setContent(page, elements.serialize());
+      _setContent(index, page, elements.serialize());
     }
     return count;
   }
@@ -314,11 +346,20 @@ extension PdfContentEditing on PdfEditor {
   /// Courier), so it works even against embedded fonts. Styling is applied to
   /// simple-font runs only; composite (/Type0) runs are corrected without
   /// restyling.
-  int replaceStyledText(int index, String find, String replace,
-          PdfTextStyle style,
-          {List<PdfEmbeddedFont> fallbackFonts = const []}) =>
-      replaceText(index, find, replace,
-          fallbackFonts: fallbackFonts, style: style);
+  int replaceStyledText(
+    int index,
+    String find,
+    String replace,
+    PdfTextStyle style, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) =>
+      replaceText(
+        index,
+        find,
+        replace,
+        fallbackFonts: fallbackFonts,
+        style: style,
+      );
 
   /// Rewrites one run of show operators like [_rewriteTextRun] but applies
   /// [style] to each replacement: the replaced bytes are drawn in their own
@@ -328,17 +369,18 @@ extension PdfContentEditing on PdfEditor {
   /// the styled font and size and a compensating `TJ` adjustment keeps the
   /// rest of the line in place.
   (List<ContentOperation>, int) _rewriteStyledTextRun(
-      PdfPage page,
-      List<ContentOperation> run,
-      CosDictionary? font,
-      String? fontName,
-      double fontSize,
-      List<int> findBytes,
-      List<int>? replaceBytes,
-      String replace,
-      PdfTextStyle style,
-      List<ContentOperation> restoreColorOps,
-      _StyledEmbed? embed) {
+    PdfPage page,
+    List<ContentOperation> run,
+    CosDictionary? font,
+    String? fontName,
+    double fontSize,
+    List<int> findBytes,
+    List<int>? replaceBytes,
+    String replace,
+    PdfTextStyle style,
+    List<ContentOperation> restoreColorOps,
+    _StyledEmbed? embed,
+  ) {
     if (_isType0(document.cos, font)) return (run, 0);
 
     final cells = _runCells(run);
@@ -369,7 +411,10 @@ extension PdfContentEditing on PdfEditor {
     final CosString replShow;
     if (useEmbed) {
       styledFontName = _embeddedFontResource(page, embed);
-      replShow = CosString(_hexBytes(embed.font.encodeHex(replace)), isHex: true);
+      replShow = CosString(
+        _hexBytes(embed.font.encodeHex(replace)),
+        isHex: true,
+      );
       var w = 0.0;
       for (final r in runes) {
         w += embed.font.advanceForGlyph(embed.font.glyphForRune(r));
@@ -419,8 +464,9 @@ extension PdfContentEditing on PdfEditor {
         final last = charCell[end - 1];
         var oldWidth = 0.0;
         for (var k = cell; k <= last; k++) {
-          oldWidth +=
-              cells[k].byte != null ? origWidthOf(cells[k].byte!) : -cells[k].kern!;
+          oldWidth += cells[k].byte != null
+              ? origWidthOf(cells[k].byte!)
+              : -cells[k].kern!;
         }
         flushPending();
         // open the style
@@ -441,9 +487,11 @@ extension PdfContentEditing on PdfEditor {
         if (end < totalChars && fontSize != 0) {
           final kern = newWidthEm * styledSize / fontSize - oldWidth;
           if (kern.abs() >= 0.001) {
-            out.add(ContentOperation('TJ', [
-              CosArray([_numberObject(kern)])
-            ]));
+            out.add(
+              ContentOperation('TJ', [
+                CosArray([_numberObject(kern)]),
+              ]),
+            );
           }
         }
         count++;
@@ -461,7 +509,8 @@ extension PdfContentEditing on PdfEditor {
   /// Coalesces flattened cells back into one show op (a `Tj` for a single
   /// plain string, else a `TJ` array with adjacent kerns merged).
   static List<ContentOperation> _emitSimpleCells(
-      List<({int? byte, double? kern})> cells) {
+    List<({int? byte, double? kern})> cells,
+  ) {
     final items = <CosObject>[];
     final buffer = <int>[];
     var kern = 0.0;
@@ -491,11 +540,11 @@ extension PdfContentEditing on PdfEditor {
     if (items.isEmpty) return const [];
     if (items.length == 1 && items[0] is CosString) {
       return [
-        ContentOperation('Tj', [items[0]])
+        ContentOperation('Tj', [items[0]]),
       ];
     }
     return [
-      ContentOperation('TJ', [CosArray(items)])
+      ContentOperation('TJ', [CosArray(items)]),
     ];
   }
 
@@ -530,8 +579,9 @@ extension PdfContentEditing on PdfEditor {
     if (existing is CosDictionary && res['Font'] is! CosReference) {
       return existing;
     }
-    final fonts =
-        CosDictionary({if (existing is CosDictionary) ...existing.entries});
+    final fonts = CosDictionary({
+      if (existing is CosDictionary) ...existing.entries,
+    });
     res['Font'] = fonts;
     return fonts;
   }
@@ -555,12 +605,14 @@ extension PdfContentEditing on PdfEditor {
       i++;
     }
     final name = 'StF$i';
-    fonts[name] = _updater.addObject(CosDictionary({
-      'Type': const CosName('Font'),
-      'Subtype': const CosName('Type1'),
-      'BaseFont': CosName(font.baseFont),
-      'Encoding': const CosName('WinAnsiEncoding'),
-    }));
+    fonts[name] = _updater.addObject(
+      CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type1'),
+        'BaseFont': CosName(font.baseFont),
+        'Encoding': const CosName('WinAnsiEncoding'),
+      }),
+    );
     return name;
   }
 
@@ -588,8 +640,9 @@ extension PdfContentEditing on PdfEditor {
     return out;
   }
 
-  static ContentOperation _colorOp(int rgb) => ContentOperation(
-      'rg', [for (final v in ContentWriter.rgbComponents(rgb)) _numberObject(v)]);
+  static ContentOperation _colorOp(int rgb) => ContentOperation('rg', [
+        for (final v in ContentWriter.rgbComponents(rgb)) _numberObject(v),
+      ]);
 
   static ContentOperation _tfOp(String name, double size) =>
       ContentOperation('Tf', [CosName(name), _numberObject(size)]);
@@ -616,7 +669,8 @@ extension PdfContentEditing on PdfEditor {
   /// One position in a flattened run: a shown byte, or a `TJ` kern number
   /// (advance of `-kern/1000` em). Exactly one field is set.
   static List<({int? byte, double? kern})> _runCells(
-      List<ContentOperation> run) {
+    List<ContentOperation> run,
+  ) {
     final cells = <({int? byte, double? kern})>[];
     for (final op in run) {
       if (op.operator == 'TJ' &&
@@ -649,8 +703,12 @@ extension PdfContentEditing on PdfEditor {
   /// [replaceBytes] across its strings. Returns the operations to emit in
   /// the run's place (the originals untouched when nothing matched) and the
   /// number of replacements.
-  (List<ContentOperation>, int) _rewriteTextRun(List<ContentOperation> run,
-      CosDictionary? font, List<int> findBytes, List<int> replaceBytes) {
+  (List<ContentOperation>, int) _rewriteTextRun(
+    List<ContentOperation> run,
+    CosDictionary? font,
+    List<int> findBytes,
+    List<int> replaceBytes,
+  ) {
     if (_isType0(document.cos, font)) return (run, 0);
 
     final cells = _runCells(run);
@@ -734,13 +792,18 @@ extension PdfContentEditing on PdfEditor {
         items.length == 1 &&
         items[0] is CosString) {
       final original = run[0].operands[0];
-      run[0].operands[0] = CosString((items[0] as CosString).bytes,
-          isHex: original is CosString && original.isHex);
+      run[0].operands[0] = CosString(
+        (items[0] as CosString).bytes,
+        isHex: original is CosString && original.isHex,
+      );
       return (run, count);
     }
-    return ([
-      ContentOperation('TJ', [CosArray(items)])
-    ], count);
+    return (
+      [
+        ContentOperation('TJ', [CosArray(items)]),
+      ],
+      count,
+    );
   }
 
   /// An advance-width lookup (thousandths of an em) for [font]: its own
@@ -766,7 +829,9 @@ extension PdfContentEditing on PdfEditor {
       final base = cos.resolve(font['BaseFont']);
       if (base is CosName) {
         final standard = PdfStandardFont.tryFromName(base.value);
-        if (standard != null) return (code) => standard.widthOf(code).toDouble();
+        if (standard != null) {
+          return (code) => standard.widthOf(code).toDouble();
+        }
       }
     }
     return (code) => PdfStandardFont.helvetica.widthOf(code).toDouble();
@@ -799,7 +864,10 @@ extension PdfContentEditing on PdfEditor {
   }
 
   static Uint8List? _replaceBytes(
-      Uint8List source, List<int> find, List<int> replace) {
+    Uint8List source,
+    List<int> find,
+    List<int> replace,
+  ) {
     final out = BytesBuilder();
     var copied = 0;
     var found = false;
@@ -853,7 +921,7 @@ extension PdfContentEditing on PdfEditor {
 
   /// Wraps the existing content in q/Q (once per editor session) and
   /// appends [bytes] as a fresh stream in the /Contents array.
-  void _appendContent(PdfPage page, Uint8List bytes) {
+  void _appendContent(int pageIndex, PdfPage page, Uint8List bytes) {
     final cos = document.cos;
     final dict = page.dict;
     if (!_wrappedPages.contains(dict)) {
@@ -871,23 +939,31 @@ extension PdfContentEditing on PdfEditor {
       ]);
     }
     final contents = cos.resolve(dict['Contents']) as CosArray;
-    contents.items.add(_updater.addObject(CosStream(
-        CosDictionary({'Length': CosInteger(bytes.length)}), bytes)));
+    contents.items.add(
+      _updater.addObject(
+        CosStream(CosDictionary({'Length': CosInteger(bytes.length)}), bytes),
+      ),
+    );
     _updater.markChanged(dict);
+    _markContent([pageIndex]);
   }
 
   /// Replaces the page's entire content with one new stream.
-  void _setContent(PdfPage page, Uint8List bytes) {
-    page.dict['Contents'] = _updater.addObject(CosStream(
-        CosDictionary({'Length': CosInteger(bytes.length)}), bytes));
+  void _setContent(int pageIndex, PdfPage page, Uint8List bytes) {
+    page.dict['Contents'] = _updater.addObject(
+      CosStream(CosDictionary({'Length': CosInteger(bytes.length)}), bytes),
+    );
     _updater.markChanged(page.dict);
     _wrappedPages.remove(page.dict);
+    _markContent([pageIndex]);
   }
 
   static CosStream _stream(String text) {
     final bytes = Uint8List.fromList(latin1.encode(text));
     return CosStream(
-        CosDictionary({'Length': CosInteger(bytes.length)}), bytes);
+      CosDictionary({'Length': CosInteger(bytes.length)}),
+      bytes,
+    );
   }
 }
 
@@ -923,7 +999,13 @@ class PdfStamp {
     if (angleDegrees != 0) {
       final r = angleDegrees * math.pi / 180;
       content.concatMatrix(
-          math.cos(r), math.sin(r), -math.sin(r), math.cos(r), x, y);
+        math.cos(r),
+        math.sin(r),
+        -math.sin(r),
+        math.cos(r),
+        x,
+        y,
+      );
       content.beginText();
       content.font(font, size);
       content.fillColor(color);
@@ -962,9 +1044,7 @@ class PdfStamp {
       content.lineWidth(lineWidth);
     }
     content.rect(x, y, width, height);
-    content.op(fillColor != null
-        ? (strokeColor != null ? 'B' : 'f')
-        : 'S');
+    content.op(fillColor != null ? (strokeColor != null ? 'B' : 'f') : 'S');
     content.restore();
   }
 
@@ -979,8 +1059,13 @@ class PdfStamp {
     double? width,
     double? height,
   }) =>
-      image(PdfEmbeddableImage.jpeg(jpeg),
-          x: x, y: y, width: width, height: height);
+      image(
+        PdfEmbeddableImage.jpeg(jpeg),
+        x: x,
+        y: y,
+        width: width,
+        height: height,
+      );
 
   /// Places a decoded [PdfEmbeddableImage] (JPEG or PNG - including PNG
   /// transparency) with its bottom-left corner at ([x], [y]). Sizing
@@ -1000,7 +1085,8 @@ class PdfStamp {
 
     final name = _freeName(_xobjects, 'Im');
     _xobjects[name] = _editor._updater.addObject(
-        img.toXObject((smask) => _editor._updater.addObject(smask)));
+      img.toXObject((smask) => _editor._updater.addObject(smask)),
+    );
 
     content.save();
     content.concatMatrix(w, 0, 0, h, x, y);
@@ -1016,8 +1102,9 @@ class PdfStamp {
     if (existing is CosDictionary && _resources[key] is! CosReference) {
       return existing;
     }
-    final copy = CosDictionary(
-        {if (existing is CosDictionary) ...existing.entries});
+    final copy = CosDictionary({
+      if (existing is CosDictionary) ...existing.entries,
+    });
     _resources[key] = copy;
     return copy;
   }
@@ -1035,12 +1122,14 @@ class PdfStamp {
       }
     }
     final name = _freeName(fonts, 'StF');
-    fonts[name] = _editor._updater.addObject(CosDictionary({
-      'Type': const CosName('Font'),
-      'Subtype': const CosName('Type1'),
-      'BaseFont': CosName(base),
-      'Encoding': const CosName('WinAnsiEncoding'),
-    }));
+    fonts[name] = _editor._updater.addObject(
+      CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type1'),
+        'BaseFont': CosName(base),
+        'Encoding': const CosName('WinAnsiEncoding'),
+      }),
+    );
     return name;
   }
 
@@ -1052,4 +1141,3 @@ class PdfStamp {
     return '$prefix$i';
   }
 }
-

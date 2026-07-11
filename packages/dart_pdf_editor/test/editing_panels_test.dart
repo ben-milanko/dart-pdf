@@ -64,7 +64,7 @@ void main() {
       expect(editing.pageRenderStamp(2), after[2]);
     });
 
-    test('structural and unattributed edits bump every page', () {
+    test('structural edits bump all; editor-attributed edits stay narrow', () {
       final editing = PdfEditingController(buildMultiPagePdf(3));
       addTearDown(editing.dispose);
       final before = [for (var i = 0; i < 3; i++) editing.pageRenderStamp(i)];
@@ -75,11 +75,12 @@ void main() {
         expect(moved[i], isNot(before[i]));
       }
 
-      // a host edit through the public apply, with no pages named
+      // A host edit through public apply gets its impact from PdfEditor;
+      // callers no longer need to name the affected page themselves.
       editing.apply((e) => e.rotatePage(0, 90));
-      for (var i = 0; i < 3; i++) {
-        expect(editing.pageRenderStamp(i), isNot(moved[i]));
-      }
+      expect(editing.pageRenderStamp(0), isNot(moved[0]));
+      expect(editing.pageRenderStamp(1), moved[1]);
+      expect(editing.pageRenderStamp(2), moved[2]);
     });
 
     test('pageAt caches within a revision', () {
