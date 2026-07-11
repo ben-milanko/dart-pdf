@@ -177,6 +177,8 @@ void main() {
     expect(worker.regionRecordReleased, isFalse,
         reason:
             'sharp vector detail must also beat the complete region record');
+    expect(worker.vectorRecordPriority, -100,
+        reason: 'visible detail must preempt ordinary neighbouring pages');
   });
 }
 
@@ -191,6 +193,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
   final _fullRecord = Completer<List<PdfRenderCommand>?>();
   final regionRecordStarted = Completer<void>();
   final _regionRecord = Completer<List<PdfRenderCommand>?>();
+  int? vectorRecordPriority;
 
   bool get fullRecordReleased => _fullRecord.isCompleted;
   bool get regionRecordReleased => _regionRecord.isCompleted;
@@ -214,6 +217,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
       if (!fullRecordStarted.isCompleted) fullRecordStarted.complete();
       return _fullRecord.future;
     }
+    vectorRecordPriority = priority;
     return _inner.record(pageIndex,
         annotations: annotations,
         priority: priority,

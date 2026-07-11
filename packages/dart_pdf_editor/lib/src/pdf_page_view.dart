@@ -843,9 +843,17 @@ class _PdfPageViewState extends State<PdfPageView> {
   Future<void> _paintVectorFirst(int generation, int pageIndex) async {
     final worker = widget.renderWorker;
     if (worker == null || !worker.isActive) return;
+    // A zoomed, visible page's lightweight transcript is the prerequisite for
+    // its sharp region. Give it a clear lead over ordinary neighbouring-page
+    // work so it preempts the pool instead of being cancelled and requeued as
+    // the scheduler drains the cache window around it.
+    final visibleDetailRequested =
+        _detailGeometryAt(widget.scale, force: true, inflation: 0.125) != null;
     final commands = await worker.record(pageIndex,
         annotations: widget.showAnnotations,
-        priority: widget.renderPriority,
+        priority: visibleDetailRequested
+            ? widget.renderPriority - 100
+            : widget.renderPriority,
         decodeImages: false);
     if (_superseded(generation, pageIndex) ||
         _renderPaused ||
@@ -889,7 +897,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         'commands=${commands.length}');
     if (needsDetail && _retainScene(commands.length)) {
       final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
-          plan: _renderPlan);
+          plan: _renderPlan, includeImages: false);
       if (_superseded(generation, pageIndex) || _renderPaused) {
         scene.dispose();
         return;

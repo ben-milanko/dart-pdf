@@ -255,7 +255,12 @@ Future<Uint8List?> _recordPageAsync(
   final recorder = RecordingPdfDevice();
   final interpreter =
       PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
-  await interpreter.drawPageOperationsAsync(page, ops);
+  // A browser zero-delay timer is commonly clamped to several milliseconds.
+  // Yielding every 512 operators therefore spends seconds in timers on dense
+  // CAD streams. 4096 keeps cancellation checks within a small frame while
+  // removing most of that artificial latency; native isolates retain the
+  // interpreter's more conservative default.
+  await interpreter.drawPageOperationsAsync(page, ops, yieldInterval: 4096);
   if (annotations) interpreter.drawAnnotations(page);
   var commands = recorder.commands;
   if (decodeImages) {

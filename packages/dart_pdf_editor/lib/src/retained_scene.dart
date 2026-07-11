@@ -108,16 +108,22 @@ class PdfRetainedScene {
 
   /// Builds a scene from an already-recorded [commands] buffer (e.g. one a
   /// [PdfRenderWorker] shipped back), decoding its images once. The buffer
-  /// must have been recorded for [page] under [plan].
+  /// must have been recorded for [page] under [plan]. Set [includeImages] to
+  /// false for a deliberate vector-only progressive buffer; image draws then
+  /// stay transparent until a complete scene replaces it.
   static Future<PdfRetainedScene> fromCommands(
     PdfPage page,
     List<PdfRenderCommand> commands, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
+    bool includeImages = true,
   }) async {
-    final requests = <PdfImageRequest>[];
-    PdfPageRenderer.collectImageRequests(commands, requests);
-    final images = await decodeImages(page.document.cos, requests,
-        cache: PdfImageCache.instance);
+    final images = <Object, ui.Image>{};
+    if (includeImages) {
+      final requests = <PdfImageRequest>[];
+      PdfPageRenderer.collectImageRequests(commands, requests);
+      images.addAll(await decodeImages(page.document.cos, requests,
+          cache: PdfImageCache.instance));
+    }
     return PdfRetainedScene._(page, plan, commands, images);
   }
 

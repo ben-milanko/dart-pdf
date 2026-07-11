@@ -528,16 +528,22 @@ class PdfInterpreter {
   /// Used by the render worker's isolate/worker entrypoint: the synchronous
   /// [drawPageOperations] can't receive cancel messages mid-walk because Dart's
   /// event loop is blocked, so the async variant interleaves the walk with
-  /// micro-yields that let the port listener run.
+  /// micro-yields that let the port listener run. [yieldInterval] lets a
+  /// backend balance cancellation latency against its event-loop cost; browser
+  /// timers are substantially more expensive than native isolate yields.
   Future<void> drawPageOperationsAsync(
-      PdfPage page, List<ContentOperation> operations) async {
+      PdfPage page, List<ContentOperation> operations,
+      {int yieldInterval = _yieldInterval}) async {
+    if (yieldInterval <= 0) {
+      throw ArgumentError.value(yieldInterval, 'yieldInterval', 'must be > 0');
+    }
     _state = _GraphicsState();
     _visibilityStack.clear();
     _mcidStack.clear();
     _pageBox = page.mediaBox;
     device.save();
     try {
-      await _runAsync(operations, page.resources, 0);
+      await _runAsync(operations, page.resources, 0, yieldInterval);
       final mask = _state.softMask;
       if (mask != null) _finalizeSoftMask(mask);
     } finally {
@@ -1003,12 +1009,12 @@ class PdfInterpreter {
   }
 
   Future<void> _runAsync(List<ContentOperation> ops, CosDictionary resources,
-      int formDepth) async {
+      int formDepth, int yieldInterval) async {
     final previousDepth = _currentFormDepth;
     final previousVisibilityDepth = _visibilityStack.length;
     _currentFormDepth = formDepth;
     try {
-      await _runOpsAsync(ops, resources, formDepth);
+      await _runOpsAsync(ops, resources, formDepth, yieldInterval);
     } finally {
       while (_visibilityStack.length > previousVisibilityDepth) {
         _visibilityStack.removeLast();
@@ -1021,11 +1027,11 @@ class PdfInterpreter {
   }
 
   Future<void> _runOpsAsync(List<ContentOperation> ops, CosDictionary resources,
-      int formDepth) async {
+      int formDepth, int yieldInterval) async {
     final token = cancellation;
     var opCount = 0;
     for (final op in ops) {
-      if (++opCount % _yieldInterval == 0) {
+      if (++opCount % yieldInterval == 0) {
         await Future<void>.delayed(Duration.zero);
         if (token != null && token.cancelled) {
           throw const PdfCancelledException();

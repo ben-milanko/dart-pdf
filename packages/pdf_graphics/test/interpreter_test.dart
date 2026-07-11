@@ -1153,7 +1153,8 @@ void main() {
           reason: 'a cancelled walk stops before the full walk');
     });
 
-    test('drawPageOperationsAsync yields and checks the token', () async {
+    test('drawPageOperationsAsync configurable chunk yields and checks token',
+        () async {
       final bytes = heavyPdf();
       final doc = PdfDocument.open(bytes);
       final page = doc.page(0);
@@ -1170,7 +1171,7 @@ void main() {
       });
 
       await expectLater(
-        interp.drawPageOperationsAsync(page, ops),
+        interp.drawPageOperationsAsync(page, ops, yieldInterval: 1024),
         throwsA(isA<PdfCancelledException>()),
       );
     });
