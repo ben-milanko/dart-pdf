@@ -704,7 +704,69 @@ class _PdfPageViewState extends State<PdfPageView> {
     return math.max(ratio, 0.05);
   }
 
+  (int width, int height) _rasterDimensions(double pixelRatio) {
+    final size = _renderPlan.pageSize(widget.page);
+    return (
+      (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
+      (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
+    );
+  }
+
+  /// Restores an exact recent-page raster without waiting for render hold.
+  ///
+  /// This path is deliberately ahead of the scheduler: the image has already
+  /// been interpreted and read back at the requested physical size, so using
+  /// it cannot introduce the UI-thread hitch that fast-scroll hold prevents.
+  bool _restoreFullRaster() {
+    final cache = widget.previewCache;
+    if (cache == null ||
+        _image != null ||
+        _slugPicture != null ||
+        _layoutWidth == null ||
+        _pixelRatio == null) {
+      return false;
+    }
+    final effective = _effectiveRatio();
+    final dimensions = _rasterDimensions(effective);
+    final image = cache.fullImageFor(
+      widget.previewIndex,
+      widget.page,
+      width: dimensions.$1,
+      height: dimensions.$2,
+      pageColor: widget.pageColor,
+      annotations: widget.showAnnotations,
+      rotation: widget.rotation,
+    );
+    if (image == null) return false;
+    widget.renderScheduler?.cancel(this);
+    _renderGeneration++;
+    setState(() {
+      _image = image;
+      _rasteredRatio = effective;
+      _preview?.dispose();
+      _preview = null;
+    });
+    PdfPerfLog.log('full-raster cache hit page=${widget.previewIndex} '
+        '${image.width}x${image.height}');
+    widget.onRasterReady?.call();
+    return true;
+  }
+
   Future<void> _render() async {
+    if (_restoreFullRaster()) return;
+    // A fit-scale cache restore has no retained picture/scene, but it already
+    // is the exact requested raster. A later scroll-settle generation must not
+    // interpret the page merely to discover that the readback is current.
+    // Zoomed pages still proceed: they may need a retained scene and visible
+    // detail patch even when the capped base raster happens to match.
+    final rastered = _rasteredRatio;
+    if (_picture == null &&
+        _image != null &&
+        rastered != null &&
+        widget.scale <= 1.05 &&
+        (_effectiveRatio() - rastered).abs() <= rastered * 0.01) {
+      return;
+    }
     final scheduler = widget.renderScheduler;
     if (scheduler != null) {
       // Route the first interpret AND every re-raster (zoom settle,
@@ -1278,6 +1340,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         image.dispose();
         return;
       }
+      final cache = widget.previewCache;
       // the previous raster stays up (transform-scaled) until this
       // replaces it, so zooming never flashes white
       setState(() {
@@ -1287,10 +1350,17 @@ class _PdfPageViewState extends State<PdfPageView> {
         _preview?.dispose();
         _preview = null;
       });
+      cache?.putFullImage(
+        widget.previewIndex,
+        widget.page,
+        image,
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+        rotation: widget.rotation,
+      );
       // feed the preview cache from the picture we already paid to
       // interpret - this is how previews appear for pages the background
       // prerender hasn't reached (and refresh after edits)
-      final cache = widget.previewCache;
       if (cache != null &&
           !cache.isFresh(
             widget.previewIndex,
