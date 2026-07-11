@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Run downloaded ONNX OCR models on a long-lived worker isolate by default.
+  Page RGBA buffers transfer without a structured-message copy, and model
+  loading, preprocessing, inference, and post-processing no longer block the
+  UI isolate.
+
 ## 1.4.0
 
 - Version bump to align with `dart_pdf_editor` 1.4.0. Runtime maintenance keeps

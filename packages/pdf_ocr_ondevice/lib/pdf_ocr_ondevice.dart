@@ -24,6 +24,7 @@ library;
 
 export 'src/ctc_decode.dart';
 export 'src/db_postprocess.dart' show DetectedBox, extractDetectionBoxes;
+export 'src/isolate_ocr_model_runner.dart';
 export 'src/model_manager.dart';
 export 'src/ocr_image.dart';
 export 'src/ocr_model.dart';
