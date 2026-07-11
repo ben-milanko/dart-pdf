@@ -49,6 +49,7 @@ class PdfPageView extends StatefulWidget {
     this.destructiveStamp = 0,
     this.renderWorker,
     this.transformScale,
+    this.transformChanges,
   });
 
   final PdfPage page;
@@ -74,6 +75,17 @@ class PdfPageView extends StatefulWidget {
   /// plan instead of starting the ~290 ms bin from scratch. Null (the
   /// default) disables speculation; settles behave exactly as before.
   final ValueListenable<double>? transformScale;
+
+  /// The viewer's complete live transform notifier (scale and translation).
+  ///
+  /// [transformScale] only notifies when the numeric scale changes, so a
+  /// deep-zoom pan leaves it quiet even though the visible detail region has
+  /// moved. When supplied, this notifier drives strip speculation instead;
+  /// the page reads its post-transform global bounds after the debounce and
+  /// pre-requests the exact region-detail job the next settle will consume.
+  /// Null falls back to [transformScale], preserving the standalone widget's
+  /// zoom-only speculation behavior.
+  final Listenable? transformChanges;
 
   /// Shared low-res previews (see [PdfPagePreviewCache]): while this
   /// page's full render is pending - most visibly under [renderHold]
@@ -245,9 +257,18 @@ class PdfPageView extends StatefulWidget {
   /// or the scene changed) or resolved null when consumed.
   static int debugSpeculativePlanMisses = 0;
 
+  /// Deep-zoom settles that consumed a combined region-detail request issued
+  /// while a live pan was quiescing.
+  static int debugSpeculativeDetailHits = 0;
+
+  /// Region-detail speculations that were stale, cancelled, or declined.
+  static int debugSpeculativeDetailMisses = 0;
+
   static void debugResetSpeculativeStats() {
     debugSpeculativePlanHits = 0;
     debugSpeculativePlanMisses = 0;
+    debugSpeculativeDetailHits = 0;
+    debugSpeculativeDetailMisses = 0;
   }
 
   @override
@@ -312,7 +333,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     super.initState();
     widget.renderHold?.addListener(_onRenderHoldChanged);
     widget.previewCache?.addListener(_onPreviewCacheChanged);
-    widget.transformScale?.addListener(_onTransformScaleChanged);
+    _liveTransformFor(widget)?.addListener(_onLiveTransformChanged);
     _refreshPreview();
   }
 
@@ -330,7 +351,15 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// next full-page settle may consume. See [_speculateStripPlan].
   _SpeculativeStripPlan? _speculativeStripPlan;
 
-  void _onTransformScaleChanged() {
+  /// The combined region commands + strip plan requested while a deep-zoom
+  /// pan is quiescing. The next detail settle consumes it only on an exact
+  /// geometry match.
+  _SpeculativeStripDetail? _speculativeStripDetail;
+
+  static Listenable? _liveTransformFor(PdfPageView widget) =>
+      widget.transformChanges ?? widget.transformScale;
+
+  void _onLiveTransformChanged() {
     _speculateTimer?.cancel();
     _speculateTimer = Timer(_speculateDebounce, _speculateStripPlan);
   }
@@ -397,9 +426,11 @@ class _PdfPageViewState extends State<PdfPageView> {
       oldWidget.renderScheduler?.cancel(this);
       // the new scheduler picks this page up on its next _render
     }
-    if (!identical(oldWidget.transformScale, widget.transformScale)) {
-      oldWidget.transformScale?.removeListener(_onTransformScaleChanged);
-      widget.transformScale?.addListener(_onTransformScaleChanged);
+    final oldLiveTransform = _liveTransformFor(oldWidget);
+    final liveTransform = _liveTransformFor(widget);
+    if (!identical(oldLiveTransform, liveTransform)) {
+      oldLiveTransform?.removeListener(_onLiveTransformChanged);
+      liveTransform?.addListener(_onLiveTransformChanged);
     }
     if (oldWidget.previewIndex != widget.previewIndex) {
       // The lazy list reused this State for a different page (it scrolled into
@@ -475,11 +506,12 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void dispose() {
     widget.renderHold?.removeListener(_onRenderHoldChanged);
-    widget.transformScale?.removeListener(_onTransformScaleChanged);
+    _liveTransformFor(widget)?.removeListener(_onLiveTransformChanged);
     _speculateTimer?.cancel();
     // any pending speculative bin is reaped by the cancelBinStrips below;
     // its null result resolves into a future nobody awaits any more
     _speculativeStripPlan = null;
+    _speculativeStripDetail = null;
     widget.renderScheduler?.cancel(this);
     // Scrolled out of the cache window: drop this page's queued worker request
     // so the worker's next slot serves a page still on screen (the abandoned
@@ -522,6 +554,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     // with the scene identity changed it is meaningless, so drop it (the
     // next _workerStripPlan's cancelBinStrips reaps the worker-side job)
     _speculativeStripPlan = null;
+    _speculativeStripDetail = null;
   }
 
   /// Whether [_scene] came from the render worker (see [_setScene]).
@@ -537,11 +570,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     }
   }
 
-  /// The resolution the current zoom actually wants, uncapped.
-  double _desiredRatio() => _desiredRatioAt(widget.scale);
-
-  /// [_desiredRatio] at an explicit [scale] instead of [PdfPageView.scale],
-  /// so speculation can price the scale a settle is ABOUT to apply.
+  /// The uncapped resolution at an explicit [scale], so speculation can price
+  /// the scale a settle is ABOUT to apply.
   double _desiredRatioAt(double scale) {
     final size = _renderPlan.pageSize(widget.page);
     final width = math.max(1.0, size.width);
@@ -956,53 +986,14 @@ class _PdfPageViewState extends State<PdfPageView> {
   Future<bool> _updateDetail() async {
     final generation = ++_detailGeneration;
     if (_renderPaused) return false;
-    final desired = _desiredRatio();
-    final effective = _effectiveRatio();
-    if (desired <= effective * 1.05) {
+    final detailGeometry = _detailGeometryAt(widget.scale);
+    if (detailGeometry == null) {
       _dropDetail();
       return true;
     }
-    final box = context.findRenderObject();
-    if (box is! RenderBox || !box.attached || !box.hasSize) return false;
-    final pageRect = Rect.fromPoints(
-      box.localToGlobal(Offset.zero),
-      box.localToGlobal(Offset(box.size.width, box.size.height)),
-    );
-    final screen = Offset.zero & MediaQuery.sizeOf(context);
-    final visible = pageRect.intersect(screen);
-    if (visible.isEmpty || pageRect.width <= 0 || pageRect.height <= 0) {
-      _dropDetail();
-      return true;
-    }
-
-    // visible slice as fractions of the page, inflated 50% per side
-    final fraction = Rect.fromLTRB(
-      ((visible.left - pageRect.left - visible.width / 2) / pageRect.width)
-          .clamp(0.0, 1.0),
-      ((visible.top - pageRect.top - visible.height / 2) / pageRect.height)
-          .clamp(0.0, 1.0),
-      ((visible.right - pageRect.left + visible.width / 2) / pageRect.width)
-          .clamp(0.0, 1.0),
-      ((visible.bottom - pageRect.top + visible.height / 2) / pageRect.height)
-          .clamp(0.0, 1.0),
-    );
-    final size = _renderPlan.pageSize(widget.page);
-    final region = Rect.fromLTRB(
-      fraction.left * size.width,
-      fraction.top * size.height,
-      fraction.right * size.width,
-      fraction.bottom * size.height,
-    );
-    if (region.width <= 0 || region.height <= 0) {
-      _dropDetail();
-      return true;
-    }
-    // the patch obeys the same pixel budget as the base
-    var ratio = desired;
-    ratio =
-        math.min(ratio, math.sqrt(_maxPixels / (region.width * region.height)));
-    ratio =
-        math.min(ratio, _maxDimension / math.max(region.width, region.height));
+    final fraction = detailGeometry.fraction;
+    final region = detailGeometry.region;
+    final ratio = detailGeometry.pixelRatio;
 
     // Dense strip-routed pages ask for one combined worker result: commands
     // whose images were decoded for this region plus the StripPlan binned
@@ -1097,6 +1088,54 @@ class _PdfPageViewState extends State<PdfPageView> {
     return true;
   }
 
+  /// Computes the exact patch geometry shared by live-transform speculation
+  /// and the settled render. Null means the page needs no detail patch (the
+  /// base raster is already sharp enough), is not currently visible, or has
+  /// no usable region.
+  _DetailGeometry? _detailGeometryAt(double scale) {
+    final desired = _desiredRatioAt(scale);
+    final effective = _effectiveRatioAt(scale);
+    if (desired <= effective * 1.05) return null;
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    final pageRect = Rect.fromPoints(
+      box.localToGlobal(Offset.zero),
+      box.localToGlobal(Offset(box.size.width, box.size.height)),
+    );
+    final screen = Offset.zero & MediaQuery.sizeOf(context);
+    final visible = pageRect.intersect(screen);
+    if (visible.isEmpty || pageRect.width <= 0 || pageRect.height <= 0) {
+      return null;
+    }
+
+    // visible slice as fractions of the page, inflated 50% per side
+    final fraction = Rect.fromLTRB(
+      ((visible.left - pageRect.left - visible.width / 2) / pageRect.width)
+          .clamp(0.0, 1.0),
+      ((visible.top - pageRect.top - visible.height / 2) / pageRect.height)
+          .clamp(0.0, 1.0),
+      ((visible.right - pageRect.left + visible.width / 2) / pageRect.width)
+          .clamp(0.0, 1.0),
+      ((visible.bottom - pageRect.top + visible.height / 2) / pageRect.height)
+          .clamp(0.0, 1.0),
+    );
+    final size = _renderPlan.pageSize(widget.page);
+    final region = Rect.fromLTRB(
+      fraction.left * size.width,
+      fraction.top * size.height,
+      fraction.right * size.width,
+      fraction.bottom * size.height,
+    );
+    if (region.width <= 0 || region.height <= 0) return null;
+    // the patch obeys the same pixel budget as the base
+    var ratio = desired;
+    ratio =
+        math.min(ratio, math.sqrt(_maxPixels / (region.width * region.height)));
+    ratio =
+        math.min(ratio, _maxDimension / math.max(region.width, region.height));
+    return _DetailGeometry(fraction, region, ratio);
+  }
+
   /// Whether worker strip binning may be asked for at all - shared by
   /// [_workerStripPlan] and [_speculateStripPlan] so the two paths' guards
   /// can't drift: a worker-recorded scene, a live worker, and no
@@ -1116,14 +1155,14 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   /// Fired by [_speculateTimer] once the live transform has been quiet for
-  /// [_speculateDebounce]: pre-requests the worker strip plan for the
-  /// geometry the upcoming zoom settle will ask for, so the ~290 ms worker
-  /// bin overlaps the viewer's 200 ms settle debounce instead of starting
-  /// after it. [_workerStripPlan] consumes the stored future when the
-  /// settle's geometry matches exactly.
+  /// [_speculateDebounce]. A normal zoom pre-requests the full-page strip
+  /// plan; a pixel-capped deep zoom pre-requests the combined region commands
+  /// + plan for the live translated viewport. The matching settle consumes
+  /// the stored future after most of the worker latency has overlapped the
+  /// viewer's own debounce.
   void _speculateStripPlan() {
     final transformScale = widget.transformScale;
-    if (!mounted || transformScale == null || _renderPaused) return;
+    if (!mounted || transformScale == null) return;
     if (!PdfPageView.retainedZoomReplay) return;
     final scene = _scene;
     if (scene == null || !_stripReplayScene(scene)) return;
@@ -1136,12 +1175,19 @@ class _PdfPageViewState extends State<PdfPageView> {
     final live = math.max(1.0, transformScale.value);
     final anticipated =
         (live - widget.scale).abs() > 0.1 * widget.scale ? live : widget.scale;
+
+    // Past the full-page pixel cap the settle does not re-raster the base; it
+    // moves a sharper region patch instead. Compute that patch from the live
+    // post-transform page bounds so translation-only pans can speculate too.
+    final detail = _detailGeometryAt(anticipated);
+    if (detail != null) {
+      _speculateStripDetail(scene, detail);
+      return;
+    }
+
     final eff = _effectiveRatioAt(anticipated);
     // Mirror _renderNow's staleness gate: when the settle won't re-raster
     // the full page (resolution unchanged within 1%), don't bin for it.
-    // This also keeps speculation quiet at deep zoom, where the effective
-    // ratio is pixel-capped and stops moving - it must never compete with
-    // the detail patch's region bins.
     if (_image != null &&
         _rasteredRatio != null &&
         (eff - _rasteredRatio!).abs() <= _rasteredRatio! * 0.01) {
@@ -1154,6 +1200,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     // supersede any previous speculative bin (queued or in-flight)
     worker.cancelBinStrips(widget.previewIndex,
         priority: widget.renderPriority);
+    _speculativeStripDetail = null;
     final m = geometry.pageToDevice;
     _speculativeStripPlan = _SpeculativeStripPlan(
       geometry,
@@ -1167,6 +1214,37 @@ class _PdfPageViewState extends State<PdfPageView> {
         pixelRatio: eff,
         // the SAME priority as the settle's own bin, so speculation is
         // never preempted by (nor preempts) equal-priority work
+        priority: widget.renderPriority,
+      ),
+    );
+  }
+
+  void _speculateStripDetail(PdfRetainedScene scene, _DetailGeometry detail) {
+    final geometry =
+        scene.stripRegionGeometry(detail.region, pixelRatio: detail.pixelRatio);
+    final decodeRegion = _pdfRegionForRasterRegion(detail.region);
+    final pending = _speculativeStripDetail;
+    if (pending != null &&
+        pending.matches(geometry, detail.pixelRatio, decodeRegion)) {
+      return; // the live transform settled on the same region; no churn
+    }
+    final worker = widget.renderWorker!;
+    worker.cancelBinStrips(widget.previewIndex,
+        priority: widget.renderPriority);
+    _speculativeStripPlan = null;
+    final m = geometry.pageToDevice;
+    _speculativeStripDetail = _SpeculativeStripDetail(
+      geometry,
+      detail.pixelRatio,
+      decodeRegion,
+      worker.recordStripDetail(
+        widget.previewIndex,
+        annotations: scene.plan.annotations,
+        pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
+        deviceWidth: geometry.width,
+        deviceHeight: geometry.height,
+        pixelRatio: detail.pixelRatio,
+        imageDecodeRegion: decodeRegion,
         priority: widget.renderPriority,
       ),
     );
@@ -1259,18 +1337,36 @@ class _PdfPageViewState extends State<PdfPageView> {
     final worker = widget.renderWorker!;
     final geometry =
         baseScene.stripRegionGeometry(rasterRegion, pixelRatio: ratio);
-    final m = geometry.pageToDevice;
-    worker.cancelBinStrips(pageIndex, priority: widget.renderPriority);
-    final detail = await worker.recordStripDetail(
-      pageIndex,
-      annotations: baseScene.plan.annotations,
-      pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
-      deviceWidth: geometry.width,
-      deviceHeight: geometry.height,
-      pixelRatio: ratio,
-      imageDecodeRegion: _pdfRegionForRasterRegion(rasterRegion),
-      priority: widget.renderPriority,
-    );
+    final decodeRegion = _pdfRegionForRasterRegion(rasterRegion);
+    PdfStripDetail? detail;
+    final speculative = _speculativeStripDetail;
+    if (speculative != null) {
+      _speculativeStripDetail = null;
+      if (speculative.matches(geometry, ratio, decodeRegion)) {
+        detail = await speculative.detail;
+        if (detail != null) {
+          PdfPageView.debugSpeculativeDetailHits++;
+        } else {
+          PdfPageView.debugSpeculativeDetailMisses++;
+        }
+      } else {
+        PdfPageView.debugSpeculativeDetailMisses++;
+      }
+    }
+    if (detail == null) {
+      final m = geometry.pageToDevice;
+      worker.cancelBinStrips(pageIndex, priority: widget.renderPriority);
+      detail = await worker.recordStripDetail(
+        pageIndex,
+        annotations: baseScene.plan.annotations,
+        pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
+        deviceWidth: geometry.width,
+        deviceHeight: geometry.height,
+        pixelRatio: ratio,
+        imageDecodeRegion: decodeRegion,
+        priority: widget.renderPriority,
+      );
+    }
     if (_abandoned(pageIndex) ||
         generation != _detailGeneration ||
         _renderPaused ||
@@ -1413,17 +1509,50 @@ class _SpeculativeStripPlan {
   /// and the ratio compare with `==` (the coefficients round-trip the wire
   /// codec bit-exactly, so a matching settle really is the same geometry).
   bool matches(({PdfMatrix pageToDevice, int width, int height}) other,
-      double otherPixelRatio) {
-    final a = geometry.pageToDevice;
-    final b = other.pageToDevice;
-    return pixelRatio == otherPixelRatio &&
-        geometry.width == other.width &&
-        geometry.height == other.height &&
-        a.a == b.a &&
-        a.b == b.b &&
-        a.c == b.c &&
-        a.d == b.d &&
-        a.e == b.e &&
-        a.f == b.f;
-  }
+          double otherPixelRatio) =>
+      pixelRatio == otherPixelRatio && _sameStripGeometry(geometry, other);
+}
+
+class _DetailGeometry {
+  const _DetailGeometry(this.fraction, this.region, this.pixelRatio);
+
+  final Rect fraction;
+  final Rect region;
+  final double pixelRatio;
+}
+
+/// A combined region-detail job issued from the translated live viewport.
+class _SpeculativeStripDetail {
+  const _SpeculativeStripDetail(
+      this.geometry, this.pixelRatio, this.decodeRegion, this.detail);
+
+  final ({PdfMatrix pageToDevice, int width, int height}) geometry;
+  final double pixelRatio;
+  final PdfRect decodeRegion;
+  final Future<PdfStripDetail?> detail;
+
+  bool matches(({PdfMatrix pageToDevice, int width, int height}) other,
+          double otherPixelRatio, PdfRect otherDecodeRegion) =>
+      pixelRatio == otherPixelRatio &&
+      _sameStripGeometry(geometry, other) &&
+      decodeRegion.left == otherDecodeRegion.left &&
+      decodeRegion.bottom == otherDecodeRegion.bottom &&
+      decodeRegion.right == otherDecodeRegion.right &&
+      decodeRegion.top == otherDecodeRegion.top;
+}
+
+bool _sameStripGeometry(
+  ({PdfMatrix pageToDevice, int width, int height}) a,
+  ({PdfMatrix pageToDevice, int width, int height}) b,
+) {
+  final am = a.pageToDevice;
+  final bm = b.pageToDevice;
+  return a.width == b.width &&
+      a.height == b.height &&
+      am.a == bm.a &&
+      am.b == bm.b &&
+      am.c == bm.c &&
+      am.d == bm.d &&
+      am.e == bm.e &&
+      am.f == bm.f;
 }

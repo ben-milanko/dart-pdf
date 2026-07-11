@@ -134,3 +134,34 @@ the now-measured zoom-settle critical path.
 One separate follow-up was filed as #220: make native/Web Worker cancellation
 request-ID-scoped so a late cancel for a completed job cannot abort the urgent
 job that followed it.
+
+## Deep-zoom pan speculation (#213)
+
+The viewer now threads its complete `TransformationController` notifier into
+`PdfPageView`, not only the derived scale notifier. A translation-only pan at
+deep zoom therefore resets the same 50 ms speculation debounce as a zoom.
+When it fires, the page reads its post-transform global bounds and runs the
+same inflated-visible-region calculation used by `_updateDetail`. Dense
+strip-routed pages pre-request one `recordStripDetail` job for that exact
+region, including both region-resolution image commands and the matching strip
+plan.
+
+The settled render consumes the future only when all device-matrix
+coefficients, device dimensions, pixel ratio, and PDF decode-region bounds
+match exactly. A translated or superseded viewport counts as a miss, cancels
+the stale BIN/detail work, and issues a fresh request. Combined DETAIL jobs are
+now cooperatively preemptible in flight through `cancelBinStrips`, matching the
+existing BIN behavior.
+
+The implementation also removed a production-only blocker from the earlier
+full-page speculation: `_speculateStripPlan` returned while the render
+scheduler's motion hold was active. The real viewer raises that hold for the
+whole gesture debounce, so speculation could be suppressed during the exact
+window it was intended to overlap; the original bare-`PdfPageView` tests did
+not mount a scheduler. Worker speculation is off-thread and now continues
+while scheduled UI page renders remain held.
+
+The widget regression covers both an exact translated-region hit and a stale
+geometry miss with the scheduler held during quiescence. The native worker
+suite separately proves an in-flight combined DETAIL walk resolves null when
+superseded and that the worker serves the following detail request normally.

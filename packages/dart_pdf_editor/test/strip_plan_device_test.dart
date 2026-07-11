@@ -45,7 +45,8 @@ Future<StripPlan> _localPlan(PdfRetainedScene scene,
 }
 
 void main() {
-  testWidgets('a precomputed plan rasterizes byte-identically to local '
+  testWidgets(
+      'a precomputed plan rasterizes byte-identically to local '
       'binning (verified batch-by-batch)', (tester) async {
     await tester.runAsync(() async {
       final doc = PdfDocument.open(buildVectorPdf());
@@ -75,8 +76,7 @@ void main() {
 
       // Region variant, mirrored geometry.
       const region = Rect.fromLTWH(290, 300, 200, 150);
-      final regionPlan =
-          await _localPlan(scene, pixelRatio: 2, region: region);
+      final regionPlan = await _localPlan(scene, pixelRatio: 2, region: region);
       StripPdfDevice.resetStats();
       final planned = await scene.rasterizeRegionStrips(region,
           pixelRatio: 2, stripPlan: regionPlan);
@@ -148,8 +148,8 @@ void main() {
         batches: good.batches,
       );
       StripPdfDevice.resetStats();
-      final fallback = await scene.rasterizeStrips(
-          pixelRatio: ratio, stripPlan: doctored);
+      final fallback =
+          await scene.rasterizeStrips(pixelRatio: ratio, stripPlan: doctored);
       expect(StripPdfDevice.totalPlanMismatches, 1,
           reason: 'the desync must be counted');
       expect(StripPdfDevice.totalPlanPictures, 0);
@@ -162,8 +162,8 @@ void main() {
       // Stale geometry (a plan for another zoom level) is rejected up
       // front - cheaper, same fallback.
       StripPdfDevice.resetStats();
-      final stale = await scene.rasterizeStrips(
-          pixelRatio: 3.0, stripPlan: good);
+      final stale =
+          await scene.rasterizeStrips(pixelRatio: 3.0, stripPlan: good);
       expect(StripPdfDevice.totalPlanMismatches, 1);
       expect(StripPdfDevice.totalPlanPictures, 0);
       final local3 = await scene.rasterizeStrips(pixelRatio: 3.0);
@@ -243,7 +243,8 @@ void main() {
   // stops moving for 50 ms), the page pre-requests the worker plan for the
   // geometry the settle will ask for; the settle then consumes it instead of
   // starting a fresh bin.
-  testWidgets('a zoom settle consumes the plan speculated while the gesture '
+  testWidgets(
+      'a zoom settle consumes the plan speculated while the gesture '
       'quiesced', (tester) async {
     PdfPageView.retainedZoomReplayMaxCommands = 0; // every page is "dense"
     PdfPageView.stripZoomReplay = true;
@@ -302,7 +303,8 @@ void main() {
     expect(StripPdfDevice.totalPlanMismatches, 0);
   });
 
-  testWidgets('a settle at a different scale than speculated misses and '
+  testWidgets(
+      'a settle at a different scale than speculated misses and '
       'still renders from a fresh worker plan', (tester) async {
     PdfPageView.retainedZoomReplayMaxCommands = 0; // every page is "dense"
     PdfPageView.stripZoomReplay = true;
@@ -358,5 +360,130 @@ void main() {
     expect(StripPdfDevice.totalPlanPictures, greaterThan(0),
         reason: 'a fresh worker plan must still land');
     expect(StripPdfDevice.totalPlanMismatches, 0);
+  });
+
+  testWidgets(
+      'a deep-zoom pan consumes the combined region detail '
+      'speculated from live translation', (tester) async {
+    PdfPageView.retainedZoomReplayMaxCommands = 0; // every page is "dense"
+    PdfPageView.stripZoomReplay = true;
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    PdfPageView.debugResetSpeculativeStats();
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.stripZoomReplay = true;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+      PdfPageView.debugResetSpeculativeStats();
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = buildVectorPdf();
+    final doc = PdfDocument.open(bytes);
+    final page = doc.page(0);
+    late PdfRenderWorker worker;
+    await tester.runAsync(() async {
+      worker = PdfRenderWorker.start(bytes);
+    });
+    addTearDown(worker.dispose);
+
+    // The viewer's scale notifier stays at the live 16x zoom. The separate
+    // pan notifier models the full TransformationController: it rebuilds the
+    // translated page and wakes speculation even though scale is unchanged.
+    final liveScale = ValueNotifier<double>(16.0);
+    final pan = ValueNotifier<Offset>(Offset.zero);
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(liveScale.dispose);
+    addTearDown(pan.dispose);
+    addTearDown(scheduler.dispose);
+
+    Widget at(double scale, int settleGeneration) => Align(
+          alignment: Alignment.topLeft,
+          child: ValueListenableBuilder<Offset>(
+            valueListenable: pan,
+            builder: (context, offset, _) => Transform.translate(
+              offset: offset,
+              child: SizedBox(
+                width: 612,
+                child: PdfPageView(
+                  page: page,
+                  scale: scale,
+                  settleGeneration: settleGeneration,
+                  renderWorker: worker,
+                  renderScheduler: scheduler,
+                  transformScale: liveScale,
+                  transformChanges: pan,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    // Prime the worker-recorded retained scene at 1x, then enter deep zoom
+    // and wait for its first ordinary detail patch to land.
+    await tester.pumpWidget(at(1, 0));
+    await router.settleRaster(tester, 612);
+    await tester.pumpWidget(at(16, 1));
+    for (var i = 0; i < 80; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+      await tester.pump();
+      if (find.byType(RawImage).evaluate().length >= 2) break;
+    }
+    expect(find.byType(RawImage).evaluate().length, greaterThanOrEqualTo(2),
+        reason: 'deep zoom must have a base raster and detail patch');
+    PdfPageView.debugResetSpeculativeStats();
+
+    // Translate without changing scale. One frame applies the transform;
+    // the following 60 ms crosses the 50 ms speculation debounce. The real
+    // viewer holds scheduled page renders throughout this window; worker
+    // speculation must continue because overlapping that hold is its purpose.
+    scheduler.holding = true;
+    pan.value = const Offset(-450, 0);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    // The viewer's 200 ms settle later bumps only settleGeneration. Its
+    // region geometry is bit-identical to the live translation's request.
+    scheduler.holding = false;
+    await tester.pumpWidget(at(16, 2));
+    for (var i = 0;
+        i < 80 && PdfPageView.debugSpeculativeDetailHits == 0;
+        i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+      await tester.pump();
+    }
+    expect(PdfPageView.debugSpeculativeDetailHits, 1);
+    expect(PdfPageView.debugSpeculativeDetailMisses, 0);
+    expect(PdfPageView.debugSpeculativePlanHits, 0,
+        reason: 'deep zoom must speculate the combined region job, not a '
+            'full-page bin');
+
+    // A second live region can be overtaken before the viewer's settle. The
+    // stored geometry must miss rather than painting the stale patch, and the
+    // settle must issue a fresh request for the newest translation.
+    PdfPageView.debugResetSpeculativeStats();
+    scheduler.holding = true;
+    pan.value = const Offset(-250, 0);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    pan.value = const Offset(-500, 0);
+    await tester.pump(); // apply the newer transform, before its 50 ms timer
+    scheduler.holding = false;
+    await tester.pumpWidget(at(16, 3));
+    for (var i = 0;
+        i < 80 && PdfPageView.debugSpeculativeDetailMisses == 0;
+        i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+      await tester.pump();
+    }
+    expect(PdfPageView.debugSpeculativeDetailHits, 0);
+    expect(PdfPageView.debugSpeculativeDetailMisses, 1,
+        reason: 'a translated settle must reject stale region geometry');
+
+    // Dispose before the newer translation's pending speculation timer fires.
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }

@@ -4079,6 +4079,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 onMoveDragPreview: _onMoveDragPreview,
                 crossPageGhost: _crossPageGhostFor(index),
                 transformScale: _transformScale,
+                transformChanges: _transform,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
                 renderWorker: widget.renderWorker,
@@ -4672,6 +4673,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.onMoveDragPreview,
     required this.crossPageGhost,
     required this.transformScale,
+    required this.transformChanges,
     required this.renderScheduler,
     required this.previewCache,
     required this.renderWorker,
@@ -4775,6 +4777,9 @@ class _PdfViewerPage extends StatefulWidget {
   /// by it to stay constant-size on screen while zoomed.
   final ValueListenable<double> transformScale;
 
+  /// The complete viewer matrix notifier, including translation-only pans.
+  final Listenable transformChanges;
+
   /// See [PdfPageView.renderScheduler].
   final PdfPageRenderScheduler renderScheduler;
 
@@ -4874,8 +4879,11 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         previewCache: widget.previewCache,
         renderWorker: widget.renderWorker,
         // the live matrix scale lets dense strip-routed pages bin their
-        // settle's strip plan speculatively while the gesture quiesces
+        // settle's strip plan speculatively while the gesture quiesces; the
+        // full matrix additionally lets deep-zoom pans speculate their next
+        // translated region-detail patch
         transformScale: widget.transformScale,
+        transformChanges: widget.transformChanges,
         previewIndex: widget.index,
       ),
       if (annotationLayerController != null)

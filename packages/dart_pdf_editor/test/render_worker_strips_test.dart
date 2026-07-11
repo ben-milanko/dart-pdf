@@ -7,9 +7,9 @@
 //    truncation as the buffer the caller's scene holds);
 //  - the isolate queue's kind-scoped cancel (cancelBinStrips drops queued
 //    bins without touching queued records, and vice versa);
-//  - cancelBinStrips also preempts a matching IN-FLIGHT bin (the worker
-//    abandons it mid-walk and the future resolves null) - what lets a
-//    newer speculative/settle geometry supersede a running stale bin;
+//  - cancelBinStrips also preempts matching IN-FLIGHT bin and combined-detail
+//    jobs (the worker abandons the stale walk and resolves null) - what lets a
+//    newer speculative/settle geometry supersede the translated region;
 //  - pool routing by the STATIC page index (worker-side command-cache
 //    affinity) for both binStrips and cancelBinStrips;
 //  - the caching wrapper passes bins straight through (plans are never
@@ -324,6 +324,36 @@ void main() {
       expect(fresh, isNotNull,
           reason: 'a fresh bin after the preemption must succeed');
       expect(fresh!.batches, isNotEmpty);
+    });
+  });
+
+  testWidgets('cancelBinStrips preempts a matching in-flight detail job',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildDenseVectorPdf();
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
+      expect(await worker.record(0), isNotNull);
+
+      Future<PdfStripDetail?> detail() => worker.recordStripDetail(
+            0,
+            annotations: true,
+            pageToDevice: const [1, 0, 0, 1, 0, 0],
+            deviceWidth: 612,
+            deviceHeight: 792,
+            pixelRatio: 1,
+            imageDecodeRegion: const PdfRect(0, 0, 612, 792),
+          );
+
+      final stale = detail();
+      worker.cancelBinStrips(0);
+      expect(await stale.timeout(const Duration(seconds: 30)), isNull,
+          reason: 'the superseded region detail must stop mid-walk');
+
+      final fresh = await detail().timeout(const Duration(seconds: 30));
+      expect(fresh, isNotNull,
+          reason: 'the worker must survive detail preemption');
+      expect(fresh!.plan.batches, isNotEmpty);
     });
   });
 

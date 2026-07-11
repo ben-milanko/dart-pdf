@@ -321,14 +321,13 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   /// ignores that. Kinds cancel independently so a superseded zoom settle
   /// can't drop the page's pending record (or vice versa).
   ///
-  /// For the BIN kind only, a matching IN-FLIGHT job is also preempted (the
-  /// cancel-port signal makes the worker abandon the stale bin mid-walk and
-  /// reply null; the abandoning caller ignores it), so a superseded settle -
-  /// or a speculative bin overtaken by a newer geometry - frees the worker
-  /// immediately instead of running to completion first. Record cancels
-  /// stay queued-only: [PdfCachingRenderWorker] dedups in-flight records
-  /// across callers, so preempting one would null a waiter shared with a
-  /// caller that still wants it.
+  /// For BIN and combined DETAIL kinds, a matching IN-FLIGHT job is also
+  /// preempted (the cancel-port signal makes the worker abandon the stale
+  /// walk and reply null; the abandoning caller ignores it), so a superseded
+  /// settle or translated region speculation frees the worker immediately.
+  /// Record cancels stay queued-only: [PdfCachingRenderWorker] dedups
+  /// in-flight records across callers, so preempting one would null a waiter
+  /// shared with a caller that still wants it.
   ///
   /// The in-flight signal carries a benign pre-existing race (the same one
   /// the priority-preemption path in [_pump] accepts): it can land on the
@@ -346,7 +345,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       return true;
     });
     final inFlight = _inFlight;
-    if (kind == _RequestKind.bin &&
+    if ((kind == _RequestKind.bin || kind == _RequestKind.detail) &&
         inFlight != null &&
         inFlight.kind == kind &&
         inFlight.pageIndex == pageIndex &&
