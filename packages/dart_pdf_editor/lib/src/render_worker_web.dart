@@ -162,6 +162,14 @@ class _WebRenderWorker extends PdfRenderWorker {
       _pump();
       return;
     }
+    if (kind == 'cancelIgnored') {
+      final target =
+          (data.getProperty('targetId'.toJS) as JSNumber?)?.toDartInt;
+      final active =
+          (data.getProperty('activeId'.toJS) as JSNumber?)?.toDartInt;
+      _wlog('ignored stale cancel target=$target active=$active');
+      return;
+    }
     if (kind != 'result') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final request = _inFlight;
@@ -240,7 +248,9 @@ class _WebRenderWorker extends PdfRenderWorker {
       }
       if (_queue[bestQueued].priority < _inFlight!.priority) {
         _inFlight!.requeueAfterPreemption = true;
-        worker.postMessage(JSObject()..setProperty('kind'.toJS, 'cancel'.toJS));
+        worker.postMessage(JSObject()
+          ..setProperty('kind'.toJS, 'cancel'.toJS)
+          ..setProperty('id'.toJS, _inFlight!.id.toJS));
       }
       return;
     }
