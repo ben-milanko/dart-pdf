@@ -272,7 +272,8 @@ Future<Uint8List?> _recordPageAsync(
       maxImagePixelRatio: imagePixelRatio,
       imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
-      commandLimit: commandLimit);
+      commandLimit: commandLimit,
+      compactStateScopes: true);
 }
 
 Future<Uint8List?> _binStripsAsync(
@@ -325,7 +326,10 @@ class _BinCommandCache {
     await interpreter.drawPageOperationsAsync(page, ops);
     if (annotations) interpreter.drawAnnotations(page);
     final buffer = serializeCommands(recorder.commands,
-        cos: document.cos, decodeImages: false, imagePlaceholders: true);
+        cos: document.cos,
+        decodeImages: false,
+        imagePlaceholders: true,
+        compactStateScopes: true);
     if (buffer == null) return null;
     final commands = deserializeCommands(buffer);
     _entries[key] = commands;

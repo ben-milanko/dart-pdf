@@ -64,7 +64,8 @@ class _SyncWorker extends PdfRenderWorker {
         maxImagePixelRatio: imagePixelRatio,
         imageDecodeRegion: imageDecodeRegion,
         imagePlaceholders: !decodeImages,
-        commandLimit: commandLimit);
+        commandLimit: commandLimit,
+        compactStateScopes: true);
     return bytes == null ? null : deserializeCommands(bytes);
   }
 

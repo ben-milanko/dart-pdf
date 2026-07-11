@@ -194,6 +194,96 @@ void main() {
     });
   });
 
+  group('worker state-scope compaction', () {
+    test('drops clip-free scopes but preserves clip-owning scopes', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final recorder = _record(
+          doc,
+          'q 0 0 10 10 re f Q '
+          'q 0 0 5 5 re W n 0 0 10 10 re f Q '
+          'q q 1 1 4 4 re W n 0 0 10 10 re f Q Q');
+
+      final bytes = serializeCommands(
+        recorder.commands,
+        compactStateScopes: true,
+      )!;
+      final compacted = deserializeCommands(bytes);
+
+      expect(compacted.whereType<PdfFillPathCommand>(), hasLength(3));
+      expect(compacted.whereType<PdfClipPathCommand>(), hasLength(2));
+      expect(compacted.whereType<PdfSaveCommand>(), hasLength(2));
+      expect(compacted.whereType<PdfRestoreCommand>(), hasLength(2));
+      expect(compacted.first, isA<PdfFillPathCommand>(),
+          reason: 'the first clip-free q/Q pair should disappear');
+    });
+
+    test('keeps unmatched state commands in a command-limited prefix', () {
+      final recorder =
+          _record(CosDocument.open(buildClassicPdf()), 'q 0 0 10 10 re f Q');
+      final bytes = serializeCommands(
+        recorder.commands,
+        commandLimit: 2,
+        compactStateScopes: true,
+      )!;
+      final compacted = deserializeCommands(bytes);
+
+      expect(compacted, hasLength(2));
+      expect(compacted[0], isA<PdfSaveCommand>());
+      expect(compacted[1], isA<PdfFillPathCommand>());
+    });
+
+    test('keeps explicit blend restoration while dropping its scope', () {
+      const path = PdfPath([
+        PdfMoveTo(0, 0),
+        PdfLineTo(1, 0),
+        PdfLineTo(1, 1),
+        PdfClosePath(),
+      ]);
+      final commands = <PdfRenderCommand>[
+        const PdfSaveCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfFillPathCommand(path, PdfColor.black, PdfFillRule.nonzero, 1),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        const PdfRestoreCommand(),
+      ];
+
+      final restored = deserializeCommands(
+        serializeCommands(commands, compactStateScopes: true)!,
+      );
+      expect(restored, hasLength(3));
+      expect(restored[0], isA<PdfSetBlendModeCommand>());
+      expect(restored[1], isA<PdfFillPathCommand>());
+      expect(restored[2], isA<PdfSetBlendModeCommand>());
+    });
+
+    test('compacts soft-mask callback commands recursively', () {
+      const path = PdfPath([
+        PdfMoveTo(0, 0),
+        PdfLineTo(1, 0),
+        PdfLineTo(1, 1),
+        PdfClosePath(),
+      ]);
+      final commands = <PdfRenderCommand>[
+        PdfEndSoftMaskedCommand(
+          luminosity: false,
+          backdrop: const PdfRect(0, 0, 1, 1),
+          maskCommands: const [
+            PdfSaveCommand(),
+            PdfFillPathCommand(path, PdfColor.black, PdfFillRule.nonzero, 1),
+            PdfRestoreCommand(),
+          ],
+        ),
+      ];
+
+      final restored = deserializeCommands(
+        serializeCommands(commands, compactStateScopes: true)!,
+      );
+      final mask = (restored.single as PdfEndSoftMaskedCommand).maskCommands;
+      expect(mask, hasLength(1));
+      expect(mask.single, isA<PdfFillPathCommand>());
+    });
+  });
+
   // Real pages exercise the fragile callbacks: transparency groups, soft masks
   // (their drawMask content), blend modes, gradients, knockout - and images,
   // which round-trip through the inline-resolved stream subgraph (given `cos`)

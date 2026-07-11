@@ -110,6 +110,15 @@ class _UnserializableImage implements Exception {
 /// cropped page area; unsupported transforms fall back to the full scaled
 /// decode. The total decoded-image budget is also reduced to the region's own
 /// raster footprint, rather than the full-page raster budget.
+///
+/// [compactStateScopes] removes `save`/`restore` pairs whose scope never
+/// changes the device clip. Recorded geometry, image transforms, paint, and
+/// blend state are already explicit in the commands (the interpreter also
+/// emits blend restoration explicitly), so those pairs are redundant for
+/// replay. Clip-bearing scopes remain byte-for-byte ordered. Render workers
+/// enable this to shrink dense command buffers before they cross to the UI
+/// isolate; the default stays false so the public codec remains a lossless
+/// command-transcript round trip.
 /// The page raster never exceeds this many pixels (the viewer's full-page
 /// raster cap), so it is also the natural unit for the page image budget.
 const int _maxImagePixels = 1 << 24;
@@ -149,7 +158,11 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     PdfRect? imageDecodeRegion,
     double imageBudgetFactor = _imageBudgetFactor,
     bool imagePlaceholders = false,
-    int? commandLimit}) {
+    int? commandLimit,
+    bool compactStateScopes = false}) {
+  final wireCommands = compactStateScopes
+      ? _compactStateScopes(commands, commandLimit: commandLimit)
+      : commands;
   final w = _Writer();
   w.u8(_formatVersion);
   // Page-pixel budget: a global downscale applied on top of the per-image
@@ -159,7 +172,7 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
   var budgetScale = 1.0;
   if (decodeImages && maxImagePixelRatio != null && cos != null) {
     budgetScale = _imageBudgetScale(
-        commands,
+        wireCommands,
         cos,
         maxImagePixelRatio,
         _imageBudgetPixels(maxImagePixelRatio, imageBudgetFactor,
@@ -167,17 +180,95 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
         imageDecodeRegion: imageDecodeRegion);
   }
   try {
-    _writeCommands(w, commands, cos,
+    _writeCommands(w, wireCommands, cos,
         decode: decodeImages,
         maxImageRatio: maxImagePixelRatio,
         imageDecodeRegion: imageDecodeRegion,
         budgetScale: budgetScale,
         imagePlaceholders: imagePlaceholders && !decodeImages,
-        commandLimit: commandLimit);
+        commandLimit: compactStateScopes ? null : commandLimit);
   } on _UnserializableImage {
     return null;
   }
   return w.takeBytes();
+}
+
+/// Drops replay-state scopes that cannot change rendering.
+///
+/// A recorded `q`/`Q` pair only has an observable device effect when a clip
+/// is installed at that same nesting depth. Paths are already transformed to
+/// page space, every paint command owns its complete style, images own their
+/// transform, and the interpreter emits an explicit blend-mode command when
+/// `Q` restores a different blend. Nested clip scopes protect themselves, so
+/// they do not make an otherwise empty parent scope necessary.
+///
+/// The command prefix is taken before compaction to preserve [commandLimit]'s
+/// existing preview semantics. Unbalanced prefixes keep their unmatched
+/// state commands. Soft-mask callback transcripts are compacted recursively.
+List<PdfRenderCommand> _compactStateScopes(
+  List<PdfRenderCommand> commands, {
+  int? commandLimit,
+}) {
+  final length = commandLimit == null
+      ? commands.length
+      : math.min(commands.length, math.max(0, commandLimit));
+  final keep = Uint8List(length)..fillRange(0, length, 1);
+  final saveIndices = <int>[];
+  final clipped = <bool>[];
+  var removed = 0;
+
+  for (var i = 0; i < length; i++) {
+    switch (commands[i]) {
+      case PdfSaveCommand():
+        saveIndices.add(i);
+        clipped.add(false);
+      case PdfClipPathCommand():
+        if (clipped.isNotEmpty) clipped[clipped.length - 1] = true;
+      case PdfRestoreCommand():
+        if (saveIndices.isEmpty) break;
+        final save = saveIndices.removeLast();
+        final scopeClipped = clipped.removeLast();
+        if (!scopeClipped) {
+          keep[save] = 0;
+          keep[i] = 0;
+          removed += 2;
+        }
+      default:
+        break;
+    }
+  }
+
+  final out = List<PdfRenderCommand>.filled(
+    length - removed,
+    const PdfSaveCommand(),
+    growable: false,
+  );
+  var outputIndex = 0;
+  for (var i = 0; i < length; i++) {
+    if (keep[i] == 0) continue;
+    final command = commands[i];
+    if (command
+        case PdfEndSoftMaskedCommand(
+          :final luminosity,
+          :final backdrop,
+          :final maskCommands,
+          :final backdropLuminance,
+          :final transferScale,
+          :final transferOffset,
+        )) {
+      out[outputIndex++] = PdfEndSoftMaskedCommand(
+        luminosity: luminosity,
+        backdrop: backdrop,
+        maskCommands: _compactStateScopes(maskCommands),
+        backdropLuminance: backdropLuminance,
+        transferScale: transferScale,
+        transferOffset: transferOffset,
+      );
+    } else {
+      out[outputIndex++] = command;
+    }
+  }
+  return out;
 }
 
 /// Linear downscale to apply to every image so the sum of the per-image-capped

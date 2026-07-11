@@ -650,7 +650,8 @@ Future<Uint8List?> _recordPageAsync(
       maxImagePixelRatio: imagePixelRatio,
       imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
-      commandLimit: commandLimit);
+      commandLimit: commandLimit,
+      compactStateScopes: true);
 }
 
 /// Bins one page's strips for the requested device geometry and returns the
@@ -707,6 +708,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     decodeImages: true,
     maxImagePixelRatio: pixelRatio,
     imageDecodeRegion: imageDecodeRegion,
+    compactStateScopes: true,
   );
   if (commandBuffer == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
@@ -776,7 +778,10 @@ class _BinCommandCache {
     await interpreter.drawPageOperationsAsync(page, ops);
     if (annotations) interpreter.drawAnnotations(page);
     final buffer = serializeCommands(recorder.commands,
-        cos: document.cos, decodeImages: false, imagePlaceholders: true);
+        cos: document.cos,
+        decodeImages: false,
+        imagePlaceholders: true,
+        compactStateScopes: true);
     if (buffer == null) return null;
     final entry = _BinCommandEntry(
       recorder.commands,
