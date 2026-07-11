@@ -82,12 +82,6 @@ String pdfSavePathWithExtension(String path) {
 }
 
 void main() {
-  // Fan page decoding across a few workers so a raster-heavy document (every
-  // CAD sheet a multi-second image decode) warms several pages at once instead
-  // of one at a time. Each worker holds its own copy of the document, so this
-  // trades memory for throughput. The example exposes this in the AppBar so
-  // users can switch between the pooled and single-worker paths.
-  pdfRenderWorkerPoolSize = 3;
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
   // streamed to the browser console) without a rebuild by opening the demo
@@ -217,16 +211,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
 
-  bool _workerPoolEnabled = pdfRenderWorkerPoolSize > 1;
-  int _workerPoolSize =
-      pdfRenderWorkerPoolSize > 1 ? pdfRenderWorkerPoolSize : 3;
+  final PdfPerformanceController _performance = PdfPerformanceController();
   int _workerConfigEpoch = 0;
 
-  int get _effectiveWorkerPoolSize => _workerPoolEnabled ? _workerPoolSize : 1;
-
-  String get _workerPoolTooltip => _workerPoolEnabled
-      ? 'Worker pool: $_workerPoolSize workers'
-      : 'Worker pool off: single worker';
+  String get _workerPoolTooltip {
+    final mode = _performance.mode;
+    if (mode.isAuto) return 'Performance: Auto';
+    final count = mode.workerCount!;
+    return count == 1
+        ? 'Performance: single worker'
+        : 'Performance: $count workers';
+  }
 
   /// OCR connection settings, supplied through the credentials dialog and
   /// remembered for the app's lifetime (the API key is deliberately kept in
@@ -308,22 +303,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
     };
   }
 
-  void _setWorkerPoolSize(int value) {
-    final nextSize = value <= 1 ? 1 : value;
-    if (nextSize == _effectiveWorkerPoolSize) return;
+  void _setPerformanceMode(int value) {
+    final next = value == 0
+        ? const PdfPerformanceMode.auto()
+        : PdfPerformanceMode.fixed(workerCount: value);
+    if (next == _performance.mode) return;
     setState(() {
-      if (nextSize == 1) {
-        _workerPoolEnabled = false;
-      } else {
-        _workerPoolEnabled = true;
-        _workerPoolSize = nextSize;
-      }
-      pdfRenderWorkerPoolSize = _effectiveWorkerPoolSize;
+      _performance.mode = next;
       _workerConfigEpoch++;
     });
-    _toast(_workerPoolEnabled
-        ? 'Worker pool: $_workerPoolSize workers'
-        : 'Worker pool off: single worker');
+    _toast(_workerPoolTooltip);
   }
 
   Key _pdfShellKey(_DocumentTab tab, String mode) =>
@@ -736,6 +725,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     for (final tab in _tabs) {
       tab.dispose();
     }
+    _performance.dispose();
     super.dispose();
   }
 
@@ -1199,22 +1189,29 @@ class _ViewerScreenState extends State<ViewerScreen> {
               PopupMenuButton<int>(
                 key: const ValueKey('dartpdf-worker-pool-menu'),
                 tooltip: _workerPoolTooltip,
-                icon: Icon(
-                    _workerPoolEnabled ? Icons.memory : Icons.memory_outlined),
-                onSelected: _setWorkerPoolSize,
+                icon: Icon(_performance.mode.isAuto
+                    ? Icons.auto_awesome
+                    : Icons.memory),
+                onSelected: _setPerformanceMode,
                 itemBuilder: (context) => [
+                  CheckedPopupMenuItem<int>(
+                    key: const ValueKey('dartpdf-worker-pool-auto'),
+                    value: 0,
+                    checked: _performance.mode.isAuto,
+                    child: const Text('Auto'),
+                  ),
+                  const PopupMenuDivider(),
                   CheckedPopupMenuItem<int>(
                     key: const ValueKey('dartpdf-worker-pool-off'),
                     value: 1,
-                    checked: !_workerPoolEnabled,
-                    child: const Text('Worker pool off'),
+                    checked: _performance.mode.workerCount == 1,
+                    child: const Text('Single worker'),
                   ),
-                  const PopupMenuDivider(),
                   for (final size in const [2, 3, 4, 6])
                     CheckedPopupMenuItem<int>(
                       key: ValueKey('dartpdf-worker-pool-$size'),
                       value: size,
-                      checked: _workerPoolEnabled && _workerPoolSize == size,
+                      checked: _performance.mode.workerCount == size,
                       child: Text('$size workers'),
                     ),
                 ],
@@ -1281,6 +1278,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 documentId: tab.title,
                                 controller: tab.viewer,
                                 preferences: _prefs,
+                                performance: _performance,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 onAction: _onAction,
@@ -1292,6 +1290,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 documentId: tab.title,
                                 controller: tab.session,
                                 viewerController: tab.viewer,
+                                performance: _performance,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 onSave: (saved) => unawaited(_saveAs(saved)),

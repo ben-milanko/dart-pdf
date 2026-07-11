@@ -101,6 +101,21 @@ Numbers and methodology are in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
 The harnesses diff dart-pdf against PDFium file by file.
 
+The drop-in shells use adaptive performance tuning by default. Auto selects a
+platform-, core-, and document-aware worker count, then adjusts safe preview
+and image-resolution knobs from observed render latency, result sizes, and
+frame jank. Use a controller to inspect it or choose a fixed configuration:
+
+```dart
+final performance = PdfPerformanceController(); // Auto
+
+PdfReader(bytes: pdfBytes, performance: performance);
+debugPrint('${performance.diagnostics}');
+
+// Applied when the document worker next starts; never resized mid-scroll.
+performance.mode = const PdfPerformanceMode.fixed(workerCount: 2);
+```
+
 ## Viewing
 
 - Zooming/panning viewer with fit-page and fit-width modes, deep-zoom

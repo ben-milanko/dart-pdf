@@ -18,6 +18,8 @@ import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'page_number_field.dart';
+import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'raster_cache.dart';
@@ -207,6 +209,7 @@ class PdfEditorView extends StatefulWidget {
     this.controller,
     this.viewerController,
     this.preferences,
+    this.performance,
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onSaveAs,
@@ -279,6 +282,11 @@ class PdfEditorView extends StatefulWidget {
   /// The persisted preferences backing tool styles and panel state.
   /// Only with [bytes]; an external [controller] brings its own.
   final PdfEditingPreferences? preferences;
+
+  /// Optional adaptive/fixed performance controller. Null creates an owned
+  /// Auto controller. Worker-count recommendations apply only when this shell
+  /// naturally restarts its revision-bound worker.
+  final PdfPerformanceController? performance;
 
   final PdfEditorFeatures features;
 
@@ -418,6 +426,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfEditingPreferences? _ownedPrefs;
   PdfViewerController? _ownedViewer;
   PdfViewportMemory? _viewportMemory;
+  PdfPerformanceController? _ownedPerformance;
 
   // Routes the Apple Pencil's native double-tap to the session's eraser
   // toggle. Created only on iOS (the only platform with the gesture) so the
@@ -449,6 +458,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       widget.viewerController ?? (_ownedViewer ??= PdfViewerController());
 
   PdfEditingPreferences get _prefs => _session.preferences;
+
+  PdfPerformanceController get _performance =>
+      widget.performance ?? (_ownedPerformance ??= PdfPerformanceController());
 
   /// A stable key for the open document, or null when there is nothing to
   /// key a remembered position on - an external controller with no
@@ -483,6 +495,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       _ownedSession = PdfEditingController(widget.bytes!, preferences: prefs);
     }
     _session.providedCustomStamps = widget.customStamps;
+    _performance.configureDocument(
+      pageCount: _session.document.pageCount,
+      documentBytes: _session.bytes.length,
+    );
     _syncFeatureLocks();
     _reportedLength = _session.bytes.length;
     _session.addListener(_onSessionChanged);
@@ -519,9 +535,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   void _syncWorker() {
     if (identical(_session.document, _workerDoc)) return;
     _worker?.dispose();
+    final workerCount = _performance.beginWorkerGeneration();
     _worker = startPdfRenderWorker(_session.bytes,
-        pageCount: _session.document.pageCount);
+        pageCount: _session.document.pageCount, workerCount: workerCount);
     _workerDoc = _session.document;
+    PdfPerfLog.log(_performance.diagnostics.toString());
   }
 
   void _syncFeatureLocks() {
@@ -541,6 +559,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   @override
   void didUpdateWidget(PdfEditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.performance, widget.performance)) {
+      if (oldWidget.performance == null) {
+        _ownedPerformance?.dispose();
+        _ownedPerformance = null;
+      }
+      _performance.configureDocument(
+        pageCount: _session.document.pageCount,
+        documentBytes: _session.bytes.length,
+      );
+    }
     if (!mapEquals(widget.toolShortcuts, oldWidget.toolShortcuts)) {
       _toolShortcuts =
           Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
@@ -567,6 +595,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     _closeSession();
     _ownedPrefs?.dispose();
     _ownedViewer?.dispose();
+    _ownedPerformance?.dispose();
     _searchField.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -1018,6 +1047,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         showAnnotations: prefs.showAnnotations,
                         highlightFormFields: prefs.highlightFormFields,
                         renderWorker: _worker,
+                        performance: _performance,
                         rasterCache: widget.rasterCache,
                         textCache: widget.textCache,
                         documentId: _documentKey,

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_document/pdf_document.dart';
@@ -90,14 +91,15 @@ class PdfStripDetail {
 const int pdfRenderWorkerPoolMinPages = 12;
 
 /// Starts the right cached worker for a [pageCount]-page document: a pooled
-/// backend when the document is long enough and [pdfRenderWorkerPoolSize] asks
-/// for parallelism, otherwise a single platform worker.
+/// backend when the document is long enough and [workerCount] (or the global
+/// [pdfRenderWorkerPoolSize] fallback) asks for parallelism, otherwise a single
+/// platform worker.
 PdfRenderWorker startPdfRenderWorker(Uint8List bytes,
-    {required int pageCount}) {
-  final backend =
-      pdfRenderWorkerPoolSize > 1 && pageCount >= pdfRenderWorkerPoolMinPages
-          ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize)
-          : startRenderWorker(bytes);
+    {required int pageCount, int? workerCount}) {
+  final count = math.max(1, workerCount ?? pdfRenderWorkerPoolSize);
+  final backend = count > 1 && pageCount >= pdfRenderWorkerPoolMinPages
+      ? PdfPooledRenderWorker(bytes, count)
+      : startRenderWorker(bytes);
   return PdfCachingRenderWorker(backend);
 }
 

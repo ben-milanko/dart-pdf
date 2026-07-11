@@ -23,6 +23,7 @@ import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'page_geometry.dart';
 import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'raster_cache.dart';
@@ -519,6 +520,7 @@ class PdfViewer extends StatefulWidget {
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.renderWorker,
+    this.performance,
     this.rasterCache,
     this.textCache,
     this.documentId,
@@ -566,6 +568,11 @@ class PdfViewer extends StatefulWidget {
   /// always render locally. Null and the web fallback keep today's
   /// on-thread behavior.
   final PdfRenderWorker? renderWorker;
+
+  /// Optional adaptive performance policy. Worker counts are applied by the
+  /// owning shell when it starts [renderWorker]; the viewer consumes its
+  /// runtime-safe preview, vector-first, and image-cap tuning live.
+  final PdfPerformanceController? performance;
 
   /// Single-key shortcuts that arm editing tools while [editing] is active.
   ///
@@ -1071,6 +1078,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _controller = widget.controller ?? PdfViewerController();
     _ownsController = widget.controller == null;
     _controller._state = this;
+    widget.performance?.addListener(_onPerformanceChanged);
+    if (widget.performance != null) {
+      SchedulerBinding.instance.addTimingsCallback(_onPerformanceTimings);
+    }
     // mounted already paused (overlaid by another view) - hold rendering from
     // the first frame so covered pages never interpret
     if (!widget.active) _renderScheduler.holding = true;
@@ -1102,6 +1113,23 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // background preview prerender starts once the first frame (and the
     // scroll metrics the priority order needs) exists
     WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+  }
+
+  void _onPerformanceChanged() {
+    if (!mounted) return;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+  }
+
+  void _onPerformanceTimings(List<FrameTiming> timings) {
+    final performance = widget.performance;
+    if (performance == null) return;
+    for (final timing in timings) {
+      if (timing.buildDuration > const Duration(milliseconds: 16) ||
+          timing.rasterDuration > const Duration(milliseconds: 16)) {
+        performance.observe(const PdfPerformanceSample(jankyFrame: true));
+      }
+    }
   }
 
   late final AppLifecycleListener _lifecycle;
@@ -1361,8 +1389,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _prerendering = true;
     try {
       while (mounted && widget.pagePreviews && widget.active) {
-        final vectorOnly =
-            _vectorFirstPrefetch && (widget.renderWorker?.isActive ?? false);
+        final workerActive = widget.renderWorker?.isActive ?? false;
+        final motionVector = _vectorFirstPrefetch && workerActive;
+        final policyVector = !motionVector &&
+            workerActive &&
+            (widget.performance?.tuning.vectorFirstPreviews ?? false) &&
+            _nextPreviewIndex(_pages,
+                    requireImages: false, allowNearViewport: false) !=
+                null;
+        final vectorOnly = motionVector || policyVector;
         if (!vectorOnly &&
             (_renderScheduler.holding ||
                 (_scrollSettleTimer?.isActive ?? false))) {
@@ -1475,7 +1510,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Vector-only warming stays at the configured window because it is cheap
   /// and weighs zero in [PdfCachingRenderWorker].
   int _effectivePreviewWindow({required bool requireImages}) {
-    final base = widget.previewWindow;
+    final base =
+        widget.performance?.tuning.previewWindow ?? widget.previewWindow;
     if (base <= 0 || !requireImages) return base;
 
     var window = base;
@@ -1565,6 +1601,16 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(PdfViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.performance, widget.performance)) {
+      oldWidget.performance?.removeListener(_onPerformanceChanged);
+      if (oldWidget.performance != null) {
+        SchedulerBinding.instance.removeTimingsCallback(_onPerformanceTimings);
+      }
+      widget.performance?.addListener(_onPerformanceChanged);
+      if (widget.performance != null) {
+        SchedulerBinding.instance.addTimingsCallback(_onPerformanceTimings);
+      }
+    }
     if (!identical(oldWidget.document, widget.document)) {
       // an edit-induced swap to a revision with the same page geometry
       // keeps the reading position; a genuinely different document resets
@@ -1820,6 +1866,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    widget.performance?.removeListener(_onPerformanceChanged);
+    if (widget.performance != null) {
+      SchedulerBinding.instance.removeTimingsCallback(_onPerformanceTimings);
+    }
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     _restoreBrowserContextMenu();
     _lifecycle.dispose();
@@ -4083,6 +4133,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
                 renderWorker: widget.renderWorker,
+                performance: widget.performance,
                 predictStrokes: widget.predictStrokes,
                 onTextEditClosed: _reclaimFocusAfterTextEdit,
               ),
@@ -4677,6 +4728,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.renderScheduler,
     required this.previewCache,
     required this.renderWorker,
+    required this.performance,
     required this.predictStrokes,
     required this.onTextEditClosed,
   });
@@ -4789,6 +4841,8 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [PdfPageView.renderWorker]; null when interpretation runs on-thread.
   final PdfRenderWorker? renderWorker;
 
+  final PdfPerformanceController? performance;
+
   /// See [PdfViewer.predictStrokes].
   final bool predictStrokes;
 
@@ -4878,6 +4932,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         renderScheduler: widget.renderScheduler,
         previewCache: widget.previewCache,
         renderWorker: widget.renderWorker,
+        performance: widget.performance,
+        workerImagePixelRatioCap: widget.performance?.tuning.imagePixelRatioCap,
         // the live matrix scale lets dense strip-routed pages bin their
         // settle's strip plan speculatively while the gesture quiesces; the
         // full matrix additionally lets deep-zoom pans speculate their next

@@ -9,6 +9,7 @@ import 'package:pdf_graphics/pdf_graphics.dart'
     show PdfMatrix, PdfRenderCommand;
 
 import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'preview_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
@@ -48,6 +49,8 @@ class PdfPageView extends StatefulWidget {
     this.trustContentStamp = false,
     this.destructiveStamp = 0,
     this.renderWorker,
+    this.performance,
+    this.workerImagePixelRatioCap,
     this.transformScale,
     this.transformChanges,
   });
@@ -66,6 +69,13 @@ class PdfPageView extends StatefulWidget {
   /// thread. Image-bearing pages and the null fallback render locally. Must
   /// be a worker started over the same bytes [page] belongs to.
   final PdfRenderWorker? renderWorker;
+
+  /// Optional adaptive policy receiving first-render latency samples.
+  final PdfPerformanceController? performance;
+
+  /// Caps ordinary full-page worker image decode requests. Deep-zoom region
+  /// requests stay uncapped so visible image detail can sharpen on demand.
+  final double? workerImagePixelRatioCap;
 
   /// The viewer's LIVE zoom scale (the InteractiveViewer matrix's scale on
   /// every change), as opposed to [scale], which the viewer only updates at
@@ -660,7 +670,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       final commands = await worker.record(pageIndex,
           annotations: widget.showAnnotations,
           priority: widget.renderPriority,
-          imagePixelRatio: _effectiveRatio());
+          imagePixelRatio: math.min(_effectiveRatio(),
+              widget.workerImagePixelRatioCap ?? double.infinity));
       // Abandoned while the worker ran - the State was disposed or the lazy
       // list recycled it onto another page (this is the cancel() path: a
       // cancelled request returns null). Skip the local fallback: the page is
@@ -672,7 +683,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       if (commands != null) {
         if (_renderPaused) return null;
         _lastInterpretPath = 'worker';
-        _logImageStats(pageIndex, commands);
+        _lastInterpretResultBytes = _logImageStats(pageIndex, commands);
         final (picture, scene) = await _replayableFromCommands(commands);
         return (picture, scene, true);
       }
@@ -694,6 +705,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     // but the command buffer and decoded images are kept for zoom replays
     // instead of being discarded after the 1:1 replay below.
     final scene = await PdfRetainedScene.record(widget.page, plan: _renderPlan);
+    _lastInterpretResultBytes = _logImageStats(pageIndex, scene.commands);
     if (!_retainScene(scene.commands.length)) {
       // Too dense to replay per zoom settle: take the 1:1 picture (it holds
       // its own image refs) and drop the scene - the classic cached-picture
@@ -777,6 +789,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       // it (and its retained scene) so the full pass reuses it instead of
       // recording a second time; the normal raster path below paints it.
       _lastInterpretPath = 'worker';
+      _lastInterpretResultBytes = 0;
       if (_retainScene(commands.length)) {
         // No images to decode, so this completes synchronously in practice.
         final scene = await PdfRetainedScene.fromCommands(widget.page, commands,
@@ -830,13 +843,13 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// summing large. The walk lives in [PdfPageRenderer.decodedImageStats] (and
   /// is tested there); this only formats the line, and is skipped entirely when
   /// the log is off.
-  void _logImageStats(int pageIndex, List<PdfRenderCommand> commands) {
-    if (!PdfPerfLog.enabled) return;
+  int _logImageStats(int pageIndex, List<PdfRenderCommand> commands) {
     final (count, pixels) = PdfPageRenderer.decodedImageStats(commands);
-    if (count > 0) {
+    if (count > 0 && PdfPerfLog.enabled) {
       PdfPerfLog.log('images page=$pageIndex count=$count '
           'decodedMpx=${(pixels / 1e6).toStringAsFixed(1)}');
     }
+    return pixels * 4;
   }
 
   /// Whether the page this render was for is gone - the widget unmounted, or
@@ -862,6 +875,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// Which path [_interpretPicture] actually took, for the perf log - 'worker'
   /// only when a command buffer came back and replayed, else 'recorded'.
   String _lastInterpretPath = 'recorded';
+  int? _lastInterpretResultBytes;
 
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
@@ -869,6 +883,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     final generation = ++_renderGeneration;
     final pageIndex = widget.previewIndex;
     final firstInterpret = _picture == null;
+    if (firstInterpret) _lastInterpretResultBytes = null;
+    final sw = Stopwatch()..start();
     if (_renderPaused) {
       _render();
       return;
@@ -882,7 +898,6 @@ class _PdfPageViewState extends State<PdfPageView> {
       await _paintVectorFirst(generation, pageIndex);
       if (_superseded(generation, pageIndex)) return;
     }
-    final sw = Stopwatch()..start();
     final cached = _picture;
     final ui.Picture picture;
     if (cached != null) {
@@ -916,6 +931,10 @@ class _PdfPageViewState extends State<PdfPageView> {
           path: _lastInterpretPath,
           interpretMs: sw.elapsedMicroseconds / 1000.0,
           first: true);
+      widget.performance?.observe(PdfPerformanceSample(
+        workerRecordDuration: sw.elapsed,
+        resultBytes: _lastInterpretResultBytes,
+      ));
     }
     final effective = _effectiveRatio();
     // Skip the full-page readback when the cached raster is already at

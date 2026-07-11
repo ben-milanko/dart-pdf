@@ -8,6 +8,8 @@ import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_thumbnails.dart';
 import 'page_number_field.dart';
+import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'raster_cache.dart';
@@ -105,6 +107,7 @@ class PdfReader extends StatefulWidget {
     this.documentId,
     this.controller,
     this.preferences,
+    this.performance,
     this.features = const PdfReaderFeatures(),
     this.onAction,
     this.onAnnotationTap,
@@ -145,6 +148,11 @@ class PdfReader extends StatefulWidget {
 
   /// The persisted display preferences. Defaults to a private instance.
   final PdfEditingPreferences? preferences;
+
+  /// Optional adaptive/fixed performance controller. Null creates an owned
+  /// Auto controller. Pass one to select fixed worker settings at runtime or
+  /// expose [PdfPerformanceController.diagnostics] in host UI.
+  final PdfPerformanceController? performance;
 
   final PdfReaderFeatures features;
 
@@ -187,6 +195,7 @@ class _PdfReaderState extends State<PdfReader> {
   PdfEditingPreferences? _ownedPrefs;
   PdfViewerController? _ownedViewer;
   PdfViewportMemory? _viewportMemory;
+  PdfPerformanceController? _ownedPerformance;
 
   // Offloads page interpretation to a background isolate (native; a no-op
   // fallback on web). Keyed to the session's current document: pure reading
@@ -202,6 +211,8 @@ class _PdfReaderState extends State<PdfReader> {
       widget.controller ?? (_ownedViewer ??= PdfViewerController());
 
   PdfEditingPreferences get _prefs => _session.preferences;
+  PdfPerformanceController get _performance =>
+      widget.performance ?? (_ownedPerformance ??= PdfPerformanceController());
 
   String get _documentKey => widget.documentId ?? pdfDocumentKey(widget.bytes);
 
@@ -221,6 +232,10 @@ class _PdfReaderState extends State<PdfReader> {
     final prefs =
         widget.preferences ?? (_ownedPrefs ??= PdfEditingPreferences());
     _session = PdfEditingController(widget.bytes, preferences: prefs);
+    _performance.configureDocument(
+      pageCount: _session.document.pageCount,
+      documentBytes: widget.bytes.length,
+    );
     _session.addListener(_syncWorker);
     _syncWorker();
   }
@@ -234,14 +249,26 @@ class _PdfReaderState extends State<PdfReader> {
   void _syncWorker() {
     if (identical(_session.document, _workerDoc)) return;
     _worker?.dispose();
+    final workerCount = _performance.beginWorkerGeneration();
     _worker = startPdfRenderWorker(_session.bytes,
-        pageCount: _session.document.pageCount);
+        pageCount: _session.document.pageCount, workerCount: workerCount);
     _workerDoc = _session.document;
+    PdfPerfLog.log(_performance.diagnostics.toString());
   }
 
   @override
   void didUpdateWidget(PdfReader oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.performance, widget.performance)) {
+      if (oldWidget.performance == null) {
+        _ownedPerformance?.dispose();
+        _ownedPerformance = null;
+      }
+      _performance.configureDocument(
+        pageCount: _session.document.pageCount,
+        documentBytes: widget.bytes.length,
+      );
+    }
     if (!identical(widget.bytes, oldWidget.bytes) ||
         widget.documentId != oldWidget.documentId) {
       final previous = _session;
@@ -261,6 +288,7 @@ class _PdfReaderState extends State<PdfReader> {
     _session.dispose();
     _ownedPrefs?.dispose();
     _ownedViewer?.dispose();
+    _ownedPerformance?.dispose();
     _searchField.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -455,6 +483,7 @@ class _PdfReaderState extends State<PdfReader> {
                           showAnnotations: prefs.showAnnotations,
                           highlightFormFields: prefs.highlightFormFields,
                           renderWorker: _worker,
+                          performance: _performance,
                           rasterCache: widget.rasterCache,
                           textCache: widget.textCache,
                           documentId: _documentKey,
