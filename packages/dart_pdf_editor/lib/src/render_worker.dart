@@ -247,12 +247,16 @@ abstract class PdfRenderWorker {
       null;
 
   /// Drops any QUEUED (not yet started) [binStrips] request for [pageIndex]
-  /// at [priority], completing its future with null. Superseded settles
-  /// call this so the worker's next slot bins the geometry the user is
-  /// actually looking at instead of a stale one; the abandoning caller must
-  /// not fall back to a local bin for the superseded settle (PdfPageView's
-  /// generation guard takes care of that). In-flight preemption rides the
-  /// same cooperative cancellation as [cancel].
+  /// at [priority], completing its future with null - and, on the native
+  /// isolate backend, also preempts a matching IN-FLIGHT bin cooperatively
+  /// so the worker abandons the stale geometry mid-walk (its future resolves
+  /// null too). Superseded settles and overtaken speculative bins call this
+  /// so the worker bins the geometry the user is actually looking at instead
+  /// of a stale one; the abandoning caller must not fall back to a local bin
+  /// for the superseded settle (PdfPageView's generation guard takes care of
+  /// that). Unlike [cancel], the in-flight preemption is safe here because
+  /// strip plans are never shared between callers (the caching wrapper
+  /// passes bins straight through).
   void cancelBinStrips(int pageIndex, {int priority = 0}) {}
 
   /// Whether this worker actually offloads. False for the null fallback, so

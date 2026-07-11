@@ -109,8 +109,14 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       int? commandLimit,
       PdfRect? imageDecodeRegion}) async {
     if (_disposed || _spawnFailed) return null;
-    final request = _PendingRequest.record(priority, _seq++, pageIndex,
-        annotations, imagePixelRatio, decodeImages, commandLimit,
+    final request = _PendingRequest.record(
+        priority,
+        _seq++,
+        pageIndex,
+        annotations,
+        imagePixelRatio,
+        decodeImages,
+        commandLimit,
         imageDecodeRegion);
     _queue.add(request);
     _pump();
@@ -134,8 +140,14 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     int priority = 0,
   }) async {
     if (_disposed || _spawnFailed) return null;
-    final request = _PendingRequest.bin(priority, _seq++, pageIndex,
-        annotations, List.of(pageToDevice), deviceWidth, deviceHeight,
+    final request = _PendingRequest.bin(
+        priority,
+        _seq++,
+        pageIndex,
+        annotations,
+        List.of(pageToDevice),
+        deviceWidth,
+        deviceHeight,
         pixelRatio);
     _queue.add(request);
     _pump();
@@ -228,6 +240,20 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   /// their futures resolve to a local render/bin - the abandoning caller
   /// ignores that. Kinds cancel independently so a superseded zoom settle
   /// can't drop the page's pending record (or vice versa).
+  ///
+  /// For the BIN kind only, a matching IN-FLIGHT job is also preempted (the
+  /// cancel-port signal makes the worker abandon the stale bin mid-walk and
+  /// reply null; the abandoning caller ignores it), so a superseded settle -
+  /// or a speculative bin overtaken by a newer geometry - frees the worker
+  /// immediately instead of running to completion first. Record cancels
+  /// stay queued-only: [PdfCachingRenderWorker] dedups in-flight records
+  /// across callers, so preempting one would null a waiter shared with a
+  /// caller that still wants it.
+  ///
+  /// The in-flight signal carries a benign pre-existing race (the same one
+  /// the priority-preemption path in [_pump] accepts): it can land on the
+  /// worker after the job already completed and cancel the NEXT job instead,
+  /// whose caller then resolves null and falls back to a local render/bin.
   void _cancelKind(_RequestKind kind, int pageIndex, int priority) {
     if (_disposed) return;
     _queue.removeWhere((request) {
@@ -239,6 +265,14 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       if (!request.completer.isCompleted) request.completer.complete(null);
       return true;
     });
+    final inFlight = _inFlight;
+    if (kind == _RequestKind.bin &&
+        inFlight != null &&
+        inFlight.kind == kind &&
+        inFlight.pageIndex == pageIndex &&
+        inFlight.priority == priority) {
+      _toCancelPort?.send(null);
+    }
   }
 
   @override
@@ -284,8 +318,14 @@ class _PendingRequest {
         deviceHeight = 0,
         binPixelRatio = 0;
 
-  _PendingRequest.bin(this.priority, this.seq, this.pageIndex,
-      this.annotations, this.pageToDevice, this.deviceWidth, this.deviceHeight,
+  _PendingRequest.bin(
+      this.priority,
+      this.seq,
+      this.pageIndex,
+      this.annotations,
+      this.pageToDevice,
+      this.deviceWidth,
+      this.deviceHeight,
       this.binPixelRatio)
       : kind = _RequestKind.bin,
         imagePixelRatio = null,
