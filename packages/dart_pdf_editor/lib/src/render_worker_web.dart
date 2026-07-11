@@ -235,6 +235,7 @@ class _WebRenderWorker extends PdfRenderWorker {
     required int deviceWidth,
     required int deviceHeight,
     required double pixelRatio,
+    bool slugGlyphs = false,
     int priority = 0,
   }) async {
     if (_disposed || _failed || pageToDevice.length != 6) return null;
@@ -247,6 +248,7 @@ class _WebRenderWorker extends PdfRenderWorker {
       deviceWidth,
       deviceHeight,
       pixelRatio,
+      slugGlyphs,
     );
     _queue.add(request);
     _pump();
@@ -330,7 +332,8 @@ class _WebRenderWorker extends PdfRenderWorker {
       message
         ..setProperty('deviceWidth'.toJS, request.deviceWidth.toJS)
         ..setProperty('deviceHeight'.toJS, request.deviceHeight.toJS)
-        ..setProperty('pixelRatio'.toJS, request.binPixelRatio.toJS);
+        ..setProperty('pixelRatio'.toJS, request.binPixelRatio.toJS)
+        ..setProperty('slugGlyphs'.toJS, request.slugGlyphs.toJS);
     }
     worker.postMessage(message);
 
@@ -464,7 +467,8 @@ class _WebPending {
         pageToDevice = null,
         deviceWidth = 0,
         deviceHeight = 0,
-        binPixelRatio = 0;
+        binPixelRatio = 0,
+        slugGlyphs = false;
 
   _WebPending.bin(
       this.priority,
@@ -474,7 +478,8 @@ class _WebPending {
       this.pageToDevice,
       this.deviceWidth,
       this.deviceHeight,
-      this.binPixelRatio)
+      this.binPixelRatio,
+      this.slugGlyphs)
       : kind = _WebRequestKind.bin,
         imagePixelRatio = null,
         decodeImages = false,
@@ -494,6 +499,7 @@ class _WebPending {
   final int deviceWidth;
   final int deviceHeight;
   final double binPixelRatio;
+  final bool slugGlyphs;
   final completer = Completer<Uint8List?>();
   bool requeueAfterPreemption = false;
   int id = -1;

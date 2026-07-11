@@ -3,11 +3,14 @@
 // of a zoom re-bin because a worker isolate already did it. Pure Dart -
 // the plan crosses the isolate boundary as one Uint8List (a single
 // TransferableTypedData on native, postMessage-transferable on the web).
+import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../device.dart';
 import '../interpreter.dart' show PdfCancellationToken;
 import '../matrix.dart';
 import '../render_command.dart';
+import 'slug_batch_data.dart';
 import 'strip_batch_data.dart';
 import 'strip_binning_device.dart';
 
@@ -24,6 +27,11 @@ class StripPlan {
     required this.pageToDevice,
     required this.tolerance,
     required this.batches,
+    this.slugGlyphs = false,
+    this.slugBatches = const [],
+    this.slugQuadCount = 0,
+    this.slugFallbackOutlineRuns = 0,
+    this.slugFallbackOrdinals = const [],
   });
 
   /// Flush points the binning walk counted (empty ones included) - must
@@ -43,6 +51,13 @@ class StripPlan {
 
   /// Non-empty batches ordered by [StripBatchData.flushOrdinal].
   final List<StripBatchData> batches;
+
+  /// Whether outline text was routed into worker-built Slug batches.
+  final bool slugGlyphs;
+  final List<SlugBatchData> slugBatches;
+  final int slugQuadCount;
+  final int slugFallbackOutlineRuns;
+  final List<int> slugFallbackOrdinals;
 }
 
 /// Thrown when a [StripPlan] does not match the device consuming it
@@ -66,9 +81,18 @@ class StripPlanBinner extends StripBinningDevice {
     required super.deviceWidth,
     required super.deviceHeight,
     required super.pixelRatio,
+    this.slugGlyphs = false,
+    this.slugMinGlyphPx = 4,
   });
 
   final List<StripBatchData> batches = [];
+  final bool slugGlyphs;
+  final double slugMinGlyphPx;
+  final List<SlugBatchData> slugBatches = [];
+  SlugBatchBuilder? _slugBuilder;
+  int slugQuadCount = 0;
+  int slugFallbackOutlineRuns = 0;
+  final List<int> slugFallbackOrdinals = [];
   bool _finished = false;
 
   @override
@@ -97,7 +121,75 @@ class StripPlanBinner extends StripBinningDevice {
       pageToDevice: pageToDevice,
       tolerance: stripFlattenTolerance,
       batches: batches,
+      slugGlyphs: slugGlyphs,
+      slugBatches: slugBatches,
+      slugQuadCount: slugQuadCount,
+      slugFallbackOutlineRuns: slugFallbackOutlineRuns,
+      slugFallbackOrdinals: slugFallbackOrdinals,
     );
+  }
+
+  @override
+  void drawText(PdfTextRun run) {
+    final glyphs = run.glyphs;
+    if (!slugGlyphs ||
+        run.invisible ||
+        !stripsActive ||
+        delegateText ||
+        glyphs == null ||
+        !run.fill ||
+        run.strokeColor != null ||
+        run.gradient != null) {
+      super.drawText(run);
+      return;
+    }
+    flushPending();
+    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+      slugFallbackOutlineRuns++;
+      slugFallbackOrdinals.add(flushPointCount - 1);
+      super.drawText(run);
+      return;
+    }
+    _flushSlug(flushPointCount - 1);
+  }
+
+  static const double _slugMaxVExtent = 8192;
+
+  bool _addSlugRun(List<PdfGlyphPlacement> glyphs, PdfTextRun run, int color) {
+    final deviceTransform = run.transform.concat(pageToDevice);
+    final sx = math.sqrt(deviceTransform.a * deviceTransform.a +
+        deviceTransform.b * deviceTransform.b);
+    final sy = math.sqrt(deviceTransform.c * deviceTransform.c +
+        deviceTransform.d * deviceTransform.d);
+    if (math.max(sx, sy) < slugMinGlyphPx) return false;
+    for (final glyph in glyphs) {
+      final outline = glyph.outline;
+      if (outline != null && SlugGlyphData.of(outline).overflow) return false;
+    }
+    final builder = _slugBuilder ??= SlugBatchBuilder();
+    for (final glyph in glyphs) {
+      final outline = glyph.outline;
+      if (outline == null) continue;
+      builder.addGlyph(
+          outline,
+          SlugGlyphData.of(outline),
+          PdfMatrix.translation(glyph.offset, glyph.offsetY)
+              .concat(run.transform),
+          sx,
+          sy,
+          color);
+    }
+    if (builder.estimatedVExtent > _slugMaxVExtent) {
+      _flushSlug(flushPointCount - 1);
+    }
+    return true;
+  }
+
+  void _flushSlug(int ordinal) {
+    final batch = _slugBuilder?.build(ordinal);
+    if (batch == null) return;
+    slugBatches.add(batch);
+    slugQuadCount += batch.quadCount;
   }
 
   // Delegated ops paint nothing here - the live device replays them from
@@ -149,6 +241,8 @@ class StripPlanBinner extends StripBinningDevice {
 //   u8  version
 //   u32 totalFlushPoints, u32 deviceWidth, u32 deviceHeight
 //   f64 x6 pageToDevice, f64 tolerance
+//   u8 slugGlyphs, u32 slugQuadCount, u32 slugFallbackOutlineRuns
+//   u32 slugFallbackOrdinalCount + ordinals
 //   u32 batchCount, then per batch:
 //     u32 flushOrdinal, u32 stripCount, u32 atlasWidth, u32 atlasHeight
 //     u32 atlasByteLength + raw atlas bytes
@@ -156,8 +250,12 @@ class StripPlanBinner extends StripBinningDevice {
 //       u32 quadCount, u32 alphaBase
 //       raw positions (quadCount*8 f32), texcoords (quadCount*8 f32),
 //           colors (quadCount*4 i32), indices (quadCount*6 u16)
+//   u32 slugBatchCount, then per batch:
+//     u32 flushOrdinal, u32 quadCount, u32 atlasWidth, u32 atlasHeight,
+//     f64 cellHeight, u32 atlasByteLength + raw atlas bytes
+//     u32 chunkCount, then per chunk: u32 quadCount + the same four arrays
 
-const int _planFormatVersion = 1;
+const int _planFormatVersion = 2;
 
 /// Telemetry: microseconds spent in [decodeStripPlan] (accumulated) - this
 /// runs on the consuming (UI) isolate, so it counts toward the residual
@@ -179,6 +277,13 @@ Uint8List encodeStripPlan(StripPlan plan) {
   w.f64(m.e);
   w.f64(m.f);
   w.f64(plan.tolerance);
+  w.u8(plan.slugGlyphs ? 1 : 0);
+  w.u32(plan.slugQuadCount);
+  w.u32(plan.slugFallbackOutlineRuns);
+  w.u32(plan.slugFallbackOrdinals.length);
+  for (final ordinal in plan.slugFallbackOrdinals) {
+    w.u32(ordinal);
+  }
   w.u32(plan.batches.length);
   for (final batch in plan.batches) {
     w.u32(batch.flushOrdinal);
@@ -191,6 +296,30 @@ Uint8List encodeStripPlan(StripPlan plan) {
       final quads = chunk.positions.length ~/ 8;
       w.u32(quads);
       w.u32(chunk.alphaBase);
+      w.rawView(chunk.positions.buffer, chunk.positions.offsetInBytes,
+          chunk.positions.lengthInBytes);
+      w.rawView(
+          chunk.textureCoordinates.buffer,
+          chunk.textureCoordinates.offsetInBytes,
+          chunk.textureCoordinates.lengthInBytes);
+      w.rawView(chunk.colors.buffer, chunk.colors.offsetInBytes,
+          chunk.colors.lengthInBytes);
+      w.rawView(chunk.indices.buffer, chunk.indices.offsetInBytes,
+          chunk.indices.lengthInBytes);
+    }
+  }
+  w.u32(plan.slugBatches.length);
+  for (final batch in plan.slugBatches) {
+    w.u32(batch.flushOrdinal);
+    w.u32(batch.quadCount);
+    w.u32(batch.atlasWidth);
+    w.u32(batch.atlasHeight);
+    w.f64(batch.cellHeight);
+    w.raw(batch.atlasPixels);
+    w.u32(batch.chunks.length);
+    for (final chunk in batch.chunks) {
+      final quads = chunk.positions.length ~/ 8;
+      w.u32(quads);
       w.rawView(chunk.positions.buffer, chunk.positions.offsetInBytes,
           chunk.positions.lengthInBytes);
       w.rawView(
@@ -222,6 +351,13 @@ StripPlan decodeStripPlan(Uint8List bytes) {
   final matrix =
       PdfMatrix(r.f64(), r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
   final tolerance = r.f64();
+  final slugGlyphs = r.u8() != 0;
+  final slugQuadCount = r.u32();
+  final slugFallbackOutlineRuns = r.u32();
+  final slugFallbackOrdinalCount = r.u32();
+  final slugFallbackOrdinals = <int>[
+    for (var i = 0; i < slugFallbackOrdinalCount; i++) r.u32(),
+  ];
   final batchCount = r.u32();
   final batches = <StripBatchData>[];
   for (var i = 0; i < batchCount; i++) {
@@ -242,9 +378,31 @@ StripPlan decodeStripPlan(Uint8List bytes) {
         r.u16List(quads * 6),
       ));
     }
-    batches.add(StripBatchData.raw(
-        flushOrdinal, chunks, atlasPixels, atlasWidth, atlasHeight,
-        stripCount));
+    batches.add(StripBatchData.raw(flushOrdinal, chunks, atlasPixels,
+        atlasWidth, atlasHeight, stripCount));
+  }
+  final slugBatchCount = r.u32();
+  final slugBatches = <SlugBatchData>[];
+  for (var i = 0; i < slugBatchCount; i++) {
+    final flushOrdinal = r.u32();
+    final quadCount = r.u32();
+    final atlasWidth = r.u32();
+    final atlasHeight = r.u32();
+    final cellHeight = r.f64();
+    final atlasPixels = r.rawBytes();
+    final chunkCount = r.u32();
+    final chunks = <SlugChunkData>[];
+    for (var c = 0; c < chunkCount; c++) {
+      final quads = r.u32();
+      chunks.add(SlugChunkData(
+        r.f32List(quads * 8),
+        r.f32List(quads * 8),
+        r.i32List(quads * 4),
+        r.u16List(quads * 6),
+      ));
+    }
+    slugBatches.add(SlugBatchData(flushOrdinal, chunks, atlasPixels, atlasWidth,
+        atlasHeight, quadCount, cellHeight));
   }
   final plan = StripPlan(
     totalFlushPoints: totalFlushPoints,
@@ -253,6 +411,11 @@ StripPlan decodeStripPlan(Uint8List bytes) {
     pageToDevice: matrix,
     tolerance: tolerance,
     batches: batches,
+    slugGlyphs: slugGlyphs,
+    slugBatches: slugBatches,
+    slugQuadCount: slugQuadCount,
+    slugFallbackOutlineRuns: slugFallbackOutlineRuns,
+    slugFallbackOrdinals: slugFallbackOrdinals,
   );
   decodeStripPlanMicros += sw.elapsedMicroseconds;
   return plan;

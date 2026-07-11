@@ -260,9 +260,10 @@ class PdfPageView extends StatefulWidget {
   /// than lifting glyphs into one topmost overlay), preserving text/vector
   /// occlusion, clips, groups, and soft masks exactly.
   ///
-  /// Dense pages above [retainedZoomReplayMaxCommands] keep the worker-planned
-  /// strip raster path. Building their Slug picture locally would put the
-  /// expensive bin walk back on the browser UI thread and undo #224.
+  /// Dense image-free pages above [retainedZoomReplayMaxCommands] receive a
+  /// worker-built Slug/strip plan and only upload/replay it on the UI thread;
+  /// if the worker declines they keep the ordinary worker-planned strip
+  /// raster path rather than binning Slug locally.
   /// Image-bearing pages also stay raster-backed so the deep-zoom region patch
   /// can continue replacing embedded images at their requested resolution.
   static bool webSlugGlyphLayer = true;
@@ -777,13 +778,14 @@ class _PdfPageViewState extends State<PdfPageView> {
       _stripBackendSupported &&
       scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands;
 
-  static bool _slugPictureScene(PdfRetainedScene? scene) =>
+  bool _slugPictureScene(PdfRetainedScene? scene) =>
       scene != null &&
       PdfPageView.webSlugGlyphLayer &&
       (PdfPageView.debugWebSlugGlyphLayerBackendOverride ?? kIsWeb) &&
       scene.hasSlugTextCandidates &&
       !PdfPageRenderer.hasImageDraws(scene.commands) &&
-      scene.commands.length <= PdfPageView.retainedZoomReplayMaxCommands;
+      (scene.commands.length <= PdfPageView.retainedZoomReplayMaxCommands ||
+          _workerBinningEligible);
 
   /// Builds the picture (and, unless [PdfPageView.retainedZoomReplay] is
   /// off, the retained scene) from a recorded command buffer. One decode
@@ -986,43 +988,65 @@ class _PdfPageViewState extends State<PdfPageView> {
     // and painter order remains the command stream's exact order.
     if (_slugPictureScene(retainedScene) && !_slugPictureRejected) {
       if (_slugPicture == null) {
-        var slugStats = (quads: 0, fallbackOutlineRuns: 0);
-        final slugPicture = await retainedScene!.replayStrips(
-          pixelRatio: 1,
-          slugGlyphs: true,
-          onSlugStats: (stats) => slugStats = stats,
-        );
-        if (_superseded(generation, pageIndex)) {
-          slugPicture.dispose();
-          return;
-        }
-        // Minified or atlas-overflow outline runs fall back to pixel-aligned
-        // strips. Keeping that picture under a transform would blur those
-        // runs, so use the normal raster path unless every outline run took
-        // Slug and at least one glyph was emitted.
-        if (slugStats.quads == 0 || slugStats.fallbackOutlineRuns != 0) {
-          slugPicture.dispose();
-          _slugPictureRejected = true;
-        } else {
-          setState(() {
-            _slugPicture = slugPicture;
-            _image?.dispose();
-            _image = null;
-            _preview?.dispose();
-            _preview = null;
-            _rasteredRatio = effective;
-          });
-          _dropDetail();
-          final cache = widget.previewCache;
-          if (cache != null &&
-              !cache.isFresh(widget.previewIndex, widget.page,
-                  requireImages: true)) {
-            unawaited(cache.putFromPicture(
-                widget.previewIndex, widget.page, picture,
-                rotation: widget.rotation));
+        StripPlan? slugPlan;
+        final dense = retainedScene!.commands.length >
+            PdfPageView.retainedZoomReplayMaxCommands;
+        if (dense) {
+          slugPlan = await _workerSlugPlan(retainedScene);
+          // Layout/zoom can advance the raster generation while this one-off
+          // transform picture is building. It is scale-independent, so only
+          // a recycled page or replaced scene makes it stale.
+          if (_abandoned(pageIndex) || !identical(_scene, retainedScene)) {
+            if (mounted && !_abandoned(pageIndex)) _render();
+            return;
           }
-          widget.onRasterReady?.call();
-          return;
+          // Never rebuild a dense Slug plan locally: that is the UI-thread
+          // curve/bin walk this worker path exists to avoid.
+          if (slugPlan == null) {
+            _slugPictureRejected = true;
+          }
+        }
+        if (!_slugPictureRejected) {
+          var slugStats = (quads: 0, fallbackOutlineRuns: 0);
+          final slugPicture = await retainedScene.replayStrips(
+            pixelRatio: 1,
+            stripPlan: slugPlan,
+            slugGlyphs: true,
+            onSlugStats: (stats) => slugStats = stats,
+          );
+          if (_abandoned(pageIndex) || !identical(_scene, retainedScene)) {
+            slugPicture.dispose();
+            if (mounted && !_abandoned(pageIndex)) _render();
+            return;
+          }
+          // Minified or atlas-overflow outline runs fall back to pixel-aligned
+          // strips. Keeping that picture under a transform would blur those
+          // runs, so use the normal raster path unless every outline run took
+          // Slug and at least one glyph was emitted.
+          if (slugStats.quads == 0 || slugStats.fallbackOutlineRuns != 0) {
+            slugPicture.dispose();
+            _slugPictureRejected = true;
+          } else {
+            setState(() {
+              _slugPicture = slugPicture;
+              _image?.dispose();
+              _image = null;
+              _preview?.dispose();
+              _preview = null;
+              _rasteredRatio = effective;
+            });
+            _dropDetail();
+            final cache = widget.previewCache;
+            if (cache != null &&
+                !cache.isFresh(widget.previewIndex, widget.page,
+                    requireImages: true)) {
+              unawaited(cache.putFromPicture(
+                  widget.previewIndex, widget.page, picture,
+                  rotation: widget.rotation));
+            }
+            widget.onRasterReady?.call();
+            return;
+          }
         }
       } else {
         // No replay and no GPU readback on a zoom settle; the existing
@@ -1426,6 +1450,28 @@ class _PdfPageViewState extends State<PdfPageView> {
       deviceWidth: geometry.width,
       deviceHeight: geometry.height,
       pixelRatio: pixelRatio,
+      priority: widget.renderPriority,
+    );
+  }
+
+  /// Builds the one transform-time Slug picture for an over-ceiling page.
+  /// Unlike settle plans this is always ratio 1 and explicitly asks the
+  /// worker for Slug routing; a null result is not rebuilt locally.
+  Future<StripPlan?> _workerSlugPlan(PdfRetainedScene scene) async {
+    if (!_workerBinningEligible) return null;
+    final worker = widget.renderWorker!;
+    final geometry = scene.stripGeometry(pixelRatio: 1);
+    final m = geometry.pageToDevice;
+    worker.cancelBinStrips(widget.previewIndex,
+        priority: widget.renderPriority);
+    return worker.binStrips(
+      widget.previewIndex,
+      annotations: scene.plan.annotations,
+      pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
+      deviceWidth: geometry.width,
+      deviceHeight: geometry.height,
+      pixelRatio: 1,
+      slugGlyphs: true,
       priority: widget.renderPriority,
     );
   }

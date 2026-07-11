@@ -19,7 +19,11 @@ Future<void> _waitForSlugPicture(WidgetTester tester) async {
     await tester
         .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
   }
-  fail('Slug page picture did not arrive');
+  fail('Slug page picture did not arrive '
+      '(planPictures=${StripPdfDevice.totalPlanPictures}, '
+      'slugQuads=${StripPdfDevice.totalSlugQuads}, '
+      'fallbacks=${StripPdfDevice.totalSlugFallbackOutlineRuns}, '
+      'mismatches=${StripPdfDevice.totalPlanMismatches})');
 }
 
 Future<void> _waitForRaster(WidgetTester tester) async {
@@ -97,5 +101,52 @@ void main() {
     expect(find.byKey(const ValueKey('pdf-page-slug-picture')), findsNothing);
     expect(StripPdfDevice.totalSlugQuads, 0,
         reason: 'Base-14 text has no outline glyphs for Slug to evaluate');
+  });
+
+  testWidgets('dense page consumes a worker Slug plan once', (tester) async {
+    PdfPageView.webSlugGlyphLayer = true;
+    PdfPageView.debugWebSlugGlyphLayerBackendOverride = true;
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    PdfPageView.retainedZoomReplayMaxCommands = 0;
+    addTearDown(() {
+      PdfPageView.webSlugGlyphLayer = true;
+      PdfPageView.debugWebSlugGlyphLayerBackendOverride = null;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+    });
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = buildEmbeddedFontPdf();
+    final page = PdfDocument.open(bytes).page(0);
+    final worker = PdfRenderWorker.startUncached(bytes);
+    addTearDown(worker.dispose);
+    Widget at(double scale) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(page: page, scale: scale, renderWorker: worker),
+          ),
+        );
+
+    StripPdfDevice.resetStats();
+    await tester.pumpWidget(at(1));
+    await _waitForSlugPicture(tester);
+    expect(StripPdfDevice.totalPlanPictures, 1,
+        reason: 'dense Slug construction must consume the worker plan');
+    final finder = find.byKey(const ValueKey('pdf-page-slug-picture'));
+    final picture =
+        (tester.widget<CustomPaint>(finder).painter! as dynamic).picture;
+    final quads = StripPdfDevice.totalSlugQuads;
+
+    await tester.pumpWidget(at(3));
+    await tester.pump();
+    expect(
+        identical(
+            (tester.widget<CustomPaint>(finder).painter! as dynamic).picture,
+            picture),
+        isTrue);
+    expect(StripPdfDevice.totalSlugQuads, quads);
+    expect(StripPdfDevice.totalPlanPictures, 1,
+        reason: 'zoom must not request or upload another Slug plan');
   });
 }

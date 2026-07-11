@@ -112,7 +112,8 @@ void main() {
     expect(b.delegatedPaintCount, 1);
   });
 
-  test('soft mask: content flushes at the boundary, mask strips land between '
+  test(
+      'soft mask: content flushes at the boundary, mask strips land between '
       'the composite halves', () {
     final b = binner();
     b.beginSoftMasked(); // flush 0 (empty)
@@ -153,8 +154,8 @@ void main() {
 
   test('two binners over one command list produce identical plans', () async {
     final commands = <PdfRenderCommand>[
-      PdfFillPathCommand(rect(2, 2, 30, 30), PdfColor.black,
-          PdfFillRule.nonzero, 1),
+      PdfFillPathCommand(
+          rect(2, 2, 30, 30), PdfColor.black, PdfFillRule.nonzero, 1),
       PdfStrokePathCommand(rect(8, 8, 24, 24), const PdfColor(1, 0, 0),
           const PdfStroke(width: 2), 0.8),
       PdfDrawImageCommand(dummyImage()),
@@ -170,6 +171,77 @@ void main() {
     expect(await run(), await run());
   });
 
+  test('Slug plan codec preserves painter-order curve batches', () async {
+    final b = StripPlanBinner(
+      pageToDevice: const PdfMatrix(2, 0, 0, -2, 0, 180),
+      deviceWidth: 200,
+      deviceHeight: 180,
+      pixelRatio: 2,
+      slugGlyphs: true,
+    );
+    b.drawText(PdfTextRun(
+      text: 'x',
+      transform: const PdfMatrix(20, 0, 0, 20, 8, 30),
+      color: PdfColor.black,
+      width: 0.5,
+      glyphs: [
+        PdfGlyphPlacement(offset: 0, outline: rect(0, 0, 0.5, 0.6)),
+      ],
+    ));
+    final plan = b.finish();
+    expect(plan.slugGlyphs, isTrue);
+    expect(plan.slugBatches, hasLength(1));
+    expect(plan.slugQuadCount, 1);
+    expect(plan.slugFallbackOutlineRuns, 0);
+    expect(plan.slugFallbackOrdinals, isEmpty);
+
+    final decoded = decodeStripPlan(encodeStripPlan(plan));
+    expect(decoded.slugGlyphs, isTrue);
+    expect(decoded.slugQuadCount, 1);
+    expect(decoded.slugFallbackOutlineRuns, 0);
+    expect(decoded.slugFallbackOrdinals, isEmpty);
+    expect(decoded.slugBatches.single.flushOrdinal,
+        plan.slugBatches.single.flushOrdinal);
+    expect(decoded.slugBatches.single.atlasPixels,
+        plan.slugBatches.single.atlasPixels);
+    expect(decoded.slugBatches.single.chunks.single.positions,
+        plan.slugBatches.single.chunks.single.positions);
+    expect(encodeStripPlan(decoded), encodeStripPlan(plan));
+  });
+
+  test('Slug plan distinguishes empty-success runs from true fallbacks', () {
+    final b = StripPlanBinner(
+      pageToDevice: const PdfMatrix(1, 0, 0, -1, 0, 100),
+      deviceWidth: 100,
+      deviceHeight: 100,
+      pixelRatio: 1,
+      slugGlyphs: true,
+    );
+    b.drawText(PdfTextRun(
+      text: ' ',
+      transform: const PdfMatrix(20, 0, 0, 20, 0, 20),
+      color: PdfColor.black,
+      width: 0.5,
+      glyphs: const [PdfGlyphPlacement(offset: 0)],
+    ));
+    b.drawText(PdfTextRun(
+      text: 'x',
+      transform: const PdfMatrix(2, 0, 0, 2, 0, 30),
+      color: PdfColor.black,
+      width: 0.5,
+      glyphs: [
+        PdfGlyphPlacement(offset: 0, outline: rect(0, 0, 0.5, 0.6)),
+      ],
+    ));
+    final plan = b.finish();
+    expect(plan.slugBatches, isEmpty);
+    expect(plan.slugFallbackOutlineRuns, 1);
+    expect(plan.slugFallbackOrdinals, [1],
+        reason: 'ordinal 0 is the eligible no-outline no-op');
+    expect(plan.batches.map((batch) => batch.flushOrdinal), [2],
+        reason: 'the minified fallback is binned into strips');
+  });
+
   test('cancellation token aborts the chunked replay', () async {
     final commands = <PdfRenderCommand>[
       for (var i = 0; i < 4000; i++)
@@ -181,8 +253,7 @@ void main() {
     // Flip the token from the event loop: the replay yields between chunks,
     // so the cancel lands mid-walk exactly like a worker's cancel port.
     Future<void>.delayed(Duration.zero, () => token.cancelled = true);
-    await expectLater(
-        b.bin(commands, cancellation: token),
+    await expectLater(b.bin(commands, cancellation: token),
         throwsA(isA<PdfCancelledException>()));
   });
 
@@ -226,8 +297,7 @@ void main() {
       for (var c = 0; c < a.chunks.length; c++) {
         expect(d.chunks[c].alphaBase, a.chunks[c].alphaBase);
         expect(d.chunks[c].positions, a.chunks[c].positions);
-        expect(d.chunks[c].textureCoordinates,
-            a.chunks[c].textureCoordinates);
+        expect(d.chunks[c].textureCoordinates, a.chunks[c].textureCoordinates);
         expect(d.chunks[c].colors, a.chunks[c].colors);
         expect(d.chunks[c].indices, a.chunks[c].indices);
       }

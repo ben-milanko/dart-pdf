@@ -182,6 +182,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     required int deviceWidth,
     required int deviceHeight,
     required double pixelRatio,
+    bool slugGlyphs = false,
     int priority = 0,
   }) async {
     if (_disposed || _spawnFailed) return null;
@@ -193,7 +194,8 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         List.of(pageToDevice),
         deviceWidth,
         deviceHeight,
-        pixelRatio);
+        pixelRatio,
+        slugGlyphs);
     _queue.add(request);
     _pump();
     final buffers = await request.completer.future;
@@ -309,6 +311,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         request.deviceWidth,
         request.deviceHeight,
         request.binPixelRatio,
+        request.slugGlyphs,
       ]);
     } else {
       port.send([
@@ -439,7 +442,8 @@ class _PendingRequest {
         pageToDevice = null,
         deviceWidth = 0,
         deviceHeight = 0,
-        binPixelRatio = 0;
+        binPixelRatio = 0,
+        slugGlyphs = false;
 
   _PendingRequest.bin(
       this.priority,
@@ -449,7 +453,8 @@ class _PendingRequest {
       this.pageToDevice,
       this.deviceWidth,
       this.deviceHeight,
-      this.binPixelRatio)
+      this.binPixelRatio,
+      this.slugGlyphs)
       : kind = _RequestKind.bin,
         imagePixelRatio = null,
         decodeImages = false,
@@ -469,7 +474,8 @@ class _PendingRequest {
       : kind = _RequestKind.detail,
         imagePixelRatio = null,
         decodeImages = true,
-        commandLimit = null;
+        commandLimit = null,
+        slugGlyphs = false;
 
   final _RequestKind kind;
   final int priority;
@@ -488,6 +494,7 @@ class _PendingRequest {
   final int deviceWidth;
   final int deviceHeight;
   final double binPixelRatio;
+  final bool slugGlyphs;
 
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
@@ -558,6 +565,7 @@ void _workerMain(_WorkerInit init) {
               request[5] as int,
               request[6] as int,
               request[7] as double,
+              request[8] as bool,
               token);
         } else if (kind == 'detail') {
           final result = await _recordStripDetailAsync(
@@ -666,6 +674,7 @@ Future<Uint8List?> _binStripsAsync(
     int deviceWidth,
     int deviceHeight,
     double pixelRatio,
+    bool slugGlyphs,
     PdfCancellationToken token) async {
   final commands =
       await cache.commandsFor(document, pageIndex, annotations, token);
@@ -676,6 +685,7 @@ Future<Uint8List?> _binStripsAsync(
     deviceWidth: deviceWidth,
     deviceHeight: deviceHeight,
     pixelRatio: pixelRatio,
+    slugGlyphs: slugGlyphs,
   );
   await binner.bin(commands, cancellation: token);
   return encodeStripPlan(binner.finish());

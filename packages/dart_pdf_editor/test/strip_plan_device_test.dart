@@ -20,6 +20,7 @@ import 'package:dart_pdf_editor/strips.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'strip_zoom_router_test.dart' show buildVectorPdf;
 import 'strip_zoom_router_test.dart' as router;
@@ -45,6 +46,39 @@ Future<StripPlan> _localPlan(PdfRetainedScene scene,
 }
 
 void main() {
+  testWidgets('worker-shaped Slug plan paints like local Slug routing',
+      (tester) async {
+    await tester.runAsync(() async {
+      final doc = PdfDocument.open(buildEmbeddedFontPdf());
+      final scene = await PdfRetainedScene.record(doc.page(0));
+      addTearDown(scene.dispose);
+      final geometry = scene.stripGeometry(pixelRatio: 1);
+      final binner = StripPlanBinner(
+        pageToDevice: geometry.pageToDevice,
+        deviceWidth: geometry.width,
+        deviceHeight: geometry.height,
+        pixelRatio: 1,
+        slugGlyphs: true,
+      );
+      await binner.bin(scene.commands);
+      final plan = binner.finish();
+      expect(plan.slugBatches, isNotEmpty);
+
+      final plannedPicture = await scene.replayStrips(
+          pixelRatio: 1, stripPlan: plan, slugGlyphs: true);
+      final localPicture =
+          await scene.replayStrips(pixelRatio: 1, slugGlyphs: true);
+      final planned =
+          await plannedPicture.toImage(geometry.width, geometry.height);
+      final local = await localPicture.toImage(geometry.width, geometry.height);
+      plannedPicture.dispose();
+      localPicture.dispose();
+      expect(await _rgba(planned), await _rgba(local));
+      planned.dispose();
+      local.dispose();
+    });
+  });
+
   testWidgets(
       'a precomputed plan rasterizes byte-identically to local '
       'binning (verified batch-by-batch)', (tester) async {

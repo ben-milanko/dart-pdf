@@ -10,6 +10,7 @@ library;
 
 export 'src/raster/curve_quads.dart';
 export 'src/raster/flatten.dart';
+export 'src/raster/slug_batch_data.dart';
 export 'src/raster/stroke_contours.dart';
 export 'src/raster/strip_batch_data.dart';
 export 'src/raster/strip_binning_device.dart';

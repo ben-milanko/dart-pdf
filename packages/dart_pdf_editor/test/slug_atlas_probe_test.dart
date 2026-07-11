@@ -10,7 +10,6 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
 // ignore: implementation_imports
 import 'package:pdf_graphics/src/fonts/truetype.dart';
-import 'package:dart_pdf_editor/strips.dart';
 
 void main() {
   test('atlas walk matches glyphCoverageAA', () {
@@ -90,7 +89,10 @@ void main() {
             final up = vertical ? !s1 : s1;
             cov += up ? w : -w;
           } else if (b * b - 4 * a * e0 > 0 &&
-              tA > 0 && tA < 1 && tB > 0 && tB < 1) {
+              tA > 0 &&
+              tA < 1 &&
+              tB > 0 &&
+              tB < 1) {
             final wMin = weight(math.min(tA, tB));
             final wMax = weight(math.max(tA, tB));
             var sum = s0 ? (wMax - wMin) : (wMin - wMax);
@@ -131,7 +133,6 @@ void main() {
     // ignore: avoid_print
     print('ATLAS-WALK: mean ${(sum / 1024).toStringAsFixed(2)} '
         'max ${worst.toStringAsFixed(1)}');
-    batch.dispose();
     expect(worst, lessThanOrEqualTo(16));
   });
 }

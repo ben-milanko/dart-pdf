@@ -242,6 +242,8 @@ abstract class PdfRenderWorker {
   /// built from - the worker re-records the page in its own isolate
   /// (interpretation is deterministic, so the command list matches the
   /// scene's) and replays it through a headless strip binner.
+  /// [slugGlyphs] additionally routes eligible embedded-outline text into
+  /// worker-transferable curve-atlas batches for a transform-time picture.
   ///
   /// [priority] shares [record]'s queue ordering; the default 0 is the
   /// on-screen page - a zoom settle IS the visible page, so it preempts
@@ -257,6 +259,7 @@ abstract class PdfRenderWorker {
     required int deviceWidth,
     required int deviceHeight,
     required double pixelRatio,
+    bool slugGlyphs = false,
     int priority = 0,
   }) async =>
       null;
@@ -491,6 +494,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     required int deviceWidth,
     required int deviceHeight,
     required double pixelRatio,
+    bool slugGlyphs = false,
     int priority = 0,
   }) =>
       _workers[_staticWorkerIndex(pageIndex)].binStrips(
@@ -500,6 +504,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
         pixelRatio: pixelRatio,
+        slugGlyphs: slugGlyphs,
         priority: priority,
       );
 
@@ -725,6 +730,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     required int deviceWidth,
     required int deviceHeight,
     required double pixelRatio,
+    bool slugGlyphs = false,
     int priority = 0,
   }) =>
       _inner.binStrips(
@@ -734,6 +740,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
         pixelRatio: pixelRatio,
+        slugGlyphs: slugGlyphs,
         priority: priority,
       );
 

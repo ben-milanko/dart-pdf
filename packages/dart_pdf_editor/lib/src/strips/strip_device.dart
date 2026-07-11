@@ -113,6 +113,8 @@ class StripPdfDevice extends StripBinningDevice {
   /// the next unconsumed plan batch.
   final StripPlan? _plan;
   int _planNext = 0;
+  int _planSlugNext = 0;
+  int _planSlugFallbackNext = 0;
 
   /// Whether this device consumes a precomputed plan (after validation).
   bool get usesPrecomputedPlan => _plan != null;
@@ -131,12 +133,7 @@ class StripPdfDevice extends StripBinningDevice {
     bool slugEnabled = false,
   }) {
     if (plan == null) return null;
-    // Worker plans currently route outline text into strips. Slug changes
-    // that routing, so a caller explicitly recording a transform-time Slug
-    // picture must bin locally rather than consume a structurally different
-    // plan. The normal dense-page raster path keeps slugEnabled false and
-    // continues consuming worker plans unchanged.
-    if (slugEnabled) return null;
+    if (plan.slugGlyphs != slugEnabled) return null;
     if (debugDelegateAll ||
         debugDelegateFills ||
         debugDelegateStrokes ||
@@ -219,6 +216,7 @@ class StripPdfDevice extends StripBinningDevice {
   /// Slug-mode stats: glyph quads drawn and curve-atlas texels uploaded.
   static int totalSlugQuads = 0;
   static int totalSlugAtlasTexels = 0;
+  static int totalSlugFallbackOutlineRuns = 0;
 
   static void resetStats() {
     totalFlushes = 0;
@@ -232,32 +230,42 @@ class StripPdfDevice extends StripBinningDevice {
     totalPlanPictures = 0;
     totalSlugQuads = 0;
     totalSlugAtlasTexels = 0;
+    totalSlugFallbackOutlineRuns = 0;
   }
 
   int get flushCount => _batches.length;
 
-  static Future<ui.FragmentProgram>? _programFuture;
-  static Future<ui.FragmentProgram>? _slugProgramFuture;
+  // Cache resolved engine values, never the Future itself. A Future created
+  // in a widget test's FakeAsync zone becomes unusable after that test; the
+  // resolved program is zone-independent and can be returned from a fresh
+  // Future in every caller's current zone.
+  static ui.FragmentProgram? _program;
+  static ui.FragmentProgram? _slugProgram;
 
-  static Future<ui.FragmentProgram> _loadProgram() =>
-      _programFuture ??= () async {
-        try {
-          return await ui.FragmentProgram.fromAsset('shaders/pdf_strips.frag');
-        } catch (_) {
-          return ui.FragmentProgram.fromAsset(
-              'packages/dart_pdf_editor/shaders/pdf_strips.frag');
-        }
-      }();
+  static Future<ui.FragmentProgram> _loadProgram() async {
+    final cached = _program;
+    if (cached != null) return cached;
+    final loaded = await _loadProgramAsset('shaders/pdf_strips.frag',
+        'packages/dart_pdf_editor/shaders/pdf_strips.frag');
+    return _program ??= loaded;
+  }
 
-  static Future<ui.FragmentProgram> _loadSlugProgram() =>
-      _slugProgramFuture ??= () async {
-        try {
-          return await ui.FragmentProgram.fromAsset('shaders/pdf_slug.frag');
-        } catch (_) {
-          return ui.FragmentProgram.fromAsset(
-              'packages/dart_pdf_editor/shaders/pdf_slug.frag');
-        }
-      }();
+  static Future<ui.FragmentProgram> _loadSlugProgram() async {
+    final cached = _slugProgram;
+    if (cached != null) return cached;
+    final loaded = await _loadProgramAsset('shaders/pdf_slug.frag',
+        'packages/dart_pdf_editor/shaders/pdf_slug.frag');
+    return _slugProgram ??= loaded;
+  }
+
+  static Future<ui.FragmentProgram> _loadProgramAsset(
+      String primary, String packagePath) async {
+    try {
+      return await ui.FragmentProgram.fromAsset(primary);
+    } catch (_) {
+      return ui.FragmentProgram.fromAsset(packagePath);
+    }
+  }
 
   /// Debug: route every paint through the fallback (no strips at all) to
   /// isolate tape/pipeline effects from strip rasterization quality.
@@ -405,12 +413,37 @@ class StripPdfDevice extends StripBinningDevice {
     // while the worker-plan and glyph-layer paths are integrated: it preserves
     // painter order without changing StripBinningDevice's flush ordinals.
     flushPending();
-    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+    final plan = _plan;
+    if (plan != null) {
+      final ordinal = flushPointCount - 1;
+      if (_planSlugNext < plan.slugBatches.length &&
+          plan.slugBatches[_planSlugNext].flushOrdinal == ordinal) {
+        _addSlugBatch(plan.slugBatches[_planSlugNext++]);
+        return;
+      }
+      if (_planSlugFallbackNext >= plan.slugFallbackOrdinals.length ||
+          plan.slugFallbackOrdinals[_planSlugFallbackNext] != ordinal) {
+        // Slug-eligible run with no outline quads: successful no-op, not a
+        // fallback. This distinction is explicit in the worker plan so the
+        // UI never has to inspect outlines to recover routing.
+        return;
+      }
+      _planSlugFallbackNext++;
+      // The worker applied the same eligibility checks and routed this run
+      // into strips. With binning disabled, super only advances routing; its
+      // planned strip batch is consumed at the next flush point.
       _slugFallbackOutlineRuns++;
+      totalSlugFallbackOutlineRuns++;
       super.drawText(run);
       return;
     }
-    _flushSlug();
+    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+      _slugFallbackOutlineRuns++;
+      totalSlugFallbackOutlineRuns++;
+      super.drawText(run);
+      return;
+    }
+    _flushSlug(flushPointCount - 1);
   }
 
   static const double _slugMaxVExtent = 8192;
@@ -443,13 +476,20 @@ class StripPdfDevice extends StripBinningDevice {
         color,
       );
     }
-    if (builder.estimatedVExtent > _slugMaxVExtent) _flushSlug();
+    if (builder.estimatedVExtent > _slugMaxVExtent) {
+      _flushSlug(flushPointCount - 1);
+    }
     return true;
   }
 
-  void _flushSlug() {
-    final batch = _slugBuilder?.build();
-    if (batch == null) return;
+  void _flushSlug(int ordinal) {
+    final data = _slugBuilder?.build(ordinal);
+    if (data == null) return;
+    _addSlugBatch(data);
+  }
+
+  void _addSlugBatch(SlugBatchData data) {
+    final batch = SlugBatch.fromData(data);
     _tape.add(batch);
     _slugBatches.add(batch);
     totalFlushes++;
@@ -468,11 +508,13 @@ class StripPdfDevice extends StripBinningDevice {
     assert(!_finished, 'StripPdfDevice.finish() called twice');
     _finished = true;
     flushPending();
-    _flushSlug();
+    _flushSlug(flushPointCount - 1);
     final plan = _plan;
     if (plan != null &&
         (flushPointCount != plan.totalFlushPoints ||
-            _planNext != plan.batches.length)) {
+            _planNext != plan.batches.length ||
+            _planSlugNext != plan.slugBatches.length ||
+            _planSlugFallbackNext != plan.slugFallbackOrdinals.length)) {
       // Desync is only detectable once the walk is complete; nothing has
       // painted yet (painting starts below), so the caller can discard the
       // recording and re-run with local binning.
@@ -480,7 +522,10 @@ class StripPdfDevice extends StripBinningDevice {
       throw StripPlanMismatchError(
           'flush points: device $flushPointCount vs plan '
           '${plan.totalFlushPoints}; consumed $_planNext of '
-          '${plan.batches.length} batches');
+          '${plan.batches.length} strip and $_planSlugNext of '
+          '${plan.slugBatches.length} Slug batches; consumed '
+          '$_planSlugFallbackNext of ${plan.slugFallbackOrdinals.length} '
+          'Slug fallbacks');
     }
     if (plan != null && !debugVerifyPrecomputed) totalPlanPictures++;
     final sw = Stopwatch()..start();

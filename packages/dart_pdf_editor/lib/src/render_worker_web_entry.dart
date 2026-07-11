@@ -36,7 +36,7 @@ import 'package:web/web.dart' as web;
 ///   late message cannot abort its successor; a match abandons the interpreter
 ///   walk early and replies with `buffer:null`.
 /// - `{kind:'bin', id, page, annotations, m0..m5, deviceWidth, deviceHeight,
-///   pixelRatio}` → replies with an encoded `StripPlan` in the same result
+///   pixelRatio, slugGlyphs}` → replies with an encoded `StripPlan` in the same result
 ///   shape (null = bin locally).
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
@@ -111,6 +111,8 @@ void runPdfRenderWorker() {
           (data.getProperty('deviceHeight'.toJS) as JSNumber).toDartInt;
       final pixelRatio =
           (data.getProperty('pixelRatio'.toJS) as JSNumber).toDartDouble;
+      final slugGlyphs =
+          (data.getProperty('slugGlyphs'.toJS) as JSBoolean?)?.toDart ?? false;
       final token = PdfCancellationToken();
       activeToken = token;
       activeRequestId = id;
@@ -129,6 +131,7 @@ void runPdfRenderWorker() {
               deviceWidth,
               deviceHeight,
               pixelRatio,
+              slugGlyphs,
               token,
             );
           }
@@ -285,6 +288,7 @@ Future<Uint8List?> _binStripsAsync(
   int deviceWidth,
   int deviceHeight,
   double pixelRatio,
+  bool slugGlyphs,
   PdfCancellationToken token,
 ) async {
   final commands =
@@ -296,6 +300,7 @@ Future<Uint8List?> _binStripsAsync(
     deviceWidth: deviceWidth,
     deviceHeight: deviceHeight,
     pixelRatio: pixelRatio,
+    slugGlyphs: slugGlyphs,
   );
   await binner.bin(commands, cancellation: token);
   return encodeStripPlan(binner.finish());

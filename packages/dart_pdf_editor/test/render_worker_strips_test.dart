@@ -26,6 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'render_seam_test.dart' show buildStripsPdf;
 import 'strip_zoom_router_test.dart' show buildVectorPdf;
@@ -256,6 +257,46 @@ void main() {
       expect(plan2, isNotNull);
       expect(plan2!.totalFlushPoints, plan.totalFlushPoints,
           reason: 'flush structure is geometry-independent');
+    });
+  });
+
+  testWidgets('isolate builds Slug batches bit-identically off-thread',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildEmbeddedFontPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
+      final commands = await worker.record(0);
+      expect(commands, isNotNull);
+      final size = PdfPageRenderer.pageSize(page);
+      final matrix = PdfPageRenderer.pageToDeviceMatrix(
+          page, size, page.cropBox,
+          pixelRatio: 1);
+      final plan = await worker.binStrips(0,
+          annotations: true,
+          pageToDevice: _coeffs(matrix),
+          deviceWidth: size.width.ceil(),
+          deviceHeight: size.height.ceil(),
+          pixelRatio: 1,
+          slugGlyphs: true);
+      expect(plan, isNotNull);
+      expect(plan!.slugGlyphs, isTrue);
+      expect(plan.slugBatches, isNotEmpty);
+      expect(plan.slugQuadCount, greaterThan(0));
+      expect(plan.slugFallbackOutlineRuns, 0);
+
+      final local = StripPlanBinner(
+        pageToDevice: matrix,
+        deviceWidth: size.width.ceil(),
+        deviceHeight: size.height.ceil(),
+        pixelRatio: 1,
+        slugGlyphs: true,
+      );
+      await local.bin(commands!);
+      expect(encodeStripPlan(plan), encodeStripPlan(local.finish()),
+          reason: 'the UI must only upload worker-built Slug data');
     });
   });
 
@@ -504,6 +545,7 @@ class _BinLogWorker extends PdfRenderWorker {
     required int deviceWidth,
     required int deviceHeight,
     required double pixelRatio,
+    bool slugGlyphs = false,
     int priority = 0,
   }) async {
     binCalls.add(pageIndex);
@@ -515,6 +557,7 @@ class _BinLogWorker extends PdfRenderWorker {
           pageToDevice[3], pageToDevice[4], pageToDevice[5]),
       tolerance: stripFlattenTolerance,
       batches: const [],
+      slugGlyphs: slugGlyphs,
     );
   }
 
