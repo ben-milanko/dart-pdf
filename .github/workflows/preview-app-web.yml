@@ -42,7 +42,9 @@ jobs:
       # (matches release-app.yml's web build).
       - name: Build the render worker
         working-directory: app
-        run: dart run dart_pdf_editor:build_web_worker
+        run: >-
+          dart run dart_pdf_editor:build_web_worker
+          --out ../packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
 
       - run: flutter build web --release
         working-directory: app

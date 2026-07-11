@@ -165,3 +165,17 @@ The widget regression covers both an exact translated-region hit and a stale
 geometry miss with the scheduler held during quiescence. The native worker
 suite separately proves an in-flight combined DETAIL walk resolves null when
 superseded and that the worker serves the following detail request normally.
+
+## Request-scoped cancellation (#220)
+
+The follow-up is implemented in the same branch. Native cancel-port messages
+and Web Worker `{kind:'cancel'}` messages now carry the target request id. Each
+worker compares that id with its active request before flipping the cooperative
+token, so a late cancel for a completed job cannot abort the urgent job that
+followed it.
+
+The native regression uses a private test hook to withhold request A's cancel
+until A has answered and request B has been dispatched, then delivers the stale
+id while B is walking a dense page. B completes non-null. The ordinary
+preemption/requeue tests remain green, and the example web build verifies the
+mirrored JS protocol.

@@ -80,8 +80,18 @@ if [[ -f "$MAIN_JS" ]]; then
   while IFS= read -r -d '' file; do
     path="$(basename "$file")"
     hash="$(hash_file "$file")"
-    echo "  $path  ?v=$hash"
-    perl_replace_string_url "$MAIN_JS" "$path" "$hash"
+    hashed_path="${path%.js}.$hash.js"
+    echo "  $path  -> $hashed_path"
+    # dart2js resolves deferred-part names as URI *paths*. A query string in
+    # the compiled literal is therefore escaped to `%3Fv=...`, making the
+    # browser request a nonexistent file. Give deferred parts content-addressed
+    # filenames instead; ordinary entrypoints can continue to use queries.
+    mv "$file" "$BUILD_DIR/$hashed_path"
+    CACHE_BUST_PATH="$path" CACHE_BUST_HASHED_PATH="$hashed_path" perl -0pi -e '
+      my $path = quotemeta($ENV{CACHE_BUST_PATH});
+      my $hashed = $ENV{CACHE_BUST_HASHED_PATH};
+      s/"$path(?:\?v=[0-9a-f]+)?"/"$hashed"/g;
+    ' "$MAIN_JS"
   done < <(find "$BUILD_DIR" -maxdepth 1 -name 'main.dart.js_*.part.js' -type f -print0 | sort -z)
 
   worker="$BUILD_DIR/pdf_render_worker.dart.js"

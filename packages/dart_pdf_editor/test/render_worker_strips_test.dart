@@ -20,6 +20,8 @@ import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/render_worker_isolate.dart'
+    as isolate_worker;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -73,7 +75,6 @@ Uint8List _buildTwoPageDenseVectorPdf({int rects = 8000}) {
     dense.write('${(i % 10) / 10} 0 0 rg '
         '${(i * 7) % 550} ${(i * 13) % 730} 8 6 re f ');
   }
-  const urgent = '0 0 1 rg 20 20 100 100 re f';
   final body = dense.toString();
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -83,7 +84,7 @@ Uint8List _buildTwoPageDenseVectorPdf({int rects = 8000}) {
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
         '/Contents 6 0 R /Resources << >> >>',
     '<< /Length ${body.length} >>\nstream\n$body\nendstream',
-    '<< /Length ${urgent.length} >>\nstream\n$urgent\nendstream',
+    '<< /Length ${body.length} >>\nstream\n$body\nendstream',
   ];
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
@@ -387,6 +388,31 @@ void main() {
           reason: 'every deduplicated waiter must receive the retried record');
       expect(completionOrder.first, 'urgent',
           reason: 'the visible page must still cut ahead of the prefetch');
+    });
+  });
+
+  testWidgets('a late cancel id cannot abort the next worker request',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = _buildTwoPageDenseVectorPdf();
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
+      isolate_worker.debugDeferPdfRenderWorkerCancelUntilNextRequest = true;
+      isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels = 0;
+      addTearDown(() => isolate_worker
+          .debugDeferPdfRenderWorkerCancelUntilNextRequest = false);
+
+      // Warm the handshake, then let page 1 request preemption while page 0
+      // is already running. The test hook withholds page 0's cancel until its
+      // response has dispatched page 1, recreating the old cross-request race.
+      expect(await worker.record(1), isNotNull);
+      final first = worker.record(0, priority: 10);
+      final next = worker.record(1, priority: 0);
+      expect(await first.timeout(const Duration(seconds: 30)), isNotNull);
+      expect(await next.timeout(const Duration(seconds: 30)), isNotNull,
+          reason:
+              'page 0\'s late cancel must be ignored while page 1 is active');
+      expect(isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels, 1);
     });
   });
 
