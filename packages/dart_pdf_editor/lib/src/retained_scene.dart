@@ -13,6 +13,7 @@
 /// runs after [record] returns.
 library;
 
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
@@ -23,6 +24,7 @@ import 'canvas_device.dart';
 import 'image_decoder.dart';
 import 'renderer.dart';
 import 'render_worker.dart';
+import 'region_replay_index.dart';
 import 'strips/strip_device.dart';
 
 /// A page retained as a replayable scene: the recorded interpreter command
@@ -48,6 +50,26 @@ class PdfRetainedScene {
 
   /// The interpreter's transcript of the page, in paint order.
   final List<PdfRenderCommand> commands;
+
+  /// Enables the bounded selective path for ordinary retained region replay.
+  /// Unsupported command groups conservatively use the full transcript.
+  static bool spatialRegionReplay = true;
+
+  /// Hard construction bound for the spatial index. Larger transcripts keep
+  /// the historical full replay rather than retaining unbounded metadata.
+  static int spatialRegionReplayMaxCommands = 250000;
+
+  PdfRegionReplayIndex? _regionIndex;
+
+  /// Test/diagnostic counters for the most recent [replayRegion].
+  bool debugLastRegionReplayWasSelective = false;
+  int debugLastRegionReplayCommandCount = 0;
+
+  int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
+  int get debugRegionReplayEstimatedBytes =>
+      _ensureRegionIndex().estimatedBytes;
+  bool get debugRegionReplaySupported => _ensureRegionIndex().supported;
+  bool get debugHasRegionReplayIndex => _regionIndex != null;
 
   /// Whether the transcript contains embedded-outline text that can benefit
   /// from the web Slug picture. Base-14/substituted text has no glyph
@@ -155,7 +177,7 @@ class PdfRetainedScene {
     final canvas = Canvas(recorder)
       ..scale(pixelRatio)
       ..translate(-region.left, -region.top);
-    _replayOnto(canvas);
+    _replayOnto(canvas, rasterRegion: region);
     return recorder.endRecording();
   }
 
@@ -189,9 +211,68 @@ class PdfRetainedScene {
     }
   }
 
-  void _replayOnto(Canvas canvas) {
+  void _replayOnto(Canvas canvas, {Rect? rasterRegion}) {
     PdfPageRenderer.preparePageCanvas(canvas, page, plan);
-    replayCommands(commands, CanvasPdfDevice(canvas, images: _images));
+    final device = CanvasPdfDevice(canvas, images: _images);
+    if (rasterRegion != null && spatialRegionReplay) {
+      final index = _ensureRegionIndex();
+      final pageRegion = _pageSpaceRegion(rasterRegion);
+      if (index.supported && pageRegion != null) {
+        debugLastRegionReplayWasSelective = true;
+        debugLastRegionReplayCommandCount =
+            index.replay(pageRegion, commands, device, canvas);
+        return;
+      }
+    }
+    debugLastRegionReplayWasSelective = false;
+    debugLastRegionReplayCommandCount = commands.length;
+    replayCommands(commands, device);
+  }
+
+  PdfRegionReplayIndex _ensureRegionIndex() =>
+      _regionIndex ??= PdfRegionReplayIndex.build(
+        commands,
+        maxCommands: spatialRegionReplayMaxCommands,
+      );
+
+  PdfRect? _pageSpaceRegion(Rect region) {
+    final inverse = PdfPageRenderer.pageToDeviceMatrix(
+      page,
+      pageSize,
+      page.cropBox,
+      rotation: plan.rotation,
+      pixelRatio: 1,
+    ).inverted();
+    if (inverse == null) return null;
+    final points = <(double, double)>[
+      (
+        inverse.transformX(region.left, region.top),
+        inverse.transformY(region.left, region.top)
+      ),
+      (
+        inverse.transformX(region.right, region.top),
+        inverse.transformY(region.right, region.top)
+      ),
+      (
+        inverse.transformX(region.right, region.bottom),
+        inverse.transformY(region.right, region.bottom)
+      ),
+      (
+        inverse.transformX(region.left, region.bottom),
+        inverse.transformY(region.left, region.bottom)
+      ),
+    ];
+    var left = points.first.$1;
+    var right = left;
+    var bottom = points.first.$2;
+    var top = bottom;
+    for (final point in points.skip(1)) {
+      left = math.min(left, point.$1);
+      right = math.max(right, point.$1);
+      bottom = math.min(bottom, point.$2);
+      top = math.max(top, point.$2);
+    }
+    return PdfRect(left, bottom, right, top);
   }
 
   /// The strip device geometry a full-page strip replay at [pixelRatio]
@@ -373,6 +454,7 @@ class PdfRetainedScene {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _regionIndex = null;
     for (final image in _images.values) {
       image.dispose();
     }

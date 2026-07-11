@@ -10,6 +10,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 Future<ByteData> _bytes(ui.Image image) async =>
@@ -68,4 +69,154 @@ void main() {
       picture.dispose();
     });
   });
+
+  testWidgets(
+      'region replay selects paints, preserves clips, and stays bounded',
+      (tester) async {
+    await tester.runAsync(() async {
+      final previousEnabled = PdfRetainedScene.spatialRegionReplay;
+      final previousMax = PdfRetainedScene.spatialRegionReplayMaxCommands;
+      addTearDown(() {
+        PdfRetainedScene.spatialRegionReplay = previousEnabled;
+        PdfRetainedScene.spatialRegionReplayMaxCommands = previousMax;
+      });
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final commands = <PdfRenderCommand>[
+        const PdfSaveCommand(),
+        PdfClipPathCommand(_rectPath(0, 580, 220, 792), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rectPath(20, 650, 100, 740),
+          const PdfColor(1, 0, 0),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rectPath(420, 650, 500, 740),
+          const PdfColor(0, 0, 1),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfRestoreCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        PdfStrokePathCommand(
+          const PdfPath([
+            PdfMoveTo(30, 620),
+            PdfLineTo(180, 620),
+          ]),
+          const PdfColor(0, 0, 0),
+          const PdfStroke(width: 3),
+          1,
+        ),
+        PdfFillPathCommand(
+          _rectPath(440, 200, 520, 280),
+          const PdfColor(0, 1, 0),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ];
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        commands,
+        includeImages: false,
+      );
+      addTearDown(scene.dispose);
+      expect(scene.debugHasRegionReplayIndex, isFalse,
+          reason: 'full-page creation must not build region metadata');
+      final fullPicture = scene.replay(pixelRatio: 1);
+      fullPicture.dispose();
+      expect(scene.debugHasRegionReplayIndex, isFalse,
+          reason: 'full-page replay remains on its unchanged fast path');
+
+      const region = Rect.fromLTWH(0, 0, 220, 220);
+      PdfRetainedScene.spatialRegionReplay = false;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 2);
+      PdfRetainedScene.spatialRegionReplay = true;
+      final actual = await scene.rasterizeRegion(region, pixelRatio: 2);
+      expect(
+        (await _bytes(actual)).buffer.asUint8List(),
+        (await _bytes(expected)).buffer.asUint8List(),
+      );
+      expected.dispose();
+      actual.dispose();
+
+      expect(scene.debugLastRegionReplayWasSelective, isTrue);
+      expect(
+          scene.debugLastRegionReplayCommandCount, lessThan(commands.length));
+      expect(scene.debugRegionReplayUnitCount, 3,
+          reason: 'the clipped-away and far-right paints are not indexed');
+      expect(scene.debugRegionReplayEstimatedBytes, lessThan(512));
+      scene.dispose();
+      expect(scene.debugHasRegionReplayIndex, isFalse,
+          reason: 'disposing the scene releases retained index metadata');
+    });
+  });
+
+  testWidgets('groups and over-budget transcripts fall back to full replay',
+      (tester) async {
+    await tester.runAsync(() async {
+      final previousMax = PdfRetainedScene.spatialRegionReplayMaxCommands;
+      addTearDown(
+          () => PdfRetainedScene.spatialRegionReplayMaxCommands = previousMax);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final grouped = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfBeginGroupCommand(.5),
+          PdfFillPathCommand(
+            _rectPath(20, 650, 100, 740),
+            const PdfColor(1, 0, 0),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          const PdfEndGroupCommand(),
+        ],
+        includeImages: false,
+      );
+      addTearDown(grouped.dispose);
+      final image = await grouped.rasterizeRegion(
+        const Rect.fromLTWH(0, 0, 220, 220),
+        pixelRatio: 2,
+      );
+      image.dispose();
+      expect(grouped.debugLastRegionReplayWasSelective, isFalse);
+      expect(grouped.debugRegionReplaySupported, isFalse);
+
+      PdfRetainedScene.spatialRegionReplayMaxCommands = 1;
+      final bounded = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          PdfFillPathCommand(
+            _rectPath(20, 650, 100, 740),
+            const PdfColor(1, 0, 0),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          PdfFillPathCommand(
+            _rectPath(420, 650, 500, 740),
+            const PdfColor(0, 0, 1),
+            PdfFillRule.nonzero,
+            1,
+          ),
+        ],
+        includeImages: false,
+      );
+      addTearDown(bounded.dispose);
+      final boundedImage = await bounded.rasterizeRegion(
+        const Rect.fromLTWH(0, 0, 220, 220),
+        pixelRatio: 2,
+      );
+      boundedImage.dispose();
+      expect(bounded.debugLastRegionReplayWasSelective, isFalse);
+      expect(bounded.debugRegionReplaySupported, isFalse);
+    });
+  });
 }
+
+PdfPath _rectPath(double left, double bottom, double right, double top) =>
+    PdfPath([
+      PdfMoveTo(left, bottom),
+      PdfLineTo(right, bottom),
+      PdfLineTo(right, top),
+      PdfLineTo(left, top),
+      const PdfClosePath(),
+    ]);
