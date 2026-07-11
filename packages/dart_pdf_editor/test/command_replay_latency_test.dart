@@ -34,6 +34,10 @@ void main() {
       final page = document.page(pageIndex);
       final worker = PdfRenderWorker.startUncached(bytes);
       addTearDown(worker.dispose);
+      addTearDown(() {
+        CanvasPdfDevice.debugReuseSolidPaints = true;
+        CanvasPdfDevice.debugDrawSimpleLines = true;
+      });
 
       Future<List<PdfRenderCommand>> record(bool decodeImages) async {
         final commands = await worker.record(
@@ -61,18 +65,30 @@ void main() {
 
       final vector = await measure(false);
       final full = await measure(true);
-      var replayMicros = 0;
-      for (var pass = -2; pass < passes; pass++) {
-        final sw = Stopwatch()..start();
-        final picture = await PdfPageRenderer.pictureFromCommands(
-          page,
-          vector.$1,
-          includeImages: false,
-        );
-        final elapsed = sw.elapsedMicroseconds;
-        picture.dispose();
-        if (pass >= 0) replayMicros += elapsed;
+      Future<double> replay(
+          {required bool reusePaints, required bool simpleLines}) async {
+        CanvasPdfDevice.debugReuseSolidPaints = reusePaints;
+        CanvasPdfDevice.debugDrawSimpleLines = simpleLines;
+        var micros = 0;
+        for (var pass = -2; pass < passes; pass++) {
+          final sw = Stopwatch()..start();
+          final picture = await PdfPageRenderer.pictureFromCommands(
+            page,
+            vector.$1,
+            includeImages: false,
+          );
+          final elapsed = sw.elapsedMicroseconds;
+          picture.dispose();
+          if (pass >= 0) micros += elapsed;
+        }
+        return micros / passes / 1000;
       }
+
+      final baseline = await replay(reusePaints: false, simpleLines: false);
+      final preparedPaint = await replay(reusePaints: true, simpleLines: false);
+      final optimized = await replay(reusePaints: true, simpleLines: true);
+      CanvasPdfDevice.debugReuseSolidPaints = true;
+      CanvasPdfDevice.debugDrawSimpleLines = true;
 
       // ignore: avoid_print
       print(
@@ -82,8 +98,9 @@ void main() {
           'decode=${vector.$2.toStringAsFixed(1)}ms; '
           'full commands=${full.$1.length} '
           'decode=${full.$2.toStringAsFixed(1)}ms; '
-          'vector picture='
-          '${(replayMicros / passes / 1000).toStringAsFixed(1)}ms');
+          'canvas baseline=${baseline.toStringAsFixed(1)}ms '
+          'preparedPaint=${preparedPaint.toStringAsFixed(1)}ms '
+          'directLines=${optimized.toStringAsFixed(1)}ms');
     });
   }, timeout: const Timeout(Duration(minutes: 10)));
 }
