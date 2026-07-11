@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 
@@ -7,6 +8,8 @@ import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
 import 'takeoff.dart';
+
+part 'annotation_behavior.dart';
 
 /// An entry in a page's /Annots array (§12.5).
 ///
@@ -67,6 +70,15 @@ class PdfAnnotation {
 
   /// The /F flag word (§12.5.3).
   final int flags;
+
+  /// PDF-semantic editing capabilities and authoritative style for this
+  /// annotation.
+  ///
+  /// The descriptor is lazy and cached for the lifetime of this parsed
+  /// annotation. A saved editor revision produces new [PdfAnnotation]
+  /// instances, so hot UI paths can reuse the derived facts without stale
+  /// cross-revision state or repeated appearance-stream parsing.
+  late final PdfAnnotationBehavior behavior = PdfAnnotationBehavior._(this);
 
   bool get isHidden => flags & 2 != 0;
   bool get isNoView => flags & 32 != 0;

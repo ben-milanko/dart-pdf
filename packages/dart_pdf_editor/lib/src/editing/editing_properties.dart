@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../scrollbar.dart';
+import 'annotation_presentation.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
@@ -167,28 +168,6 @@ class _PdfAnnotationPropertiesPanelState
     _preferences.propertiesPanelWidth = _dragWidth;
     setState(() => _dragWidth = null);
   }
-
-  static String _label(String subtype) => switch (subtype) {
-        'StrikeOut' => 'Strike-out',
-        'FreeText' => 'Text box',
-        'Text' => 'Note',
-        'Widget' => 'Form field',
-        _ => subtype,
-      };
-
-  static IconData _icon(String subtype) => switch (subtype) {
-        'Highlight' => Icons.border_color,
-        'Underline' => Icons.format_underlined,
-        'StrikeOut' => Icons.format_strikethrough,
-        'Squiggly' => Icons.gesture,
-        'Ink' => Icons.draw,
-        'Square' => Icons.rectangle_outlined,
-        'Circle' => Icons.circle_outlined,
-        'FreeText' => Icons.text_fields,
-        'Text' => Icons.sticky_note_2_outlined,
-        'Stamp' => Icons.approval,
-        _ => Icons.bookmark_border,
-      };
 
   static String _endingLabel(PdfLineEnding ending) => switch (ending) {
         PdfLineEnding.none => 'None',
@@ -460,28 +439,19 @@ class _PdfAnnotationPropertiesPanelState
     );
   }
 
-  /// Whether every selected annotation has [subtype] in [subtypes].
-  bool _allSelected(Set<String> subtypes) {
+  /// Whether every selected annotation satisfies a shared semantic
+  /// capability. The subtype matrix lives in pdf_document.
+  bool _allSelected(bool Function(PdfAnnotationBehavior) test) {
     final slots = _controller.selectedAnnotationSlots;
     if (slots.isEmpty) return false;
     for (final (page, index) in slots) {
       final annotation = _controller.annotationAt(page, index);
-      if (annotation == null || !subtypes.contains(annotation.subtype)) {
+      if (annotation == null || !test(annotation.behavior)) {
         return false;
       }
     }
     return true;
   }
-
-  static const _fillable = {'Square', 'Circle', 'Polygon', 'FreeText'};
-  static const _stroked = {'Square', 'Circle', 'Polygon', 'Ink'};
-  static const _lineStyled = {
-    'Square', 'Circle', 'Line', 'PolyLine', 'Polygon', //
-  };
-  static const _translucent = {
-    'Square', 'Circle', 'Polygon', 'Ink', 'Highlight', 'Underline',
-    'StrikeOut', 'Squiggly', 'Stamp', //
-  };
 
   List<Widget> _styleControls(PdfAnnotation annotation) {
     final children = <Widget>[];
@@ -491,17 +461,15 @@ class _PdfAnnotationPropertiesPanelState
     children.add(_section('Appearance'));
     children.add(_swatchRow('Color', style.color,
         key: const ValueKey('pdf-prop-color'), onTap: _pickColor));
-    if (_allSelected(_fillable)) {
-      final fill = annotation.subtype == 'FreeText'
-          ? annotation.freeTextStyle?.fillColor
-          : annotation.interiorColor;
+    if (_allSelected((behavior) => behavior.supportsFill)) {
+      final fill = annotation.behavior.style.fillColor;
       final fillColor = fill == null ? null : Color(0xFF000000 | fill);
       children.add(_swatchRow('Fill', fillColor,
           key: const ValueKey('pdf-prop-fill'),
           onTap: () => _pickFill(fillColor),
           onClear: () => _controller.restyleSelected(fill: (null,))));
     }
-    if (_allSelected(_stroked)) {
+    if (_allSelected((behavior) => behavior.supportsStrokeWidth)) {
       children.add(_sliderRow(
         'Stroke',
         _draggingStroke ?? style.strokeWidth ?? _controller.strokeWidth,
@@ -515,7 +483,8 @@ class _PdfAnnotationPropertiesPanelState
         },
       ));
     }
-    if (_allSelected(_lineStyled) && _controller.canSetLineStyleSelected) {
+    if (_allSelected((behavior) => behavior.supportsLineStyle) &&
+        _controller.canSetLineStyleSelected) {
       children.add(Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
@@ -556,7 +525,7 @@ class _PdfAnnotationPropertiesPanelState
               _controller.setSelectedLineEndings(end: ending),
         ));
     }
-    if (_allSelected(_translucent)) {
+    if (_allSelected((behavior) => behavior.supportsOpacity)) {
       children.add(_sliderRow(
         'Opacity',
         _draggingOpacity ?? style.opacity,
@@ -582,9 +551,7 @@ class _PdfAnnotationPropertiesPanelState
     if (!_controller.canRestyleSelectedText) return const [];
     final style = _controller.selectedTextStyle;
     if (style == null) return const [];
-    final border = annotation.subtype == 'FreeText'
-        ? annotation.freeTextStyle?.borderColor
-        : null;
+    final border = annotation.behavior.style.borderColor;
     final borderColor = border == null ? null : Color(0xFF000000 | border);
     return [
       _section('Text'),
@@ -740,9 +707,11 @@ class _PdfAnnotationPropertiesPanelState
       ListTile(
         leading: Icon(annotation.isCallout
             ? Icons.chat_bubble_outline
-            : _icon(annotation.subtype)),
+            : pdfAnnotationIcon(annotation.subtype)),
         title: Text(
-            annotation.isCallout ? 'Callout' : _label(annotation.subtype)),
+            annotation.isCallout
+                ? 'Callout'
+                : pdfAnnotationLabel(annotation.subtype)),
         subtitle: Text('Page ${slot.$1 + 1}'),
       ),
       ..._styleControls(annotation),

@@ -6,6 +6,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import '../pdf_viewer.dart';
 import '../scrollbar.dart';
+import 'annotation_presentation.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
@@ -92,7 +93,6 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   /// tool refuses them too); popups belong to their parent annotation
   /// and are not listed at all.
   static const _unlisted = {'Popup'};
-  static const _unselectable = {'Link', 'Widget'};
 
   /// Checked tiles in multi-select mode, as (page, /Annots slot).
   final Set<(int, int)> _checked = {};
@@ -180,31 +180,6 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     setState(() => _dragWidth = null);
   }
 
-  static IconData _icon(String subtype) => switch (subtype) {
-        'Highlight' => Icons.border_color,
-        'Underline' => Icons.format_underlined,
-        'StrikeOut' => Icons.format_strikethrough,
-        'Squiggly' => Icons.gesture,
-        'Ink' => Icons.draw,
-        'Square' => Icons.rectangle_outlined,
-        'Circle' => Icons.circle_outlined,
-        'FreeText' => Icons.text_fields,
-        'Text' => Icons.sticky_note_2_outlined,
-        'Stamp' => Icons.approval,
-        'Link' => Icons.link,
-        'Widget' => Icons.input,
-        'FileAttachment' => Icons.attach_file,
-        _ => Icons.bookmark_border,
-      };
-
-  static String _label(String subtype) => switch (subtype) {
-        'StrikeOut' => 'Strike-out',
-        'FreeText' => 'Text box',
-        'Text' => 'Note',
-        'Widget' => 'Form field',
-        _ => subtype,
-      };
-
   /// A finer title for form fields, from the inherited /FT.
   static String _fieldLabel(String? fieldType) => switch (fieldType) {
         'Tx' => 'Text field',
@@ -273,7 +248,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       ? _fieldLabel(annotation.fieldType)
       : annotation.isCallout
           ? 'Callout'
-          : _label(annotation.subtype);
+          : pdfAnnotationLabel(annotation.subtype);
 
   bool _matches(String query, int pageIndex, PdfAnnotation annotation) {
     if (query.isEmpty) return true;
@@ -321,7 +296,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   Widget _tile(BuildContext context, int pageIndex, int index,
       PdfAnnotation annotation) {
     final slot = (pageIndex, index);
-    final selectable = !_unselectable.contains(annotation.subtype);
+    final selectable = annotation.behavior.selectable;
     final detail = _detail(pageIndex, annotation);
     final actionsVisible =
         !pdfPanelControlsRevealOnHover() || _hoveredSlot == slot;
@@ -338,7 +313,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             : Icon(
                 annotation.isCallout
                     ? Icons.chat_bubble_outline
-                    : _icon(annotation.subtype),
+                    : pdfAnnotationIcon(annotation.subtype),
                 size: 20),
         title: Text(_title(annotation)),
         subtitle: detail.isEmpty
@@ -647,7 +622,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               if (!_matches(query, page, annotation)) continue;
               tiles.add(_tile(context, page, i, annotation));
               // a markup annotation hosts a comment thread
-              if (!_unselectable.contains(annotation.subtype)) {
+              if (annotation.behavior.selectable) {
                 tiles.addAll(_threadSection(
                     context, page, annotation, threadByDict[annotation.dict]));
               }

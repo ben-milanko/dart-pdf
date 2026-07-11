@@ -340,75 +340,8 @@ double _distanceToSegment(
 /// (/BE) or dashed (/BS /D), lines need /L or /Vertices, free text needs a standard-font /DA, ink
 /// needs a usable /InkList, markups need axis-aligned /QuadPoints,
 /// stamps need their caption in /Contents.
-bool pdfCanRestyleAnnotation(PdfAnnotation annotation) {
-  switch (annotation.subtype) {
-    case 'Square' || 'Circle':
-      if (annotation.normalAppearance == null) return false;
-      // cloudy borders (/BE) still can't regenerate; dashed ones now do
-      return annotation.dict['BE'] == null;
-    case 'Line':
-      return annotation.normalAppearance != null && annotation.line != null;
-    case 'PolyLine':
-      return annotation.normalAppearance != null &&
-          (annotation.vertices?.length ?? 0) >= 2;
-    case 'Polygon':
-      return annotation.normalAppearance != null &&
-          (annotation.vertices?.length ?? 0) >= 3;
-    case 'FreeText':
-      if (annotation.normalAppearance == null) return false;
-      final style = annotation.freeTextStyle;
-      return style != null &&
-          PdfStandardFont.tryFromName(style.fontName) != null;
-    case 'Ink':
-      return annotation.inkList?.isNotEmpty ?? false;
-    case 'Highlight' || 'Underline' || 'StrikeOut' || 'Squiggly':
-      return _axisAlignedQuads(annotation) != null;
-    case 'Text':
-      return annotation.normalAppearance != null;
-    case 'Stamp':
-      return annotation.normalAppearance != null &&
-          (annotation.contents?.isNotEmpty ?? false);
-    default:
-      return false;
-  }
-}
-
-/// The /QuadPoints as one axis-aligned rect per quad, or null when they
-/// are absent, malformed, or rotated (every corner must sit on the
-/// quad's own bounds) - regenerating a markup repaints axis-aligned
-/// rects, so rotated quads can't restyle faithfully.
-List<PdfRect>? _axisAlignedQuads(PdfAnnotation annotation) {
-  final cos = annotation.document.cos;
-  final raw = cos.resolve(annotation.dict['QuadPoints']);
-  if (raw is! CosArray || raw.length == 0 || raw.length % 8 != 0) return null;
-  final values = <double>[];
-  for (var i = 0; i < raw.length; i++) {
-    final n = cos.resolve(raw[i]);
-    if (n is CosInteger) {
-      values.add(n.value.toDouble());
-    } else if (n is CosReal) {
-      values.add(n.value);
-    } else {
-      return null;
-    }
-  }
-  const eps = 0.01;
-  final quads = <PdfRect>[];
-  for (var q = 0; q + 7 < values.length; q += 8) {
-    final xs = [values[q], values[q + 2], values[q + 4], values[q + 6]];
-    final ys = [values[q + 1], values[q + 3], values[q + 5], values[q + 7]];
-    final minX = xs.reduce(math.min), maxX = xs.reduce(math.max);
-    final minY = ys.reduce(math.min), maxY = ys.reduce(math.max);
-    for (final x in xs) {
-      if ((x - minX).abs() > eps && (x - maxX).abs() > eps) return null;
-    }
-    for (final y in ys) {
-      if ((y - minY).abs() > eps && (y - maxY).abs() > eps) return null;
-    }
-    quads.add(PdfRect(minX, minY, maxX, maxY));
-  }
-  return quads;
-}
+bool pdfCanRestyleAnnotation(PdfAnnotation annotation) =>
+    annotation.behavior.canRestyle;
 
 /// A random version-4 UUID for an annotation's /NM. Random.secure() where
 /// the platform provides it, falling back to a time-seeded generator
@@ -3632,16 +3565,20 @@ extension PdfAnnotationEditing on PdfEditor {
   /// carried - [restyleAnnotation]'s opacity path.
   bool _regenerateResizedAppearance(PdfAnnotation annotation, PdfRect to,
       {double? opacity, int pageRotation = 0}) {
+    final behavior = annotation.behavior;
+    if (behavior.resizeBehavior == PdfAnnotationResizeBehavior.none ||
+        behavior.resizeBehavior == PdfAnnotationResizeBehavior.stretch) {
+      return false;
+    }
     final form = annotation.normalAppearance;
     if (form == null) return false;
     final dict = annotation.dict;
     switch (annotation.subtype) {
       case 'Square' || 'Circle':
-        if (dict['BE'] != null) return false; // cloudy borders still stretch
-        final width = annotation.borderWidth ?? 1;
-        final stroke = width > 0 ? annotation.color : null;
-        final fill = annotation.interiorColor;
-        if (stroke == null && fill == null) return false;
+        final style = behavior.style;
+        final width = style.strokeWidth ?? 1;
+        final stroke = width > 0 ? style.color : null;
+        final fill = style.fillColor;
         final gs = _alphaState(opacity ?? _appearanceOpacity(form));
         final w = _shapeContent(annotation.subtype, to, stroke, width, fill,
             dashPattern: annotation.borderDash, hasAlpha: gs != null);
@@ -3649,10 +3586,8 @@ extension PdfAnnotationEditing on PdfEditor {
             resources: _resources(extGState: gs));
         return true;
       case 'FreeText':
-        final style = annotation.freeTextStyle;
-        if (style == null) return false;
-        final stdFont = PdfStandardFont.tryFromName(style.fontName);
-        if (stdFont == null) return false;
+        final style = behavior.style.freeText!;
+        final stdFont = behavior.standardTextFont!;
         final text = annotation.contents ?? '';
         PdfUnicodeFont? unicodeFont;
         if (text.codeUnits.any((c) => c > 0xFF)) {
@@ -3800,7 +3735,7 @@ extension PdfAnnotationEditing on PdfEditor {
   ///   free text (/C); the single-field record distinguishes "set to
   ///   this" - including `(null,)`, clearing the fill - from an omitted
   ///   parameter. Ignored elsewhere.
-  /// * [strokeWidth] - shapes and ink. Ignored elsewhere (markup line
+  /// * [strokeWidth] - shapes, the line family, and ink. Ignored elsewhere (markup line
   ///   weights derive from the text size; free-text borders restyle
   ///   through the text-style path).
   /// * [opacity] - shapes, ink, markups, stamps. Free text and notes
@@ -3829,19 +3764,20 @@ extension PdfAnnotationEditing on PdfEditor {
         dashPattern == null) {
       return false;
     }
-    if (!pdfCanRestyleAnnotation(annotation)) return false;
+    final behavior = annotation.behavior;
+    if (!behavior.canRestyle) return false;
+    final currentStyle = behavior.style;
     final dict = annotation.dict;
     switch (annotation.subtype) {
       case 'Ink':
         final form = annotation.normalAppearance;
         final strokes = annotation.inkList!;
-        final oldWidth = annotation.borderWidth ?? 1;
+        final oldWidth = currentStyle.strokeWidth ?? 1;
         final pressures =
             form == null ? null : _recoverInkPressures(form, strokes, oldWidth);
-        final newColor = color ?? annotation.color ?? 0x000000;
+        final newColor = color ?? currentStyle.color ?? 0x000000;
         final newWidth = strokeWidth ?? oldWidth;
-        final newOpacity =
-            opacity ?? (form == null ? 1.0 : _appearanceOpacity(form));
+        final newOpacity = opacity ?? currentStyle.opacity;
         final (rect, w, gs) =
             _inkAppearance(strokes, pressures, newColor, newWidth, newOpacity);
         dict['Rect'] = _rectArray(rect);
@@ -3859,11 +3795,10 @@ extension PdfAnnotationEditing on PdfEditor {
         _markAnnotationChanged(pageIndex, dict);
         return true;
       case 'Highlight' || 'Underline' || 'StrikeOut' || 'Squiggly':
-        final quads = _axisAlignedQuads(annotation)!;
+        final quads = behavior.markupQuads!;
         final form = annotation.normalAppearance;
-        final newColor = color ?? annotation.color ?? 0xFFD100;
-        final newOpacity =
-            opacity ?? (form == null ? 1.0 : _appearanceOpacity(form));
+        final newColor = color ?? currentStyle.color ?? 0xFFD100;
+        final newOpacity = opacity ?? currentStyle.opacity;
         final rect = _boundsOf(quads);
         final (w, gs) =
             _markupContent(annotation.subtype, quads, newColor, newOpacity);
@@ -3881,10 +3816,9 @@ extension PdfAnnotationEditing on PdfEditor {
         _markAnnotationChanged(pageIndex, dict);
         return true;
       case 'Square' || 'Circle':
-        final width = strokeWidth ?? annotation.borderWidth ?? 1;
-        final stroke = color ?? annotation.color;
-        final fill =
-            fillColor != null ? fillColor.$1 : annotation.interiorColor;
+        final width = strokeWidth ?? currentStyle.strokeWidth ?? 1;
+        final stroke = color ?? currentStyle.color;
+        final fill = fillColor != null ? fillColor.$1 : currentStyle.fillColor;
         if ((stroke == null || width <= 0) && fill == null) return false;
         if (stroke != null) dict['C'] = _colorComponents(stroke);
         final dash =
@@ -3897,8 +3831,8 @@ extension PdfAnnotationEditing on PdfEditor {
         }
         return _restyleRegenerate(pageIndex, dict, opacity: opacity);
       case 'Line' || 'PolyLine' || 'Polygon':
-        final width = strokeWidth ?? annotation.borderWidth ?? 1;
-        final stroke = color ?? annotation.color;
+        final width = strokeWidth ?? currentStyle.strokeWidth ?? 1;
+        final stroke = color ?? currentStyle.color;
         if (stroke == null || width <= 0) return false;
         final dash =
             dashPattern != null ? dashPattern.$1 : annotation.borderDash;
@@ -3906,7 +3840,7 @@ extension PdfAnnotationEditing on PdfEditor {
         dict['BS'] = _borderStyle(width, dashPattern: dash);
         if (annotation.subtype == 'Polygon') {
           final fill =
-              fillColor != null ? fillColor.$1 : annotation.interiorColor;
+              fillColor != null ? fillColor.$1 : currentStyle.fillColor;
           if (fill != null) {
             dict['IC'] = _colorComponents(fill);
           } else {
@@ -3915,8 +3849,8 @@ extension PdfAnnotationEditing on PdfEditor {
         }
         return _restyleRegenerate(pageIndex, dict, opacity: opacity);
       case 'FreeText':
-        final style = annotation.freeTextStyle!;
-        final font = PdfStandardFont.tryFromName(style.fontName)!;
+        final style = currentStyle.freeText!;
+        final font = behavior.standardTextFont!;
         final textColor = color ?? style.color;
         final fill = fillColor != null ? fillColor.$1 : style.fillColor;
         final border = style.borderColor != null && style.borderWidth > 0
@@ -3933,11 +3867,11 @@ extension PdfAnnotationEditing on PdfEditor {
         return _restyleRegenerate(pageIndex, dict,
             pageRotation: effectivePageRotation);
       case 'Text':
-        dict['C'] = _colorComponents(color ?? annotation.color ?? 0xFFD100);
+        dict['C'] = _colorComponents(color ?? currentStyle.color ?? 0xFFD100);
         return _restyleRegenerate(pageIndex, dict,
             pageRotation: effectivePageRotation);
       case 'Stamp':
-        dict['C'] = _colorComponents(color ?? annotation.color ?? 0xC03030);
+        dict['C'] = _colorComponents(color ?? currentStyle.color ?? 0xC03030);
         return _restyleRegenerate(pageIndex, dict,
             opacity: opacity, pageRotation: effectivePageRotation);
     }

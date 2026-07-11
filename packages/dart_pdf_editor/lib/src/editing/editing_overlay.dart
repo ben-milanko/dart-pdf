@@ -566,6 +566,7 @@ typedef _ShapeResize = ({
   Color? stroke,
   double strokeWidth,
   Color? fill,
+  List<double>? dashPattern,
   double rotation,
   double opacity,
 });
@@ -1357,8 +1358,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   bool get _selectedLineFamily {
-    final subtype = _controller.selectedAnnotation?.subtype;
-    return subtype == 'Line' || subtype == 'PolyLine' || subtype == 'Polygon';
+    return _controller.selectedAnnotation?.behavior.lineFamily == true;
   }
 
   PdfEditTool? get _selectedLineTool {
@@ -1728,14 +1728,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       get _textResizeStyle {
     final annotation = _controller.selectedAnnotation;
     if (annotation == null ||
-        annotation.subtype != 'FreeText' ||
-        annotation.normalAppearance == null) {
+        annotation.behavior.resizeBehavior !=
+            PdfAnnotationResizeBehavior.reflowText) {
       return null;
     }
-    final parsed = annotation.freeTextStyle;
-    final font =
-        parsed == null ? null : PdfStandardFont.tryFromName(parsed.fontName);
-    if (parsed == null || font == null) return null;
+    final parsed = annotation.behavior.style.freeText!;
+    final font = annotation.behavior.standardTextFont!;
     return (
       text: annotation.contents ?? '',
       font: font,
@@ -1750,7 +1748,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// The selected annotation's style when a resize commit will
   /// REGENERATE it (Square/Circle) at a constant stroke width - the
   /// editor's shape regenerate path: an /AP to replace, no cloudy /BE,
-  /// no dashed border, and a stroke or fill to draw. [strokeWidth] is in
+  /// and a stroke or fill to draw. Dashed borders carry their exact /BS /D
+  /// pattern into the preview. [strokeWidth] is in
   /// view pixels (the page-space border width scaled), so the preview
   /// reads at the same weight the commit will, instead of the ghost's
   /// stretched line. Null leaves the drag on the stretch ghost.
@@ -1760,26 +1759,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   _ShapeResize? _shapeResizeStyle(Rect rect, double rotation) {
     final annotation = _controller.selectedAnnotation;
     if (annotation == null ||
-        (annotation.subtype != 'Square' && annotation.subtype != 'Circle') ||
-        annotation.normalAppearance == null) {
+        annotation.behavior.resizeBehavior !=
+            PdfAnnotationResizeBehavior.regenerateShape) {
       return null;
     }
-    // cloudy and dashed borders fall back to the stretch path in the editor
-    if (annotation.dict['BE'] != null || annotation.borderDash != null) {
-      return null;
-    }
-    final width = annotation.borderWidth ?? 1;
-    final stroke = width > 0 ? annotation.color : null;
-    final fill = annotation.interiorColor;
-    if (stroke == null && fill == null) return null;
+    final style = annotation.behavior.style;
+    final width = style.strokeWidth ?? 1;
+    final stroke = width > 0 ? style.color : null;
+    final fill = style.fillColor;
     return (
       rect: rect,
       ellipse: annotation.subtype == 'Circle',
       stroke: stroke == null ? null : Color(0xFF000000 | stroke),
       strokeWidth: width * _geometry.scale,
       fill: fill == null ? null : Color(0xFF000000 | fill),
+      dashPattern: annotation.borderDash == null
+          ? null
+          : [
+              for (final length in annotation.borderDash!)
+                length * _geometry.scale,
+            ],
       rotation: rotation,
-      opacity: annotation.appearanceOpacity,
+      opacity: style.opacity,
     );
   }
 
@@ -2282,8 +2283,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final style = existing ? _controller.selectedTextStyle : null;
     // /DA carries the text color; /C is the box background for free text
     final annotation = existing ? _controller.selectedAnnotation : null;
-    final parsed = annotation?.freeTextStyle;
-    final annotationColor = parsed?.color ?? annotation?.color;
+    final parsed = annotation?.behavior.style.freeText;
+    final annotationColor = annotation?.behavior.style.color;
     // an already-rotated box edits in its rotated frame: take the chrome's
     // un-rotated box + resting angle so the editor (and the committed
     // afterimage) ride the artwork, not its axis-aligned bounds
@@ -3316,9 +3317,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       points: points,
       tool: tool,
       color: style?.color.withValues(alpha: opacity) ?? _controller.color,
-      fillColor: annotation?.interiorColor == null
+      fillColor: annotation?.behavior.style.fillColor == null
           ? null
-          : Color(0xFF000000 | annotation!.interiorColor!)
+          : Color(0xFF000000 | annotation!.behavior.style.fillColor!)
               .withValues(alpha: opacity),
       strokeWidth:
           (style?.strokeWidth ?? _controller.strokeWidth) * _geometry.scale,
@@ -3344,9 +3345,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       points: points,
       tool: tool,
       color: style.color.withValues(alpha: opacity),
-      fillColor: annotation.interiorColor == null
+      fillColor: annotation.behavior.style.fillColor == null
           ? null
-          : Color(0xFF000000 | annotation.interiorColor!)
+          : Color(0xFF000000 | annotation.behavior.style.fillColor!)
               .withValues(alpha: opacity),
       strokeWidth:
           (style.strokeWidth ?? _controller.strokeWidth) * _geometry.scale,
@@ -5847,7 +5848,13 @@ class _EditingPreviewPainter extends CustomPainter {
         ..color = s.stroke!
         ..style = PaintingStyle.stroke
         ..strokeWidth = s.strokeWidth;
-      s.ellipse ? canvas.drawOval(box, paint) : canvas.drawRect(box, paint);
+      if (s.dashPattern == null) {
+        s.ellipse ? canvas.drawOval(box, paint) : canvas.drawRect(box, paint);
+      } else {
+        final path = Path();
+        s.ellipse ? path.addOval(box) : path.addRect(box);
+        canvas.drawPath(_dashPath(path, s.strokeWidth, s.dashPattern), paint);
+      }
     }
     if (layered) canvas.restore();
     canvas.restore();
@@ -5931,9 +5938,13 @@ class _EditingPreviewPainter extends CustomPainter {
         false);
   }
 
-  Path _dashPath(Path path, double width) {
+  Path _dashPath(Path path, double width, [List<double>? dashPattern]) {
     final out = Path();
-    final pattern = [math.max(2.0, width * 3), math.max(2.0, width * 2)];
+    final pattern = dashPattern == null ||
+            dashPattern.isEmpty ||
+            !dashPattern.any((length) => length > 0)
+        ? [math.max(2.0, width * 3), math.max(2.0, width * 2)]
+        : [for (final length in dashPattern) math.max(0.01, length)];
     for (final metric in path.computeMetrics()) {
       var distance = 0.0;
       var draw = true;

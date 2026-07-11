@@ -2976,27 +2976,6 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // selection
 
-  /// Annotation subtypes the select tool ignores: popups belong to their
-  /// parent, links and widgets are interactive objects with their own
-  /// semantics (widgets are form fields - moving one breaks its field).
-  static const _unselectable = {'Popup', 'Link', 'Widget'};
-
-  /// Subtypes whose geometry is defined by /Rect (plus point arrays the
-  /// editor rescales), so resizing keeps them consistent everywhere.
-  static const _resizable = {
-    'Square',
-    'Circle',
-    'FreeText',
-    'Stamp',
-    'Ink',
-    'Line',
-    'PolyLine',
-    'Polygon',
-  };
-
-  /// Subtypes whose text the controller can rewrite in place.
-  static const _textEditable = {'FreeText', 'Stamp', 'Text'};
-
   PdfAnnotationEditPredicate? _canEditAnnotation;
 
   /// Host veto over which annotations the editing UI may change.
@@ -3129,19 +3108,18 @@ class PdfEditingController extends ChangeNotifier {
   /// editor regenerates their appearance at the new size).
   bool get canResizeSelected =>
       _selected.length == 1 &&
-      (_resizable.contains(selectedAnnotation?.subtype) ||
+      (selectedAnnotation?.behavior.resizable == true ||
           (tool == PdfEditTool.form &&
               selectedAnnotation?.subtype == 'Widget'));
 
   /// Rotation rides the appearance stream's /Matrix, so it needs one.
   bool get canRotateSelected =>
       _selected.length == 1 &&
-      _resizable.contains(selectedAnnotation?.subtype) &&
-      selectedAnnotation?.normalAppearance != null;
+      selectedAnnotation?.behavior.rotatable == true;
 
   bool get canEditSelectedText =>
       _selected.length == 1 &&
-      _textEditable.contains(selectedAnnotation?.subtype) &&
+      selectedAnnotation?.behavior.textEditable == true &&
       selectedAnnotation?.isLockedContents != true;
 
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
@@ -3153,7 +3131,7 @@ class PdfEditingController extends ChangeNotifier {
     for (var i = annotations.length - 1; i >= 0; i--) {
       final annotation = annotations[i];
       if (annotation.isHidden ||
-          _unselectable.contains(annotation.subtype) ||
+          !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;
       }
@@ -3305,7 +3283,7 @@ class PdfEditingController extends ChangeNotifier {
     for (var i = 0; i < annotations.length; i++) {
       final annotation = annotations[i];
       if (annotation.isHidden ||
-          _unselectable.contains(annotation.subtype) ||
+          !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;
       }
@@ -3349,7 +3327,7 @@ class PdfEditingController extends ChangeNotifier {
   bool selectAnnotation(int pageIndex, int index) {
     final annotation = _annotationAt((pageIndex, index));
     if (annotation == null ||
-        _unselectable.contains(annotation.subtype) ||
+        !annotation.behavior.selectable ||
         !isAnnotationEditable(annotation)) {
       return false;
     }
@@ -3832,7 +3810,7 @@ class PdfEditingController extends ChangeNotifier {
       _selected.isNotEmpty &&
       _selected.every((slot) {
         final annotation = _annotationAt(slot);
-        return annotation != null && pdfCanRestyleAnnotation(annotation);
+        return annotation?.behavior.canRestyle == true;
       });
 
   /// The primary selected annotation's current style, for style controls
@@ -3843,32 +3821,26 @@ class PdfEditingController extends ChangeNotifier {
       get selectedAnnotationStyle {
     final annotation = selectedAnnotation;
     if (annotation == null) return null;
-    final rgb = annotation.subtype == 'FreeText'
-        ? annotation.freeTextStyle?.color ?? annotation.color
-        : annotation.color;
+    final style = annotation.behavior.style;
     return (
-      color: Color(0xFF000000 | (rgb ?? 0)),
-      strokeWidth: annotation.borderWidth,
-      opacity: annotation.appearanceOpacity,
+      color: Color(0xFF000000 | (style.color ?? 0)),
+      strokeWidth: style.strokeWidth,
+      opacity: style.opacity,
     );
   }
 
-  /// Whether every selected annotation is a fillable shape (Square,
-  /// Circle, or Polygon) - i.e. [restyleSelected]'s `fill` parameter
-  /// applies to the whole selection.
+  /// Whether [restyleSelected]'s `fill` parameter applies to every selected
+  /// annotation (shapes and FreeText boxes).
   bool get canFillSelected =>
       canRestyleSelected &&
       _selected.every((slot) {
-        final subtype = _annotationAt(slot)?.subtype;
-        return subtype == 'Square' ||
-            subtype == 'Circle' ||
-            subtype == 'Polygon';
+        return _annotationAt(slot)?.behavior.supportsFill == true;
       });
 
-  /// The primary selected shape's interior fill, or null when it has none
-  /// (or the selection isn't a shape). For the fill control to display.
+  /// The primary selected annotation's interior/background fill, or null
+  /// when it has none. For the fill control to display.
   Color? get selectedShapeFill {
-    final rgb = selectedAnnotation?.interiorColor;
+    final rgb = selectedAnnotation?.behavior.style.fillColor;
     return rgb == null ? null : Color(0xFF000000 | rgb);
   }
 
@@ -3877,12 +3849,7 @@ class PdfEditingController extends ChangeNotifier {
   bool get canSetLineStyleSelected =>
       canRestyleSelected &&
       _selected.every((slot) {
-        final subtype = _annotationAt(slot)?.subtype;
-        return subtype == 'Square' ||
-            subtype == 'Circle' ||
-            subtype == 'Line' ||
-            subtype == 'PolyLine' ||
-            subtype == 'Polygon';
+        return _annotationAt(slot)?.behavior.supportsLineStyle == true;
       });
 
   /// The primary selected annotation's border line style (for the line-type
@@ -3890,8 +3857,7 @@ class PdfEditingController extends ChangeNotifier {
   PdfLineStyle? get selectedLineStyle {
     final annotation = selectedAnnotation;
     if (annotation == null) return null;
-    const styled = {'Square', 'Circle', 'Line', 'PolyLine', 'Polygon'};
-    if (!styled.contains(annotation.subtype)) return null;
+    if (!annotation.behavior.supportsLineStyle) return null;
     return PdfLineStyle.ofDashArray(annotation.borderDash);
   }
 
@@ -4206,10 +4172,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Polygon annotation. The selection keeps its /Annots slot.
   void reshapeSelectedLine(List<(double, double)> points) {
     final annotation = selectedAnnotation;
-    if (annotation == null ||
-        annotation.subtype != 'Line' &&
-            annotation.subtype != 'PolyLine' &&
-            annotation.subtype != 'Polygon') {
+    if (annotation == null || !annotation.behavior.lineFamily) {
       return;
     }
     apply((e) => e.reshapeLineAnnotation(_selected.last.$1, annotation, points),
@@ -4222,7 +4185,7 @@ class PdfEditingController extends ChangeNotifier {
     final annotation = selectedAnnotation;
     return _selected.length == 1 &&
         annotation != null &&
-        (annotation.subtype == 'Line' || annotation.subtype == 'PolyLine') &&
+        annotation.behavior.supportsLineEndings &&
         annotation.normalAppearance != null;
   }
 

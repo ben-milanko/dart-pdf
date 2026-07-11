@@ -1704,6 +1704,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   _StyleFields _selectionStyleFields() {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return const _StyleFields();
+    final behavior = annotation.behavior;
     final canStroke = controller.canRestyleSelected;
     switch (annotation.subtype) {
       case 'Widget':
@@ -1711,13 +1712,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         return _StyleFields(formField: controller.canStyleSelectedFormField);
       case 'FreeText':
         final text = controller.canRestyleSelectedText;
-        return _StyleFields(opacity: true, font: text, boxColors: text);
+        return _StyleFields(
+            opacity: behavior.supportsOpacity,
+            font: text,
+            boxColors: text);
       case 'Square':
       case 'Circle':
       case 'Polygon':
         return _StyleFields(
-            stroke: canStroke,
-            opacity: true,
+            stroke: canStroke && behavior.supportsStrokeWidth,
+            opacity: behavior.supportsOpacity,
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
@@ -1725,17 +1729,19 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'Line':
       case 'PolyLine':
         return _StyleFields(
-            stroke: canStroke,
-            opacity: true,
+            stroke: canStroke && behavior.supportsStrokeWidth,
+            opacity: behavior.supportsOpacity,
             // a measurement (/Line distance, /PolyLine perimeter) carries one
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
             lineEndings: controller.canSetLineEndings);
       case 'Ink':
-        return _StyleFields(stroke: canStroke, opacity: true);
+        return _StyleFields(
+            stroke: canStroke && behavior.supportsStrokeWidth,
+            opacity: behavior.supportsOpacity);
       default:
-        // markup, stamps, notes: opacity is the only shared restyle
-        return const _StyleFields(opacity: true);
+        // Markup and stamps expose opacity; notes and foreign subtypes do not.
+        return _StyleFields(opacity: behavior.supportsOpacity);
     }
   }
 
@@ -3589,4 +3595,3 @@ class _LineEndingPainter extends CustomPainter {
   bool shouldRepaint(_LineEndingPainter old) =>
       old.ending != ending || old.atEnd != atEnd || old.color != color;
 }
-
