@@ -43,6 +43,7 @@ export 'src/ocr.dart';
 export 'src/page_export.dart';
 export 'src/page_geometry.dart';
 export 'src/page_number_field.dart';
+export 'src/page_render_session.dart';
 export 'src/perf_log.dart';
 export 'src/page_range_dialog.dart';
 export 'src/pdf_editor_view.dart';

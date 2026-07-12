@@ -14,6 +14,7 @@ import 'package:pdf_graphics/pdf_graphics.dart'
         PdfRenderCommand;
 
 import 'perf_log.dart';
+import 'page_render_session.dart';
 import 'performance_policy.dart';
 import 'preview_cache.dart';
 import 'render_scheduler.dart';
@@ -321,6 +322,7 @@ class PdfPageView extends StatefulWidget {
 }
 
 class _PdfPageViewState extends State<PdfPageView> {
+  late final PdfPageRenderSession _renderSession;
   Future<ui.Picture>? _picture;
 
   /// Web-only retained strip picture whose outline-text draws use the Slug
@@ -337,7 +339,6 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// is off. Lives and dies with [_picture] (see [_dropPicture]).
   PdfRetainedScene? _scene;
   ui.Image? _image;
-  int _renderGeneration = 0;
   double? _pixelRatio;
   double? _layoutWidth;
 
@@ -350,16 +351,11 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   ui.Image? _detailImage;
   Rect? _detailFraction; // patch placement as fractions of the page
-  int _detailGeneration = 0;
   Future<bool>? _progressiveDetailFuture;
 
   /// Clone of this page's cached low-res preview; painted while no full
   /// raster exists, dropped (to free the buffer) the moment one lands.
   ui.Image? _preview;
-
-  /// A render that arrived while [PdfPageView.renderHold] was up - it
-  /// fires the moment the hold releases.
-  bool _holdPending = false;
 
   // Full-page rasters stay within GPU texture limits and sane memory:
   // at most ~16.7M px (64 MB RGBA) and 8192 px per side. Past these caps
@@ -380,9 +376,24 @@ class _PdfPageViewState extends State<PdfPageView> {
         rotation: widget.rotation,
       );
 
+  PdfPageRenderIntent _renderIntent(PdfPageView source) => PdfPageRenderIntent(
+        page: source.page,
+        pageIndex: source.previewIndex,
+        pageEpoch: source.pageEpoch,
+        contentStamp: source.contentStamp,
+        destructiveStamp: source.destructiveStamp,
+        trustContentStamp: source.trustContentStamp,
+        rotation: source.rotation,
+        pageColor: source.pageColor,
+        showAnnotations: source.showAnnotations,
+        scale: source.scale,
+        settleGeneration: source.settleGeneration,
+      );
+
   @override
   void initState() {
     super.initState();
+    _renderSession = PdfPageRenderSession(_renderIntent(widget));
     widget.renderHold?.addListener(_onRenderHoldChanged);
     widget.previewCache?.addListener(_onPreviewCacheChanged);
     _liveTransformFor(widget)?.addListener(_onLiveTransformChanged);
@@ -423,8 +434,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   void _onRenderHoldChanged() {
-    if (widget.renderHold?.value == false && _holdPending) {
-      _holdPending = false;
+    if (widget.renderHold?.value == false && _renderSession.releaseHold()) {
       if (mounted) _render();
     }
   }
@@ -480,6 +490,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void didUpdateWidget(PdfPageView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final transition = _renderSession.update(_renderIntent(widget));
     if (!identical(oldWidget.renderHold, widget.renderHold)) {
       oldWidget.renderHold?.removeListener(_onRenderHoldChanged);
       widget.renderHold?.addListener(_onRenderHoldChanged);
@@ -517,9 +528,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview = null;
       _refreshPreview();
     }
-    final blanked = oldWidget.pageEpoch != widget.pageEpoch ||
-        oldWidget.destructiveStamp != widget.destructiveStamp;
-    if (blanked) {
+    if (transition.dropBaseRaster) {
       // Either a structural document change reused this State for a different
       // page at the same slot (pageEpoch; previewIndex unchanged, so the
       // branches above don't fire), or content was removed from this page in
@@ -536,22 +545,13 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview?.dispose();
       _preview = null;
     }
-    final contentChanged = oldWidget.contentStamp != widget.contentStamp;
-    final pageIdentityChanged = !identical(oldWidget.page, widget.page);
-    final nonContentVisualChanged =
-        (pageIdentityChanged && !widget.trustContentStamp) ||
-            oldWidget.trustContentStamp != widget.trustContentStamp ||
-            oldWidget.rotation != widget.rotation ||
-            oldWidget.pageColor != widget.pageColor ||
-            oldWidget.showAnnotations != widget.showAnnotations;
-    final visualChanged = contentChanged || nonContentVisualChanged;
-    if (blanked || visualChanged) {
+    if (transition.dropPicture) {
       // Re-interpret at the new content/page. Unless we blanked above, the
       // old base raster stays up until the new render replaces it -
       // _dropPicture nulls _rasteredRatio so _renderNow still re-rasters -
       // so an additive edit on a heavy page never flashes blank.
       _dropPicture();
-      if (blanked || nonContentVisualChanged) {
+      if (transition.dropDetail) {
         // The deep-zoom detail patch is a sharper raster layered above the
         // base. For additive annotation edits, keep the stale patch for
         // sharpness and let the editing overlay's commit afterimage cover the
@@ -559,9 +559,8 @@ class _PdfPageViewState extends State<PdfPageView> {
         // and display-setting changes there is no safe afterimage, so drop it.
         _dropDetail();
       }
-      _render();
-    } else if (oldWidget.scale != widget.scale ||
-        oldWidget.settleGeneration != widget.settleGeneration) {
+    }
+    if (transition.scheduleRender) {
       // scale change re-rasters the page; a settle that only moved the
       // viewport refreshes the detail patch. Both route through _render so
       // they pace and coalesce through the scheduler (_renderNow skips the
@@ -593,6 +592,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       priority: widget.renderPriority,
     );
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
+    _renderSession.dispose();
     _dropPicture();
     _image?.dispose();
     _detailImage?.dispose();
@@ -654,7 +654,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   bool _sceneHasImageDraws = false;
 
   void _dropDetail() {
-    _detailGeneration++;
+    _renderSession.invalidateDetail();
     if (_detailImage != null) {
       _detailImage?.dispose();
       _detailImage = null;
@@ -739,15 +739,17 @@ class _PdfPageViewState extends State<PdfPageView> {
     );
     if (image == null) return false;
     widget.renderScheduler?.cancel(this);
-    _renderGeneration++;
+    _renderSession.invalidateFull();
     setState(() {
       _image = image;
       _rasteredRatio = effective;
       _preview?.dispose();
       _preview = null;
     });
-    PdfPerfLog.log('full-raster cache hit page=${widget.previewIndex} '
-        '${image.width}x${image.height}');
+    PdfPerfLog.log(
+      'full-raster cache hit page=${widget.previewIndex} '
+      '${image.width}x${image.height}',
+    );
     widget.onRasterReady?.call();
     return true;
   }
@@ -767,31 +769,19 @@ class _PdfPageViewState extends State<PdfPageView> {
         (_effectiveRatio() - rastered).abs() <= rastered * 0.01) {
       return;
     }
-    final scheduler = widget.renderScheduler;
-    if (scheduler != null) {
-      // Route the first interpret AND every re-raster (zoom settle,
-      // detail-patch follow) through the scheduler: it dedupes per page
-      // (token), paces one render per frame, and defers while a scroll or
-      // zoom is in flight. The first interpret walks the content stream
-      // twice on the UI thread - what stalls fast scrolling on heavy
-      // pages. Re-rasters are a `toImage`, cheap on a raster thread but a
-      // single-threaded GPU readback on web: rapid zoom in/out used to
-      // fire one uncancellable readback per settle and they piled up,
-      // freezing the UI. Coalescing collapses them to the latest.
-      scheduler.request(this, widget.previewIndex, _renderNow);
-      return;
-    }
-    // The bare PdfPageView (no scheduler) defers only the first interpret
-    // behind renderHold; cached re-rasters run directly.
-    if (_picture == null && (widget.renderHold?.value ?? false)) {
-      _holdPending = true;
-      return;
-    }
-    await _renderNow();
+    await _renderSession.request(
+      owner: this,
+      hasPicture: _picture != null,
+      scheduler: widget.renderScheduler,
+      hold: widget.renderHold,
+      render: _renderNow,
+    );
   }
 
-  bool get _renderPaused =>
-      widget.renderScheduler?.holding ?? (widget.renderHold?.value ?? false);
+  bool get _renderPaused => _renderSession.paused(
+        scheduler: widget.renderScheduler,
+        hold: widget.renderHold,
+      );
 
   /// Interprets the page into a picture, off the UI thread when a worker is
   /// available and the page is serializable, else locally. The worker path
@@ -1095,12 +1085,12 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// production stops here (no wasted local interpret); painting is gated
   /// separately by [_superseded], which also rejects a stale generation.
   bool _abandoned(int pageIndex) =>
-      !mounted || widget.previewIndex != pageIndex;
+      !mounted || !_renderSession.matchesPage(pageIndex);
 
   /// Whether a render started at ([generation], [pageIndex]) must not paint -
   /// [_abandoned], or a newer render bumped the generation past this one.
   bool _superseded(int generation, int pageIndex) =>
-      _abandoned(pageIndex) || generation != _renderGeneration;
+      !mounted || !_renderSession.acceptsFull(generation, pageIndex);
 
   /// A zero-op picture for an abandoned render. Never painted (the caller's
   /// [_superseded] guards discard it); it only satisfies the return type.
@@ -1118,7 +1108,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
-    final generation = ++_renderGeneration;
+    final generation = _renderSession.beginFull();
     final pageIndex = widget.previewIndex;
     final firstInterpret = _picture == null;
     if (firstInterpret) _lastInterpretResultBytes = null;
@@ -1388,7 +1378,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     _DetailGeometry? detailGeometry,
     VoidCallback? onPaint,
   }) async {
-    final generation = ++_detailGeneration;
+    final generation = _renderSession.beginDetail();
     if (_renderPaused) return false;
 
     // A Slug page picture is already transform-sharp for text and vector
@@ -1460,7 +1450,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         region,
         pixelRatio: ratio,
       );
-      if (mounted && generation == _detailGeneration && !_renderPaused) {
+      if (mounted &&
+          _renderSession.acceptsDetail(generation) &&
+          !_renderPaused) {
         setState(() {
           _detailImage?.dispose();
           _detailImage = vectorImage;
@@ -1485,7 +1477,9 @@ class _PdfPageViewState extends State<PdfPageView> {
       'elapsed=${detailClock.elapsedMilliseconds}ms '
       'stripImage=${workerStripImage != null} picture=${workerPicture != null}',
     );
-    if (!mounted || generation != _detailGeneration || _renderPaused) {
+    if (!mounted ||
+        !_renderSession.acceptsDetail(generation) ||
+        _renderPaused) {
       workerStripImage?.dispose();
       workerPicture?.dispose();
       return false;
@@ -1511,7 +1505,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         ratio,
       );
       workerPicture.dispose();
-      if (!mounted || generation != _detailGeneration || _renderPaused) {
+      if (!mounted ||
+          !_renderSession.acceptsDetail(generation) ||
+          _renderPaused) {
         image.dispose();
         return false;
       }
@@ -1549,7 +1545,9 @@ class _PdfPageViewState extends State<PdfPageView> {
       widget.page,
       _renderPlan,
     ));
-    if (!mounted || generation != _detailGeneration || _renderPaused) {
+    if (!mounted ||
+        !_renderSession.acceptsDetail(generation) ||
+        _renderPaused) {
       return false;
     }
     // Same replay-over-nested-raster swap as the full-page path: the deep-
@@ -1566,7 +1564,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         pixelRatio: ratio,
         region: region,
       );
-      if (!mounted || generation != _detailGeneration || _renderPaused) {
+      if (!mounted ||
+          !_renderSession.acceptsDetail(generation) ||
+          _renderPaused) {
         return false;
       }
       image = await scene.rasterizeRegionStrips(
@@ -1579,7 +1579,9 @@ class _PdfPageViewState extends State<PdfPageView> {
     } else {
       image = await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
     }
-    if (!mounted || generation != _detailGeneration || _renderPaused) {
+    if (!mounted ||
+        !_renderSession.acceptsDetail(generation) ||
+        _renderPaused) {
       image.dispose();
       return false;
     }
@@ -1600,7 +1602,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   }) {
     if (!PdfPerfLog.enabled) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || generation != _detailGeneration) return;
+      if (!mounted || !_renderSession.acceptsDetail(generation)) return;
       PdfPerfLog.log(
         'detail paint page=${widget.previewIndex} source=$source '
         'elapsed=${clock.elapsedMicroseconds / 1000.0}ms',
@@ -2000,7 +2002,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       );
     }
     if (_abandoned(pageIndex) ||
-        generation != _detailGeneration ||
+        !_renderSession.acceptsDetail(generation) ||
         _renderPaused ||
         detail == null) {
       return null;
@@ -2012,7 +2014,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       plan: _renderPlan,
     );
     if (_abandoned(pageIndex) ||
-        generation != _detailGeneration ||
+        !_renderSession.acceptsDetail(generation) ||
         _renderPaused) {
       scene.dispose();
       return null;
