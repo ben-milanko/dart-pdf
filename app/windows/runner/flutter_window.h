@@ -50,6 +50,11 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       incoming_channel_;
 
+  // Channel that copies Snapshot rasters to / reads images from the Win32
+  // clipboard (`copyPng` / `readImage`). Created once the engine exists.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      image_clipboard_channel_;
+
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 };

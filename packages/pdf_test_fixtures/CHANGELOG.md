@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+- Add fixtures for callout annotations, rich content editing, retained page
+  rendering, and the expanded viewer/editor regression suite.
+
 ## 1.4.0
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.0. Fixture

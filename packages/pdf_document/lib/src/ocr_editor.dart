@@ -95,7 +95,7 @@ extension PdfOcrEditing on PdfEditor {
         ..endText();
     }
     writer.restore();
-    _appendContent(page, writer.takeBytes());
+    _appendContent(pageIndex, page, writer.takeBytes());
     return accepted.length;
   }
 
@@ -110,8 +110,9 @@ extension PdfOcrEditing on PdfEditor {
     if (existing is CosDictionary && resources['Font'] is! CosReference) {
       fonts = existing;
     } else {
-      fonts =
-          CosDictionary({if (existing is CosDictionary) ...existing.entries});
+      fonts = CosDictionary({
+        if (existing is CosDictionary) ...existing.entries,
+      });
       resources['Font'] = fonts;
     }
 

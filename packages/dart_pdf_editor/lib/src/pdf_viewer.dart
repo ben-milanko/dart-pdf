@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'annotation_tap.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_form_layer.dart';
+import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
@@ -23,6 +24,7 @@ import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'page_geometry.dart';
 import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'raster_cache.dart';
@@ -495,6 +497,7 @@ class PdfViewer extends StatefulWidget {
     this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.editing,
+    this.interactionSession,
     this.formController,
     this.editingTextPrompt,
     this.annotationMenuBuilder,
@@ -519,6 +522,7 @@ class PdfViewer extends StatefulWidget {
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.renderWorker,
+    this.performance,
     this.rasterCache,
     this.textCache,
     this.documentId,
@@ -567,6 +571,11 @@ class PdfViewer extends StatefulWidget {
   /// on-thread behavior.
   final PdfRenderWorker? renderWorker;
 
+  /// Optional adaptive performance policy. Worker counts are applied by the
+  /// owning shell when it starts [renderWorker]; the viewer consumes its
+  /// runtime-safe preview, vector-first, and image-cap tuning live.
+  final PdfPerformanceController? performance;
+
   /// Single-key shortcuts that arm editing tools while [editing] is active.
   ///
   /// Defaults to [pdfEditToolShortcuts]. Pass a replacement map to rebind
@@ -612,6 +621,10 @@ class PdfViewer extends StatefulWidget {
   /// so they scroll and zoom with the page; they receive pointer events
   /// before the viewer's own selection and link handling.
   final PdfPageOverlayBuilder? pageOverlayBuilder;
+
+  /// Stable transition/effect surface for editing gestures. The viewer uses
+  /// it for every page overlay; pointer samples do not notify listeners.
+  final PdfEditingInteractionSession? interactionSession;
 
   /// Enables annotation editing: while the controller has a tool armed,
   /// each page grows an editing layer that captures the tool's gestures,
@@ -1071,6 +1084,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _controller = widget.controller ?? PdfViewerController();
     _ownsController = widget.controller == null;
     _controller._state = this;
+    widget.performance?.addListener(_onPerformanceChanged);
+    if (widget.performance != null) {
+      SchedulerBinding.instance.addTimingsCallback(_onPerformanceTimings);
+    }
     // mounted already paused (overlaid by another view) - hold rendering from
     // the first frame so covered pages never interpret
     if (!widget.active) _renderScheduler.holding = true;
@@ -1102,6 +1119,23 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     // background preview prerender starts once the first frame (and the
     // scroll metrics the priority order needs) exists
     WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+  }
+
+  void _onPerformanceChanged() {
+    if (!mounted) return;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+  }
+
+  void _onPerformanceTimings(List<FrameTiming> timings) {
+    final performance = widget.performance;
+    if (performance == null) return;
+    for (final timing in timings) {
+      if (timing.buildDuration > const Duration(milliseconds: 16) ||
+          timing.rasterDuration > const Duration(milliseconds: 16)) {
+        performance.observe(const PdfPerformanceSample(jankyFrame: true));
+      }
+    }
   }
 
   late final AppLifecycleListener _lifecycle;
@@ -1308,6 +1342,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       final zoomed = target > 1.01;
       setState(() {
         if (zoomed != _zoomed) _zoomed = zoomed;
+        // NOTE: this quantization rule (max(1, scale), 10% dead band) is
+        // mirrored by _PdfPageViewState._speculateStripPlan to anticipate
+        // the settle's scale while the gesture quiesces - keep the two in
+        // sync or every speculative strip bin becomes a geometry miss.
         if ((target - _renderScale).abs() > 0.1 * _renderScale) {
           _renderScale = target;
         }
@@ -1357,8 +1395,15 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _prerendering = true;
     try {
       while (mounted && widget.pagePreviews && widget.active) {
-        final vectorOnly =
-            _vectorFirstPrefetch && (widget.renderWorker?.isActive ?? false);
+        final workerActive = widget.renderWorker?.isActive ?? false;
+        final motionVector = _vectorFirstPrefetch && workerActive;
+        final policyVector = !motionVector &&
+            workerActive &&
+            (widget.performance?.tuning.vectorFirstPreviews ?? false) &&
+            _nextPreviewIndex(_pages,
+                    requireImages: false, allowNearViewport: false) !=
+                null;
+        final vectorOnly = motionVector || policyVector;
         if (!vectorOnly &&
             (_renderScheduler.holding ||
                 (_scrollSettleTimer?.isActive ?? false))) {
@@ -1471,7 +1516,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// Vector-only warming stays at the configured window because it is cheap
   /// and weighs zero in [PdfCachingRenderWorker].
   int _effectivePreviewWindow({required bool requireImages}) {
-    final base = widget.previewWindow;
+    final base =
+        widget.performance?.tuning.previewWindow ?? widget.previewWindow;
     if (base <= 0 || !requireImages) return base;
 
     var window = base;
@@ -1561,6 +1607,16 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(PdfViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.performance, widget.performance)) {
+      oldWidget.performance?.removeListener(_onPerformanceChanged);
+      if (oldWidget.performance != null) {
+        SchedulerBinding.instance.removeTimingsCallback(_onPerformanceTimings);
+      }
+      widget.performance?.addListener(_onPerformanceChanged);
+      if (widget.performance != null) {
+        SchedulerBinding.instance.addTimingsCallback(_onPerformanceTimings);
+      }
+    }
     if (!identical(oldWidget.document, widget.document)) {
       // an edit-induced swap to a revision with the same page geometry
       // keeps the reading position; a genuinely different document resets
@@ -1816,6 +1872,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    widget.performance?.removeListener(_onPerformanceChanged);
+    if (widget.performance != null) {
+      SchedulerBinding.instance.removeTimingsCallback(_onPerformanceTimings);
+    }
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     _restoreBrowserContextMenu();
     _lifecycle.dispose();
@@ -3654,6 +3714,42 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _springBackHorizontal();
   }
 
+  /// A one-finger touch pan after zoom must drive both the list scroll extent
+  /// and the transform's zoom window. Leaving it to the ListView strands the
+  /// transform translation created by the pinch: the list reaches its own
+  /// top/bottom while part of the zoomed page is still outside the viewport.
+  void _onZoomedTouchPanStart(DragStartDetails details) {
+    _panFlinger.stop();
+    _touchFlinger.stop();
+    _hBounceController.stop();
+    _touchPanning = true;
+    _beginMotionRenderHold();
+  }
+
+  void _onZoomedTouchPanUpdate(DragUpdateDetails details) {
+    _touchGrabPanBy(details.delta);
+  }
+
+  void _onZoomedTouchPanEnd(DragEndDetails details) {
+    _flingViewport(details.velocity);
+  }
+
+  void _onZoomedTouchPanCancel() {
+    _springBackHorizontal();
+  }
+
+  bool get _zoomedTouchPanEnabled {
+    if (!_zoomed) return false;
+    final editing = widget.editing;
+    // An armed tool, eyedropper, or selected annotation mounts an editing
+    // overlay whose touch pan already calls _touchGrabPanBy. Do not enter the
+    // arena twice for those gestures.
+    return editing == null ||
+        (editing.tool == null &&
+            !editing.isPickingColor &&
+            !editing.hasAnnotationSelection);
+  }
+
   /// Settles a finished zoom gesture into the layout/transform regime
   /// split: total zoom at or below 1 lives in the page layout, above 1
   /// in the InteractiveViewer transform. Shared by touch pinches and
@@ -4007,8 +4103,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         // (_onTrackpadPanZoomUpdate drives the position directly); wheel
         // events - including web trackpad pans, which arrive as wheel -
         // are refused by these physics and handled by _onPointerSignal.
-        physics:
-            editing?.tool != null ? const NeverScrollableScrollPhysics() : null,
+        physics: editing?.tool != null || _zoomed
+            ? const NeverScrollableScrollPhysics()
+            : null,
         // every page's extent is known up front, so give the sliver exact
         // geometry instead of letting it estimate from built children -
         // estimates drift on long mixed-size documents, landing jumps
@@ -4066,20 +4163,25 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 imagePicker: widget.imagePicker,
                 onSnapshot: widget.onSnapshot,
                 onAnnotationTap: widget.onAnnotationTap,
-                onPanViewport: _touchGrabPanBy,
-                onPanViewportEnd: _flingViewport,
-                edgeAutoScroll: _edgeAutoScrollDelta,
-                onShowAnnotationMenu: _showSelectionMenu,
-                onShowFormFieldMenu: _showFormFieldMenu,
-                onResolvePagePoint: _resolvePagePointGlobal,
-                onMoveDragPreview: _onMoveDragPreview,
+                interactionHost: PdfEditingInteractionHost(
+                  panViewport: _touchGrabPanBy,
+                  endViewportPan: _flingViewport,
+                  edgeAutoScroll: _edgeAutoScrollDelta,
+                  showAnnotationMenu: _showSelectionMenu,
+                  showFormFieldMenu: _showFormFieldMenu,
+                  resolvePagePoint: _resolvePagePointGlobal,
+                  moveDragPreview: _onMoveDragPreview,
+                  textEditClosed: _reclaimFocusAfterTextEdit,
+                ),
+                interactionSession: widget.interactionSession,
                 crossPageGhost: _crossPageGhostFor(index),
                 transformScale: _transformScale,
+                transformChanges: _transform,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
                 renderWorker: widget.renderWorker,
+                performance: widget.performance,
                 predictStrokes: widget.predictStrokes,
-                onTextEditClosed: _reclaimFocusAfterTextEdit,
               ),
             ),
           ),
@@ -4218,6 +4320,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                           ..onStart = _onPinchStart
                           ..onUpdate = _onPinchUpdate
                           ..onEnd = _onPinchEnd,
+                      ),
+                      // At zoom, the ListView's drag reaches only its
+                      // untransformed extent. This pan spills edge motion into
+                      // the transform so every page edge remains reachable.
+                      _ZoomedTouchPanRecognizer:
+                          GestureRecognizerFactoryWithHandlers<
+                              _ZoomedTouchPanRecognizer>(
+                        () => _ZoomedTouchPanRecognizer(debugOwner: this),
+                        (recognizer) => recognizer
+                          ..isEnabled = (() => _zoomedTouchPanEnabled)
+                          ..onStart = _onZoomedTouchPanStart
+                          ..onUpdate = _onZoomedTouchPanUpdate
+                          ..onEnd = _onZoomedTouchPanEnd
+                          ..onCancel = _onZoomedTouchPanCancel,
                       ),
                     },
                     // plain wheel events the list can't use (at its extents)
@@ -4659,20 +4775,16 @@ class _PdfViewerPage extends StatefulWidget {
     required this.imagePicker,
     required this.onSnapshot,
     required this.onAnnotationTap,
-    required this.onPanViewport,
-    required this.onPanViewportEnd,
-    required this.edgeAutoScroll,
-    required this.onShowAnnotationMenu,
-    required this.onShowFormFieldMenu,
-    required this.onResolvePagePoint,
-    required this.onMoveDragPreview,
+    required this.interactionHost,
+    required this.interactionSession,
     required this.crossPageGhost,
     required this.transformScale,
+    required this.transformChanges,
     required this.renderScheduler,
     required this.previewCache,
     required this.renderWorker,
+    required this.performance,
     required this.predictStrokes,
-    required this.onTextEditClosed,
   });
 
   final PdfPage page;
@@ -4738,28 +4850,10 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [EditingPageOverlay.onSnapshot].
   final PdfSnapshotHandler? onSnapshot;
   final PdfAnnotationTapHandler? onAnnotationTap;
-  final void Function(Offset delta) onPanViewport;
 
-  /// See [EditingPageOverlay.onPanViewportEnd].
-  final void Function(Velocity velocity) onPanViewportEnd;
-
-  /// See [EditingPageOverlay.edgeAutoScroll].
-  final Offset Function(Offset globalPosition) edgeAutoScroll;
-
-  /// See [EditingPageOverlay.onShowAnnotationMenu].
-  final void Function(Offset globalPosition, int pageIndex,
-      {(double, double)? pagePoint}) onShowAnnotationMenu;
-
-  /// See [EditingPageOverlay.onShowFormFieldMenu].
-  final void Function(Offset globalPosition, String fieldName,
-      {int? widgetIndex}) onShowFormFieldMenu;
-
-  /// See [EditingPageOverlay.onResolvePagePoint].
-  final (int, double, double)? Function(Offset globalPosition)
-      onResolvePagePoint;
-
-  /// See [EditingPageOverlay.onMoveDragPreview].
-  final PdfMoveDragPreviewCallback onMoveDragPreview;
+  /// The one viewer/interaction bridge used by the editing overlay.
+  final PdfEditingInteractionHost interactionHost;
+  final PdfEditingInteractionSession? interactionSession;
 
   /// The slice of an in-flight cross-page move ghost that lands on this
   /// page (from/to in this page's own view space), so it draws the part of
@@ -4771,6 +4865,9 @@ class _PdfViewerPage extends StatefulWidget {
   /// by it to stay constant-size on screen while zoomed.
   final ValueListenable<double> transformScale;
 
+  /// The complete viewer matrix notifier, including translation-only pans.
+  final Listenable transformChanges;
+
   /// See [PdfPageView.renderScheduler].
   final PdfPageRenderScheduler renderScheduler;
 
@@ -4780,11 +4877,10 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [PdfPageView.renderWorker]; null when interpretation runs on-thread.
   final PdfRenderWorker? renderWorker;
 
+  final PdfPerformanceController? performance;
+
   /// See [PdfViewer.predictStrokes].
   final bool predictStrokes;
-
-  /// See [EditingPageOverlay.onTextEditClosed].
-  final VoidCallback onTextEditClosed;
 
   @override
   State<_PdfViewerPage> createState() => _PdfViewerPageState();
@@ -4869,6 +4965,14 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         renderScheduler: widget.renderScheduler,
         previewCache: widget.previewCache,
         renderWorker: widget.renderWorker,
+        performance: widget.performance,
+        workerImagePixelRatioCap: widget.performance?.tuning.imagePixelRatioCap,
+        // the live matrix scale lets dense strip-routed pages bin their
+        // settle's strip plan speculatively while the gesture quiesces; the
+        // full matrix additionally lets deep-zoom pans speculate their next
+        // translated region-detail patch
+        transformScale: widget.transformScale,
+        transformChanges: widget.transformChanges,
         previewIndex: widget.index,
       ),
       if (annotationLayerController != null)
@@ -4964,15 +5068,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 onSnapshot: widget.onSnapshot,
                                 pageColor: widget.pageColor,
                                 showAnnotations: widget.showAnnotations,
-                                onPanViewport: widget.onPanViewport,
-                                onPanViewportEnd: widget.onPanViewportEnd,
-                                edgeAutoScroll: widget.edgeAutoScroll,
-                                onShowAnnotationMenu:
-                                    widget.onShowAnnotationMenu,
-                                onShowFormFieldMenu: widget.onShowFormFieldMenu,
-                                onResolvePagePoint: widget.onResolvePagePoint,
-                                onMoveDragPreview: widget.onMoveDragPreview,
-                                onTextEditClosed: widget.onTextEditClosed,
+                                interactionHost: widget.interactionHost,
+                                interactionSession: widget.interactionSession,
                                 rasterCurrent: rasterCurrent,
                                 zoom: zoom,
                                 predictStrokes: widget.predictStrokes,
@@ -5275,6 +5372,30 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
 
   @override
   String get debugDescription => 'eager pinch';
+}
+
+/// Owns one-pointer touch/stylus drags only while the viewer is zoomed. It
+/// stays out of the arena at fit scale so the ListView retains normal platform
+/// scrolling; when a second finger lands, [_EagerPinchRecognizer] claims the
+/// pinch before either pan crosses touch slop.
+class _ZoomedTouchPanRecognizer extends PanGestureRecognizer {
+  _ZoomedTouchPanRecognizer({super.debugOwner})
+      : super(supportedDevices: {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.invertedStylus,
+        });
+
+  bool Function()? isEnabled;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    if (isEnabled?.call() != true) return;
+    super.addAllowedPointer(event);
+  }
+
+  @override
+  String get debugDescription => 'zoomed touch pan';
 }
 
 /// Touch text selection: long-press to select. Sits in the same arena

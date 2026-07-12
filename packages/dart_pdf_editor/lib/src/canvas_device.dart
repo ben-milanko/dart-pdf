@@ -43,7 +43,29 @@ class CanvasPdfDevice implements PdfDevice {
   @visibleForTesting
   static int get debugTextLayoutCacheLength => _textCache.length;
 
+  /// Diagnostic kill switches for the command replay benchmark.
+  @visibleForTesting
+  static bool debugReuseSolidPaints = true;
+  @visibleForTesting
+  static bool debugDrawSimpleLines = true;
+
   BlendMode _blend = BlendMode.srcOver;
+
+  // Most CAD command buffers contain tens of thousands of paths but only a
+  // handful of consecutive paint styles. ui.Canvas snapshots a Paint at each
+  // draw, so the immutable prepared object can be reused until a style field
+  // or effective blend mode changes. Keep just the last value (rather than a
+  // map): the command stream is run-grouped, and lookup/allocation overhead on
+  // light pages stays constant.
+  Paint? _fillPaint;
+  PdfColor? _fillColor;
+  double _fillAlpha = -1;
+  BlendMode? _fillBlend;
+  Paint? _strokePaint;
+  PdfColor? _strokeColor;
+  PdfStroke? _strokeStyle;
+  double _strokeAlpha = -1;
+  BlendMode? _strokeBlend;
 
   /// One entry per open transparency group: true while that group is a
   /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
@@ -131,6 +153,28 @@ class CanvasPdfDevice implements PdfDevice {
       double backdropLuminance = 0,
       double transferScale = 1,
       double transferOffset = 0}) {
+    beginSoftMaskComposite(
+        luminosity: luminosity,
+        backdrop: backdrop,
+        backdropLuminance: backdropLuminance,
+        transferScale: transferScale,
+        transferOffset: transferOffset);
+    drawMask();
+    finishSoftMaskComposite();
+  }
+
+  /// First half of [endSoftMasked]'s compositing: opens the dstIn layer the
+  /// mask group's content paints into (with the luminance/transfer colour
+  /// filter and the /BC backdrop). Split out for callers that must
+  /// interleave their own work with the mask draws - the strip device
+  /// flushes its batched quads between the mask content and
+  /// [finishSoftMaskComposite] - while keeping the exact canvas sequence.
+  void beginSoftMaskComposite(
+      {required bool luminosity,
+      required PdfRect backdrop,
+      double backdropLuminance = 0,
+      double transferScale = 1,
+      double transferOffset = 0}) {
     final hasTransfer = transferScale != 1 || transferOffset != 0;
     final paint = Paint()..blendMode = BlendMode.dstIn;
     if (luminosity) {
@@ -167,7 +211,11 @@ class CanvasPdfDevice implements PdfDevice {
         Paint()..color = Color.from(alpha: 1, red: g, green: g, blue: g),
       );
     }
-    drawMask();
+  }
+
+  /// Second half of [endSoftMasked]'s compositing: composites the mask into
+  /// the captured content (dstIn) and the masked content into the page.
+  void finishSoftMaskComposite() {
     canvas.restore(); // composite the mask into the content (dstIn)
     canvas.restore(); // composite the masked content into the page
     _knockout.removeLast();
@@ -177,10 +225,7 @@ class CanvasPdfDevice implements PdfDevice {
   void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
     canvas.drawPath(
       _toUiPath(path, rule),
-      Paint()
-        ..style = PaintingStyle.fill
-        ..color = _toColor(color, alpha)
-        ..blendMode = _elementBlend,
+      _solidFillPaint(color, alpha),
     );
   }
 
@@ -242,13 +287,60 @@ class CanvasPdfDevice implements PdfDevice {
   @override
   void strokePath(
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
+    final segments = path.segments;
+    if (debugDrawSimpleLines &&
+        stroke.dashArray.isEmpty &&
+        segments.length == 2) {
+      switch ((segments[0], segments[1])) {
+        case (
+            PdfMoveTo(:final x, :final y),
+            PdfLineTo(x: final x2, y: final y2)
+          ):
+          canvas.drawLine(Offset(x, y), Offset(x2, y2),
+              _solidStrokePaint(color, stroke, alpha));
+          return;
+        default:
+          break;
+      }
+    }
     var uiPath = _toUiPath(path, PdfFillRule.nonzero);
     if (stroke.dashArray.any((d) => d > 0)) {
       uiPath = _dashPath(uiPath, stroke.dashArray, stroke.dashPhase);
     }
     canvas.drawPath(
       uiPath,
-      Paint()
+      _solidStrokePaint(color, stroke, alpha),
+    );
+  }
+
+  Paint _solidFillPaint(PdfColor color, double alpha) {
+    final blend = _elementBlend;
+    if (!debugReuseSolidPaints) {
+      return Paint()
+        ..style = PaintingStyle.fill
+        ..color = _toColor(color, alpha)
+        ..blendMode = blend;
+    }
+    final cached = _fillPaint;
+    if (cached != null &&
+        _fillColor == color &&
+        _fillAlpha == alpha &&
+        _fillBlend == blend) {
+      return cached;
+    }
+    _fillColor = color;
+    _fillAlpha = alpha;
+    _fillBlend = blend;
+    return _fillPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = _toColor(color, alpha)
+      ..blendMode = blend;
+  }
+
+  Paint _solidStrokePaint(PdfColor color, PdfStroke stroke, double alpha) {
+    final blend = _elementBlend;
+    if (!debugReuseSolidPaints) {
+      return Paint()
         ..style = PaintingStyle.stroke
         ..color = _toColor(color, alpha)
         ..strokeWidth = stroke.width
@@ -263,8 +355,41 @@ class CanvasPdfDevice implements PdfDevice {
           _ => StrokeJoin.miter,
         }
         ..strokeMiterLimit = stroke.miterLimit
-        ..blendMode = _elementBlend,
-    );
+        ..blendMode = blend;
+    }
+    final cached = _strokePaint;
+    final style = _strokeStyle;
+    if (cached != null &&
+        _strokeColor == color &&
+        style != null &&
+        style.width == stroke.width &&
+        style.cap == stroke.cap &&
+        style.join == stroke.join &&
+        style.miterLimit == stroke.miterLimit &&
+        _strokeAlpha == alpha &&
+        _strokeBlend == blend) {
+      return cached;
+    }
+    _strokeColor = color;
+    _strokeStyle = stroke;
+    _strokeAlpha = alpha;
+    _strokeBlend = blend;
+    return _strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = _toColor(color, alpha)
+      ..strokeWidth = stroke.width
+      ..strokeCap = switch (stroke.cap) {
+        1 => StrokeCap.round,
+        2 => StrokeCap.square,
+        _ => StrokeCap.butt,
+      }
+      ..strokeJoin = switch (stroke.join) {
+        1 => StrokeJoin.round,
+        2 => StrokeJoin.bevel,
+        _ => StrokeJoin.miter,
+      }
+      ..strokeMiterLimit = stroke.miterLimit
+      ..blendMode = blend;
   }
 
   /// Rebuilds [source] as its dashed segments (§8.4.3.6). Zero-length

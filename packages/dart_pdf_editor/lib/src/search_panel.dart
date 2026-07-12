@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
 import 'pdf_viewer.dart';
-import 'scrollbar.dart';
 import 'theme.dart';
 
 /// A compact document-search field: a slim text box with the match
@@ -260,11 +259,6 @@ class PdfSearchResultsPanel extends StatefulWidget {
 
 class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   final ScrollController _scroll = ScrollController();
-  double? _dragWidth;
-
-  double get _width =>
-      (_dragWidth ?? widget.preferences?.searchPanelWidth ?? widget.width)
-          .clamp(widget.minWidth, widget.maxWidth);
 
   @override
   void initState() {
@@ -290,18 +284,6 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
 
   void _onPreferences() {
     if (mounted) setState(() {});
-  }
-
-  void _onResizeDelta(double delta) => setState(() {
-        _dragWidth = (_width + delta).clamp(widget.minWidth, widget.maxWidth);
-      });
-
-  void _onResizeEnd() {
-    final preferences = widget.preferences;
-    if (preferences == null || _dragWidth == null) return;
-    // without preferences the dragged width simply stays in _dragWidth
-    preferences.searchPanelWidth = _dragWidth;
-    setState(() => _dragWidth = null);
   }
 
   Widget _hint(String message) => Center(
@@ -342,7 +324,10 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
 
   /// The state-dependent body below the options bar: a hint, the spinner,
   /// the "no matches" line, or the grouped results list with its scrollbar.
-  Widget _body(BuildContext context, {required bool barInset}) {
+  Widget _body(
+    BuildContext context, {
+    required PdfSidebarPanelGeometry geometry,
+  }) {
     final controller = widget.controller;
     if (controller.query.isEmpty) {
       return _hint('Search the document to list every match here');
@@ -363,11 +348,11 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
       }
       entries.add((header: null, result: i));
     }
-    final barClearance =
-        PdfScrollbar.hitExtent + (barInset ? PdfSidebarResizeGrip.width : 0);
     final textTheme = Theme.of(context).textTheme;
-    return Stack(children: [
-      Column(children: [
+    return geometry.withScrollbar(
+      scroll: _scroll,
+      thumbKey: const ValueKey('pdf-search-scrollbar-thumb'),
+      child: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Row(children: [
@@ -386,7 +371,8 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
             child: ListView.builder(
               key: const ValueKey('pdf-search-results-list'),
               controller: _scroll,
-              padding: EdgeInsets.only(right: barClearance, bottom: 8),
+              padding: EdgeInsets.only(
+                  right: geometry.scrollbarClearance, bottom: 8),
               itemCount: entries.length,
               itemBuilder: (context, index) {
                 final entry = entries[index];
@@ -405,89 +391,67 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
           ),
         ),
       ]),
-      Positioned(
-        top: 0,
-        bottom: 0,
-        right: barInset ? PdfSidebarResizeGrip.width : 0,
-        child: PdfScrollbar(
-          scroll: _scroll,
-          thumbKey: const ValueKey('pdf-search-scrollbar-thumb'),
-        ),
-      ),
-    ]);
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    final showGrip = widget.resizable && !widget.bottomSheet;
-    final onLeftEdge =
-        !widget.bottomSheet && widget.side == PdfSidebarSide.left;
-    final barInset = showGrip && onLeftEdge;
-    final dividerStartIndent =
-        showGrip && !onLeftEdge ? PdfSidebarResizeGrip.width : 0.0;
-    final dividerEndIndent = barInset ? PdfSidebarResizeGrip.width : 0.0;
-    final content = Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: ListenableBuilder(
-        listenable: controller,
-        builder: (context, _) => Column(children: [
-          // the docked panel's close button; a bottom sheet supplies
-          // its own in its sheet chrome
-          if (!widget.bottomSheet && widget.onClose != null)
-            Padding(
-              // clear the right-edge resize grip when it rides this side
-              padding: EdgeInsets.fromLTRB(
-                  16, 4, barInset ? PdfSidebarResizeGrip.width + 4 : 4, 0),
-              child: Row(children: [
-                Expanded(
-                  child: Text('Search results',
-                      style: Theme.of(context).textTheme.titleSmall),
-                ),
-                PdfSidebarCloseButton(
-                  key: const ValueKey('pdf-search-panel-close'),
-                  onPressed: widget.onClose!,
-                ),
-              ]),
-            ),
-          if (widget.showOptions) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: _SearchOptionsBar(
-                    controller: controller, preferences: widget.preferences),
+    return PdfSidebarPanelFrame(
+      width: widget.width,
+      minWidth: widget.minWidth,
+      maxWidth: widget.maxWidth,
+      persistedWidth: widget.preferences?.searchPanelWidth,
+      onPersistWidth: widget.preferences == null
+          ? null
+          : (width) => widget.preferences!.searchPanelWidth = width,
+      side: widget.side,
+      resizable: widget.resizable,
+      bottomSheet: widget.bottomSheet,
+      gripKey: const ValueKey('pdf-search-resize-grip'),
+      onClose: widget.onClose,
+      builder: (context, geometry) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) => Column(children: [
+            // the docked panel's close button; a bottom sheet supplies
+            // its own in its sheet chrome
+            if (geometry.closeButton(
+              key: const ValueKey('pdf-search-panel-close'),
+            )
+                case final closeButton?)
+              Padding(
+                // clear the right-edge resize grip when it rides this side
+                padding:
+                    EdgeInsets.fromLTRB(16, 4, geometry.contentEndInset + 4, 0),
+                child: Row(children: [
+                  Expanded(
+                    child: Text('Search results',
+                        style: Theme.of(context).textTheme.titleSmall),
+                  ),
+                  closeButton,
+                ]),
               ),
-            ),
-            Divider(
-              height: 1,
-              indent: dividerStartIndent,
-              endIndent: dividerEndIndent,
-            ),
-          ],
-          Expanded(child: _body(context, barInset: barInset)),
-        ]),
+            if (widget.showOptions) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _SearchOptionsBar(
+                      controller: controller, preferences: widget.preferences),
+                ),
+              ),
+              Divider(
+                height: 1,
+                indent: geometry.contentStartInset,
+                endIndent: geometry.contentEndInset,
+              ),
+            ],
+            Expanded(child: _body(context, geometry: geometry)),
+          ]),
+        ),
       ),
-    );
-    if (widget.bottomSheet) return content;
-    return SizedBox(
-      width: _width,
-      child: Stack(children: [
-        Positioned.fill(child: content),
-        if (showGrip)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: widget.side == PdfSidebarSide.right ? 0 : null,
-            right: widget.side == PdfSidebarSide.left ? 0 : null,
-            child: PdfSidebarResizeGrip(
-              key: const ValueKey('pdf-search-resize-grip'),
-              side: widget.side,
-              onWidthDelta: _onResizeDelta,
-              onResizeEnd: _onResizeEnd,
-            ),
-          ),
-      ]),
     );
   }
 }

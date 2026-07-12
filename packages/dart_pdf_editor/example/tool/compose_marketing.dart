@@ -27,15 +27,33 @@ import 'dart:math';
 /// marketing copy in the pipeline.
 const _captions = <String, (String, String)>{
   // The standalone DartPDF app.
-  'app/01-welcome': ('DartPDF', 'A native PDF editor'),
-  'app/02-editor': ('Edit PDFs', 'Tabs, panels, and the full toolset'),
-  'app/03-dark': ('Light and dark themes', 'Follows your system theme'),
+  'app/01-welcome': (
+    'Private PDF editing',
+    'No account. No uploads. Files stay on your device.'
+  ),
+  'app/02-editor': (
+    'Mark up, sign, redact',
+    'Fill forms, add notes, and move pages.'
+  ),
+  'app/03-dark': (
+    'Built for real documents',
+    'Search text, run OCR, compare versions,\nand open protected files.'
+  ),
 
   // The dart_pdf_editor example showcase.
-  'example/01-document': ('Open any PDF', 'Rendered in pure Dart, on every platform'),
+  'example/01-document': (
+    'Open any PDF',
+    'Rendered in pure Dart, on every platform'
+  ),
   'example/02-graphics': ('Graphics', 'Gradients, shadings, and transparency'),
-  'example/03-annotations': ('Annotations', 'Highlights, ink, notes, stamps, and forms'),
-  'example/04-markup': ('Markup tools', 'Draw, add shapes, and sign on the page'),
+  'example/03-annotations': (
+    'Annotations',
+    'Highlights, ink, notes, stamps, and forms'
+  ),
+  'example/04-markup': (
+    'Markup tools',
+    'Draw, add shapes, and sign on the page'
+  ),
   'example/05-reader': ('Reading view', 'Reflows text to fit the screen'),
 };
 
@@ -53,7 +71,8 @@ final _annotations = <String, _Flourish>{
   // Hero: a wide "windscreen wiper" ink sweep fanning out from a pivot just
   // past the bottom-right corner, its streaks running off the frame.
   'app/01-welcome': _Flourish((f, portrait) => _wiperStreaks(
-        f.x(portrait ? 1.04 : 1.10), f.y(portrait ? 1.04 : 1.12),
+        f.x(portrait ? 1.04 : 1.10),
+        f.y(portrait ? 1.04 : 1.12),
         rInner: f.diag(portrait ? 0.14 : 0.16),
         rOuter: f.diag(portrait ? 0.52 : 0.66),
         aStartDeg: 190,
@@ -64,13 +83,17 @@ final _annotations = <String, _Flourish>{
   // Editor: a highlighter swipe across a content row that runs off the right
   // edge of the frame.
   'app/02-editor': _Flourish((f, portrait) => _highlight(
-        f.x(0.40), f.y(portrait ? 0.40 : 0.42), f.x(1.10),
+        f.x(0.40),
+        f.y(portrait ? 0.40 : 0.42),
+        f.x(1.10),
         f.y(portrait ? 0.40 : 0.42),
         weight: f.h(portrait ? 0.022 : 0.05),
       )),
   // Dark: an ink underline that sweeps out past the left edge of the frame.
   'app/03-dark': _Flourish((f, portrait) => _underline(
-        f.x(0.52), f.y(portrait ? 0.30 : 0.28), f.x(-0.08),
+        f.x(0.52),
+        f.y(portrait ? 0.30 : 0.28),
+        f.x(-0.08),
         f.y(portrait ? 0.30 : 0.28),
         weight: f.min(portrait ? 0.015 : 0.019),
       )),
@@ -178,11 +201,14 @@ void main(List<String> argv) async {
   final inDir = Directory(args['in']!);
   final outDir = Directory(args['out']!)..createSync(recursive: true);
   final orientation = args['orientation'] ?? 'landscape';
-  final width = int.parse(args['width'] ?? (orientation == 'portrait' ? '1320' : '1440'));
-  final height = int.parse(args['height'] ?? (orientation == 'portrait' ? '2868' : '900'));
-  final target = args['target'] ?? inDir.parent.uri.pathSegments
-      .where((s) => s.isNotEmpty)
-      .last; // <target>/<platform>
+  final width =
+      int.parse(args['width'] ?? (orientation == 'portrait' ? '1320' : '1440'));
+  final height =
+      int.parse(args['height'] ?? (orientation == 'portrait' ? '2868' : '900'));
+  final target = args['target'] ??
+      inDir.parent.uri.pathSegments
+          .where((s) => s.isNotEmpty)
+          .last; // <target>/<platform>
 
   if (!inDir.existsSync()) {
     stderr.writeln('[compose] no input dir: ${inDir.path}');
@@ -220,8 +246,13 @@ void main(List<String> argv) async {
     final tmp = File('${outDir.path}/.$base.svg')..writeAsStringSync(svg);
     final out = '${outDir.path}/$base.png';
     final r = await Process.run('rsvg-convert', [
-      '-w', '$width', '-h', '$height',
-      '-o', out, tmp.path,
+      '-w',
+      '$width',
+      '-h',
+      '$height',
+      '-o',
+      out,
+      tmp.path,
     ]);
     tmp.deleteSync();
     if (r.exitCode != 0) {
@@ -281,7 +312,12 @@ String _composeSvg({
   final blur = (portrait ? w : h) * 0.012;
 
   final head = _esc(headline);
-  final sub = _esc(subtitle);
+  final subtitleSvg = _subtitleSvg(
+    subtitle: subtitle,
+    x: w / 2,
+    y: subY,
+    fontSize: subSize,
+  );
 
   // Drawn-on markup, painted last so it sits over the capture (and may spill
   // past the frame into the gradient).
@@ -314,10 +350,7 @@ String _composeSvg({
   <text x="${w / 2}" y="$headY" fill="#FFFFFF" text-anchor="middle"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
         font-weight="700" font-size="$headSize">$head</text>
-  ${sub.isEmpty ? '' : '''
-  <text x="${w / 2}" y="$subY" fill="#FFFFFF" fill-opacity="0.82" text-anchor="middle"
-        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-weight="400" font-size="$subSize">$sub</text>'''}
+  $subtitleSvg
 
   <rect x="$dx" y="${dy + shadowDy}" width="$dw" height="$dh" rx="$cornerRadius" ry="$cornerRadius"
         fill="#000000" fill-opacity="0.38" filter="url(#soft)"/>
@@ -333,14 +366,34 @@ String _composeSvg({
 
 /// Reads width/height from a PNG's IHDR (bytes 16–23, big-endian).
 (int, int) _pngSize(List<int> b) {
-  int u32(int o) => (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+  int u32(int o) =>
+      (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
   return (u32(16), u32(20));
 }
 
-String _esc(String s) => s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+String _esc(String s) =>
+    s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+String _subtitleSvg({
+  required String subtitle,
+  required double x,
+  required double y,
+  required double fontSize,
+}) {
+  final lines = subtitle.split('\n').where((line) => line.isNotEmpty).toList();
+  if (lines.isEmpty) return '';
+
+  final lineHeight = fontSize * 1.22;
+  final spans = <String>[];
+  for (var i = 0; i < lines.length; i++) {
+    final pos = i == 0 ? 'x="$x" y="$y"' : 'x="$x" dy="$lineHeight"';
+    spans.add('<tspan $pos>${_esc(lines[i])}</tspan>');
+  }
+  return '''
+  <text fill="#FFFFFF" fill-opacity="0.82" text-anchor="middle"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-weight="400" font-size="$fontSize">${spans.join()}</text>''';
+}
 
 String _titleCase(String name) => name
     .replaceAll(RegExp(r'^\d+-'), '')

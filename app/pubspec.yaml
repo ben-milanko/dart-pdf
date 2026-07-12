@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 1.4.0+11
+version: 1.4.1+12
 
 environment:
   sdk: ^3.5.0
@@ -17,12 +17,12 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^1.4.0
-  pdf_document: ^1.4.0
+  dart_pdf_editor: ^1.4.1
+  pdf_document: ^1.4.1
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^1.4.0
+  pdf_ocr_ondevice: ^1.4.1
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
@@ -33,6 +33,11 @@ dependencies:
   # bytes are printed verbatim - no re-layout.
   printing: ^5.13.0
   shared_preferences: ^2.3.0
+  # Snapshots mobile picks into the app's private store so Recent entries and
+  # the last session can be reopened without a fresh pick (see pdf_cache.dart).
+  path_provider: ^2.1.6
+  # Content-addresses those snapshots so reopening the same PDF reuses one file.
+  crypto: ^3.0.0
   desktop_drop: ^0.7.0
   # Polls GitHub Releases for a newer build (in-app update checker). Works on
   # the web build too, though the updater skips the check there.
@@ -54,11 +59,11 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^1.4.0
+  pdf_test_fixtures: ^1.4.1
 
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
-  pdf_graphics: ^1.4.0
+  pdf_graphics: ^1.4.1
   file_selector_platform_interface: ^2.7.0
 
 flutter:

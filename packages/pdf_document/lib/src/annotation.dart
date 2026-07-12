@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 
@@ -7,6 +8,8 @@ import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
 import 'takeoff.dart';
+
+part 'annotation_behavior.dart';
 
 /// An entry in a page's /Annots array (§12.5).
 ///
@@ -67,6 +70,15 @@ class PdfAnnotation {
 
   /// The /F flag word (§12.5.3).
   final int flags;
+
+  /// PDF-semantic editing capabilities and authoritative style for this
+  /// annotation.
+  ///
+  /// The descriptor is lazy and cached for the lifetime of this parsed
+  /// annotation. A saved editor revision produces new [PdfAnnotation]
+  /// instances, so hot UI paths can reuse the derived facts without stale
+  /// cross-revision state or repeated appearance-stream parsing.
+  late final PdfAnnotationBehavior behavior = PdfAnnotationBehavior._(this);
 
   bool get isHidden => flags & 2 != 0;
   bool get isNoView => flags & 32 != 0;
@@ -293,6 +305,47 @@ class PdfAnnotation {
       points.add((x, y));
     }
     return points;
+  }
+
+  /// True when this is a FreeText callout (§12.5.6.19): a text box joined
+  /// to a point on the page by a leader line (/CL) that ends in an arrow.
+  bool get isCallout {
+    if (subtype != 'FreeText') return false;
+    final it = document.cos.resolve(dict['IT']);
+    return it is CosName && it.value == 'FreeTextCallout';
+  }
+
+  /// The callout leader-line points (/CL, §12.5.6.19) in page space - the
+  /// first point is the arrow tip on the page, the last touches the text
+  /// box. Null when this is not a callout or carries no usable /CL.
+  List<(double, double)>? get calloutLine {
+    if (!isCallout) return null;
+    final raw = document.cos.resolve(dict['CL']);
+    if (raw is! CosArray || raw.items.length < 4) return null;
+    final points = <(double, double)>[];
+    for (var i = 0; i + 1 < raw.items.length; i += 2) {
+      final x = _number(document.cos.resolve(raw.items[i]));
+      final y = _number(document.cos.resolve(raw.items[i + 1]));
+      if (x == null || y == null) return null;
+      points.add((x, y));
+    }
+    return points;
+  }
+
+  /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
+  /// distinct from /Rect which also encloses the leader line and arrowhead.
+  /// Null when this is not a callout.
+  PdfRect? get calloutBox {
+    if (!isCallout) return null;
+    final rd = document.cos.resolve(dict['RD']);
+    double d(int i) {
+      if (rd is! CosArray || rd.items.length <= i) return 0;
+      return _number(document.cos.resolve(rd.items[i])) ?? 0;
+    }
+
+    final r = rect;
+    return PdfRect(
+        r.left + d(0), r.bottom + d(3), r.right - d(2), r.top - d(1));
   }
 
   /// The /Measure dictionary (§12.9): the scale and unit formats a

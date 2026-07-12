@@ -2,7 +2,7 @@ name: dart_pdf_editor
 description: >-
   Flutter PDF viewer and editor for Dart: native rendering, text selection,
   search, annotations, forms, signatures, page editing, and document comparison.
-version: 1.4.0
+version: 1.4.1
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -21,9 +21,9 @@ dependencies:
   flutter:
     sdk: flutter
   image: ^4.9.1
-  pdf_cos: ^1.4.0
-  pdf_document: ^1.4.0
-  pdf_graphics: ^1.4.0
+  pdf_cos: ^1.4.1
+  pdf_document: ^1.4.1
+  pdf_graphics: ^1.4.1
   shared_preferences: ^2.3.0
   # Opens hyperlink (/URI) actions the viewer follows itself; see
   # PdfViewer.onLaunchUrl. Web-safe, no dart:io.
@@ -46,7 +46,16 @@ flutter:
   # Bundled fonts offered by the font menu. DejaVu is a permissive
   # Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are
   # SIL Open Font Licence - see the *-LICENSE.txt files in assets/fonts/.
+  # Runtime fragment shaders for the sparse-strip render device (see
+  # doc/dev-log). flutter_tools compiles these per target; keep them
+  # inside the SkSL-safe subset (no dynamic loop bounds, bit ops,
+  # texelFetch).
+  shaders:
+    - shaders/pdf_probe.frag
+    - shaders/pdf_strips.frag
+    - shaders/pdf_slug.frag
   assets:
+    - assets/web/pdf_render_worker.dart.js
     - assets/fonts/DejaVuSans.ttf
     - assets/fonts/DejaVuSerif.ttf
     - assets/fonts/DejaVuSansMono.ttf

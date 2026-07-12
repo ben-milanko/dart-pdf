@@ -398,6 +398,13 @@ Uint8List buildDemoPdf() {
       _stream('/Type /XObject /Subtype /Form /BBox [0 0 18 18]', radioBase));
   final radioOn = add(_stream('/Type /XObject /Subtype /Form /BBox [0 0 18 18]',
       '$radioBase q 0.1 0.15 0.4 rg ${_circle(9, 9, 3.6)}f Q'));
+  final jsButtonAppearance = add(_stream(
+      '/Type /XObject /Subtype /Form '
+          '/BBox [0 0 ${_n(_jsButton.width)} ${_n(_jsButton.height)}] '
+          '/Resources << /Font << /F1 $f1 0 R >> >>',
+      'q 0.92 0.94 1 rg 0 0 ${_n(_jsButton.width)} ${_n(_jsButton.height)} re f '
+          '0.25 0.35 0.85 RG 1 w 0 0 ${_n(_jsButton.width)} ${_n(_jsButton.height)} re S Q\n'
+          'BT /F1 12 Tf 12 14 Td (Run JavaScript) Tj ET\n'));
 
   // form fields: text / checkbox / radio group / combo
   const mk = '/MK << /BC [0.35 0.4 0.6] /BG [0.96 0.97 1] >>';
@@ -451,6 +458,7 @@ Uint8List buildDemoPdf() {
       '${_link(_goToLink, '<< /S /GoTo /D [@PG2@ 0 R /XYZ null null null] >>')} '
       '${_link(_nextPageLink, '<< /S /Named /N /NextPage >>')} '
       '<< /Type /Annot /Subtype /Widget /FT /Btn /T (demoJs) '
+      '/AP << /N $jsButtonAppearance 0 R >> '
       '/Rect ${_rect(_jsButton)} /A << /S /JavaScript '
       r'/JS (app.alert\(Hello from PDF JavaScript\)) >> >> '
       '${tocLinks.join(' ')} ]';

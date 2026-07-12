@@ -4,7 +4,7 @@ The demo app for `dart_pdf_editor`: a full viewer/editor with search, text
 selection, the editing toolbar and sidebars, plus an interactive demo
 document whose links and overlays drive the surrounding Flutter app. It is
 also the reference wiring for the drop-in `PdfEditorView` / `PdfReader`
-shells, web render worker setup, file open/save, and HTTP OCR through
+shells, file open/save, and HTTP OCR through
 `pdf_ocr_vlm`.
 
 Runs on every Flutter platform - macOS, iOS, Android, web, Windows, and
@@ -23,16 +23,9 @@ on the web, and the share sheet on iOS and Android.
 
 ## Web worker
 
-For web runs on heavy PDFs, build the optional render worker once from this
-directory before `flutter run -d chrome` or `flutter build web`:
-
-```sh
-dart run dart_pdf_editor:build_web_worker
-```
-
-`lib/main.dart` already sets `pdfRenderWorkerScriptUrl` to the generated
-`web/pdf_render_worker.dart.js`. If the file is absent the app still works,
-but page interpretation and image decode run on the browser main thread.
+On web, `dart_pdf_editor` uses its bundled render worker asset automatically.
+No example-app setup is needed. The worker falls back to main-thread rendering
+if the browser cannot load it.
 
 ## OCR
 

@@ -79,7 +79,7 @@ extension PdfColorProcessing on PdfEditor {
           rgb: entry.key,
           fillUses: entry.value.fillUses,
           strokeUses: entry.value.strokeUses,
-        )
+        ),
     ];
     colors.sort((a, b) {
       final byUses = b.uses.compareTo(a.uses);
@@ -133,7 +133,7 @@ extension PdfColorProcessing on PdfEditor {
     );
     final rewritten = processor.rewrite(operations);
     if (processor.count == 0) return 0;
-    _setContent(page, ContentStreamSerializer.serialize(rewritten));
+    _setContent(index, page, ContentStreamSerializer.serialize(rewritten));
     return processor.count;
   }
 
@@ -284,7 +284,10 @@ abstract class _ColorScannerBase {
   }
 
   void _setColor(
-      ContentOperation op, _PaintSide side, _DeviceColorSpace space) {
+    ContentOperation op,
+    _PaintSide side,
+    _DeviceColorSpace space,
+  ) {
     _setSpace(side, space);
     _onColor(op, side, space);
   }
@@ -323,8 +326,9 @@ abstract class _ColorScannerBase {
         return _DeviceColorSpace.cmyk;
     }
 
-    final colorSpaces =
-        editor.document.cos.resolve(page.resources['ColorSpace']);
+    final colorSpaces = editor.document.cos.resolve(
+      page.resources['ColorSpace'],
+    );
     if (colorSpaces is! CosDictionary) return _DeviceColorSpace.other;
     return _spaceFromObject(editor.document.cos.resolve(colorSpaces[name]));
   }
@@ -431,7 +435,7 @@ class _ColorCollector extends _ColorScannerBase {
           rgb: entry.key,
           fillUses: entry.value.fillUses,
           strokeUses: entry.value.strokeUses,
-        )
+        ),
     ];
     colors.sort((a, b) {
       final byUses = b.uses.compareTo(a.uses);
@@ -511,7 +515,10 @@ class _ColorProcessor extends _ColorScannerBase {
   }
 
   ContentOperation _deviceColor(
-      ContentOperation op, _PaintSide side, _DeviceColorSpace space) {
+    ContentOperation op,
+    _PaintSide side,
+    _DeviceColorSpace space,
+  ) {
     _setSpace(side, space);
     return _maybeReplace(op, side, space);
   }
@@ -526,7 +533,10 @@ class _ColorProcessor extends _ColorScannerBase {
   }
 
   ContentOperation _maybeReplace(
-      ContentOperation op, _PaintSide side, _DeviceColorSpace space) {
+    ContentOperation op,
+    _PaintSide side,
+    _DeviceColorSpace space,
+  ) {
     if (side == _PaintSide.fill && !fill) return op;
     if (side == _PaintSide.stroke && !stroke) return op;
     final rgb = _rgbFrom(op.operands, space);
@@ -623,11 +633,7 @@ class _ColorProcessor extends _ColorScannerBase {
     final dropFill = paintsFill && _state.transparentFill;
     final dropStroke = paintsStroke && _state.transparentStroke;
     if (!dropFill && !dropStroke) return [op];
-    final nextMode = _textModeWithout(
-      mode,
-      fill: dropFill,
-      stroke: dropStroke,
-    );
+    final nextMode = _textModeWithout(mode, fill: dropFill, stroke: dropStroke);
     if (nextMode == mode) return [op];
     count += (dropFill ? 1 : 0) + (dropStroke ? 1 : 0);
     return [

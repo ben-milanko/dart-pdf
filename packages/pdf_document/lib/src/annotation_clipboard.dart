@@ -9,8 +9,12 @@ part of 'editor.dart';
 /// including across documents. Capture with [capture], paste with
 /// [PdfAnnotationClipboard.pasteAnnotation].
 class PdfAnnotationSnapshot {
-  PdfAnnotationSnapshot._(this._dict, this.subtype, this.rect,
-      {this.inReplyTo});
+  PdfAnnotationSnapshot._(
+    this._dict,
+    this.subtype,
+    this.rect, {
+    this.inReplyTo,
+  });
 
   /// Fully detached: no [CosReference]s, streams held inline. Pastes
   /// re-copy it ([_materialize]), so one snapshot can paste many times
@@ -53,8 +57,10 @@ class PdfAnnotationSnapshot {
   /// identity the snapshot travels under (see
   /// [PdfAnnotationSyncEditing.upsertAnnotation]).
   static PdfAnnotationSnapshot? capture(
-      PdfDocument document, PdfAnnotation annotation,
-      {bool keepName = false}) {
+    PdfDocument document,
+    PdfAnnotation annotation, {
+    bool keepName = false,
+  }) {
     if (const {'Popup', 'Widget', 'Link'}.contains(annotation.subtype)) {
       return null;
     }
@@ -69,8 +75,12 @@ class PdfAnnotationSnapshot {
       }
       out[key] = copier.copy(value);
     });
-    return PdfAnnotationSnapshot._(out, annotation.subtype, annotation.rect,
-        inReplyTo: keepName ? annotation.inReplyTo : null);
+    return PdfAnnotationSnapshot._(
+      out,
+      annotation.subtype,
+      annotation.rect,
+      inReplyTo: keepName ? annotation.inReplyTo : null,
+    );
   }
 
   /// The /NM identity captured with `keepName: true`, if any.
@@ -111,8 +121,12 @@ class PdfAnnotationSnapshot {
     return PdfAnnotationSnapshot._(
       dict,
       subtype,
-      PdfRect((rect[0] as num).toDouble(), (rect[1] as num).toDouble(),
-          (rect[2] as num).toDouble(), (rect[3] as num).toDouble()),
+      PdfRect(
+        (rect[0] as num).toDouble(),
+        (rect[1] as num).toDouble(),
+        (rect[2] as num).toDouble(),
+        (rect[3] as num).toDouble(),
+      ),
       inReplyTo: irt as String?,
     );
   }
@@ -136,7 +150,7 @@ Object? _encodeCos(CosObject value) {
       };
     case CosDictionary dict:
       return {
-        'd': {for (final e in dict.entries.entries) e.key: _encodeCos(e.value)}
+        'd': {for (final e in dict.entries.entries) e.key: _encodeCos(e.value)},
       };
     case CosArray array:
       return [for (final item in array.items) _encodeCos(item)];
@@ -170,8 +184,10 @@ CosObject _decodeCos(Object? value) {
     case Map map when map.containsKey('n'):
       return CosName(map['n'] as String);
     case Map map when map.containsKey('s'):
-      return CosString(base64Decode(map['s'] as String),
-          isHex: map['h'] == true);
+      return CosString(
+        base64Decode(map['s'] as String),
+        isHex: map['h'] == true,
+      );
     case Map map when map.containsKey('d'):
       final dict = CosDictionary();
       (map['d'] as Map).forEach((key, item) {
@@ -189,8 +205,10 @@ CosObject _decodeCos(Object? value) {
 CosObject _copyDetached(CosObject value) {
   switch (value) {
     case CosStream stream:
-      return CosStream(_copyDetached(stream.dictionary) as CosDictionary,
-          Uint8List.fromList(stream.rawBytes));
+      return CosStream(
+        _copyDetached(stream.dictionary) as CosDictionary,
+        Uint8List.fromList(stream.rawBytes),
+      );
     case CosDictionary dict:
       final out = CosDictionary();
       dict.entries.forEach((key, item) => out[key] = _copyDetached(item));
@@ -275,8 +293,12 @@ extension PdfAnnotationClipboard on PdfEditor {
   /// two annotations. Streams (the appearance) become fresh indirect
   /// objects per §7.3.8, and the annotation appends to the page's
   /// /Annots, so it paints on top (§12.5.2).
-  void pasteAnnotation(int pageIndex, PdfAnnotationSnapshot snapshot,
-      {double dx = 0, double dy = 0}) {
+  void pasteAnnotation(
+    int pageIndex,
+    PdfAnnotationSnapshot snapshot, {
+    double dx = 0,
+    double dy = 0,
+  }) {
     final dict = snapshot._materialize();
     // pasted copies are new annotations and get a fresh identity; a
     // sync snapshot captured with keepName pastes under its own /NM
@@ -284,12 +306,9 @@ extension PdfAnnotationClipboard on PdfEditor {
       dict['NM'] = CosString.fromText(_generateAnnotationName());
     }
     final rect = snapshot.rect;
-    dict['Rect'] = _rectArray(PdfRect(
-      rect.left + dx,
-      rect.bottom + dy,
-      rect.right + dx,
-      rect.top + dy,
-    ));
+    dict['Rect'] = _rectArray(
+      PdfRect(rect.left + dx, rect.bottom + dy, rect.right + dx, rect.top + dy),
+    );
     for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
       final shifted = _shiftPoints(dict[key], dx, dy);
       if (shifted != null) dict[key] = shifted;
@@ -317,7 +336,11 @@ extension PdfAnnotationClipboard on PdfEditor {
     _hoistStreams(dict);
 
     final annotRef = _updater.addObject(dict);
-    _PdfPageAnnotationList(this, pageIndex).append(annotRef);
+    _linkAnnotation(
+      pageIndex,
+      annotRef,
+      visual: !const {'Popup'}.contains(snapshot.subtype),
+    );
   }
 
   /// Replaces every inline [CosStream] in the tree with a reference to a

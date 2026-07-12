@@ -42,7 +42,9 @@ jobs:
       # (matches release-app.yml's web build).
       - name: Build the render worker
         working-directory: app
-        run: dart run dart_pdf_editor:build_web_worker
+        run: >-
+          dart run dart_pdf_editor:build_web_worker
+          --out ../packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
 
       - run: flutter build web --release
         working-directory: app
@@ -63,10 +65,12 @@ jobs:
           if-no-files-found: error
 
   deploy:
-    # Fork PRs do not receive repository secrets. Same-repo PRs deploy only the
-    # static build artifact from the build job; this job does not check out or
-    # execute repository code with Firebase credentials available.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Fork and Dependabot PRs do not receive repository secrets. Other same-repo
+    # PRs deploy only the static build artifact from the build job; this job does
+    # not check out or execute repository code with Firebase credentials available.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -169,7 +173,7 @@ jobs:
       # No channelId -> the action creates an ephemeral preview channel keyed
       # to this PR and comments the URL on it. The channel expires on its own.
       - id: deploy
-        uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
         continue-on-error: true
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -219,7 +223,7 @@ jobs:
 
       - name: Repair recovered deploy check
         if: steps.deploy.outcome == 'failure' && steps.recover.outcome == 'success'
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           PREVIEW_URL: ${{ steps.recover.outputs.details_url }}
         with:
@@ -262,7 +266,7 @@ jobs:
             core.info(`Marked recovered Deploy Preview check-run ${run.id} successful`);
 
       - name: Comment preview URL
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           PREVIEW_LABEL: DartPDF app preview
           PREVIEW_MARKER: dartpdf-app-preview

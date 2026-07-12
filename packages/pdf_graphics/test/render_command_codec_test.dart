@@ -194,6 +194,96 @@ void main() {
     });
   });
 
+  group('worker state-scope compaction', () {
+    test('drops clip-free scopes but preserves clip-owning scopes', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final recorder = _record(
+          doc,
+          'q 0 0 10 10 re f Q '
+          'q 0 0 5 5 re W n 0 0 10 10 re f Q '
+          'q q 1 1 4 4 re W n 0 0 10 10 re f Q Q');
+
+      final bytes = serializeCommands(
+        recorder.commands,
+        compactStateScopes: true,
+      )!;
+      final compacted = deserializeCommands(bytes);
+
+      expect(compacted.whereType<PdfFillPathCommand>(), hasLength(3));
+      expect(compacted.whereType<PdfClipPathCommand>(), hasLength(2));
+      expect(compacted.whereType<PdfSaveCommand>(), hasLength(2));
+      expect(compacted.whereType<PdfRestoreCommand>(), hasLength(2));
+      expect(compacted.first, isA<PdfFillPathCommand>(),
+          reason: 'the first clip-free q/Q pair should disappear');
+    });
+
+    test('keeps unmatched state commands in a command-limited prefix', () {
+      final recorder =
+          _record(CosDocument.open(buildClassicPdf()), 'q 0 0 10 10 re f Q');
+      final bytes = serializeCommands(
+        recorder.commands,
+        commandLimit: 2,
+        compactStateScopes: true,
+      )!;
+      final compacted = deserializeCommands(bytes);
+
+      expect(compacted, hasLength(2));
+      expect(compacted[0], isA<PdfSaveCommand>());
+      expect(compacted[1], isA<PdfFillPathCommand>());
+    });
+
+    test('keeps explicit blend restoration while dropping its scope', () {
+      const path = PdfPath([
+        PdfMoveTo(0, 0),
+        PdfLineTo(1, 0),
+        PdfLineTo(1, 1),
+        PdfClosePath(),
+      ]);
+      final commands = <PdfRenderCommand>[
+        const PdfSaveCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfFillPathCommand(path, PdfColor.black, PdfFillRule.nonzero, 1),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        const PdfRestoreCommand(),
+      ];
+
+      final restored = deserializeCommands(
+        serializeCommands(commands, compactStateScopes: true)!,
+      );
+      expect(restored, hasLength(3));
+      expect(restored[0], isA<PdfSetBlendModeCommand>());
+      expect(restored[1], isA<PdfFillPathCommand>());
+      expect(restored[2], isA<PdfSetBlendModeCommand>());
+    });
+
+    test('compacts soft-mask callback commands recursively', () {
+      const path = PdfPath([
+        PdfMoveTo(0, 0),
+        PdfLineTo(1, 0),
+        PdfLineTo(1, 1),
+        PdfClosePath(),
+      ]);
+      final commands = <PdfRenderCommand>[
+        PdfEndSoftMaskedCommand(
+          luminosity: false,
+          backdrop: const PdfRect(0, 0, 1, 1),
+          maskCommands: const [
+            PdfSaveCommand(),
+            PdfFillPathCommand(path, PdfColor.black, PdfFillRule.nonzero, 1),
+            PdfRestoreCommand(),
+          ],
+        ),
+      ];
+
+      final restored = deserializeCommands(
+        serializeCommands(commands, compactStateScopes: true)!,
+      );
+      final mask = (restored.single as PdfEndSoftMaskedCommand).maskCommands;
+      expect(mask, hasLength(1));
+      expect(mask.single, isA<PdfFillPathCommand>());
+    });
+  });
+
   // Real pages exercise the fragile callbacks: transparency groups, soft masks
   // (their drawMask content), blend modes, gradients, knockout - and images,
   // which round-trip through the inline-resolved stream subgraph (given `cos`)
@@ -308,6 +398,37 @@ void main() {
       expect(restored.request.decoded!.rgba, decoded.rgba);
     });
 
+    test('large decoded pixel planes stay zero-copy on deserialize', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(512),
+          'Height': const CosInteger(512),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+      );
+      final decoded = PdfDecodedPixels(Uint8List(512 * 512 * 4), 512, 512);
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: PdfMatrix.identity,
+        decoded: decoded,
+      ));
+
+      final bytes = serializeCommands([command], cos: cos, decodeImages: true)!;
+      final restored = _imageCommands(deserializeCommands(bytes)).single;
+      expect(restored.request.decoded!.rgba.buffer.lengthInBytes,
+          bytes.buffer.lengthInBytes,
+          reason: 'a large pixel payload should view the transferred buffer '
+              'instead of copying it again on the UI isolate');
+      // The public result remains growable after the pre-sizing optimization.
+      final commands = deserializeCommands(bytes);
+      commands.add(const PdfSaveCommand());
+      expect(commands, hasLength(2));
+    });
+
     test('imageDecodeRegion crops pixels and retargets the image transform',
         () {
       final cos = CosDocument.open(buildClassicPdf());
@@ -384,6 +505,71 @@ void main() {
       expect(decoded.width, 1);
       expect(decoded.height, 1);
       expect(decoded.rgba, [0, 0, 0, 0]);
+    });
+
+    test('imageDecodeRegion sharpens images the fast path declines (SMask)',
+        () {
+      // An /SMask'd image (a transparent logo, say) is exactly the kind the
+      // fast region decoder bails on, so before the general-decoder fallback it
+      // would drop through to the full-page cap and stay soft under deep zoom.
+      // Here the visible slice must still come back cropped + region-keyed.
+      final cos = CosDocument.open(buildClassicPdf());
+      final baseRaw = <int>[];
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          baseRaw.addAll([x * 40, y * 50, 7]);
+        }
+      }
+      final smask = CosStream(
+        CosDictionary({
+          'Type': const CosName('XObject'),
+          'Subtype': const CosName('Image'),
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(List<int>.filled(16, 128))),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList(zlib.encode(baseRaw)),
+      );
+      // The fast Flate region path must decline this (SMask present), so the
+      // fallback under test is the only way a region result comes back.
+      expect(
+        decodePdfImagePixelsRegionScaled(cos, stream, 1, 2, 1, 1, 1, 1),
+        isNull,
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(400, 0, 0, 400, 100, 200),
+      ));
+
+      final bytes = serializeCommands([command],
+          cos: cos,
+          decodeImages: true,
+          maxImagePixelRatio: 100,
+          imageDecodeRegion: const PdfRect(200, 300, 300, 400));
+
+      expect(bytes, isNotNull);
+      final restored = _imageCommands(deserializeCommands(bytes!)).single;
+      // Retargeted to the cropped slice, same as the fast-path region case.
+      expect(restored.request.transform.a, 100);
+      expect(restored.request.transform.d, 100);
+      final decoded = restored.request.decoded!;
+      expect(decoded.width, 1);
+      expect(decoded.height, 1);
+      // Base [40,100,7] premultiplied by the mask's alpha 128.
+      expect(decoded.rgba, [20, 50, 3, 128]);
     });
 
     final files = <String>[

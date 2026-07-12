@@ -2,6 +2,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
 import 'device.dart';
+import 'interpreter.dart' show PdfCancellationToken, PdfCancelledException;
 import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
@@ -139,8 +140,14 @@ class PdfEndSoftMaskedCommand extends PdfRenderCommand {
 /// Replays [commands] into [device], reproducing the original interpreter
 /// callbacks in order. The dispatch is total over the [PdfRenderCommand]
 /// hierarchy - adding a command without a case here is a compile error.
-void replayCommands(List<PdfRenderCommand> commands, PdfDevice device) {
-  for (final command in commands) {
+///
+/// [start]/[end] replay only that index range (used by the cancellable
+/// chunked replay below without copying slices of a 100k-command buffer).
+void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
+    {int start = 0, int? end}) {
+  final stop = end ?? commands.length;
+  for (var i = start; i < stop; i++) {
+    final command = commands[i];
     switch (command) {
       case PdfSaveCommand():
         device.save();
@@ -195,5 +202,28 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device) {
           drawMask: () => replayCommands(maskCommands, device),
         );
     }
+  }
+}
+
+/// [replayCommands] in cooperative chunks: every [checkInterval] commands
+/// it checks [cancellation] and yields to the event loop, so a message
+/// (e.g. a render worker's cancel port) can preempt a long replay mid-walk
+/// by throwing [PdfCancelledException] - the same scheme the interpreter's
+/// async walk uses. Soft-mask groups replay atomically inside their
+/// enclosing command.
+Future<void> replayCommandsCancellable(
+    List<PdfRenderCommand> commands, PdfDevice device,
+    {PdfCancellationToken? cancellation, int checkInterval = 1024}) async {
+  for (var i = 0; i < commands.length; i += checkInterval) {
+    if (cancellation != null) {
+      // Yield first so a cancel that arrived during the previous chunk gets
+      // its listener run before the next chunk starts.
+      await Future<void>.delayed(Duration.zero);
+      if (cancellation.cancelled) throw const PdfCancelledException();
+    }
+    final end = i + checkInterval < commands.length
+        ? i + checkInterval
+        : commands.length;
+    replayCommands(commands, device, start: i, end: end);
   }
 }

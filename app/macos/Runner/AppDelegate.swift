@@ -24,13 +24,34 @@ class AppDelegate: FlutterAppDelegate {
     return true
   }
 
+  /// "Open With" / double-click / drag-onto-icon, delivered as URLs. This is
+  /// the method AppKit actually calls on macOS 10.13+: because our superclass
+  /// `FlutterAppDelegate` implements `application(_:open:)` (for deep links),
+  /// AppKit routes document opens here and never calls the deprecated
+  /// `openFile:`/`openFiles:` below. File URLs are ours; anything else (custom
+  /// URL schemes, universal links) belongs to Flutter's deep-link handling.
+  override func application(_ application: NSApplication, open urls: [URL]) {
+    var forwarded: [URL] = []
+    for url in urls {
+      if url.isFileURL {
+        deliver(path: url.path)
+      } else {
+        forwarded.append(url)
+      }
+    }
+    if !forwarded.isEmpty {
+      super.application(application, open: forwarded)
+    }
+  }
+
+  /// Fallback for macOS < 10.13, which predates `application(_:open:)`.
   /// "Open With" / double-click / drag-onto-icon for a single file.
   override func application(_ sender: NSApplication, openFile filename: String) -> Bool {
     deliver(path: filename)
     return true
   }
 
-  /// Multiple files at once.
+  /// Fallback for macOS < 10.13. Multiple files at once.
   override func application(_ sender: NSApplication, openFiles filenames: [String]) {
     for filename in filenames { deliver(path: filename) }
     sender.reply(toOpenOrPrint: .success)

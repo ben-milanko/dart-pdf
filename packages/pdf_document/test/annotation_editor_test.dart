@@ -1107,6 +1107,81 @@ void main() {
     expect(content, contains('S\n'));
   });
 
+  test('cloud scallops stay inside the form BBox (no clipped puffs)', () {
+    // A rectangle's every edge lies on the box extreme, so the outward puffs
+    // protrude by the full bulge. If /Rect and the form BBox are not padded
+    // enough, the form XObject clips the outer half of each scallop.
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+      );
+    });
+    final annotation = doc.page(0).annotations.single;
+    final bbox = doc.cos
+        .resolve(annotation.normalAppearance!.dictionary['BBox']) as CosArray;
+    double num(CosObject o) {
+      final r = doc.cos.resolve(o);
+      return switch (r) {
+        CosInteger(:final value) => value.toDouble(),
+        CosReal(:final value) => value,
+        _ => throw StateError('not a number: $r'),
+      };
+    }
+    final bx0 = num(bbox[0]);
+    final by0 = num(bbox[1]);
+    final bx1 = num(bbox[2]);
+    final by1 = num(bbox[3]);
+
+    // Walk every path-construction coordinate in the appearance stream and
+    // confirm it (plus half the stroke) lands inside the BBox.
+    final content = appearanceText(doc, annotation);
+    final tokens = content.split(RegExp(r'\s+'));
+    final nums = <double>[];
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    void point(double x, double y) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    for (final token in tokens) {
+      final value = double.tryParse(token);
+      if (value != null) {
+        nums.add(value);
+        continue;
+      }
+      switch (token) {
+        case 'm':
+        case 'l':
+          if (nums.length >= 2) {
+            point(nums[nums.length - 2], nums[nums.length - 1]);
+          }
+        case 'c':
+          if (nums.length >= 6) {
+            for (var i = nums.length - 6; i < nums.length; i += 2) {
+              point(nums[i], nums[i + 1]);
+            }
+          }
+      }
+      nums.clear();
+    }
+
+    expect(maxX, greaterThan(minX), reason: 'sanity: some path was parsed');
+    const halfStroke = 1.0; // strokeWidth 2 / 2
+    expect(minX - halfStroke, greaterThanOrEqualTo(bx0));
+    expect(minY - halfStroke, greaterThanOrEqualTo(by0));
+    expect(maxX + halfStroke, lessThanOrEqualTo(bx1));
+    expect(maxY + halfStroke, lessThanOrEqualTo(by1));
+    // and the puffs really do bulge out past the polygon vertices
+    expect(maxY, greaterThan(640));
+    expect(minY, lessThan(500));
+  });
+
   test('resizing a dashed arrow regenerates with scaled endpoints', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addLine(0, (100, 100), (200, 140),

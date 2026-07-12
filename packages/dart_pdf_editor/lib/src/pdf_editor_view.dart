@@ -1,5 +1,4 @@
-import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, listEquals, mapEquals;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -18,12 +17,13 @@ import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'page_number_field.dart';
+import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'raster_cache.dart';
-import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
+import 'shell_session.dart';
 import 'theme.dart';
 
 /// Builds the editing toolbar for [PdfEditorView].
@@ -207,6 +207,7 @@ class PdfEditorView extends StatefulWidget {
     this.controller,
     this.viewerController,
     this.preferences,
+    this.performance,
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onSaveAs,
@@ -279,6 +280,11 @@ class PdfEditorView extends StatefulWidget {
   /// The persisted preferences backing tool styles and panel state.
   /// Only with [bytes]; an external [controller] brings its own.
   final PdfEditingPreferences? preferences;
+
+  /// Optional adaptive/fixed performance controller. Null creates an owned
+  /// Auto controller. Worker-count recommendations apply only when this shell
+  /// naturally restarts its revision-bound worker.
+  final PdfPerformanceController? performance;
 
   final PdfEditorFeatures features;
 
@@ -414,28 +420,13 @@ class PdfEditorView extends StatefulWidget {
 }
 
 class _PdfEditorViewState extends State<PdfEditorView> {
-  PdfEditingController? _ownedSession;
-  PdfEditingPreferences? _ownedPrefs;
-  PdfViewerController? _ownedViewer;
-  PdfViewportMemory? _viewportMemory;
+  late PdfShellSessionLifecycle _shell;
 
   // Routes the Apple Pencil's native double-tap to the session's eraser
   // toggle. Created only on iOS (the only platform with the gesture) so the
   // method-channel handler isn't claimed needlessly elsewhere.
   PdfPencilInteraction? _pencil;
 
-  // Offloads page interpretation to a background isolate (native; a no-op
-  // fallback on web), keyed to the session's current document. Pure scrolling
-  // spawns one worker; every edit revision produces a new document, so the
-  // stale worker is dropped (pages render locally = correct) and a fresh one
-  // is started over the new bytes. Edits commit at most about once a second
-  // (stroke auto-commit, blur, fill), so respawning per revision is cheap
-  // enough without debouncing.
-  PdfRenderWorker? _worker;
-  PdfDocument? _workerDoc;
-
-  final _searchField = TextEditingController();
-  final _searchFocus = FocusNode();
   late Map<PdfEditTool, LogicalKeyboardKey> _toolShortcuts;
 
   /// The revision length last reported through onDocumentChanged -
@@ -443,62 +434,41 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   /// the same revision.
   late int _reportedLength;
 
-  PdfEditingController get _session => widget.controller ?? _ownedSession!;
-
-  PdfViewerController get _viewer =>
-      widget.viewerController ?? (_ownedViewer ??= PdfViewerController());
-
-  PdfEditingPreferences get _prefs => _session.preferences;
+  PdfEditingController get _session => _shell.session;
+  PdfViewerController get _viewer => _shell.viewer;
+  PdfEditingPreferences get _prefs => _shell.preferences;
+  PdfPerformanceController get _performance => _shell.performance;
+  TextEditingController get _searchField => _shell.searchController;
+  FocusNode get _searchFocus => _shell.searchFocus;
 
   /// A stable key for the open document, or null when there is nothing to
   /// key a remembered position on - an external controller with no
   /// [documentId]. With [bytes] one is derived from the content.
-  String? get _documentKey {
-    if (widget.documentId != null) return widget.documentId;
-    final bytes = widget.bytes;
-    return bytes == null ? null : pdfDocumentKey(bytes);
-  }
+  String? get _documentKey => _shell.documentKey;
 
   @override
   void initState() {
     super.initState();
     _toolShortcuts =
         Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
-    _openSession();
-    // remember and restore where the user left this document
-    final key = _documentKey;
-    if (key != null) {
-      _viewportMemory = PdfViewportMemory(
-        viewer: _viewer,
-        preferences: _prefs,
-        documentKey: key,
-      );
-    }
-  }
-
-  void _openSession() {
-    if (widget.bytes != null) {
-      final prefs =
-          widget.preferences ?? (_ownedPrefs ??= PdfEditingPreferences());
-      _ownedSession = PdfEditingController(widget.bytes!, preferences: prefs);
-    }
-    _session.providedCustomStamps = widget.customStamps;
-    _syncFeatureLocks();
+    _shell = PdfShellSessionLifecycle(
+      bytes: widget.bytes,
+      controller: widget.controller,
+      preferences: widget.preferences,
+      viewerController: widget.viewerController,
+      performance: widget.performance,
+      documentId: widget.documentId,
+      prepareSession: _prepareSession,
+      onSessionChanged: _onSessionChanged,
+    );
     _reportedLength = _session.bytes.length;
-    _session.addListener(_onSessionChanged);
     _attachPencil();
-    _syncWorker();
   }
 
-  void _closeSession() {
-    _pencil?.dispose();
-    _pencil = null;
-    _worker?.dispose();
-    _worker = null;
-    _workerDoc = null;
-    _session.removeListener(_onSessionChanged);
-    _ownedSession?.dispose();
-    _ownedSession = null;
+  void _prepareSession(PdfEditingController session) {
+    session
+      ..providedCustomStamps = widget.customStamps
+      ..colorLocked = !widget.features.colorControls;
   }
 
   /// Binds the Apple Pencil double-tap to the session's eraser toggle on
@@ -511,31 +481,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     (_pencil ??= PdfPencilInteraction()).attach(_session);
   }
 
-  /// Keeps [_worker] tied to the session's current document - see the field
-  /// doc. A revision (edit, undo, redo) changes the document identity, so
-  /// the old worker is disposed and a new one started over the current bytes;
-  /// disposing first means the just-edited page renders locally (correctly)
-  /// until the new worker is ready.
-  void _syncWorker() {
-    if (identical(_session.document, _workerDoc)) return;
-    _worker?.dispose();
-    _worker = startPdfRenderWorker(_session.bytes,
-        pageCount: _session.document.pageCount);
-    _workerDoc = _session.document;
-  }
-
-  void _syncFeatureLocks() {
-    _session.colorLocked = !widget.features.colorControls;
-  }
-
-  void _onSessionChanged() {
-    // the merged ListenableBuilder rebuilds the viewer on this same notify,
-    // so swapping the worker here is enough - no setState needed
-    _syncWorker();
-    final length = _session.bytes.length;
+  void _onSessionChanged(PdfEditingController session) {
+    final length = session.bytes.length;
     if (length == _reportedLength) return;
     _reportedLength = length;
-    widget.onDocumentChanged?.call(_session.bytes);
+    widget.onDocumentChanged?.call(session.bytes);
   }
 
   @override
@@ -545,37 +495,35 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       _toolShortcuts =
           Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
     }
-    if (widget.controller != oldWidget.controller ||
+    final sourceChanging = widget.controller != oldWidget.controller ||
         !identical(widget.bytes, oldWidget.bytes) ||
-        widget.documentId != oldWidget.documentId) {
-      _closeSession();
-      _searchField.clear();
-      _openSession();
-      final key = _documentKey;
-      if (key != null) _viewportMemory?.rekey(key);
-    } else if (!listEquals(widget.customStamps, oldWidget.customStamps)) {
-      _session.providedCustomStamps = widget.customStamps;
+        (widget.controller == null &&
+            !identical(widget.preferences, oldWidget.preferences));
+    if (sourceChanging) {
+      _pencil?.dispose();
+      _pencil = null;
     }
-    if (widget.features.colorControls != oldWidget.features.colorControls) {
-      _syncFeatureLocks();
+    final update = _shell.update(
+      bytes: widget.bytes,
+      controller: widget.controller,
+      preferences: widget.preferences,
+      viewerController: widget.viewerController,
+      performanceController: widget.performance,
+      documentId: widget.documentId,
+      prepareSession: _prepareSession,
+      onSessionChanged: _onSessionChanged,
+    );
+    if (update.sessionChanged) {
+      _reportedLength = _session.bytes.length;
+      _attachPencil();
     }
   }
 
   @override
   void dispose() {
-    _viewportMemory?.dispose();
-    _closeSession();
-    _ownedPrefs?.dispose();
-    _ownedViewer?.dispose();
-    _searchField.dispose();
-    _searchFocus.dispose();
+    _pencil?.dispose();
+    _shell.dispose();
     super.dispose();
-  }
-
-  void _focusSearch() {
-    _searchFocus.requestFocus();
-    _searchField.selection =
-        TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
   /// Whether there's anything to save: false while the document still
@@ -648,7 +596,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
-                renderWorker: _worker,
+                renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
@@ -712,7 +660,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
                 onOpenPage: (_) => prefs.showThumbnailView = false,
-                renderWorker: _worker,
+                renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
               );
 
@@ -1017,7 +965,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,
                         highlightFormFields: prefs.highlightFormFields,
-                        renderWorker: _worker,
+                        renderWorker: _shell.worker,
+                        performance: _performance,
                         rasterCache: widget.rasterCache,
                         textCache: widget.textCache,
                         documentId: _documentKey,
@@ -1059,12 +1008,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       body = PdfViewerTheme(data: widget.viewerTheme!, child: body);
     }
     final bindings = <ShortcutActivator, VoidCallback>{
-      if (features.headerBar && features.search) ...{
-        const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
-            _focusSearch,
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-            _focusSearch,
-      },
+      ..._shell.searchShortcuts(
+          enabled: features.headerBar && features.search),
       // ⌘S / Ctrl+S saves through the host's [onSave], the same path the
       // toolbar's save button takes. ⌘⇧S / Ctrl+Shift+S invokes the
       // host's Save As path when one is provided.

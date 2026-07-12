@@ -55,6 +55,17 @@ perl_replace_string_url() {
   ' "$file"
 }
 
+replace_in_compiled_dart() {
+  local path="$1"
+  local hash="$2"
+
+  while IFS= read -r -d '' js_file; do
+    perl_replace_string_url "$js_file" "$path" "$hash"
+  done < <(find "$BUILD_DIR" -maxdepth 1 \
+    \( -name 'main.dart.js' -o -name 'main.dart.js_*.part.js' -o -name 'main.dart.mjs' \) \
+    -type f -print0)
+}
+
 echo "Cache-busting Flutter web build in $BUILD_DIR"
 
 for path in main.dart.wasm main.dart.mjs main.dart.js; do
@@ -69,18 +80,34 @@ if [[ -f "$MAIN_JS" ]]; then
   while IFS= read -r -d '' file; do
     path="$(basename "$file")"
     hash="$(hash_file "$file")"
-    echo "  $path  ?v=$hash"
-    perl_replace_string_url "$MAIN_JS" "$path" "$hash"
+    hashed_path="${path%.js}.$hash.js"
+    echo "  $path  -> $hashed_path"
+    # dart2js resolves deferred-part names as URI *paths*. A query string in
+    # the compiled literal is therefore escaped to `%3Fv=...`, making the
+    # browser request a nonexistent file. Give deferred parts content-addressed
+    # filenames instead; ordinary entrypoints can continue to use queries.
+    mv "$file" "$BUILD_DIR/$hashed_path"
+    CACHE_BUST_PATH="$path" CACHE_BUST_HASHED_PATH="$hashed_path" perl -0pi -e '
+      my $path = quotemeta($ENV{CACHE_BUST_PATH});
+      my $hashed = $ENV{CACHE_BUST_HASHED_PATH};
+      s/"$path(?:\?v=[0-9a-f]+)?"/"$hashed"/g;
+    ' "$MAIN_JS"
   done < <(find "$BUILD_DIR" -maxdepth 1 -name 'main.dart.js_*.part.js' -type f -print0 | sort -z)
 
   worker="$BUILD_DIR/pdf_render_worker.dart.js"
   if [[ -f "$worker" ]]; then
     hash="$(hash_file "$worker")"
     echo "  pdf_render_worker.dart.js  ?v=$hash"
-    while IFS= read -r -d '' js_file; do
-      perl_replace_string_url "$js_file" "pdf_render_worker.dart.js" "$hash"
-    done < <(find "$BUILD_DIR" -maxdepth 1 \( -name 'main.dart.js' -o -name 'main.dart.js_*.part.js' \) -type f -print0)
+    replace_in_compiled_dart "pdf_render_worker.dart.js" "$hash"
   fi
+fi
+
+asset_worker_path="assets/packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js"
+asset_worker="$BUILD_DIR/$asset_worker_path"
+if [[ -f "$asset_worker" ]]; then
+  hash="$(hash_file "$asset_worker")"
+  echo "  $asset_worker_path  ?v=$hash"
+  replace_in_compiled_dart "$asset_worker_path" "$hash"
 fi
 
 if grep -qE '"main\.dart\.(wasm|mjs|js)"' "$BOOTSTRAP"; then

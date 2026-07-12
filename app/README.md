@@ -40,17 +40,9 @@ fvm flutter run -d macos      # or -d chrome, -d windows, -d linux, or a device
 Open a specific file on startup: `fvm flutter run -d macos path/to/file.pdf`
 (desktop), or use the in-app Open button anywhere.
 
-For web performance testing, build the optional page-render worker before
-running or building the web app:
-
-```sh
-cd app
-dart run dart_pdf_editor:build_web_worker
-fvm flutter run -d chrome
-```
-
-`lib/app.dart` points web builds at `web/pdf_render_worker.dart.js`. If the
-file is missing, rendering falls back to the browser main thread.
+On web, `dart_pdf_editor` uses its bundled page-render worker asset
+automatically. If the browser cannot load it, rendering falls back to the main
+thread.
 
 ## Test & analyze
 

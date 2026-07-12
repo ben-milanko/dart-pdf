@@ -67,7 +67,11 @@ class WelcomeScreen extends StatelessWidget {
                                 ? Text(entry.path!,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis)
-                                : const Text('Pick again to reopen'),
+                                : entry.isReopenable
+                                    // Mobile: reopens from a private snapshot,
+                                    // so no path to show and no re-pick needed.
+                                    ? const Text('Tap to reopen')
+                                    : const Text('Pick again to reopen'),
                             enabled: entry.isReopenable,
                             trailing: IconButton(
                               icon: const Icon(Icons.close, size: 18),

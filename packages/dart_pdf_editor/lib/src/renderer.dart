@@ -8,6 +8,19 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'strips/strip_device.dart';
+
+/// Which device family [PdfPageRenderer.renderImageWithPlan] paints with.
+enum PdfRenderDeviceMode {
+  /// The stock [CanvasPdfDevice] pipeline (default).
+  canvas,
+
+  /// Experimental sparse-strip shader device ([StripPdfDevice]): solid
+  /// fills/strokes/outline text batch into drawVertices+FragmentShader
+  /// draws, everything else falls back to the canvas device. Only the
+  /// pixelRatio-aware bitmap path honors this; picture paths stay canvas.
+  strips,
+}
 
 /// Immutable display inputs for rendering a page.
 ///
@@ -166,14 +179,13 @@ class PdfPageRenderer {
       PdfPage page, PdfPageRenderPlan plan,
       {bool Function(PdfAnnotation)? skipAnnotation}) async {
     final cos = page.document.cos;
-    final pageOps = ContentStreamParser.parse(page.contentBytes());
 
     // Record the page into a flat command buffer. This single walk also
     // discovers every image (the recording device's drawImage calls), so the
     // separate scan-only collect pass [renderPicture] runs is unnecessary here.
     final recorder = RecordingPdfDevice();
     final recording = PdfInterpreter(cos: cos, device: recorder)
-      ..drawPageOperations(page, pageOps);
+      ..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
 
     final images = await decodeImages(cos, recorder.imageRequests,
@@ -231,7 +243,7 @@ class PdfPageRenderer {
       PdfPage page, List<PdfRenderCommand> commands, PdfPageRenderPlan plan,
       {bool includeImages = true}) async {
     final requests = <PdfImageRequest>[];
-    if (includeImages) _collectImageRequests(commands, requests);
+    if (includeImages) collectImageRequests(commands, requests);
     final images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
@@ -259,7 +271,7 @@ class PdfPageRenderer {
   static (int count, int pixels) decodedImageStats(
       List<PdfRenderCommand> commands) {
     final requests = <PdfImageRequest>[];
-    _collectImageRequests(commands, requests);
+    collectImageRequests(commands, requests);
     var count = 0;
     var pixels = 0;
     for (final request in requests) {
@@ -277,20 +289,20 @@ class PdfPageRenderer {
   /// to decide whether a slower full (image-decoding) pass needs to follow it.
   static bool hasImageDraws(List<PdfRenderCommand> commands) {
     final requests = <PdfImageRequest>[];
-    _collectImageRequests(commands, requests);
+    collectImageRequests(commands, requests);
     return requests.isNotEmpty;
   }
 
   /// Gathers every image draw request in [commands], descending into soft-mask
   /// groups (whose own commands can draw images), in replay order.
-  static void _collectImageRequests(
+  static void collectImageRequests(
       List<PdfRenderCommand> commands, List<PdfImageRequest> out) {
     for (final command in commands) {
       switch (command) {
         case PdfDrawImageCommand(:final request):
           out.add(request);
         case PdfEndSoftMaskedCommand(:final maskCommands):
-          _collectImageRequests(maskCommands, out);
+          collectImageRequests(maskCommands, out);
         default:
           break;
       }
@@ -383,11 +395,20 @@ class PdfPageRenderer {
     );
   }
 
+  /// Experimental device selector for [renderImageWithPlan]. Static so the
+  /// benchmark/parity harnesses (and a future viewer flag) can flip every
+  /// render path at once; strip pictures bake the pixel ratio in, so only
+  /// the bitmap path (which knows the ratio) participates.
+  static PdfRenderDeviceMode deviceMode = PdfRenderDeviceMode.canvas;
+
   /// Renders [page] to a bitmap using a pre-computed display [plan].
   static Future<ui.Image> renderImageWithPlan(PdfPage page,
       {required PdfPageRenderPlan plan,
       double pixelRatio = 1,
       bool recorded = false}) async {
+    if (deviceMode == PdfRenderDeviceMode.strips && !recorded) {
+      return _renderImageStrips(page, plan, pixelRatio);
+    }
     final picture = recorded
         ? await renderPictureRecordedWithPlan(page, plan)
         : await renderPictureWithPlan(page, plan);
@@ -396,6 +417,99 @@ class PdfPageRenderer {
     } finally {
       picture.dispose();
     }
+  }
+
+  /// Phase timing (microseconds) for the strips path, aggregated across
+  /// renders for the benchmark: interpret+strip-generation (the walk into
+  /// [StripPdfDevice]) and the final picture rasterization. Atlas-decode
+  /// and tape-replay phases live on [StripPdfDevice].
+  static int stripInterpretMicros = 0;
+  static int stripRasterMicros = 0;
+
+  /// Strip-device bitmap render: interpret once through [StripPdfDevice]
+  /// (recording strips + fallback ops in painter's order), then paint and
+  /// rasterize. The picture is recorded with [pixelRatio] baked in so the
+  /// strip quads are device-pixel-aligned - matching [rasterize]'s output
+  /// geometry for the same ratio.
+  static Future<ui.Image> _renderImageStrips(
+      PdfPage page, PdfPageRenderPlan plan, double pixelRatio) async {
+    final cos = page.document.cos;
+    final pageOps = ContentStreamParser.parse(page.contentBytes());
+
+    final collector = ImageCollector();
+    final collecting =
+        PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
+          ..drawPageOperations(page, pageOps);
+    if (plan.annotations) collecting.drawAnnotations(page);
+    final images = await decodeImages(cos, collector.streams,
+        cache: PdfImageCache.instance);
+
+    final box = page.cropBox;
+    final size = plan.pageSize(page);
+    final width = (size.width * pixelRatio).ceil().clamp(1, 1 << 14);
+    final height = (size.height * pixelRatio).ceil().clamp(1, 1 << 14);
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.scale(pixelRatio);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, box, rotation: plan.rotation);
+
+    final device = StripPdfDevice(
+      canvas,
+      pageToDevice: pageToDeviceMatrix(page, size, box,
+          rotation: plan.rotation, pixelRatio: pixelRatio),
+      deviceWidth: width,
+      deviceHeight: height,
+      pixelRatio: pixelRatio,
+      images: images,
+    );
+    final sw = Stopwatch()..start();
+    final painting = PdfInterpreter(cos: cos, device: device)
+      ..drawPageOperations(page, pageOps);
+    if (plan.annotations) painting.drawAnnotations(page);
+    stripInterpretMicros += sw.elapsedMicroseconds;
+    await device.finish();
+
+    final picture = recorder.endRecording();
+    sw.reset();
+    try {
+      final image = await picture.toImage(width, height);
+      stripRasterMicros += sw.elapsedMicroseconds;
+      return image;
+    } finally {
+      picture.dispose();
+      device.dispose();
+      for (final image in images.values) {
+        image.dispose();
+      }
+    }
+  }
+
+  /// The page->device-pixel matrix matching [_applyPageTransform] followed
+  /// by a [pixelRatio] canvas scale (geometric application order: crop-box
+  /// shift, y-flip, /Rotate, ratio). Public so [PdfRetainedScene] can feed
+  /// a [StripPdfDevice] the exact transform its canvas preamble implies.
+  static PdfMatrix pageToDeviceMatrix(PdfPage page, Size size, PdfRect box,
+      {int? rotation, required double pixelRatio}) {
+    var m = PdfMatrix.translation(-box.left, -box.bottom)
+        .concat(const PdfMatrix(1, 0, 0, -1, 0, 0))
+        .concat(PdfMatrix.translation(0, box.height));
+    switch (rotation ?? page.rotation) {
+      case 90:
+        m = m
+            .concat(const PdfMatrix(0, 1, -1, 0, 0, 0))
+            .concat(PdfMatrix.translation(size.width, 0));
+      case 180:
+        m = m
+            .concat(const PdfMatrix(-1, 0, 0, -1, 0, 0))
+            .concat(PdfMatrix.translation(size.width, size.height));
+      case 270:
+        m = m
+            .concat(const PdfMatrix(0, -1, 1, 0, 0, 0))
+            .concat(PdfMatrix.translation(0, size.height));
+    }
+    return m.concat(PdfMatrix.scaled(pixelRatio, pixelRatio));
   }
 
   /// Rasterizes an already-recorded page [picture] (sized [size] points) -
@@ -416,6 +530,19 @@ class PdfPageRenderer {
     } finally {
       scaled.dispose();
     }
+  }
+
+  /// Paints the paper background and sets [canvas] up in PDF user space for
+  /// [page] under [plan] - the shared preamble every replay target runs
+  /// before feeding interpreter output (or a recorded command buffer) to a
+  /// painting device. Public so alternative replay paths ([PdfRetainedScene])
+  /// reuse the exact transform stack instead of duplicating it.
+  static void preparePageCanvas(
+      Canvas canvas, PdfPage page, PdfPageRenderPlan plan) {
+    final size = plan.pageSize(page);
+    _paintBackground(canvas, size, plan.pageColor);
+    _applyPageTransform(canvas, page, size, page.cropBox,
+        rotation: plan.rotation);
   }
 
   /// Rasterizes only [region] (in page points, y-down raster space) of a

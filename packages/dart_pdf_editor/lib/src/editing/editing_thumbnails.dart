@@ -167,9 +167,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// built tile.
   final Map<int, GlobalKey> _tileKeys = {};
 
-  /// The panel width while a resize drag is in flight, overriding the
-  /// preference until the drag ends and persists it.
-  double? _dragWidth;
+  PdfSidebarPanelGeometry? _frameGeometry;
 
   int _lastCurrent = 0;
 
@@ -262,27 +260,30 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
             _moveKeyboardSelection(1),
       };
 
-  double get _width =>
-      (_dragWidth ?? _preferences.thumbnailSidebarWidth ?? widget.width)
-          .clamp(widget.minWidth, widget.maxWidth);
+  double get _frameWidth =>
+      _frameGeometry?.width ??
+      (_preferences.thumbnailSidebarWidth ?? widget.width)
+          .clamp(widget.minWidth, widget.maxWidth)
+          .toDouble();
 
   /// The scrollbar (and, when it rides the same right edge, the resize
   /// grip) overlay the list - the list keeps clear of that zone so the
   /// bar never covers a tile. Tiles already pad 12px on their own.
   double get _barClearance =>
+      _frameGeometry?.scrollbarClearance ??
       PdfScrollbar.hitExtent +
-      (widget.resizable &&
-              !widget.bottomSheet &&
-              widget.side == PdfSidebarSide.left
-          ? PdfSidebarResizeGrip.width
-          : 0);
+          (widget.resizable &&
+                  !widget.bottomSheet &&
+                  widget.side == PdfSidebarSide.left
+              ? PdfSidebarResizeGrip.width
+              : 0);
 
   double get _extraRightPadding => math.max(0, _barClearance - 12);
 
   /// The width a tile's thumbnail actually lays out at: panel width less
   /// the tile's 12px side paddings, the 1px borders, and the scrollbar
   /// clearance.
-  double get _tileWidth => _width - 26 - _extraRightPadding;
+  double get _tileWidth => _frameWidth - 26 - _extraRightPadding;
 
   @override
   void initState() {
@@ -423,19 +424,29 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     return offset;
   }
 
-  void _onResizeDelta(double delta) => setState(() {
-        _dragWidth = (_width + delta).clamp(widget.minWidth, widget.maxWidth);
-      });
-
-  void _onResizeEnd() {
-    if (_dragWidth == null) return;
-    _preferences.thumbnailSidebarWidth = _dragWidth;
-    setState(() => _dragWidth = null);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final width = _width;
+    return PdfSidebarPanelFrame(
+      width: widget.width,
+      minWidth: widget.minWidth,
+      maxWidth: widget.maxWidth,
+      persistedWidth: _preferences.thumbnailSidebarWidth,
+      onPersistWidth: (width) => _preferences.thumbnailSidebarWidth = width,
+      side: widget.side,
+      resizable: widget.resizable,
+      bottomSheet: widget.bottomSheet,
+      gripKey: const ValueKey('pdf-thumbnail-resize-grip'),
+      onClose: widget.onClose,
+      builder: _buildFrame,
+    );
+  }
+
+  Widget _buildFrame(
+    BuildContext context,
+    PdfSidebarPanelGeometry geometry,
+  ) {
+    _frameGeometry = geometry;
+    final width = geometry.width;
     final controller = widget.controller;
     // persist thumbnails to disk (bound to this document) so a later session
     // opens onto already-rendered pages instead of re-interpreting them
@@ -458,7 +469,6 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // a bottom sheet supplies its own width and resize affordance, so the
     // strip drops the side resize grip; the tile column keeps its preferred
     // width, centered in the wider sheet rather than stretched
-    final showGrip = widget.resizable && !widget.bottomSheet;
     // [inset] centers the tile column inside a full-width parent: in a
     // bottom sheet the list fills the whole sheet (so a drag anywhere in
     // it scrolls - not just over the narrow tile column) and the inset is
@@ -527,12 +537,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                             ),
                             // the docked strip's close button; a bottom sheet
                             // supplies its own in its sheet chrome
-                            if (!widget.bottomSheet && widget.onClose != null)
-                              PdfSidebarCloseButton(
-                                key:
-                                    const ValueKey('pdf-thumbnail-panel-close'),
-                                onPressed: widget.onClose!,
-                              ),
+                            if (geometry.closeButton(
+                              key: const ValueKey('pdf-thumbnail-panel-close'),
+                            )
+                                case final closeButton?)
+                              closeButton,
                           ],
                         ),
                       ),
@@ -624,35 +633,17 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       });
     }
 
-    return SizedBox(
-      width: width,
-      child: Stack(children: [
-        Positioned.fill(child: buildList(0)),
-        // stepped off the resize grip when the grip rides the same
-        // (right) edge
-        Positioned(
-          top: 0,
-          bottom: 0,
-          right: showGrip && widget.side == PdfSidebarSide.left
-              ? PdfSidebarResizeGrip.width
-              : 0,
-          child: scrollbar,
-        ),
-        if (showGrip)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: widget.side == PdfSidebarSide.right ? 0 : null,
-            right: widget.side == PdfSidebarSide.left ? 0 : null,
-            child: PdfSidebarResizeGrip(
-              key: const ValueKey('pdf-thumbnail-resize-grip'),
-              side: widget.side,
-              onWidthDelta: _onResizeDelta,
-              onResizeEnd: _onResizeEnd,
-            ),
-          ),
-      ]),
-    );
+    return Stack(children: [
+      Positioned.fill(child: buildList(0)),
+      // stepped off the resize grip when the grip rides the same
+      // (right) edge
+      Positioned(
+        top: 0,
+        bottom: 0,
+        right: geometry.scrollbarInset,
+        child: scrollbar,
+      ),
+    ]);
   }
 }
 

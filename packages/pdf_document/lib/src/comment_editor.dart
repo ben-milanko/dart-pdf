@@ -37,8 +37,10 @@ extension PdfCommentEditing on PdfEditor {
   }) {
     final parentRef = document.cos.referenceTo(target.dict);
     if (parentRef == null) {
-      throw ArgumentError('target annotation is not an indirect object; '
-          'save and reopen the document before replying to a fresh one');
+      throw ArgumentError(
+        'target annotation is not an indirect object; '
+        'save and reopen the document before replying to a fresh one',
+      );
     }
     final nm = name ?? _generateAnnotationName();
     final when = createdAt ?? DateTime.now();
@@ -82,8 +84,10 @@ extension PdfCommentEditing on PdfEditor {
   }) {
     final parentRef = document.cos.referenceTo(target.dict);
     if (parentRef == null) {
-      throw ArgumentError('target annotation is not an indirect object; '
-          'save and reopen the document before setting its state');
+      throw ArgumentError(
+        'target annotation is not an indirect object; '
+        'save and reopen the document before setting its state',
+      );
     }
     final nm = name ?? _generateAnnotationName();
     final when = at ?? DateTime.now();
@@ -111,23 +115,45 @@ extension PdfCommentEditing on PdfEditor {
 
   /// Marks [target]'s thread resolved - review state `Completed`
   /// ([PdfCommentThread.isResolved]). A convenience over [setReviewState].
-  String resolveThread(int pageIndex, PdfAnnotation target,
-          {String? author, DateTime? at, String? name}) =>
-      setReviewState(pageIndex, target, PdfReviewState.completed,
-          author: author, at: at, name: name);
+  String resolveThread(
+    int pageIndex,
+    PdfAnnotation target, {
+    String? author,
+    DateTime? at,
+    String? name,
+  }) =>
+      setReviewState(
+        pageIndex,
+        target,
+        PdfReviewState.completed,
+        author: author,
+        at: at,
+        name: name,
+      );
 
   /// Reopens [target]'s thread - review state `None`, clearing a prior
   /// resolution. A convenience over [setReviewState].
-  String reopenThread(int pageIndex, PdfAnnotation target,
-          {String? author, DateTime? at, String? name}) =>
-      setReviewState(pageIndex, target, PdfReviewState.none,
-          author: author, at: at, name: name);
+  String reopenThread(
+    int pageIndex,
+    PdfAnnotation target, {
+    String? author,
+    DateTime? at,
+    String? name,
+  }) =>
+      setReviewState(
+        pageIndex,
+        target,
+        PdfReviewState.none,
+        author: author,
+        at: at,
+        name: name,
+      );
 
   /// Stages an appearance-less thread annotation (reply or state) and
   /// links it into the page's /Annots. Unlike [_addAnnotation] it writes
   /// no /AP: replies and state replies carry no page graphics. The caller
   /// is responsible for the /NM (both creators stamp one).
   void _addThreadAnnotation(int pageIndex, CosDictionary annot) {
-    _linkAnnotation(pageIndex, _updater.addObject(annot));
+    _linkAnnotation(pageIndex, _updater.addObject(annot), visual: false);
   }
 }

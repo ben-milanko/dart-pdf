@@ -1,5 +1,6 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -8,12 +9,13 @@ import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_thumbnails.dart';
 import 'page_number_field.dart';
+import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'raster_cache.dart';
-import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
+import 'shell_session.dart';
 import 'theme.dart';
 
 /// Which pieces of chrome a [PdfReader] shows. Everything defaults on;
@@ -105,6 +107,7 @@ class PdfReader extends StatefulWidget {
     this.documentId,
     this.controller,
     this.preferences,
+    this.performance,
     this.features = const PdfReaderFeatures(),
     this.onAction,
     this.onAnnotationTap,
@@ -146,6 +149,11 @@ class PdfReader extends StatefulWidget {
   /// The persisted display preferences. Defaults to a private instance.
   final PdfEditingPreferences? preferences;
 
+  /// Optional adaptive/fixed performance controller. Null creates an owned
+  /// Auto controller. Pass one to select fixed worker settings at runtime or
+  /// expose [PdfPerformanceController.diagnostics] in host UI.
+  final PdfPerformanceController? performance;
+
   final PdfReaderFeatures features;
 
   /// See [PdfViewer.onAction].
@@ -179,97 +187,46 @@ class PdfReader extends StatefulWidget {
 }
 
 class _PdfReaderState extends State<PdfReader> {
-  // the session wraps the bytes for the viewer and the thumbnail
-  // strip's caches; the reader makes no structural edits, so the
-  // document stays byte-identical to the input - except form fills
-  // (PdfReaderFeatures.fillForms), the one mutation a reader allows
-  late PdfEditingController _session;
-  PdfEditingPreferences? _ownedPrefs;
-  PdfViewerController? _ownedViewer;
-  PdfViewportMemory? _viewportMemory;
+  late PdfShellSessionLifecycle _shell;
 
-  // Offloads page interpretation to a background isolate (native; a no-op
-  // fallback on web). Keyed to the session's current document: pure reading
-  // spawns one worker for the life of the document, and the rare form-fill
-  // revision respawns it over the new bytes so it never serves a stale page.
-  PdfRenderWorker? _worker;
-  PdfDocument? _workerDoc;
-
-  final _searchField = TextEditingController();
-  final _searchFocus = FocusNode();
-
-  PdfViewerController get _viewer =>
-      widget.controller ?? (_ownedViewer ??= PdfViewerController());
-
-  PdfEditingPreferences get _prefs => _session.preferences;
-
-  String get _documentKey => widget.documentId ?? pdfDocumentKey(widget.bytes);
+  PdfEditingController get _session => _shell.session;
+  PdfViewerController get _viewer => _shell.viewer;
+  PdfEditingPreferences get _prefs => _shell.preferences;
+  PdfPerformanceController get _performance => _shell.performance;
+  String get _documentKey => _shell.documentKey!;
+  TextEditingController get _searchField => _shell.searchController;
+  FocusNode get _searchFocus => _shell.searchFocus;
 
   @override
   void initState() {
     super.initState();
-    _openSession();
-    // remember and restore where the user left this document
-    _viewportMemory = PdfViewportMemory(
-      viewer: _viewer,
-      preferences: _prefs,
-      documentKey: _documentKey,
+    _shell = PdfShellSessionLifecycle(
+      bytes: widget.bytes,
+      controller: null,
+      preferences: widget.preferences,
+      viewerController: widget.controller,
+      performance: widget.performance,
+      documentId: widget.documentId,
     );
-  }
-
-  void _openSession() {
-    final prefs =
-        widget.preferences ?? (_ownedPrefs ??= PdfEditingPreferences());
-    _session = PdfEditingController(widget.bytes, preferences: prefs);
-    _session.addListener(_syncWorker);
-    _syncWorker();
-  }
-
-  /// Keeps [_worker] tied to the session's current document. Reading never
-  /// changes it (one spawn for the document's life); a form fill produces a
-  /// new revision, so the old worker - which holds the pre-fill bytes - is
-  /// disposed and a fresh one started over the new bytes. Disposing first
-  /// means pages render locally (correctly) during the brief respawn rather
-  /// than from a stale isolate.
-  void _syncWorker() {
-    if (identical(_session.document, _workerDoc)) return;
-    _worker?.dispose();
-    _worker = startPdfRenderWorker(_session.bytes,
-        pageCount: _session.document.pageCount);
-    _workerDoc = _session.document;
   }
 
   @override
   void didUpdateWidget(PdfReader oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(widget.bytes, oldWidget.bytes) ||
-        widget.documentId != oldWidget.documentId) {
-      final previous = _session;
-      previous.removeListener(_syncWorker);
-      _searchField.clear();
-      _openSession();
-      _viewportMemory?.rekey(_documentKey);
-      previous.dispose();
-    }
+    _shell.update(
+      bytes: widget.bytes,
+      controller: null,
+      preferences: widget.preferences,
+      viewerController: widget.controller,
+      performanceController: widget.performance,
+      documentId: widget.documentId,
+    );
   }
 
   @override
   void dispose() {
-    _viewportMemory?.dispose();
-    _worker?.dispose();
-    _session.removeListener(_syncWorker);
-    _session.dispose();
-    _ownedPrefs?.dispose();
-    _ownedViewer?.dispose();
-    _searchField.dispose();
-    _searchFocus.dispose();
+    _shell.dispose();
     super.dispose();
-  }
-
-  void _focusSearch() {
-    _searchFocus.requestFocus();
-    _searchField.selection =
-        TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
   @override
@@ -310,7 +267,7 @@ class _PdfReaderState extends State<PdfReader> {
                 onClose: bottomSheet
                     ? null
                     : () => prefs.showThumbnailSidebar = false,
-                renderWorker: _worker,
+                renderWorker: _shell.worker,
               );
           PdfBookmarkSidebar bookmarks({required bool bottomSheet}) =>
               PdfBookmarkSidebar(
@@ -454,7 +411,8 @@ class _PdfReaderState extends State<PdfReader> {
                           pageColor: pageColor,
                           showAnnotations: prefs.showAnnotations,
                           highlightFormFields: prefs.highlightFormFields,
-                          renderWorker: _worker,
+                          renderWorker: _shell.worker,
+                          performance: _performance,
                           rasterCache: widget.rasterCache,
                           textCache: widget.textCache,
                           documentId: _documentKey,
@@ -491,12 +449,7 @@ class _PdfReaderState extends State<PdfReader> {
     }
     if (features.headerBar && features.search) {
       body = CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
-              _focusSearch,
-          const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-              _focusSearch,
-        },
+        bindings: _shell.searchShortcuts(enabled: true),
         child: body,
       );
     }

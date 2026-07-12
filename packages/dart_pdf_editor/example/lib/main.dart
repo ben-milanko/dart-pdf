@@ -13,16 +13,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'demo_brand_assets.dart';
 import 'demo_document.dart';
+import 'error_log.dart';
+import 'feedback.dart';
 import 'persistent_cache.dart';
 import 'platform_fonts.dart';
 import 'recent_files.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
-
-/// A plain-language GitHub issue form for app feedback from end users.
-final _feedbackUrl = Uri.parse(
-    'https://github.com/ben-milanko/dart-pdf/issues/new?template=app_feedback.yml');
 
 /// The published Flutter package the example is built on.
 final _pubDevUrl = Uri.parse('https://pub.dev/packages/dart_pdf_editor');
@@ -84,20 +82,6 @@ String pdfSavePathWithExtension(String path) {
 }
 
 void main() {
-  // On web, point the render worker at its compiled script so the heavy page
-  // interpretation + image decode run in a dedicated Web Worker instead of on
-  // the UI thread (the deploy workflow compiles it with
-  // `dart run dart_pdf_editor:build_web_worker`). With no script present the
-  // worker degrades to local rendering, so this is safe before a worker build.
-  if (kIsWeb) {
-    pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
-  }
-  // Fan page decoding across a few workers so a raster-heavy document (every
-  // CAD sheet a multi-second image decode) warms several pages at once instead
-  // of one at a time. Each worker holds its own copy of the document, so this
-  // trades memory for throughput. The example exposes this in the AppBar so
-  // users can switch between the pooled and single-worker paths.
-  pdfRenderWorkerPoolSize = 3;
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
   // streamed to the browser console) without a rebuild by opening the demo
@@ -107,7 +91,12 @@ void main() {
   if (Uri.base.queryParameters['perf'] == '1') {
     PdfPerfLog.enabled = true;
   }
-  runApp(const ViewerApp());
+  // Capture uncaught framework, platform, and async errors into the in-app
+  // log so a user can attach them to feedback (see AppLog / the feedback
+  // dialog). install() also returns the zone handler for the async path.
+  final onZoneError = AppLog.instance.install();
+  AppLog.instance.info('App started (version $kAppVersion)');
+  runZonedGuarded(() => runApp(const ViewerApp()), onZoneError);
 }
 
 class ViewerApp extends StatefulWidget {
@@ -142,8 +131,10 @@ class _ViewerAppState extends State<ViewerApp> {
   Future<void> _loadPlatformFonts() async {
     try {
       pdfPlatformFonts = await loadPlatformFonts();
-    } catch (_) {
+    } catch (e, s) {
       // Font discovery is best-effort; the menu degrades to its other choices.
+      AppLog.instance
+          .warning('Platform font discovery failed', error: e, stackTrace: s);
     }
   }
 
@@ -220,16 +211,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
 
-  bool _workerPoolEnabled = pdfRenderWorkerPoolSize > 1;
-  int _workerPoolSize =
-      pdfRenderWorkerPoolSize > 1 ? pdfRenderWorkerPoolSize : 3;
+  final PdfPerformanceController _performance = PdfPerformanceController();
   int _workerConfigEpoch = 0;
 
-  int get _effectiveWorkerPoolSize => _workerPoolEnabled ? _workerPoolSize : 1;
-
-  String get _workerPoolTooltip => _workerPoolEnabled
-      ? 'Worker pool: $_workerPoolSize workers'
-      : 'Worker pool off: single worker';
+  String get _workerPoolTooltip {
+    final mode = _performance.mode;
+    if (mode.isAuto) return 'Performance: Auto';
+    final count = mode.workerCount!;
+    return count == 1
+        ? 'Performance: single worker'
+        : 'Performance: $count workers';
+  }
 
   /// OCR connection settings, supplied through the credentials dialog and
   /// remembered for the app's lifetime (the API key is deliberately kept in
@@ -293,6 +285,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Opens the feedback dialog: the user reviews the diagnostics captured this
+  /// session and opens the GitHub feedback form with the report prefilled.
+  void _openFeedback() {
+    unawaited(showFeedbackDialog(
+      context,
+      onOpen: _openLink,
+      onCopied: () => _toast('Diagnostics copied to clipboard'),
+    ));
+  }
+
   void _cycleTheme() {
     _prefs.themeMode = switch (_prefs.themeMode) {
       ThemeMode.system => ThemeMode.light,
@@ -301,22 +303,16 @@ class _ViewerScreenState extends State<ViewerScreen> {
     };
   }
 
-  void _setWorkerPoolSize(int value) {
-    final nextSize = value <= 1 ? 1 : value;
-    if (nextSize == _effectiveWorkerPoolSize) return;
+  void _setPerformanceMode(int value) {
+    final next = value == 0
+        ? const PdfPerformanceMode.auto()
+        : PdfPerformanceMode.fixed(workerCount: value);
+    if (next == _performance.mode) return;
     setState(() {
-      if (nextSize == 1) {
-        _workerPoolEnabled = false;
-      } else {
-        _workerPoolEnabled = true;
-        _workerPoolSize = nextSize;
-      }
-      pdfRenderWorkerPoolSize = _effectiveWorkerPoolSize;
+      _performance.mode = next;
       _workerConfigEpoch++;
     });
-    _toast(_workerPoolEnabled
-        ? 'Worker pool: $_workerPoolSize workers'
-        : 'Worker pool off: single worker');
+    _toast(_workerPoolTooltip);
   }
 
   Key _pdfShellKey(_DocumentTab tab, String mode) =>
@@ -432,7 +428,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
         const PopupMenuDivider(),
         PopupMenuItem(
-          value: () => _openLink(_feedbackUrl),
+          value: _openFeedback,
           child: _appMenuTile(
             icon: Icons.feedback_outlined,
             title: 'Supply feedback…',
@@ -729,6 +725,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     for (final tab in _tabs) {
       tab.dispose();
     }
+    _performance.dispose();
     super.dispose();
   }
 
@@ -751,7 +748,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       );
       unawaited(_recents.record(file.name, bytes));
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance
+          .error('Could not open ${file.name}', error: e, stackTrace: s);
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
@@ -788,7 +787,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ));
         _activeIndex = _tabs.length - 1;
       });
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance
+          .error('Could not open ${file.name}', error: e, stackTrace: s);
       _openError(file.name, 'Could not open ${file.name}\n$e');
     }
   }
@@ -809,7 +810,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       );
       unawaited(_recents.record(name, bytes));
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance.error('Could not open $path', error: e, stackTrace: s);
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
@@ -849,7 +851,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       );
       unawaited(_recents.touch(entry.id));
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance
+          .error('Could not reopen ${entry.title}', error: e, stackTrace: s);
       if (!mounted) return;
       _replaceLoadingTab(
         loading,
@@ -902,7 +906,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
           final path = pdfSavePathWithExtension(location.path);
           await file.saveTo(path);
           _toast('Saved to $path');
-        } catch (e) {
+        } catch (e, s) {
+          AppLog.instance.error('Save failed', error: e, stackTrace: s);
           _toast('Save failed: $e');
         }
     }
@@ -940,7 +945,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
         try {
           await file.saveTo(location.path);
           _toast('Saved $name - paste back into the PDF with ⌘V');
-        } catch (e) {
+        } catch (e, s) {
+          AppLog.instance.error('Save failed', error: e, stackTrace: s);
           _toast('Save failed: $e');
         }
     }
@@ -979,7 +985,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
       if (stem.isEmpty) stem = 'page';
       final name = '$stem-p${pageIndex + 1}.${isPng ? 'png' : 'jpg'}';
       await _saveImageBytes(bytes, name, isPng ? 'image/png' : 'image/jpeg');
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance.error('Image export failed', error: e, stackTrace: s);
       if (mounted) _toast('Export failed: $e');
     }
   }
@@ -1013,7 +1020,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
         try {
           await file.saveTo(location.path);
           _toast('Saved $name');
-        } catch (e) {
+        } catch (e, s) {
+          AppLog.instance.error('Save failed', error: e, stackTrace: s);
           _toast('Save failed: $e');
         }
     }
@@ -1132,11 +1140,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
       Navigator.of(context, rootNavigator: true).pop(); // dismiss progress
       _openBytes(result, '${tab.title} (OCR)');
       _toast('OCR added $spans text spans - the page text is now selectable');
-    } on VlmOcrException catch (e) {
+    } on VlmOcrException catch (e, s) {
+      AppLog.instance.error('OCR failed: ${e.message}', error: e, stackTrace: s);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       _toast('OCR failed: ${e.message}');
-    } catch (e) {
+    } catch (e, s) {
+      AppLog.instance.error('OCR failed', error: e, stackTrace: s);
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       _toast('OCR failed: $e');
@@ -1179,22 +1189,29 @@ class _ViewerScreenState extends State<ViewerScreen> {
               PopupMenuButton<int>(
                 key: const ValueKey('dartpdf-worker-pool-menu'),
                 tooltip: _workerPoolTooltip,
-                icon: Icon(
-                    _workerPoolEnabled ? Icons.memory : Icons.memory_outlined),
-                onSelected: _setWorkerPoolSize,
+                icon: Icon(_performance.mode.isAuto
+                    ? Icons.auto_awesome
+                    : Icons.memory),
+                onSelected: _setPerformanceMode,
                 itemBuilder: (context) => [
+                  CheckedPopupMenuItem<int>(
+                    key: const ValueKey('dartpdf-worker-pool-auto'),
+                    value: 0,
+                    checked: _performance.mode.isAuto,
+                    child: const Text('Auto'),
+                  ),
+                  const PopupMenuDivider(),
                   CheckedPopupMenuItem<int>(
                     key: const ValueKey('dartpdf-worker-pool-off'),
                     value: 1,
-                    checked: !_workerPoolEnabled,
-                    child: const Text('Worker pool off'),
+                    checked: _performance.mode.workerCount == 1,
+                    child: const Text('Single worker'),
                   ),
-                  const PopupMenuDivider(),
                   for (final size in const [2, 3, 4, 6])
                     CheckedPopupMenuItem<int>(
                       key: ValueKey('dartpdf-worker-pool-$size'),
                       value: size,
-                      checked: _workerPoolEnabled && _workerPoolSize == size,
+                      checked: _performance.mode.workerCount == size,
                       child: Text('$size workers'),
                     ),
                 ],
@@ -1261,6 +1278,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 documentId: tab.title,
                                 controller: tab.viewer,
                                 preferences: _prefs,
+                                performance: _performance,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 onAction: _onAction,
@@ -1272,6 +1290,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 documentId: tab.title,
                                 controller: tab.session,
                                 viewerController: tab.viewer,
+                                performance: _performance,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 onSave: (saved) => unawaited(_saveAs(saved)),

@@ -30,6 +30,7 @@ const Map<PdfEditTool, LogicalKeyboardKey> pdfEditToolShortcuts = {
   PdfEditTool.line: LogicalKeyboardKey.keyL,
   PdfEditTool.arrow: LogicalKeyboardKey.keyA,
   PdfEditTool.freeText: LogicalKeyboardKey.keyT,
+  PdfEditTool.callout: LogicalKeyboardKey.keyQ,
   PdfEditTool.note: LogicalKeyboardKey.keyN,
   PdfEditTool.stamp: LogicalKeyboardKey.keyS,
   PdfEditTool.image: LogicalKeyboardKey.keyI,

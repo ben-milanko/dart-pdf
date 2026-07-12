@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.1
+
+- Add retained raster scenes and sparse strip plans for fast deep-zoom replay
+  of dense vector, text, and image pages.
+- Re-sharpen all image types under deep zoom and stream dense content through
+  recording paths to reduce latency and memory pressure.
+- Add reusable raster geometry, strip binning, curve flattening, and stroke
+  contour primitives used by native-isolate and Web Worker rendering.
+
 ## 1.4.0
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.0. Rendering

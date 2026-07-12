@@ -101,6 +101,21 @@ Numbers and methodology are in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
 The harnesses diff dart-pdf against PDFium file by file.
 
+The drop-in shells use adaptive performance tuning by default. Auto selects a
+platform-, core-, and document-aware worker count, then adjusts safe preview
+and image-resolution knobs from observed render latency, result sizes, and
+frame jank. Use a controller to inspect it or choose a fixed configuration:
+
+```dart
+final performance = PdfPerformanceController(); // Auto
+
+PdfReader(bytes: pdfBytes, performance: performance);
+debugPrint('${performance.diagnostics}');
+
+// Applied when the document worker next starts; never resized mid-scroll.
+performance.mode = const PdfPerformanceMode.fixed(workerCount: 2);
+```
+
 ## Viewing
 
 - Zooming/panning viewer with fit-page and fit-width modes, deep-zoom
@@ -266,29 +281,23 @@ same, but text selection, search, copy, and extraction work. Pass
 
 ## Web rendering
 
-On the web the viewer renders on the main thread by default. There is nothing to
-configure. For heavy/CAD documents you can move page interpretation and
-image decode onto a **Web Worker** (the web counterpart of the native
-background isolate): build the worker bundle from your app root, then
-point the app at it.
+On the web, `PdfReader`/`PdfEditorView` use a bundled **Web Worker** package
+asset by default, so page interpretation and image decode can run off the
+browser main thread without app setup. If the worker cannot be loaded, rendering
+degrades to the main thread.
+
+Apps that want to self-host the worker under their own URL can build a custom
+bundle from the app root and override the URL before opening a viewer:
 
 ```sh
 dart run dart_pdf_editor:build_web_worker   # writes web/pdf_render_worker.dart.js
 ```
 
 ```dart
-void main() {
-  if (kIsWeb) {
-    pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
-  }
-  runApp(...);
-}
+pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
 ```
 
-`PdfReader`/`PdfEditorView` pick it up automatically, and if the script is
-missing it degrades to main-thread rendering. It is a pure opt-in upgrade.
-You can commit `web/pdf_render_worker.dart.js` and rebuild it only when you
-upgrade `dart_pdf_editor`, or generate it in CI before `flutter build web`.
+Set `pdfRenderWorkerScriptUrl = null` to force main-thread rendering.
 The worker does not require COOP/COEP headers, but a cross-origin isolated
 host lets pooled workers share the document bytes through `SharedArrayBuffer`
 instead of cloning them per worker. Full setup, dart2wasm-host notes, and the

@@ -41,7 +41,20 @@ echo "== 3/3  dart-pdf render (Flutter rasterization) =="
   PDF_BENCHMARK_OUT="$OUT/dart-render.json" \
     $FLUTTER test test/benchmark_render_test.dart )
 
+if [[ "${RUN_STRIPS:-0}" == "1" ]]; then
+  echo "== extra: dart-pdf strips render (experimental shader device) =="
+  ( cd "$ROOT/packages/dart_pdf_editor" && \
+    PDF_BENCHMARK_DIR="$CORPUS" PDF_BENCHMARK_SCALE="$SCALE" \
+    PDF_BENCHMARK_MAX_PAGES="$MAX_PAGES" \
+    PDF_BENCHMARK_OUT="$OUT/dart-strips.json" \
+      $FLUTTER test test/benchmark_strip_render_test.dart )
+fi
+
 echo
 echo "== Comparison (baseline = PDFium) =="
+EXTRA_JSON=()
+[[ -f "$OUT/dart-strips.json" && "${RUN_STRIPS:-0}" == "1" ]] && \
+  EXTRA_JSON+=("$OUT/dart-strips.json")
 python3 "$ROOT/benchmark/compare.py" \
-  "$OUT/pdfium.json" "$OUT/dart-render.json" "$OUT/dart-interpret.json"
+  "$OUT/pdfium.json" "$OUT/dart-render.json" "$OUT/dart-interpret.json" \
+  ${EXTRA_JSON[@]+"${EXTRA_JSON[@]}"}

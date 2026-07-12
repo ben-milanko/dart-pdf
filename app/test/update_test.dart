@@ -209,6 +209,7 @@ void main() {
   group('UpdateService.downloadUrl', () {
     final assets = {
       'dartpdf-macos.dmg': 'https://example.test/dmg',
+      'dartpdf-windows-installer.exe': 'https://example.test/win-installer',
       'dartpdf-windows-x64.zip': 'https://example.test/win',
       'dartpdf-linux-x86_64.AppImage': 'https://example.test/appimage',
       'app-release.apk': 'https://example.test/apk',
@@ -216,7 +217,10 @@ void main() {
 
     for (final scenario in [
       (platform: TargetPlatform.macOS, url: 'https://example.test/dmg'),
-      (platform: TargetPlatform.windows, url: 'https://example.test/win'),
+      (
+        platform: TargetPlatform.windows,
+        url: 'https://example.test/win-installer'
+      ),
       (platform: TargetPlatform.linux, url: 'https://example.test/appimage'),
       (platform: TargetPlatform.android, url: 'https://example.test/apk'),
     ]) {
@@ -230,6 +234,26 @@ void main() {
         expect(service.downloadUrl, scenario.url);
       });
     }
+
+    test('falls back to the portable Windows bundle when no installer exists',
+        () async {
+      final service = _service(
+        '1.2.2',
+        releases: [
+          _release(
+            'app-v1.3.0',
+            assets: const {
+              'dartpdf-windows-portable.exe':
+                  'https://example.test/win-portable',
+              'dartpdf-windows-x64.zip': 'https://example.test/win-zip',
+            },
+          ),
+        ],
+        platform: TargetPlatform.windows,
+      );
+      await service.checkForUpdates();
+      expect(service.downloadUrl, 'https://example.test/win-portable');
+    });
 
     test('falls back to the release page when no asset matches', () async {
       final service = _service(

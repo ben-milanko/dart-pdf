@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4.1
+
+- Add callout annotations and rich-text styling for in-place document text
+  edits, including the editor controls and annotation presentation support.
+- Make dense CAD and illustration pages substantially more responsive with
+  retained-scene replay, adaptive render policy, sparse strip rendering,
+  speculative visible-region detail, and exact raster reuse on revisits.
+- Run strip planning and dense recording off the UI thread on native and web;
+  reuse compact Web Worker transcripts and prioritize visible detail to reduce
+  cold-start, zoom, and pan latency.
+- Bundle the default web render worker as a package asset and repair production
+  web loading, while retaining the public override for custom worker hosting.
+- Keep page edges reachable after Android pinch gestures and keep Slug glyphs
+  and image content sharp while zooming and panning.
+- Consolidate annotation policy, editing interactions, shell lifecycle, page
+  rendering, sidebar framing, and edit transactions without removing exported
+  APIs.
+
 ## 1.4.0
 
 - Color processing: add a Bluebeam-style tool that can list document colors,
@@ -16,6 +34,9 @@
 - Page and annotation chrome: add hover-only controls on mouse platforms,
   arrow-key navigation for thumbnail/page views, page-grid click-to-select
   with double-click navigation, and layout fixes for thumbnail/search chrome.
+- Web rendering: ship the render worker as a package asset and use it by
+  default, so Flutter web apps no longer need to set
+  `pdfRenderWorkerScriptUrl` unless they want to self-host the worker.
 - App integrations: improve macOS open-with/file access handling, multi-file
   picking, recent-file menus, menu shortcut labels, and the built-in feedback
   link.

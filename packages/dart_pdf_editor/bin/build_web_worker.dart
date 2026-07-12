@@ -1,6 +1,9 @@
-// Builds the dedicated Web Worker that backs dart_pdf_editor's off-thread page
-// renderer, so consuming apps don't have to hand-write a worker entry or
-// remember the exact `dart compile js` invocation.
+// Builds a self-hosted Web Worker bundle for dart_pdf_editor's off-thread page
+// renderer, so apps that want a custom worker URL don't have to hand-write a
+// worker entry or remember the exact `dart compile js` invocation.
+//
+// Most Flutter web apps do not need this command: dart_pdf_editor ships a
+// prebuilt worker as a package asset and uses it by default.
 //
 // Run it from your app's root (where pubspec.yaml lives):
 //
@@ -8,7 +11,7 @@
 //
 // It generates a tiny worker entry under .dart_tool/ and compiles it to
 // `web/pdf_render_worker.dart.js`, which `flutter build web` then serves next
-// to index.html. The app opts in by setting (on web):
+// to index.html. Point the app at that custom bundle by setting (on web):
 //
 //   pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
 //
@@ -104,9 +107,10 @@ Future<int> main(List<String> args) async {
     entry.path,
   ];
 
-  stdout.writeln('==> dart ${cmd.join(' ')}');
+  final dart = Platform.resolvedExecutable;
+  stdout.writeln('==> $dart ${cmd.join(' ')}');
   final result = await Process.start(
-    'dart',
+    dart,
     cmd,
     mode: ProcessStartMode.inheritStdio,
   );
@@ -119,20 +123,24 @@ Future<int> main(List<String> args) async {
   stdout.writeln('''
 ==> Built $out
 
-Add this once to your app's main() (web only):
+dart_pdf_editor uses its bundled package-asset worker by default, so no app
+startup code is needed for the normal path.
+
+To use this custom app-hosted worker instead, set this once in your app's
+main() (web only):
 
     import 'package:dart_pdf_editor/dart_pdf_editor.dart';
     import 'package:flutter/foundation.dart';
 
     void main() {
       if (kIsWeb) {
-        pdfRenderWorkerScriptUrl = '${_basename(out)}';
+        pdfRenderWorkerScriptUrl = '${_webUrlForOut(out)}';
       }
       runApp(...);
     }
 
-Then `flutter build web` serves the worker. You can commit $out and only
-re-run this tool when you upgrade dart_pdf_editor.''');
+Then `flutter build web` serves the custom worker from $out. You can commit it
+and only re-run this tool when you upgrade dart_pdf_editor.''');
   return 0;
 }
 
@@ -140,7 +148,7 @@ re-run this tool when you upgrade dart_pdf_editor.''');
 /// the Dart toolchain resolves packages - so this works from a plain app root
 /// (config in the app) and from inside a pub workspace (config at the root).
 File? _findPackageConfig(Directory start) {
-  for (var dir = start; ; dir = dir.parent) {
+  for (var dir = start;; dir = dir.parent) {
     final candidate = File('${dir.path}/.dart_tool/package_config.json');
     if (candidate.existsSync()) return candidate;
     if (dir.path == dir.parent.path) return null; // reached the filesystem root
@@ -157,8 +165,15 @@ String _basename(String path) {
   return i < 0 ? path : path.substring(i + 1);
 }
 
+String _webUrlForOut(String path) {
+  final normalized = path.replaceAll('\\', '/');
+  return normalized.startsWith('web/')
+      ? normalized.substring('web/'.length)
+      : _basename(normalized);
+}
+
 const _usage = '''
-Builds the dart_pdf_editor Web Worker render backend.
+Builds a self-hosted dart_pdf_editor Web Worker render backend.
 
 Usage: dart run dart_pdf_editor:build_web_worker [options]
 
@@ -168,5 +183,6 @@ Options:
       --source-maps  Emit a .js.map alongside the worker.
   -h, --help         Show this help.
 
-Run from your app root. Commit the output and re-run only when you upgrade
-dart_pdf_editor; it does not need to run on every build.''';
+Run from your app root. Most apps can skip this command and use the bundled
+package-asset worker. Use it only when you want to self-host/override the worker
+URL; commit the output and re-run only when you upgrade dart_pdf_editor.''';

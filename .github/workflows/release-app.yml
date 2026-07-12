@@ -60,7 +60,10 @@ jobs:
           patch_gradle() {
             local gradle_file="$1"
             local namespace="${2:-}"
-            test -n "$gradle_file"
+            if [[ -z "$gradle_file" ]]; then
+              echo "No matching hosted Android Gradle file found; skipping patch."
+              return 0
+            fi
 
             python3 - "$gradle_file" "$namespace" <<'PY'
           import re
@@ -82,9 +85,14 @@ jobs:
           super_native_gradle="$(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle' -print -quit)"
           patch_gradle "$super_native_gradle" com.superlist.super_native_extensions
 
-          cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
-          test -f "$cargokit_gradle"
-          python3 - "$cargokit_gradle" <<'PY'
+          if [[ -n "$super_native_gradle" ]]; then
+            cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
+          else
+            cargokit_gradle=""
+          fi
+
+          if [[ -n "$cargokit_gradle" && -f "$cargokit_gradle" ]]; then
+            python3 - "$cargokit_gradle" <<'PY'
           import sys
           from pathlib import Path
 
@@ -103,6 +111,9 @@ jobs:
               raise SystemExit("CargoKit plugin patch target not found")
           path.write_text(text)
           PY
+          else
+            echo "No CargoKit Gradle plugin found; skipping patch."
+          fi
       - name: Build APK + AAB
         working-directory: app
         run: |
@@ -132,7 +143,10 @@ jobs:
       - run: flutter pub get
       - name: Build web
         working-directory: app
-        run: flutter build web --release
+        run: |
+          dart run dart_pdf_editor:build_web_worker \
+            --out ../packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+          flutter build web --release
       - name: Cache-bust web build
         working-directory: app
         run: bash ../tool/web_cache_bust.sh build/web
@@ -254,12 +268,99 @@ jobs:
           & $makensis portable.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
           if (-not (Test-Path dartpdf-windows-portable.exe)) { throw "portable exe not produced" }
+      - name: Build Windows installer (NSIS)
+        working-directory: app
+        shell: pwsh
+        run: |
+          $rel = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $version = "${{ needs.setup.outputs.version }}"
+          $versionDigits = $version -replace '[^0-9.].*$', ''
+          $versionParts = @($versionDigits.Split('.') | Where-Object { $_ -match '^\d+$' })
+          while ($versionParts.Count -lt 4) { $versionParts += '0' }
+          $fileVersion = ($versionParts[0..3] -join '.')
+          $nsi = @"
+          Unicode true
+          !include "MUI2.nsh"
+          !define MUI_ABORTWARNING
+
+          Name "DartPDF"
+          OutFile "dartpdf-windows-installer.exe"
+          InstallDir "`$LOCALAPPDATA\Programs\DartPDF"
+          InstallDirRegKey HKCU "Software\DartPDF" "InstallDir"
+          RequestExecutionLevel user
+
+          VIProductVersion "$fileVersion"
+          VIAddVersionKey "ProductName" "DartPDF"
+          VIAddVersionKey "CompanyName" "DartPDF"
+          VIAddVersionKey "FileDescription" "DartPDF installer"
+          VIAddVersionKey "ProductVersion" "$version"
+          VIAddVersionKey "FileVersion" "$version"
+
+          !insertmacro MUI_PAGE_WELCOME
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+          !insertmacro MUI_UNPAGE_CONFIRM
+          !insertmacro MUI_UNPAGE_INSTFILES
+          !insertmacro MUI_LANGUAGE "English"
+
+          Section "DartPDF" SecInstall
+            SetShellVarContext current
+            SetOutPath "`$INSTDIR"
+            File /r "$rel\*.*"
+
+            CreateDirectory "`$SMPROGRAMS\DartPDF"
+            CreateShortcut "`$SMPROGRAMS\DartPDF\DartPDF.lnk" "`$INSTDIR\dart_pdf_editor_app.exe"
+            CreateShortcut "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk" "`$INSTDIR\Uninstall.exe"
+
+            WriteUninstaller "`$INSTDIR\Uninstall.exe"
+
+            WriteRegStr HKCU "Software\DartPDF" "InstallDir" "`$INSTDIR"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayName" "DartPDF"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayVersion" "$version"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "Publisher" "DartPDF"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "InstallLocation" "`$INSTDIR"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayIcon" "`$INSTDIR\dart_pdf_editor_app.exe"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "UninstallString" '"`$INSTDIR\Uninstall.exe"'
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "QuietUninstallString" '"`$INSTDIR\Uninstall.exe" /S'
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "NoModify" 1
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "NoRepair" 1
+
+            WriteRegStr HKCU "Software\Classes\DartPDF.pdf" "" "PDF document"
+            WriteRegStr HKCU "Software\Classes\DartPDF.pdf\DefaultIcon" "" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
+            WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" "%1"'
+            WriteRegStr HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf" ""
+            System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+          SectionEnd
+
+          Section "Uninstall"
+            SetShellVarContext current
+            Delete "`$SMPROGRAMS\DartPDF\DartPDF.lnk"
+            Delete "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk"
+            RMDir "`$SMPROGRAMS\DartPDF"
+
+            DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF"
+            DeleteRegKey HKCU "Software\DartPDF"
+            DeleteRegKey HKCU "Software\Classes\DartPDF.pdf"
+            DeleteRegValue HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf"
+
+            RMDir /r "`$INSTDIR"
+            System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+          SectionEnd
+          "@
+          Set-Content -Path installer.nsi -Value $nsi -Encoding UTF8
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { choco install nsis -y --no-progress | Out-Null }
+          & $makensis installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
+          if (-not (Test-Path dartpdf-windows-installer.exe)) { throw "installer exe not produced" }
       - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
             app/dartpdf-windows-x64.zip
             app/dartpdf-windows-portable.exe
+            app/dartpdf-windows-installer.exe
 
   macos:
     needs: setup
@@ -329,7 +430,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@7c4723f7a335432393329f8f1c564994ce50185d
+      - uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b
         with:
           name: DartPDF ${{ needs.setup.outputs.version }}
           draft: true
@@ -338,5 +439,5 @@ jobs:
             Standalone DartPDF ${{ needs.setup.outputs.version }}.
 
             Artifacts are built by CI and are **unsigned** (macOS .dmg, iOS .app,
-            Windows .zip) or **debug-signed** (Android, unless a release keystore
+            Windows installer/.zip) or **debug-signed** (Android, unless a release keystore
             is configured). See `app/RELEASING.md` for signing and store upload.

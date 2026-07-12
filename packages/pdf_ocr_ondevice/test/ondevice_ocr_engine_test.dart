@@ -3,6 +3,8 @@
 // space - proven here with a fake runner (no ONNX), so the engine + geometry
 // are covered without a model. applyOcr then turns the spans into an
 // invisible, selectable text layer.
+import 'dart:io';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,6 +36,49 @@ class _FakeRunner implements OcrModelRunner {
 }
 
 void main() {
+  test('downloaded models use the isolate runner by default', () async {
+    final temp = Directory.systemTemp.createTempSync('pdf_ocr_worker_test');
+    addTearDown(() {
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
+    });
+    final model = PdfOcrModel(
+      id: 'worker-test',
+      displayName: 'Worker test',
+      detection: PdfOcrModelFile(
+        name: 'det.onnx',
+        url: Uri.parse('https://example.test/det.onnx'),
+      ),
+      recognition: PdfOcrModelFile(
+        name: 'rec.onnx',
+        url: Uri.parse('https://example.test/rec.onnx'),
+      ),
+      dictionary: PdfOcrModelFile(
+        name: 'dict.txt',
+        url: Uri.parse('https://example.test/dict.txt'),
+      ),
+    );
+    final manager = PdfOcrModelManager(cacheRoot: () async => temp);
+    addTearDown(manager.close);
+    final directory = await manager.directory(model);
+    directory.createSync(recursive: true);
+    for (final file in model.files) {
+      File('${directory.path}/${file.name}').writeAsBytesSync([1]);
+    }
+
+    final workerEngine =
+        await OnDeviceOcrEngine.fromDownloadedModel(manager, model);
+    expect(workerEngine.runner, isA<IsolateOcrModelRunner>());
+    await workerEngine.dispose();
+
+    final localEngine = await OnDeviceOcrEngine.fromDownloadedModel(
+      manager,
+      model,
+      useWorkerIsolate: false,
+    );
+    expect(localEngine.runner, isA<OnnxOcrModelRunner>());
+    await localEngine.dispose();
+  });
+
   testWidgets('maps a pixel line box to user space and loads once',
       (tester) async {
     await tester.runAsync(() async {
@@ -72,19 +117,24 @@ void main() {
     });
   });
 
-  testWidgets('drops lines below minConfidence and empty text',
-      (tester) async {
+  testWidgets('drops lines below minConfidence and empty text', (tester) async {
     await tester.runAsync(() async {
       final doc = PdfDocument.open(buildClassicPdf());
       final image = await PdfPageRenderer.renderImage(doc.page(0));
       final engine = OnDeviceOcrEngine(
         _FakeRunner(const [
           RecognizedTextLine(
-              text: 'keep', pixelBounds: Rect.fromLTWH(10, 10, 40, 12), confidence: 0.8),
+              text: 'keep',
+              pixelBounds: Rect.fromLTWH(10, 10, 40, 12),
+              confidence: 0.8),
           RecognizedTextLine(
-              text: 'drop', pixelBounds: Rect.fromLTWH(10, 30, 40, 12), confidence: 0.2),
+              text: 'drop',
+              pixelBounds: Rect.fromLTWH(10, 30, 40, 12),
+              confidence: 0.2),
           RecognizedTextLine(
-              text: '   ', pixelBounds: Rect.fromLTWH(10, 50, 40, 12), confidence: 0.9),
+              text: '   ',
+              pixelBounds: Rect.fromLTWH(10, 50, 40, 12),
+              confidence: 0.9),
         ]),
         minConfidence: 0.5,
       );

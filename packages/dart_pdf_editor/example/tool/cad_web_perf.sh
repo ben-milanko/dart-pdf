@@ -14,10 +14,9 @@ PORT=8753
 
 if [[ "${1:-}" != "--serve" ]]; then
   [[ -f "$PDF" ]] || { echo "missing $PDF" >&2; exit 1; }
+  fvm dart run dart_pdf_editor:build_web_worker \
+    --out ../assets/web/pdf_render_worker.dart.js
   fvm flutter build web --release --dart-define=PDF=cad.pdf
-  # worker bundle is git-ignored; rebuild if stale, then copy into the build
-  [[ -f web/pdf_render_worker.dart.js ]] || fvm dart run dart_pdf_editor:build_web_worker
-  cp web/pdf_render_worker.dart.js build/web/
   cp "$PDF" build/web/cad.pdf
 fi
 echo "serving http://127.0.0.1:$PORT/?perf=1  (Ctrl-C to stop)"

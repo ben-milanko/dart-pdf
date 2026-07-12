@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.1
+
+- Add callout annotation authoring and editing, and correct cloudy polygon
+  geometry and appearance generation.
+- Add rich-text styling for in-place content text edits while preserving the
+  surrounding PDF content structure.
+- Centralize annotation capability policy and mutation impact tracking so
+  editing operations invalidate only the document surfaces they change.
+- Improve annotation, form, outline, page, redaction, reflow, and content
+  editing robustness through the shared transaction path.
+
 ## 1.4.0
 
 - Add document color-processing APIs that discover paint colors, replace

@@ -35,6 +35,8 @@
 		<dict>
 			<key>CFBundleTypeName</key>
 			<string>PDF document</string>
+			<key>CFBundleTypeIconFile</key>
+			<string>DocumentIcon</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>

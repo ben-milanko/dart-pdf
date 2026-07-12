@@ -8,6 +8,12 @@ void main() {
   Future<void> openDemo(WidgetTester tester) async {
     // the mock store is process-global: start every test from defaults
     SharedPreferences.setMockInitialValues({});
+    // These exercise the desktop dock. At the default 800px test width the
+    // open thumbnail panel intentionally collapses it to the mobile tool sheet.
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const ViewerApp());
     await tester.pump();
   }
@@ -29,15 +35,31 @@ void main() {
     return page.topLeft + Offset(page.width * fx, page.height * fy);
   }
 
-  /// Taps a toolbar button, scrolling the toolbar's own row to it first -
-  /// the full button set overflows an 800px test window, and with the
-  /// viewer in the tree there are two Scrollables to choose from.
+  /// Opens the grouped desktop dock when necessary, then taps its tool.
   Future<void> tapToolbar(WidgetTester tester, String tooltip) async {
-    final button = find.byTooltip(tooltip);
-    await tester.scrollUntilVisible(button, 100,
-        scrollable: find.descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable)));
+    Finder buttonFor(String label) => find.byWidgetPredicate(
+          (widget) =>
+              widget is Tooltip &&
+              (widget.message == label ||
+                  (widget.message?.startsWith('$label (') ?? false)),
+        );
+
+    final group = switch (tooltip) {
+      'Select' => 'select',
+      'Draw' => 'draw',
+      'Rectangle' => 'shapes',
+      'Note' => 'insert',
+      _ => null,
+    };
+    if (group != null) {
+      await tester.tap(find.byKey(ValueKey('pdf-group-$group')));
+      await tester.pump();
+      // A group chip arms its default tool itself. Tapping the same tool in
+      // the strip would immediately toggle it back to Select.
+      if (const {'Select', 'Draw', 'Rectangle'}.contains(tooltip)) return;
+    }
+    final button = buttonFor(tooltip);
+    await tester.ensureVisible(button);
     await tester.tap(button);
     await tester.pump();
   }

@@ -47,7 +47,8 @@ extension PdfOutlineEditing on PdfEditor {
     _outlineOpenOverride[itemRef.objectNumber] = open;
 
     final siblings = _outlineChildren(parentRef);
-    final at = index == null ? siblings.length : index.clamp(0, siblings.length);
+    final at =
+        index == null ? siblings.length : index.clamp(0, siblings.length);
     siblings.insert(at, itemRef);
     _relinkOutlineChildren(parentRef, siblings);
     _recountOutline(rootRef);
@@ -60,8 +61,7 @@ extension PdfOutlineEditing on PdfEditor {
   void removeOutlineItem(CosReference item) {
     final dict = _outlineDict(item);
     final parentRef = _outlineParentRef(dict) ?? _ensureOutlineRoot();
-    final siblings = _outlineChildren(parentRef)
-      ..removeWhere((r) => r == item);
+    final siblings = _outlineChildren(parentRef)..removeWhere((r) => r == item);
     _relinkOutlineChildren(parentRef, siblings);
     _recountOutline(_ensureOutlineRoot());
   }
@@ -69,8 +69,7 @@ extension PdfOutlineEditing on PdfEditor {
   /// Moves [item] (and its subtree) under [parent] (null = top level) at
   /// [index] among the destination's children (null appends). Throws if
   /// [parent] is [item] itself or one of its descendants.
-  void moveOutlineItem(CosReference item,
-      {CosReference? parent, int? index}) {
+  void moveOutlineItem(CosReference item, {CosReference? parent, int? index}) {
     final rootRef = _ensureOutlineRoot();
     final dict = _outlineDict(item);
     final newParentRef = parent ?? rootRef;
@@ -82,14 +81,16 @@ extension PdfOutlineEditing on PdfEditor {
     if (oldParentRef == newParentRef) {
       final siblings = _outlineChildren(oldParentRef)
         ..removeWhere((r) => r == item);
-      final at = index == null ? siblings.length : index.clamp(0, siblings.length);
+      final at =
+          index == null ? siblings.length : index.clamp(0, siblings.length);
       siblings.insert(at, item);
       _relinkOutlineChildren(newParentRef, siblings);
     } else {
       final old = _outlineChildren(oldParentRef)..removeWhere((r) => r == item);
       _relinkOutlineChildren(oldParentRef, old);
       final siblings = _outlineChildren(newParentRef);
-      final at = index == null ? siblings.length : index.clamp(0, siblings.length);
+      final at =
+          index == null ? siblings.length : index.clamp(0, siblings.length);
       siblings.insert(at, item);
       _relinkOutlineChildren(newParentRef, siblings);
     }
@@ -105,7 +106,9 @@ extension PdfOutlineEditing on PdfEditor {
 
   /// Points [item] at [destination].
   void setOutlineDestination(
-      CosReference item, PdfExplicitDestination destination) {
+    CosReference item,
+    PdfExplicitDestination destination,
+  ) {
     final dict = _outlineDict(item);
     dict['Dest'] = _outlineDestArray(destination);
     dict.entries.remove('A'); // an explicit /Dest supersedes a /GoTo action
@@ -214,7 +217,9 @@ extension PdfOutlineEditing on PdfEditor {
   /// Rewrites a parent's First/Last and every child's Prev/Next/Parent from
   /// the ordered [children] list, staging all of them.
   void _relinkOutlineChildren(
-      CosReference parentRef, List<CosReference> children) {
+    CosReference parentRef,
+    List<CosReference> children,
+  ) {
     final parent = _outlineDict(parentRef);
     if (children.isEmpty) {
       parent.entries.remove('First');
@@ -280,8 +285,10 @@ extension PdfOutlineEditing on PdfEditor {
     return true;
   }
 
-  void _stageOutline(CosReference ref, CosDictionary dict) =>
-      _updater.replaceObject(ref.objectNumber, dict);
+  void _stageOutline(CosReference ref, CosDictionary dict) {
+    _updater.replaceObject(ref.objectNumber, dict);
+    _markMetadata();
+  }
 
   CosArray _outlineDestArray(PdfExplicitDestination dest) =>
       dest.toCosArray(_pageReference(dest.pageIndex));

@@ -55,7 +55,8 @@ Future<void> main() async {
   outRoot = Platform.environment['SHOT_OUT'] ?? 'screenshots';
   macProcess = _env('SHOT_MAC_PROCESS');
   macAppHint = _env('SHOT_MAC_APP_HINT');
-  final entry = Platform.environment['SHOT_ENTRY'] ?? 'lib/screenshots_main.dart';
+  final entry =
+      Platform.environment['SHOT_ENTRY'] ?? 'lib/screenshots_main.dart';
   if (platform.isEmpty || flutterDevice.isEmpty) {
     stderr.writeln('SHOT_PLATFORM and FLUTTER_DEVICE are required.');
     exit(2);
@@ -65,6 +66,7 @@ Future<void> main() async {
 
   // Build the window-capture helper up front so the first scene can use it.
   if (platform == 'macos') macWinHelper = await _buildMacWinHelper();
+  if (platform == 'android') await _prepareAndroidDevice();
 
   final launcher = (Platform.environment['FLUTTER'] ??
           (await _has('fvm') ? 'fvm flutter' : 'flutter'))
@@ -72,8 +74,10 @@ Future<void> main() async {
   final args = [
     ...launcher.skip(1),
     'run',
-    '-d', flutterDevice,
-    '-t', entry,
+    '-d',
+    flutterDevice,
+    '-t',
+    entry,
     '--no-dds',
   ];
 
@@ -113,8 +117,14 @@ Future<void> main() async {
     }
   }
 
-  proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(handle);
-  proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(stderr.writeln);
+  proc.stdout
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .listen(handle);
+  proc.stderr
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .listen(stderr.writeln);
 
   // Bail if the run wedges (build failure, device never settles).
   final timeout = Future<void>.delayed(const Duration(minutes: 8), () {
@@ -147,6 +157,7 @@ Future<void> _capture(String name) async {
   final path = '$outRoot/$platform/$name.png';
   // Let the compositor present the held frame before reading the screen.
   await Future<void>.delayed(const Duration(milliseconds: 700));
+  if (platform == 'android') await _prepareAndroidDevice();
 
   ProcessResult result;
   switch (platform) {
@@ -172,6 +183,32 @@ Future<void> _capture(String name) async {
         '${result.stderr}');
   } else {
     stdout.writeln('[capture] shot: $path');
+  }
+}
+
+Future<void> _prepareAndroidDevice() async {
+  // Fresh emulator boots can surface Google/system heads-up notifications
+  // during the first settled scene. Clear them before every capture so the raw
+  // screenshot is only the app UI.
+  await _androidShell([
+    'settings',
+    'put',
+    'global',
+    'heads_up_notifications_enabled',
+    '0',
+  ]);
+  await _androidShell(['cmd', 'notification', 'cancel-all'], logFailure: false);
+  await _androidShell(
+      ['am', 'broadcast', '-a', 'android.intent.action.CLOSE_SYSTEM_DIALOGS']);
+  await _androidShell(['cmd', 'statusbar', 'collapse']);
+  await Future<void>.delayed(const Duration(milliseconds: 250));
+}
+
+Future<void> _androidShell(List<String> args, {bool logFailure = true}) async {
+  final r = await Process.run('adb', ['-s', shotDevice, 'shell', ...args]);
+  if (r.exitCode != 0 && logFailure) {
+    stderr.writeln('[capture] android prep "${args.join(' ')}" failed: '
+        '${r.stderr.toString().trim()}');
   }
 }
 
@@ -259,9 +296,11 @@ end tell''';
       final region = '${nums[0]},${nums[1]},${nums[2]},${nums[3]}';
       return Process.run('screencapture', ['-x', '-R', region, path]);
     }
-    stderr.writeln('[capture] no window for ${macProcess.isEmpty ? 'frontmost app' : '"$macProcess"'}; full display.');
+    stderr.writeln(
+        '[capture] no window for ${macProcess.isEmpty ? 'frontmost app' : '"$macProcess"'}; full display.');
   } else {
-    stderr.writeln('[capture] osascript failed (${bounds.stderr}); full display.');
+    stderr.writeln(
+        '[capture] osascript failed (${bounds.stderr}); full display.');
   }
   return Process.run('screencapture', ['-x', path]);
 }
@@ -306,7 +345,8 @@ tell application "System Events"
 end tell''';
   final r = await Process.run('osascript', ['-e', script]);
   if (r.exitCode != 0) {
-    stderr.writeln('[capture] could not resize window (${r.stderr.toString().trim()}); '
+    stderr.writeln(
+        '[capture] could not resize window (${r.stderr.toString().trim()}); '
         'capturing it at its default size.');
   }
   // Let the resize/move animation and the relayout settle before the grab.

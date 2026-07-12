@@ -147,6 +147,14 @@ class CosLexer {
       return CosToken(CosTokenType.integer, start, iv);
     }
 
+    // PDF reals have no exponent (§7.3.3): sign, digits, one dot. With ≤15
+    // significant digits, digits/10^frac is one exact integer divided by one
+    // exact power of ten - a single correctly-rounded division, bit-for-bit
+    // identical to double.parse - without the string allocation. Content
+    // streams are real-dense (every coordinate), so this is hot.
+    final fast = _parseRealRange(start, p);
+    if (fast != null) return CosToken(CosTokenType.real, start, fast);
+
     final raw = String.fromCharCodes(bytes, start, p);
     var s = raw;
     if (s.startsWith('.')) s = '0$s';
@@ -155,6 +163,47 @@ class CosLexer {
     final v = double.tryParse(s);
     if (v == null) throw CosParseException('malformed number "$raw"', start);
     return CosToken(CosTokenType.real, start, v);
+  }
+
+  static const List<double> _pow10 = [
+    1.0, 10.0, 100.0, 1e3, 1e4, 1e5, 1e6, 1e7, //
+    1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+  ];
+
+  /// Parses the real in `bytes[start..end)` when it is a plain
+  /// `sign? digits* ('.' digits*)?` with ≤15 total digits; null otherwise
+  /// (multiple dots, embedded signs, digit-heavy) so the caller can fall
+  /// back to the string path with identical semantics.
+  double? _parseRealRange(int start, int end) {
+    var i = start;
+    var negative = false;
+    final first = bytes[i];
+    if (first == 0x2B || first == 0x2D) {
+      negative = first == 0x2D;
+      i++;
+    }
+    var digits = 0;
+    var nDigits = 0;
+    var fracCount = 0;
+    var sawDot = false;
+    var sawDigit = false;
+    for (; i < end; i++) {
+      final b = bytes[i];
+      if (b == 0x2E) {
+        if (sawDot) return null;
+        sawDot = true;
+      } else {
+        final d = b - 0x30;
+        if (d < 0 || d > 9) return null;
+        digits = digits * 10 + d;
+        nDigits++;
+        if (sawDot) fracCount++;
+        sawDigit = true;
+      }
+    }
+    if (!sawDigit || nDigits > 15) return null;
+    final v = digits / _pow10[fracCount];
+    return negative ? -v : v;
   }
 
   /// Parses the integer in `bytes[start..end)` exactly as
@@ -317,7 +366,25 @@ class CosLexer {
           'unexpected byte 0x${bytes[position].toRadixString(16)}', start);
     }
     position = p;
-    return CosToken(
-        CosTokenType.keyword, start, String.fromCharCodes(bytes, start, p));
+    return CosToken(CosTokenType.keyword, start, _internKeyword(start, p));
+  }
+
+  /// Interned strings for keywords up to 3 bytes, packed little-endian into
+  /// one int. Content streams repeat a tiny operator vocabulary millions of
+  /// times; handing back one shared string per spelling replaces a
+  /// String.fromCharCodes allocation per operator token.
+  static final Map<int, String> _keywordIntern = {};
+
+  String _internKeyword(int start, int end) {
+    final len = end - start;
+    if (len > 3) return String.fromCharCodes(bytes, start, end);
+    var packed = bytes[start];
+    if (len > 1) packed |= bytes[start + 1] << 8;
+    if (len > 2) packed |= bytes[start + 2] << 16;
+    final hit = _keywordIntern[packed];
+    if (hit != null) return hit;
+    final s = String.fromCharCodes(bytes, start, end);
+    if (_keywordIntern.length < 4096) _keywordIntern[packed] = s;
+    return s;
   }
 }

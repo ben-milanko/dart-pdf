@@ -9,8 +9,12 @@ part of 'editor.dart';
 extension PdfFormAdmin on PdfEditor {
   /// Adds a single-widget text field named [name] on [pageIndex].
   /// The document gains an /AcroForm dictionary if it has none.
-  PdfFormField addTextField(int pageIndex, String name, PdfRect rect,
-      {bool multiline = false}) {
+  PdfFormField addTextField(
+    int pageIndex,
+    String name,
+    PdfRect rect, {
+    bool multiline = false,
+  }) {
     final dict = _newFieldDict('Tx', name, rect);
     if (multiline) dict['Ff'] = const CosInteger(PdfFormField.multilineFlag);
     return _installField(pageIndex, name, dict);
@@ -38,8 +42,10 @@ extension PdfFormAdmin on PdfEditor {
     // a blank normal appearance so viewers (and flattening) treat the
     // empty button as drawable rather than missing
     final rectangle = field.widgetRect(0)!;
-    _setNormalAppearance(field.dict,
-        _widgetForm(rectangle.width, rectangle.height, ContentWriter()));
+    _setNormalAppearance(
+      field.dict,
+      _widgetForm(rectangle.width, rectangle.height, ContentWriter()),
+    );
     _stageFormDict(field, field.dict);
     return field;
   }
@@ -65,11 +71,15 @@ extension PdfFormAdmin on PdfEditor {
     for (final other in field.form.fields) {
       if (!identical(other.dict, field.dict) && other.name == full) {
         throw ArgumentError.value(
-            newName, 'newName', 'another field is already named "$full"');
+          newName,
+          'newName',
+          'another field is already named "$full"',
+        );
       }
     }
     field.dict['T'] = CosString.fromText(newName);
     _stageFormDict(field, field.dict);
+    _markMetadata();
   }
 
   /// Removes [field] from the form and detaches its widgets from their
@@ -78,12 +88,23 @@ extension PdfFormAdmin on PdfEditor {
   void removeField(PdfFormField field) {
     final cos = document.cos;
     final widgets = field.widgets;
+    final pages = <int>{};
+    var unknownPage = false;
+    for (var i = 0; i < widgets.length; i++) {
+      final page = field.widgetPageIndex(i);
+      if (page < 0) {
+        unknownPage = true;
+      } else {
+        pages.add(page);
+      }
+    }
 
     // detach widgets from every page that lists them.
     for (var i = 0; i < document.pageCount; i++) {
       _PdfPageAnnotationList(this, i).removeWhere(
-          (_, resolved) => _isFieldWidget(resolved, field, widgets),
-          removeIfEmpty: true);
+        (_, resolved) => _isFieldWidget(resolved, field, widgets),
+        removeIfEmpty: true,
+      );
     }
 
     // pull the field node out of its parent /Kids or the form /Fields
@@ -109,10 +130,14 @@ extension PdfFormAdmin on PdfEditor {
         }
       }
     }
+    _markVisual(unknownPage ? null : pages);
   }
 
   static bool _isFieldWidget(
-      CosObject? annot, PdfFormField field, List<CosDictionary> widgets) {
+    CosObject? annot,
+    PdfFormField field,
+    List<CosDictionary> widgets,
+  ) {
     if (identical(annot, field.dict)) return true;
     for (final widget in widgets) {
       if (identical(widget, annot)) return true;
@@ -135,15 +160,20 @@ extension PdfFormAdmin on PdfEditor {
       PdfFieldType.pushButton,
     };
     if (!supported.contains(newType)) {
-      throw ArgumentError.value(newType, 'newType',
-          'only ${supported.map((t) => t.name).join('/')} are supported');
+      throw ArgumentError.value(
+        newType,
+        'newType',
+        'only ${supported.map((t) => t.name).join('/')} are supported',
+      );
     }
     if (field.type == newType) return field;
     final pageIndex = field.widgetPageIndex(0);
     final rect = field.widgetRect(0);
     if (pageIndex < 0 || rect == null) {
-      throw StateError('field "${field.name}" has no widget bound to a page - '
-          'cannot rebuild');
+      throw StateError(
+        'field "${field.name}" has no widget bound to a page - '
+        'cannot rebuild',
+      );
     }
     final name = field.name;
     removeField(field);
@@ -164,7 +194,11 @@ extension PdfFormAdmin on PdfEditor {
     if (form == null) return;
     for (var i = 0; i < document.pageCount; i++) {
       try {
-        _flattenAnnotations(i, (annot) => annot.subtype == 'Widget');
+        _flattenAnnotations(
+          i,
+          (annot) => annot.subtype == 'Widget',
+          syncAnnotations: false,
+        );
       } catch (_) {
         // a malformed page must not stop the rest of the form
       }
@@ -201,7 +235,10 @@ extension PdfFormAdmin on PdfEditor {
     final existing = acroForm?.fieldNamed(name);
     if (existing != null) {
       throw ArgumentError.value(
-          name, 'name', 'another field is already named "$name"');
+        name,
+        'name',
+        'another field is already named "$name"',
+      );
     }
     final page = document.page(pageIndex);
 
@@ -212,12 +249,14 @@ extension PdfFormAdmin on PdfEditor {
         'DA': CosString.fromText('/Helv 0 Tf 0 g'),
         'DR': CosDictionary({
           'Font': CosDictionary({
-            'Helv': _updater.addObject(CosDictionary({
-              'Type': const CosName('Font'),
-              'Subtype': const CosName('Type1'),
-              'BaseFont': const CosName('Helvetica'),
-              'Encoding': const CosName('WinAnsiEncoding'),
-            })),
+            'Helv': _updater.addObject(
+              CosDictionary({
+                'Type': const CosName('Font'),
+                'Subtype': const CosName('Type1'),
+                'BaseFont': const CosName('Helvetica'),
+                'Encoding': const CosName('WinAnsiEncoding'),
+              }),
+            ),
           }),
         }),
       });
@@ -228,8 +267,10 @@ extension PdfFormAdmin on PdfEditor {
     final ref = _updater.addObject(dict);
     // reassign rather than mutate, in case the arrays were indirect
     final fields = cos.resolve(formDict['Fields']);
-    formDict['Fields'] =
-        CosArray([if (fields is CosArray) ...fields.items, ref]);
+    formDict['Fields'] = CosArray([
+      if (fields is CosArray) ...fields.items,
+      ref,
+    ]);
 
     final pageRef = cos.referenceTo(page.dict);
     if (pageRef != null) dict['P'] = pageRef;
@@ -246,6 +287,7 @@ extension PdfFormAdmin on PdfEditor {
     if (field == null) {
       throw StateError('field "$name" failed to register');
     }
+    _markVisual([pageIndex]);
     return field;
   }
 }

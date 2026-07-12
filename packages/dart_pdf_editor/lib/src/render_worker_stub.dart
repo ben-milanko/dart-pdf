@@ -10,7 +10,7 @@ import 'render_worker.dart';
 /// locally exactly as it did before the worker existed.
 PdfRenderWorker startRenderWorker(Uint8List bytes) => const _NullRenderWorker();
 
-class _NullRenderWorker implements PdfRenderWorker {
+class _NullRenderWorker extends PdfRenderWorker {
   const _NullRenderWorker();
 
   @override

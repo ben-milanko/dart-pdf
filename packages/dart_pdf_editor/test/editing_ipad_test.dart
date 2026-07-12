@@ -68,7 +68,7 @@ void main() {
     });
 
     testWidgets('pinching back together zooms out again', (tester) async {
-      final (_, viewer) = await pumpViewer(tester, pages: 3);
+      final (_, viewer) = await pumpViewer(tester);
       final g1 = await tester.startGesture(const Offset(300, 200));
       final g2 = await tester.startGesture(const Offset(500, 400));
       await tester.pump();
@@ -95,6 +95,54 @@ void main() {
       await g4.up();
       await tester.pump(const Duration(milliseconds: 400));
       expect(viewer.zoom, lessThan(zoomedIn - 0.2));
+    });
+
+    testWidgets('fresh touch pans reach all page edges after a pinch',
+        (tester) async {
+      final (_, viewer) = await pumpViewer(tester, pages: 3);
+      final g1 = await tester.startGesture(const Offset(300, 200));
+      final g2 = await tester.startGesture(const Offset(500, 400));
+      await tester.pump();
+      for (var i = 0; i < 6; i++) {
+        await g1.moveBy(const Offset(-12, -12));
+        await g2.moveBy(const Offset(12, 12));
+        await tester.pump();
+      }
+      await g1.up();
+      await g2.up();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(viewer.zoom, greaterThan(scale));
+
+      Future<void> pan(Offset delta) async {
+        // Several ordinary swipes: each stays inside the screen, matching how
+        // a user traverses a zoomed page larger than one finger's reach.
+        for (var i = 0; i < 10; i++) {
+          final gesture = await tester.startGesture(const Offset(400, 300));
+          await gesture.moveBy(delta / 2);
+          await tester.pump(const Duration(milliseconds: 16));
+          await gesture.moveBy(delta / 2);
+          await tester.pump(const Duration(milliseconds: 16));
+          await gesture.up();
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        await tester.pumpAndSettle(const Duration(milliseconds: 500));
+      }
+
+      await pan(const Offset(250, 0));
+      expect(viewer.visiblePageRegion(0)!.left,
+          moreOrLessEquals(0, epsilon: 0.02));
+
+      await pan(const Offset(-250, 0));
+      expect(viewer.visiblePageRegion(0)!.right,
+          moreOrLessEquals(1, epsilon: 0.02));
+
+      await pan(const Offset(0, 250));
+      expect(
+          viewer.visiblePageRegion(0)!.top, moreOrLessEquals(0, epsilon: 0.02));
+
+      await pan(const Offset(0, -250));
+      expect(viewer.visiblePageRegion(0)!.bottom,
+          moreOrLessEquals(1, epsilon: 0.02));
     });
   });
 

@@ -239,8 +239,7 @@ class UpdateService extends ChangeNotifier {
 
   /// True when the user should be nudged about [latest]: an update is available
   /// and they haven't already dismissed this exact release.
-  bool get shouldNotify =>
-      updateAvailable && _latest!.tagName != _dismissedTag;
+  bool get shouldNotify => updateAvailable && _latest!.tagName != _dismissedTag;
 
   /// The GitHub endpoint used by the default fetcher.
   Uri get releasesUri => Uri.https(
@@ -314,6 +313,7 @@ class UpdateService extends ChangeNotifier {
     final patterns = switch (_targetPlatform) {
       TargetPlatform.macOS => ['dartpdf-macos.dmg'],
       TargetPlatform.windows => [
+          'dartpdf-windows-installer.exe',
           'dartpdf-windows-portable.exe',
           'dartpdf-windows-x64.zip',
         ],

@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.4.1
+
+- Windows: Snapshots now copy to the system clipboard instead of failing with
+  "Could not copy snapshot to clipboard". The desktop clipboard channel had no
+  Windows handler, so the image never reached the OS clipboard.
+- Mobile: Recent files and the last session now reopen without a fresh pick.
+  Opened PDFs are snapshotted into the app's private store, so tapping a Recent
+  entry (or relaunching) reopens the document directly instead of showing "Pick
+  again to reopen".
+- Add callout annotations and rich-text styling for in-place document text
+  edits.
+- Capture a local diagnostic log and attach it to feedback, making rendering
+  and workflow issues easier to investigate without collecting user data.
+- Greatly improve large CAD and illustration documents with adaptive retained
+  rendering, visible-region prioritization, exact raster reuse, and off-thread
+  strip planning on native and web.
+- Keep page edges reachable after pinch gestures on Android and improve glyph
+  and image sharpness while zooming and panning.
+- Improve macOS document opening, branded PDF file icons, store/web marketing
+  assets, and production web startup reliability.
+
 ## 1.4.0
 
 - Add color processing for replacing document colors across selected pages or

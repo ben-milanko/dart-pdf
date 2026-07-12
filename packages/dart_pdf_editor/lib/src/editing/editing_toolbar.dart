@@ -4,7 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
-    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfAlignment, PdfLineEnding, PdfStandardFont, PdfTextAlign, PdfTextFont;
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -21,6 +21,7 @@ import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
 import 'text_prompt.dart';
+import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
 
 /// Builds a custom widget inside [PdfEditingToolbar].
@@ -86,6 +87,7 @@ class PdfEditingToolbar extends StatefulWidget {
     required this.viewerController,
     this.onSave,
     this.textPrompt = showPdfTextPrompt,
+    this.styledTextPrompt = showPdfStyledTextPrompt,
     this.imagePicker,
     this.onExportSelectedContentImage,
     this.fontPicker,
@@ -117,6 +119,10 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How the edit-text button asks for replacement text.
   final PdfTextPrompt textPrompt;
+
+  /// How the "Edit text & style" button asks for replacement text plus
+  /// rich-text overrides (colour, size, bold, italic).
+  final PdfStyledTextPrompt styledTextPrompt;
 
   /// How selected page-content images are replaced from the element strip.
   final PdfImagePicker? imagePicker;
@@ -335,6 +341,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         Icons.text_fields,
         [
           _GroupTool.tool(PdfEditTool.freeText, Icons.text_fields, 'Text box'),
+          _GroupTool.tool(PdfEditTool.callout, Icons.chat_bubble_outline,
+              'Callout - drag from the point to where the box goes'),
           _GroupTool.tool(
               PdfEditTool.note, Icons.sticky_note_2_outlined, 'Note'),
           _GroupTool.tool(PdfEditTool.stamp, Icons.approval, 'Stamp'),
@@ -579,6 +587,41 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     // document's own (possibly subsetted) font lacks
     final fallbacks = await loadFallbackFonts();
     controller.replaceSelectedElementText(text, fallbackFonts: fallbacks);
+  }
+
+  Future<void> _editElementTextStyle(BuildContext context) async {
+    final element = controller.selectedElement;
+    if (element == null) return;
+    final result = await widget.styledTextPrompt(
+      context,
+      initial: element.text ?? '',
+      palette: widget.palette,
+      pickFont: _pickStyledFont,
+    );
+    if (result == null) return;
+    if (result.text.isEmpty ||
+        (result.text == element.text && result.style.isEmpty)) {
+      return;
+    }
+    // bundled fallbacks let composite (/Type0) edits draw characters the
+    // document's own (possibly subsetted) font lacks
+    final fallbacks = await loadFallbackFonts();
+    controller.replaceStyledSelectedElementText(result.text, result.style,
+        fallbackFonts: fallbacks);
+  }
+
+  /// Opens the editor's normal font menu (the same one the tune popup and
+  /// properties panel use) for the styled-text dialog, returning the chosen
+  /// font without touching the controller's own default.
+  Future<PdfTextFont?> _pickStyledFont(BuildContext context) async {
+    PdfTextFont? chosen;
+    await showPdfFontMenu(
+      context: context,
+      controller: controller,
+      fontPicker: widget.fontPicker,
+      onSelected: (font) => chosen = font,
+    );
+    return chosen;
   }
 
   Future<void> _reflowElementText(BuildContext context) async {
@@ -1336,6 +1379,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onPressed: () => _editElementText(context),
         ),
         IconButton(
+          key: const ValueKey('pdf-style-element-text'),
+          icon: const Icon(Icons.format_color_text),
+          tooltip: 'Edit text & style',
+          onPressed: () => _editElementTextStyle(context),
+        ),
+        IconButton(
           key: const ValueKey('pdf-reflow-element-text'),
           icon: const Icon(Icons.wrap_text),
           tooltip: 'Reflow paragraph',
@@ -1655,6 +1704,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   _StyleFields _selectionStyleFields() {
     final annotation = controller.selectedAnnotation;
     if (annotation == null) return const _StyleFields();
+    final behavior = annotation.behavior;
     final canStroke = controller.canRestyleSelected;
     switch (annotation.subtype) {
       case 'Widget':
@@ -1662,13 +1712,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         return _StyleFields(formField: controller.canStyleSelectedFormField);
       case 'FreeText':
         final text = controller.canRestyleSelectedText;
-        return _StyleFields(opacity: true, font: text, boxColors: text);
+        return _StyleFields(
+            opacity: behavior.supportsOpacity,
+            font: text,
+            boxColors: text);
       case 'Square':
       case 'Circle':
       case 'Polygon':
         return _StyleFields(
-            stroke: canStroke,
-            opacity: true,
+            stroke: canStroke && behavior.supportsStrokeWidth,
+            opacity: behavior.supportsOpacity,
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
@@ -1676,17 +1729,19 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'Line':
       case 'PolyLine':
         return _StyleFields(
-            stroke: canStroke,
-            opacity: true,
+            stroke: canStroke && behavior.supportsStrokeWidth,
+            opacity: behavior.supportsOpacity,
             // a measurement (/Line distance, /PolyLine perimeter) carries one
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
             lineEndings: controller.canSetLineEndings);
       case 'Ink':
-        return _StyleFields(stroke: canStroke, opacity: true);
+        return _StyleFields(
+            stroke: canStroke && behavior.supportsStrokeWidth,
+            opacity: behavior.supportsOpacity);
       default:
-        // markup, stamps, notes: opacity is the only shared restyle
-        return const _StyleFields(opacity: true);
+        // Markup and stamps expose opacity; notes and foreign subtypes do not.
+        return _StyleFields(opacity: behavior.supportsOpacity);
     }
   }
 
@@ -1791,12 +1846,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           onPressed: controller.deleteSelectedElement,
         ),
         if (controller.canEditSelectedElementText) ...[
+          // the mobile dock is width-constrained, so its single edit button
+          // opens the styled editor (a superset of plain replace - it edits
+          // the text and, optionally, its colour/size/weight).
           IconButton(
             key: const ValueKey('pdf-replace-element-text'),
-            icon: const Icon(Icons.edit),
-            tooltip: 'Replace text',
+            icon: const Icon(Icons.format_color_text),
+            tooltip: 'Edit text & style',
             visualDensity: VisualDensity.compact,
-            onPressed: () => _editElementText(context),
+            onPressed: () => _editElementTextStyle(context),
           ),
           IconButton(
             key: const ValueKey('pdf-reflow-element-text'),
@@ -2925,75 +2983,21 @@ class _StyleMenuState extends State<_StyleMenu> {
 
   /// One text-box color row: a "none" swatch, the palette, and a custom
   /// picker. [onChanged] receives the chosen color, or null for none.
+  /// Shares [PdfColorSwatchRow] with the content text-style dialog.
   Widget _boxColorRow({
     required BuildContext context,
     required String label,
     required String keyPrefix,
     required Color? value,
     required ValueChanged<Color?> onChanged,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    Widget swatch(
-            {required Key key,
-            required Color? color,
-            required bool selected,
-            required VoidCallback onTap}) =>
-        Padding(
-          // 1px keeps six swatches + the picker inside the menu's 268px
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-          child: InkWell(
-            key: key,
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                color: color ?? const Color(0xFFFFFFFF),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: selected ? scheme.primary : scheme.outline,
-                  width: selected ? 3 : 1,
-                ),
-              ),
-              child: color == null
-                  ? const CustomPaint(painter: _NoneSlashPainter())
-                  : null,
-            ),
-          ),
-        );
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(children: [
-        SizedBox(width: 86, child: Text(label)),
-        swatch(
-          key: ValueKey('$keyPrefix-none'),
-          color: null,
-          selected: value == null,
-          onTap: () => onChanged(null),
-        ),
-        for (var i = 0; i < widget.palette.length; i++)
-          swatch(
-            key: ValueKey('$keyPrefix-$i'),
-            color: widget.palette[i],
-            selected: value != null &&
-                (value.toARGB32() & 0xFFFFFF) ==
-                    (widget.palette[i].toARGB32() & 0xFFFFFF),
-            onTap: () => onChanged(widget.palette[i]),
-          ),
-        IconButton(
-          icon: const Icon(Icons.palette_outlined, size: 18),
-          tooltip: 'More colors…',
-          visualDensity: VisualDensity.compact,
-          onPressed: () async {
-            final picked = await showPdfColorPicker(context,
-                initial: value ?? const Color(0xFFFFFFFF));
-            if (picked != null) onChanged(picked);
-          },
-        ),
-      ]),
-    );
-  }
+  }) =>
+      PdfColorSwatchRow(
+        label: label,
+        keyPrefix: keyPrefix,
+        value: value,
+        palette: widget.palette,
+        onChanged: onChanged,
+      );
 
   /// A short human label for a line ending in the picker.
   static String _endingLabel(PdfLineEnding ending) => switch (ending) {
@@ -3590,23 +3594,4 @@ class _LineEndingPainter extends CustomPainter {
   @override
   bool shouldRepaint(_LineEndingPainter old) =>
       old.ending != ending || old.atEnd != atEnd || old.color != color;
-}
-
-/// The "no color" swatch's red diagonal slash.
-class _NoneSlashPainter extends CustomPainter {
-  const _NoneSlashPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawLine(
-        Offset(3, size.height - 3),
-        Offset(size.width - 3, 3),
-        Paint()
-          ..color = const Color(0xFFE53935)
-          ..strokeWidth = 1.5
-          ..strokeCap = StrokeCap.round);
-  }
-
-  @override
-  bool shouldRepaint(_NoneSlashPainter oldDelegate) => false;
 }

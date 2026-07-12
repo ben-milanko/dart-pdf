@@ -1,6 +1,7 @@
 {
   "name": "DartPDF",
   "short_name": "DartPDF",
+  "description": "Private, local PDF editor for every device.",
   "icons": [
     { "src": "/assets/icon-192.png", "type": "image/png", "sizes": "192x192" },
     { "src": "/assets/icon-512.png", "type": "image/png", "sizes": "512x512" }

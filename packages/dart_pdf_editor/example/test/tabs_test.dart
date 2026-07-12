@@ -87,29 +87,29 @@ void main() {
     expect(find.text('Compare with another PDF…'), findsOneWidget);
   });
 
-  testWidgets('worker pool menu toggles between pooled and single worker',
+  testWidgets('performance menu switches between Auto and fixed workers',
       (tester) async {
-    final oldPoolSize = pdfRenderWorkerPoolSize;
-    addTearDown(() => pdfRenderWorkerPoolSize = oldPoolSize);
-    pdfRenderWorkerPoolSize = 3;
-
     await openDemo(tester);
     final menu = find.byKey(const ValueKey('dartpdf-worker-pool-menu'));
     expect(menu, findsOneWidget);
-    expect(find.byTooltip('Worker pool: 3 workers'), findsOneWidget);
+    expect(find.byTooltip('Performance: Auto'), findsOneWidget);
 
     await tester.tap(menu);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('dartpdf-worker-pool-off')));
     await tester.pump();
-    expect(pdfRenderWorkerPoolSize, 1);
-    expect(find.byTooltip('Worker pool off: single worker'), findsOneWidget);
+    expect(find.byTooltip('Performance: single worker'), findsOneWidget);
 
     await tester.tap(menu);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('dartpdf-worker-pool-4')));
     await tester.pump();
-    expect(pdfRenderWorkerPoolSize, 4);
-    expect(find.byTooltip('Worker pool: 4 workers'), findsOneWidget);
+    expect(find.byTooltip('Performance: 4 workers'), findsOneWidget);
+
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('dartpdf-worker-pool-auto')));
+    await tester.pump();
+    expect(find.byTooltip('Performance: Auto'), findsOneWidget);
   });
 }
