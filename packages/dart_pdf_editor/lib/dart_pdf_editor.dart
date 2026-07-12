@@ -20,6 +20,7 @@ export 'src/editing/editing_color_picker.dart';
 export 'src/editing/editing_color_processing.dart';
 export 'src/editing/editing_controller.dart';
 export 'src/editing/editing_fonts.dart';
+export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_measure.dart';
 export 'src/editing/editing_menu.dart';
 export 'src/editing/editing_panel.dart';

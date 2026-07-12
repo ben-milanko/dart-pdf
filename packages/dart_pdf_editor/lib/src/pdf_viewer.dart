@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'annotation_tap.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_form_layer.dart';
+import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
@@ -496,6 +497,7 @@ class PdfViewer extends StatefulWidget {
     this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.editing,
+    this.interactionSession,
     this.formController,
     this.editingTextPrompt,
     this.annotationMenuBuilder,
@@ -619,6 +621,10 @@ class PdfViewer extends StatefulWidget {
   /// so they scroll and zoom with the page; they receive pointer events
   /// before the viewer's own selection and link handling.
   final PdfPageOverlayBuilder? pageOverlayBuilder;
+
+  /// Stable transition/effect surface for editing gestures. The viewer uses
+  /// it for every page overlay; pointer samples do not notify listeners.
+  final PdfEditingInteractionSession? interactionSession;
 
   /// Enables annotation editing: while the controller has a tool armed,
   /// each page grows an editing layer that captures the tool's gestures,
@@ -4157,13 +4163,17 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 imagePicker: widget.imagePicker,
                 onSnapshot: widget.onSnapshot,
                 onAnnotationTap: widget.onAnnotationTap,
-                onPanViewport: _touchGrabPanBy,
-                onPanViewportEnd: _flingViewport,
-                edgeAutoScroll: _edgeAutoScrollDelta,
-                onShowAnnotationMenu: _showSelectionMenu,
-                onShowFormFieldMenu: _showFormFieldMenu,
-                onResolvePagePoint: _resolvePagePointGlobal,
-                onMoveDragPreview: _onMoveDragPreview,
+                interactionHost: PdfEditingInteractionHost(
+                  panViewport: _touchGrabPanBy,
+                  endViewportPan: _flingViewport,
+                  edgeAutoScroll: _edgeAutoScrollDelta,
+                  showAnnotationMenu: _showSelectionMenu,
+                  showFormFieldMenu: _showFormFieldMenu,
+                  resolvePagePoint: _resolvePagePointGlobal,
+                  moveDragPreview: _onMoveDragPreview,
+                  textEditClosed: _reclaimFocusAfterTextEdit,
+                ),
+                interactionSession: widget.interactionSession,
                 crossPageGhost: _crossPageGhostFor(index),
                 transformScale: _transformScale,
                 transformChanges: _transform,
@@ -4172,7 +4182,6 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                 renderWorker: widget.renderWorker,
                 performance: widget.performance,
                 predictStrokes: widget.predictStrokes,
-                onTextEditClosed: _reclaimFocusAfterTextEdit,
               ),
             ),
           ),
@@ -4766,13 +4775,8 @@ class _PdfViewerPage extends StatefulWidget {
     required this.imagePicker,
     required this.onSnapshot,
     required this.onAnnotationTap,
-    required this.onPanViewport,
-    required this.onPanViewportEnd,
-    required this.edgeAutoScroll,
-    required this.onShowAnnotationMenu,
-    required this.onShowFormFieldMenu,
-    required this.onResolvePagePoint,
-    required this.onMoveDragPreview,
+    required this.interactionHost,
+    required this.interactionSession,
     required this.crossPageGhost,
     required this.transformScale,
     required this.transformChanges,
@@ -4781,7 +4785,6 @@ class _PdfViewerPage extends StatefulWidget {
     required this.renderWorker,
     required this.performance,
     required this.predictStrokes,
-    required this.onTextEditClosed,
   });
 
   final PdfPage page;
@@ -4847,28 +4850,10 @@ class _PdfViewerPage extends StatefulWidget {
   /// See [EditingPageOverlay.onSnapshot].
   final PdfSnapshotHandler? onSnapshot;
   final PdfAnnotationTapHandler? onAnnotationTap;
-  final void Function(Offset delta) onPanViewport;
 
-  /// See [EditingPageOverlay.onPanViewportEnd].
-  final void Function(Velocity velocity) onPanViewportEnd;
-
-  /// See [EditingPageOverlay.edgeAutoScroll].
-  final Offset Function(Offset globalPosition) edgeAutoScroll;
-
-  /// See [EditingPageOverlay.onShowAnnotationMenu].
-  final void Function(Offset globalPosition, int pageIndex,
-      {(double, double)? pagePoint}) onShowAnnotationMenu;
-
-  /// See [EditingPageOverlay.onShowFormFieldMenu].
-  final void Function(Offset globalPosition, String fieldName,
-      {int? widgetIndex}) onShowFormFieldMenu;
-
-  /// See [EditingPageOverlay.onResolvePagePoint].
-  final (int, double, double)? Function(Offset globalPosition)
-      onResolvePagePoint;
-
-  /// See [EditingPageOverlay.onMoveDragPreview].
-  final PdfMoveDragPreviewCallback onMoveDragPreview;
+  /// The one viewer/interaction bridge used by the editing overlay.
+  final PdfEditingInteractionHost interactionHost;
+  final PdfEditingInteractionSession? interactionSession;
 
   /// The slice of an in-flight cross-page move ghost that lands on this
   /// page (from/to in this page's own view space), so it draws the part of
@@ -4896,9 +4881,6 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [PdfViewer.predictStrokes].
   final bool predictStrokes;
-
-  /// See [EditingPageOverlay.onTextEditClosed].
-  final VoidCallback onTextEditClosed;
 
   @override
   State<_PdfViewerPage> createState() => _PdfViewerPageState();
@@ -5086,15 +5068,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 onSnapshot: widget.onSnapshot,
                                 pageColor: widget.pageColor,
                                 showAnnotations: widget.showAnnotations,
-                                onPanViewport: widget.onPanViewport,
-                                onPanViewportEnd: widget.onPanViewportEnd,
-                                edgeAutoScroll: widget.edgeAutoScroll,
-                                onShowAnnotationMenu:
-                                    widget.onShowAnnotationMenu,
-                                onShowFormFieldMenu: widget.onShowFormFieldMenu,
-                                onResolvePagePoint: widget.onResolvePagePoint,
-                                onMoveDragPreview: widget.onMoveDragPreview,
-                                onTextEditClosed: widget.onTextEditClosed,
+                                interactionHost: widget.interactionHost,
+                                interactionSession: widget.interactionSession,
                                 rasterCurrent: rasterCurrent,
                                 zoom: zoom,
                                 predictStrokes: widget.predictStrokes,
