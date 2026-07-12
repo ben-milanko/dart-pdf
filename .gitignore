@@ -8,6 +8,7 @@ doc/api/
 
 # local test corpus of real-world PDFs (never committed)
 corpus/
+output/
 
 # generated benchmark JSON + comparison tables (benchmark/run.sh)
 benchmark/out/

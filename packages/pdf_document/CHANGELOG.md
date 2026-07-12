@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No
+  document API changes since 1.4.1.
+
 ## 1.4.1
 
 - Add callout annotation authoring and editing, and correct cloudy polygon

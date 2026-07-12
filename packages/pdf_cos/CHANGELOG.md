@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No COS API
+  changes since 1.4.1.
+
 ## 1.4.1
 
 - Speed up dense content parsing with byte-level real-number parsing, operator

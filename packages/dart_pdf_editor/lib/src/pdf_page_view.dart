@@ -243,14 +243,18 @@ class PdfPageView extends StatefulWidget {
   /// the cached-picture zoom path for dense pages if a regression is ever
   /// suspected in the field.
   ///
-  /// Strip routing engages on Impeller and web. Native software Skia's SkSL
-  /// interpreter runs the coverage shader per fragment, making strips ~2x
-  /// slower than the canvas there, so that backend keeps the classic cached-
-  /// picture zoom path. The web strip device and worker plan protocol are
+  /// Strip routing engages on web and supported non-iOS Impeller backends.
+  /// Native software Skia's SkSL interpreter runs the coverage shader per
+  /// fragment, making strips ~2x slower than the canvas there, so that backend
+  /// keeps the classic cached-picture zoom path. iOS also keeps the canvas
+  /// path: large drawVertices runtime-effect pictures can exhaust Metal
+  /// snapshot resources and paint Flutter's diagnostic magenta partway through
+  /// a dense page (OGW-30-06_Diagram.pdf produces 6,809 atlas batches at a
+  /// normal iPad zoom). The web strip device and worker plan protocol are
   /// browser-validated together (CanvasKit/skwasm load the package fragment
   /// asset and produce the same plan-fed raster), while keeping the expensive
-  /// bin walk off the main browser thread. Measured on Impeller/Metal: the
-  /// dense CAD sheet reaches sharp pixels ~4x sooner
+  /// bin walk off the main browser thread. Measured on macOS Impeller/Metal:
+  /// the dense CAD sheet reaches sharp pixels ~4x sooner
   /// per zoom settle - and with a render worker attached the ~270 ms strip
   /// re-bin runs on the worker isolate ([PdfRenderWorker.binStrips]), so
   /// the UI thread only uploads the precomputed batches and replays the
@@ -287,9 +291,11 @@ class PdfPageView extends StatefulWidget {
   /// Test hook for [webSlugGlyphLayer]. Null uses [kIsWeb].
   static bool? debugWebSlugGlyphLayerBackendOverride;
 
-  /// Test hook for the Impeller gate: `flutter test` runs on software Skia
-  /// where `ui.ImageFilter.isShaderFilterSupported` is false, so strip
-  /// router tests force the decision. Null (production) asks the engine.
+  /// Test hook for the shader-capability half of the backend gate:
+  /// `flutter test` runs on software Skia where
+  /// `ui.ImageFilter.isShaderFilterSupported` is false, so strip router tests
+  /// force the decision. The iOS safety gate still applies when this is true.
+  /// Null (production) asks the engine.
   static bool? debugStripZoomReplayBackendOverride;
 
   /// Settles that consumed a speculatively-binned worker strip plan (the
@@ -870,14 +876,18 @@ class _PdfPageViewState extends State<PdfPageView> {
           (PdfPageView.stripZoomReplay && _stripBackendSupported));
 
   /// Whether the runtime backend supports the strip route: web (validated
-  /// through the worker/device probe) or native Impeller
-  /// (`ui.ImageFilter.isShaderFilterSupported`). Consulted by BOTH the retention
-  /// decision ([_retainScene], at scene-adoption time) and the settle
-  /// router ([_stripReplayScene]) so a dense page retained for strips
-  /// actually strips - the two must never disagree.
-  static bool get _stripBackendSupported =>
-      PdfPageView.debugStripZoomReplayBackendOverride ??
-      (kIsWeb || ui.ImageFilter.isShaderFilterSupported);
+  /// through the worker/device probe), or a non-iOS native Impeller backend
+  /// (`ui.ImageFilter.isShaderFilterSupported`). iOS deliberately stays on
+  /// the canvas path; see [stripZoomReplay]. Consulted by BOTH the retention
+  /// decision ([_retainScene], at scene-adoption time) and the settle router
+  /// ([_stripReplayScene]) so a dense page retained for strips actually
+  /// strips - the two must never disagree.
+  static bool get _stripBackendSupported {
+    final shaderSupported = PdfPageView.debugStripZoomReplayBackendOverride ??
+        (kIsWeb || ui.ImageFilter.isShaderFilterSupported);
+    return shaderSupported &&
+        (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS);
+  }
 
   /// Whether [scene]'s zoom re-rasters route through the strip device: the
   /// flag, the Impeller backend gate, and only above the ceiling (under it

@@ -76,8 +76,8 @@ double _meanAbsDiff(Uint8List a, Uint8List b) {
 /// Shared with strip_plan_device_test.
 Future<ui.Image> settleRaster(WidgetTester tester, int width) async {
   for (var i = 0; i < 40; i++) {
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
     await tester.pump();
     final images = find.byType(RawImage);
     if (images.evaluate().isNotEmpty) {
@@ -123,8 +123,7 @@ void main() {
       // region variant: same crop through both devices, over the blue rect
       // (PDF y 300..520 = raster y 272..492 on the 792pt page)
       const region = Rect.fromLTWH(290, 300, 200, 150);
-      final canvasRegion =
-          await scene.rasterizeRegion(region, pixelRatio: 2);
+      final canvasRegion = await scene.rasterizeRegion(region, pixelRatio: 2);
       final stripRegion =
           await scene.rasterizeRegionStrips(region, pixelRatio: 2);
       expect(stripRegion.width, canvasRegion.width);
@@ -205,8 +204,7 @@ void main() {
         reason: 'flag off must never touch the strip device');
   });
 
-  testWidgets(
-      'backend gate off: the flag is inert on non-Impeller backends',
+  testWidgets('backend gate off: the flag is inert on non-Impeller backends',
       (tester) async {
     PdfPageView.retainedZoomReplayMaxCommands = 0;
     PdfPageView.stripZoomReplay = true;
@@ -233,4 +231,35 @@ void main() {
     expect(StripPdfDevice.totalFlushes, 0,
         reason: 'the gate must keep strips off software backends');
   });
+
+  testWidgets('iOS safety gate keeps dense zooms on the canvas path',
+      (tester) async {
+    PdfPageView.retainedZoomReplayMaxCommands = 0;
+    PdfPageView.stripZoomReplay = true;
+    // Simulate the shader capability Impeller reports on iOS. The platform
+    // safety gate must still win: large runtime-effect strip pictures can
+    // exhaust Metal snapshot resources and paint diagnostic magenta.
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.stripZoomReplay = true;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildVectorPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+        child:
+            SizedBox(width: 612, child: PdfPageView(page: page, scale: scale)));
+
+    StripPdfDevice.resetStats();
+    await tester.pumpWidget(at(1));
+    await settleRaster(tester, 612);
+    await tester.pumpWidget(at(3));
+    final zoomed = await settleRaster(tester, 612 * 3);
+    expect(zoomed.width, 612 * 3);
+    expect(StripPdfDevice.totalFlushes, 0,
+        reason: 'iOS must not submit shader-backed strip pictures');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }

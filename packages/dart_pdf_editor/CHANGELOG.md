@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.2
+
+- Keep touch scrolling responsive on zoomed mixed-width documents when a
+  gesture starts on the canvas or in an inter-page gap, and keep the current
+  page and render focus synchronized with the transformed viewport.
+- Prevent dense pages from rendering as solid magenta on iPad by routing iOS
+  deep-zoom replay through the stable canvas path instead of shader-backed
+  sparse strips.
+
 ## 1.4.1
 
 - Add callout annotations and rich-text styling for in-place document text

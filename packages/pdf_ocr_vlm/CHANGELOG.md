@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.2
+
+- Version bump to align with `dart_pdf_editor` 1.4.2. No public VLM OCR API
+  changes since 1.4.1.
+
 ## 1.4.1
 
 - Version bump to align with `dart_pdf_editor` 1.4.1. No public VLM OCR API

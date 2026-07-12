@@ -1323,6 +1323,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// the double-tap animation.
   void _onTransformChanged() {
     _transformScale.value = _transform.value.getMaxScaleOnAxis();
+    // Vertical zoom-window panning changes which page sits at the screen
+    // centre even when the underlying list position is pinned at an extent.
+    // Keep page number, render focus, and preview priority on the page the
+    // user actually sees rather than the untransformed list viewport.
+    _updateCurrentPage();
+    _renderScheduler.focus = _jumpFocusPage ?? _controller.currentPage;
     _controller._bumpViewport();
     // hold re-rasterization while the zoom is moving: the existing rasters
     // scale under the transform meanwhile (cheap, briefly blurry). Without
@@ -2030,10 +2036,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     }
   }
 
-  void _onScroll() {
-    if (_viewWidth <= 0 || !_scroll.hasClients) return;
-    _controller._bumpViewport();
-    final center = _scroll.offset + _scroll.position.viewportDimension / 2;
+  void _updateCurrentPage() {
+    if (_viewWidth <= 0 ||
+        _viewHeight <= 0 ||
+        !_scroll.hasClients ||
+        _pages.isEmpty) {
+      return;
+    }
+    final matrix = _transform.value;
+    final scale = matrix.getMaxScaleOnAxis();
+    // Unproject the screen centre through the zoom window. The old
+    // scroll+viewport/2 calculation was only valid while the transform's
+    // vertical translation sat at its focal-centred default.
+    final center = _scroll.offset +
+        (_viewHeight / 2 - matrix.storage[13]) /
+            (scale.isFinite && scale > 0 ? scale : 1.0);
     var offset = 0.0;
     for (var i = 0; i < _pages.length; i++) {
       offset += _pageHeight(i) + widget.pageSpacing;
@@ -2043,6 +2060,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       }
     }
     _controller._setCurrentPage(_pages.length - 1);
+  }
+
+  void _onScroll() {
+    if (_viewWidth <= 0 || !_scroll.hasClients) return;
+    _controller._bumpViewport();
+    _updateCurrentPage();
   }
 
   /// While zoomed in, the screen viewport sees list space starting at
@@ -2356,6 +2379,29 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       top += height + widget.pageSpacing;
     }
     return null;
+  }
+
+  /// Whether [local] (in list space) is over an actual page rectangle.
+  ///
+  /// Editing overlays only cover the paper. On documents with one very wide
+  /// sheet, ordinary pages can occupy a small island in a large canvas; a
+  /// touch that begins beside or between those islands has no overlay to pan
+  /// the viewport. The zoomed viewer recognizer uses this exact hit test to
+  /// claim those canvas drags while leaving page gestures to the editor.
+  bool _pageContainsListPoint(Offset local) {
+    if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return false;
+    final contentY = _scroll.offset + local.dy;
+    var top = 0.0;
+    for (var i = 0; i < _pages.length; i++) {
+      final height = _pageHeight(i);
+      if (contentY < top) return false; // the spacing before this page
+      if (contentY <= top + height) {
+        final left = _pageLeft(i);
+        return local.dx >= left && local.dx <= left + _pageWidth(i);
+      }
+      top += height + widget.pageSpacing;
+    }
+    return false;
   }
 
   /// Resolves a *global* point to the page index and page-space point
@@ -3738,16 +3784,22 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _springBackHorizontal();
   }
 
-  bool get _zoomedTouchPanEnabled {
+  bool _zoomedTouchPanEnabledAt(Offset localPosition) {
     if (!_zoomed) return false;
     final editing = widget.editing;
     // An armed tool, eyedropper, or selected annotation mounts an editing
     // overlay whose touch pan already calls _touchGrabPanBy. Do not enter the
     // arena twice for those gestures.
-    return editing == null ||
+    if (editing == null ||
         (editing.tool == null &&
             !editing.isPickingColor &&
-            !editing.hasAnnotationSelection);
+            !editing.hasAnnotationSelection)) {
+      return true;
+    }
+    // An armed tool/selection handles touches through its per-page overlay.
+    // Canvas and inter-page gaps have no overlay, so the viewer must claim
+    // them or scrolling becomes bounded to the small visible page islands.
+    return !_pageContainsListPoint(localPosition);
   }
 
   /// Settles a finished zoom gesture into the layout/transform regime
@@ -4283,9 +4335,14 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                   // clamping replaces InteractiveViewer's (live for wheel and
                   // trackpad, on gesture end for touch)
                   boundaryMargin: const EdgeInsets.all(double.infinity),
-                  // vertical drags scroll the list; horizontal panning engages
-                  // once zoomed in
-                  panEnabled: _zoomed,
+                  // Every direct pan path is owned below: mouse grab-pan,
+                  // bounded zoomed touch-pan, editing-overlay touch-pan, and
+                  // trackpad pan. Letting InteractiveViewer also pan was more
+                  // than redundant: a touch beginning on canvas beside a
+                  // narrow page could start its unbounded inertial pan and
+                  // push the matrix past our vertical clamp, desynchronizing
+                  // lazy page layout from the visible zoom window.
+                  panEnabled: false,
                   // touch pinches that InteractiveViewer still wins run on
                   // the transform mid-gesture; settle them the same way as
                   // the eager pinch recognizer's
@@ -4329,7 +4386,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                               _ZoomedTouchPanRecognizer>(
                         () => _ZoomedTouchPanRecognizer(debugOwner: this),
                         (recognizer) => recognizer
-                          ..isEnabled = (() => _zoomedTouchPanEnabled)
+                          ..isEnabled = _zoomedTouchPanEnabledAt
                           ..onStart = _onZoomedTouchPanStart
                           ..onUpdate = _onZoomedTouchPanUpdate
                           ..onEnd = _onZoomedTouchPanEnd
@@ -5386,11 +5443,11 @@ class _ZoomedTouchPanRecognizer extends PanGestureRecognizer {
           PointerDeviceKind.invertedStylus,
         });
 
-  bool Function()? isEnabled;
+  bool Function(Offset localPosition)? isEnabled;
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
-    if (isEnabled?.call() != true) return;
+    if (isEnabled?.call(event.localPosition) != true) return;
     super.addAllowedPointer(event);
   }
 
