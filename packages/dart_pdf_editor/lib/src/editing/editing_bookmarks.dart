@@ -45,7 +45,6 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
   final ScrollController _scroll = ScrollController();
   final Map<String, bool> _expanded = {};
   String? _hoveredPath;
-  double? _dragWidth;
 
   PdfEditingController get controller => widget.controller;
 
@@ -54,9 +53,6 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
     _scroll.dispose();
     super.dispose();
   }
-
-  double get _width =>
-      _dragWidth ?? controller.preferences.bookmarkSidebarWidth ?? widget.width;
 
   String _keyFor(List<int> path) => path.join('.');
 
@@ -133,12 +129,17 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
     widget.viewerController.showDestination(destination);
   }
 
-  Widget _header(BuildContext context, {required bool barInset}) {
-    final closeable = !widget.bottomSheet && widget.onClose != null;
+  Widget _header(
+    BuildContext context, {
+    required PdfSidebarPanelGeometry geometry,
+  }) {
+    final closeButton = geometry.closeButton(
+      key: const ValueKey('pdf-bookmark-panel-close'),
+    );
     final showTitle = !widget.bottomSheet;
     return Padding(
-      padding: EdgeInsets.fromLTRB(showTitle ? 16 : 8, 4,
-          barInset ? PdfSidebarResizeGrip.width + 4 : 4, 0),
+      padding: EdgeInsets.fromLTRB(
+          showTitle ? 16 : 8, 4, geometry.contentEndInset + 4, 0),
       child: Row(children: [
         if (showTitle)
           Expanded(
@@ -156,11 +157,7 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
             icon: const Icon(Icons.add),
             onPressed: () => _addBookmark(context),
           ),
-        if (closeable)
-          PdfSidebarCloseButton(
-            key: const ValueKey('pdf-bookmark-panel-close'),
-            onPressed: widget.onClose!,
-          ),
+        if (closeButton != null) closeButton,
       ]),
     );
   }
@@ -308,7 +305,10 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
     );
   }
 
-  Widget _content(BuildContext context, {required bool barInset}) {
+  Widget _content(
+    BuildContext context, {
+    required PdfSidebarPanelGeometry geometry,
+  }) {
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
@@ -316,7 +316,7 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
         final showHeader =
             widget.editable || (!widget.bottomSheet && widget.onClose != null);
         return Column(children: [
-          if (showHeader) _header(context, barInset: barInset),
+          if (showHeader) _header(context, geometry: geometry),
           Expanded(
             child: rows.isEmpty
                 ? _empty(context)
@@ -327,7 +327,9 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
                         bottom: 12,
                         right: widget.bottomSheet
                             ? 0
-                            : PdfSidebarResizeGrip.width),
+                            : geometry.showGrip
+                                ? PdfSidebarResizeGrip.width
+                                : 0),
                     itemCount: rows.length,
                     itemBuilder: (context, index) =>
                         _tile(context, rows[index]),
@@ -340,46 +342,22 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    final showGrip = widget.resizable && !widget.bottomSheet;
-    final onLeftEdge =
-        !widget.bottomSheet && widget.side == PdfSidebarSide.left;
-    final barInset = showGrip && onLeftEdge;
-    final content = Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: _content(context, barInset: barInset),
-    );
-    if (widget.bottomSheet) return content;
-
-    final width = _width.clamp(widget.minWidth, widget.maxWidth).toDouble();
-    return SizedBox(
-      width: width,
-      child: Stack(children: [
-        Positioned.fill(child: content),
-        if (showGrip)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: widget.side == PdfSidebarSide.right ? 0 : null,
-            right: widget.side == PdfSidebarSide.left ? 0 : null,
-            child: PdfSidebarResizeGrip(
-              key: const ValueKey('pdf-bookmark-resize-grip'),
-              side: widget.side,
-              onWidthDelta: (delta) {
-                setState(() {
-                  _dragWidth = (_width + delta)
-                      .clamp(widget.minWidth, widget.maxWidth)
-                      .toDouble();
-                });
-              },
-              onResizeEnd: () {
-                if (_dragWidth != null) {
-                  controller.preferences.bookmarkSidebarWidth = _dragWidth;
-                }
-                setState(() => _dragWidth = null);
-              },
-            ),
-          ),
-      ]),
+    return PdfSidebarPanelFrame(
+      width: widget.width,
+      minWidth: widget.minWidth,
+      maxWidth: widget.maxWidth,
+      persistedWidth: controller.preferences.bookmarkSidebarWidth,
+      onPersistWidth: (width) =>
+          controller.preferences.bookmarkSidebarWidth = width,
+      side: widget.side,
+      resizable: widget.resizable,
+      bottomSheet: widget.bottomSheet,
+      gripKey: const ValueKey('pdf-bookmark-resize-grip'),
+      onClose: widget.onClose,
+      builder: (context, geometry) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: _content(context, geometry: geometry),
+      ),
     );
   }
 }

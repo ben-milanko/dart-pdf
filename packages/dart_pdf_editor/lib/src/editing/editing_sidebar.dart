@@ -5,7 +5,6 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import '../pdf_viewer.dart';
-import '../scrollbar.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
@@ -125,15 +124,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   /// text-free extractions.
   final Map<int, PdfPageText?> _pageTexts = {};
 
-  /// The panel width while a resize drag is in flight, overriding the
-  /// preference until the drag ends and persists it.
-  double? _dragWidth;
-
   PdfEditingPreferences get _preferences => widget.controller.preferences;
-
-  double get _width =>
-      (_dragWidth ?? _preferences.annotationSidebarWidth ?? widget.width)
-          .clamp(widget.minWidth, widget.maxWidth);
 
   @override
   void initState() {
@@ -168,16 +159,6 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     final next = hovering ? slot : (_hoveredSlot == slot ? null : _hoveredSlot);
     if (next == _hoveredSlot) return;
     setState(() => _hoveredSlot = next);
-  }
-
-  void _onResizeDelta(double delta) => setState(() {
-        _dragWidth = (_width + delta).clamp(widget.minWidth, widget.maxWidth);
-      });
-
-  void _onResizeEnd() {
-    if (_dragWidth == null) return;
-    _preferences.annotationSidebarWidth = _dragWidth;
-    setState(() => _dragWidth = null);
   }
 
   /// A finer title for form fields, from the inherited /FT.
@@ -256,10 +237,15 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         _detail(pageIndex, annotation).toLowerCase().contains(query);
   }
 
-  Widget _searchField(BuildContext context) {
+  Widget _searchField(
+    BuildContext context,
+    PdfSidebarPanelGeometry geometry,
+  ) {
     // the docked panel's close button rides the right of the filter row;
     // a bottom sheet supplies its own in its sheet chrome
-    final closeable = !widget.bottomSheet && widget.onClose != null;
+    final closeButton = geometry.closeButton(
+      key: const ValueKey('pdf-annotation-panel-close'),
+    );
     final field = TextField(
       key: const ValueKey('pdf-annotation-search'),
       controller: _search,
@@ -280,14 +266,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       ),
     );
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, 8, closeable ? 4 : 12, 4),
-      child: closeable
+      padding: EdgeInsets.fromLTRB(12, 8, closeButton != null ? 4 : 12, 4),
+      child: closeButton != null
           ? Row(children: [
               Expanded(child: field),
-              PdfSidebarCloseButton(
-                key: const ValueKey('pdf-annotation-panel-close'),
-                onPressed: widget.onClose!,
-              ),
+              closeButton,
             ])
           : field,
     );
@@ -575,137 +558,114 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    // a bottom sheet supplies its own width and resize affordance, so the
-    // panel drops the side resize grip and fills its parent
-    final showGrip = widget.resizable && !widget.bottomSheet;
-    final onLeftEdge =
-        !widget.bottomSheet && widget.side == PdfSidebarSide.left;
-    final content = Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: ListenableBuilder(
-        listenable: widget.controller,
-        builder: (context, _) {
-          final document = widget.controller.document;
-          if (!identical(document, _builtFor)) {
-            // already rebuilding - adjust the state in place
-            _builtFor = document;
-            _checked.clear();
-            _hoveredSlot = null;
-            _selecting = false;
-            _pageTexts.clear();
-            // a revision closes any open reply field (the sent reply
-            // is what produced the new revision)
-            _replyingTo = null;
-          }
-          final query = _search.text.trim().toLowerCase();
-          final children = <Widget>[];
-          var listed = 0;
-          for (var page = 0; page < document.pageCount; page++) {
-            final annotations = widget.controller.pageAt(page).annotations;
-            // map each thread to its root's dictionary so a tile can
-            // render its replies and state inline
-            final threadByDict = {
-              for (final thread in widget.controller.commentThreads(page))
-                thread.root.annotation.dict: thread,
-            };
-            final tiles = <Widget>[];
-            for (var i = 0; i < annotations.length; i++) {
-              final annotation = annotations[i];
-              if (_unlisted.contains(annotation.subtype)) continue;
-              // replies and review-state annotations are thread
-              // content - shown nested under their root, not as their
-              // own top-level rows
-              if (annotation.isReply || annotation.isStateAnnotation) {
-                continue;
+    return PdfSidebarPanelFrame(
+      width: widget.width,
+      minWidth: widget.minWidth,
+      maxWidth: widget.maxWidth,
+      persistedWidth: _preferences.annotationSidebarWidth,
+      onPersistWidth: (width) => _preferences.annotationSidebarWidth = width,
+      side: widget.side,
+      resizable: widget.resizable,
+      bottomSheet: widget.bottomSheet,
+      gripKey: const ValueKey('pdf-annotation-resize-grip'),
+      onClose: widget.onClose,
+      builder: (context, geometry) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: ListenableBuilder(
+          listenable: widget.controller,
+          builder: (context, _) {
+            final document = widget.controller.document;
+            if (!identical(document, _builtFor)) {
+              // already rebuilding - adjust the state in place
+              _builtFor = document;
+              _checked.clear();
+              _hoveredSlot = null;
+              _selecting = false;
+              _pageTexts.clear();
+              // a revision closes any open reply field (the sent reply
+              // is what produced the new revision)
+              _replyingTo = null;
+            }
+            final query = _search.text.trim().toLowerCase();
+            final children = <Widget>[];
+            var listed = 0;
+            for (var page = 0; page < document.pageCount; page++) {
+              final annotations = widget.controller.pageAt(page).annotations;
+              // map each thread to its root's dictionary so a tile can
+              // render its replies and state inline
+              final threadByDict = {
+                for (final thread in widget.controller.commentThreads(page))
+                  thread.root.annotation.dict: thread,
+              };
+              final tiles = <Widget>[];
+              for (var i = 0; i < annotations.length; i++) {
+                final annotation = annotations[i];
+                if (_unlisted.contains(annotation.subtype)) continue;
+                // replies and review-state annotations are thread
+                // content - shown nested under their root, not as their
+                // own top-level rows
+                if (annotation.isReply || annotation.isStateAnnotation) {
+                  continue;
+                }
+                listed++;
+                if (!_matches(query, page, annotation)) continue;
+                tiles.add(_tile(context, page, i, annotation));
+                // a markup annotation hosts a comment thread
+                if (annotation.behavior.selectable) {
+                  tiles.addAll(_threadSection(context, page, annotation,
+                      threadByDict[annotation.dict]));
+                }
               }
-              listed++;
-              if (!_matches(query, page, annotation)) continue;
-              tiles.add(_tile(context, page, i, annotation));
-              // a markup annotation hosts a comment thread
-              if (annotation.behavior.selectable) {
-                tiles.addAll(_threadSection(
-                    context, page, annotation, threadByDict[annotation.dict]));
+              if (tiles.isNotEmpty) {
+                children
+                  ..add(Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Text('Page ${page + 1}',
+                        style: Theme.of(context).textTheme.labelLarge),
+                  ))
+                  ..addAll(tiles);
               }
             }
-            if (tiles.isNotEmpty) {
-              children
-                ..add(Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Text('Page ${page + 1}',
-                      style: Theme.of(context).textTheme.labelLarge),
-                ))
-                ..addAll(tiles);
-            }
-          }
-          // the viewer-style scrollbar replaces the implicit
-          // desktop bar; it wraps only the list, so the
-          // multi-select header above stays clear of it. Stepped
-          // off the resize grip when the grip rides the same
-          // (right) edge.
-          // keep the list clear of the overlay scrollbar's zone so
-          // the bar never covers a tile's trailing button
-          final barClearance = PdfScrollbar.hitExtent +
-              (showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0);
-          final list = children.isEmpty
-              ? Center(
-                  child: Text(listed > 0 && query.isNotEmpty
-                      ? 'No matching annotations'
-                      : 'No annotations'))
-              : Stack(children: [
-                  ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(context)
-                        .copyWith(scrollbars: false),
-                    child: ListView(
-                        controller: _scroll,
-                        padding: EdgeInsets.only(right: barClearance),
-                        children: children),
-                  ),
-                  Positioned(
-                    top: 0,
-                    bottom: 0,
-                    right:
-                        showGrip && onLeftEdge ? PdfSidebarResizeGrip.width : 0,
-                    child: PdfScrollbar(
-                      scroll: _scroll,
-                      thumbKey:
-                          const ValueKey('pdf-annotation-scrollbar-thumb'),
+            // the viewer-style scrollbar replaces the implicit
+            // desktop bar; it wraps only the list, so the
+            // multi-select header above stays clear of it. Stepped
+            // off the resize grip when the grip rides the same
+            // (right) edge.
+            // keep the list clear of the overlay scrollbar's zone so
+            // the bar never covers a tile's trailing button
+            final list = children.isEmpty
+                ? Center(
+                    child: Text(listed > 0 && query.isNotEmpty
+                        ? 'No matching annotations'
+                        : 'No annotations'))
+                : geometry.withScrollbar(
+                    scroll: _scroll,
+                    thumbKey: const ValueKey('pdf-annotation-scrollbar-thumb'),
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context)
+                          .copyWith(scrollbars: false),
+                      child: ListView(
+                          controller: _scroll,
+                          padding: EdgeInsets.only(
+                              right: geometry.scrollbarClearance),
+                          children: children),
                     ),
-                  ),
-                ]);
-          // one shape for both modes, with the list keyed: the
-          // header appearing must not move the list to a new
-          // element (the controller would sit attached to two
-          // scroll views for a frame)
-          return Column(children: [
-            _searchField(context),
-            if (_selecting) _selectionHeader(context),
-            Expanded(
-              key: const ValueKey('pdf-annotation-list'),
-              child: list,
-            ),
-          ]);
-        },
+                  );
+            // one shape for both modes, with the list keyed: the
+            // header appearing must not move the list to a new
+            // element (the controller would sit attached to two
+            // scroll views for a frame)
+            return Column(children: [
+              _searchField(context, geometry),
+              if (_selecting) _selectionHeader(context),
+              Expanded(
+                key: const ValueKey('pdf-annotation-list'),
+                child: list,
+              ),
+            ]);
+          },
+        ),
       ),
-    );
-    if (widget.bottomSheet) return content;
-    return SizedBox(
-      width: _width,
-      child: Stack(children: [
-        Positioned.fill(child: content),
-        if (showGrip)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: widget.side == PdfSidebarSide.right ? 0 : null,
-            right: widget.side == PdfSidebarSide.left ? 0 : null,
-            child: PdfSidebarResizeGrip(
-              key: const ValueKey('pdf-annotation-resize-grip'),
-              side: widget.side,
-              onWidthDelta: _onResizeDelta,
-              onResizeEnd: _onResizeEnd,
-            ),
-          ),
-      ]),
     );
   }
 }
