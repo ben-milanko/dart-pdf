@@ -330,36 +330,82 @@ void _paintResize(
 }
 
 void _paintHand(Canvas canvas, double s, {required bool closed}) {
-  final path = closed
-      ? (Path()
-        ..moveTo(-7.5, -3)
-        ..cubicTo(-7.5, -6, -3.8, -6.4, -2.7, -4)
-        ..cubicTo(-2.1, -7, 1.8, -7.1, 2.6, -4.2)
-        ..cubicTo(4.0, -6.2, 7.1, -4.9, 6.8, -2.2)
-        ..cubicTo(9.5, -2.6, 10.7, 0.8, 8.9, 2.6)
-        ..lineTo(5.0, 7.7)
-        ..cubicTo(3.6, 9.6, 1.4, 10.6, -1.0, 10.2)
-        ..lineTo(-5.0, 9.5)
-        ..cubicTo(-7.4, 9.1, -9.0, 7.0, -9.0, 4.5)
-        ..lineTo(-9.0, 0)
-        ..cubicTo(-9.0, -1.6, -8.5, -2.6, -7.5, -3)
-        ..close())
-      : (Path()
-        ..moveTo(-8.4, 2.2)
-        ..lineTo(-8.4, -2.5)
-        ..cubicTo(-8.4, -5.0, -5.1, -5.5, -4.0, -3.3)
-        ..lineTo(-4.0, -8.0)
-        ..cubicTo(-4.0, -10.7, -0.4, -10.8, 0.1, -8.2)
-        ..lineTo(0.1, -9.2)
-        ..cubicTo(0.1, -11.7, 3.6, -11.7, 4.0, -9.1)
-        ..lineTo(4.0, -7.9)
-        ..cubicTo(4.8, -10.0, 8.0, -9.1, 7.8, -6.6)
-        ..lineTo(7.5, 1.2)
-        ..cubicTo(7.3, 5.5, 4.2, 9.1, 0.0, 9.8)
-        ..cubicTo(-4.6, 10.5, -8.4, 6.9, -8.4, 2.2)
-        ..close());
+  final path = closed ? _closedHandPath() : _openHandPath();
   _path(canvas, path, s);
+
+  // A couple of restrained creases keep the silhouettes readable at their
+  // real 20px size without turning the cursor into a tiny illustration.
+  final detail = Paint()
+    ..color = const Color(0xD9000000)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.05 * s
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
+  final creases = closed
+      ? (Path()
+        ..moveTo(-4.1 * s, -1.7 * s)
+        ..lineTo(-3.8 * s, 0.2 * s)
+        ..moveTo(-0.8 * s, -2.5 * s)
+        ..lineTo(-0.5 * s, 0.2 * s)
+        ..moveTo(2.4 * s, -2.6 * s)
+        ..lineTo(2.7 * s, 0.7 * s)
+        ..moveTo(-5.4 * s, 1.1 * s)
+        ..cubicTo(-1.8 * s, 0.2 * s, 2.0 * s, 1.3 * s, 4.5 * s, 3.7 * s))
+      : (Path()
+        ..moveTo(-1.0 * s, -5.0 * s)
+        ..lineTo(-1.0 * s, 1.0 * s)
+        ..moveTo(2.1 * s, -5.5 * s)
+        ..lineTo(2.1 * s, 1.0 * s)
+        ..moveTo(5.2 * s, -4.3 * s)
+        ..lineTo(5.2 * s, 1.3 * s));
+  canvas.drawPath(creases, detail);
 }
+
+Path _openHandPath() => Path()
+  // Wrist and heel of the palm.
+  ..moveTo(-5.0, 9.7)
+  ..cubicTo(-7.5, 8.8, -8.6, 6.7, -8.1, 4.3)
+  // The thumb opens diagonally to the left instead of reading as another
+  // rounded side of the palm.
+  ..lineTo(-10.1, 1.7)
+  ..cubicTo(-11.7, -0.4, -9.5, -2.8, -7.4, -1.4)
+  ..lineTo(-3.8, 1.0)
+  // Index finger.
+  ..lineTo(-3.8, -7.2)
+  ..cubicTo(-3.8, -9.8, -0.8, -10.1, -0.8, -7.4)
+  ..lineTo(-0.8, -5.2)
+  // Middle finger, deliberately the tallest.
+  ..lineTo(-0.8, -9.5)
+  ..cubicTo(-0.8, -12.2, 2.2, -12.2, 2.2, -9.5)
+  ..lineTo(2.2, -5.7)
+  // Ring finger.
+  ..lineTo(2.2, -8.4)
+  ..cubicTo(2.2, -11.0, 5.2, -10.8, 5.2, -8.2)
+  ..lineTo(5.2, -4.5)
+  // Pinky and outside of the palm.
+  ..lineTo(5.2, -6.7)
+  ..cubicTo(5.2, -9.0, 8.1, -8.7, 8.1, -6.3)
+  ..lineTo(8.1, 1.7)
+  ..cubicTo(8.1, 5.9, 5.1, 9.5, 0.9, 10.2)
+  ..cubicTo(-1.1, 10.6, -3.3, 10.5, -5.0, 9.7)
+  ..close();
+
+Path _closedHandPath() => Path()
+  // Four compact, individually readable knuckles.
+  ..moveTo(-7.9, -1.5)
+  ..cubicTo(-8.0, -4.1, -5.1, -4.9, -3.7, -2.8)
+  ..cubicTo(-3.6, -5.7, -0.6, -6.3, 0.6, -3.7)
+  ..cubicTo(0.9, -6.5, 4.0, -6.5, 4.9, -3.8)
+  ..cubicTo(5.5, -6.1, 8.3, -5.2, 8.1, -2.7)
+  ..cubicTo(10.4, -2.5, 10.7, 0.4, 8.8, 1.8)
+  // Curled thumb and tapered wrist.
+  ..lineTo(5.3, 6.8)
+  ..cubicTo(4.1, 9.1, 1.6, 10.3, -1.0, 9.9)
+  ..lineTo(-4.8, 9.2)
+  ..cubicTo(-7.3, 8.7, -8.9, 6.6, -8.9, 4.1)
+  ..lineTo(-8.9, 0.1)
+  ..cubicTo(-8.9, -0.9, -8.6, -1.5, -7.9, -1.9)
+  ..close();
 
 void _paintRotate(Canvas canvas, double s) {
   const start = -math.pi / 2;
