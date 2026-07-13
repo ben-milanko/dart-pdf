@@ -1157,6 +1157,17 @@ class _EditorScreenState extends State<EditorScreen>
       defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
+  bool get _showsSelectionCopyAction => switch (defaultTargetPlatform) {
+        TargetPlatform.android ||
+        TargetPlatform.iOS ||
+        TargetPlatform.fuchsia =>
+          true,
+        TargetPlatform.macOS ||
+        TargetPlatform.windows ||
+        TargetPlatform.linux =>
+          false,
+      };
+
   String _menuShortcut(String key, {bool shift = false}) => _usesAppleShortcuts
       ? '${shift ? '⇧' : ''}⌘$key'
       : 'Ctrl+${shift ? 'Shift+' : ''}$key';
@@ -1498,7 +1509,7 @@ class _EditorScreenState extends State<EditorScreen>
             ? const SizedBox.shrink()
             : _OcrStatusChip(status: status, onCancel: _ocr.cancel),
       ),
-      if (tab?.viewer != null)
+      if (_showsSelectionCopyAction && tab?.viewer != null)
         ListenableBuilder(
           listenable: tab!.viewer!,
           builder: (context, _) => !tab.viewer!.hasSelection

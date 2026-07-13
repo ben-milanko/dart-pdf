@@ -2,8 +2,8 @@
 
 ## 1.4.2
 
-- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No
-  document API changes since 1.4.1.
+- Keep AcroForm text, button, and image appearances upright when fields are
+  authored, filled, resized, or regenerated on rotated pages.
 
 ## 1.4.1
 

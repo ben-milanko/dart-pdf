@@ -2,6 +2,14 @@
 
 ## 1.4.1
 
+- Enlarge the DartPDF corner badge on PDF document thumbnails so it remains
+  recognizable at smaller Finder and Explorer icon sizes.
+- Keep drag-time thickness, opacity, and measurement indicators aligned and
+  consistently sized when the document is zoomed.
+- Make form-field right-click select the field and move its edit, rename,
+  conversion, delete, flatten, and style actions into the toolbar.
+- Remove the redundant selected-text copy button from the desktop app header;
+  keyboard and context-menu copy remain available.
 - Add proper certificate-backed PAdES digital signatures from the app menu,
   using an RSA private key and X.509 certificate chain entirely in memory.
 - Windows: Snapshots now copy to the system clipboard instead of failing with

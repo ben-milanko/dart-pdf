@@ -3503,7 +3503,7 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Selects the topmost form-field widget under ([x], [y]) on
-  /// [pageIndex] for manipulation (move/resize/menu) - the form tool's
+  /// [pageIndex] for manipulation (move/resize/toolbar controls) - the form tool's
   /// tap. Clears the selection when nothing is hit. With [toggle]
   /// (shift/⌘-click) the hit is added to or removed from the selection
   /// and a miss leaves the selection alone. The form tool stays armed.
@@ -4580,40 +4580,47 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
-  /// Whether the single selected annotation is a /Line or /PolyLine whose
-  /// endings can be set ([setSelectedLineEndings]).
+  /// Whether every selected annotation is a /Line or /PolyLine whose endings
+  /// can be set together ([setSelectedLineEndings]).
   bool get canSetLineEndings {
-    final annotation = selectedAnnotation;
-    return _selected.length == 1 &&
-        annotation != null &&
-        annotation.behavior.supportsLineEndings &&
-        annotation.normalAppearance != null;
+    return _selected.isNotEmpty &&
+        _selected.every((slot) {
+          final annotation = _annotationAt(slot);
+          return annotation != null &&
+              annotation.behavior.supportsLineEndings &&
+              annotation.normalAppearance != null;
+        });
   }
 
-  /// The start/end line endings of the selected /Line or /PolyLine, or
-  /// null when no such single annotation is selected - for the ending
-  /// picker to show.
+  /// The primary selected /Line or /PolyLine's start/end line endings, or
+  /// null when the selection cannot edit line endings. Multi-selection UIs
+  /// may compare each annotation when they need a mixed-value indicator.
   (PdfLineEnding, PdfLineEnding)? get selectedLineEndings {
     final annotation = selectedAnnotation;
-    if (annotation == null || _selected.length != 1) return null;
+    if (annotation == null || !canSetLineEndings) return null;
     return pdfLineEndings(annotation);
   }
 
-  /// Swaps the start and/or end ending of the selected /Line or
-  /// /PolyLine in place - one revision, one undo, and the annotation
-  /// keeps its /Annots slot and object number. Pass null for an axis to
-  /// leave it unchanged.
+  /// Swaps the start and/or end ending of every selected /Line or /PolyLine
+  /// in place - one revision, one undo, and the annotations keep their
+  /// /Annots slots and object numbers. Pass null for an axis to leave it
+  /// unchanged.
   void setSelectedLineEndings({PdfLineEnding? start, PdfLineEnding? end}) {
-    final annotation = selectedAnnotation;
-    if (annotation == null || !canSetLineEndings) return;
-    apply(
-      (e) => e.setLineEndings(
-        _selected.last.$1,
-        annotation,
-        startEnding: start,
-        endEnding: end,
-      ),
-    );
+    if (!canSetLineEndings) return;
+    final targets = <(int, PdfAnnotation)>[
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final annotation?) (slot.$1, annotation),
+    ];
+    apply((e) {
+      for (final (page, annotation) in targets) {
+        e.setLineEndings(
+          page,
+          annotation,
+          startEnding: start,
+          endEnding: end,
+        );
+      }
+    });
   }
 
   /// Whether the single selected annotation is a measurement (a /Line,
@@ -4672,25 +4679,24 @@ class PdfEditingController extends ChangeNotifier {
       return;
     }
     if (_selected.isEmpty) return;
-    // a form-tool selection holds field widgets: dropping the /Annots
-    // entry would leave /AcroForm /Fields dangling, so remove the whole
-    // field instead (one revision for the lot)
-    if (tool == PdfEditTool.form) {
-      final names = <String>{};
-      for (final slot in _selected) {
-        final field = _widgetFieldForSlot(slot);
-        if (field != null) names.add(field.$1);
-      }
-      if (names.isNotEmpty) {
-        clearAnnotationSelection();
-        apply((e) {
-          for (final name in names) {
-            final field = e.acroForm?.fieldNamed(name);
-            if (field != null) e.removeField(field);
-          }
-        });
-        return;
-      }
+    // A field can now be selected from normal/select mode as well as the
+    // form tool (including by right-click). Dropping only its /Annots entry
+    // would leave /AcroForm /Fields dangling, so remove the whole field
+    // regardless of which tool happened to make the selection.
+    final fieldNames = <String>{};
+    for (final slot in _selected) {
+      final field = _widgetFieldForSlot(slot);
+      if (field != null) fieldNames.add(field.$1);
+    }
+    if (fieldNames.isNotEmpty) {
+      clearAnnotationSelection();
+      apply((e) {
+        for (final name in fieldNames) {
+          final field = e.acroForm?.fieldNamed(name);
+          if (field != null) e.removeField(field);
+        }
+      });
+      return;
     }
     deleteAnnotations(List.of(_selected));
   }
@@ -4930,31 +4936,71 @@ class PdfEditingController extends ChangeNotifier {
     return _rewriteSelectedRich(annotation, runs);
   }
 
-  /// Sets the (single) selected annotation's /Contents. For subtypes
-  /// whose contents are the displayed text (free text, stamps, notes)
-  /// this rewrites the annotation so the page matches; for everything
-  /// else it's a metadata edit - the comment shown in annotation lists -
-  /// and the artwork is untouched. Returns whether anything changed.
+  /// Whether /Contents can be assigned to the whole selection without
+  /// changing visible annotation text. Free-text boxes and caption stamps
+  /// need their appearances rebuilt individually, so bulk contents editing
+  /// deliberately stands down for a selection containing either subtype.
+  bool get canSetSelectedContents =>
+      _selected.isNotEmpty &&
+      _selected.every((slot) {
+        final annotation = _annotationAt(slot);
+        return annotation != null &&
+            annotation.subtype != 'Widget' &&
+            annotation.subtype != 'FreeText' &&
+            annotation.subtype != 'Stamp' &&
+            !annotation.isLockedContents;
+      });
+
+  /// Sets the selected annotation's /Contents. For a single subtype whose
+  /// contents are displayed text (free text, stamps, notes), this rewrites
+  /// the annotation so the page matches. Other annotations receive a
+  /// metadata-only comment edit. A bulk-safe selection is updated in one
+  /// revision. Returns whether anything changed.
   bool setSelectedContents(String text) {
     final annotation = selectedAnnotation;
-    if (annotation == null || _selected.length != 1) return false;
-    if (annotation.isLockedContents) return false;
-    if ((annotation.contents ?? '') == text) return false;
-    if (canEditSelectedText) {
-      setSelectedText(text);
-      return true;
+    if (annotation == null) return false;
+    if (_selected.length == 1) {
+      if (annotation.isLockedContents) return false;
+      if ((annotation.contents ?? '') == text) return false;
+      if (canEditSelectedText) {
+        setSelectedText(text);
+        return true;
+      }
+      final page = _selected.last.$1;
+      return apply(
+        (e) => e.setAnnotationContents(page, annotation, text),
+      );
     }
-    final page = _selected.last.$1;
-    // a tooltip/comment edit changes no page's rendering
-    return apply(
-      (e) => e.setAnnotationContents(page, annotation, text),
-    );
+    if (!canSetSelectedContents) return false;
+    final targets = <(int, PdfAnnotation)>[
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final target?) (slot.$1, target),
+    ];
+    if (targets.every((target) => (target.$2.contents ?? '') == text)) {
+      return false;
+    }
+    // Tooltip/comment edits change no page rendering.
+    return apply((e) {
+      for (final (page, target) in targets) {
+        e.setAnnotationContents(page, target, text);
+      }
+    });
   }
+
+  /// Whether /T is an author property for every selected annotation. Form
+  /// widgets use /T as their field name and therefore cannot participate.
+  bool get canSetSelectedAuthor =>
+      _selected.isNotEmpty &&
+      _selected.every((slot) {
+        final annotation = _annotationAt(slot);
+        return annotation != null && annotation.subtype != 'Widget';
+      });
 
   /// Sets the author (/T) on every selected annotation - one revision,
   /// one undo. Null or empty removes it. Returns whether anything
   /// changed.
   bool setSelectedAuthor(String? author) {
+    if (!canSetSelectedAuthor) return false;
     final value = (author != null && author.isEmpty) ? null : author;
     final targets = <(int, PdfAnnotation)>[
       for (final slot in _selected)

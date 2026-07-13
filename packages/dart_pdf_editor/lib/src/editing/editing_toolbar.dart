@@ -6,6 +6,8 @@ import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
     show
         PdfAlignment,
+        PdfFieldType,
+        PdfFormField,
         PdfLineEnding,
         PdfStandardFont,
         PdfTextAlign,
@@ -94,6 +96,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.textPrompt = showPdfTextPrompt,
     this.styledTextPrompt = showPdfStyledTextPrompt,
     this.imagePicker,
+    this.formImagePicker,
     this.onExportSelectedContentImage,
     this.fontPicker,
     this.onExportCustomStamps,
@@ -131,6 +134,10 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// How selected page-content images are replaced from the element strip.
   final PdfImagePicker? imagePicker;
+
+  /// How the selected push-button field's toolbar action obtains an image.
+  /// PNG and JPEG bytes are accepted. When null, the action is disabled.
+  final PdfFormImagePicker? formImagePicker;
 
   /// How selected page-content images are exported from the element strip.
   /// When null, the Save image button is hidden.
@@ -259,6 +266,17 @@ class _ToolGroup {
   final IconData icon;
   final List<_GroupTool> tools;
   final PdfEditTool? defaultTool;
+}
+
+enum _SelectedFormOverflowAction {
+  edit,
+  rename,
+  style,
+  typeText,
+  typeCheckBox,
+  typeButton,
+  delete,
+  flatten,
 }
 
 class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
@@ -708,6 +726,299 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           : 'No form fields to flatten',
       undoable: flattened,
     );
+  }
+
+  /// The selected radio widget's on-state. A field can have several widget
+  /// dictionaries, so the field name alone is not enough to identify which
+  /// option the toolbar should choose.
+  String? _selectedRadioState(PdfFormField field) {
+    final selected = controller.selectedAnnotation;
+    if (selected == null) return null;
+    for (var i = 0; i < field.widgets.length; i++) {
+      if (identical(field.widgets[i], selected.dict)) {
+        return field.widgetOnState(i);
+      }
+    }
+    return null;
+  }
+
+  /// Runs the selected field's value action from the contextual toolbar.
+  /// Selection is deliberately separate from activation: a right-click only
+  /// selects, then this explicit control edits/toggles/chooses the value.
+  Future<void> _editSelectedFormField(BuildContext context) async {
+    final name = controller.selectedWidgetFieldName;
+    if (name == null) return;
+    final field = controller.acroForm?.fieldNamed(name);
+    if (field == null || field.isReadOnly) return;
+    switch (field.type) {
+      case PdfFieldType.text:
+        final value = await widget.textPrompt(
+          context,
+          title: 'Field value',
+          initial: field.value ?? '',
+          multiline: field.isMultiline,
+        );
+        if (value != null) controller.setFormFieldText(name, value);
+      case PdfFieldType.checkBox:
+        controller.toggleFormCheckBox(name);
+      case PdfFieldType.radioGroup:
+        final state = _selectedRadioState(field);
+        if (state != null) controller.setFormRadioValue(name, state);
+      case PdfFieldType.comboBox || PdfFieldType.listBox:
+        if (field.options.isEmpty) return;
+        final overlay =
+            Overlay.of(context).context.findRenderObject()! as RenderBox;
+        final toolbar = context.findRenderObject();
+        final anchor = toolbar is RenderBox && toolbar.attached
+            ? toolbar.localToGlobal(Offset(toolbar.size.width / 2, 0))
+            : overlay.size.center(Offset.zero);
+        final picked = await showMenu<String>(
+          context: context,
+          position: RelativeRect.fromRect(
+            anchor & Size.zero,
+            Offset.zero & overlay.size,
+          ),
+          items: [
+            for (final (export, display) in field.options)
+              PopupMenuItem(
+                key: ValueKey('pdf-selected-form-option-$export'),
+                value: export,
+                child: Text(display),
+              ),
+          ],
+        );
+        if (picked != null) controller.setFormChoiceValue(name, picked);
+      case PdfFieldType.pushButton:
+        final picker = widget.formImagePicker;
+        if (picker == null) return;
+        final bytes = await picker(context, field);
+        if (bytes != null) {
+          await controller.setFormButtonImageAsync(name, bytes);
+        }
+      case PdfFieldType.signature || PdfFieldType.unknown:
+        return;
+    }
+  }
+
+  Future<void> _renameSelectedFormField(BuildContext context) async {
+    final name = controller.selectedWidgetFieldName;
+    if (name == null) return;
+    final renamed = await widget.textPrompt(
+      context,
+      title: 'Field name',
+      initial: name,
+    );
+    if (renamed == null || renamed.isEmpty || renamed == name) return;
+    controller.renameFormField(name, renamed);
+  }
+
+  ({IconData icon, String tooltip, bool enabled}) _selectedFormEditAction(
+      PdfFormField field) {
+    final enabled = !field.isReadOnly;
+    return switch (field.type) {
+      PdfFieldType.text => (
+          icon: Icons.edit_outlined,
+          tooltip: 'Edit field value',
+          enabled: enabled
+        ),
+      PdfFieldType.checkBox => (
+          icon: field.isChecked
+              ? Icons.check_box_outline_blank
+              : Icons.check_box_outlined,
+          tooltip: field.isChecked ? 'Clear check' : 'Check field',
+          enabled: enabled,
+        ),
+      PdfFieldType.radioGroup => (
+          icon: Icons.radio_button_checked,
+          tooltip: 'Select this option',
+          enabled: enabled && _selectedRadioState(field) != null,
+        ),
+      PdfFieldType.comboBox || PdfFieldType.listBox => (
+          icon: Icons.list_alt_outlined,
+          tooltip: 'Choose field value',
+          enabled: enabled && field.options.isNotEmpty,
+        ),
+      PdfFieldType.pushButton => (
+          icon: Icons.image_outlined,
+          tooltip: 'Set field image',
+          enabled: enabled && widget.formImagePicker != null,
+        ),
+      PdfFieldType.signature || PdfFieldType.unknown => (
+          icon: Icons.edit_off_outlined,
+          tooltip: 'This field has no editable value action',
+          enabled: false,
+        ),
+    };
+  }
+
+  /// Direct controls for a selected field. These replace the old field
+  /// context menu so right-click can remain a predictable selection gesture.
+  List<Widget> _selectedFormFieldActions(BuildContext context) {
+    final name = controller.selectedWidgetFieldName;
+    final field = name == null ? null : controller.acroForm?.fieldNamed(name);
+    if (field == null) return const [];
+    final edit = _selectedFormEditAction(field);
+    return [
+      IconButton(
+        key: const ValueKey('pdf-selected-form-edit'),
+        icon: Icon(edit.icon),
+        tooltip: edit.tooltip,
+        onPressed: edit.enabled ? () => _editSelectedFormField(context) : null,
+      ),
+      IconButton(
+        key: const ValueKey('pdf-selected-form-rename'),
+        icon: const Icon(Icons.drive_file_rename_outline),
+        tooltip: 'Rename field',
+        onPressed: () => _renameSelectedFormField(context),
+      ),
+      PdfSelectedFormFieldTypeMenu(
+        controller: controller,
+        buttonKey: const ValueKey('pdf-selected-form-field-type'),
+        itemKeyPrefix: 'pdf-selected-form-type',
+      ),
+      IconButton(
+        key: const ValueKey('pdf-selected-form-delete'),
+        icon: const Icon(Icons.delete_outline),
+        tooltip: 'Delete field',
+        onPressed: controller.deleteSelected,
+      ),
+      if (widget.showFlatten)
+        IconButton(
+          key: const ValueKey('pdf-selected-form-flatten'),
+          icon: const Icon(Icons.layers_clear_outlined),
+          tooltip: 'Flatten form - bake values into the pages',
+          onPressed: () => _flattenForm(context),
+        ),
+    ];
+  }
+
+  /// Compact counterpart to [_selectedFormFieldActions]. The selected field's
+  /// controls live behind one toolbar button so they fit beside the fixed
+  /// undo/redo and tools controls even on a 320pt-wide phone.
+  List<Widget> _selectedFormFieldMobileActions(BuildContext context) {
+    final name = controller.selectedWidgetFieldName;
+    final field = name == null ? null : controller.acroForm?.fieldNamed(name);
+    if (field == null) return const [];
+    final edit = _selectedFormEditAction(field);
+    return [
+      PopupMenuButton<_SelectedFormOverflowAction>(
+        key: const ValueKey('pdf-selected-form-more'),
+        tooltip: 'Field actions',
+        icon: const Icon(Icons.dynamic_form_outlined),
+        onSelected: (action) async {
+          switch (action) {
+            case _SelectedFormOverflowAction.edit:
+              await _editSelectedFormField(context);
+            case _SelectedFormOverflowAction.rename:
+              await _renameSelectedFormField(context);
+            case _SelectedFormOverflowAction.style:
+              final overlay =
+                  Overlay.of(context).context.findRenderObject()! as RenderBox;
+              final toolbar = context.findRenderObject();
+              final anchor = toolbar is RenderBox && toolbar.attached
+                  ? toolbar.localToGlobal(Offset(toolbar.size.width / 2, 0))
+                  : overlay.size.center(Offset.zero);
+              await showPdfFormTextStylePopup(
+                context: context,
+                position: anchor,
+                controller: controller,
+                fontPicker: widget.fontPicker,
+              );
+            case _SelectedFormOverflowAction.typeText:
+              controller.changeSelectedFormFieldKind(PdfFormFieldKind.text);
+            case _SelectedFormOverflowAction.typeCheckBox:
+              controller.changeSelectedFormFieldKind(PdfFormFieldKind.checkBox);
+            case _SelectedFormOverflowAction.typeButton:
+              controller
+                  .changeSelectedFormFieldKind(PdfFormFieldKind.pushButton);
+            case _SelectedFormOverflowAction.delete:
+              controller.deleteSelected();
+            case _SelectedFormOverflowAction.flatten:
+              _flattenForm(context);
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            key: const ValueKey('pdf-selected-form-edit'),
+            value: _SelectedFormOverflowAction.edit,
+            enabled: edit.enabled,
+            child: ListTile(
+              dense: true,
+              leading: Icon(edit.icon),
+              title: Text(edit.tooltip),
+            ),
+          ),
+          const PopupMenuItem(
+            key: ValueKey('pdf-selected-form-rename'),
+            value: _SelectedFormOverflowAction.rename,
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.drive_file_rename_outline),
+              title: Text('Rename field…'),
+            ),
+          ),
+          if (controller.canStyleSelectedFormField)
+            const PopupMenuItem(
+              key: ValueKey('pdf-selected-form-style'),
+              value: _SelectedFormOverflowAction.style,
+              child: ListTile(
+                dense: true,
+                leading: Icon(Icons.text_format),
+                title: Text('Text style…'),
+              ),
+            ),
+          PopupMenuItem(
+            key: const ValueKey('pdf-selected-form-type-text'),
+            value: _SelectedFormOverflowAction.typeText,
+            enabled: field.type != PdfFieldType.text,
+            child: const ListTile(
+              dense: true,
+              leading: Icon(Icons.text_fields),
+              title: Text('Convert to text field'),
+            ),
+          ),
+          PopupMenuItem(
+            key: const ValueKey('pdf-selected-form-type-checkbox'),
+            value: _SelectedFormOverflowAction.typeCheckBox,
+            enabled: field.type != PdfFieldType.checkBox,
+            child: const ListTile(
+              dense: true,
+              leading: Icon(Icons.check_box_outlined),
+              title: Text('Convert to check box'),
+            ),
+          ),
+          PopupMenuItem(
+            key: const ValueKey('pdf-selected-form-type-button'),
+            value: _SelectedFormOverflowAction.typeButton,
+            enabled: field.type != PdfFieldType.pushButton,
+            child: const ListTile(
+              dense: true,
+              leading: Icon(Icons.smart_button),
+              title: Text('Convert to image button'),
+            ),
+          ),
+          const PopupMenuItem(
+            key: ValueKey('pdf-selected-form-delete'),
+            value: _SelectedFormOverflowAction.delete,
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.delete_outline),
+              title: Text('Delete field'),
+            ),
+          ),
+          if (widget.showFlatten)
+            const PopupMenuItem(
+              key: ValueKey('pdf-selected-form-flatten'),
+              value: _SelectedFormOverflowAction.flatten,
+              child: ListTile(
+                dense: true,
+                leading: Icon(Icons.layers_clear_outlined),
+                title: Text('Flatten form'),
+              ),
+            ),
+        ],
+      ),
+    ];
   }
 
   void _flattenToast(BuildContext context, String message,
@@ -1264,6 +1575,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// popup carries stroke/font/etc).
   Widget _selectionStrip(BuildContext context) {
     final canRestyle = controller.canRestyleSelected;
+    final selectedFieldName = controller.selectedWidgetFieldName;
     final settings = <Widget>[
       if (widget.showColor && canRestyle) ..._colorCluster(context),
       if (widget.showColor && canRestyle && widget.showStyle)
@@ -1278,23 +1590,22 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              _StripLabel(switch (controller.selectedAnnotationSlots.length) {
-                1 => 'Selection',
-                final n => '$n selected',
-              }),
-              IconButton(
-                icon: const Icon(Icons.delete_outline),
-                tooltip: switch (controller.selectedAnnotationSlots.length) {
-                  1 => 'Delete annotation',
-                  final n => 'Delete $n annotations',
-                },
-                onPressed: controller.deleteSelected,
-              ),
-              if (controller.selectedWidgetFieldName != null)
-                PdfSelectedFormFieldTypeMenu(
-                  controller: controller,
-                  buttonKey: const ValueKey('pdf-selected-form-field-type'),
-                  itemKeyPrefix: 'pdf-selected-form-type',
+              _StripLabel(selectedFieldName == null
+                  ? switch (controller.selectedAnnotationSlots.length) {
+                      1 => 'Selection',
+                      final n => '$n selected',
+                    }
+                  : 'Field: $selectedFieldName'),
+              if (selectedFieldName != null)
+                ..._selectedFormFieldActions(context)
+              else
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: switch (controller.selectedAnnotationSlots.length) {
+                    1 => 'Delete annotation',
+                    final n => 'Delete $n annotations',
+                  },
+                  onPressed: controller.deleteSelected,
                 ),
               if (controller.canEditSelectedText)
                 IconButton(
@@ -1825,13 +2136,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// the swatches; anything else leaves the space to the tool label.
   List<Widget> _mobileTrailing(BuildContext context) {
     if (controller.hasAnnotationSelection) {
+      if (controller.selectedWidgetFieldName != null) {
+        return _selectedFormFieldMobileActions(context);
+      }
       return [
-        if (controller.selectedWidgetFieldName != null)
-          PdfSelectedFormFieldTypeMenu(
-            controller: controller,
-            buttonKey: const ValueKey('pdf-selected-form-field-type'),
-            itemKeyPrefix: 'pdf-selected-form-type',
-          ),
         IconButton(
           icon: const Icon(Icons.delete_outline),
           tooltip: switch (controller.selectedAnnotationSlots.length) {

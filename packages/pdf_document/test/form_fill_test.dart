@@ -46,6 +46,27 @@ void main() {
     expect(bbox, const PdfRect(0, 0, 228, 24));
   });
 
+  test('form appearances stay upright when document rotation is baked in', () {
+    final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()))
+      ..rotatePages([0], 90);
+    final added =
+        editor.addTextField(0, 'rotated', const PdfRect(340, 500, 364, 720));
+    editor.setTextValue(added, 'Added after rotation');
+
+    final doc = PdfDocument.open(editor.save());
+    expect(doc.page(0).rotation, 90);
+    final form = PdfAcroForm.of(doc)!;
+    for (final name in ['name', 'rotated']) {
+      final field = form.fieldNamed(name)!;
+      final mk = doc.cos.resolve(field.widgets.first['MK']) as CosDictionary;
+      expect(doc.cos.resolve(mk['R']), const CosInteger(90));
+      final content = widgetAppearance(doc, field);
+      expect(content, contains('0 1 -1 0'),
+          reason: '$name must counter-rotate inside the page transform');
+      expect(content, contains('cm'));
+    }
+  });
+
   test('resizeFormWidget rewrites /Rect and re-lays the value', () {
     final doc = fill((e, f) {
       e.setTextValue(f.fieldNamed('name')!, 'Resized');

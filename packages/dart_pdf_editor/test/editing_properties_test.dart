@@ -75,6 +75,27 @@ void main() {
       expect(editing.document.page(0).annotations[0].author, isNull);
       expect(editing.document.page(0).annotations[1].author, isNull);
     });
+
+    test('contents metadata applies to a bulk-safe selection as one undo', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 200, 660))
+        ..addEllipse(0, const PdfRect(250, 600, 350, 660));
+      addTearDown(editing.dispose);
+      editing.selectAllAnnotationsOn(0);
+
+      expect(editing.canSetSelectedContents, isTrue);
+      expect(editing.setSelectedContents('Shared comment'), isTrue);
+      expect(
+        editing.document.page(0).annotations.map((a) => a.contents),
+        everyElement('Shared comment'),
+      );
+
+      editing.undo();
+      expect(
+        editing.document.page(0).annotations.map((a) => a.contents),
+        everyElement(isNull),
+      );
+    });
   });
 
   group('properties panel', () {
@@ -331,6 +352,38 @@ void main() {
       expect(editing.selectedLineEndings?.$2, PdfLineEnding.closedArrow);
     });
 
+    testWidgets('mixed line endings show Varies and bulk edit', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addLine(0, (100, 600), (260, 620))
+        ..addLine(0, (100, 540), (260, 560));
+      addTearDown(editing.dispose);
+      editing.selectAnnotation(0, 0);
+      editing.setSelectedLineEndings(end: PdfLineEnding.closedArrow);
+      editing.selectAnnotation(0, 1);
+      editing.setSelectedLineEndings(end: PdfLineEnding.circle);
+      editing.selectAllAnnotationsOn(0);
+
+      await pumpPanel(tester, editing);
+
+      final end = find.byKey(const ValueKey('pdf-prop-line-end-ending'));
+      expect(tester.widget<DropdownButton<PdfLineEnding>>(end).value, isNull);
+      expect(find.descendant(of: end, matching: find.text('Varies')),
+          findsOneWidget);
+
+      await tester.tap(end);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Diamond').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        editing.document
+            .page(0)
+            .annotations
+            .map((annotation) => pdfLineEndings(annotation)!.$2),
+        everyElement(PdfLineEnding.diamond),
+      );
+    });
+
     testWidgets('free text gets alignment controls', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addFreeText(0, const PdfRect(100, 500, 320, 620), 'Hello');
@@ -401,6 +454,107 @@ void main() {
       expect(annotations[1].appearanceOpacity, lessThan(1));
       expect(annotations[0].appearanceOpacity,
           closeTo(annotations[1].appearanceOpacity, 1e-6));
+    });
+
+    testWidgets('mixed bulk properties show Varies and accept one value',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660))
+        ..addEllipse(0, const PdfRect(250, 600, 350, 660));
+      addTearDown(editing.dispose);
+
+      editing.selectAnnotation(0, 0);
+      expect(
+        editing.restyleSelected(
+          color: const Color(0xFF1E88E5),
+          strokeWidth: 2,
+          opacity: 1,
+        ),
+        isTrue,
+      );
+      expect(editing.setSelectedContents('First'), isTrue);
+      expect(editing.setSelectedAuthor('Alice'), isTrue);
+      editing.selectAnnotation(0, 1);
+      expect(
+        editing.restyleSelected(
+          color: const Color(0xFFE53935),
+          strokeWidth: 6,
+          opacity: 0.45,
+        ),
+        isTrue,
+      );
+      expect(editing.setSelectedContents('Second'), isTrue);
+      expect(editing.setSelectedAuthor('Bob'), isTrue);
+      editing.selectAllAnnotationsOn(0);
+
+      await pumpPanel(tester, editing);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('pdf-prop-type-value')),
+            )
+            .data,
+        'Varies',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('pdf-prop-page-value')),
+            )
+            .data,
+        '1',
+      );
+      expect(
+          find.byKey(const ValueKey('pdf-prop-color-varies')), findsOneWidget);
+
+      TextField readout(String key) => tester.widget<TextField>(
+            find.descendant(
+              of: find.byKey(ValueKey(key)),
+              matching: find.byType(TextField),
+            ),
+          );
+      expect(readout('pdf-prop-stroke-input').decoration?.hintText, 'Varies');
+      expect(readout('pdf-prop-opacity-input').decoration?.hintText, 'Varies');
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('pdf-prop-contents')),
+            )
+            .decoration
+            ?.hintText,
+        'Varies',
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('pdf-prop-author')),
+            )
+            .decoration
+            ?.hintText,
+        'Varies',
+      );
+
+      await submit(
+          tester, const ValueKey('pdf-prop-contents'), 'Shared comment');
+      expect(
+        editing.document.page(0).annotations.map((a) => a.contents),
+        everyElement('Shared comment'),
+      );
+      await submit(tester, const ValueKey('pdf-prop-author'), 'Team');
+      expect(
+        editing.document.page(0).annotations.map((a) => a.author),
+        everyElement('Team'),
+      );
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-prop-stroke-input')), '7');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(
+        editing.document.page(0).annotations.map((a) => a.borderWidth),
+        everyElement(7),
+      );
     });
 
     testWidgets('the dragged width persists as a preference', (tester) async {

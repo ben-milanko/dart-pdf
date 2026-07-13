@@ -110,6 +110,37 @@ void main() {
     expect(editing.isModified, isTrue, reason: 'the annotation was removed');
   });
 
+  testWidgets('a selected form field exposes its mobile toolbar controls',
+      (tester) async {
+    final editing = await pumpToolbar(tester, bytes: buildAcroFormPdf());
+    expect(editing.selectFormWidgetAt(0, 186, 712), isTrue);
+    await tester.pump();
+
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-more')), findsOneWidget);
+    expect(tester.takeException(), isNull,
+        reason: 'the field controls fit the 380px mobile dock');
+
+    await tester.tap(find.byKey(const ValueKey('pdf-selected-form-more')));
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-edit')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-rename')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-style')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-type-text')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-type-checkbox')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-type-button')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-delete')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-flatten')),
+        findsOneWidget);
+  });
+
   testWidgets('a selected content element surfaces mobile edit actions',
       (tester) async {
     final editing = await pumpToolbar(tester, bytes: buildMultiPagePdf(1));

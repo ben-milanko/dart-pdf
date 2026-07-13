@@ -2602,29 +2602,29 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     }
   }
 
-  /// Right-click (or two-finger tap): a context menu for mouse
-  /// platforms. With the form tool armed and a field under the click it
-  /// opens the field menu; over an annotation (or empty page area with
-  /// something on the clipboard) it opens the annotation menu - the hit
-  /// annotation joins the selection first, an already-selected one
-  /// keeping a multi-selection intact. Otherwise - reading mode, or a
-  /// click that lands on plain page text - it opens the text menu
-  /// (Copy / Select all).
+  /// Right-click (or two-finger tap) selects a form field so its controls
+  /// appear in the editing toolbar. Over an annotation (or empty page area
+  /// with something on the clipboard) it opens the annotation menu - the
+  /// hit annotation joins the selection first, an already-selected one
+  /// keeping a multi-selection intact. Otherwise - reading mode, or a click
+  /// that lands on plain page text - it opens the text menu (Copy / Select
+  /// all).
   Future<void> _onSecondaryTapUp(TapUpDetails details) async {
     final point = _pagePointAt(details.localPosition);
     if (point == null) return;
     final (page, x, y) = point;
     final editing = widget.editing;
     if (editing != null && !editing.isPickingColor) {
-      // existing form widgets get their field menu in normal/select/form
-      // modes. Drawing/content tools own the page, so they do not.
+      // Existing form widgets become the selection in normal/select/form
+      // modes. Their actions live in the contextual toolbar/properties
+      // panel; right-click is only the selection gesture. Drawing/content
+      // tools own the page, so they do not participate.
       if (editing.tool == null ||
           editing.tool == PdfEditTool.select ||
           editing.tool == PdfEditTool.form) {
         final field = editing.formFieldAt(page, x, y);
         if (field != null) {
-          await _showFormFieldMenu(details.globalPosition, field.$1.name,
-              widgetIndex: field.$2);
+          editing.selectFormWidgetAt(page, x, y);
           return;
         }
       }

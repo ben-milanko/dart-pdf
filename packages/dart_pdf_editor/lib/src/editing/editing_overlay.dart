@@ -2885,17 +2885,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
-  /// Whether a touch/stylus long-press at [position] would open a
-  /// context menu - checked on pointer DOWN (the recognizer only joins
-  /// the arena when this is true), so a long-press that has nothing to
-  /// offer never steals the gesture from text selection or the viewer.
+  /// Whether a touch/stylus long-press at [position] would open an
+  /// annotation context menu - checked on pointer DOWN (the recognizer only
+  /// joins the arena when this is true), so a long-press that has nothing to
+  /// offer never steals the gesture from text selection or the viewer. Form
+  /// fields use selection + toolbar controls instead of a long-press menu.
   bool _menuLongPressClaims(Offset position) {
     if (_pointers.gestureBailed) return false;
     final (x, y) = _geometry.toPagePoint(position);
-    if (_tool == PdfEditTool.form) {
-      return _controller.formFieldAt(widget.pageIndex, x, y) != null &&
-          _host.showFormFieldMenu != null;
-    }
+    if (_tool == PdfEditTool.form) return false;
     if (!_selectMode || _host.showAnnotationMenu == null) {
       return false;
     }
@@ -2910,14 +2908,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _onMenuLongPress(LongPressStartDetails details) {
     final position = details.localPosition;
     final (x, y) = _geometry.toPagePoint(position);
-    if (_tool == PdfEditTool.form) {
-      final field = _controller.formFieldAt(widget.pageIndex, x, y);
-      if (field == null) return;
-      HapticFeedback.selectionClick();
-      _host.showFormFieldMenu
-          ?.call(details.globalPosition, field.$1.name, widgetIndex: field.$2);
-      return;
-    }
     final hit = _controller.selectableAnnotationAt(widget.pageIndex, x, y);
     if (hit != null) {
       if (!_controller.isAnnotationSelected(widget.pageIndex, hit.$1)) {
@@ -4409,25 +4399,36 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final touch = _lastPointerKind == PointerDeviceKind.touch ||
         _lastPointerKind == PointerDeviceKind.stylus;
     final offset = touch ? const Offset(0, -64) : const Offset(16, -36);
+    final scale = _chromeScale;
     return Positioned(
-      left: anchor.dx + offset.dx,
-      top: anchor.dy + offset.dy,
-      child: FractionalTranslation(
-        translation: touch ? const Offset(-0.5, 0) : Offset.zero,
-        child: IgnorePointer(
-          child: Material(
-            key: ValueKey(keyValue),
-            color: const Color(0xE6202124),
-            elevation: 3,
-            borderRadius: BorderRadius.circular(6),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              child: Text(
-                text,
-                style: const TextStyle(
-                  color: Color(0xFFFFFFFF),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+      // [anchor] is page-overlay space. Counter-scale both the screen-space
+      // offset and the chip itself because the whole overlay is inside the
+      // viewer's zoom transform.
+      left: anchor.dx + offset.dx * scale,
+      top: anchor.dy + offset.dy * scale,
+      child: Transform.scale(
+        scale: scale,
+        alignment: Alignment.topLeft,
+        child: FractionalTranslation(
+          // Keep the translation inside the counter-scale transform: an
+          // outside translation would itself be magnified by page zoom.
+          translation: touch ? const Offset(-0.5, 0) : Offset.zero,
+          child: IgnorePointer(
+            child: Material(
+              key: ValueKey(keyValue),
+              color: const Color(0xE6202124),
+              elevation: 3,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    color: Color(0xFFFFFFFF),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
