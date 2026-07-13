@@ -2,8 +2,8 @@
 
 ## 1.4.2
 
-- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No
-  graphics API changes since 1.4.1.
+- Add geometry-free sparse-strip replay profiling so renderers can detect
+  painter-order fragmentation before path flattening and atlas generation.
 
 ## 1.4.1
 

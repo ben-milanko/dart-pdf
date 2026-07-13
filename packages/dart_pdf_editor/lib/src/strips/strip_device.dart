@@ -39,6 +39,7 @@ export 'package:pdf_graphics/raster.dart'
         StripPlan,
         StripPlanBinner,
         StripPlanMismatchError,
+        StripReplayProfile,
         decodeStripPlan,
         encodeStripPlan,
         stripFlattenTolerance;

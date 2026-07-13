@@ -16,3 +16,4 @@ export 'src/raster/strip_batch_data.dart';
 export 'src/raster/strip_binning_device.dart';
 export 'src/raster/strip_generator.dart';
 export 'src/raster/strip_plan.dart';
+export 'src/raster/strip_replay_profile.dart';

@@ -220,9 +220,20 @@ class PdfPageView extends StatefulWidget {
   /// retained replay costs about one frame.
   static int retainedZoomReplayMaxCommands = 20000;
 
-  /// Strip routing for pages ABOVE [retainedZoomReplayMaxCommands]: they DO
-  /// retain their scene, and zoom-driven re-rasters (full page and deep-zoom
-  /// detail patch) replay it through the sparse-strip shader device
+  /// Maximum estimated atlas batches allowed on the dense-page strip route.
+  ///
+  /// Command count alone does not predict strip performance. Some Visio/CAD
+  /// exports wrap nearly every small shape in its own clip, forcing thousands
+  /// of tiny painter-order batches. Every batch needs a separate alpha-atlas
+  /// upload; at that topology the cached canvas picture is dramatically
+  /// faster even though the page is dense. [StripReplayProfile] identifies
+  /// the fragmentation without flattening paths or generating coverage.
+  static int stripZoomReplayMaxEstimatedBatches = 256;
+
+  /// Strip routing for pages ABOVE [retainedZoomReplayMaxCommands] whose
+  /// topology stays under [stripZoomReplayMaxEstimatedBatches]: they retain
+  /// their scene, and zoom-driven re-rasters (full page and deep-zoom detail
+  /// patch) replay it through the sparse-strip shader device
   /// ([PdfRetainedScene.rasterizeStrips]) at the new ratio instead of
   /// re-rasterizing the cached nested picture. Pages under the ceiling keep
   /// the flat canvas replay - strips lose on office pages (fixed
@@ -854,10 +865,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     // instead of being discarded after the 1:1 replay below.
     final scene = await PdfRetainedScene.record(widget.page, plan: _renderPlan);
     _lastInterpretResultBytes = _logImageStats(pageIndex, scene.commands);
-    if (!_retainScene(scene.commands.length)) {
-      // Too dense to replay per zoom settle: take the 1:1 picture (it holds
-      // its own image refs) and drop the scene - the classic cached-picture
-      // path serves this page's zooms.
+    if (!_retainScene(scene.commands)) {
+      // Too dense or too fragmented to replay per zoom settle: take the 1:1
+      // picture (it holds its own image refs) and drop the scene - the classic
+      // cached-picture path serves this page's zooms.
       final picture = scene.replay(pixelRatio: 1);
       scene.dispose();
       return (picture, null, false);
@@ -865,15 +876,21 @@ class _PdfPageViewState extends State<PdfPageView> {
     return (scene.replay(pixelRatio: 1), scene, false);
   }
 
-  /// Whether a page recorded as [commandCount] top-level commands should
-  /// retain its scene - the [PdfPageView.retainedZoomReplay] switch plus the
+  /// Whether a page's recorded commands should retain their scene - the
+  /// [PdfPageView.retainedZoomReplay] switch plus the
   /// [PdfPageView.retainedZoomReplayMaxCommands] density ceiling. With
-  /// [PdfPageView.stripZoomReplay] on, over-ceiling pages retain too: their
-  /// zooms re-bin through the strip device instead of the flat replay.
-  static bool _retainScene(int commandCount) =>
+  /// [PdfPageView.stripZoomReplay] on, eligible over-ceiling pages retain too:
+  /// their zooms re-bin through the strip device instead of the flat replay.
+  static bool _retainScene(List<PdfRenderCommand> commands) =>
       PdfPageView.retainedZoomReplay &&
-      (commandCount <= PdfPageView.retainedZoomReplayMaxCommands ||
-          (PdfPageView.stripZoomReplay && _stripBackendSupported));
+      (commands.length <= PdfPageView.retainedZoomReplayMaxCommands ||
+          _stripReplayCommands(commands));
+
+  static bool _stripReplayCommands(List<PdfRenderCommand> commands) =>
+      PdfPageView.stripZoomReplay &&
+      _stripBackendSupported &&
+      StripReplayProfile.of(commands).estimatedBatchCount <=
+          PdfPageView.stripZoomReplayMaxEstimatedBatches;
 
   /// Whether the runtime backend supports the strip route: web (validated
   /// through the worker/device probe), or a non-iOS native Impeller backend
@@ -895,7 +912,9 @@ class _PdfPageViewState extends State<PdfPageView> {
   static bool _stripReplayScene(PdfRetainedScene scene) =>
       PdfPageView.stripZoomReplay &&
       _stripBackendSupported &&
-      scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands;
+      scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands &&
+      scene.stripReplayEstimatedBatchCount <=
+          PdfPageView.stripZoomReplayMaxEstimatedBatches;
 
   bool _slugPictureScene(PdfRetainedScene? scene) =>
       scene != null &&
@@ -912,7 +931,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   Future<(ui.Picture, PdfRetainedScene?)> _replayableFromCommands(
     List<PdfRenderCommand> commands,
   ) async {
-    if (!_retainScene(commands.length)) {
+    if (!_retainScene(commands)) {
       return (
         await PdfPageRenderer.pictureFromCommandsWithPlan(
           widget.page,
@@ -961,13 +980,14 @@ class _PdfPageViewState extends State<PdfPageView> {
       return;
     }
 
+    final retainScene = _retainScene(commands);
     if (!PdfPageRenderer.hasImageDraws(commands)) {
       // Image-free page: this fast buffer already is the complete page. Cache
       // it (and its retained scene) so the full pass reuses it instead of
       // recording a second time; the normal raster path below paints it.
       _lastInterpretPath = 'worker';
       _lastInterpretResultBytes = 0;
-      if (_retainScene(commands.length)) {
+      if (retainScene) {
         // No images to decode, so this completes synchronously in practice.
         final scene = await PdfRetainedScene.fromCommands(
           widget.page,
@@ -1003,10 +1023,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     PdfPerfLog.log(
       'vector-first detail page=$pageIndex '
       'scale=${widget.scale.toStringAsFixed(2)} eligible=$needsDetail '
-      'retained=${_retainScene(commands.length)} '
+      'retained=$retainScene '
       'commands=${commands.length}',
     );
-    if (needsDetail && _retainScene(commands.length)) {
+    if (needsDetail && retainScene) {
       final scene = await PdfRetainedScene.fromCommands(
         widget.page,
         commands,

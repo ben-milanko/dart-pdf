@@ -14,6 +14,8 @@
 - Prevent dense pages from rendering as solid magenta on iPad by routing iOS
   deep-zoom replay through the stable canvas path instead of shader-backed
   sparse strips.
+- Keep clip-heavy Visio and CAD pages responsive by detecting fragmented
+  sparse-strip plans before worker binning and using cached canvas replay.
 
 ## 1.4.1
 
