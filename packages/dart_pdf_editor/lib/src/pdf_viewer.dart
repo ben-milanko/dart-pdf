@@ -22,6 +22,7 @@ import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
+import 'mouse_cursor.dart';
 import 'page_geometry.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
@@ -1015,7 +1016,8 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   // text selection: (pageIndex, offset into that page's text)
   (int, int)? _selAnchor;
   (int, int)? _selFocus;
-  MouseCursor _hoverCursor = MouseCursor.defer;
+  PdfMouseCursorKind? _hoverCursor;
+  Offset? _hoverCursorPosition;
 
   /// Ctrl/Cmd held: wheel events bypass the list's scrolling and zoom the
   /// InteractiveViewer instead (the standard ctrl+wheel zoom).
@@ -1051,6 +1053,10 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
   /// The widget inside the zoom transform whose render box maps handle
   /// drags' global positions back into list coordinates.
   final GlobalKey _listSpaceKey = GlobalKey();
+
+  /// The untransformed viewer stack: page hover events arrive in list space,
+  /// but the custom cursor paints here so it stays screen-sized at any zoom.
+  final GlobalKey _viewerSpaceKey = GlobalKey();
 
   /// A mouse drag that started on empty page area (no text under the
   /// press) grab-pans the document instead of selecting text.
@@ -2852,31 +2858,68 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         editing.selectableAnnotationAt(point.$1, point.$2, point.$3) != null;
   }
 
+  Offset? _viewerCursorAt(Offset globalPosition) {
+    final box =
+        _viewerSpaceKey.currentContext?.findRenderObject() as RenderBox?;
+    return box?.globalToLocal(globalPosition);
+  }
+
+  /// The field-local form layer paints its own custom cursor above the page.
+  /// The viewer's general link/text/grab cursor must stand down on that rect.
+  bool _formOwnsCursorAt(Offset local) {
+    if (!widget.interactiveForms || !widget.showAnnotations) return false;
+    final controller = widget.editing ?? widget.formController;
+    final point = _pagePointAt(local);
+    if (controller == null || point == null) return false;
+    final hit = controller.formFieldAt(point.$1, point.$2, point.$3);
+    return hit != null &&
+        pdfFormFieldMouseCursor(hit.$1,
+                canPickButtonImage: widget.formImagePicker != null) !=
+            null;
+  }
+
+  bool get _editingOwnsCursor {
+    final editing = widget.editing;
+    return editing != null &&
+        (editing.tool != null ||
+            editing.isPickingColor ||
+            editing.hasAnnotationSelection ||
+            editing.pendingFlash != null);
+  }
+
   void _onHover(PointerHoverEvent event) {
     _lastPointerLocal = event.localPosition;
     if (_grabPanning) return; // grabbing keeps its cursor mid-drag
     final editing = widget.editing;
-    final MouseCursor cursor;
-    if (editing != null &&
+    final PdfMouseCursorKind? cursor;
+    if (_editingOwnsCursor || _formOwnsCursorAt(event.localPosition)) {
+      cursor = null;
+    } else if (editing != null &&
         editing.tool == null &&
         !editing.isPickingColor &&
         !editing.hasAnnotationSelection &&
         HardwareKeyboard.instance.isShiftPressed) {
       // Shift held in default editing mode: a drag rubber-bands a marquee
-      cursor = SystemMouseCursors.precise;
+      cursor = PdfMouseCursorKind.precise;
     } else if (_annotationAt(event.localPosition) != null ||
         (widget.onAnnotationTap != null &&
             _annotationHitAt(event.localPosition, actionsOnly: false) !=
                 null) ||
         _selectableAnnotationAt(event.localPosition)) {
-      cursor = SystemMouseCursors.click;
+      cursor = PdfMouseCursorKind.click;
     } else if (_textPositionAt(event.localPosition, tolerance: 8) != null) {
-      cursor = SystemMouseCursors.text;
+      cursor = PdfMouseCursorKind.text;
     } else {
       // empty page or canvas: a mouse drag grab-pans the document
-      cursor = SystemMouseCursors.grab;
+      cursor = PdfMouseCursorKind.grab;
     }
-    if (cursor != _hoverCursor) setState(() => _hoverCursor = cursor);
+    final position = cursor == null ? null : _viewerCursorAt(event.position);
+    if (cursor != _hoverCursor || position != _hoverCursorPosition) {
+      setState(() {
+        _hoverCursor = cursor;
+        _hoverCursorPosition = position;
+      });
+    }
   }
 
   /// ⌘C/Ctrl+C: an annotation selection copies to the editing
@@ -3069,6 +3112,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     _suppressTap = false;
     _lastPointerKind = event.kind;
     _lastPointerLocal = event.localPosition;
+    if ((event.kind == PointerDeviceKind.mouse ||
+            event.kind == PointerDeviceKind.trackpad) &&
+        _hoverCursor != null) {
+      _hoverCursorPosition = _viewerCursorAt(event.position);
+    }
     _panFlinger.stop();
     _touchFlinger.stop();
     _hBounceController.stop();
@@ -3093,6 +3141,18 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         (event.localPosition - lastLocal).distance < kDoubleTapSlop;
     _lastMouseDownStamp = event.timeStamp;
     _lastMouseDownLocal = event.localPosition;
+  }
+
+  void _onCursorPointerMove(PointerMoveEvent event) {
+    if ((event.kind != PointerDeviceKind.mouse &&
+            event.kind != PointerDeviceKind.trackpad) ||
+        _hoverCursor == null) {
+      return;
+    }
+    final position = _viewerCursorAt(event.position);
+    if (position != null && position != _hoverCursorPosition) {
+      setState(() => _hoverCursorPosition = position);
+    }
   }
 
   /// Completes a mouse double-click (second press, released without
@@ -3215,7 +3275,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       // instead (mouse drags don't reach the list's scrollable)
       _grabPanning = true;
       _beginMotionRenderHold();
-      setState(() => _hoverCursor = SystemMouseCursors.grabbing);
+      setState(() => _hoverCursor = PdfMouseCursorKind.grabbing);
       _controller._setSelection('');
       return;
     }
@@ -3301,7 +3361,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     if (!_grabPanning) return;
     _grabPanning = false;
     _scheduleMotionRenderHoldRelease();
-    setState(() => _hoverCursor = SystemMouseCursors.grab);
+    setState(() => _hoverCursor = PdfMouseCursorKind.grab);
   }
 
   /// Word granularity: spans from the anchor word through the word
@@ -4317,7 +4377,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
               // the canvas color behind the page: visible as margins when
               // zoomed out past fit-width
               color: canvasColor,
-              child: Stack(children: [
+              child: Stack(key: _viewerSpaceKey, children: [
                 InteractiveViewer(
                   transformationController: _transform,
                   maxScale: _effectiveMaxZoom,
@@ -4401,15 +4461,20 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                       // the list (its drag recognizers win the arena for touch);
                       // mouse drags fall through to this detector
                       child: MouseRegion(
-                        cursor: _hoverCursor,
+                        cursor: SystemMouseCursors.none,
                         onHover: _onHover,
                         onExit: (_) {
-                          if (_hoverCursor != MouseCursor.defer) {
-                            setState(() => _hoverCursor = MouseCursor.defer);
+                          if (_hoverCursor != null ||
+                              _hoverCursorPosition != null) {
+                            setState(() {
+                              _hoverCursor = null;
+                              _hoverCursorPosition = null;
+                            });
                           }
                         },
                         child: Listener(
                           onPointerDown: _onPointerDown,
+                          onPointerMove: _onCursorPointerMove,
                           onPointerUp: _onPointerUp,
                           child: GestureDetector(
                             onTapUp: _onTapUp,
@@ -4527,6 +4592,21 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
                             ),
                           ),
                         ),
+                      ),
+                    ),
+                  ),
+                ),
+                // The general viewer cursor paints outside the zoom
+                // transform, keeping one geometry and physical size on every
+                // platform and at every document zoom. Editing/form overlays
+                // own their local cursor rects and set this layer to null.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      key: const ValueKey('pdf-viewer-mouse-cursor'),
+                      painter: PdfMouseCursorPainter(
+                        kind: _hoverCursor,
+                        position: _hoverCursorPosition,
                       ),
                     ),
                   ),
@@ -5125,6 +5205,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 onSnapshot: widget.onSnapshot,
                                 pageColor: widget.pageColor,
                                 showAnnotations: widget.showAnnotations,
+                                interactiveForms: widget.interactiveForms,
                                 interactionHost: widget.interactionHost,
                                 interactionSession: widget.interactionSession,
                                 rasterCurrent: rasterCurrent,
