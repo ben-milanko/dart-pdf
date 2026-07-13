@@ -246,12 +246,12 @@ void _path(Canvas canvas, Path path, double s) {
 void _paintArrow(Canvas canvas, double s) {
   final path = Path()
     ..moveTo(0, 0)
-    ..lineTo(1.3, 18.5)
-    ..lineTo(5.7, 14.3)
-    ..lineTo(9.1, 21.2)
-    ..lineTo(13.2, 19.2)
-    ..lineTo(9.7, 12.4)
-    ..lineTo(15.7, 11.8)
+    ..lineTo(0.7, 16.8)
+    ..lineTo(4.4, 13.0)
+    ..lineTo(7.7, 19.5)
+    ..lineTo(11.1, 17.7)
+    ..lineTo(7.8, 11.3)
+    ..lineTo(13.3, 10.9)
     ..close();
   _path(canvas, path, s);
 }
@@ -279,10 +279,23 @@ void _paintPointerHand(Canvas canvas, double s) {
 }
 
 void _paintText(Canvas canvas, double s) {
-  _line(canvas, const Offset(0, -9), const Offset(0, 9), s);
-  _line(canvas, const Offset(-4, -9), const Offset(4, -9), s);
-  _line(canvas, const Offset(-4, 9), const Offset(4, 9), s);
-  _line(canvas, const Offset(-2.5, 0), const Offset(2.5, 0), s);
+  final outline = Paint()
+    ..color = const Color(0xE6000000)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 3 * s
+    ..strokeCap = StrokeCap.round;
+  final face = Paint()
+    ..color = const Color(0xFFFFFFFF)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2 * s
+    ..strokeCap = StrokeCap.round;
+  for (final paint in [outline, face]) {
+    canvas.drawLine(Offset(0, -9.5 * s), Offset(0, 9.5 * s), paint);
+    canvas.drawLine(Offset(-3.5 * s, -9.5 * s),
+        Offset(3.5 * s, -9.5 * s), paint);
+    canvas.drawLine(Offset(-3.5 * s, 9.5 * s),
+        Offset(3.5 * s, 9.5 * s), paint);
+  }
 }
 
 void _paintCrosshair(Canvas canvas, double s) {
