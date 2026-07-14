@@ -57,11 +57,15 @@ class PdfExtractedRun {
 /// painted as a quad rotates with the text instead of ballooning out to
 /// an axis-aligned bounding box.
 class PdfTextQuad {
-  const PdfTextQuad(this.corners);
+  const PdfTextQuad(this.corners, {this.isRightToLeft = false});
 
   /// The four `(x, y)` page-space points in perimeter order (ll, lr, ur,
   /// ul). Always length 4.
   final List<(double x, double y)> corners;
+
+  /// Whether logical text advances from the quad's right edge toward its
+  /// left edge. Selection chrome uses this to anchor its logical endpoints.
+  final bool isRightToLeft;
 
   /// The axis-aligned page-space bounding box of the four corners.
   PdfRect get bounds {
@@ -205,7 +209,12 @@ class PdfPageText {
       final logicalEnd = (overlapEnd - run.startIndex) / run.text.length;
       final f0 = run.isRightToLeft ? 1 - logicalEnd : logicalStart;
       final f1 = run.isRightToLeft ? 1 - logicalStart : logicalEnd;
-      quads.add(_quadOf(run.transform, run.width * f0, run.width * f1));
+      quads.add(_quadOf(
+        run.transform,
+        run.width * f0,
+        run.width * f1,
+        isRightToLeft: run.isRightToLeft,
+      ));
     }
     return quads;
   }
@@ -266,6 +275,49 @@ class PdfPageText {
     final logicalFraction = best.isRightToLeft ? 1 - fraction : fraction;
     return best.startIndex + (logicalFraction * best.text.length).round();
   }
+}
+
+/// Adds Unicode direction metadata suitable for putting extracted [text] on
+/// a plain-text clipboard.
+///
+/// Searchable PDF text remains in clean logical order. Each paragraph that
+/// contains strong RTL text is instead wrapped at copy time in the isolate
+/// matching its first strong character (`RLI` or `LRI`), followed by `PDI`.
+/// Isolates are paragraph-scoped, so line endings are preserved outside the
+/// controls. A paragraph already wrapped in `LRI`/`RLI`/`FSI` and `PDI` is
+/// left alone.
+///
+/// This follows the W3C guidance for carrying bidirectional metadata in
+/// plain text when markup is unavailable:
+/// https://www.w3.org/International/questions/qa-bidi-unicode-controls.en.html
+String pdfBidiIsolateForCopy(String text) {
+  if (text.isEmpty) return text;
+  return text.splitMapJoin(
+    RegExp(r'\r\n|[\r\n]'),
+    onMatch: (match) => match.group(0)!,
+    onNonMatch: _isolateBidiParagraph,
+  );
+}
+
+String _isolateBidiParagraph(String text) {
+  if (text.isEmpty || _hasOuterBidiIsolate(text)) return text;
+  _BidiKind? firstStrong;
+  var hasRightToLeft = false;
+  for (final rune in text.runes) {
+    final direction = _strongBidiKind(rune);
+    if (direction == null) continue;
+    firstStrong ??= direction;
+    if (direction == _BidiKind.rtl) hasRightToLeft = true;
+  }
+  if (!hasRightToLeft) return text;
+  final opener = firstStrong == _BidiKind.rtl ? '\u2067' : '\u2066';
+  return '$opener$text\u2069';
+}
+
+bool _hasOuterBidiIsolate(String text) {
+  final first = text.codeUnitAt(0);
+  return (first == 0x2066 || first == 0x2067 || first == 0x2068) &&
+      text.codeUnitAt(text.length - 1) == 0x2069;
 }
 
 /// A line of text inferred from positioned page text.
@@ -516,14 +568,22 @@ class PdfTextExtractor {
       flush();
     }
 
-    for (final item in line) {
-      add(item.separator, null);
+    final visualLine = _visualSourceOrder(line);
+    PdfTextRun? visualPrevious;
+    for (final item in visualLine) {
+      add(
+        visualPrevious == null
+            ? ''
+            : _separatorWithinVisualLine(visualPrevious, item.run),
+        null,
+      );
       final glyphs = item.run.glyphs;
       final hasGlyphText = glyphs != null &&
           glyphs.every((glyph) => glyph.text != null) &&
           glyphs.map((glyph) => glyph.text!).join() == item.run.text;
       if (!hasGlyphText) {
         add(item.run.text, item.run);
+        visualPrevious = item.run;
         continue;
       }
       var sourceOffset = 0;
@@ -543,6 +603,7 @@ class PdfTextExtractor {
         );
         sourceOffset += text.length;
       }
+      visualPrevious = item.run;
     }
     if (!hasRtl || hasUnpositionedRtl) return null;
 
@@ -591,6 +652,53 @@ class PdfTextExtractor {
       isRightToLeft: rightToLeft,
       mcid: source.mcid,
     ));
+  }
+
+  /// Orders separately positioned text-showing runs by their location along
+  /// the line's visual baseline. RTL layout engines commonly emit words in
+  /// logical order while placing each successive word farther left; using the
+  /// content-stream order in that case reverses the words a second time.
+  static List<_SourceRun> _visualSourceOrder(List<_SourceRun> line) {
+    if (line.length < 2) return line;
+    final baseline = line.first.run.transform;
+    final length = math.sqrt(baseline.a * baseline.a + baseline.b * baseline.b);
+    if (length <= 1e-9) return line;
+    final ux = baseline.a / length;
+    final uy = baseline.b / length;
+    final positioned = <({int index, double offset, _SourceRun source})>[
+      for (var i = 0; i < line.length; i++)
+        (
+          index: i,
+          offset: line[i].run.transform.e * ux + line[i].run.transform.f * uy,
+          source: line[i],
+        ),
+    ];
+    positioned.sort((a, b) {
+      final order = a.offset.compareTo(b.offset);
+      return order != 0 ? order : a.index.compareTo(b.index);
+    });
+    return [for (final item in positioned) item.source];
+  }
+
+  /// Reconstructs an inferred separator after source runs have been reordered
+  /// visually. The gap is measured along the preceding run's baseline so the
+  /// same logic works for rotated text.
+  static String _separatorWithinVisualLine(
+      PdfTextRun previous, PdfTextRun next) {
+    final em = previous.transform.scaleFactor;
+    final axisLength = math.sqrt(previous.transform.a * previous.transform.a +
+        previous.transform.b * previous.transform.b);
+    if (em <= 0 || axisLength <= 1e-9) return ' ';
+    final endX = previous.transform.transformX(previous.width, 0);
+    final endY = previous.transform.transformY(previous.width, 0);
+    final dx = next.transform.e - endX;
+    final dy = next.transform.f - endY;
+    final ux = previous.transform.a / axisLength;
+    final uy = previous.transform.b / axisLength;
+    final along = dx * ux + dy * uy;
+    final across = (dx * -uy + dy * ux).abs();
+    if (across > 0.5 * em || along > 0.15 * em) return ' ';
+    return '';
   }
 
   /// Extracts every page and infers paragraph blocks in reading order.
@@ -1063,6 +1171,20 @@ _BidiKind _bidiKind(int rune, _BidiKind? previous) {
   };
 }
 
+/// Strong direction only, for choosing a plain-text paragraph isolate.
+/// Numbers and neutral/formatting characters deliberately return null.
+_BidiKind? _strongBidiKind(int rune) {
+  if ((rune >= 0x10800 && rune <= 0x10FFF) ||
+      (rune >= 0x1E800 && rune <= 0x1EDFF)) {
+    return _BidiKind.rtl;
+  }
+  return switch (bidi.getCharacterType(rune)) {
+    bidi.CharacterType.rtl || bidi.CharacterType.al => _BidiKind.rtl,
+    bidi.CharacterType.ltr => _BidiKind.ltr,
+    _ => null,
+  };
+}
+
 String _reverseRunes(String text) =>
     String.fromCharCodes(text.runes.toList().reversed);
 
@@ -1083,18 +1205,26 @@ class _Column {
 /// Quad of the em-space span [x0]..[x1] (with conventional 0.25 em descent
 /// and 0.75 em ascent) mapped through [transform], in perimeter order
 /// (ll, lr, ur, ul). Rotated text yields a rotated parallelogram.
-PdfTextQuad _quadOf(PdfMatrix transform, double x0, double x1) {
+PdfTextQuad _quadOf(
+  PdfMatrix transform,
+  double x0,
+  double x1, {
+  bool isRightToLeft = false,
+}) {
   const descent = -0.25;
   const ascent = 0.75;
-  return PdfTextQuad([
-    for (final (x, y) in [
-      (x0, descent),
-      (x1, descent),
-      (x1, ascent),
-      (x0, ascent),
-    ])
-      (transform.transformX(x, y), transform.transformY(x, y)),
-  ]);
+  return PdfTextQuad(
+    [
+      for (final (x, y) in [
+        (x0, descent),
+        (x1, descent),
+        (x1, ascent),
+        (x0, ascent),
+      ])
+        (transform.transformX(x, y), transform.transformY(x, y)),
+    ],
+    isRightToLeft: isRightToLeft,
+  );
 }
 
 /// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped
