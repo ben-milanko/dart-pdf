@@ -21,6 +21,7 @@ PdfPageText _sample() => PdfPageText(
           transform: PdfMatrix(12, 1, -1, 12, 140, 700),
           width: 2.6,
           bounds: PdfRect(140, 694, 200, 712),
+          isRightToLeft: true,
         ),
       ],
     );
@@ -32,6 +33,7 @@ void _expectSame(PdfPageText a, PdfPageText b) {
   for (var i = 0; i < a.runs.length; i++) {
     expect(b.runs[i].text, a.runs[i].text);
     expect(b.runs[i].startIndex, a.runs[i].startIndex);
+    expect(b.runs[i].isRightToLeft, a.runs[i].isRightToLeft);
     expect(b.runs[i].width, a.runs[i].width);
     final ta = a.runs[i].transform, tb = b.runs[i].transform;
     expect([tb.a, tb.b, tb.c, tb.d, tb.e, tb.f],

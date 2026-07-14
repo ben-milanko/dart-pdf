@@ -16,6 +16,7 @@ environment:
   sdk: ^3.5.0
 
 dependencies:
+  bidi: ^2.0.13
   pdf_cos: ^1.4.4
   pdf_document: ^1.4.4
   image: ^4.9.1

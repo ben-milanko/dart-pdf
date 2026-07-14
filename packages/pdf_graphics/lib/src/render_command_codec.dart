@@ -50,7 +50,7 @@ import 'shading.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 1;
+const int _formatVersion = 2;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1146,6 +1146,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     for (final g in glyphs) {
       w.f64(g.offset);
       w.f64(g.offsetY);
+      w.strOpt(g.text);
       if (g.outline == null) {
         w.boolean(false);
       } else {
@@ -1184,9 +1185,10 @@ PdfTextRun _readTextRun(_Reader r) {
     for (var i = 0; i < n; i++) {
       final offset = r.f64();
       final offsetY = r.f64();
+      final text = r.strOpt();
       final outline = r.boolean() ? _readPath(r) : null;
-      glyphs[i] =
-          PdfGlyphPlacement(offset: offset, offsetY: offsetY, outline: outline);
+      glyphs[i] = PdfGlyphPlacement(
+          offset: offset, offsetY: offsetY, outline: outline, text: text);
     }
   }
   final invisible = r.boolean();
