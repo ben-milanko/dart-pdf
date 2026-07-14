@@ -363,6 +363,36 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         PdfReviewState.none => null,
       };
 
+  /// Thread actions should read like secondary links, not two primary
+  /// buttons repeated under every annotation. Desktop keeps the visual row
+  /// tight; touch-first platforms retain a comfortable 44px hit target.
+  ButtonStyle _threadActionStyle(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final compact = pdfPanelControlsRevealOnHover();
+    return TextButton.styleFrom(
+      minimumSize: Size(0, compact ? 24 : 44),
+      padding: const EdgeInsets.symmetric(horizontal: 7),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      textStyle: Theme.of(context)
+          .textTheme
+          .labelSmall
+          ?.copyWith(fontWeight: FontWeight.w500),
+    ).copyWith(
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return cs.onSurface.withValues(alpha: 0.38);
+        }
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.focused) ||
+            states.contains(WidgetState.pressed)) {
+          return cs.primary;
+        }
+        return cs.onSurfaceVariant;
+      }),
+    );
+  }
+
   /// Each comment in [root]'s reply tree with its depth (root = 0), in
   /// document/pre-order.
   static List<(PdfComment, int)> _flattenWithDepth(PdfComment root) {
@@ -456,33 +486,26 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     } else {
       final resolved = thread?.isResolved ?? false;
       widgets.add(Padding(
-        padding: const EdgeInsets.fromLTRB(52, 0, 12, 4),
-        child: Wrap(spacing: 0, children: [
-          TextButton.icon(
+        padding: const EdgeInsets.fromLTRB(56, 0, 12, 4),
+        child: Wrap(alignment: WrapAlignment.end, spacing: 2, children: [
+          TextButton(
             key: const ValueKey('pdf-reply-button'),
-            icon: const Icon(Icons.reply, size: 16),
-            label: const Text('Reply'),
-            style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 8)),
+            style: _threadActionStyle(context),
             onPressed: nm == null
                 ? null
                 : () => setState(() {
                       _replyingTo = nm;
                       _reply.text = '';
                     }),
+            child: const Text('Reply'),
           ),
-          TextButton.icon(
+          TextButton(
             key: const ValueKey('pdf-resolve-button'),
-            icon: Icon(resolved ? Icons.replay : Icons.check_circle_outline,
-                size: 16),
-            label: Text(resolved ? 'Reopen' : 'Resolve'),
-            style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 8)),
+            style: _threadActionStyle(context),
             onPressed: () => resolved
                 ? widget.controller.reopenThread(page, root)
                 : widget.controller.resolveThread(page, root),
+            child: Text(resolved ? 'Reopen' : 'Resolve'),
           ),
         ]),
       ));

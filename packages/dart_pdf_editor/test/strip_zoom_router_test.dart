@@ -1,8 +1,9 @@
 // The dense-page strip zoom router (PdfPageView.stripZoomReplay):
 //
-//  - flag ON + page above retainedZoomReplayMaxCommands -> the scene IS
-//    retained and zoom re-rasters re-bin through StripPdfDevice
-//    (observable via the device's batching telemetry);
+//  - flag ON + page above retainedZoomReplayMaxCommands and below the
+//    fragmentation guard -> the scene IS retained and zoom re-rasters re-bin
+//    through StripPdfDevice (observable via the device's batching telemetry);
+//  - fragmented dense pages keep the cached-picture path;
 //  - flag OFF -> exactly the #208 behavior: over-ceiling pages retain no
 //    scene and zoom via the classic cached-picture re-raster (no strip
 //    device activity at all);
@@ -28,10 +29,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 /// A one-page classic-xref PDF with solid vector content (fills + a
 /// stroke), so the strip device has geometry to bin (text through a
 /// non-embedded Type1 font would delegate to the canvas fallback).
-Uint8List buildVectorPdf() {
-  const content = '1 0 0 rg 72 600 200 100 re f '
-      '0 0 1 rg 300 300 150 220 re f '
-      '0 0.6 0 RG 6 w 72 100 m 500 250 l S';
+Uint8List _buildContentPdf(String content) {
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -57,6 +55,17 @@ Uint8List buildVectorPdf() {
     ..write('startxref\n$xrefOffset\n%%EOF\n');
   return ascii(buffer.toString());
 }
+
+Uint8List buildVectorPdf() => _buildContentPdf(
+      '1 0 0 rg 72 600 200 100 re f '
+      '0 0 1 rg 300 300 150 220 re f '
+      '0 0.6 0 RG 6 w 72 100 m 500 250 l S',
+    );
+
+Uint8List buildFragmentedVectorPdf() => _buildContentPdf(
+      'q 0 0 306 792 re W n 1 0 0 rg 72 600 200 100 re f Q '
+      'q 306 0 306 792 re W n 0 0 1 rg 340 300 150 220 re f Q',
+    );
 
 Future<Uint8List> _rgba(ui.Image image) async =>
     (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!
@@ -202,6 +211,37 @@ void main() {
     expect(zoomed.width, 612 * 3);
     expect(StripPdfDevice.totalFlushes, 0,
         reason: 'flag off must never touch the strip device');
+  });
+
+  testWidgets(
+      'fragmented dense pages keep the cached-picture path, '
+      'no strip activity', (tester) async {
+    PdfPageView.retainedZoomReplayMaxCommands = 0;
+    PdfPageView.stripZoomReplayMaxEstimatedBatches = 1;
+    PdfPageView.stripZoomReplay = true;
+    PdfPageView.debugStripZoomReplayBackendOverride = true;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.stripZoomReplayMaxEstimatedBatches = 256;
+      PdfPageView.stripZoomReplay = true;
+      PdfPageView.debugStripZoomReplayBackendOverride = null;
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildFragmentedVectorPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+        child:
+            SizedBox(width: 612, child: PdfPageView(page: page, scale: scale)));
+
+    StripPdfDevice.resetStats();
+    await tester.pumpWidget(at(1));
+    await settleRaster(tester, 612);
+    await tester.pumpWidget(at(3));
+    final zoomed = await settleRaster(tester, 612 * 3);
+    expect(zoomed.width, 612 * 3);
+    expect(StripPdfDevice.totalFlushes, 0,
+        reason: 'clip-per-shape pages must bypass fragmented atlas replay');
   });
 
   testWidgets('backend gate off: the flag is inert on non-Impeller backends',

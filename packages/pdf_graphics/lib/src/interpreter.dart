@@ -1942,7 +1942,8 @@ class PdfInterpreter {
     final hScale = _state.horizontalScale == 0 ? 1.0 : _state.horizontalScale;
     var advance = 0.0; // text-space along the writing direction (x or y)
     for (final code in codes) {
-      buffer.write(font.charFor(code));
+      final text = font.charFor(code);
+      buffer.write(text);
       if (glyphs != null) {
         if (vertical) {
           final v = font.verticalOriginOf(code);
@@ -1952,11 +1953,13 @@ class PdfInterpreter {
             offset: -v.x / hScale,
             offsetY: size == 0 ? 0 : advance / size - v.y,
             outline: font.outlineFor(code),
+            text: text,
           ));
         } else {
           glyphs.add(PdfGlyphPlacement(
             offset: emScale == 0 ? 0 : advance / emScale,
             outline: font.outlineFor(code),
+            text: text,
           ));
         }
       }

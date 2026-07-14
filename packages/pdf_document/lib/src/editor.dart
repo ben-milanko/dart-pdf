@@ -291,6 +291,7 @@ class PdfEditor {
     final next = (page.rotation + degrees) % 360;
     page.dict['Rotate'] = CosInteger(next < 0 ? next + 360 : next);
     _updater.markChanged(page.dict);
+    _regenerateFormAppearancesOnPage(index);
     _markContent([index]);
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
@@ -6,6 +7,106 @@ import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
 import 'editing_value_field.dart';
 import 'text_prompt.dart';
+
+/// A field-type menu for the single selected form widget.
+///
+/// The three targets mirror [PdfEditor.changeFieldType]. Existing radio,
+/// choice, and signature fields can still be converted to one of these
+/// creatable types; their current type is shown even though it is not a
+/// conversion target.
+class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
+  const PdfSelectedFormFieldTypeMenu({
+    super.key,
+    required this.controller,
+    required this.buttonKey,
+    required this.itemKeyPrefix,
+    this.showLabel = false,
+  });
+
+  final PdfEditingController controller;
+
+  /// Key on the popup trigger.
+  final Key buttonKey;
+
+  /// Prefix for the `-text`, `-checkbox`, and `-button` item keys.
+  final String itemKeyPrefix;
+
+  /// Shows the current type beside the icon, for a labelled panel row.
+  final bool showLabel;
+
+  static PdfFormFieldKind? _kind(PdfFieldType type) => switch (type) {
+        PdfFieldType.text => PdfFormFieldKind.text,
+        PdfFieldType.checkBox => PdfFormFieldKind.checkBox,
+        PdfFieldType.pushButton => PdfFormFieldKind.pushButton,
+        _ => null,
+      };
+
+  static String _label(PdfFieldType type) => switch (type) {
+        PdfFieldType.text => 'Text field',
+        PdfFieldType.checkBox => 'Check box',
+        PdfFieldType.radioGroup => 'Radio group',
+        PdfFieldType.pushButton => 'Image button',
+        PdfFieldType.comboBox => 'Combo box',
+        PdfFieldType.listBox => 'List box',
+        PdfFieldType.signature => 'Signature',
+        PdfFieldType.unknown => 'Unknown field',
+      };
+
+  static IconData _icon(PdfFieldType type) => switch (type) {
+        PdfFieldType.text => Icons.text_fields,
+        PdfFieldType.checkBox => Icons.check_box_outlined,
+        PdfFieldType.radioGroup => Icons.radio_button_checked,
+        PdfFieldType.pushButton => Icons.smart_button,
+        PdfFieldType.comboBox || PdfFieldType.listBox => Icons.list_alt,
+        PdfFieldType.signature => Icons.draw_outlined,
+        PdfFieldType.unknown => Icons.help_outline,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final type = controller.selectedWidgetFieldType;
+    if (type == null) return const SizedBox.shrink();
+    final label = _label(type);
+    return PopupMenuButton<PdfFormFieldKind>(
+      key: buttonKey,
+      tooltip: 'Field type: $label',
+      initialValue: _kind(type),
+      onSelected: controller.changeSelectedFormFieldKind,
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          key: ValueKey('$itemKeyPrefix-text'),
+          value: PdfFormFieldKind.text,
+          height: 34,
+          child: const Text('Text field'),
+        ),
+        PopupMenuItem(
+          key: ValueKey('$itemKeyPrefix-checkbox'),
+          value: PdfFormFieldKind.checkBox,
+          height: 34,
+          child: const Text('Check box'),
+        ),
+        PopupMenuItem(
+          key: ValueKey('$itemKeyPrefix-button'),
+          value: PdfFormFieldKind.pushButton,
+          height: 34,
+          child: const Text('Image button'),
+        ),
+      ],
+      icon: showLabel ? null : Icon(_icon(type)),
+      child: showLabel
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_icon(type), size: 18),
+                const SizedBox(width: 8),
+                Text(label),
+                const Icon(Icons.arrow_drop_down),
+              ],
+            )
+          : null,
+    );
+  }
+}
 
 /// A reusable column of controls that style the selected form text field's
 /// text - font family, bold/italic, alignment, auto-size, size, multiline,

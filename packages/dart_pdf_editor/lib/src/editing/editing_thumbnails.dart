@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../page_range_dialog.dart';
@@ -1717,6 +1718,7 @@ class _PageTileState extends State<_PageTile> {
           context: context,
           position: details.globalPosition,
           controller: controller,
+          viewerController: viewerController,
           pageIndex: pageIndex,
           allowPageEditing: allowPageEditing,
           onExportPages: onExportPages,
@@ -1897,6 +1899,7 @@ Future<void> _showPageTileMenu({
   required BuildContext context,
   required Offset position,
   required PdfEditingController controller,
+  required PdfViewerController viewerController,
   required int pageIndex,
   required bool allowPageEditing,
   required void Function(Uint8List bytes)? onExportPages,
@@ -1981,12 +1984,28 @@ Future<void> _showPageTileMenu({
     case _PageTileAction.insertBefore:
       controller.addBlankPage(at: pageIndex);
     case _PageTileAction.insertAfter:
-      controller.addBlankPage(at: pageIndex + 1);
+      final insertedPage = pageIndex + 1;
+      controller.addBlankPage(at: insertedPage);
+      unawaited(_jumpToInsertedPage(viewerController, insertedPage));
     case _PageTileAction.export:
       onExportPages?.call(controller.exportPages(targets));
     case _PageTileAction.delete:
       controller.removeSelectedPages();
   }
+}
+
+Future<void> _jumpToInsertedPage(
+  PdfViewerController viewerController,
+  int pageIndex,
+) async {
+  // The controller notification first rebuilds the viewer with the new page
+  // list. A geometry-changing revision then resets its old scroll position in
+  // a post-frame callback, so navigate on the following frame, after both the
+  // new list metrics and that reset have landed. `endOfFrame` schedules a
+  // frame when idle and avoids leaving a test-host timer behind.
+  await SchedulerBinding.instance.endOfFrame;
+  await SchedulerBinding.instance.endOfFrame;
+  await viewerController.jumpToPage(pageIndex);
 }
 
 PopupMenuItem<_PageTileAction> _pageMenuRow(

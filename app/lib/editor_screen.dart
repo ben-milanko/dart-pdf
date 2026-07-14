@@ -11,11 +11,13 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'digital_signature.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
 import 'incoming_file.dart';
+import 'new_document.dart';
 import 'ocr.dart';
 import 'pdf_cache.dart';
 import 'printing.dart';
@@ -46,6 +48,9 @@ class EditorScreen extends StatefulWidget {
     this.updateService,
     this.autoCheckUpdates = false,
     this.printDocument,
+    this.digitalSignatureOptionsProvider,
+    this.saveDocumentAs,
+    this.saveDocumentToPath,
     this.imageClipboardWriter,
     this.imageClipboardReader,
   });
@@ -75,6 +80,26 @@ class EditorScreen extends StatefulWidget {
   /// unavailable under flutter_test). Production leaves this null and the screen
   /// falls back to [printPdfBytes].
   final PdfPrinter? printDocument;
+
+  /// Overrides the certificate/key dialog used by Digitally sign. Tests and
+  /// hosts with an OS keychain or HSM can supply an identity without exposing
+  /// it through the app's file picker.
+  final DigitalSignatureOptionsProvider? digitalSignatureOptionsProvider;
+
+  /// Overrides the Save As backend. Tests use this seam to assert that the
+  /// active tab adopts the chosen file without opening platform dialogs.
+  final Future<SaveResult> Function(
+    BuildContext context,
+    Uint8List bytes,
+    String suggestedName,
+  )? saveDocumentAs;
+
+  /// Overrides in-place saving after a document has a writable origin.
+  final Future<SaveResult> Function(
+    Uint8List bytes,
+    String path, {
+    String? bookmark,
+  })? saveDocumentToPath;
 
   /// Override for writing a captured snapshot to the system clipboard. Tests
   /// inject a fake to assert the Snapshot tool's clipboard wiring without the
@@ -126,6 +151,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Whole-app read-only toggle: swaps [PdfEditorView] for [PdfReader].
   bool _readOnly = false;
+  bool _digitallySigning = false;
 
   @override
   void initState() {
@@ -491,6 +517,31 @@ class _EditorScreenState extends State<EditorScreen>
     } catch (e) {
       _openError('Open failed', 'Could not open the selected file\n$e');
     }
+  }
+
+  String _nextUntitledTitle() {
+    final titles = {for (final tab in _tabs) tab.title};
+    var number = 1;
+    while (true) {
+      final title = number == 1 ? 'Untitled.pdf' : 'Untitled $number.pdf';
+      if (!titles.contains(title)) return title;
+      number++;
+    }
+  }
+
+  Future<void> _newDocument() async {
+    final pageSize = await showNewDocumentDialog(context);
+    if (!mounted || pageSize == null) return;
+    final tab = DocumentTab.document(
+      title: _nextUntitledTitle(),
+      bytes: PdfBlankDocument.create(pageSize: pageSize),
+      preferences: _prefs,
+      initiallyDirty: true,
+    );
+    // A newly-created file is always an editing session, even if the previous
+    // document had switched the whole app into read-only mode.
+    _readOnly = false;
+    _addTab(tab);
   }
 
   /// Opens a file the OS handed us (association, share, launch arg).
@@ -885,18 +936,20 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
+    final saveAsDocument = widget.saveDocumentAs ?? saveBytesAs;
+    final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
-        ? await saveBytesToPath(
+        ? await saveToPath(
             bytes,
             tab.originPath!,
             bookmark: tab.originBookmark,
           )
-        : await saveBytesAs(context, bytes, tab.title);
+        : await saveAsDocument(context, bytes, tab.title);
     if (!mounted) return;
     if (inPlace && !result.succeeded) {
       // The origin couldn't be written (moved, read-only) - offer save-as.
-      result = await saveBytesAs(context, bytes, tab.title);
+      result = await saveAsDocument(context, bytes, tab.title);
       if (!mounted) return;
     }
     if (result.succeeded) {
@@ -910,8 +963,12 @@ class _EditorScreenState extends State<EditorScreen>
       setState(() {
         tab.markSaved();
         if (path != null) {
+          tab.title = path.split(RegExp(r'[/\\]')).last;
           tab.originPath = path;
           tab.originBookmark = bookmark;
+          // A stable Save As destination supersedes a private mobile/open
+          // snapshot. Session restore and future Save now follow the new file.
+          tab.cachePath = null;
         }
       });
       if (path != null) {
@@ -925,6 +982,35 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   // --- printing ------------------------------------------------------------
+
+  Future<void> _digitallySign(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null || _digitallySigning) return;
+    setState(() => _digitallySigning = true);
+    try {
+      final options = await (widget.digitalSignatureOptionsProvider ??
+          showDigitalSigningDialog)(context);
+      if (!mounted || options == null || !_tabs.contains(tab)) return;
+      await session.addDigitalSignature(
+        options.identity,
+        fieldName: options.fieldName,
+        reason: options.reason,
+        location: options.location,
+        contactInfo: options.contactInfo,
+      );
+      if (!mounted || !_tabs.contains(tab)) return;
+      // Signing is a document revision, then follows the normal save path so
+      // an existing origin is overwritten and an untitled document gets a
+      // Save As destination. Cancelling Save As leaves the signed tab dirty.
+      await _save(tab);
+    } on FormatException catch (error) {
+      if (mounted) _toast('Could not digitally sign: ${error.message}');
+    } catch (error) {
+      if (mounted) _toast('Could not digitally sign: $error');
+    } finally {
+      if (mounted) setState(() => _digitallySigning = false);
+    }
+  }
 
   /// Hands the active document to the OS print dialog (the `printing` plugin -
   /// native dialog on desktop/mobile, browser print on the web). The current
@@ -1071,6 +1157,17 @@ class _EditorScreenState extends State<EditorScreen>
       defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
+  bool get _showsSelectionCopyAction => switch (defaultTargetPlatform) {
+        TargetPlatform.android ||
+        TargetPlatform.iOS ||
+        TargetPlatform.fuchsia =>
+          true,
+        TargetPlatform.macOS ||
+        TargetPlatform.windows ||
+        TargetPlatform.linux =>
+          false,
+      };
+
   String _menuShortcut(String key, {bool shift = false}) => _usesAppleShortcuts
       ? '${shift ? '⇧' : ''}⌘$key'
       : 'Ctrl+${shift ? 'Shift+' : ''}$key';
@@ -1180,6 +1277,15 @@ class _EditorScreenState extends State<EditorScreen>
           BuildContext menuContext, DocumentTab? tab) =>
       [
         PopupMenuItem(
+          key: const ValueKey('menu-new-document'),
+          value: () => unawaited(_newDocument()),
+          child: _appMenuTile(
+            icon: Icons.note_add_outlined,
+            title: 'New document…',
+            shortcut: _menuShortcut('N'),
+          ),
+        ),
+        PopupMenuItem(
           key: const ValueKey('menu-open'),
           value: () => unawaited(_pickAndOpen()),
           child: _appMenuTile(
@@ -1192,11 +1298,22 @@ class _EditorScreenState extends State<EditorScreen>
         const PopupMenuDivider(),
         if (tab?.session != null) ...[
           PopupMenuItem(
+            key: const ValueKey('menu-save-as'),
             value: () => _save(tab!, saveAs: true),
             child: _appMenuTile(
               icon: Icons.save_as_outlined,
               title: 'Save as…',
               shortcut: _menuShortcut('S', shift: true),
+            ),
+          ),
+          PopupMenuItem(
+            key: const ValueKey('menu-digital-signature'),
+            enabled: !_digitallySigning,
+            value: () => unawaited(_digitallySign(tab!)),
+            child: _appMenuTile(
+              icon: Icons.verified_user_outlined,
+              title:
+                  _digitallySigning ? 'Digitally signing…' : 'Digitally sign…',
             ),
           ),
           PopupMenuItem(
@@ -1282,6 +1399,10 @@ class _EditorScreenState extends State<EditorScreen>
               _pickAndOpen,
           const SingleActivator(LogicalKeyboardKey.keyO, control: true):
               _pickAndOpen,
+          const SingleActivator(LogicalKeyboardKey.keyN, meta: true):
+              _newDocument,
+          const SingleActivator(LogicalKeyboardKey.keyN, control: true):
+              _newDocument,
           const SingleActivator(LogicalKeyboardKey.keyO,
               meta: true, shift: true): _openMostRecent,
           const SingleActivator(LogicalKeyboardKey.keyO,
@@ -1388,7 +1509,7 @@ class _EditorScreenState extends State<EditorScreen>
             ? const SizedBox.shrink()
             : _OcrStatusChip(status: status, onCancel: _ocr.cancel),
       ),
-      if (tab?.viewer != null)
+      if (_showsSelectionCopyAction && tab?.viewer != null)
         ListenableBuilder(
           listenable: tab!.viewer!,
           builder: (context, _) => !tab.viewer!.hasSelection

@@ -36,6 +36,24 @@ void main() {
       expect(editing.selectedFormFieldStyle, isNull);
     });
 
+    test('selected field conversion keeps the rebuilt widget selected', () {
+      final editing = controller();
+      editing.tool = PdfEditTool.form;
+      expect(editing.selectFormWidgetAt(0, 82, 550), isTrue);
+      expect(editing.selectedWidgetFieldName, 'agree');
+      expect(editing.selectedWidgetFieldType, PdfFieldType.checkBox);
+
+      expect(
+        editing.changeSelectedFormFieldKind(PdfFormFieldKind.pushButton),
+        isTrue,
+      );
+      expect(
+          editing.acroForm!.fieldNamed('agree')!.type, PdfFieldType.pushButton);
+      expect(editing.selectedWidgetFieldName, 'agree');
+      expect(editing.selectedWidgetFieldType, PdfFieldType.pushButton);
+      expect(editing.hasAnnotationSelection, isTrue);
+    });
+
     test('setFormFieldStyle rewrites /DA, /Q, /Ff and regenerates', () {
       final editing = controller();
       expect(
@@ -188,6 +206,93 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-form-style-multiline')),
           findsOneWidget);
+    });
+
+    testWidgets('selected toolbar changes the selected field type',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildAcroFormPdf());
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar:
+              PdfEditingToolbar(controller: editing, viewerController: viewer),
+        ),
+      ));
+      await tester.pump();
+
+      editing.tool = PdfEditTool.form;
+      expect(editing.selectFormWidgetAt(0, 82, 550), isTrue);
+      await tester.pumpAndSettle();
+
+      final typeMenu =
+          find.byKey(const ValueKey('pdf-selected-form-field-type'));
+      expect(typeMenu, findsOneWidget);
+      await tester.tap(typeMenu);
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-selected-form-type-button')));
+      await tester.pumpAndSettle();
+
+      expect(
+          editing.acroForm!.fieldNamed('agree')!.type, PdfFieldType.pushButton);
+      expect(editing.selectedWidgetFieldName, 'agree');
+      expect(typeMenu, findsOneWidget);
+    });
+
+    testWidgets('properties panel changes the selected field type',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildAcroFormPdf());
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => Row(children: [
+              Expanded(
+                child: PdfViewer(
+                  initialFit: PdfViewerFit.width,
+                  document: editing.document,
+                  controller: viewer,
+                  editing: editing,
+                ),
+              ),
+              PdfAnnotationPropertiesPanel(controller: editing),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      editing.tool = PdfEditTool.form;
+      expect(editing.selectFormWidgetAt(0, 82, 550), isTrue);
+      await tester.pumpAndSettle();
+
+      final typeMenu = find.byKey(const ValueKey('pdf-prop-form-type'));
+      expect(typeMenu, findsOneWidget);
+      expect(find.text('Check box'), findsOneWidget);
+      await tester.tap(typeMenu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-prop-form-type-text')));
+      await tester.pumpAndSettle();
+
+      expect(editing.acroForm!.fieldNamed('agree')!.type, PdfFieldType.text);
+      expect(editing.selectedWidgetFieldName, 'agree');
+      expect(find.text('Text field'), findsOneWidget);
     });
   });
 }

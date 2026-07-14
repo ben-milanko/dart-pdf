@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.4.5
+
+- Correct Arabic and other right-to-left page-text extraction, selection, and
+  copy ordering, including multi-word lines.
+
+## 1.4.4
+
+- Ship the regenerated editor web worker so browser builds include the current
+  form and fragmented-strip rendering fixes.
+
+## 1.4.3
+
+- Enlarge the DartPDF corner badge on PDF document thumbnails so it remains
+  recognizable at smaller Finder and Explorer icon sizes.
+- Keep drag-time thickness, opacity, and measurement indicators aligned and
+  consistently sized when the document is zoomed.
+- Make form-field right-click select the field and move its edit, rename,
+  conversion, delete, flatten, and style actions into the toolbar.
+- Remove the redundant selected-text copy button from the desktop app header;
+  keyboard and context-menu copy remain available.
+- Add proper certificate-backed PAdES digital signatures from the app menu,
+  using an RSA private key and X.509 certificate chain entirely in memory.
+- Create new blank PDFs from page-size and orientation presets, including
+  Ctrl/Cmd+N and correct unsaved-document handling.
+- Make Save As adopt the selected filename and writable origin for subsequent
+  saves while preserving the active editing and viewer sessions.
+
 ## 1.4.1
 
 - Windows: Snapshots now copy to the system clipboard instead of failing with

@@ -1040,7 +1040,7 @@ void main() {
       expect(editing.textAlign, PdfTextAlign.right);
     });
 
-    testWidgets('the style menu sets text fill and border defaults',
+    testWidgets('the style menu sets text colour, fill, and border defaults',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       final viewer = PdfViewerController();
@@ -1067,7 +1067,12 @@ void main() {
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
-      // marker yellow is palette slot 1, blue is slot 3
+      // foreground red is slot 0, marker yellow is slot 1, blue is slot 3
+      await tester.tap(find.byKey(const ValueKey('pdf-text-color-0')));
+      await tester.pump();
+      expect(editing.color, PdfEditingToolbar.defaultPalette[0]);
+      expect(find.byKey(const ValueKey('pdf-text-color-none')), findsNothing);
+
       await tester.tap(find.byKey(const ValueKey('pdf-text-fill-1')));
       await tester.pump();
       expect(editing.textFillColor, PdfEditingToolbar.defaultPalette[1]);
@@ -1114,8 +1119,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('pdf-text-border-0')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-text-color-3')));
+      await tester.pumpAndSettle();
 
       final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.color, 0x1E88E5);
       expect(style.fillColor, 0xFFD100);
       expect(style.borderColor, 0xE53935);
       expect(style.borderWidth, 2.5);

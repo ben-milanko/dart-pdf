@@ -241,6 +241,9 @@ extension PdfFormAdmin on PdfEditor {
       );
     }
     final page = document.page(pageIndex);
+    if (page.rotation != 0) {
+      dict['MK'] = CosDictionary({'R': CosInteger(page.rotation)});
+    }
 
     var formDict = cos.resolve(document.catalog['AcroForm']);
     if (formDict is! CosDictionary) {

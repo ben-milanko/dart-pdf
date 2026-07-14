@@ -31,7 +31,12 @@ enum PdfBlendMode {
 /// One glyph within a [PdfTextRun]: its outline (when the font is embedded
 /// and parsed) and its pen offset, both in em units.
 class PdfGlyphPlacement {
-  const PdfGlyphPlacement({required this.offset, this.offsetY = 0, this.outline});
+  const PdfGlyphPlacement({
+    required this.offset,
+    this.offsetY = 0,
+    this.outline,
+    this.text,
+  });
 
   /// Horizontal pen position within the run, in em units.
   final double offset;
@@ -44,6 +49,12 @@ class PdfGlyphPlacement {
   /// Glyph outline in em units (y-up, origin on the baseline), or null when
   /// the glyph is blank or its outline could not be parsed.
   final PdfPath? outline;
+
+  /// Best-effort Unicode mapped from this one PDF character code. A glyph can
+  /// map to multiple logical characters through /ToUnicode (for example an
+  /// Arabic ligature), so text extraction must preserve this boundary while
+  /// converting visual glyph order back to logical order.
+  final String? text;
 }
 
 /// One run of text from a single show-text operator.

@@ -46,17 +46,17 @@ shows PDF.js baselines, Dart renders, and diffs directly in GitHub.
 ## Performance
 
 Pure Dart is not a compromise on speed. On a real-world corpus (49 files /
-245 pages of CAD drawings, scans, reports, and forms), the parse +
-content-stream **interpreter is ~1.5x faster than PDFium**: **13.6 ms/page
-vs 20.6 ms/page** at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
-rasterization runs at 53.7 ms/page (2.6× PDFium); that remaining gap is image
+255 pages of CAD drawings, scans, reports, and forms), the parse +
+content-stream **interpreter is ~1.9× faster than PDFium**: **13.3 ms/page
+vs 24.9 ms/page** at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
+rasterization runs at 52.0 ms/page (2.08× PDFium); that remaining gap is image
 decoding and GPU raster + readback, not the interpreter.
 
 | engine | ms/page | vs PDFium |
 |---|---|---|
-| dart-pdf interpret (pure Dart, no raster) | **13.6** | **1.52x faster** |
-| PDFium (open + rasterize) | 20.6 | 1.00× |
-| dart-pdf render (full Flutter raster) | 53.7 | 2.60x slower |
+| dart-pdf interpret (pure Dart, no raster) | **13.3** | **1.87× faster** |
+| PDFium (open + rasterize) | 24.9 | 1.00× |
+| dart-pdf render (full Flutter raster) | 52.0 | 2.08× slower |
 
 The benchmark suite ships reproducible harnesses that diff dart-pdf against
 PDFium via `pypdfium2`, file by file. See [`benchmark/`](benchmark).

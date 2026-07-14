@@ -84,18 +84,18 @@ Built on the pure-Dart
 
 ## Performance
 
-Pure Dart, and fast: on a real-world corpus (49 files / 245 pages of
+Pure Dart, and fast: on a real-world corpus (49 files / 255 pages of
 CAD drawings, scans, reports, and forms) the parse + content-stream
-**interpreter is ~1.5x faster than PDFium**: **13.6 ms/page vs 20.6 ms/page**
+**interpreter is ~1.9× faster than PDFium**: **13.3 ms/page vs 24.9 ms/page**
 at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
-rasterization is 53.7 ms/page (2.6x PDFium); that remaining gap is image
+rasterization is 52.0 ms/page (2.08× PDFium); that remaining gap is image
 decoding and GPU raster, not the interpreter.
 
 | engine | ms/page | vs PDFium |
 |---|---|---|
-| dart-pdf interpret (pure Dart) | **13.6** | **1.52x faster** |
-| PDFium (open + rasterize) | 20.6 | 1.00× |
-| dart-pdf render (full Flutter raster) | 53.7 | 2.60x slower |
+| dart-pdf interpret (pure Dart) | **13.3** | **1.87× faster** |
+| PDFium (open + rasterize) | 24.9 | 1.00× |
+| dart-pdf render (full Flutter raster) | 52.0 | 2.08× slower |
 
 Numbers and methodology are in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
@@ -139,6 +139,9 @@ are byte prefixes of one buffer.
   stylus pressure and spline smoothing, shapes, free text with in-place
   editing, notes, stamps (including custom saved stamps), and a saved
   ink signature.
+- Certificate-backed digital signatures: load an in-memory RSA private key
+  and X.509 chain, then add a validated PAdES B-B signature as an undoable
+  document revision. This is separate from the drawn ink-signature tool.
 - Direct manipulation: select (single, marquee, ⌘A), move, resize, and
   rotate with live appearance previews, plus a slicing circle eraser,
   copy/cut/paste, z-order, restyling, and a context menu with
@@ -193,6 +196,18 @@ ListenableBuilder(
 
 // Saving
 final Uint8List saved = editing.bytes;
+
+// Cryptographically sign with PEM/DER key and certificate files.
+final identity = PdfDigitalSignatureIdentity.fromFiles(
+  privateKey: privateKeyBytes,
+  certificates: certificateFileBytes,
+);
+await editing.addDigitalSignature(
+  identity,
+  reason: 'Approved',
+  location: 'Melbourne',
+);
+final Uint8List signed = editing.bytes; // PAdES B-B, validated on commit
 ```
 
 The [example app](example) is a thin shell over `PdfEditorView` (with a

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.5
+
+- Preserve logical word order while reconstructing Arabic and other
+  right-to-left text, including multi-word lines and mixed-direction content.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No
+  graphics API changes since 1.4.3.
+
+## 1.4.3
+
+- Add geometry-free sparse-strip replay profiling so renderers can detect
+  painter-order fragmentation before path flattening and atlas generation.
+
 ## 1.4.2
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.2. No

@@ -74,7 +74,9 @@ def compose(size=1024):
     canvas.alpha_composite(fl)
 
     # app-icon logo badge, lower-right
-    bs = 372
+    # Keep the brand mark legible when the document icon is shown as a small
+    # Finder/Explorer thumbnail. It deliberately overhangs the page corner.
+    bs = 448
     logo = Image.open(APP_ICON).convert("RGBA").resize((bs, bs), Image.LANCZOS)
     bx, by = right - bs + 46, bottom - bs + 46
     bshadow = Image.new("RGBA", (s, s), (0, 0, 0, 0))

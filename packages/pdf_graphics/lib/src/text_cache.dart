@@ -10,7 +10,7 @@ import 'text_extraction.dart';
 /// Magic + version word at the head of an encoded [PdfPageText] blob.
 /// Bump the low byte when the layout below changes; mismatched blobs
 /// decode to null (a miss) rather than mis-parsing.
-const int _textBlobMagic = 0x50545831; // 'PTX1'
+const int _textBlobMagic = 0x50545832; // 'PTX2'
 
 /// Serializes [page] into a compact binary blob for the on-disk text
 /// cache. The format is little-endian and self-describing enough to
@@ -25,6 +25,7 @@ Uint8List pdfEncodePageText(PdfPageText page) {
   for (final run in page.runs) {
     out.str(run.text);
     out.i32(run.startIndex);
+    out.u8(run.isRightToLeft ? 1 : 0);
     final t = run.transform;
     out
       ..f64(t.a)
@@ -58,6 +59,7 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
     for (var i = 0; i < runCount; i++) {
       final runText = r.str();
       final startIndex = r.i32();
+      final isRightToLeft = r.u8() != 0;
       final transform =
           PdfMatrix(r.f64(), r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
       final width = r.f64();
@@ -68,6 +70,7 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
         transform: transform,
         width: width,
         bounds: bounds,
+        isRightToLeft: isRightToLeft,
       ));
     }
     return PdfPageText(pageIndex: pageIndex, text: text, runs: runs);
@@ -134,6 +137,8 @@ class _Writer {
     _builder.add(_scratch.buffer.asUint8List(0, 4));
   }
 
+  void u8(int value) => _builder.add([value & 0xff]);
+
   void f64(double value) {
     _scratch.setFloat64(0, value, Endian.little);
     _builder.add(_scratch.buffer.asUint8List(0, 8));
@@ -166,6 +171,8 @@ class _Reader {
     _offset += 4;
     return value;
   }
+
+  int u8() => _bytes[_offset++];
 
   double f64() {
     final value = _data.getFloat64(_offset, Endian.little);

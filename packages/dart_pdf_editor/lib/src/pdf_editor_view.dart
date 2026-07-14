@@ -753,6 +753,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     // save lives in the header now, not the dock
                     textPrompt: widget.textPrompt ?? showPdfTextPrompt,
                     imagePicker: widget.imagePicker,
+                    formImagePicker: widget.formImagePicker,
                     onExportSelectedContentImage:
                         widget.onExportSelectedContentImage,
                     fontPicker: widget.fontPicker,

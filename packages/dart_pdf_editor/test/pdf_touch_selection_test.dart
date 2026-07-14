@@ -23,14 +23,14 @@ void main() {
   Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
 
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
-      {int pages = 3}) async {
+      {int pages = 3, Uint8List? bytes}) async {
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: PdfViewer(
           initialFit: PdfViewerFit.width,
-          document: PdfDocument.open(buildMultiPagePdf(pages)),
+          document: PdfDocument.open(bytes ?? buildMultiPagePdf(pages)),
           controller: controller,
         ),
       ),
@@ -95,6 +95,50 @@ void main() {
   });
 
   group('long-press selection', () {
+    testWidgets('RTL selection starts on the right edge', (tester) async {
+      final controller = await pumpViewer(tester, bytes: buildRtlTextPdf());
+      await longPressSelect(tester, view(336, 720));
+
+      expect(controller.selectedText, 'اهلا');
+      final start =
+          tester.getCenter(find.byKey(const ValueKey('pdf-text-handle-start')));
+      final end =
+          tester.getCenter(find.byKey(const ValueKey('pdf-text-handle-end')));
+      expect(start.dx, closeTo(view(360, 720).dx, 1));
+      expect(end.dx, closeTo(view(312, 720).dx, 1));
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('RTL long-press selection keeps word order across lines',
+        (tester) async {
+      final controller = await pumpViewer(tester, bytes: buildRtlTextPdf());
+      final gesture = await tester.startGesture(view(336, 720));
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(view(276, 680));
+      await tester.pump();
+
+      expect(controller.selectedText, 'اهلا وسهلا\nكيف حالك');
+      await gesture.up();
+      await tester.pump();
+
+      final copied = <String?>[];
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String?);
+        }
+        return null;
+      });
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-text-selection-chip-copy')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(copied, [
+        '\u2067اهلا وسهلا\u2069\n'
+            '\u2067كيف حالك\u2069'
+      ]);
+    });
+
     testWidgets(
         'long press selects the word under the finger and shows '
         'handles and the chip', (tester) async {

@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.4.5
+
+- Correct selection and copy ordering for multi-word Arabic and other
+  right-to-left page text.
+
+## 1.4.4
+
+- Regenerate the bundled web render worker from the current sources so web
+  consumers receive the 1.4.3 form and fragmented-strip rendering fixes.
+
+## 1.4.3
+
+- Bake page rotation into regenerated form appearances so existing and newly
+  authored fields remain upright after rotating the document.
+- Add certificate-backed PAdES B-B digital signing to editing sessions via
+  `PdfDigitalSignatureIdentity` and `addDigitalSignature`, including key/cert
+  matching, validation before commit, and undo/redo support.
+- Allow a selected form field to be converted between text, check-box, and
+  image-button types from the contextual toolbar or properties panel while
+  keeping the rebuilt field selected.
+- Make form-field right-click select the field instead of opening an oversized
+  context menu, with value, rename, type, delete, flatten, and style actions in
+  the contextual toolbar.
+- Keep the floating stroke-width, opacity, and measurement readouts at a
+  constant screen size and cursor offset while the document is zoomed.
+- Show common and mixed (`Varies`) values for multi-selected annotations in
+  the properties panel, with bulk edits for compatible appearance, line,
+  contents, and author properties.
+- Restyle annotation-thread Reply and Resolve controls as compact, muted text
+  actions that emphasize only on hover, focus, or press.
+- Keep clip-heavy Visio and CAD pages responsive by detecting fragmented
+  sparse-strip plans before worker binning and using cached canvas replay.
+
 ## 1.4.2
 
 - Keep touch scrolling responsive on zoomed mixed-width documents when a

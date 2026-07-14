@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.5
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.5. No COS API
+  changes since 1.4.4.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No COS API
+  changes since 1.4.3.
+
+## 1.4.3
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.3. No COS API
+  changes since 1.4.2.
+
 ## 1.4.2
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.2. No COS API

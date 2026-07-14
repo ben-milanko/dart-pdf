@@ -1,6 +1,7 @@
 // Line-type (dash) styles, polygon fill, cross-page annotation moves, the
 // select-tool toggle-off, and the stroke/opacity drag readout.
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -179,6 +180,61 @@ void main() {
       await gesture.up();
       // drain the viewer's double-tap recognizer timer (touch gesture)
       await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('the drag readout stays screen-sized and offset under zoom',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      editing
+        ..tool = PdfEditTool.rectangle
+        ..strokeWidth = 4
+        ..opacity = 0.5;
+      await tester.pump();
+
+      Future<Rect> dragAndRead(Offset start, Offset end) async {
+        final gesture =
+            await tester.startGesture(start, kind: PointerDeviceKind.mouse);
+        await gesture.moveTo(end);
+        await tester.pump();
+        final rect =
+            tester.getRect(find.byKey(const ValueKey('pdf-style-readout')));
+        await gesture.up();
+        await tester.pump(const Duration(milliseconds: 400));
+        return rect;
+      }
+
+      const start = Offset(180, 220);
+      const end = Offset(300, 340);
+      final normal = await dragAndRead(start, end);
+      expect(normal.left - end.dx, closeTo(16, 0.5));
+      expect(normal.top - end.dy, closeTo(-36, 0.5));
+
+      // Public zoom is px/pt; twice fit-width means a 2× transform zoom.
+      viewer.setZoom(2 * scale);
+      await tester.pump();
+      final zoomed = await dragAndRead(start, end);
+
+      expect(zoomed.size.width, closeTo(normal.size.width, 0.5));
+      expect(zoomed.size.height, closeTo(normal.size.height, 0.5));
+      expect(zoomed.left - end.dx, closeTo(16, 0.5));
+      expect(zoomed.top - end.dy, closeTo(-36, 0.5));
     });
   });
 }

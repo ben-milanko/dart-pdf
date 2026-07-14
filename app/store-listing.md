@@ -32,7 +32,7 @@ Features:
 • Edit existing text and add images
 • Redaction
 • Fill form fields (text, checkboxes, radio buttons, dropdowns), or add your own
-• Drawn signatures, placed anywhere on the page
+• Drawn signatures placed anywhere, plus certificate-backed PAdES digital signatures
 • OCR scanned PDFs so text can be selected and searched
 • Reorder, delete, and export pages to a new file
 • Full-text search, text selection, and links
@@ -70,7 +70,7 @@ Features:
 • Edit existing text and add images
 • Redaction
 • Fill form fields (text, checkboxes, radio buttons, dropdowns), or add your own
-• Drawn signatures, placed anywhere on the page
+• Drawn signatures placed anywhere, plus certificate-backed PAdES digital signatures
 • OCR scanned PDFs so text can be selected and searched
 • Reorder, delete, and export pages to a new file
 • Full-text search, text selection, and links
@@ -83,7 +83,10 @@ Runs on Android, iPhone, iPad, and Mac, plus Windows, Linux, and the web. Opens 
 ---
 
 ## Notes for whoever fills the listing
-- **Don't overclaim:** the app does *drawn* signatures (place your handwritten mark), not certified PKI/digital signatures. Keep the copy as written.
+- Signature wording can distinguish the two shipped flows: drawn signatures
+  are movable ink annotations; digital signatures are RSA/X.509 PAdES B-B
+  approval signatures. DartPDF validates the cryptographic result but does not
+  issue certificates or claim that a signer is trusted by a particular PKI.
 - OCR/text-recognition can be advertised, but keep the privacy wording exact:
   native builds download a model once and then run OCR on device; web builds
   download browser model/runtime files and run OCR in the browser. Do not imply

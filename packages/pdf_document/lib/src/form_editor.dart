@@ -49,28 +49,21 @@ extension PdfFormFilling on PdfEditor {
     final imageRef = _updater.addObject(
       image.toXObject((smask) => _updater.addObject(smask)),
     );
-    for (final widget in field.widgets) {
+    final widgets = field.widgets;
+    for (var i = 0; i < widgets.length; i++) {
+      final widget = widgets[i];
       final rect = pdfRectFrom(document.cos, widget['Rect']);
       if (rect == null || rect.width <= 0 || rect.height <= 0) continue;
       final w = rect.width, h = rect.height;
-      final scale = math.min(w / image.width, h / image.height);
-      final dw = image.width * scale, dh = image.height * scale;
-
-      final writer = ContentWriter();
-      _paintWidgetDecorations(writer, widget, w, h);
-      writer
-        ..save()
-        ..concatMatrix(dw, 0, 0, dh, (w - dw) / 2, (h - dh) / 2)
-        ..drawXObject('Img0')
-        ..restore();
-
-      final form = _widgetForm(
+      final rotation = _prepareWidgetRotation(field, i, widget);
+      final form = _buttonImageForm(
+        widget,
         w,
         h,
-        writer,
-        resources: CosDictionary({
-          'XObject': CosDictionary({'Img0': imageRef}),
-        }),
+        rotation,
+        image.width.toDouble(),
+        image.height.toDouble(),
+        imageRef,
       );
       _setNormalAppearance(widget, form);
       if (!identical(widget, field.dict)) _stageFormDict(field, widget);
@@ -137,6 +130,164 @@ extension PdfFormFilling on PdfEditor {
   // ---------------------------------------------------------------------
   // buttons
 
+  static int _normalizeWidgetRotation(int rotation) {
+    final value = rotation % 360;
+    return value < 0 ? value + 360 : value;
+  }
+
+  int _widgetPageRotation(PdfFormField field, int widgetIndex) {
+    final pageIndex = field.widgetPageIndex(widgetIndex);
+    if (pageIndex < 0 || pageIndex >= document.pageCount) return 0;
+    return _normalizeWidgetRotation(document.page(pageIndex).rotation);
+  }
+
+  int? _declaredWidgetRotation(CosDictionary widget) {
+    final mk = document.cos.resolve(widget['MK']);
+    if (mk is! CosDictionary) return null;
+    final raw = document.cos.resolve(mk['R']);
+    return switch (raw) {
+      CosInteger(:final value) => _normalizeWidgetRotation(value),
+      CosReal(:final value) => _normalizeWidgetRotation(value.round()),
+      _ => null,
+    };
+  }
+
+  /// The widget's /MK /R is the persistent declaration; fields without one
+  /// inherit the page's rotation so appearances authored by this editor stay
+  /// upright on an already-rotated page.
+  int _prepareWidgetRotation(
+      PdfFormField field, int widgetIndex, CosDictionary widget) {
+    final declared = _declaredWidgetRotation(widget);
+    if (declared != null) return declared;
+    final rotation = _widgetPageRotation(field, widgetIndex);
+    if (rotation != 0) _setWidgetRotation(widget, rotation);
+    return rotation;
+  }
+
+  void _setWidgetRotation(CosDictionary widget, int rotation) {
+    final existing = document.cos.resolve(widget['MK']);
+    final mk = CosDictionary({
+      if (existing is CosDictionary) ...existing.entries,
+    });
+    final normalized = _normalizeWidgetRotation(rotation);
+    if (normalized == 0) {
+      mk.entries.remove('R');
+    } else {
+      mk['R'] = CosInteger(normalized);
+    }
+    if (mk.entries.isEmpty) {
+      widget.entries.remove('MK');
+    } else {
+      // Reassign rather than mutate: /MK may itself be indirect.
+      widget['MK'] = mk;
+    }
+  }
+
+  static PdfRect _orientedWidgetRect(double w, double h, int rotation) {
+    if (rotation == 0 || rotation == 180) return PdfRect(0, 0, w, h);
+    final cx = w / 2, cy = h / 2;
+    return PdfRect(cx - h / 2, cy - w / 2, cx + h / 2, cy + w / 2);
+  }
+
+  static void _beginWidgetOrientation(
+      ContentWriter writer, double w, double h, int rotation) {
+    if (rotation == 0) return;
+    final cx = w / 2, cy = h / 2;
+    writer.save();
+    switch (rotation) {
+      case 90:
+        writer.concatMatrix(0, 1, -1, 0, cx + cy, cy - cx);
+      case 180:
+        writer.concatMatrix(-1, 0, 0, -1, 2 * cx, 2 * cy);
+      case 270:
+        writer.concatMatrix(0, -1, 1, 0, cx - cy, cx + cy);
+    }
+  }
+
+  static void _endWidgetOrientation(ContentWriter writer, int rotation) {
+    if (rotation != 0) writer.restore();
+  }
+
+  CosStream _buttonImageForm(
+    CosDictionary widget,
+    double w,
+    double h,
+    int rotation,
+    double imageWidth,
+    double imageHeight,
+    CosObject imageObject,
+  ) {
+    final visual = _orientedWidgetRect(w, h, rotation);
+    final scale =
+        math.min(visual.width / imageWidth, visual.height / imageHeight);
+    final dw = imageWidth * scale, dh = imageHeight * scale;
+    final writer = ContentWriter();
+    _beginWidgetOrientation(writer, w, h, rotation);
+    _paintWidgetDecorations(writer, widget, visual);
+    writer
+      ..save()
+      ..concatMatrix(
+        dw,
+        0,
+        0,
+        dh,
+        visual.left + (visual.width - dw) / 2,
+        visual.bottom + (visual.height - dh) / 2,
+      )
+      ..drawXObject('Img0')
+      ..restore();
+    _endWidgetOrientation(writer, rotation);
+    return _widgetForm(
+      w,
+      h,
+      writer,
+      resources: CosDictionary({
+        'XObject': CosDictionary({'Img0': imageObject}),
+      }),
+    );
+  }
+
+  /// Rebuilds form appearances on a page after its persistent /Rotate
+  /// changes. The page transform moves each widget rectangle; /MK /R plus
+  /// the generated appearance's counter-rotation keeps the field contents
+  /// upright in the newly oriented document.
+  void _regenerateFormAppearancesOnPage(int pageIndex) {
+    final form = acroForm;
+    if (form == null) return;
+    final rotation =
+        _normalizeWidgetRotation(document.page(pageIndex).rotation);
+    for (final field in form.fields) {
+      final widgets = field.widgets;
+      final targets = <int>[];
+      for (var i = 0; i < widgets.length; i++) {
+        if (field.widgetPageIndex(i) != pageIndex) continue;
+        targets.add(i);
+        _setWidgetRotation(widgets[i], rotation);
+        _stageFormDict(field, widgets[i]);
+      }
+      if (targets.isEmpty) continue;
+      switch (field.type) {
+        case PdfFieldType.text:
+          _regenerateVariableText(field, field.value ?? '');
+          _stageFormDict(field, field.dict);
+        case PdfFieldType.comboBox:
+        case PdfFieldType.listBox:
+          _regenerateVariableText(field, _choiceDisplay(field));
+          _stageFormDict(field, field.dict);
+        case PdfFieldType.checkBox:
+        case PdfFieldType.radioGroup:
+          for (final i in targets) {
+            _regenerateButtonStates(field, i, widgets[i]);
+            _stageFormDict(field, widgets[i]);
+          }
+        case PdfFieldType.pushButton:
+        case PdfFieldType.signature:
+        case PdfFieldType.unknown:
+          break;
+      }
+    }
+  }
+
   void _selectButtonState(PdfFormField field, String state) {
     field.dict['V'] = CosName(state);
     for (final widget in field.widgets) {
@@ -160,26 +311,30 @@ extension PdfFormFilling on PdfEditor {
   /// checked box is visible everywhere. Existing states are kept.
   void _ensureButtonAppearances(PdfFormField field) {
     final on = field.onStates.isEmpty ? 'Yes' : field.onStates.first;
-    for (final widget in field.widgets) {
+    final widgets = field.widgets;
+    for (var i = 0; i < widgets.length; i++) {
+      final widget = widgets[i];
       if (_widgetStates(widget).isNotEmpty) continue;
       final rect = pdfRectFrom(document.cos, widget['Rect']);
       if (rect == null || rect.width <= 0 || rect.height <= 0) continue;
       final w = rect.width, h = rect.height;
+      final rotation = _prepareWidgetRotation(field, i, widget);
+      final visual = _orientedWidgetRect(w, h, rotation);
 
-      ContentWriter background() {
+      ContentWriter appearance({required bool checked}) {
         final writer = ContentWriter();
-        _paintWidgetDecorations(writer, widget, w, h);
+        _beginWidgetOrientation(writer, w, h, rotation);
+        _paintWidgetDecorations(writer, widget, visual);
+        if (checked) _paintCheckMark(writer, visual);
+        _endWidgetOrientation(writer, rotation);
         return writer;
       }
 
-      final off = background();
-      final onWriter = background();
-      _paintCheckMark(onWriter, w, h);
-
       widget['AP'] = CosDictionary({
         'N': CosDictionary({
-          on: _updater.addObject(_widgetForm(w, h, onWriter)),
-          'Off': _updater.addObject(_widgetForm(w, h, off)),
+          on: _updater.addObject(_widgetForm(w, h, appearance(checked: true))),
+          'Off':
+              _updater.addObject(_widgetForm(w, h, appearance(checked: false))),
         }),
       });
     }
@@ -187,15 +342,18 @@ extension PdfFormFilling on PdfEditor {
 
   /// Strokes the standard check mark filling a [w]×[h] box (§12.7.4.2.3),
   /// shared by check-box generation and resize regeneration.
-  void _paintCheckMark(ContentWriter writer, double w, double h) {
-    final weight = (w < h ? w : h) * 0.12;
+  void _paintCheckMark(ContentWriter writer, PdfRect rect) {
+    final size = math.min(rect.width, rect.height);
+    final weight = size * 0.12;
+    final x = rect.left + (rect.width - size) / 2;
+    final y = rect.bottom + (rect.height - size) / 2;
     writer
       ..strokeColor(0x000000)
       ..lineWidth(weight < 1 ? 1 : weight)
       ..roundLines()
-      ..moveTo(w * 0.22, h * 0.52)
-      ..lineTo(w * 0.42, h * 0.30)
-      ..lineTo(w * 0.78, h * 0.72)
+      ..moveTo(x + size * 0.22, y + size * 0.52)
+      ..lineTo(x + size * 0.42, y + size * 0.30)
+      ..lineTo(x + size * 0.78, y + size * 0.72)
       ..stroke();
   }
 
@@ -204,27 +362,32 @@ extension PdfFormFilling on PdfEditor {
   /// export value). Used when a button widget is resized - unlike
   /// [_ensureButtonAppearances], it regenerates states that already
   /// exist so the mark refits the new box.
-  void _regenerateButtonStates(PdfFormField field, CosDictionary widget) {
+  void _regenerateButtonStates(
+      PdfFormField field, int widgetIndex, CosDictionary widget) {
     final rect = pdfRectFrom(document.cos, widget['Rect']);
     if (rect == null || rect.width <= 0 || rect.height <= 0) return;
     final w = rect.width, h = rect.height;
+    final rotation = _prepareWidgetRotation(field, widgetIndex, widget);
+    final visual = _orientedWidgetRect(w, h, rotation);
     final names = _widgetStates(widget).toSet();
     if (!names.any((s) => s != 'Off')) {
       names.add(field.onStates.isEmpty ? 'Yes' : field.onStates.first);
     }
     names.add('Off');
 
-    ContentWriter background() {
+    ContentWriter appearance({required bool checked}) {
       final writer = ContentWriter();
-      _paintWidgetDecorations(writer, widget, w, h);
+      _beginWidgetOrientation(writer, w, h, rotation);
+      _paintWidgetDecorations(writer, widget, visual);
+      if (checked) _paintCheckMark(writer, visual);
+      _endWidgetOrientation(writer, rotation);
       return writer;
     }
 
     final n = CosDictionary({});
     for (final state in names) {
-      final writer = background();
-      if (state != 'Off') _paintCheckMark(writer, w, h);
-      n[state] = _updater.addObject(_widgetForm(w, h, writer));
+      n[state] = _updater
+          .addObject(_widgetForm(w, h, appearance(checked: state != 'Off')));
     }
     widget['AP'] = CosDictionary({'N': n});
   }
@@ -271,7 +434,7 @@ extension PdfFormFilling on PdfEditor {
         _regenerateVariableText(field, _choiceDisplay(field));
       case PdfFieldType.checkBox:
       case PdfFieldType.radioGroup:
-        _regenerateButtonStates(field, widget);
+        _regenerateButtonStates(field, widgetIndex, widget);
       case PdfFieldType.pushButton:
       case PdfFieldType.signature:
       case PdfFieldType.unknown:
@@ -312,10 +475,14 @@ extension PdfFormFilling on PdfEditor {
         : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);
     final text = embedded != null ? rawText : sanitizeFieldText(rawText);
 
-    for (final widget in field.widgets) {
+    final widgets = field.widgets;
+    for (var widgetIndex = 0; widgetIndex < widgets.length; widgetIndex++) {
+      final widget = widgets[widgetIndex];
       final rect = pdfRectFrom(cos, widget['Rect']);
       if (rect == null || rect.width <= 0 || rect.height <= 0) continue;
       final w = rect.width, h = rect.height;
+      final rotation = _prepareWidgetRotation(field, widgetIndex, widget);
+      final visual = _orientedWidgetRect(w, h, rotation);
       const pad = 2.0;
       embedded?.resetUsage();
 
@@ -331,19 +498,19 @@ extension PdfFormFilling on PdfEditor {
           // auto-size: shrink until the wrapped block fits the height
           size = 12;
           while (size > 4) {
-            lines = _wrapWith(measure, text, size, w - 2 * pad);
-            if (lines.length * size * 1.15 <= h - 2 * pad) break;
+            lines = _wrapWith(measure, text, size, visual.width - 2 * pad);
+            if (lines.length * size * 1.15 <= visual.height - 2 * pad) break;
             size -= 0.5;
           }
         }
-        lines = _wrapWith(measure, text, size, w - 2 * pad);
+        lines = _wrapWith(measure, text, size, visual.width - 2 * pad);
       } else {
         final single = text.replaceAll('\n', ' ');
         if (size == 0) {
-          size = (h - 2 * pad) / 1.15;
+          size = (visual.height - 2 * pad) / 1.15;
           final width = measure(single, size);
-          if (width > w - 2 * pad && width > 0) {
-            size *= (w - 2 * pad) / width;
+          if (width > visual.width - 2 * pad && width > 0) {
+            size *= (visual.width - 2 * pad) / width;
           }
           size = size.clamp(4.0, 144.0);
         }
@@ -354,10 +521,12 @@ extension PdfFormFilling on PdfEditor {
           ? PdfTextDirection.rtl
           : textDirection.resolve(rawText);
       final writer = ContentWriter()..raw('/Tx BMC');
+      _beginWidgetOrientation(writer, w, h, rotation);
       writer.save();
-      _paintWidgetDecorations(writer, widget, w, h);
+      _paintWidgetDecorations(writer, widget, visual);
       writer
-        ..rect(1, 1, w - 2, h - 2)
+        ..rect(visual.left + 1, visual.bottom + 1, visual.width - 2,
+            visual.height - 2)
         ..clip()
         ..beginText();
       if (da.colorOps.isNotEmpty) writer.raw(da.colorOps);
@@ -369,32 +538,43 @@ extension PdfFormFilling on PdfEditor {
       var prevX = 0.0;
       var prevY = 0.0;
       final firstY = multiline
-          ? h - pad - ascent
-          : ((h - ascent) / 2 < pad ? pad : (h - ascent) / 2);
+          ? visual.top - pad - ascent
+          : visual.bottom +
+              ((visual.height - ascent) / 2 < pad
+                  ? pad
+                  : (visual.height - ascent) / 2);
       for (var i = 0; i < lines.length; i++) {
         final lineWidth = measure(lines[i], size);
         final x = switch (field.quadding) {
-          1 => (w - lineWidth) / 2 < pad ? pad : (w - lineWidth) / 2,
-          2 => w - pad - lineWidth < pad ? pad : w - pad - lineWidth,
+          1 => visual.left +
+              ((visual.width - lineWidth) / 2 < pad
+                  ? pad
+                  : (visual.width - lineWidth) / 2),
+          2 => visual.right - pad - lineWidth < visual.left + pad
+              ? visual.left + pad
+              : visual.right - pad - lineWidth,
           _ when resolvedDirection == PdfTextDirection.rtl =>
-            w - pad - lineWidth < pad ? pad : w - pad - lineWidth,
-          _ => pad,
+            visual.right - pad - lineWidth < visual.left + pad
+                ? visual.left + pad
+                : visual.right - pad - lineWidth,
+          _ => visual.left + pad,
         };
         final y = firstY - i * size * 1.15;
-        final visual = pdfVisualText(lines[i], resolvedDirection);
+        final renderedText = pdfVisualText(lines[i], resolvedDirection);
         writer.textAt(x - prevX, y - prevY);
         if (embedded != null) {
-          writer.showGlyphHex(embedded.encodeHex(visual));
+          writer.showGlyphHex(embedded.encodeHex(renderedText));
         } else {
-          writer.showText(visual);
+          writer.showText(renderedText);
         }
         prevX = x;
         prevY = y;
       }
       writer
         ..endText()
-        ..restore()
-        ..raw('EMC');
+        ..restore();
+      _endWidgetOrientation(writer, rotation);
+      writer.raw('EMC');
 
       // the embedded font's resource carries only the glyphs just shown
       // (encodeHex recorded them); build it after the content stream
@@ -414,8 +594,7 @@ extension PdfFormFilling on PdfEditor {
   void _paintWidgetDecorations(
     ContentWriter writer,
     CosDictionary widget,
-    double w,
-    double h,
+    PdfRect rect,
   ) {
     final cos = document.cos;
     final mk = cos.resolve(widget['MK']);
@@ -424,7 +603,7 @@ extension PdfFormFilling on PdfEditor {
     if (bg != null) {
       writer
         ..fillColor(bg)
-        ..rect(0, 0, w, h)
+        ..rect(rect.left, rect.bottom, rect.width, rect.height)
         ..fill();
     }
     final bc = _mkColor(mk['BC']);
@@ -440,7 +619,8 @@ extension PdfFormFilling on PdfEditor {
         writer
           ..strokeColor(bc)
           ..lineWidth(width)
-          ..rect(width / 2, width / 2, w - width, h - width)
+          ..rect(rect.left + width / 2, rect.bottom + width / 2,
+              rect.width - width, rect.height - width)
           ..stroke();
       }
     }

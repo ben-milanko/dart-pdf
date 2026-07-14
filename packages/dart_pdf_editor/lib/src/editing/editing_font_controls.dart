@@ -187,6 +187,7 @@ class PdfColorSwatchRow extends StatelessWidget {
     required this.palette,
     required this.onChanged,
     this.labelWidth = 86,
+    this.allowNone = true,
   });
 
   /// The row label (e.g. "Text fill").
@@ -206,6 +207,10 @@ class PdfColorSwatchRow extends StatelessWidget {
 
   /// Width of the leading label column, matched to the popup's rows.
   final double labelWidth;
+
+  /// Whether to include the leading "none" swatch. Background and border
+  /// rows allow no colour; foreground text always needs one.
+  final bool allowNone;
 
   @override
   Widget build(BuildContext context) {
@@ -244,12 +249,13 @@ class PdfColorSwatchRow extends StatelessWidget {
       padding: const EdgeInsets.only(top: 8),
       child: Row(children: [
         SizedBox(width: labelWidth, child: Text(label)),
-        swatch(
-          key: ValueKey('$keyPrefix-none'),
-          color: null,
-          selected: value == null,
-          onTap: () => onChanged(null),
-        ),
+        if (allowNone)
+          swatch(
+            key: ValueKey('$keyPrefix-none'),
+            color: null,
+            selected: value == null,
+            onTap: () => onChanged(null),
+          ),
         for (var i = 0; i < palette.length; i++)
           swatch(
             key: ValueKey('$keyPrefix-$i'),

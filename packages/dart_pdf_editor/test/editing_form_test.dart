@@ -281,7 +281,12 @@ void main() {
             ),
           ),
           bottomNavigationBar: toolbar
-              ? PdfEditingToolbar(controller: editing, viewerController: viewer)
+              ? PdfEditingToolbar(
+                  controller: editing,
+                  viewerController: viewer,
+                  textPrompt: textPrompt ?? showPdfTextPrompt,
+                  formImagePicker: imagePicker,
+                )
               : null,
         ),
       ));
@@ -439,46 +444,55 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('right-clicking a field opens the form menu', (tester) async {
-      final editing = await pumpEditor(tester);
-      editing.tool = PdfEditTool.form;
-      await tester.pump();
+    testWidgets('right-clicking a field selects it for toolbar controls',
+        (tester) async {
+      final editing = await pumpEditor(tester, toolbar: true);
+      expect(editing.tool, isNull);
 
       await tester.tapAt(view(186, 712),
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await tester.pumpAndSettle();
+      expect(editing.selectedWidgetFieldName, 'name');
+      expect(find.byKey(const ValueKey('pdf-form-menu-rename')), findsNothing,
+          reason: 'right-click selects; it no longer opens a field menu');
       expect(
-          find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
-      // converting to its current kind is disabled
-      final toText = tester.widget<PopupMenuItem<dynamic>>(
-          find.byKey(const ValueKey('pdf-form-menu-text')));
-      expect(toText.enabled, isFalse);
-
-      await tester.tap(find.byKey(const ValueKey('pdf-form-menu-delete')));
-      await tester.pumpAndSettle();
-      expect(editing.acroForm!.fieldNamed('name'), isNull);
+          find.byKey(const ValueKey('pdf-selected-form-edit')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-rename')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-field-type')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-delete')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-flatten')),
+          findsOneWidget);
       await settle(tester);
     });
 
-    testWidgets('right-click edit changes a text field value in select mode',
+    testWidgets('toolbar edit changes a right-clicked field in select mode',
         (tester) async {
       final editing = await pumpEditor(tester,
           textPrompt: (context,
                   {required String title,
                   String initial = '',
                   bool multiline = false}) async =>
-              'Edited');
+              'Edited',
+          toolbar: true);
       editing.tool = PdfEditTool.select;
       await tester.pump();
 
       await tester.tapAt(view(186, 712),
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('pdf-form-menu-edit')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-form-menu-edit')), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('pdf-form-menu-edit')));
+      await tester.tap(find.byKey(const ValueKey('pdf-selected-form-edit')));
       await tester.pumpAndSettle();
       expect(editing.acroForm!.fieldNamed('name')!.value, 'Edited');
+
+      await tester.tap(find.byKey(const ValueKey('pdf-selected-form-delete')));
+      await tester.pumpAndSettle();
+      expect(editing.acroForm!.fieldNamed('name'), isNull,
+          reason: 'toolbar deletion removes the field, not only its widget');
       await settle(tester);
     });
 

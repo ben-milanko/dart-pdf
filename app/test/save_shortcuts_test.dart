@@ -4,10 +4,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
+import 'package:dart_pdf_editor_app/file_io.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
@@ -63,6 +65,63 @@ void main() {
       await tester.pump();
 
       expect(saveDialogCalls, 1);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Save As continues the current tab at the new path',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      var saveAsCalls = 0;
+      final savedPaths = <String>[];
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          initialDocument: (bytes: buildClassicPdf(), title: 'Original.pdf'),
+          saveDocumentAs: (context, bytes, suggestedName) async {
+            saveAsCalls++;
+            expect(suggestedName, 'Original.pdf');
+            return SaveResult.saved('/tmp/Renamed.pdf');
+          },
+          saveDocumentToPath: (bytes, path, {bookmark}) async {
+            savedPaths.add(path);
+            return SaveResult.saved(path);
+          },
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final before =
+          tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+
+      await tester.tap(find.byTooltip('DartPDF menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('menu-save-as')));
+      await tester.pumpAndSettle();
+
+      expect(saveAsCalls, 1);
+      expect(find.text('Renamed.pdf'), findsWidgets);
+      expect(find.text('Original.pdf'), findsNothing);
+      final continued =
+          tester.widget<PdfEditorView>(find.byType(PdfEditorView));
+      expect(continued.documentId, 'Renamed.pdf');
+      expect(identical(continued.controller, before), isTrue);
+
+      // Keep editing in that same session, then plain Save must target the
+      // Save As destination rather than the original file.
+      before.addFreeText(
+        0,
+        const PdfRect(72, 650, 240, 700),
+        'Continued after Save As',
+      );
+      await tester.pump();
+      continued.onSave!(before.bytes);
+      await tester.pump();
+
+      expect(savedPaths, ['/tmp/Renamed.pdf']);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

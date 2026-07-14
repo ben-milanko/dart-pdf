@@ -22,6 +22,7 @@ class PdfSliderValueField extends StatefulWidget {
     required this.onSubmit,
     double? Function(String)? parse,
     this.width = 52,
+    this.varies = false,
   }) : parse = parse ?? double.tryParse;
 
   final double value;
@@ -34,13 +35,18 @@ class PdfSliderValueField extends StatefulWidget {
   /// Width of the field box; the default fits a 3-digit value or `100%`.
   final double width;
 
+  /// Shows a `Varies` placeholder instead of claiming [value] is common.
+  /// The slider may still use [value] as its starting thumb position; typing
+  /// or dragging commits one concrete value through [onSubmit].
+  final bool varies;
+
   @override
   State<PdfSliderValueField> createState() => _PdfSliderValueFieldState();
 }
 
 class _PdfSliderValueFieldState extends State<PdfSliderValueField> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.display(widget.value));
+  late final TextEditingController _controller = TextEditingController(
+      text: widget.varies ? '' : widget.display(widget.value));
   late final FocusNode _focus = FocusNode();
 
   @override
@@ -56,15 +62,16 @@ class _PdfSliderValueFieldState extends State<PdfSliderValueField> {
     super.didUpdateWidget(old);
     // a slider drag (or an external restyle) moved the value: reflect it,
     // unless the user is mid-edit in this field
-    if (!_focus.hasFocus && widget.value != old.value) {
-      _controller.text = widget.display(widget.value);
+    if (!_focus.hasFocus &&
+        (widget.value != old.value || widget.varies != old.varies)) {
+      _controller.text = widget.varies ? '' : widget.display(widget.value);
     }
   }
 
   void _commit() {
     final parsed = widget.parse(_controller.text.trim());
     if (parsed == null) {
-      _controller.text = widget.display(widget.value);
+      _controller.text = widget.varies ? '' : widget.display(widget.value);
       return;
     }
     final clamped = parsed.clamp(widget.min, widget.max).toDouble();
@@ -89,9 +96,10 @@ class _PdfSliderValueFieldState extends State<PdfSliderValueField> {
         textAlign: TextAlign.right,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         style: Theme.of(context).textTheme.bodySmall,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           isDense: true,
-          contentPadding: EdgeInsets.symmetric(vertical: 4),
+          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+          hintText: widget.varies ? 'Varies' : null,
         ),
         onSubmitted: (_) => _commit(),
       ),

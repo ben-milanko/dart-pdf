@@ -51,6 +51,12 @@ class PdfRetainedScene {
   /// The interpreter's transcript of the page, in paint order.
   final List<PdfRenderCommand> commands;
 
+  /// Painter-order fragmentation of [commands] under the strip router.
+  /// Computed lazily because ordinary pages below the dense-command ceiling
+  /// never need it.
+  late final int stripReplayEstimatedBatchCount =
+      StripReplayProfile.of(commands).estimatedBatchCount;
+
   /// Enables the bounded selective path for ordinary retained region replay.
   /// Unsupported command groups conservatively use the full transcript.
   static bool spatialRegionReplay = true;

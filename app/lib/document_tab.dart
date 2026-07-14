@@ -27,9 +27,10 @@ class DocumentTab {
     this.originPath,
     this.originBookmark,
     this.cachePath,
+    bool initiallyDirty = false,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
-        savedLength = bytes.length,
+        savedLength = initiallyDirty ? -1 : bytes.length,
         error = null,
         compareBefore = null,
         compareAfter = null,
@@ -62,7 +63,9 @@ class DocumentTab {
         compareAfter = after,
         isLoading = false;
 
-  final String title;
+  /// The filename shown by the tab. Save As updates it to the chosen file's
+  /// name while keeping this tab's editing and viewer sessions alive.
+  String title;
   final String? error;
   final bool isLoading;
 

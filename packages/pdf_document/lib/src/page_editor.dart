@@ -80,6 +80,7 @@ extension PdfPageOperations on PdfEditor {
       if (next < 0) next += 360;
       dict['Rotate'] = CosInteger(next);
       _updater.markChanged(dict);
+      _regenerateFormAppearancesOnPage(i);
     }
     document.invalidatePageCache();
     _markContent(targets);

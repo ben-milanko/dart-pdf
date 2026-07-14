@@ -92,6 +92,38 @@ void main() {
     expect(find.text('Resolved'), findsNothing);
   });
 
+  testWidgets(
+    'thread actions are compact muted text links on desktop',
+    (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addNote(0, 100, 700, 'Please check');
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await pumpSidebar(tester, editing, viewer);
+
+      final replyFinder = find.byKey(const ValueKey('pdf-reply-button'));
+      final resolveFinder = find.byKey(const ValueKey('pdf-resolve-button'));
+      final reply = tester.widget<TextButton>(replyFinder);
+      final scheme = Theme.of(tester.element(replyFinder)).colorScheme;
+
+      expect(reply.style?.minimumSize?.resolve({})?.height, 24);
+      expect(
+          reply.style?.foregroundColor?.resolve({}), scheme.onSurfaceVariant);
+      expect(reply.style?.foregroundColor?.resolve({WidgetState.hovered}),
+          scheme.primary);
+      expect(
+        find.descendant(of: replyFinder, matching: find.byType(Icon)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: resolveFinder, matching: find.byType(Icon)),
+        findsNothing,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
   testWidgets('controller.setReviewState records a review verdict',
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))

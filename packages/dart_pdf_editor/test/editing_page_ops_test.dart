@@ -916,6 +916,35 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
+    testWidgets('inserting after navigates to the new page', (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditorView(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await rightClickTile(tester, 'Page 2');
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-thumbnail-menu-insert-after')));
+      await tester.pumpAndSettle();
+
+      expect(editing.document.pageCount, 3);
+      expect(viewer.currentPage, 2);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('the menu exports the right-clicked page to the host',
         (tester) async {
       Uint8List? exported;

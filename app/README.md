@@ -14,6 +14,9 @@ This is the **product app**. The SDK's feature showcase lives separately in
   (desktop + web), recent files, or a launch argument.
 - The full editing UI from the SDK: annotations, ink, shapes, free text,
   stamps, forms, redaction, page management, search, text selection.
+- Drawn signatures and certificate-backed PAdES B-B digital signatures. The
+  digital-signing flow reads an RSA key and X.509 chain in memory, validates
+  the result, then saves through the normal document destination.
 - OCR for scanned PDFs: native builds use `pdf_ocr_ondevice` with a
   downloadable PP-OCR model that runs offline after the first download; the web
   build uses a browser-local Florence-2 bridge through Transformers.js/WebGPU
@@ -69,6 +72,7 @@ native OS-integration paths still want on-device confirmation:
 | Edit → Save overwrites the original | n/a* | n/a* | ☐ | ☐ | ☐ | n/a* |
 | OCR a scanned PDF | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | Print via the OS dialog (⌘P / Ctrl+P) | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Digitally sign with PEM/DER key + certificate | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 | Reopen restores viewport | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ |
 
 \* In-place save is desktop-only today; mobile/web fall back to share/download

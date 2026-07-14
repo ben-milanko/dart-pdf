@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.5
+
+- Add reusable right-to-left text fixtures for Arabic extraction, selection,
+  and copy-order regression tests.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No fixture
+  API changes since 1.4.3.
+
+## 1.4.3
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.3. No fixture
+  API changes since 1.4.2.
+
 ## 1.4.2
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.2. No fixture

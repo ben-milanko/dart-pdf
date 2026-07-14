@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.5
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.5. No
+  document API changes since 1.4.4.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No
+  document API changes since 1.4.3.
+
+## 1.4.3
+
+- Add `PdfBlankDocument.create` for building standalone PDFs with one or more
+  empty pages in a chosen standard or custom page size.
+- Keep AcroForm text, button, and image appearances upright when fields are
+  authored, filled, resized, or regenerated on rotated pages.
+
 ## 1.4.2
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.2. No
