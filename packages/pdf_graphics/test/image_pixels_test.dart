@@ -402,6 +402,86 @@ void main() {
     ]);
   });
 
+  test('scaled CCITT gray avoids native RGBA expansion', () {
+    // 64x24 Group-4 image encoded independently by libtiff. The direct scaled
+    // result must be identical to the historical full decode + area-average,
+    // including /Decode inversion and raw-sample color-key transparency.
+    const group4 = [
+      200,
+      25,
+      156,
+      93,
+      148,
+      12,
+      216,
+      49,
+      178,
+      139,
+      251,
+      40,
+      71,
+      143,
+      254,
+      72,
+      95,
+      101,
+      107,
+      236,
+      173,
+      61,
+      148,
+      31,
+      178,
+      136,
+      29,
+      148,
+      141,
+      148,
+      124,
+      127,
+      32,
+      215,
+      101,
+      102,
+      202,
+      189,
+      130,
+      136,
+      240,
+      1,
+      0,
+      16,
+    ];
+    final stream = image({
+      'Width': const CosInteger(64),
+      'Height': const CosInteger(24),
+      'BitsPerComponent': const CosInteger(1),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('CCITTFaxDecode'),
+      'DecodeParms': CosDictionary({
+        'K': const CosInteger(-1),
+        'Columns': const CosInteger(64),
+        'Rows': const CosInteger(24),
+      }),
+      'Decode': CosArray([
+        const CosInteger(1),
+        const CosInteger(0),
+      ]),
+      'Mask': CosArray([
+        const CosInteger(1),
+        const CosInteger(1),
+      ]),
+    }, group4);
+
+    final full = decodePdfImagePixels(cos, stream)!;
+    final expected = downsamplePdfDecodedPixels(full, 8, 3);
+    final scaled = decodePdfImagePixelsScaled(cos, stream, 8, 3)!;
+
+    expect(scaled.width, 8);
+    expect(scaled.height, 3);
+    expect(scaled.rgba, expected.rgba);
+  });
+
   test('decodePdfImageBase returns straight, unmasked, opaque RGBA', () {
     final smask = image({
       'Width': const CosInteger(1),

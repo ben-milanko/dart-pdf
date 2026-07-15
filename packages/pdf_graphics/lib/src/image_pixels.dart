@@ -165,15 +165,19 @@ PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
   return _finish(m.$1, m.$2, m.$3, hasAlpha: true);
 }
 
-/// Decodes a simple Flate/raw image directly to [targetWidth]×[targetHeight],
-/// or returns null when the stream needs the full general decoder.
+/// Decodes a simple Flate/raw or CCITT image directly to
+/// [targetWidth]×[targetHeight], or returns null when the stream needs the full
+/// general decoder.
 ///
 /// This is the first region/tile-decode fast path for CAD sheets split into
 /// many large Flate tiles: the worker already knows the capped display size,
 /// so expanding a 2048×2048 tile to native RGBA and then downsampling it wastes
 /// both CPU and memory. The implementation is deliberately narrow and
 /// correctness-first: RGB/gray 8-bit streams with identity decode and no masks,
-/// plus 1-bit /ImageMask stencils. Everything else falls back to
+/// plus 1-bit gray, Indexed, and /ImageMask streams. The 1-bit route matters
+/// especially for large CCITT scans: the filter expands to a compact packed
+/// bitmap, which can be averaged straight into the display raster without
+/// ever allocating the native-size RGBA buffer. Everything else falls back to
 /// [decodePdfImagePixels].
 PdfDecodedPixels? decodePdfImagePixelsScaled(
   CosDocument cos,
@@ -189,9 +193,9 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
       wholeImageOnlyIfDownscaled: true);
 }
 
-/// Decodes a rectangular source-region of a simple Flate/raw image directly to
-/// [targetWidth]×[targetHeight], or returns null when the stream needs the full
-/// general decoder.
+/// Decodes a rectangular source-region of a simple Flate/raw or CCITT image
+/// directly to [targetWidth]×[targetHeight], or returns null when the stream
+/// needs the full general decoder.
 ///
 /// [sourceX], [sourceY], [sourceWidth], and [sourceHeight] are native image
 /// pixels in the same top-left origin as decoded image samples. Unlike
@@ -228,10 +232,15 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   }
 
   final filters = pdfImageFilters(cos, dict);
-  if (filters.length != 1 ||
-      (filters.single != 'FlateDecode' && filters.single != 'Fl')) {
+  if (filters.length != 1) {
     return null;
   }
+  final filter = filters.single;
+  final supportedFilter = filter == 'FlateDecode' ||
+      filter == 'Fl' ||
+      filter == 'CCITTFaxDecode' ||
+      filter == 'CCF';
+  if (!supportedFilter) return null;
 
   final isMask = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
   final mask = cos.resolve(dict['Mask']);
@@ -245,6 +254,12 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
 
   final bits = _intOf(cos.resolve(dict['BitsPerComponent']), fallback: 8);
   final space = pdfImageColorFamily(cos, dict);
+  if (space == 'DeviceGray' && bits == 1) {
+    if (mask is! CosNull && mask is! CosArray) return null;
+    if (!_isDirectDeviceColorSpace(cos, dict, space)) return null;
+    return _scaledGray1Region(
+        cos, dict, data, width, height, sx, sy, sw, sh, tw, th);
+  }
   if (space == 'Indexed' && bits == 1) {
     if (mask is! CosNull && mask is! CosStream) return null;
     return _scaledIndexed1Region(cos, dict, data, width, height, sx, sy, sw, sh,
@@ -490,6 +505,71 @@ PdfDecodedPixels? _scaledIndexed1Region(
       out[di] = alpha == 0 ? 0 : palette[pi];
       out[di + 1] = alpha == 0 ? 0 : palette[pi + 1];
       out[di + 2] = alpha == 0 ? 0 : palette[pi + 2];
+      out[di + 3] = alpha;
+      di += 4;
+    }
+  }
+  return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+PdfDecodedPixels? _scaledGray1Region(
+  CosDocument cos,
+  CosDictionary dict,
+  Uint8List data,
+  int width,
+  int height,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
+  final rowBytes = (width + 7) ~/ 8;
+  if (data.length < rowBytes * height) return null;
+
+  final ranges = pdfImageDecodeRanges(cos, dict, 1);
+  final (min, max) = ranges?[0] ?? (0.0, 1.0);
+  final values = (
+    (min * 255).round().clamp(0, 255),
+    (max * 255).round().clamp(0, 255),
+  );
+  final colorKey = pdfImageColorKeyRanges(cos, dict, 1);
+  final alpha0 =
+      colorKey != null && 0 >= colorKey[0].$1 && 0 <= colorKey[0].$2 ? 0 : 255;
+  final alpha1 =
+      colorKey != null && 1 >= colorKey[0].$1 && 1 <= colorKey[0].$2 ? 0 : 255;
+  final premultiplied0 = alpha0 == 0 ? 0 : values.$1;
+  final premultiplied1 = alpha1 == 0 ? 0 : values.$2;
+
+  // Match [downsamplePdfDecodedPixels]' area-average exactly, but count the
+  // two possible packed samples instead of first expanding every source pixel
+  // to four RGBA bytes. Besides preserving thin scanned linework better than
+  // point sampling, this makes the fast result pixel-identical to the old
+  // full-decode-then-downsample fallback.
+  final out = Uint8List(targetWidth * targetHeight * 4);
+  var di = 0;
+  for (var ty = 0; ty < targetHeight; ty++) {
+    final sy0 = sourceY + ty * sourceHeight ~/ targetHeight;
+    var sy1 = sourceY + (ty + 1) * sourceHeight ~/ targetHeight;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    for (var tx = 0; tx < targetWidth; tx++) {
+      final sx0 = sourceX + tx * sourceWidth ~/ targetWidth;
+      var sx1 = sourceX + (tx + 1) * sourceWidth ~/ targetWidth;
+      if (sx1 <= sx0) sx1 = sx0 + 1;
+
+      var ones = 0;
+      for (var sy = sy0; sy < sy1; sy++) {
+        final row = sy * rowBytes;
+        for (var sx = sx0; sx < sx1; sx++) {
+          ones += (data[row + (sx >> 3)] >> (7 - (sx & 7))) & 1;
+        }
+      }
+      final count = (sx1 - sx0) * (sy1 - sy0);
+      final zeros = count - ones;
+      final value = (zeros * premultiplied0 + ones * premultiplied1) ~/ count;
+      final alpha = (zeros * alpha0 + ones * alpha1) ~/ count;
+      out[di] = out[di + 1] = out[di + 2] = value;
       out[di + 3] = alpha;
       di += 4;
     }
