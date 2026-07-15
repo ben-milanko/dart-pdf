@@ -148,15 +148,22 @@ PdfImageBase? decodePdfImageBase(CosDocument cos, CosStream stream) {
 /// encoded /SMask - or the image can't be decoded. On null the caller falls
 /// back to the `dart:ui` decode path ([decodePdfImageBase] + the codec).
 PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
+  final dict = stream.dictionary;
+  final isStencil = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
+
+  // Bail before decoding the base, not after: a DCTDecode /SMask sends the
+  // image to the `dart:ui` path whatever the base holds, and that path decodes
+  // the base itself ([decodePdfImageBase]), so a base decoded here is thrown
+  // away and paid for twice. A stencil ignores the soft mask, so it stays.
+  if (!isStencil && _softMaskIsDct(cos, dict)) return null;
+
   final base = decodePdfImageBase(cos, stream);
   if (base == null) return null;
 
-  final dict = stream.dictionary;
-  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) {
+  if (isStencil) {
     // A stencil's alpha is already in base.rgba; no soft mask applies.
     return _finish(base.rgba, base.width, base.height, hasAlpha: true);
   }
-  if (_softMaskIsDct(cos, dict)) return null; // mask needs the platform codec
   final mask = pdfImageSoftMask(cos, dict) ?? pdfImageStencilMask(cos, dict);
   if (mask == null) {
     return _finish(base.rgba, base.width, base.height, hasAlpha: !base.opaque);
@@ -1294,6 +1301,20 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   return null;
 }
 
+/// A packed sample tuple must fit an int key; wider spaces skip the table.
+const int _tintMemoMaxComponents = 8;
+
+/// Ceiling on distinct tuples remembered, so a wide space whose tuples never
+/// repeat cannot grow the table with the pixel count.
+const int _tintMemoMaxEntries = 1 << 16;
+
+/// Separation and DeviceN samples reach the alternate space through a tint
+/// transform, which - a type 4 calculator especially - costs orders of
+/// magnitude more per pixel than the device spaces' copy. Samples are 8 bits,
+/// so one colorant has at most 256 distinct inputs and two at most 65536,
+/// against the millions of pixels in a scan: evaluate each distinct tuple
+/// once and index the answer afterwards, the way [_indexedToRgba] resolves
+/// its palette up front.
 Uint8List? _alternateToRgba(
   Uint8List data,
   int width,
@@ -1307,22 +1328,39 @@ Uint8List? _alternateToRgba(
   final components = alternate.components;
   if (data.length < count * components) return null;
   final luts = [for (var c = 0; c < components; c++) _lutFor(ranges, c)];
+  final memo = components <= _tintMemoMaxComponents ? <int, int>{} : null;
+  // Reused across pixels: evaluateAt reads its input and keeps no reference.
+  final values = Float64List(components);
+
   for (var i = 0; i < count; i++) {
-    final samples = [
-      for (var c = 0; c < components; c++) data[i * components + c]
-    ];
-    final values = [
-      for (var c = 0; c < components; c++) luts[c][samples[c]] / 255
-    ];
-    final color = alternate.colorFor(values);
-    out[i * 4] = (color.red * 255).round().clamp(0, 255);
-    out[i * 4 + 1] = (color.green * 255).round().clamp(0, 255);
-    out[i * 4 + 2] = (color.blue * 255).round().clamp(0, 255);
+    final base = i * components;
+    var key = 0;
+    if (memo != null) {
+      for (var c = 0; c < components; c++) {
+        key = (key << 8) | data[base + c];
+      }
+    }
+    // Packed RGB is never negative, so -1 stands in for "not remembered".
+    var rgb = memo?[key] ?? -1;
+    if (rgb < 0) {
+      for (var c = 0; c < components; c++) {
+        values[c] = luts[c][data[base + c]] / 255;
+      }
+      final color = alternate.colorFor(values);
+      rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
+          ((color.green * 255).round().clamp(0, 255) << 8) |
+          ((color.blue * 255).round().clamp(0, 255));
+      if (memo != null && memo.length < _tintMemoMaxEntries) memo[key] = rgb;
+    }
+    out[i * 4] = (rgb >> 16) & 0xff;
+    out[i * 4 + 1] = (rgb >> 8) & 0xff;
+    out[i * 4 + 2] = rgb & 0xff;
     var masked = false;
     if (colorKey != null) {
       masked = true;
       for (var c = 0; c < components; c++) {
-        if (samples[c] < colorKey[c].$1 || samples[c] > colorKey[c].$2) {
+        final sample = data[base + c];
+        if (sample < colorKey[c].$1 || sample > colorKey[c].$2) {
           masked = false;
           break;
         }
