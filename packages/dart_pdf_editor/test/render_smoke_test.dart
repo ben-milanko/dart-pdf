@@ -29,6 +29,7 @@ Future<void> loadSystemFonts() async {
       '/System/Library/Fonts/Supplemental/Times New Roman.ttf'
     ],
     'Courier': ['/System/Library/Fonts/Supplemental/Courier New.ttf'],
+    'Geeza Pro': ['/System/Library/Fonts/GeezaPro.ttc'],
     'Apple Symbols': ['/System/Library/Fonts/Apple Symbols.ttf'],
     'Symbol': ['/System/Library/Fonts/Symbol.ttf'],
     'Zapf Dingbats': ['/System/Library/Fonts/ZapfDingbats.ttf'],
