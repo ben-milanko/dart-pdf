@@ -1767,6 +1767,7 @@ class _EditorScreenState extends State<EditorScreen>
                 width: buttonWidth,
                 height: _tabStripHeight,
                 child: IconButton(
+                  key: const ValueKey('desktop-tab-add-button'),
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
                   constraints:
@@ -1776,6 +1777,7 @@ class _EditorScreenState extends State<EditorScreen>
                   onPressed: _pickAndOpen,
                 ),
               ),
+              const Spacer(key: ValueKey('desktop-tabs-spacer')),
               SizedBox(
                 width: buttonWidth,
                 height: _tabStripHeight,
@@ -2158,11 +2160,27 @@ class _MobileTabPreview extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final session = tab.session;
     if (session != null) {
-      return _MobileTabDocumentPreview(
+      final preview = _MobileTabDocumentPreview(
         controller: session,
         stamp: session.pageRenderStamp(0),
         pageColor: session.preferences.pageColor,
         showAnnotations: session.preferences.showAnnotations,
+      );
+      double? aspectRatio;
+      try {
+        final size = PdfPageRenderer.pageSize(session.pageAt(0));
+        if (size.width > 0 && size.height > 0) {
+          aspectRatio = size.width / size.height;
+        }
+      } catch (_) {
+        // Broken zero-page documents keep the old fill-the-tile placeholder.
+      }
+      if (aspectRatio == null) return preview;
+      return Center(
+        child: AspectRatio(
+          aspectRatio: aspectRatio,
+          child: preview,
+        ),
       );
     }
     final (icon, label) = tab.isLoading
