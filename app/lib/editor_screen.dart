@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -34,6 +35,9 @@ const double _mobileTabsBreakpoint = 700;
 const double _appMenuLeadingWidth = 60;
 const double _appMenuIconSize = 24;
 const int _maxRecentMenuItems = 8;
+const Duration _tabHoverPreviewDelay = Duration(milliseconds: 400);
+const double _tabHoverPreviewWidth = 240;
+const double _tabHoverPreviewHeight = 300;
 
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
@@ -1855,40 +1859,46 @@ class _EditorScreenState extends State<EditorScreen>
 
     // Dragging anywhere on the tab reorders it; the tap/close gestures still
     // win when the pointer doesn't travel (gesture arena resolves drag vs tap).
-    return _TabDragStartListener(
+    return _TabHoverPreview(
       key: ValueKey(tab),
-      index: index,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-        child: Material(
-          color: selected
-              ? scheme.secondaryContainer
-              : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-          child: InkWell(
+      tab: tab,
+      enabled: !selected,
+      child: _TabDragStartListener(
+        index: index,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+          child: Material(
+            color: selected
+                ? scheme.secondaryContainer
+                : scheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
-            onTap: () => setState(() => _activeIndex = index),
-            onSecondaryTapUp: (details) =>
-                _showTabMenu(index, details.globalPosition),
-            child: Padding(
-              padding: const EdgeInsets.only(left: 12, right: 2),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 160),
-                    child: label(),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 16),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
-                    tooltip: 'Close tab',
-                    onPressed: () => _closeTab(index),
-                  ),
-                ],
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => setState(() => _activeIndex = index),
+              onSecondaryTapUp: (details) =>
+                  _showTabMenu(index, details.globalPosition),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 12, right: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 160),
+                      child: label(),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 16),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 30,
+                        minHeight: 30,
+                      ),
+                      tooltip: 'Close tab',
+                      onPressed: () => _closeTab(index),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1928,6 +1938,221 @@ class _OpeningDocument extends StatelessWidget {
 /// The actions offered by a tab's right-click context menu.
 enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 
+/// Shows a non-interactive thumbnail card for an inactive desktop tab after a
+/// short hover. This uses a plain [OverlayEntry], not an OverlayPortal: the tab
+/// is a reorderable-list item, and portals must not be reactivated from that
+/// subtree while the list is laying out or moving its drag proxy.
+class _TabHoverPreview extends StatefulWidget {
+  const _TabHoverPreview({
+    super.key,
+    required this.tab,
+    required this.enabled,
+    required this.child,
+  });
+
+  final DocumentTab tab;
+  final bool enabled;
+  final Widget child;
+
+  @override
+  State<_TabHoverPreview> createState() => _TabHoverPreviewState();
+}
+
+class _TabHoverPreviewState extends State<_TabHoverPreview> {
+  final _imageCache = _TabPreviewImageCache();
+  Timer? _timer;
+  OverlayEntry? _entry;
+  bool _hovering = false;
+
+  @override
+  void didUpdateWidget(_TabHoverPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.tab, widget.tab)) {
+      _imageCache.clear();
+    }
+    if (!widget.enabled || !identical(oldWidget.tab, widget.tab)) {
+      _hide();
+    } else if (widget.enabled && !oldWidget.enabled && _hovering) {
+      _schedule();
+    }
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    if (!widget.enabled) return;
+    _timer = Timer(_tabHoverPreviewDelay, _show);
+  }
+
+  void _show() {
+    _timer = null;
+    if (!mounted || !widget.enabled || !_hovering || _entry != null) return;
+    final target = context.findRenderObject();
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final overlayBox = overlay.context.findRenderObject();
+    if (target is! RenderBox || overlayBox is! RenderBox) return;
+
+    final origin = target.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final overlaySize = overlayBox.size;
+    final width = math.min(
+      _tabHoverPreviewWidth,
+      math.max(0.0, overlaySize.width - 16),
+    ).toDouble();
+    final height = math.min(
+      _tabHoverPreviewHeight,
+      math.max(0.0, overlaySize.height - 16),
+    ).toDouble();
+    if (width <= 0 || height <= 0) return;
+
+    final maxLeft = math.max(8.0, overlaySize.width - width - 8);
+    final left = (origin.dx + (target.size.width - width) / 2)
+        .clamp(8.0, maxLeft)
+        .toDouble();
+    final below = origin.dy + target.size.height + 4;
+    final top = below + height <= overlaySize.height - 8
+        ? below
+        : math.max(8.0, origin.dy - height - 4);
+
+    _entry = OverlayEntry(
+      builder: (context) => Positioned(
+        left: left,
+        top: top,
+        width: width,
+        height: height,
+        child: IgnorePointer(
+          child: _DesktopTabPreviewCard(
+            tab: widget.tab,
+            imageCache: _imageCache,
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_entry!);
+  }
+
+  void _hide() {
+    _timer?.cancel();
+    _timer = null;
+    _entry?.remove();
+    _entry = null;
+  }
+
+  @override
+  void dispose() {
+    _hide();
+    _imageCache.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) {
+        _hovering = true;
+        _schedule();
+      },
+      onExit: (_) {
+        _hovering = false;
+        _hide();
+      },
+      child: Listener(
+        // A click may activate/close/reorder the tab or open its context menu.
+        // Dismiss before any of those operations mutate the strip.
+        onPointerDown: (_) => _hide(),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+class _DesktopTabPreviewCard extends StatelessWidget {
+  const _DesktopTabPreviewCard({required this.tab, required this.imageCache});
+
+  final DocumentTab tab;
+  final _TabPreviewImageCache imageCache;
+
+  @override
+  Widget build(BuildContext context) {
+    final listeners = <Listenable>[
+      if (tab.session != null) tab.session!,
+      if (tab.viewer != null) tab.viewer!,
+    ];
+    if (listeners.isEmpty) return _buildCard(context);
+    return ListenableBuilder(
+      listenable: Listenable.merge(listeners),
+      builder: (context, _) => _buildCard(context),
+    );
+  }
+
+  Widget _buildCard(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final pageIndex = _tabPreviewPage(tab);
+    return Material(
+      key: const ValueKey('tab-hover-preview'),
+      elevation: 10,
+      shadowColor: scheme.shadow.withValues(alpha: 0.28),
+      color: scheme.surfaceContainerHigh,
+      surfaceTintColor: scheme.surfaceTint,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _TabPreview(
+                tab: tab,
+                pageIndex: pageIndex,
+                imageCache: imageCache,
+                previewKey: const ValueKey('tab-hover-preview-thumbnail'),
+                imageKey: const ValueKey('tab-hover-preview-image'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (tab.isDirty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.circle, size: 8, color: scheme.primary),
+                  ),
+                Expanded(
+                  child: Text(
+                    tab.title.isEmpty ? 'Untitled' : tab.title,
+                    key: const ValueKey('tab-hover-preview-title'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                if (tab.session != null)
+                  Text(
+                    'Page ${pageIndex + 1}',
+                    key: const ValueKey('tab-hover-preview-page'),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+int _tabPreviewPage(DocumentTab tab) {
+  final session = tab.session;
+  if (session == null || session.document.pageCount <= 0) return 0;
+  return (tab.viewer?.currentPage ?? 0)
+      .clamp(0, session.document.pageCount - 1)
+      .toInt();
+}
+
 /// Starts a tab drag immediately for mouse pointers (the desktop expectation -
 /// a mouse drag never means scrolling the strip) but only after a long press
 /// for touch and stylus, so finger drags still scroll the tab strip. Plain
@@ -1935,7 +2160,6 @@ enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 /// past the slop.
 class _TabDragStartListener extends ReorderableDragStartListener {
   const _TabDragStartListener({
-    super.key,
     required super.index,
     required super.child,
   });
@@ -2105,7 +2329,12 @@ class _MobileTabTile extends StatelessWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-                child: _MobileTabPreview(tab: tab),
+                child: _TabPreview(
+                  tab: tab,
+                  pageIndex: 0,
+                  previewKey: const ValueKey('mobile-tab-preview'),
+                  imageKey: const ValueKey('mobile-tab-preview-image'),
+                ),
               ),
             ),
             Padding(
@@ -2150,37 +2379,36 @@ class _MobileTabTile extends StatelessWidget {
   }
 }
 
-class _MobileTabPreview extends StatelessWidget {
-  const _MobileTabPreview({required this.tab});
+class _TabPreview extends StatelessWidget {
+  const _TabPreview({
+    required this.tab,
+    required this.pageIndex,
+    required this.previewKey,
+    required this.imageKey,
+    this.imageCache,
+  });
 
   final DocumentTab tab;
+  final int pageIndex;
+  final Key previewKey;
+  final Key imageKey;
+  final _TabPreviewImageCache? imageCache;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final session = tab.session;
     if (session != null) {
-      final preview = _MobileTabDocumentPreview(
+      return _TabDocumentPreview(
         controller: session,
-        stamp: session.pageRenderStamp(0),
+        pageIndex: pageIndex,
+        stamp: session.pageRenderStamp(pageIndex),
         pageColor: session.preferences.pageColor,
         showAnnotations: session.preferences.showAnnotations,
-      );
-      double? aspectRatio;
-      try {
-        final size = PdfPageRenderer.pageSize(session.pageAt(0));
-        if (size.width > 0 && size.height > 0) {
-          aspectRatio = size.width / size.height;
-        }
-      } catch (_) {
-        // Broken zero-page documents keep the old fill-the-tile placeholder.
-      }
-      if (aspectRatio == null) return preview;
-      return Center(
-        child: AspectRatio(
-          aspectRatio: aspectRatio,
-          child: preview,
-        ),
+        rotation: tab.viewer?.viewRotation,
+        previewKey: previewKey,
+        imageKey: imageKey,
+        imageCache: imageCache,
       );
     }
     final (icon, label) = tab.isLoading
@@ -2191,6 +2419,7 @@ class _MobileTabPreview extends StatelessWidget {
                 ? (Icons.compare_arrows, 'Comparison')
                 : (Icons.picture_as_pdf_outlined, 'PDF');
     return DecoratedBox(
+      key: previewKey,
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(8),
@@ -2223,43 +2452,88 @@ class _MobileTabPreview extends StatelessWidget {
   }
 }
 
-class _MobileTabDocumentPreview extends StatefulWidget {
-  const _MobileTabDocumentPreview({
+class _TabPreviewImageCache {
+  Object? _key;
+  ui.Image? _image;
+  bool _disposed = false;
+
+  ui.Image? claim(Object key) {
+    if (_disposed || _key != key) return null;
+    return _image?.clone();
+  }
+
+  void store(Object key, ui.Image image) {
+    if (_disposed) {
+      image.dispose();
+      return;
+    }
+    _image?.dispose();
+    _key = key;
+    _image = image;
+  }
+
+  void clear() {
+    _image?.dispose();
+    _image = null;
+    _key = null;
+  }
+
+  void dispose() {
+    _disposed = true;
+    clear();
+  }
+}
+
+class _TabDocumentPreview extends StatefulWidget {
+  const _TabDocumentPreview({
     required this.controller,
+    required this.pageIndex,
     required this.stamp,
     required this.pageColor,
     required this.showAnnotations,
+    required this.rotation,
+    required this.previewKey,
+    required this.imageKey,
+    this.imageCache,
   });
 
   final PdfEditingController controller;
+  final int pageIndex;
   final int stamp;
   final Color pageColor;
   final bool showAnnotations;
+  final int? rotation;
+  final Key previewKey;
+  final Key imageKey;
+  final _TabPreviewImageCache? imageCache;
 
   @override
-  State<_MobileTabDocumentPreview> createState() =>
-      _MobileTabDocumentPreviewState();
+  State<_TabDocumentPreview> createState() => _TabDocumentPreviewState();
 }
 
-class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
+class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   ui.Image? _image;
   Object? _pendingKey;
   Object? _imageKey;
 
   Object get _key => (
         widget.controller,
+        widget.pageIndex,
         widget.stamp,
         widget.pageColor.toARGB32(),
         widget.showAnnotations,
+        widget.rotation,
       );
 
   @override
-  void didUpdateWidget(_MobileTabDocumentPreview oldWidget) {
+  void didUpdateWidget(_TabDocumentPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller) ||
+        oldWidget.pageIndex != widget.pageIndex ||
         oldWidget.stamp != widget.stamp ||
         oldWidget.pageColor != widget.pageColor ||
-        oldWidget.showAnnotations != widget.showAnnotations) {
+        oldWidget.showAnnotations != widget.showAnnotations ||
+        oldWidget.rotation != widget.rotation) {
       _image?.dispose();
       _image = null;
       _imageKey = null;
@@ -2278,8 +2552,8 @@ class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
   Future<void> _render(Object key, double pixelRatio) async {
     _pendingKey = key;
     try {
-      final page = widget.controller.pageAt(0);
-      final size = PdfPageRenderer.pageSize(page);
+      final page = widget.controller.pageAt(widget.pageIndex);
+      final size = PdfPageRenderer.pageSize(page, rotation: widget.rotation);
       if (size.width <= 0 || size.height <= 0) return;
       final ratio = (150 * pixelRatio / size.width).clamp(0.08, 0.5);
       final image = await PdfPageRenderer.renderImage(
@@ -2287,14 +2561,25 @@ class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
         pixelRatio: ratio,
         pageColor: widget.pageColor,
         annotations: widget.showAnnotations,
+        rotation: widget.rotation,
       );
       if (!mounted || _pendingKey != key) {
         image.dispose();
         return;
       }
+      final cache = widget.imageCache;
+      final ui.Image shown;
+      if (cache == null) {
+        shown = image;
+      } else {
+        cache.store(key, image);
+        final cached = cache.claim(key);
+        if (cached == null) return;
+        shown = cached;
+      }
       setState(() {
         _image?.dispose();
-        _image = image;
+        _image = shown;
         _imageKey = key;
         _pendingKey = null;
       });
@@ -2306,12 +2591,21 @@ class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
   @override
   Widget build(BuildContext context) {
     final key = _key;
+    if (_imageKey != key) {
+      final cached = widget.imageCache?.claim(key);
+      if (cached != null) {
+        _image?.dispose();
+        _image = cached;
+        _imageKey = key;
+        _pendingKey = null;
+      }
+    }
     if (_imageKey != key && _pendingKey != key) {
       unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
     }
     final scheme = Theme.of(context).colorScheme;
     return DecoratedBox(
-      key: const ValueKey('mobile-tab-preview'),
+      key: widget.previewKey,
       decoration: BoxDecoration(
         color: widget.pageColor,
         borderRadius: BorderRadius.circular(8),
@@ -2329,7 +2623,7 @@ class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
         child: _image == null
             ? const SizedBox.expand()
             : RawImage(
-                key: const ValueKey('mobile-tab-preview-image'),
+                key: widget.imageKey,
                 image: _image,
                 fit: BoxFit.contain,
               ),

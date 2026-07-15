@@ -236,6 +236,52 @@ void main() {
         closeTo(792 / 612, 0.001));
   });
 
+  testWidgets('hovering an inactive desktop tab shows its page preview',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+    await openTab(tester, 'beta.pdf');
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(799, 599));
+    await tester.pump();
+    await mouse.moveTo(tester.getCenter(tabTitle('alpha.pdf')));
+    await tester.pump(const Duration(milliseconds: 399));
+    expect(find.byKey(const ValueKey('tab-hover-preview')), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.byKey(const ValueKey('tab-hover-preview')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<Text>(
+        find.byKey(const ValueKey('tab-hover-preview-title')),
+      ).data,
+      'alpha.pdf',
+    );
+    expect(
+      tester.widget<Text>(
+        find.byKey(const ValueKey('tab-hover-preview-page')),
+      ).data,
+      'Page 1',
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('tab-hover-preview-image')),
+      findsOneWidget,
+    );
+
+    // beta is active, so moving to it dismisses alpha's card and does not
+    // replace it with a redundant preview of the document already on screen.
+    await mouse.moveTo(tester.getCenter(tabTitle('beta.pdf')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('tab-hover-preview')), findsNothing);
+    await mouse.removePointer();
+  });
+
   testWidgets('right-click opens the tab context menu', (tester) async {
     await openTabs(tester);
 
