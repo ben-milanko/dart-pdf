@@ -1278,7 +1278,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final annotations = _controller.pageAt(widget.pageIndex).annotations;
       for (var slot = 0; slot < annotations.length; slot++) {
         final annotation = annotations[slot];
-        if (annotation.subtype != 'Ink' || annotation.isHidden) continue;
+        if (annotation.subtype != 'Ink' ||
+            annotation.isHidden ||
+            !_controller.isAnnotationEditable(annotation)) {
+          continue;
+        }
         final tracked = _eraseSliced[slot];
         final strokes = tracked?.strokes ?? annotation.inkList;
         if (strokes == null) {

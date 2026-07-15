@@ -339,6 +339,12 @@ class PdfEditingController extends ChangeNotifier {
   final List<int> _revisions;
   int _cursor = 0;
 
+  /// The oldest revision this session may reach with [undo]. A successful
+  /// remote replay advances the floor to its newly committed revision, so a
+  /// local undo can never remove collaboration state received from another
+  /// session. Local revisions committed after the floor remain undoable.
+  int _undoFloor = 0;
+
   /// Parallels [_revisions]: the consequences reported by the document
   /// mutation that produced each revision. Entry 0 is the original document
   /// and is never replayed.
@@ -421,7 +427,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Whether the current revision differs from the originally opened one.
   bool get isModified => _cursor > 0 || _hardModified;
 
-  bool get canUndo => _cursor > 0;
+  bool get canUndo => _cursor > _undoFloor;
   bool get canRedo => _cursor < _revisions.length - 1;
 
   void undo() {
@@ -500,6 +506,7 @@ class PdfEditingController extends ChangeNotifier {
     _bumpContentRenderStamps(impact.contentPages);
     if (impact.destructive) _destructiveStampEpoch++;
     _cursor++;
+    if (_committingRemoteRevision) _undoFloor = _cursor;
     final selected = List.of(_selected);
     _document = PdfDocument.open(bytes, password: _password);
     // Existing controller mutations remap slots before committing when an
@@ -722,6 +729,7 @@ class PdfEditingController extends ChangeNotifier {
 
   StreamController<List<PdfAnnotationChange>>? _changeFeed;
   bool _applyingRemote = false;
+  bool _committingRemoteRevision = false;
 
   /// A live feed of annotation diffs: after every edit, undo, and redo,
   /// one batch of [PdfAnnotationChange]s describing what happened to the
@@ -734,11 +742,11 @@ class PdfEditingController extends ChangeNotifier {
   /// through [applyRemoteChange] - remote applies don't re-emit, so
   /// there is no echo to suppress.
   ///
-  /// Caveats: open pre-existing documents with [ensureAnnotationNames] +
-  /// [annotationBaseline] so every annotation has a durable identity
-  /// first, and remember that remote applies join the revision (undo)
-  /// stack - undoing past one reverts it locally and broadcasts the
-  /// revert as a local change.
+  /// Caveat: open pre-existing documents with [ensureAnnotationNames] +
+  /// [annotationBaseline] so every annotation has a durable identity first.
+  /// A successful remote apply becomes a non-crossable undo checkpoint:
+  /// local edits made afterward can still be undone, while older local
+  /// history remains in the document below that checkpoint.
   Stream<List<PdfAnnotationChange>> get annotationChanges =>
       (_changeFeed ??= StreamController.broadcast()).stream;
 
@@ -770,11 +778,14 @@ class PdfEditingController extends ChangeNotifier {
   /// snapshot of a created/modified change, removes by name for a
   /// removed one. Returns whether the document changed.
   ///
-  /// The edit is a normal revision (rendering, thumbnails, and undo all
-  /// see it) but is never re-emitted on [annotationChanges].
+  /// The edit is a normal rendering/thumbnail revision but is never
+  /// re-emitted on [annotationChanges] and cannot itself be undone locally.
+  /// It establishes a new undo checkpoint, sealing any earlier local history;
+  /// edits made after it remain undoable down to that checkpoint.
   bool applyRemoteChange(PdfAnnotationChange change) {
     final snapshot = change.snapshot;
     _applyingRemote = true;
+    _committingRemoteRevision = true;
     try {
       switch (change.kind) {
         case PdfAnnotationChangeKind.created:
@@ -806,6 +817,7 @@ class PdfEditingController extends ChangeNotifier {
           );
       }
     } finally {
+      _committingRemoteRevision = false;
       _applyingRemote = false;
     }
   }
@@ -1747,6 +1759,7 @@ class PdfEditingController extends ChangeNotifier {
       ..clear()
       ..add(PdfEditImpact.none);
     _cursor = 0;
+    _undoFloor = 0;
     _hardModified = true;
     _selected.clear();
     _bumpRenderStamps(impact.visualPages);

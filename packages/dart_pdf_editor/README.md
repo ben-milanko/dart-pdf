@@ -161,7 +161,9 @@ are byte prefixes of one buffer.
   `canEditAnnotation` predicate implements policies like "users may
   only edit their own annotations" in one line.
 - Sync: an `annotationChanges` feed plus `applyRemoteChange` for wiring
-  annotations to a collaborative store (Firestore, websockets, etc.).
+  annotations to a collaborative store (Firestore, websockets, etc.). A
+  remote apply is a non-crossable undo checkpoint; later local edits remain
+  undoable without removing the remote state.
 
 ## Composing your own UI
 
