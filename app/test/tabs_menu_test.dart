@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -240,7 +241,11 @@ void main() {
       (tester) async {
     await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
     await tester.pump();
-    await openTab(tester, 'alpha.pdf');
+    await openTab(
+      tester,
+      'alpha.pdf',
+      bytes: PdfBlankDocument.create(pageSize: PdfPageSize.letter.landscape),
+    );
     await openTab(tester, 'beta.pdf');
 
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
@@ -256,6 +261,10 @@ void main() {
       find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
       findsOneWidget,
     );
+    final thumbnailSize = tester.getSize(
+      find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
+    );
+    expect(thumbnailSize.width / thumbnailSize.height, closeTo(792 / 612, .01));
     expect(
       tester.widget<Text>(
         find.byKey(const ValueKey('tab-hover-preview-title')),

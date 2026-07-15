@@ -2603,30 +2603,43 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
     if (_imageKey != key && _pendingKey != key) {
       unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
     }
+    final page = widget.controller.pageAt(widget.pageIndex);
+    final pageSize = PdfPageRenderer.pageSize(
+      page,
+      rotation: widget.rotation,
+    );
+    final aspectRatio = pageSize.width > 0 && pageSize.height > 0
+        ? pageSize.width / pageSize.height
+        : 1.0;
     final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      key: widget.previewKey,
-      decoration: BoxDecoration(
-        color: widget.pageColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: scheme.shadow.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(7),
-        child: _image == null
-            ? const SizedBox.expand()
-            : RawImage(
-                key: widget.imageKey,
-                image: _image,
-                fit: BoxFit.contain,
+    return Center(
+      child: AspectRatio(
+        aspectRatio: aspectRatio,
+        child: DecoratedBox(
+          key: widget.previewKey,
+          decoration: BoxDecoration(
+            color: widget.pageColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: scheme.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.shadow.withValues(alpha: 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(7),
+            child: _image == null
+                ? const SizedBox.expand()
+                : RawImage(
+                    key: widget.imageKey,
+                    image: _image,
+                    fit: BoxFit.contain,
+                  ),
+          ),
+        ),
       ),
     );
   }
