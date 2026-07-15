@@ -176,6 +176,17 @@ void main() {
         firstWord.rects.first.left, greaterThan(secondWord.rects.first.left));
   });
 
+  test('positioned tashkil stays clustered with its Arabic base glyph', () {
+    const logical = 'ٱﻟْﺣَﻣْدُ ل';
+    final page = PdfTextExtractor.extract(
+      PdfDocument.open(buildPositionedTashkilPdf()),
+      0,
+    );
+
+    expect(page.text, logical);
+    expect(page.findAll(logical, caseSensitive: true), hasLength(1));
+  });
+
   test('Arabic logical-order substitute text is not double-reversed', () {
     const logical = 'مرحبا 123';
     final page = PdfTextExtractor.extract(
@@ -241,6 +252,15 @@ void main() {
     expect(first.quads.first.isRightToLeft, isTrue);
     expect(page.positionNear(359, 720), 0);
     expect(page.positionNear(313, 720), 4);
+  });
+
+  test('literal search ignores clipboard bidi formatting controls', () {
+    const text = '(اﻟرﺣﻣن';
+    const page = PdfPageText(pageIndex: 0, text: text, runs: []);
+
+    final match = page.findAll('\u2067$text\u2069', caseSensitive: true).single;
+    expect((match.start, match.end), (0, text.length));
+    expect(page.findAll('\u2067\u2069'), isEmpty);
   });
 
   test('copy text uses paragraph-scoped Unicode bidi isolates', () {

@@ -11,6 +11,9 @@ import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
 
+final _bidiFormattingControls =
+    RegExp(r'[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]');
+
 /// One positioned run of text on a page, in page space.
 class PdfExtractedRun {
   const PdfExtractedRun({
@@ -124,6 +127,8 @@ class PdfPageText {
   /// throwing); matching is synchronous with no timeout, so a pathological
   /// (catastrophically backtracking) pattern over a large page can block
   /// the caller. [caseSensitive] applies to both literal and regex search.
+  /// Literal queries ignore Unicode BiDi formatting controls so text copied
+  /// with direction metadata can be pasted back into search.
   List<PdfTextMatch> findAll(
     String query, {
     bool caseSensitive = false,
@@ -146,6 +151,8 @@ class PdfPageText {
       }
       return matches;
     }
+    query = query.replaceAll(_bidiFormattingControls, '');
+    if (query.isEmpty) return const [];
     final haystack = caseSensitive ? text : text.toLowerCase();
     final needle = caseSensitive ? query : query.toLowerCase();
     var from = 0;
@@ -568,42 +575,46 @@ class PdfTextExtractor {
       flush();
     }
 
-    final visualLine = _visualSourceOrder(line);
+    final visualLine = _visualSourceClusters(line);
     PdfTextRun? visualPrevious;
-    for (final item in visualLine) {
+    for (final cluster in visualLine) {
       add(
         visualPrevious == null
             ? ''
-            : _separatorWithinVisualLine(visualPrevious, item.run),
+            : _separatorWithinVisualLine(visualPrevious, cluster.anchor),
         null,
       );
-      final glyphs = item.run.glyphs;
-      final hasGlyphText = glyphs != null &&
-          glyphs.every((glyph) => glyph.text != null) &&
-          glyphs.map((glyph) => glyph.text!).join() == item.run.text;
-      if (!hasGlyphText) {
-        add(item.run.text, item.run);
-        visualPrevious = item.run;
-        continue;
+      if (_isZeroAdvanceMark(cluster.sources.first.run)) {
+        previousKind = _firstStrongKind(cluster.anchor.text) ?? previousKind;
       }
-      var sourceOffset = 0;
-      for (var i = 0; i < glyphs.length; i++) {
-        final glyph = glyphs[i];
-        final text = glyph.text!;
-        final end = i + 1 < glyphs.length
-            ? math.max(glyph.offset, glyphs[i + 1].offset)
-            : item.run.width;
-        add(
-          text,
-          item.run,
-          sourceOffset: sourceOffset,
-          preserveText: true,
-          sourceX0: glyph.offset,
-          sourceX1: end,
-        );
-        sourceOffset += text.length;
+      for (final item in cluster.sources) {
+        final glyphs = item.run.glyphs;
+        final hasGlyphText = glyphs != null &&
+            glyphs.every((glyph) => glyph.text != null) &&
+            glyphs.map((glyph) => glyph.text!).join() == item.run.text;
+        if (!hasGlyphText) {
+          add(item.run.text, item.run);
+          continue;
+        }
+        var sourceOffset = 0;
+        for (var i = 0; i < glyphs.length; i++) {
+          final glyph = glyphs[i];
+          final text = glyph.text!;
+          final end = i + 1 < glyphs.length
+              ? math.max(glyph.offset, glyphs[i + 1].offset)
+              : item.run.width;
+          add(
+            text,
+            item.run,
+            sourceOffset: sourceOffset,
+            preserveText: true,
+            sourceX0: glyph.offset,
+            sourceX1: end,
+          );
+          sourceOffset += text.length;
+        }
       }
-      visualPrevious = item.run;
+      visualPrevious = cluster.anchor;
     }
     if (!hasRtl || hasUnpositionedRtl) return null;
 
@@ -654,30 +665,72 @@ class PdfTextExtractor {
     ));
   }
 
-  /// Orders separately positioned text-showing runs by their location along
-  /// the line's visual baseline. RTL layout engines commonly emit words in
-  /// logical order while placing each successive word farther left; using the
-  /// content-stream order in that case reverses the words a second time.
-  static List<_SourceRun> _visualSourceOrder(List<_SourceRun> line) {
-    if (line.length < 2) return line;
+  /// Groups zero-advance marks with their following base run, then orders the
+  /// clusters by their location along the line's visual baseline.
+  ///
+  /// Skia emits Arabic marks as separate text-showing operators immediately
+  /// before their base glyph. Sorting those marks independently moves them
+  /// across the base and makes the gap heuristic insert spaces inside words.
+  /// Keeping the source-order cluster intact lets the RTL reversal restore
+  /// base-then-mark logical order while separately positioned words can still
+  /// move into visual order before the reversal.
+  static List<_SourceCluster> _visualSourceClusters(List<_SourceRun> line) {
+    final clusters = <_SourceCluster>[];
+    final pendingMarks = <_SourceRun>[];
+    for (final source in line) {
+      if (_isZeroAdvanceMark(source.run)) {
+        pendingMarks.add(source);
+        continue;
+      }
+      clusters.add(_SourceCluster(
+        [...pendingMarks, source],
+        source.run,
+      ));
+      pendingMarks.clear();
+    }
+    if (pendingMarks.isNotEmpty) {
+      if (clusters.isEmpty) {
+        clusters.add(_SourceCluster([...pendingMarks], pendingMarks.last.run));
+      } else {
+        final last = clusters.removeLast();
+        clusters.add(_SourceCluster(
+          [...last.sources, ...pendingMarks],
+          last.anchor,
+        ));
+      }
+    }
+    if (clusters.length < 2) return clusters;
+
     final baseline = line.first.run.transform;
     final length = math.sqrt(baseline.a * baseline.a + baseline.b * baseline.b);
-    if (length <= 1e-9) return line;
+    if (length <= 1e-9) return clusters;
     final ux = baseline.a / length;
     final uy = baseline.b / length;
-    final positioned = <({int index, double offset, _SourceRun source})>[
-      for (var i = 0; i < line.length; i++)
+    final positioned = <({int index, double offset, _SourceCluster cluster})>[
+      for (var i = 0; i < clusters.length; i++)
         (
           index: i,
-          offset: line[i].run.transform.e * ux + line[i].run.transform.f * uy,
-          source: line[i],
+          offset: clusters[i].anchor.transform.e * ux +
+              clusters[i].anchor.transform.f * uy,
+          cluster: clusters[i],
         ),
     ];
     positioned.sort((a, b) {
       final order = a.offset.compareTo(b.offset);
       return order != 0 ? order : a.index.compareTo(b.index);
     });
-    return [for (final item in positioned) item.source];
+    return [for (final item in positioned) item.cluster];
+  }
+
+  static bool _isZeroAdvanceMark(PdfTextRun run) =>
+      run.width.abs() <= 1e-9 && run.text.trim().isNotEmpty;
+
+  static _BidiKind? _firstStrongKind(String text) {
+    for (final rune in text.runes) {
+      final kind = _strongBidiKind(rune);
+      if (kind != null) return kind;
+    }
+    return null;
   }
 
   /// Reconstructs an inferred separator after source runs have been reordered
@@ -685,6 +738,7 @@ class PdfTextExtractor {
   /// same logic works for rotated text.
   static String _separatorWithinVisualLine(
       PdfTextRun previous, PdfTextRun next) {
+    if (previous.text.trim().isEmpty || next.text.trim().isEmpty) return '';
     final em = previous.transform.scaleFactor;
     final axisLength = math.sqrt(previous.transform.a * previous.transform.a +
         previous.transform.b * previous.transform.b);
@@ -1101,6 +1155,13 @@ class _SourceRun {
 
   final String separator;
   final PdfTextRun run;
+}
+
+class _SourceCluster {
+  const _SourceCluster(this.sources, this.anchor);
+
+  final List<_SourceRun> sources;
+  final PdfTextRun anchor;
 }
 
 enum _BidiKind { ltr, rtl, neutral }
