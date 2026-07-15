@@ -33,6 +33,8 @@ const double _tabStripHeight = 42;
 const double _mobileTabsBreakpoint = 700;
 const double _appMenuLeadingWidth = 60;
 const double _appMenuIconSize = 24;
+const double _compactAppMenuItemHeight = 36;
+const double _compactRecentMenuItemHeight = 48;
 const int _maxRecentMenuItems = 8;
 
 /// The editor's main screen: a strip of open-document tabs over the drop-in
@@ -1157,6 +1159,20 @@ class _EditorScreenState extends State<EditorScreen>
       defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
+  bool get _usesCompactAppMenu => switch (defaultTargetPlatform) {
+        TargetPlatform.macOS ||
+        TargetPlatform.windows ||
+        TargetPlatform.linux =>
+          true,
+        _ => false,
+      };
+
+  double _appMenuItemHeight({bool twoLine = false}) => !_usesCompactAppMenu
+      ? kMinInteractiveDimension
+      : twoLine
+          ? _compactRecentMenuItemHeight
+          : _compactAppMenuItemHeight;
+
   bool get _showsSelectionCopyAction => switch (defaultTargetPlatform) {
         TargetPlatform.android ||
         TargetPlatform.iOS ||
@@ -1177,10 +1193,13 @@ class _EditorScreenState extends State<EditorScreen>
     required String title,
     String? shortcut,
     Widget? trailing,
+    Widget? subtitle,
+    TextOverflow? overflow,
   }) =>
       ListTile(
         leading: Icon(icon),
-        title: Text(title),
+        title: Text(title, overflow: overflow),
+        subtitle: subtitle,
         trailing: trailing ??
             (shortcut == null
                 ? null
@@ -1191,6 +1210,12 @@ class _EditorScreenState extends State<EditorScreen>
                         ),
                   )),
         contentPadding: EdgeInsets.zero,
+        minTileHeight: _usesCompactAppMenu
+            ? subtitle == null
+                ? _compactAppMenuItemHeight
+                : _compactRecentMenuItemHeight
+            : null,
+        minVerticalPadding: _usesCompactAppMenu ? 0 : null,
       );
 
   List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
@@ -1211,6 +1236,7 @@ class _EditorScreenState extends State<EditorScreen>
     );
     return [
       PopupMenuItem<VoidCallback>(
+        height: _appMenuItemHeight(),
         value: () {},
         padding: EdgeInsets.zero,
         child: PopupMenuButton<VoidCallback>(
@@ -1224,24 +1250,23 @@ class _EditorScreenState extends State<EditorScreen>
           },
           itemBuilder: (_) => [
             if (recents.isEmpty)
-              const PopupMenuItem<VoidCallback>(
+              PopupMenuItem<VoidCallback>(
+                height: _appMenuItemHeight(),
                 enabled: false,
-                child: ListTile(
-                  leading: Icon(Icons.history_toggle_off),
-                  title: Text('No recent files'),
-                  contentPadding: EdgeInsets.zero,
+                child: _appMenuTile(
+                  icon: Icons.history_toggle_off,
+                  title: 'No recent files',
                 ),
               )
             else ...[
               for (final entry in recents)
                 PopupMenuItem<VoidCallback>(
+                  height: _appMenuItemHeight(twoLine: entry.path != null),
                   value: () => unawaited(_openRecent(entry)),
-                  child: ListTile(
-                    leading: const Icon(Icons.picture_as_pdf_outlined),
-                    title: Text(
-                      entry.title.isEmpty ? 'Untitled' : entry.title,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                  child: _appMenuTile(
+                    icon: Icons.picture_as_pdf_outlined,
+                    title: entry.title.isEmpty ? 'Untitled' : entry.title,
+                    overflow: TextOverflow.ellipsis,
                     subtitle: entry.path == null
                         ? null
                         : Text(
@@ -1249,16 +1274,15 @@ class _EditorScreenState extends State<EditorScreen>
                             overflow: TextOverflow.ellipsis,
                             maxLines: 1,
                           ),
-                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
               const PopupMenuDivider(),
               PopupMenuItem<VoidCallback>(
+                height: _appMenuItemHeight(),
                 value: () => unawaited(_recents.clear()),
-                child: const ListTile(
-                  leading: Icon(Icons.clear_all),
-                  title: Text('Clear recent files'),
-                  contentPadding: EdgeInsets.zero,
+                child: _appMenuTile(
+                  icon: Icons.clear_all,
+                  title: 'Clear recent files',
                 ),
               ),
             ],
@@ -1278,6 +1302,7 @@ class _EditorScreenState extends State<EditorScreen>
       [
         PopupMenuItem(
           key: const ValueKey('menu-new-document'),
+          height: _appMenuItemHeight(),
           value: () => unawaited(_newDocument()),
           child: _appMenuTile(
             icon: Icons.note_add_outlined,
@@ -1287,6 +1312,7 @@ class _EditorScreenState extends State<EditorScreen>
         ),
         PopupMenuItem(
           key: const ValueKey('menu-open'),
+          height: _appMenuItemHeight(),
           value: () => unawaited(_pickAndOpen()),
           child: _appMenuTile(
             icon: Icons.folder_open,
@@ -1299,6 +1325,7 @@ class _EditorScreenState extends State<EditorScreen>
         if (tab?.session != null) ...[
           PopupMenuItem(
             key: const ValueKey('menu-save-as'),
+            height: _appMenuItemHeight(),
             value: () => _save(tab!, saveAs: true),
             child: _appMenuTile(
               icon: Icons.save_as_outlined,
@@ -1308,6 +1335,7 @@ class _EditorScreenState extends State<EditorScreen>
           ),
           PopupMenuItem(
             key: const ValueKey('menu-digital-signature'),
+            height: _appMenuItemHeight(),
             enabled: !_digitallySigning,
             value: () => unawaited(_digitallySign(tab!)),
             child: _appMenuTile(
@@ -1318,6 +1346,7 @@ class _EditorScreenState extends State<EditorScreen>
           ),
           PopupMenuItem(
             key: const ValueKey('menu-print'),
+            height: _appMenuItemHeight(),
             value: () => unawaited(_print(tab!)),
             child: _appMenuTile(
               icon: Icons.print_outlined,
@@ -1327,6 +1356,7 @@ class _EditorScreenState extends State<EditorScreen>
           ),
           PopupMenuItem(
             key: const ValueKey('menu-export-image'),
+            height: _appMenuItemHeight(),
             value: () => unawaited(_exportImage(tab!)),
             child: _appMenuTile(
               icon: Icons.image_outlined,
@@ -1334,6 +1364,7 @@ class _EditorScreenState extends State<EditorScreen>
             ),
           ),
           PopupMenuItem(
+            height: _appMenuItemHeight(),
             value: _compareWith,
             child: _appMenuTile(
               icon: Icons.compare_arrows,
@@ -1341,6 +1372,7 @@ class _EditorScreenState extends State<EditorScreen>
             ),
           ),
           PopupMenuItem(
+            height: _appMenuItemHeight(),
             value: () => setState(() => _readOnly = !_readOnly),
             child: _appMenuTile(
               icon: _readOnly ? Icons.edit : Icons.edit_off,
@@ -1350,6 +1382,7 @@ class _EditorScreenState extends State<EditorScreen>
           if (OnDeviceOcr.isSupported)
             PopupMenuItem(
               key: const ValueKey('menu-ocr'),
+              height: _appMenuItemHeight(),
               value: () => unawaited(_runOcr()),
               child: _appMenuTile(
                 icon: Icons.document_scanner_outlined,
@@ -1359,6 +1392,7 @@ class _EditorScreenState extends State<EditorScreen>
           const PopupMenuDivider(),
         ],
         PopupMenuItem(
+          height: _appMenuItemHeight(),
           value: () => showAppSettings(
             context,
             prefs: _prefs,

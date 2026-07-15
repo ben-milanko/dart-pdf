@@ -60,6 +60,70 @@ void main() {
     });
   }
 
+  testWidgets(
+    'app menu and recent submenu use compact rows on desktop',
+    (tester) async {
+      seedRecents();
+      await pumpApp(tester);
+
+      await openAppMenu(tester);
+      final newItemFinder = find.byKey(const ValueKey('menu-new-document'));
+      final newItem = tester.widget<PopupMenuItem<dynamic>>(newItemFinder);
+      final newTileFinder = find.descendant(
+        of: newItemFinder,
+        matching: find.byType(ListTile),
+      );
+      final newTile = tester.widget<ListTile>(newTileFinder);
+      expect(newItem.height, 36);
+      expect(newTile.minTileHeight, 36);
+      final openItemFinder = find.byKey(const ValueKey('menu-open'));
+      expect(
+        tester.getCenter(openItemFinder).dy -
+            tester.getCenter(newItemFinder).dy,
+        lessThan(kMinInteractiveDimension),
+      );
+
+      await tester.tap(find.text('Open Recent'));
+      await tester.pumpAndSettle();
+      final recentItemFinder = find.ancestor(
+        of: find.text('alpha.pdf'),
+        matching: find.byType(PopupMenuItem<VoidCallback>),
+      );
+      final recentItem = tester.widget<PopupMenuItem<VoidCallback>>(
+        recentItemFinder,
+      );
+      final recentTileFinder = find.descendant(
+        of: recentItemFinder,
+        matching: find.byType(ListTile),
+      );
+      final recentTile = tester.widget<ListTile>(recentTileFinder);
+      expect(recentItem.height, 48);
+      expect(recentTile.minTileHeight, 48);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'app menu keeps touch-sized rows on mobile',
+    (tester) async {
+      await pumpApp(tester);
+
+      await openAppMenu(tester);
+      final itemFinder = find.byKey(const ValueKey('menu-new-document'));
+      final item = tester.widget<PopupMenuItem<dynamic>>(itemFinder);
+      final tile = tester.widget<ListTile>(
+        find.descendant(of: itemFinder, matching: find.byType(ListTile)),
+      );
+      expect(item.height, kMinInteractiveDimension);
+      expect(tile.minTileHeight, isNull);
+      expect(
+        tester.getSize(itemFinder).height,
+        greaterThanOrEqualTo(kMinInteractiveDimension),
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
   testWidgets('DartPDF menu shows Open and Open Recent entries',
       (tester) async {
     seedRecents();
