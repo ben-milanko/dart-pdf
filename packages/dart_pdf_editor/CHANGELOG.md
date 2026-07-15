@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Expose edit-and-style and markup actions when text is selected in an
+  editor-backed viewer, on both touch and desktop context menus.
+
 ## 1.4.5
 
 - Correct selection and copy ordering for multi-word Arabic and other

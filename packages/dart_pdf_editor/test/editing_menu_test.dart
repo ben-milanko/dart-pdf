@@ -240,6 +240,33 @@ void main() {
       return controller;
     }
 
+    Future<({PdfViewerController viewer, PdfEditingController editing})>
+        pumpEditor(
+      WidgetTester tester, {
+      PdfStyledTextPrompt? styledTextPrompt,
+    }) async {
+      final viewer = PdfViewerController();
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(viewer.dispose);
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+              editingStyledTextPrompt: styledTextPrompt,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      return (viewer: viewer, editing: editing);
+    }
+
     Future<void> rightClick(WidgetTester tester, Offset at) async {
       await tester.tapAt(at,
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
@@ -255,6 +282,9 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-text-menu-select-all')),
           findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-highlight')), findsNothing);
       final copy = tester.widget<PopupMenuItem>(
           find.byKey(const ValueKey('pdf-text-menu-copy')));
       expect(copy.enabled, isTrue);
@@ -282,8 +312,7 @@ void main() {
       final controller = await pumpReader(tester);
 
       await rightClick(tester, viewPoint(100, 720));
-      await tester
-          .tap(find.byKey(const ValueKey('pdf-text-menu-select-all')));
+      await tester.tap(find.byKey(const ValueKey('pdf-text-menu-select-all')));
       await tester.pumpAndSettle();
       expect(controller.selectedText, 'Page 1');
     });
@@ -319,6 +348,35 @@ void main() {
       // back to a single word
       await rightClick(tester, viewPoint(110, 720));
       expect(controller.selectedText, 'Page');
+    });
+
+    testWidgets('the editor text menu exposes and applies Edit text & style',
+        (tester) async {
+      String? promptedWith;
+      final state = await pumpEditor(
+        tester,
+        styledTextPrompt: (context,
+            {required initial, palette = const <Color>[], pickFont}) async {
+          promptedWith = initial;
+          return const PdfStyledTextEdit('Document', PdfTextStyle());
+        },
+      );
+
+      await rightClick(tester, viewPoint(100, 720));
+      expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-menu-highlight')),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-text-menu-edit')));
+      await tester.pumpAndSettle();
+
+      expect(promptedWith, 'Page');
+      final text = PdfPageElements.of(state.editing.document, 0)
+          .elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .map((element) => element.text)
+          .join();
+      expect(text, 'Document 1');
+      expect(state.viewer.hasSelection, isFalse);
     });
   });
 }

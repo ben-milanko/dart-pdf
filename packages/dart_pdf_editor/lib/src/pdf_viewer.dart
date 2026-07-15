@@ -15,11 +15,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'annotation_tap.dart';
 import 'editing/editing_controller.dart';
+import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
 import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
+import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'page_geometry.dart';
@@ -33,6 +35,7 @@ import 'render_worker.dart';
 import 'renderer.dart';
 import 'scrollbar.dart';
 import 'theme.dart';
+import 'toast.dart';
 import 'viewport.dart';
 
 export 'viewport.dart' show PdfViewport, pdfDocumentKey;
@@ -501,6 +504,10 @@ class PdfViewer extends StatefulWidget {
     this.interactionSession,
     this.formController,
     this.editingTextPrompt,
+    this.editingStyledTextPrompt,
+    this.editingPalette = defaultStyledTextPalette,
+    this.textSelectionEditing = true,
+    this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.fontPicker,
@@ -648,6 +655,21 @@ class PdfViewer extends StatefulWidget {
   /// How the editing tools ask for annotation text (free text, notes,
   /// stamps). Defaults to [showPdfTextPrompt], a Material dialog.
   final PdfTextPrompt? editingTextPrompt;
+
+  /// How the text-selection menu asks for replacement text and rich style.
+  /// Defaults to [showPdfStyledTextPrompt].
+  final PdfStyledTextPrompt? editingStyledTextPrompt;
+
+  /// Quick-pick colors shown by [editingStyledTextPrompt].
+  final List<Color> editingPalette;
+
+  /// Whether an editor-backed text selection exposes the pencil action that
+  /// opens [editingStyledTextPrompt]. Has no effect without [editing].
+  final bool textSelectionEditing;
+
+  /// Whether an editor-backed text selection exposes highlight, underline,
+  /// strikeout, and squiggly actions. Has no effect without [editing].
+  final bool textSelectionMarkup;
 
   /// Adds the app's own entries to the annotation context menu (the
   /// right-click menu - z-order and delete come stock). Called when the
@@ -2657,9 +2679,9 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     await _showTextMenu(details.globalPosition, details.localPosition, page);
   }
 
-  /// The mouse right-click text menu: Copy the current selection and
-  /// Select all on the page. Mirrors the touch selection chip's actions
-  /// for desktop users, who otherwise have only ⌘C. A right-click that
+  /// The mouse right-click text menu: editing/markup actions when an editor
+  /// is attached, plus Copy and Select all. Mirrors the touch selection
+  /// chip for desktop users, who otherwise have only ⌘C. A right-click that
   /// lands outside the current selection first selects the word under
   /// the cursor, like a desktop reader, so Copy has something to act on;
   /// a click inside the selection keeps it. With no selectable word and
@@ -2673,6 +2695,11 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
     final hasSelection = _selRange != null;
     final hasText = _pageText(page).text.isNotEmpty;
     if (!hasSelection && !hasText) return;
+    final editing = widget.editing;
+    final canEdit =
+        editing != null && widget.textSelectionEditing && hasSelection;
+    final canMarkup =
+        editing != null && widget.textSelectionMarkup && hasSelection;
     final overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
     final picked = await showMenu<_TextMenuAction>(
@@ -2680,6 +2707,35 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       position: RelativeRect.fromRect(
           globalPosition & Size.zero, Offset.zero & overlay.size),
       items: [
+        if (canEdit)
+          PopupMenuItem<_TextMenuAction>(
+            key: const ValueKey('pdf-text-menu-edit'),
+            value: _TextMenuAction.edit,
+            child: _textMenuRow(Icons.edit, 'Edit text & style', true),
+          ),
+        if (canMarkup) ...[
+          PopupMenuItem<_TextMenuAction>(
+            key: const ValueKey('pdf-text-menu-highlight'),
+            value: _TextMenuAction.highlight,
+            child: _textMenuRow(Icons.border_color, 'Highlight', true),
+          ),
+          PopupMenuItem<_TextMenuAction>(
+            key: const ValueKey('pdf-text-menu-underline'),
+            value: _TextMenuAction.underline,
+            child: _textMenuRow(Icons.format_underlined, 'Underline', true),
+          ),
+          PopupMenuItem<_TextMenuAction>(
+            key: const ValueKey('pdf-text-menu-strikeout'),
+            value: _TextMenuAction.strikeOut,
+            child: _textMenuRow(Icons.format_strikethrough, 'Strike out', true),
+          ),
+          PopupMenuItem<_TextMenuAction>(
+            key: const ValueKey('pdf-text-menu-squiggly'),
+            value: _TextMenuAction.squiggly,
+            child: _textMenuRow(Icons.gesture, 'Squiggly', true),
+          ),
+        ],
+        if (canEdit || canMarkup) const PopupMenuDivider(),
         PopupMenuItem<_TextMenuAction>(
           key: const ValueKey('pdf-text-menu-copy'),
           value: _TextMenuAction.copy,
@@ -2695,6 +2751,16 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       ],
     );
     switch (picked) {
+      case _TextMenuAction.edit:
+        await _editTextSelection();
+      case _TextMenuAction.highlight:
+        _markupTextSelection(PdfMarkupKind.highlight);
+      case _TextMenuAction.underline:
+        _markupTextSelection(PdfMarkupKind.underline);
+      case _TextMenuAction.strikeOut:
+        _markupTextSelection(PdfMarkupKind.strikeOut);
+      case _TextMenuAction.squiggly:
+        _markupTextSelection(PdfMarkupKind.squiggly);
       case _TextMenuAction.copy:
         await _controller.copySelection();
       case _TextMenuAction.selectAll:
@@ -2702,6 +2768,98 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       case null:
         break;
     }
+  }
+
+  /// Opens the rich content-text editor for the exact text element under the
+  /// current viewer selection. Selection is kept on cancel/failure so the
+  /// user can copy or mark it up instead.
+  Future<void> _editTextSelection() async {
+    final editing = widget.editing;
+    final range = _selRange;
+    final selected = _controller.selectedText;
+    if (editing == null || range == null || selected.isEmpty) return;
+    if (range.$1.$1 != range.$2.$1) {
+      _textSelectionToast('Editing requires a selection on one page.');
+      return;
+    }
+    final page = range.$1.$1;
+    final rects = _selectionRectsOn(page);
+    final element = editing.textElementForSelection(page, rects, selected);
+    if (element == null) {
+      _textSelectionToast(
+          'This selection is not one editable page-content text run.');
+      return;
+    }
+    final result =
+        await (widget.editingStyledTextPrompt ?? showPdfStyledTextPrompt)(
+      context,
+      initial: selected,
+      palette: widget.editingPalette,
+      pickFont: (context) => _pickSelectionFont(context, editing),
+    );
+    if (result == null || !mounted) return;
+    if (result.text.isEmpty ||
+        (result.text == selected && result.style.isEmpty)) {
+      return;
+    }
+    if (!result.style.isEmpty && !editing.canStyleContentText(page, element)) {
+      _textSelectionToast(
+          'This PDF font can be re-typed, but its style cannot be changed.');
+      return;
+    }
+    final fallbacks = await loadFallbackFonts();
+    if (!mounted ||
+        _selRange != range ||
+        _controller.selectedText != selected) {
+      return;
+    }
+    final count = editing.replaceTextInElement(
+      page,
+      element,
+      selected,
+      result.text,
+      result.style,
+      fallbackFonts: fallbacks,
+    );
+    if (count == 0) {
+      _textSelectionToast('This PDF font or encoding cannot be edited safely.');
+      return;
+    }
+    _clearSelection();
+  }
+
+  Future<PdfTextFont?> _pickSelectionFont(
+      BuildContext context, PdfEditingController editing) async {
+    PdfTextFont? chosen;
+    await showPdfFontMenu(
+      context: context,
+      controller: editing,
+      fontPicker: widget.fontPicker,
+      onSelected: (font) => chosen = font,
+    );
+    return chosen;
+  }
+
+  void _markupTextSelection(PdfMarkupKind kind) {
+    final editing = widget.editing;
+    if (editing == null || _selRange == null) return;
+    final quadsByPage = {
+      for (final page in _controller.selectionPages)
+        page: _selectionRectsOn(page),
+    };
+    editing.useMarkupStyleScope();
+    editing.addMarkup(kind, quadsByPage);
+    _clearSelection();
+  }
+
+  void _textSelectionToast(String message) {
+    ScaffoldMessenger.maybeOf(context)
+      ?..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: pdfFloatingToastMargin(context),
+      ));
   }
 
   Widget _textMenuRow(IconData icon, String label, bool enabled) => Row(
@@ -3461,6 +3619,12 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
       onDragEnd: _onHandleDragEnd,
       onCopy: _copyAndDismiss,
       onSelectAll: () => _selectAllTextOn(index),
+      onEdit: widget.editing != null && widget.textSelectionEditing
+          ? _editTextSelection
+          : null,
+      onMarkup: widget.editing != null && widget.textSelectionMarkup
+          ? _markupTextSelection
+          : null,
     );
   }
 
@@ -5343,7 +5507,15 @@ class _FlingClock extends Simulation {
 enum _TrackpadIntent { undecided, scroll, zoom }
 
 /// The mouse right-click text menu's actions.
-enum _TextMenuAction { copy, selectAll }
+enum _TextMenuAction {
+  edit,
+  highlight,
+  underline,
+  strikeOut,
+  squiggly,
+  copy,
+  selectAll,
+}
 
 /// Claims every trackpad pan-zoom gesture, eagerly. The viewer drives
 /// scrolling, zoom-window panning, and pinch zoom itself: leaving these
@@ -5515,6 +5687,8 @@ class _PageTextSelection {
     required this.onDragEnd,
     required this.onCopy,
     required this.onSelectAll,
+    required this.onEdit,
+    required this.onMarkup,
   });
 
   /// The selection's first rect on this page (PDF coordinates) when the
@@ -5540,6 +5714,8 @@ class _PageTextSelection {
   final VoidCallback onDragEnd;
   final VoidCallback onCopy;
   final VoidCallback onSelectAll;
+  final Future<void> Function()? onEdit;
+  final void Function(PdfMarkupKind kind)? onMarkup;
 }
 
 /// The touch selection chrome on one page: iOS-style lollipop handles
@@ -5596,19 +5772,14 @@ class _TextSelectionChrome extends StatelessWidget {
     // clear of the end handle's ball below and the start handle's above
     final clearance = 28 * s;
     final above = anchor.top - clearance - 44 * s >= 0;
-    final width = geometry.viewSize.width;
-    final halfChip = 90.0 * s;
-    final position = Offset(
-      width <= 2 * halfChip
-          ? width / 2
-          : anchor.center.dx.clamp(halfChip, width - halfChip),
-      above ? anchor.top - clearance : anchor.bottom + clearance,
-    );
-    return Positioned(
-      left: position.dx,
-      top: position.dy,
-      child: FractionalTranslation(
-        translation: Offset(-0.5, above ? -1 : 0),
+    return Positioned.fill(
+      child: CustomSingleChildLayout(
+        delegate: _SelectionChipLayoutDelegate(
+          anchor: anchor,
+          clearance: clearance,
+          scale: s,
+          above: above,
+        ),
         child: Transform.scale(
           scale: s,
           alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
@@ -5618,11 +5789,67 @@ class _TextSelectionChrome extends StatelessWidget {
             borderRadius: BorderRadius.circular(22),
             clipBehavior: Clip.antiAlias,
             child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (selection.onEdit != null) ...[
+                IconButton(
+                  key: const ValueKey('pdf-text-selection-chip-edit'),
+                  tooltip: 'Edit text & style',
+                  icon: const Icon(Icons.edit, size: 20),
+                  onPressed: selection.onEdit,
+                ),
+                const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+              ],
               TextButton(
                 key: const ValueKey('pdf-text-selection-chip-copy'),
                 onPressed: selection.onCopy,
                 child: const Text('Copy'),
               ),
+              if (selection.onMarkup != null) ...[
+                const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                PopupMenuButton<PdfMarkupKind>(
+                  key: const ValueKey('pdf-text-selection-chip-markup'),
+                  tooltip: 'Markup',
+                  icon: const Icon(Icons.edit_note, size: 20),
+                  onSelected: selection.onMarkup,
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      key: ValueKey('pdf-text-selection-highlight'),
+                      value: PdfMarkupKind.highlight,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.border_color),
+                        title: Text('Highlight'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      key: ValueKey('pdf-text-selection-underline'),
+                      value: PdfMarkupKind.underline,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.format_underlined),
+                        title: Text('Underline'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      key: ValueKey('pdf-text-selection-strikeout'),
+                      value: PdfMarkupKind.strikeOut,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.format_strikethrough),
+                        title: Text('Strike out'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      key: ValueKey('pdf-text-selection-squiggly'),
+                      value: PdfMarkupKind.squiggly,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.gesture),
+                        title: Text('Squiggly'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 24, child: VerticalDivider(width: 1)),
               TextButton(
                 key: const ValueKey('pdf-text-selection-chip-select-all'),
@@ -5635,6 +5862,47 @@ class _TextSelectionChrome extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SelectionChipLayoutDelegate extends SingleChildLayoutDelegate {
+  const _SelectionChipLayoutDelegate({
+    required this.anchor,
+    required this.clearance,
+    required this.scale,
+    required this.above,
+  });
+
+  final Rect anchor;
+  final double clearance;
+  final double scale;
+  final bool above;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      constraints.loosen();
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final visualHalfWidth = childSize.width * scale / 2;
+    final centerX = size.width <= 2 * visualHalfWidth
+        ? size.width / 2
+        : anchor.center.dx
+            .clamp(visualHalfWidth, size.width - visualHalfWidth)
+            .toDouble();
+    return Offset(
+      centerX - childSize.width / 2,
+      above
+          ? anchor.top - clearance - childSize.height
+          : anchor.bottom + clearance,
+    );
+  }
+
+  @override
+  bool shouldRelayout(_SelectionChipLayoutDelegate oldDelegate) =>
+      anchor != oldDelegate.anchor ||
+      clearance != oldDelegate.clearance ||
+      scale != oldDelegate.scale ||
+      above != oldDelegate.above;
 }
 
 /// One lollipop: a ball above the selection start (or below the end)

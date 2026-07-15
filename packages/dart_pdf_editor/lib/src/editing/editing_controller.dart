@@ -5223,6 +5223,56 @@ class PdfEditingController extends ChangeNotifier {
       selectedElement?.kind == PdfElementKind.text &&
       (selectedElement?.text?.isNotEmpty ?? false);
 
+  /// Resolves a viewer text selection to the one editable page-content text
+  /// element underneath all of its [rects]. Returns null for multi-run text,
+  /// text inside a Form XObject, or ambiguous overlapping text layers.
+  ///
+  /// Keeping this conservative lets the selection menu promise that an edit
+  /// changes exactly the occurrence the user selected. Broader paragraph and
+  /// Form-XObject edits continue to use their dedicated content workflows.
+  PdfContentElement? textElementForSelection(
+    int pageIndex,
+    List<PdfRect> rects,
+    String text,
+  ) {
+    if (text.isEmpty || rects.isEmpty || text.contains('\n')) return null;
+    final candidates = elementsOn(pageIndex).elements.where((element) {
+      final bounds = element.bounds;
+      final elementText = element.text;
+      if (element.kind != PdfElementKind.text ||
+          bounds == null ||
+          elementText == null) {
+        return false;
+      }
+      final occurrence = elementText.indexOf(text);
+      if (occurrence < 0 ||
+          elementText.indexOf(text, occurrence + text.length) >= 0) {
+        return false;
+      }
+      return rects.every((rect) {
+        final overlap = bounds.intersect(rect);
+        return overlap.width > 0 && overlap.height > 0;
+      });
+    }).toList(growable: false);
+    return candidates.length == 1 ? candidates.single : null;
+  }
+
+  /// Whether [element]'s current font can accept rich style overrides.
+  /// Composite Type0 text can be re-typed in supported encodings, but the
+  /// content editor deliberately preserves its appearance.
+  bool canStyleContentText(int pageIndex, PdfContentElement element) {
+    if (element.kind != PdfElementKind.text) return false;
+    final name = element.resourceName;
+    if (name == null) return true;
+    final cos = _document.cos;
+    final fonts = cos.resolve(pageAt(pageIndex).resources['Font']);
+    if (fonts is! CosDictionary) return true;
+    final font = cos.resolve(fonts[name]);
+    if (font is! CosDictionary) return true;
+    final subtype = cos.resolve(font['Subtype']);
+    return subtype is! CosName || subtype.value != 'Type0';
+  }
+
   /// Whether the selected element is an image-like content draw that can be
   /// removed from the page stream and replaced by an image stamp in the same
   /// bounds.
@@ -5325,6 +5375,37 @@ class PdfEditingController extends ChangeNotifier {
       (e) => count = e.replaceText(
         selected.$1,
         element.text!,
+        text,
+        fallbackFonts: fallbackFonts,
+        style: style,
+      ),
+    );
+    return count;
+  }
+
+  /// Rewrites [find] only inside [element], the occurrence resolved from a
+  /// viewer text selection. Returns zero if the selection became stale while
+  /// a prompt was open or if the PDF font cannot safely draw [text].
+  int replaceTextInElement(
+    int pageIndex,
+    PdfContentElement element,
+    String find,
+    String text,
+    PdfTextStyle style, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) {
+    final elements = elementsOn(pageIndex);
+    if (element.id < 0 ||
+        element.id >= elements.elements.length ||
+        !identical(elements.elements[element.id], element)) {
+      return 0;
+    }
+    var count = 0;
+    apply(
+      (editor) => count = editor.replaceElementText(
+        elements,
+        element,
+        find,
         text,
         fallbackFonts: fallbackFonts,
         style: style,
