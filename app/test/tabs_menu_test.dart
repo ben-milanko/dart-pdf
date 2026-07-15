@@ -144,6 +144,51 @@ void main() {
     expect(find.byKey(const ValueKey('mobile-tabs-open')), findsOneWidget);
   });
 
+  testWidgets('desktop tab strip opens the preview grid in a dialog',
+      (tester) async {
+    await openTabs(tester);
+
+    final button = find.byKey(const ValueKey('desktop-tabs-button'));
+    expect(button, findsOneWidget);
+    expect(
+      tester.getCenter(button).dx,
+      greaterThan(
+        tester.getTopRight(find.byKey(const ValueKey('tab-strip'))).dx,
+      ),
+    );
+
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    final grid = find.byKey(const ValueKey('desktop-tabs-grid'));
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsOneWidget);
+    expect(grid, findsOneWidget);
+    expect(
+      find.descendant(
+        of: grid,
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      ),
+      findsNWidgets(3),
+    );
+    expect(
+      find.descendant(
+        of: grid,
+        matching: find.byKey(const ValueKey('mobile-tab-preview')),
+      ),
+      findsNWidgets(3),
+    );
+    expect(find.byKey(const ValueKey('desktop-tabs-open')), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: grid, matching: find.text('alpha.pdf')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
+    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+        FontWeight.w600);
+  });
+
   testWidgets('right-click opens the tab context menu', (tester) async {
     await openTabs(tester);
 

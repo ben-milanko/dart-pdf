@@ -1594,88 +1594,128 @@ class _EditorScreenState extends State<EditorScreen>
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
-          final scheme = Theme.of(sheetContext).colorScheme;
           return SafeArea(
             top: false,
             child: SizedBox(
               height: MediaQuery.sizeOf(sheetContext).height * 0.72,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Tabs',
-                            style: Theme.of(sheetContext).textTheme.titleMedium,
-                          ),
-                        ),
-                        IconButton(
-                          key: const ValueKey('mobile-tabs-open'),
-                          icon: const Icon(Icons.add),
-                          tooltip: 'Open PDF in a new tab',
-                          onPressed: () {
-                            Navigator.of(sheetContext).pop();
-                            unawaited(_pickAndOpen());
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: GridView.builder(
-                      key: const ValueKey('mobile-tabs-grid'),
-                      padding: const EdgeInsets.all(12),
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 220,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 0.78,
-                      ),
-                      itemCount: _tabs.length,
-                      itemBuilder: (context, index) {
-                        final tab = _tabs[index];
-                        final selected = index == _activeIndex;
-                        return _MobileTabTile(
-                          key: ValueKey('mobile-tab-${tab.hashCode}'),
-                          tab: tab,
-                          selected: selected,
-                          onTap: () {
-                            setState(() => _activeIndex = index);
-                            Navigator.of(sheetContext).pop();
-                          },
-                          onClose: () async {
-                            await _closeTabs([tab]);
-                            if (!mounted || !sheetContext.mounted) return;
-                            if (_tabs.isEmpty) {
-                              Navigator.of(sheetContext).pop();
-                            } else {
-                              setSheetState(() {});
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: Text(
-                      '${_tabs.length} open',
-                      style: Theme.of(sheetContext)
-                          .textTheme
-                          .labelMedium
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                  ),
-                ],
+              child: _buildTabsGrid(
+                sheetContext,
+                setOverlayState: setSheetState,
+                keyPrefix: 'mobile',
+                headerTopPadding: 0,
               ),
             ),
           );
         },
       ),
+    );
+  }
+
+  Future<void> _showTabsDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final viewport = MediaQuery.sizeOf(dialogContext);
+          final width = viewport.width > 888 ? 840.0 : viewport.width - 48;
+          final height = viewport.height > 688 ? 640.0 : viewport.height - 48;
+          return Dialog(
+            key: const ValueKey('desktop-tabs-dialog'),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: _buildTabsGrid(
+                dialogContext,
+                setOverlayState: setDialogState,
+                keyPrefix: 'desktop',
+                headerTopPadding: 12,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTabsGrid(
+    BuildContext overlayContext, {
+    required StateSetter setOverlayState,
+    required String keyPrefix,
+    required double headerTopPadding,
+  }) {
+    final scheme = Theme.of(overlayContext).colorScheme;
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, headerTopPadding, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Tabs',
+                  style: Theme.of(overlayContext).textTheme.titleMedium,
+                ),
+              ),
+              IconButton(
+                key: ValueKey('$keyPrefix-tabs-open'),
+                icon: const Icon(Icons.add),
+                tooltip: 'Open PDF in a new tab',
+                onPressed: () {
+                  Navigator.of(overlayContext).pop();
+                  unawaited(_pickAndOpen());
+                },
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: GridView.builder(
+            key: ValueKey('$keyPrefix-tabs-grid'),
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 220,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.78,
+            ),
+            itemCount: _tabs.length,
+            itemBuilder: (context, index) {
+              final tab = _tabs[index];
+              final selected = index == _activeIndex;
+              return _MobileTabTile(
+                key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
+                tab: tab,
+                selected: selected,
+                onTap: () {
+                  setState(() => _activeIndex = index);
+                  Navigator.of(overlayContext).pop();
+                },
+                onClose: () async {
+                  await _closeTabs([tab]);
+                  if (!mounted || !overlayContext.mounted) return;
+                  if (_tabs.isEmpty) {
+                    Navigator.of(overlayContext).pop();
+                  } else {
+                    setOverlayState(() {});
+                  }
+                },
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            '${_tabs.length} open',
+            style: Theme.of(overlayContext)
+                .textTheme
+                .labelMedium
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1698,7 +1738,8 @@ class _EditorScreenState extends State<EditorScreen>
       child: LayoutBuilder(
         builder: (context, constraints) {
           const buttonWidth = 40.0;
-          final maxTabsWidth = (constraints.maxWidth - buttonWidth)
+          const controlsWidth = buttonWidth * 2;
+          final maxTabsWidth = (constraints.maxWidth - controlsWidth)
               .clamp(0.0, double.infinity)
               .toDouble();
           final desiredTabsWidth = _estimatedTabStripWidth(context);
@@ -1733,6 +1774,20 @@ class _EditorScreenState extends State<EditorScreen>
                   icon: const Icon(Icons.add),
                   tooltip: 'Open PDF in a new tab',
                   onPressed: _pickAndOpen,
+                ),
+              ),
+              SizedBox(
+                width: buttonWidth,
+                height: _tabStripHeight,
+                child: IconButton(
+                  key: const ValueKey('desktop-tabs-button'),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: buttonWidth),
+                  icon: const Icon(Icons.grid_view),
+                  tooltip: 'View all tabs',
+                  onPressed: _showTabsDialog,
                 ),
               ),
             ],
