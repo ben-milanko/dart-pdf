@@ -5815,21 +5815,21 @@ h=i}else h=a2.a0(a3)
 n=a0?A.x_(a2,c,h,l,k):A.qQ(a2,c,h,l,k,j,A.qB(a2,c))
 if(n==null)return g
 return new A.cT(n,l,k,r&&!a1)},
-qZ(a,b){var s,r,q,p,o,n,m=A.oD(a,b)
-if(m==null)return null
-s=b.a
-if(a.j(s.a.h(0,"ImageMask")).I(0,B.q)){r=m.a
-q=m.b
-p=m.c
+qZ(a,b){var s,r,q,p,o,n,m=b.a,l=a.j(m.a.h(0,"ImageMask")).I(0,B.q)
+if(!l&&A.wX(a,m))return null
+s=A.oD(a,b)
+if(s==null)return null
+if(l){r=s.a
+q=s.b
+p=s.c
 A.j8(r)
-return new A.aD(r,q,p)}if(A.wX(a,s))return null
-o=A.rk(a,s)
-if(o==null)o=A.rl(a,s)
-if(o==null){r=m.a
-q=m.b
-p=m.c
-if(!m.d)A.j8(r)
-return new A.aD(r,q,p)}n=A.rj(m.a,m.b,m.c,o)
+return new A.aD(r,q,p)}o=A.rk(a,m)
+if(o==null)o=A.rl(a,m)
+if(o==null){r=s.a
+q=s.b
+p=s.c
+if(!s.d)A.j8(r)
+return new A.aD(r,q,p)}n=A.rj(s.a,s.b,s.c,o)
 r=n.a
 A.j8(r)
 return new A.aD(r,n.b,n.c)},
@@ -6850,52 +6850,60 @@ a7=q[3]
 a7=c1>=a7.a&&c1<=a7.b}}}}a7=a7?0:255
 if(!(a9<c8))return A.a(c9,a9)
 c9[a9]=a7}return c9}return c6},
-w3(a3,a4,a5,a6,a7,a8,a9){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0=a4*a5,a1=a7.a,a2=a3.length
-if(a2<a0*a1)return null
+w3(a5,a6,a7,a8,a9,b0,b1){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0,a1=null,a2=a6*a7,a3=a9.a,a4=a5.length
+if(a4<a2*a3)return a1
 s=A.b([],t.a)
-for(r=a8==null,q=0;q<a1;++q){if(r)p=$.oU()
-else{if(!(q<a8.length))return A.a(a8,q)
-p=A.or(a8[q])}s.push(p)}for(r=t.o,p=a7.c,o=a7.d,n=t.n,m=t.t,l=a7.b,k=0;k<a0;++k){j=A.b([],m)
-for(i=k*a1,q=0;q<a1;++q){h=i+q
-if(!(h<a2))return A.a(a3,h)
-j.push(a3[h])}i=A.b([],n)
-for(q=0;q<a1;++q){if(!(q<s.length))return A.a(s,q)
-h=s[q]
-if(!(q<j.length))return A.a(j,q)
-g=j[q]
-if(!(g<h.length))return A.a(h,g)
-i.push(h[g]/255)}f=p.bk(r.a(i))
-e=o==null?null:o.b3(f)
-if(e==null)e=A.da(f,l)
-i=k*4
-h=B.b.n(B.c.v(e.a*255),0,255)
-a6.$flags&2&&A.e(a6)
-g=a6.length
-if(!(i<g))return A.a(a6,i)
-a6[i]=h
+for(r=b0==null,q=0;q<a3;++q){if(r)p=$.oU()
+else{if(!(q<b0.length))return A.a(b0,q)
+p=A.or(b0[q])}s.push(p)}if(a3<=8){r=t.S
+o=A.y(r,r)}else o=a1
+n=new Float64Array(a3)
+for(r=t.o,p=a9.c,m=a9.d,l=a9.b,k=0;k<a2;++k){j=k*a3
+i=o==null
+h=!i
+g=0
+if(h)for(q=0;q<a3;++q){f=j+q
+if(!(f<a4))return A.a(a5,f)
+g=(g<<8|a5[f])>>>0}e=i?a1:o.h(0,g)
+if(e==null)e=-1
+if(e<0){for(i=s.length,q=0;q<a3;++q){if(!(q<i))return A.a(s,q)
+f=s[q]
+d=j+q
+if(!(d<a4))return A.a(a5,d)
+d=a5[d]
+if(!(d<f.length))return A.a(f,d)
+d=f[d]
+if(!(q<a3))return A.a(n,q)
+n[q]=d/255}c=p.bk(r.a(n))
+b=m==null?a1:m.b3(c)
+if(b==null)b=A.da(c,l)
+e=(B.b.n(B.c.v(b.a*255),0,255)<<16|B.b.n(B.c.v(b.b*255),0,255)<<8|B.b.n(B.c.v(b.c*255),0,255))>>>0
+if(h&&o.a<65536)o.k(0,g,e)}i=k*4
+h=B.b.q(e,16)
+a8.$flags&2&&A.e(a8)
+f=a8.length
+if(!(i<f))return A.a(a8,i)
+a8[i]=h&255
 h=i+1
-d=B.b.n(B.c.v(e.b*255),0,255)
-a6.$flags&2&&A.e(a6)
-if(!(h<g))return A.a(a6,h)
-a6[h]=d
+d=B.b.q(e,8)
+if(!(h<f))return A.a(a8,h)
+a8[h]=d&255
 d=i+2
-h=B.b.n(B.c.v(e.c*255),0,255)
-a6.$flags&2&&A.e(a6)
-if(!(d<g))return A.a(a6,d)
-a6[d]=h
-c=!1
-if(a9!=null){h=j.length
-d=a9.length
+if(!(d<f))return A.a(a8,d)
+a8[d]=e&255
+a=!1
+if(b1!=null){h=b1.length
 q=0
-for(;;){if(!(q<a1)){c=!0
-break}if(!(q<h))return A.a(j,q)
-b=j[q]
-if(!(q<d))return A.a(a9,q)
-a=a9[q]
-if(b<a.a||b>a.b)break;++q}}j=i+3
-i=c?0:255
-if(!(j<g))return A.a(a6,j)
-a6[j]=i}return a6},
+for(;;){if(!(q<a3)){a=!0
+break}d=j+q
+if(!(d<a4))return A.a(a5,d)
+a0=a5[d]
+if(!(q<h))return A.a(b1,q)
+d=b1[q]
+if(a0<d.a||a0>d.b)break;++q}}i+=3
+h=a?0:255
+if(!(i<f))return A.a(a8,i)
+a8[i]=h}return a8},
 d9(a,b){var s
 if(a==null)s=$.oU()
 else{if(!(b<a.length))return A.a(a,b)
