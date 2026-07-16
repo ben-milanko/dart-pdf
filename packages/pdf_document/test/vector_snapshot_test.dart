@@ -42,6 +42,40 @@ Uint8List _coloredPagePdf() {
   return Uint8List.fromList(latin1.encode(buffer.toString()));
 }
 
+/// A one-page PDF whose content draws a **nested** Form XObject (/Fm0) that
+/// sets its own blue fill - so a recolour has to recurse into the nested form,
+/// not just rewrite the top-level content.
+Uint8List _nestedFormPagePdf() {
+  const pageContent = '/Fm0 Do';
+  const formContent = '0 0 1 rg 0 0 50 50 re f';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] '
+        '/Contents 4 0 R /Resources << /XObject << /Fm0 5 0 R >> >> >>',
+    '<< /Length ${pageContent.length} >>\nstream\n$pageContent\nendstream',
+    '<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] '
+        '/Length ${formContent.length} >>\nstream\n$formContent\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return Uint8List.fromList(latin1.encode(buffer.toString()));
+}
+
 String _capContent(PdfDocument out, PdfAnnotation stamp) {
   final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
       as CosDictionary;
@@ -318,6 +352,34 @@ void main() {
       final other = _capContent(out, outStamps[1]);
       expect(other, contains('1 0 0 rg'));
       expect(other, isNot(contains('0 0 1 rg')));
+    });
+
+    test('recolour recurses into nested Form XObjects', () {
+      final doc = PdfDocument.open(_nestedFormPagePdf());
+      final editor = PdfEditor(doc);
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+      editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+      final stamp = doc.page(0).annotations.single;
+      editor.recolorVectorSnapshot(0, stamp, 0xFF0000);
+
+      final out = PdfDocument.open(editor.save());
+      final s = out.page(0).annotations.single;
+      final res = out.cos.resolve(s.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
+      final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
+      final cap = out.cos.resolve(xobj['Cap']) as CosStream;
+      // the top capture still invokes the nested form
+      expect(latin1.decode(out.cos.decodeStreamData(cap)), contains('/Fm0 Do'));
+      // and the nested form's own blue fill is retinted red
+      final capRes =
+          out.cos.resolve(cap.dictionary['Resources']) as CosDictionary;
+      final capXobj = out.cos.resolve(capRes['XObject']) as CosDictionary;
+      final nested = out.cos.resolve(capXobj['Fm0']) as CosStream;
+      final nestedContent = latin1.decode(out.cos.decodeStreamData(nested));
+      expect(nestedContent, contains('1 0 0 rg'));
+      expect(nestedContent, isNot(contains('0 0 1 rg')));
+      expect(nestedContent, contains('re'));
     });
 
     test('recolour works on a snapshot loaded from a prior revision', () {
