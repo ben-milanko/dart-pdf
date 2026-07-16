@@ -188,6 +188,65 @@ void main() {
           ['first li', 'second line']);
     });
 
+    test('a polygon lasso slices the glyphs whose centres it encloses', () {
+      // A quadrilateral over the middle of "first line" (baseline 700, band
+      // ~[697.6, 712]), covering the "st li" glyph centres.
+      final left = 72.0;
+      final poly = <(double, double)>[
+        (left + measureHelvetica('fir', 12), 697),
+        (left + measureHelvetica('first li', 12), 697),
+        (left + measureHelvetica('first li', 12), 713),
+        (left + measureHelvetica('fir', 12), 713),
+      ];
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(editor.deleteElementsInPolygon(elements, poly), 1);
+
+      final out = PdfDocument.open(editor.save());
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['firne', 'second line']);
+    });
+
+    test('a polygon lasso removes a fully-enclosed non-text element', () {
+      // The filled rectangle "100 100 50 40 re f" sits at x 100..150, y
+      // 100..140; a lasso around it drops it whole.
+      final poly = <(double, double)>[
+        (95, 95),
+        (160, 95),
+        (160, 150),
+        (95, 150),
+      ];
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(editor.deleteElementsInPolygon(elements, poly), 1);
+
+      final out = PdfDocument.open(editor.save());
+      expect(pageText(out), isNot(contains('100 100 50 40 re')));
+      // text runs it does not enclose are untouched
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['first line', 'second line']);
+    });
+
+    test('a degenerate polygon is a no-op', () {
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      expect(
+          editor.deleteElementsInPolygon(elements, const [(0.0, 0.0), (1.0, 1.0)]),
+          0);
+      expect(editor.hasChanges, isFalse);
+    });
+
     test('erasing a region clips partial hits instead of dropping them', () {
       final doc = PdfDocument.open(buildContentPdf(richContent));
       final elements = PdfPageElements.of(doc, 0);

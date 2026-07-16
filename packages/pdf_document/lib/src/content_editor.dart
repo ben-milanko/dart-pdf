@@ -146,7 +146,39 @@ extension PdfContentEditing on PdfEditor {
   ///
   /// Returns how many bounded elements were affected. Unbounded elements are
   /// skipped because a region delete has no reliable hit box for them.
-  int deleteElementsInRect(PdfPageElements elements, PdfRect rect) {
+  int deleteElementsInRect(PdfPageElements elements, PdfRect rect) =>
+      _deleteElementsInRegion(
+        elements,
+        (bounds) => _intersects(bounds, rect),
+        (element) => _textSlice(element, rect),
+      );
+
+  /// Deletes every bounded page-content element whose bounds fall inside the
+  /// closed [polygon] (page space, at least three vertices). Text runs are
+  /// sliced to the glyphs whose centres land inside the polygon; non-text
+  /// elements are removed whole. The polygon counterpart of
+  /// [deleteElementsInRect] — the lasso variant of the content-erase tool.
+  ///
+  /// Returns how many bounded elements were affected.
+  int deleteElementsInPolygon(
+      PdfPageElements elements, List<(double, double)> polygon) {
+    if (polygon.length < 3) return 0;
+    return _deleteElementsInRegion(
+      elements,
+      (bounds) => _polygonHitsRect(polygon, bounds),
+      (element) => _textSlicePolygon(element, polygon),
+    );
+  }
+
+  /// Shared body for the region-delete tools. [hitsBounds] decides whether an
+  /// element's bounds fall in the region; [sliceText] returns the glyph range
+  /// of a text run to erase (or null to leave it). Non-text elements that pass
+  /// [hitsBounds] are removed whole.
+  int _deleteElementsInRegion(
+    PdfPageElements elements,
+    bool Function(PdfRect bounds) hitsBounds,
+    ({int start, int end})? Function(PdfContentElement element) sliceText,
+  ) {
     final page = document.page(elements.pageIndex);
     final drop = <int>{};
     final replacements = <int, String>{};
@@ -163,10 +195,10 @@ extension PdfContentEditing on PdfEditor {
 
     for (final element in elements.elements) {
       final bounds = element.bounds;
-      if (bounds == null || !_intersects(bounds, rect)) continue;
+      if (bounds == null || !hitsBounds(bounds)) continue;
 
       if (element.kind == PdfElementKind.text) {
-        final slice = _textSlice(element, rect);
+        final slice = sliceText(element);
         if (slice == null) continue;
         changed++;
         if (slice.start == 0 && slice.end == element.text!.length) {
@@ -298,6 +330,100 @@ extension PdfContentEditing on PdfEditor {
     }
     if (first < 0 || last <= first) return null;
     return (start: first, end: last);
+  }
+
+  /// The [_textSlice] counterpart for a lasso: erases the glyphs whose centre
+  /// point falls inside [polygon]. Centres run along the baseline in order, so
+  /// the covered indices stay contiguous for a simple lasso and reuse the same
+  /// single-cut replacement machinery.
+  static ({int start, int end})? _textSlicePolygon(
+      PdfContentElement element, List<(double, double)> polygon) {
+    final text = element.text;
+    final bounds = element.bounds;
+    if (text == null || text.isEmpty || bounds == null) return null;
+
+    final horizontal = bounds.width >= bounds.height;
+    final axisStart = horizontal ? bounds.left : bounds.bottom;
+    final axisEnd = horizontal ? bounds.right : bounds.top;
+    final cross = horizontal
+        ? (bounds.bottom + bounds.top) / 2
+        : (bounds.left + bounds.right) / 2;
+    final axisLength = axisEnd - axisStart;
+    if (axisLength <= 0) return null;
+
+    final totalWidth = measureHelvetica(text, 1);
+    if (totalWidth <= 0) return null;
+
+    var first = -1;
+    var last = -1;
+    var cursor = 0.0;
+    for (var i = 0; i < text.length; i++) {
+      final next = cursor + measureHelvetica(text[i], 1);
+      final along = axisStart + (cursor + next) / 2 / totalWidth * axisLength;
+      final x = horizontal ? along : cross;
+      final y = horizontal ? cross : along;
+      if (_pointInPolygon(x, y, polygon)) {
+        first = first < 0 ? i : first;
+        last = i + 1;
+      }
+      cursor = next;
+    }
+    if (first < 0 || last <= first) return null;
+    return (start: first, end: last);
+  }
+
+  /// Even-odd ray cast: is (x, y) inside the closed [polygon]?
+  static bool _pointInPolygon(double x, double y, List<(double, double)> poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      final (xi, yi) = poly[i];
+      final (xj, yj) = poly[j];
+      if ((yi > y) != (yj > y) &&
+          x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  /// Does the closed [poly] overlap the axis-aligned [r]? True when a polygon
+  /// vertex sits in the rect, a rect corner sits in the polygon, or any pair
+  /// of their edges cross.
+  static bool _polygonHitsRect(List<(double, double)> poly, PdfRect r) {
+    for (final (px, py) in poly) {
+      if (px >= r.left && px <= r.right && py >= r.bottom && py <= r.top) {
+        return true;
+      }
+    }
+    final corners = <(double, double)>[
+      (r.left, r.bottom),
+      (r.right, r.bottom),
+      (r.right, r.top),
+      (r.left, r.top),
+    ];
+    for (final (cx, cy) in corners) {
+      if (_pointInPolygon(cx, cy, poly)) return true;
+    }
+    for (var i = 0; i < poly.length; i++) {
+      final a = poly[i];
+      final b = poly[(i + 1) % poly.length];
+      for (var j = 0; j < corners.length; j++) {
+        if (_segmentsCross(a, b, corners[j], corners[(j + 1) % 4])) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Do open segments a-b and c-d properly cross?
+  static bool _segmentsCross((double, double) a, (double, double) b,
+      (double, double) c, (double, double) d) {
+    double cross((double, double) o, (double, double) p, (double, double) q) =>
+        (p.$1 - o.$1) * (q.$2 - o.$2) - (p.$2 - o.$2) * (q.$1 - o.$1);
+    final d1 = cross(c, d, a);
+    final d2 = cross(c, d, b);
+    final d3 = cross(a, b, c);
+    final d4 = cross(a, b, d);
+    return (d1 > 0) != (d2 > 0) && (d3 > 0) != (d4 > 0);
   }
 
   static Uint8List? _shownBytes(ContentOperation op) {

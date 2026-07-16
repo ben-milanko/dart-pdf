@@ -1088,12 +1088,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _tool == PdfEditTool.measureArc ||
       _tool == PdfEditTool.measureVolume;
 
-  /// The cloud tool is a hybrid: a drag rubber-bands a rectangle, but a
-  /// tap starts (and each further tap extends) a free-form vertex list -
-  /// finished by a double-tap. This is true once at least one vertex has
-  /// been placed, so a drag no longer restarts the shape as a rectangle.
-  bool get _cloudPolyInProgress =>
-      _tool == PdfEditTool.cloudPolygon && (_polyPoints?.isNotEmpty ?? false);
+  /// The tools that are hybrids: a drag rubber-bands a rectangle, but a tap
+  /// starts (and each further tap extends) a free-form vertex list, finished
+  /// by a double-tap. The cloud stamps a polygon annotation; content-delete
+  /// erases the page content the polygon encloses.
+  bool get _hybridPolyTool =>
+      _tool == PdfEditTool.cloudPolygon || _tool == PdfEditTool.contentDelete;
+
+  /// True once at least one hybrid-tool vertex has been placed, so a drag no
+  /// longer restarts the shape as a rectangle.
+  bool get _regionPolyInProgress =>
+      _hybridPolyTool && (_polyPoints?.isNotEmpty ?? false);
 
   /// The number of clicks a fixed-arity poly tool takes before it
   /// auto-finishes - three for the angle and arc takeoffs - or null for an
@@ -2911,8 +2916,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _selectPanStart(details);
       return;
     }
-    if (_cloudPolyInProgress) {
-      // committing a cloud by clicks: a stray drag must not rubber-band a
+    if (_regionPolyInProgress) {
+      // committing a region by clicks: a stray drag must not rubber-band a
       // rectangle over the vertices already placed
       return;
     }
@@ -3698,6 +3703,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     final closed = _tool == PdfEditTool.polygon ||
         _tool == PdfEditTool.cloudPolygon ||
+        _tool == PdfEditTool.contentDelete ||
         _tool == PdfEditTool.measureArea ||
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
@@ -3736,7 +3742,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       default:
         // distance/slope are drag tools (handled elsewhere); a poly gesture
         // with no measure kind active is a plain poly annotation.
-        if (_tool == PdfEditTool.cloudPolygon) {
+        if (_tool == PdfEditTool.contentDelete) {
+          // the lasso erases page content; there is no shape to leave behind,
+          // so clear the vertices and let the new revision render (no
+          // afterimage, unlike the shape tools below)
+          _controller.deleteElementsInPolygon(widget.pageIndex, pagePoints);
+          _clearAfterimage();
+          setState(() {
+            _polyPoints = null;
+            _polyHover = null;
+          });
+          return;
+        } else if (_tool == PdfEditTool.cloudPolygon) {
           _controller.addCloudPolygonPoints(widget.pageIndex, pagePoints);
         } else if (_tool == PdfEditTool.polygon) {
           _controller.addPolygon(widget.pageIndex, pagePoints);
@@ -4010,8 +4027,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_polyTool) {
       return;
     }
-    if (_tool == PdfEditTool.cloudPolygon) {
-      // a tap (not a drag) drops a cloud vertex; double-tap finishes it
+    if (_hybridPolyTool) {
+      // a tap (not a drag) drops a vertex; double-tap finishes the region
       _addPolyPoint(details.localPosition);
       return;
     }
@@ -4135,7 +4152,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
       return;
     }
-    if (!_polyTool && _tool != PdfEditTool.cloudPolygon) return;
+    if (!_polyTool && !_hybridPolyTool) return;
     _finishPolyPath(_polyDoubleTapPosition);
     _polyDoubleTapPosition = null;
   }
@@ -4226,9 +4243,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         setState(() => _signaturePreview = event.localPosition);
       }
       cursor = SystemMouseCursors.precise;
-    } else if (_polyTool || _tool == PdfEditTool.cloudPolygon) {
-      // once a cloud vertex is down, the hover rubber-bands the next edge;
-      // before that the cloud tool still rubber-bands a rectangle on drag
+    } else if (_polyTool || _hybridPolyTool) {
+      // once a vertex is down, the hover rubber-bands the next edge; before
+      // that a hybrid tool still rubber-bands a rectangle on drag
       if (_polyPoints != null && event.localPosition != _polyHover) {
         setState(() => _polyHover = event.localPosition);
       }
@@ -4814,9 +4831,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             !identical(_afterDocument, _controller.document))) {
       _clearAfterimage();
     }
-    if (_polyPoints != null &&
-        !_polyTool &&
-        _tool != PdfEditTool.cloudPolygon) {
+    if (_polyPoints != null && !_polyTool && !_hybridPolyTool) {
       _polyPoints = null;
       _polyHover = null;
     }
@@ -5005,13 +5020,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         onPanEnd: _panEnd,
         onTapUp: _onTapUp,
         onDoubleTapDown:
-            _polyTool || _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form
+            _polyTool || _hybridPolyTool || _tool == PdfEditTool.form
                 ? _onDoubleTapDown
                 : null,
         onDoubleTap:
-            _polyTool || _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form
+            _polyTool || _hybridPolyTool || _tool == PdfEditTool.form
                 ? _onDoubleTap
                 : null,
         child: MouseRegion(
@@ -6325,6 +6338,23 @@ class _EditingPreviewPainter extends CustomPainter {
   void _paintPathPreview(Canvas canvas, List<Offset> points, PdfEditTool? tool,
       Color color, Color? fillColor, double width, bool dashed) {
     if (points.length < 2) return;
+    if (tool == PdfEditTool.contentDelete) {
+      // the lasso-in-progress marquee: an orange dashed outline with a faint
+      // fill, matching the drag-rectangle content-delete preview
+      final region = Path()..moveTo(points.first.dx, points.first.dy);
+      for (final point in points.skip(1)) {
+        region.lineTo(point.dx, point.dy);
+      }
+      region.close();
+      canvas.drawPath(region, Paint()..color = _elementChrome.withAlpha(0x1A));
+      canvas.drawPath(
+          _dashPath(region, 1 * chromeScale),
+          Paint()
+            ..color = _elementChrome
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1 * chromeScale);
+      return;
+    }
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke

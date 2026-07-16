@@ -188,9 +188,11 @@ enum PdfEditTool {
   /// images are inserted as movable image stamps.
   content,
 
-  /// Drag a rectangular region to delete every page-content element whose
-  /// bounds overlap it, like Bluebeam's content erase/delete tool. This
-  /// edits the page's content stream directly and ignores annotations.
+  /// Delete every page-content element inside a region, like Bluebeam's
+  /// content erase/delete tool. A drag rubber-bands a rectangle; a tap starts
+  /// (and each further tap extends) a free-form polygon lasso, finished by a
+  /// double-tap. This edits the page's content stream directly and ignores
+  /// annotations.
   contentDelete,
 
   /// Interactive forms: tap a field widget to fill it (text fields open
@@ -5657,6 +5659,20 @@ class PdfEditingController extends ChangeNotifier {
     }
     var count = 0;
     apply((e) => count = e.deleteElementsInRect(elements, rect),
+        pages: [pageIndex]);
+    return count;
+  }
+
+  /// The lasso counterpart of [deleteElementsInRect]: deletes every bounded
+  /// page-content element that falls inside the closed [polygon] (page space).
+  /// Text runs are sliced to the glyphs whose centres land inside it. Returns
+  /// the number of elements affected; a degenerate polygon is a no-op.
+  int deleteElementsInPolygon(int pageIndex, List<(double, double)> polygon) {
+    if (polygon.length < 3) return 0;
+    final elements = elementsOn(pageIndex);
+    var count = 0;
+    // A no-op edit leaves the editor unchanged, so apply() adds no revision.
+    apply((e) => count = e.deleteElementsInPolygon(elements, polygon),
         pages: [pageIndex]);
     return count;
   }

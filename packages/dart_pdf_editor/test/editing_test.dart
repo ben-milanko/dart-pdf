@@ -1132,7 +1132,8 @@ void main() {
       await tester.tap(editChip);
       await settle(tester);
       final contentDeleteButton = find
-          .byTooltip('Delete content — drag a region to remove page content');
+          .byTooltip('Delete content — drag a region, or click to lasso a '
+          'polygon, to remove page content');
       await tester.scrollUntilVisible(contentDeleteButton, 80,
           scrollable: stripScrollable);
       await tester.tap(contentDeleteButton);
@@ -1260,6 +1261,34 @@ void main() {
       await gesture.up();
       await settle(tester);
       expect(editing.elementsOn(0).elements, isEmpty);
+    });
+
+    testWidgets('the content delete tool lassos a polygon to remove content',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester, pages: 1);
+      editing.tool = PdfEditTool.contentDelete;
+      await tester.pump();
+
+      // tap a quad around the page content, then double-tap to close it
+      await tester.tapAt(view(60, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 705));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(180, 755));
+      await tester.pump(const Duration(milliseconds: 400));
+      // one vertex short of a closed region: nothing removed yet
+      expect(editing.elementsOn(0).elements, isNotEmpty);
+      final painter = editingOverlayPainter(tester);
+      expect(painter.tool, PdfEditTool.contentDelete);
+      expect(painter.dragPath, isNotNull);
+
+      await tester.tapAt(view(60, 755));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(60, 755));
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+      expect(editing.elementsOn(0).elements, isEmpty);
+      await settle(tester);
     });
 
     testWidgets('the sidebar lists, selects, and deletes annotations',
