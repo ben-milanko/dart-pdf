@@ -179,6 +179,46 @@ void main() {
           reason: 'the edited page must reflect the new annotation');
       expect(after1!.length, before1!.length,
           reason: 'an unedited page must render identically after the edit');
+
+      // Undo: the live revision shrinks back to the original prefix (no bytes to
+      // append). The isolate can't apply that as a forward append, so it
+      // re-opens from the shorter prefix and page 0 renders as it did before.
+      worker.updateRevision(original.length, Uint8List(0), original.length, {0});
+      final undone0 = await worker.record(0);
+      expect(undone0, isNotNull);
+      expect(undone0!.length, before0.length,
+          reason: 'undo must restore the pre-edit rendering of page 0');
+    });
+  });
+
+  testWidgets('the pooled worker fans a revision update to every worker',
+      (tester) async {
+    await tester.runAsync(() async {
+      // 12 pages + a pool of 2 selects the PdfPooledRenderWorker backend.
+      final original = buildMultiPagePdf(12);
+      final worker =
+          startPdfRenderWorker(original, pageCount: 12, workerCount: 2);
+      addTearDown(worker.dispose);
+      expect(worker.supportsRevisionUpdate, isTrue);
+
+      final before3 = await worker.record(3);
+      final before9 = await worker.record(9);
+      expect(before3, isNotNull);
+      expect(before9, isNotNull);
+
+      final editor = PdfEditor(PdfDocument.open(original))
+        ..addSquare(3, const PdfRect(20, 20, 120, 120));
+      final updated = editor.save();
+      final appended =
+          Uint8List.fromList(Uint8List.sublistView(updated, original.length));
+      worker.updateRevision(original.length, appended, updated.length, {3});
+
+      // Whichever pooled worker serves each page has the update, so page 3
+      // reflects the edit and page 9 does not - no matter the routing.
+      final after3 = await worker.record(3);
+      final after9 = await worker.record(9);
+      expect(after3!.length, greaterThan(before3!.length));
+      expect(after9!.length, before9!.length);
     });
   });
 }
