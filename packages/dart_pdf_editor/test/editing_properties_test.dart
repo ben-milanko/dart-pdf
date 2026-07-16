@@ -258,6 +258,26 @@ void main() {
       expect(editing.selectedAnnotation!.borderWidth, width);
     });
 
+    testWidgets('the pattern-scale slider rescales a selected cloud',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCloudPolygon(0, const PdfRect(100, 500, 300, 620));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the scale row shows the cloud's current /BE /I (1×) and drives it
+      final scale = find.byKey(const ValueKey('pdf-prop-line-scale'));
+      expect(scale, findsOneWidget);
+      expect(editing.selectedLineScale, closeTo(1, 1e-9));
+
+      await tester.drag(scale, const Offset(60, 0));
+      await tester.pump();
+      expect(editing.selectedLineScale, greaterThan(1));
+      expect(editing.selectedAnnotation!.hasCloudyBorder, isTrue);
+    });
+
     testWidgets('typing an exact value into a slider readout commits it',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
