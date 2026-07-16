@@ -915,6 +915,61 @@ void main() {
       expect(overlayPainter(tester).stampPreview, isNull);
     });
 
+    testWidgets('stamp hover previews a TEXT placeholder without an active stamp',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..tool = PdfEditTool.stamp;
+      addTearDown(editing.dispose);
+      expect(editing.activeStamp, isNull);
+
+      final page = editing.document.page(0);
+      final geometry = PdfPageGeometry(
+        cropBox: page.cropBox,
+        rotation: 0,
+        viewSize: const Size(306, 396),
+      );
+      Offset local(double x, double y) => Offset(x * 0.5, (792 - y) * 0.5);
+      await tester.pumpWidget(MaterialApp(
+        home: Material(
+          child: Center(
+            child: SizedBox(
+              width: geometry.viewSize.width,
+              height: geometry.viewSize.height,
+              child: EditingPageOverlay(
+                controller: editing,
+                pageIndex: 0,
+                geometry: geometry,
+                textPrompt: showPdfTextPrompt,
+                rasterCurrent: false,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: origin + local(250, 430));
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(origin + local(300, 400));
+      await tester.pump();
+
+      // hovering shows the placeholder; nothing is committed until a click
+      // prompts for the real caption.
+      expect(editing.document.page(0).annotations, isEmpty);
+      final preview = overlayPainter(tester).stampPreview;
+      expect(preview, isNotNull);
+      expect(preview.text, 'TEXT');
+      expect(preview.rect.center.dx, moreOrLessEquals(local(300, 400).dx));
+      expect(preview.rect.center.dy, moreOrLessEquals(local(300, 400).dy));
+
+      await mouse.moveTo(origin + const Offset(-20, -20));
+      await tester.pump();
+      expect(overlayPainter(tester).stampPreview, isNull);
+    });
+
     testWidgets('adding a stamp keeps existing annotations painted',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
