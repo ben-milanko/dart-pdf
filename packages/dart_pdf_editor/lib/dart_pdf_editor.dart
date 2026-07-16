@@ -59,6 +59,7 @@ export 'src/performance_policy.dart';
 export 'src/preview_cache.dart';
 export 'src/raster_cache.dart';
 export 'src/render_scheduler.dart';
+export 'src/render_trace.dart';
 export 'src/render_worker.dart';
 export 'src/renderer.dart';
 export 'src/retained_scene.dart';

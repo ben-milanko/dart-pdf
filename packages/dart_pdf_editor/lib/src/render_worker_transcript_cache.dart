@@ -1,6 +1,13 @@
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'render_trace.dart';
+
+// The worker fills its half of the unified [PdfRenderTrace]; re-exported so
+// callers importing this file keep seeing [PdfWorkerPhaseTimings] (now an alias
+// of that record).
+export 'render_trace.dart' show PdfRenderTrace, PdfWorkerPhaseTimings;
+
 /// One immutable, document-backed page interpretation retained by a render
 /// worker. [sourceCommands] keep image COS objects for later decode variants;
 /// [wireCommands] carry the float32 geometry used by strip planning.
@@ -15,23 +22,6 @@ class PdfWorkerTranscript {
   /// Command slots retained by this transcript, including commands nested
   /// inside soft-mask groups and both lists when they are distinct.
   final int retainedCommandWeight;
-}
-
-/// Optional worker-side phase accumulator used by the web performance trace.
-///
-/// Callers create this only while performance logging is enabled, so ordinary
-/// rendering pays no stopwatch or allocation cost. Times are cumulative
-/// because a detail request can serialize both a transcript and its final
-/// image-bearing command buffer.
-class PdfWorkerPhaseTimings {
-  int parseUs = 0;
-  int interpretUs = 0;
-  /// Combined parse + interpret time for incremental content streaming.
-  int streamUs = 0;
-  int serializeUs = 0;
-  int decodeUs = 0;
-  int binUs = 0;
-  bool transcriptHit = false;
 }
 
 /// Counts commands in a retained graph, including nested soft-mask commands.

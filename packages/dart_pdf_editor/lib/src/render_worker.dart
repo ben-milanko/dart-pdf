@@ -5,6 +5,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
+import 'render_trace.dart';
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
     if (dart.library.js_interop) 'render_worker_web.dart';
@@ -335,6 +336,17 @@ abstract class PdfRenderWorker {
   /// callers can skip the round-trip and render locally without asking.
   bool get isActive;
 
+  /// The unified [PdfRenderTrace] for the most recently completed job, or null
+  /// when no job has finished or this backend does not collect timings.
+  ///
+  /// This is the "one call on the worker" that surfaces the end-to-end per-phase
+  /// breakdown - the worker's half (parse/interpret/serialize/decode/bin) plus
+  /// the main-isolate transfer and deserialize this backend completed. Only the
+  /// web backend populates it, and only while [PdfPerfLog] is enabled, so it
+  /// stays free in ordinary rendering. Prefer [PdfRenderTrace.captureOffThread]
+  /// for a deterministic, backend-independent measurement.
+  PdfRenderTrace? get lastRenderTrace => null;
+
   /// Tears the worker down (kills the isolate, fails pending requests with
   /// null). Idempotent.
   void dispose();
@@ -473,6 +485,18 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   @override
   bool get isActive =>
       _workers.any((w) => w.isActive) || (_urgentWorker?.isActive ?? false);
+
+  /// The most recent trace across the pool's workers. Best-effort: a pool
+  /// serves pages on several workers at once, so this is whichever worker most
+  /// recently reported one, useful for a spot check rather than attribution.
+  @override
+  PdfRenderTrace? get lastRenderTrace {
+    for (final worker in _workers) {
+      final trace = worker.lastRenderTrace;
+      if (trace != null) return trace;
+    }
+    return _urgentWorker?.lastRenderTrace;
+  }
 
   @override
   Future<List<PdfRenderCommand>?> record(
@@ -669,6 +693,9 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
 
   @override
   bool get isActive => _inner.isActive;
+
+  @override
+  PdfRenderTrace? get lastRenderTrace => _inner.lastRenderTrace;
 
   /// Decoded image bytes currently retained by completed cached records.
   ///
