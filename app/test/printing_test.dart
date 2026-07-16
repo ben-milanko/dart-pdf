@@ -58,12 +58,20 @@ void main() {
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
-      await printPdfBytes(bytes: buildClassicPdf(), title: 'Report.pdf');
+      final progress = <(int, int)>[];
+      await printPdfBytes(
+        bytes: buildClassicPdf(),
+        title: 'Report.pdf',
+        onProgress: (rendered, total) => progress.add((rendered, total)),
+      );
 
       expect(begins, 1);
       expect(jobName, 'Report'); // the .pdf-stripped job name
       expect(pages, greaterThanOrEqualTo(1));
       expect(ends, 1);
+      // Progress is reported per page and reaches total on the last page.
+      expect(progress, isNotEmpty);
+      expect(progress.last.$1, progress.last.$2);
     });
   });
 }

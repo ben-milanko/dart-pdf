@@ -24,11 +24,14 @@ const MethodChannel _channel = MethodChannel('dev.milanko.dartpdf/native_print')
 /// cancels). A [MissingPluginException] from `beginJob` means the runner has
 /// no native printer; the caller surfaces that as a failure.
 ///
-/// [channel] is a test seam.
+/// [onProgress] is called `(rendered, total)` after each page is streamed, so
+/// the host can show progress (rasterising every page up front is slow for
+/// large documents). [channel] is a test seam.
 Future<void> printDocumentPages(
   PdfDocument document, {
   required String name,
   MethodChannel channel = _channel,
+  void Function(int rendered, int total)? onProgress,
 }) async {
   // A MissingPluginException here propagates: the platform has no native
   // printer registered.
@@ -57,6 +60,7 @@ Future<void> printDocumentPages(
       if (ok == false) {
         throw StateError('the printer rejected page ${i + 1}');
       }
+      onProgress?.call(i + 1, document.pageCount);
     }
     // endJob returns false when the user cancels the print dialog - that is
     // handled, nothing more to do.

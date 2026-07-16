@@ -22,11 +22,20 @@ typedef PdfPrinter = Future<void> Function({
 /// see [printDocumentPages]. This replaces the `printing` plugin, whose
 /// desktop backend spooled through a bundled PDFium that crashed the process
 /// on some of the broken-but-renderable files this engine opens.
+///
+/// [onProgress] is called `(rendered, total)` as each page is rendered, so the
+/// caller can show print progress (rasterising every page up front is slow for
+/// large documents).
 Future<void> printPdfBytes({
   required Uint8List bytes,
   required String title,
+  void Function(int rendered, int total)? onProgress,
 }) async {
-  await printDocumentPages(PdfDocument.open(bytes), name: printJobName(title));
+  await printDocumentPages(
+    PdfDocument.open(bytes),
+    name: printJobName(title),
+    onProgress: onProgress,
+  );
 }
 
 /// A clean print-job / suggested-filename label: the tab title without a

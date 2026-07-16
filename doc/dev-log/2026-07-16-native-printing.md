@@ -76,6 +76,13 @@ longer routes printing through it.
   (`await Future.delayed(Duration.zero)`) before each page so the engine can
   service input and paint between pages. Fuller offloading (encode in an
   isolate) is possible future work.
+- Print progress: `printDocumentPages` takes an `onProgress(rendered, total)`
+  callback (fired per page); the editor shows a modal `PrintProgressDialog`
+  ("Rendering page X of Y") for multi-page jobs, dismissed when rendering
+  finishes and before the OS print dialog opens. Small jobs skip it (no flash).
+- Rasterising every page up front is also the print path's main *performance*
+  cost (not just a quality limit), which strengthens the case for the vector
+  print work in #303.
 - Rasterized output loses selectable text and is heavier than vector - tracked
   as a follow-up enhancement (#303) to print vector content without
   reintroducing a third-party PDF engine.

@@ -13,10 +13,12 @@ import 'package:web/web.dart' as web;
 /// whole app drops the dependency.
 ///
 /// [name] titles the print job (browsers use the document title as the default
-/// filename for "Save as PDF").
+/// filename for "Save as PDF"). [onProgress] is called `(rendered, total)`
+/// after each page renders, so the host can show progress.
 Future<void> printDocumentPages(
   PdfDocument document, {
   required String name,
+  void Function(int rendered, int total)? onProgress,
 }) async {
   final images = StringBuffer();
   for (var i = 0; i < document.pageCount; i++) {
@@ -28,6 +30,7 @@ Future<void> printDocumentPages(
     final b64 = base64Encode(png);
     images.write(
         '<img class="page" src="data:image/png;base64,$b64" alt="page ${i + 1}"/>');
+    onProgress?.call(i + 1, document.pageCount);
   }
 
   // One image per printed sheet; @page removes the browser's default margins so

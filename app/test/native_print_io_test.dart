@@ -41,12 +41,16 @@ void main() {
       });
 
       final doc = PdfDocument.open(buildMultiPagePdf(2));
-      await printDocumentPages(doc, name: 'Report');
+      final progress = <(int, int)>[];
+      await printDocumentPages(doc, name: 'Report',
+          onProgress: (rendered, total) => progress.add((rendered, total)));
 
       expect(begins, 1);
       expect(jobName, 'Report');
       expect(ends, 1);
       expect(images, hasLength(2));
+      expect(progress, [(1, 2), (2, 2)]); // one report per page
+
       // Each page is a JPEG: SOI marker 0xFFD8.
       for (final image in images) {
         expect(image.length, greaterThan(2));
