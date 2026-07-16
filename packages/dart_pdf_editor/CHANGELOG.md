@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Nudge the selected annotation(s) with the arrow keys — 1 pt per press,
+  10 pt with Shift — translating the move through the page's /Rotate so a
+  key always slides the annotation the way it points on screen. A bare
+  arrow still scrolls the page when nothing is selected.
 - Free-text boxes: add line spacing, character spacing, font width
   (horizontal scaling), and underline controls (tune popup + properties
   panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.

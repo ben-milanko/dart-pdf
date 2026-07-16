@@ -4424,6 +4424,27 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// Nudges the selection by ([screenDx], [screenDy]) view-space units - the
+  /// way the arrow keys point on screen, with y running *down* as the reader
+  /// sees the page. The delta is translated through the primary selected
+  /// page's /Rotate so an annotation always slides the direction the key
+  /// points regardless of how the page is turned, then handed to
+  /// [moveSelected] (one revision; the selection survives). A no-op with
+  /// nothing selected.
+  void nudgeSelected(double screenDx, double screenDy) {
+    final page = selectedPage;
+    if (page == null) return;
+    // Mirror of PdfPageGeometry.toPagePoint: view y is down and /Rotate turns
+    // the page clockwise, so recover the page-space (y-up) delta per rotation.
+    final (dx, dy) = switch (_page(page).rotation % 360) {
+      90 => (screenDy, screenDx),
+      180 => (-screenDx, screenDy),
+      270 => (-screenDy, -screenDx),
+      _ => (screenDx, -screenDy),
+    };
+    moveSelected(dx, dy);
+  }
+
   /// The selected annotations that share the primary selection's page, in
   /// selection order - the candidates an alignment acts on. Aligning across
   /// pages has no geometric meaning, so the primary page wins and other

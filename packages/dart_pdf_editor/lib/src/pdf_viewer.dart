@@ -45,6 +45,11 @@ export 'annotation_tap.dart'
 
 const double _defaultMaxZoom = 24;
 
+/// Page-space distance an arrow-key press slides the selected annotation(s),
+/// and the coarser step Shift+arrow uses. Points, matching the drag move.
+const double _annotationNudgeStep = 1;
+const double _annotationNudgeStepCoarse = 10;
+
 /// One search hit with the text around it, ready for a results list
 /// like [PdfSearchResultsPanel].
 class PdfSearchResult {
@@ -4476,6 +4481,36 @@ class _PdfViewerState extends State<PdfViewer>
                       editing.deleteSelected,
                   const SingleActivator(LogicalKeyboardKey.backspace):
                       editing.deleteSelected,
+                  // arrow keys nudge the selected annotation(s) - 1 pt per
+                  // press, 10 pt with Shift for a coarse move. Only bound
+                  // while something is selected so a bare arrow still scrolls
+                  // the page when it isn't.
+                  if (editing.hasAnnotationSelection) ...{
+                    const SingleActivator(LogicalKeyboardKey.arrowLeft):
+                        () => editing.nudgeSelected(-_annotationNudgeStep, 0),
+                    const SingleActivator(LogicalKeyboardKey.arrowRight):
+                        () => editing.nudgeSelected(_annotationNudgeStep, 0),
+                    const SingleActivator(LogicalKeyboardKey.arrowUp):
+                        () => editing.nudgeSelected(0, -_annotationNudgeStep),
+                    const SingleActivator(LogicalKeyboardKey.arrowDown):
+                        () => editing.nudgeSelected(0, _annotationNudgeStep),
+                    const SingleActivator(LogicalKeyboardKey.arrowLeft,
+                            shift: true):
+                        () => editing.nudgeSelected(
+                            -_annotationNudgeStepCoarse, 0),
+                    const SingleActivator(LogicalKeyboardKey.arrowRight,
+                            shift: true):
+                        () => editing.nudgeSelected(
+                            _annotationNudgeStepCoarse, 0),
+                    const SingleActivator(LogicalKeyboardKey.arrowUp,
+                            shift: true):
+                        () => editing.nudgeSelected(
+                            0, -_annotationNudgeStepCoarse),
+                    const SingleActivator(LogicalKeyboardKey.arrowDown,
+                            shift: true):
+                        () => editing.nudgeSelected(
+                            0, _annotationNudgeStepCoarse),
+                  },
                   // unmodified single-key tool shortcuts (V select, P pen,
                   // R rectangle, …) - safe because an open in-place text
                   // editor disables every binding above
