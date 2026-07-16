@@ -40,6 +40,8 @@ class PdfContentElement {
     this.text,
     this.resourceName,
     this.bounds,
+    this.imageWidth,
+    this.imageHeight,
   });
 
   /// Stable handle for [PdfContentEditing.deleteElements].
@@ -55,7 +57,8 @@ class PdfContentElement {
   /// Multi-byte and symbolic encodings come out garbled but unique.
   final String? text;
 
-  /// The /XObject resource name for [PdfElementKind.image] and
+  /// The active /Font resource name for [PdfElementKind.text], or the
+  /// /XObject resource name for [PdfElementKind.image] and
   /// [PdfElementKind.form].
   final String? resourceName;
 
@@ -64,6 +67,14 @@ class PdfContentElement {
   /// stand in for the real font). Null when no geometry is tracked
   /// (shading fills, degenerate transforms).
   final PdfRect? bounds;
+
+  /// Pixel width for image-like elements when declared by the content stream
+  /// or image XObject dictionary.
+  final int? imageWidth;
+
+  /// Pixel height for image-like elements when declared by the content stream
+  /// or image XObject dictionary.
+  final int? imageHeight;
 
   @override
   String toString() => 'PdfContentElement#$id($kind'
@@ -104,7 +115,11 @@ class PdfPageElements {
     var pathPoints = <(double, double)>[];
 
     void addElement(PdfElementKind kind, int start, int end,
-        {String? shown, String? resource, PdfRect? bounds}) {
+        {String? shown,
+        String? resource,
+        PdfRect? bounds,
+        int? imageWidth,
+        int? imageHeight}) {
       elements.add(PdfContentElement._(
         id: elements.length,
         kind: kind,
@@ -113,6 +128,8 @@ class PdfPageElements {
         text: shown,
         resourceName: resource,
         bounds: bounds,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
       ));
     }
 
@@ -153,6 +170,15 @@ class PdfPageElements {
           CosReal(:final value) => value,
           _ => 0,
         };
+
+    int? integer(CosObject? o) {
+      final resolved = cos.resolve(o);
+      return switch (resolved) {
+        CosInteger(:final value) => value,
+        CosReal(:final value) => value.round(),
+        _ => null,
+      };
+    }
 
     for (var i = 0; i < operations.length; i++) {
       final op = operations[i];
@@ -215,7 +241,7 @@ class PdfPageElements {
           pathPoints = [];
         case 'n':
           // a no-op paint: with W it defines a clip (kept as state),
-          // without it the path simply vanishes — either way no element
+          // without it the path simply vanishes - either way no element
           pathStart = -1;
           pathPoints = [];
 
@@ -296,6 +322,7 @@ class PdfPageElements {
           final m = _multiply(text.matrix, ctm);
           addElement(PdfElementKind.text, i, i + 1,
               shown: string,
+              resource: text.fontName,
               bounds: _hull([
                 _apply(m, 0, -0.2 * text.size),
                 _apply(m, width, -0.2 * text.size),
@@ -334,11 +361,23 @@ class PdfPageElements {
                 resource: name, bounds: bounds);
           } else {
             addElement(PdfElementKind.image, i, i + 1,
-                resource: name, bounds: _unitSquare(ctm));
+                resource: name,
+                bounds: _unitSquare(ctm),
+                imageWidth: xobject is CosStream
+                    ? integer(xobject.dictionary['Width'])
+                    : null,
+                imageHeight: xobject is CosStream
+                    ? integer(xobject.dictionary['Height'])
+                    : null);
           }
         case 'BI':
+          final dict = operands.isNotEmpty && operands[0] is CosDictionary
+              ? operands[0] as CosDictionary
+              : null;
           addElement(PdfElementKind.inlineImage, i, i + 1,
-              bounds: _unitSquare(ctm));
+              bounds: _unitSquare(ctm),
+              imageWidth: integer(dict?['W'] ?? dict?['Width']),
+              imageHeight: integer(dict?['H'] ?? dict?['Height']));
         case 'sh':
           addElement(PdfElementKind.shading, i, i + 1);
       }

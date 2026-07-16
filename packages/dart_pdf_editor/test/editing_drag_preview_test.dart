@@ -10,7 +10,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
-/// A two-page PDF whose pages are [height] pt tall (612 wide) — short
+/// A two-page PDF whose pages are [height] pt tall (612 wide) - short
 /// enough that both pages sit inside an 800×600 viewport at fit-width, so
 /// a move drag can cross the page boundary on screen.
 Uint8List buildShortTwoPagePdf(int height) {
@@ -118,7 +118,7 @@ void main() {
     expect(a, closeTo(191, 25));
     expect(r, closeTo(191, 25));
 
-    // the resting position is untouched — the preview moved, the
+    // the resting position is untouched - the preview moved, the
     // original spot stays for the page below to show through
     final (_, _, _, a2) = pixelAt(data, image.width, 30, 30);
     expect(a2, 0);
@@ -167,7 +167,8 @@ void main() {
       expect(editing.selectedAnnotation, isNotNull);
 
       // drag the annotation toward the lower right and hold mid-drag
-      final gesture = await tester.startGesture(view(175, 700));
+      final gesture = await tester.startGesture(view(175, 700),
+          kind: PointerDeviceKind.mouse);
       await gesture.moveTo(view(255, 550));
       await gesture.moveTo(view(335, 400));
       await tester.pump();
@@ -199,6 +200,44 @@ void main() {
       final rect = editing.selectedAnnotation!.rect;
       expect(rect.left, closeTo(260, 2));
       expect(rect.top, closeTo(450, 2));
+    });
+
+    testWidgets('a moved stamp keeps its afterimage while host rebuilds',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFFFF0000)
+        ..addStamp(0, const PdfRect(100, 650, 250, 750), 'PAID')
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            controller: viewer,
+            editing: editing,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(editing.selectedAnnotation?.subtype, 'Stamp');
+
+      final gesture = await tester.startGesture(view(175, 700),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(255, 600));
+      await gesture.up();
+      await tester.pump();
+
+      final afterGhost = overlayPainter(tester).afterGhost;
+      expect(afterGhost, isNotNull);
+      expect(afterGhost.to.center.dx,
+          closeTo(view(175, 700).dx + (view(255, 600) - view(175, 700)).dx, 1));
+      expect(afterGhost.source, isNotNull);
+      expect(afterGhost.sourceClean, isNull);
+      expect(afterGhost.sourceWash, isNotNull);
     });
   });
 
@@ -247,8 +286,8 @@ void main() {
       // center and drag it well down past the page's bottom edge
       const grab = Offset(100, 96);
       const target = Offset(160, 420);
-      final gesture =
-          await tester.startGesture(origin + grab, kind: PointerDeviceKind.mouse);
+      final gesture = await tester.startGesture(origin + grab,
+          kind: PointerDeviceKind.mouse);
       await gesture.moveTo(origin + target);
       await tester.pump();
 
@@ -262,7 +301,7 @@ void main() {
       expect(reported!.to.left, closeTo(50 + delta.dx, 0.5));
       expect(reported!.to.top, closeTo(71 + delta.dy, 0.5));
       // the overlay still paints its own ghost (the floating copy is an
-      // addition for the overflow, not a replacement — so an in-page drag
+      // addition for the overflow, not a replacement - so an in-page drag
       // never goes blank even if the floating layer can't paint)
       expect(overlayPainter(tester).ghost, isNotNull);
 
@@ -279,7 +318,7 @@ void main() {
       // 300pt pages at fit-width (800/612 px/pt) are ~392px tall, so page 1
       // and the top of page 2 both fit in the 800×600 viewport. Dragging an
       // annotation from page 1 into page 2's area must still show the ghost
-      // — before the fix the per-page overlay clipped it behind page 2.
+      // - before the fix the per-page overlay clipped it behind page 2.
       const pageHeight = 300;
       const scale = 800 / 612;
       // page-0 view coordinates (y up in page space)

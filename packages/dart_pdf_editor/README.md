@@ -84,22 +84,37 @@ Built on the pure-Dart
 
 ## Performance
 
-Pure Dart, and fast: on a real-world corpus (49 files / 245 pages of
+Pure Dart, and fast: on a real-world corpus (49 files / 255 pages of
 CAD drawings, scans, reports, and forms) the parse + content-stream
-**interpreter is ~1.5x faster than PDFium**: **13.6 ms/page vs 20.6 ms/page**
+**interpreter is ~1.9× faster than PDFium**: **13.3 ms/page vs 24.9 ms/page**
 at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
-rasterization is 53.7 ms/page (2.6x PDFium); that remaining gap is image
+rasterization is 52.0 ms/page (2.08× PDFium); that remaining gap is image
 decoding and GPU raster, not the interpreter.
 
 | engine | ms/page | vs PDFium |
 |---|---|---|
-| dart-pdf interpret (pure Dart) | **13.6** | **1.52x faster** |
-| PDFium (open + rasterize) | 20.6 | 1.00× |
-| dart-pdf render (full Flutter raster) | 53.7 | 2.60x slower |
+| dart-pdf interpret (pure Dart) | **13.3** | **1.87× faster** |
+| PDFium (open + rasterize) | 24.9 | 1.00× |
+| dart-pdf render (full Flutter raster) | 52.0 | 2.08× slower |
 
 Numbers and methodology are in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
 The harnesses diff dart-pdf against PDFium file by file.
+
+The drop-in shells use adaptive performance tuning by default. Auto selects a
+platform-, core-, and document-aware worker count, then adjusts safe preview
+and image-resolution knobs from observed render latency, result sizes, and
+frame jank. Use a controller to inspect it or choose a fixed configuration:
+
+```dart
+final performance = PdfPerformanceController(); // Auto
+
+PdfReader(bytes: pdfBytes, performance: performance);
+debugPrint('${performance.diagnostics}');
+
+// Applied when the document worker next starts; never resized mid-scroll.
+performance.mode = const PdfPerformanceMode.fixed(workerCount: 2);
+```
 
 ## Viewing
 
@@ -124,6 +139,12 @@ are byte prefixes of one buffer.
   stylus pressure and spline smoothing, shapes, free text with in-place
   editing, notes, stamps (including custom saved stamps), and a saved
   ink signature.
+- Certificate-backed digital signatures: load an in-memory RSA private key
+  and X.509 chain, then add a validated PAdES B-B signature as an undoable
+  document revision. This is separate from the drawn ink-signature tool.
+- True redaction: place `/Redact` marks, then burn them per §12.5.6.23 —
+  covered text and images are removed from the file bytes with a compacted
+  save (not painted over), so the redacted content is unrecoverable.
 - Direct manipulation: select (single, marquee, ⌘A), move, resize, and
   rotate with live appearance previews, plus a slicing circle eraser,
   copy/cut/paste, z-order, restyling, and a context menu with
@@ -143,7 +164,9 @@ are byte prefixes of one buffer.
   `canEditAnnotation` predicate implements policies like "users may
   only edit their own annotations" in one line.
 - Sync: an `annotationChanges` feed plus `applyRemoteChange` for wiring
-  annotations to a collaborative store (Firestore, websockets, etc.).
+  annotations to a collaborative store (Firestore, websockets, etc.). A
+  remote apply is a non-crossable undo checkpoint; later local edits remain
+  undoable without removing the remote state.
 
 ## Composing your own UI
 
@@ -178,6 +201,18 @@ ListenableBuilder(
 
 // Saving
 final Uint8List saved = editing.bytes;
+
+// Cryptographically sign with PEM/DER key and certificate files.
+final identity = PdfDigitalSignatureIdentity.fromFiles(
+  privateKey: privateKeyBytes,
+  certificates: certificateFileBytes,
+);
+await editing.addDigitalSignature(
+  identity,
+  reason: 'Approved',
+  location: 'Melbourne',
+);
+final Uint8List signed = editing.bytes; // PAdES B-B, validated on commit
 ```
 
 The [example app](example) is a thin shell over `PdfEditorView` (with a
@@ -266,29 +301,23 @@ same, but text selection, search, copy, and extraction work. Pass
 
 ## Web rendering
 
-On the web the viewer renders on the main thread by default. There is nothing to
-configure. For heavy/CAD documents you can move page interpretation and
-image decode onto a **Web Worker** (the web counterpart of the native
-background isolate): build the worker bundle from your app root, then
-point the app at it.
+On the web, `PdfReader`/`PdfEditorView` use a bundled **Web Worker** package
+asset by default, so page interpretation and image decode can run off the
+browser main thread without app setup. If the worker cannot be loaded, rendering
+degrades to the main thread.
+
+Apps that want to self-host the worker under their own URL can build a custom
+bundle from the app root and override the URL before opening a viewer:
 
 ```sh
 dart run dart_pdf_editor:build_web_worker   # writes web/pdf_render_worker.dart.js
 ```
 
 ```dart
-void main() {
-  if (kIsWeb) {
-    pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
-  }
-  runApp(...);
-}
+pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
 ```
 
-`PdfReader`/`PdfEditorView` pick it up automatically, and if the script is
-missing it degrades to main-thread rendering. It is a pure opt-in upgrade.
-You can commit `web/pdf_render_worker.dart.js` and rebuild it only when you
-upgrade `dart_pdf_editor`, or generate it in CI before `flutter build web`.
+Set `pdfRenderWorkerScriptUrl = null` to force main-thread rendering.
 The worker does not require COOP/COEP headers, but a cross-origin isolated
 host lets pooled workers share the document bytes through `SharedArrayBuffer`
 instead of cloning them per worker. Full setup, dart2wasm-host notes, and the

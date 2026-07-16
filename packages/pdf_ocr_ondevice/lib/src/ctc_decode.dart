@@ -24,12 +24,12 @@ class CtcResult {
 /// *inference* model ends in a softmax, so its per-step scores are already
 /// probabilities and the kept character's value is its probability directly
 /// (this mirrors PaddleOCR's own `CTCLabelDecode`, which reads the per-step
-/// max as the confidence) — that is [applySoftmax] `false`, the default. If a
+/// max as the confidence) - that is [applySoftmax] `false`, the default. If a
 /// model emits raw **logits** instead, set [applySoftmax] true so each step is
 /// softmaxed before its probability is read; otherwise an unbounded logit
 /// would clamp the reported confidence to 1.0 and defeat any min-confidence
 /// filter. The decoded text is identical either way (argmax is invariant under
-/// softmax) — only the confidence differs.
+/// softmax) - only the confidence differs.
 class CtcDecoder {
   CtcDecoder(this.dictionary, {this.blankIndex = 0, this.applySoftmax = false});
 
@@ -41,7 +41,7 @@ class CtcDecoder {
   final int blankIndex;
 
   /// Whether to softmax each timestep before reading the winning class's
-  /// probability — set this when the model emits raw logits rather than
+  /// probability - set this when the model emits raw logits rather than
   /// softmax probabilities.
   final bool applySoftmax;
 

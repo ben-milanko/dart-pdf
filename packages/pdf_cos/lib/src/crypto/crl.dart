@@ -91,7 +91,7 @@ class CertificateRevocationList {
 
   /// Verifies the CRL signature against its [issuer]'s key. The issuer is
   /// the CA whose certificates this list covers (its subject must equal the
-  /// CRL issuer name — checked by the caller via [issuerDer]).
+  /// CRL issuer name - checked by the caller via [issuerDer]).
   bool signatureValid(X509Certificate issuer) {
     final hash = hashForDigestOid(_signatureAlgorithmOid);
     if (hash == null) return false;

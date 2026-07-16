@@ -1,5 +1,5 @@
 // The transport-agnostic sync layer: a loopback transport, presence, and
-// two in-process sessions converging — including deterministic
+// two in-process sessions converging - including deterministic
 // last-writer-wins resolution of conflicting edits keyed on /NM.
 
 import 'dart:typed_data';
@@ -255,7 +255,7 @@ void main() {
             color: 0xFF0000);
       }, pages: [0]);
       await settle();
-      // now B edits — causally later, higher clock — B must win on both
+      // now B edits - causally later, higher clock - B must win on both
       b.apply((e) {
         e.restyleAnnotation(0, e.document.page(0).annotations.single,
             color: 0x00FF00);

@@ -193,7 +193,7 @@ void main() {
     final ink = doc.page(0).annotations.single;
     // seg 1's c1 = p1 + (p2 − p0)/6 = (76.67, 115); pad = w/2 + 1 = 2
     expect(ink.rect.top, closeTo(115 + 2, 1e-4));
-    // seg 0's c2 = p1 − (p2 − p0)/6 = (43.33, 85) — left of every sample
+    // seg 0's c2 = p1 − (p2 − p0)/6 = (43.33, 85) - left of every sample
     expect(ink.rect.left, closeTo(60 - 100 / 6 - 2, 1e-4));
   });
 
@@ -329,7 +329,7 @@ void main() {
           text,
         ));
     final content = appearanceText(doc, doc.page(0).annotations.single);
-    // no ActualText needed — logical order in content stream
+    // no ActualText needed - logical order in content stream
     expect(content, isNot(contains('ActualText')));
     expect(content, contains('Tj'));
   });
@@ -709,6 +709,41 @@ void main() {
         'Helvetica-Bold');
   });
 
+  test('custom stamp metadata is readable from the annotation', () {
+    final doc = roundTrip((e) => e.addStamp(
+          0,
+          const PdfRect(100, 500, 260, 540),
+          'AUDIT',
+          stampType: 'Audit',
+          stampTags: const ['external', 'field'],
+        ));
+    final stamp = doc.page(0).annotations.single;
+    expect(stamp.stampType, 'Audit');
+    expect(stamp.stampTags, ['external', 'field']);
+  });
+
+  test('oriented annotations on rotated pages counter-rotate appearances', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..rotatePages([0], 90);
+    final rotated = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(rotated)
+      ..addNote(0, 500, 700, 'rotated note')
+      ..addStamp(0, const PdfRect(100, 500, 140, 660), 'APPROVED')
+      ..addCheckMark(0, const PdfRect(200, 500, 220, 520));
+
+    final doc = PdfDocument.open(editor2.save());
+    expect(doc.page(0).rotation, 90);
+    final annotations = doc.page(0).annotations;
+    expect(annotations.map((a) => a.subtype), ['Text', 'Stamp', 'Stamp']);
+    for (final annotation in annotations) {
+      final content = appearanceText(doc, annotation);
+      expect(content, contains('cm'));
+      expect(content, contains('0 1 -1 0'));
+    }
+    expect(appearanceText(doc, annotations[1]), contains('(APPROVED) Tj'));
+    expect(annotations[2].isCheckMark, isTrue);
+  });
+
   test('annotations append to an existing /Annots array', () {
     final first = PdfEditor(PdfDocument.open(buildAnnotatedPdf()));
     final before =
@@ -873,7 +908,7 @@ void main() {
 
   test('a moved annotation still renders: BBox maps onto the new rect', () {
     // the fixture square's appearance BBox is [0 0 10 10] over rect
-    // (100,100)-(200,150) — after a move the §12.5.5 mapping must land it
+    // (100,100)-(200,150) - after a move the §12.5.5 mapping must land it
     // on the new rect without touching the stream
     final doc = PdfDocument.open(buildAppearanceAnnotationsPdf());
     final editor = PdfEditor(doc)
@@ -904,7 +939,7 @@ void main() {
     final resized = reopened.page(0).annotations[0];
     expect(resized.rect, const PdfRect(100, 100, 300, 250));
     // shapes regenerate their appearance at the new size (ink keeps the
-    // §12.5.5 stretch — its rect doubles below and the points follow)
+    // §12.5.5 stretch - its rect doubles below and the points follow)
     expect(resized.normalAppearance, isNotNull);
 
     // ink points scale with the rect: x doubled relative to the rect's
@@ -1039,6 +1074,185 @@ void main() {
     expect(content, contains('h'));
     expect(content, contains('B'));
     expect(content, contains('[6 4] 0 d'));
+  });
+
+  test('cloud polygon carries border effect and generated cloud appearance',
+      () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(100, 100), (220, 100), (220, 180), (100, 180)],
+        strokeWidth: 3,
+        fillColor: 0xE8F2FF,
+        cloudy: true,
+      );
+    });
+
+    final annotation = doc.page(0).annotations.single;
+    expect(annotation.subtype, 'Polygon');
+    expect(annotation.hasCloudyBorder, isTrue);
+    expect(annotation.vertices, [
+      (100.0, 100.0),
+      (220.0, 100.0),
+      (220.0, 180.0),
+      (100.0, 180.0),
+    ]);
+    final be = doc.cos.resolve(annotation.dict['BE']) as CosDictionary;
+    expect((doc.cos.resolve(be['S']) as CosName).value, 'Cloudy');
+    expect(annotation.rect.left, lessThan(100));
+    expect(annotation.rect.right, greaterThan(220));
+    final content = appearanceText(doc, annotation);
+    expect(content, contains(' c\n'));
+    // The scalloped cloud outline is filled and stroked in one pass (B), so
+    // the interior colour reaches the puffed edges rather than stopping at
+    // the straight polygon footprint.
+    expect(content, contains('B\n'));
+  });
+
+  test('cloud scallops stay inside the form BBox (no clipped puffs)', () {
+    // A rectangle's every edge lies on the box extreme, so the outward puffs
+    // protrude by the full bulge. If /Rect and the form BBox are not padded
+    // enough, the form XObject clips the outer half of each scallop.
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+      );
+    });
+    final annotation = doc.page(0).annotations.single;
+    final bbox = doc.cos
+        .resolve(annotation.normalAppearance!.dictionary['BBox']) as CosArray;
+    double num(CosObject o) {
+      final r = doc.cos.resolve(o);
+      return switch (r) {
+        CosInteger(:final value) => value.toDouble(),
+        CosReal(:final value) => value,
+        _ => throw StateError('not a number: $r'),
+      };
+    }
+
+    final bx0 = num(bbox[0]);
+    final by0 = num(bbox[1]);
+    final bx1 = num(bbox[2]);
+    final by1 = num(bbox[3]);
+
+    // Walk every path-construction coordinate in the appearance stream and
+    // confirm it (plus half the stroke) lands inside the BBox.
+    final content = appearanceText(doc, annotation);
+    final tokens = content.split(RegExp(r'\s+'));
+    final nums = <double>[];
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    void point(double x, double y) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    for (final token in tokens) {
+      final value = double.tryParse(token);
+      if (value != null) {
+        nums.add(value);
+        continue;
+      }
+      switch (token) {
+        case 'm':
+        case 'l':
+          if (nums.length >= 2) {
+            point(nums[nums.length - 2], nums[nums.length - 1]);
+          }
+        case 'c':
+          if (nums.length >= 6) {
+            for (var i = nums.length - 6; i < nums.length; i += 2) {
+              point(nums[i], nums[i + 1]);
+            }
+          }
+      }
+      nums.clear();
+    }
+
+    expect(maxX, greaterThan(minX), reason: 'sanity: some path was parsed');
+    const halfStroke = 1.0; // strokeWidth 2 / 2
+    expect(minX - halfStroke, greaterThanOrEqualTo(bx0));
+    expect(minY - halfStroke, greaterThanOrEqualTo(by0));
+    expect(maxX + halfStroke, lessThanOrEqualTo(bx1));
+    expect(maxY + halfStroke, lessThanOrEqualTo(by1));
+    // and the puffs really do bulge out past the polygon vertices
+    expect(maxY, greaterThan(640));
+    expect(minY, lessThan(500));
+  });
+
+  test('a cloud scale rides on /BE /I and bulges bigger scallops', () {
+    // The scallop size is driven by cloudScale, independent of the pen.
+    Iterable<double> puffExtent(double scale) {
+      final doc = roundTrip((e) {
+        e.addPolygon(
+          0,
+          [(120, 500), (420, 500), (420, 640), (120, 640)],
+          strokeWidth: 2,
+          cloudy: true,
+          cloudScale: scale,
+        );
+      });
+      final annotation = doc.page(0).annotations.single;
+      expect(annotation.cloudBorderScale, closeTo(scale, 1e-9));
+      final be = doc.cos.resolve(annotation.dict['BE']) as CosDictionary;
+      expect((doc.cos.resolve(be['I']) as CosReal).value, closeTo(scale, 1e-9));
+      // how far the /Rect balloons past the polygon footprint - a proxy for
+      // the scallop bulge
+      return [
+        120 - annotation.rect.left,
+        annotation.rect.right - 420,
+        annotation.rect.top - 640,
+      ];
+    }
+
+    final small = puffExtent(1).toList();
+    final big = puffExtent(2.5).toList();
+    for (var i = 0; i < small.length; i++) {
+      expect(big[i], greaterThan(small[i]));
+    }
+  });
+
+  test('restyling a cloud preserves its scale across a colour change', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+        cloudScale: 2.5,
+      );
+    });
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, color: 0x123456);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.hasCloudyBorder, isTrue);
+    expect(annotation.cloudBorderScale, closeTo(2.5, 1e-9));
+    // and the puffs are still the wider ones the scale asked for
+    expect(annotation.rect.top - 640, greaterThan(20));
+  });
+
+  test('restyleAnnotation cloudScale resizes the scallops', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+      );
+    });
+    final before = doc.page(0).annotations.single.rect.top - 640;
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, cloudScale: 3);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.cloudBorderScale, closeTo(3, 1e-9));
+    expect(annotation.rect.top - 640, greaterThan(before));
   });
 
   test('resizing a dashed arrow regenerates with scaled endpoints', () {
@@ -1258,6 +1472,91 @@ void main() {
     expect(double.parse(m!.group(1)!), greaterThan(150));
   });
 
+  test('free text line/character spacing and width round-trip and emit', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 660),
+          'Spaced out text',
+          lineSpacing: 2.0,
+          charSpacing: 3,
+          horizontalScale: 150,
+        ));
+    final box = doc.page(0).annotations.single;
+    final style = box.freeTextStyle!;
+    expect(style.lineSpacing, closeTo(2.0, 1e-9));
+    expect(style.charSpacing, closeTo(3, 1e-9));
+    expect(style.horizontalScale, closeTo(150, 1e-9));
+
+    final content = appearanceText(doc, box);
+    expect(content, contains('3 Tc'));
+    expect(content, contains('150 Tz'));
+    // leading is fontSize (12) * lineSpacing (2) = 24
+    expect(content, contains('24 TL'));
+
+    // the values survive a resize (which regenerates the appearance)
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 520, 660));
+    final reopened = PdfDocument.open(editor.save());
+    final resized = reopened.page(0).annotations.single.freeTextStyle!;
+    expect(resized.lineSpacing, closeTo(2.0, 1e-9));
+    expect(resized.charSpacing, closeTo(3, 1e-9));
+    expect(resized.horizontalScale, closeTo(150, 1e-9));
+    expect(appearanceText(reopened, reopened.page(0).annotations.single),
+        contains('150 Tz'));
+  });
+
+  test('a plain free text box writes no spacing keys', () {
+    final doc = roundTrip(
+        (e) => e.addFreeText(0, const PdfRect(100, 600, 400, 640), 'Plain'));
+    final dict = doc.page(0).annotations.single.dict;
+    expect(dict[kPdfFreeTextLineSpacingKey], isNull);
+    expect(dict[kPdfFreeTextCharSpacingKey], isNull);
+    expect(dict[kPdfFreeTextHScaleKey], isNull);
+    expect(dict[kPdfFreeTextUnderlineKey], isNull);
+  });
+
+  test('underlined free text draws a rule and round-trips the flag', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          'Underlined',
+          underline: true,
+        ));
+    final box = doc.page(0).annotations.single;
+    expect(box.freeTextStyle!.underline, isTrue);
+    // the underline is a filled rectangle drawn after the text object
+    final content = appearanceText(doc, box);
+    expect(content, contains('ET'));
+    expect(content.lastIndexOf(' re'), greaterThan(content.lastIndexOf('ET')));
+
+    // it survives a resize
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 500, 640));
+    final reopened = PdfDocument.open(editor.save());
+    expect(
+        reopened.page(0).annotations.single.freeTextStyle!.underline, isTrue);
+  });
+
+  test('rich free text carries per-run underline through /RC', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          const [
+            PdfFreeTextRun('plain '),
+            PdfFreeTextRun('under', underline: true),
+          ],
+        ));
+    final box = doc.page(0).annotations.single;
+    final rc = box.richContent!;
+    expect(rc, contains('text-decoration:underline'));
+    final runs = PdfAnnotationEditing.parseFreeTextRichContent(rc);
+    expect(runs.where((r) => r.underline).map((r) => r.text).join(),
+        contains('under'));
+    // the appearance draws one underline rule (a re after the text object)
+    final content = appearanceText(doc, box);
+    expect(content.lastIndexOf('ET'), lessThan(content.lastIndexOf(' re')));
+  });
+
   test('resizeAnnotation rejects degenerate rects', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addSquare(0, const PdfRect(100, 100, 200, 150));
@@ -1301,7 +1600,7 @@ void main() {
     expect(m(2), closeTo(0, 1e-9));
     expect(m(3), closeTo(1, 1e-9));
 
-    // /InkList reflects about the rect's horizontal center, y untouched —
+    // /InkList reflects about the rect's horizontal center, y untouched -
     // so the centerline stays consistent with the mirrored appearance
     final cx = (from.left + from.right) / 2;
     final inkList = reopened.cos.resolve(flipped.dict['InkList']) as CosArray;
@@ -1344,7 +1643,7 @@ void main() {
     final rest = doc.page(0).annotations.single.rect;
     final beforePts = inkPoints(doc);
 
-    // the current local box (same size, just flipped) — measured from the
+    // the current local box (same size, just flipped) - measured from the
     // appearance quad so sx == sy == 1 and the flip only mirrors
     final quad = doc.page(0).annotations.single.appearanceQuad!;
     double dist((double, double) a, (double, double) b) {
@@ -1359,7 +1658,7 @@ void main() {
     final localBox = PdfRect(
         ccx - fromW / 2, ccy - fromH / 2, ccx + fromW / 2, ccy + fromH / 2);
 
-    // a local-frame flipX, then the same flip again — each is its own
+    // a local-frame flipX, then the same flip again - each is its own
     // inverse, so the geometry comes back exactly
     for (var i = 0; i < 2; i++) {
       doc = PdfDocument.open((PdfEditor(doc)
@@ -1509,7 +1808,7 @@ void main() {
           ..rotateAnnotation(0, doc.page(0).annotations.single, 90))
         .save());
 
-    // resting local box: 104×54 about (150,125) — double the local width
+    // resting local box: 104×54 about (150,125) - double the local width
     final editor = PdfEditor(doc)
       ..resizeAnnotationLocal(
           0, doc.page(0).annotations.single, const PdfRect(46, 98, 254, 152));

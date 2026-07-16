@@ -16,7 +16,7 @@ void main() {
           PdfStructSpec('H1', pageIndex: 0, mcids: [0], title: 'greeting'),
         ]),
       ], lang: 'en-US');
-      // (No content tagging here — this exercises the tree writer + catalog.)
+      // (No content tagging here - this exercises the tree writer + catalog.)
 
       final out = PdfDocument.open(editor.save());
       expect(pdfIsMarkedTagged(out), isTrue);

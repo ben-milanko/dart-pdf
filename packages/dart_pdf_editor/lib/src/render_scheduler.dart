@@ -12,13 +12,13 @@ import 'perf_log.dart';
 /// frames. The viewer holds those walks back during a fast scroll; the
 /// trap was the *release*. Every page in the cache window deferred
 /// against one shared flag, so when scrolling settled they all
-/// interpreted in the same event-loop turn — N heavy walks back to back,
+/// interpreted in the same event-loop turn - N heavy walks back to back,
 /// a multi-hundred-millisecond frozen frame (the iPad fast-scroll hang).
 ///
 /// Pages register a [request] here instead of interpreting on their own.
 /// The scheduler grants requests one per frame, the one nearest the
 /// viewport ([focus]) first, and never while a fast scroll is in flight
-/// ([holding]) — so no frame runs more than one page's walk and the
+/// ([holding]) - so no frame runs more than one page's walk and the
 /// low-res previews cover everything still waiting its turn.
 class PdfPageRenderScheduler {
   PdfPageRenderScheduler();
@@ -55,7 +55,7 @@ class PdfPageRenderScheduler {
   /// interpret. [render] is invoked on the UI thread when the request's
   /// turn comes; [priority] is the page index, ranked against [focus].
   /// Calling again for the same [token] (a re-layout before the grant)
-  /// just refreshes it — the page is interpreted at most once.
+  /// just refreshes it - the page is interpreted at most once.
   void request(Object token, int priority, VoidCallback render) {
     if (_disposed) return;
     for (final r in _pending) {
@@ -71,7 +71,7 @@ class PdfPageRenderScheduler {
     _scheduleDrain();
   }
 
-  /// Withdraws [token]'s pending request — its page rendered another way,
+  /// Withdraws [token]'s pending request - its page rendered another way,
   /// or was disposed before its turn.
   void cancel(Object token) {
     _pending.removeWhere((r) => identical(r.token, token));
@@ -106,7 +106,7 @@ class PdfPageRenderScheduler {
           next.render(); // starts one page render this frame
         } catch (_) {
           // a page that throws mid-walk must not strand the rest of the
-          // queue — it simply keeps its preview/placeholder
+          // queue - it simply keeps its preview/placeholder
         }
         // let the engine breathe before the next walk: paint the frame
         // this produced, service input, run animations. endOfFrame

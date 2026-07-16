@@ -31,7 +31,7 @@ void main() {
       ),
     ));
     await tester.pump();
-    // Flatten moved from the dock into the Edit group's strip — open it
+    // Flatten moved from the dock into the Edit group's strip - open it
     // (the dock scrolls horizontally; the Edit chip may be off-screen)
     await tester.scrollUntilVisible(
         find.byKey(const ValueKey('pdf-group-edit')), 100,
@@ -69,7 +69,8 @@ void main() {
       await pumpToolbar(tester, editing, viewer);
 
       final flatten = find.byTooltip('Flatten annotations into the pages');
-      final toolbarScrollable = find.descendant(
+      final toolbarScrollable = find
+          .descendant(
               of: find.byType(PdfEditingToolbar),
               matching: find.byType(Scrollable))
           .first;
@@ -99,7 +100,8 @@ void main() {
       await pumpToolbar(tester, editing, viewer);
 
       final flatten = find.byTooltip('Flatten annotations into the pages');
-      final toolbarScrollable = find.descendant(
+      final toolbarScrollable = find
+          .descendant(
               of: find.byType(PdfEditingToolbar),
               matching: find.byType(Scrollable))
           .first;

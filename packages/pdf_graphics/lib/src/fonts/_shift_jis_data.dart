@@ -1,4 +1,4 @@
-// GENERATED — do not edit by hand.
+// GENERATED - do not edit by hand.
 //
 // Shift-JIS (Microsoft code page 932, the `90ms-RKSJ` family) two-byte code →
 // Unicode scalar table, used to decode non-embedded Adobe-Japan1 CID text that

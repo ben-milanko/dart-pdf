@@ -46,17 +46,17 @@ shows PDF.js baselines, Dart renders, and diffs directly in GitHub.
 ## Performance
 
 Pure Dart is not a compromise on speed. On a real-world corpus (49 files /
-245 pages of CAD drawings, scans, reports, and forms), the parse +
-content-stream **interpreter is ~1.5x faster than PDFium**: **13.6 ms/page
-vs 20.6 ms/page** at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
-rasterization runs at 53.7 ms/page (2.6× PDFium); that remaining gap is image
+255 pages of CAD drawings, scans, reports, and forms), the parse +
+content-stream **interpreter is ~1.9× faster than PDFium**: **13.3 ms/page
+vs 24.9 ms/page** at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
+rasterization runs at 52.0 ms/page (2.08× PDFium); that remaining gap is image
 decoding and GPU raster + readback, not the interpreter.
 
 | engine | ms/page | vs PDFium |
 |---|---|---|
-| dart-pdf interpret (pure Dart, no raster) | **13.6** | **1.52x faster** |
-| PDFium (open + rasterize) | 20.6 | 1.00× |
-| dart-pdf render (full Flutter raster) | 53.7 | 2.60x slower |
+| dart-pdf interpret (pure Dart, no raster) | **13.3** | **1.87× faster** |
+| PDFium (open + rasterize) | 24.9 | 1.00× |
+| dart-pdf render (full Flutter raster) | 52.0 | 2.08× slower |
 
 The benchmark suite ships reproducible harnesses that diff dart-pdf against
 PDFium via `pypdfium2`, file by file. See [`benchmark/`](benchmark).
@@ -130,7 +130,8 @@ copyable without changing how the PDF looks.
    plus paragraph/reading-order inference for text reflow
 8. ✅ Annotations: model, appearance-stream rendering, authoring with
    generated appearances (highlight/underline/strike-out/squiggly, ink,
-   shapes, free text, notes, stamps), and flattening
+   shapes, free text, callouts, notes, stamps, measurements, count, and
+   redaction), and flattening
 9. ✅ AcroForm: field model (text, check box, radio, choice), filling
    with regenerated appearances (auto-size, multiline wrap, quadding,
    /MK decorations), and template editing: field metadata, creating
@@ -140,18 +141,18 @@ copyable without changing how the PDF looks.
     object copying (`appendPagesFrom`), and split (`extractPages` writes
     a standalone file; extracting from an encrypted document decrypts)
 11. ✅ Digital signatures: validation (CMS/PKCS#7 with RSA and ECDSA
-    P-256/384/521, byte-range and revision-coverage checks) and signing
-    (`saveSigned`, adbe.pkcs7.detached, RSA-SHA256, verified
+    P-256/384/521 and RSASSA-PSS, byte-range and revision-coverage checks)
+    and signing (`saveSigned`, adbe.pkcs7.detached, RSA-SHA256, verified
     interoperable with OpenSSL and poppler)
 12. ✅ Content editing: stamping (`stampPage`, text, shapes, JPEG and
     PNG images over existing content), element deletion
     (`PdfPageElements` + `deleteElements`), and text editing
-    (`replaceText`, simple fonts, across a line's shown strings with
-    width-compensated re-measurement; no cross-line reflow)
+    (`replaceText`, across a line's shown strings with width-compensated
+    re-measurement; `reflowText` rewraps supported single-column paragraphs,
+    including compatible embedded Type0 fonts)
 
-Deliberately deferred: paragraph re-flow and composite /Type0 text
-editing, JBIG2 Huffman/refinement variants, and JPX subsampling/PCRL-CPRL
-progressions.
+Deliberately deferred: JBIG2 Huffman/refinement variants and JPX
+subsampling/PCRL-CPRL progressions.
 
 ## Features
 
@@ -174,8 +175,9 @@ progressions.
   tool owns the gestures.
 - Navigation (search results, links, thumbnails) accounts for the zoom
   window, so jumps land where the user is looking.
-- Pages skip their first interpretation during fast flings and fill in
-  when the scroll settles, which keeps heavy CAD documents smooth.
+- During fast flings, pages show low-resolution cached previews rather than
+  blank paper; full rendering resumes when scrolling settles, keeping heavy
+  CAD documents smooth.
 - Dark mode, arbitrary page background colors (`PdfViewer.pageColor`),
   chrome theming via `PdfViewerTheme`, and a hide-all-annotations
   toggle.
@@ -185,8 +187,15 @@ progressions.
 - `PdfEditingController` saves incrementally on every edit, so revisions
   are byte prefixes of one buffer and undo/redo is essentially free.
 - Tools: text markup (highlight/underline/strikeout/squiggly), ink,
-  shapes, free text, notes, stamps (including saved custom stamps), and
-  a saved ink signature.
+  freehand highlighting, shapes (including polylines, polygons, and revision
+  clouds), free text, Bluebeam-style callouts, notes, stamps (including saved
+  custom stamps), placed images, and a saved ink signature.
+- Callouts pair an editable text box with a leader line and arrowhead. The
+  terminus and its attachment to the box can be repositioned independently,
+  while moving the body keeps the whole callout together.
+- Takeoff tools calibrate a drawing's scale, then measure distance, perimeter,
+  area, slope, angle, arc length, or volume. A count tool places and totals
+  check-mark stamps.
 - Selection works like a desktop editor: click, rubber-band marquee,
   shift/⌘-click toggle, ⌘A; move, resize, and rotate with live
   appearance previews and zoom-invariant chrome that follows rotated
@@ -209,6 +218,9 @@ progressions.
 - Text boxes edit in place with an inline editor matching the committed
   font, size, color, and fill; Helvetica/Times/Courier with proper AFM
   metrics.
+- The content tool can select, delete, rewrite, replace, or export page text,
+  paths, and images. It also supports device-color replacement, irreversible
+  redaction, and vector snapshots that can be pasted back without rasterizing.
 - Stylus support: pressure-variable ink width, Catmull-Rom stroke
   smoothing, palm rejection, instant stroke start, dot taps, and
   inverted-pencil erasing. Ink auto-commits about a second after the
@@ -244,6 +256,8 @@ progressions.
   render stamps, so an edit only re-renders the pages it touched.
 - Annotation sidebar with live filtering and multi-select delete;
   tapping a tile zooms to the annotation and pulses an attention ring.
+- Outline and bookmark sidebars let readers navigate the document and editors
+  create, rename, and remove bookmarks.
 - Properties panel: type, page, color, fill, stroke width, opacity,
   font, contents, author, and numeric position/size, all editable.
 - Search results panel with context snippets, plus `PdfSearchField` and
@@ -264,7 +278,9 @@ progressions.
   included, so a synced annotation renders identically on every device.
 - `annotationChanges` emits per-revision diffs (created/modified/removed,
   undo and redo included); `applyRemoteChange` replays remote edits
-  without echoing them back. Two controllers piped together converge.
+  without echoing them back. Each remote apply is an undo checkpoint: local
+  edits after it remain undoable, but undo cannot remove remote state or
+  cross into older local history. Two controllers piped together converge.
 - Permissions: the document's /F ReadOnly and Locked flags are honored,
   and a `canEditAnnotation` predicate covers policies like "users may
   only edit their own annotations". Gated annotations still render and

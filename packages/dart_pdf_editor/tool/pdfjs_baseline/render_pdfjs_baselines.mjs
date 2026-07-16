@@ -146,7 +146,7 @@ if (args.worker != null) {
   // process the first CJK file to register a CJK face under those aliases
   // poisons every later non-embedded Latin serif/sans substitution into
   // .notdef boxes (see non-embedded-NuptialScript). GlobalFonts.remove() can't
-  // undo it — the leak is inside pdf.js, not the canvas — so the only reliable
+  // undo it - the leak is inside pdf.js, not the canvas - so the only reliable
   // isolation is a clean process per file.
   const result = await renderOne(args.worker);
   if (!result.ok) {

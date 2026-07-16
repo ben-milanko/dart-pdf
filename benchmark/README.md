@@ -10,28 +10,28 @@ bundles a prebuilt PDFium binary. You do not need a system PDFium build or
 
 ## Latest results
 
-Real-world corpus (49 files / **245 pages** that all three tools rendered
+Real-world corpus (49 files / **255 pages** that all three tools rendered
 without error), scale 2.0 (144 DPI), best-of-3 render passes, on the
-development Mac. PDFium 5.9.0 / libpdfium 150.0.7869.0. Captured 2026-06-14
+development Mac. PDFium 5.9.0 / libpdfium 150.0.7869.0. Captured 2026-07-08
 with the #52 render-perf work in place (shared parse, image-decode cache +
 fast-paths, cross-render font cache, inline path construction, text-show
 memoisation, and a rewritten content-stream tokenizer).
 
 | engine | throughput | ms/page | vs PDFium |
 |---|---|---|---|
-| **PDFium** (open + rasterize) | 48.5 pages/s | 20.6 | 1.00× |
-| **dart-pdf interpret** (pure Dart, no raster) | 73.6 pages/s | 13.6 | **1.52× faster** |
-| **dart-pdf render** (full Flutter raster + readback) | 18.6 pages/s | 53.7 | **2.60× slower** |
+| **PDFium** (open + rasterize) | 40.1 pages/s | 24.9 | 1.00× |
+| **dart-pdf interpret** (pure Dart, no raster) | 75.1 pages/s | 13.3 | **1.87× faster** |
+| **dart-pdf render** (full Flutter raster + readback) | 19.2 pages/s | 52.0 | **2.08× slower** |
 
 Takeaways:
 
-- **The pure-Dart engine is now ~1.5x faster than PDFium** for parse +
+- **The pure-Dart engine is now ~1.9× faster than PDFium** for parse +
   content-stream interpretation, the code that runs on the VM and the web. The
   content-stream tokenizer rewrite (faster number/keyword/name lexing, no
   reference lookahead on content operands) roughly halved parse time and is
-  what flipped this from 1.10× *slower* to 1.52× *faster*.
-- **The full render path is 2.60x slower, and that gap is Flutter, not the
-  interpreter.** interpret is 13.6 ms/page but render is 53.7, so ~40 ms/page
+  what flipped this from 1.10× *slower* to 1.87× *faster*.
+- **The full render path is 2.08× slower, and that gap is Flutter, not the
+  interpreter.** interpret is 13.3 ms/page but render is 52.0, so ~39 ms/page
   is image decoding + Flutter's GPU rasterization + `toImage`/`toByteData`
   readback. A phase split of the render path (scale 2): parse 13.5, collect
   2.3, image decode 18.1, paint 7.3, **GPU rasterize 16.7**, readback 0.7

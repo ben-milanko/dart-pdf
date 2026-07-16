@@ -1,4 +1,4 @@
-// pdf.js test corpus — rasterization smoke pass.
+// pdf.js test corpus - rasterization smoke pass.
 //
 // Every corpus page renders through the real pipeline (interpreter →
 // display list → raster), which is what exercises the image decoders

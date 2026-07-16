@@ -20,8 +20,9 @@ import 'editing_stamps.dart';
 /// Every [PdfEditingController] creates one by default, so tool styles
 /// (color, stroke width, opacity, font size) and the stylus mode come
 /// back the way the user left them, in this session and the next.
-/// Panel visibility ([showThumbnailSidebar], [showAnnotationSidebar])
-/// lives here too for the host's chrome — pass one instance to both the
+/// Panel visibility ([showThumbnailSidebar], [showBookmarkSidebar],
+/// [showAnnotationSidebar]) lives here too for the host's chrome - pass
+/// one instance to both the
 /// controller and the surrounding scaffold:
 ///
 /// ```dart
@@ -31,8 +32,8 @@ import 'editing_stamps.dart';
 /// ```
 ///
 /// Values load asynchronously ([ready]); each change is written back
-/// immediately. Where no local storage exists — plain widget tests, for
-/// example — loading fails silently and the defaults stand.
+/// immediately. Where no local storage exists - plain widget tests, for
+/// example - loading fails silently and the defaults stand.
 class PdfEditingPreferences extends ChangeNotifier {
   PdfEditingPreferences() {
     _ready = _load();
@@ -44,7 +45,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   late final Future<void> _ready;
   bool _modified = false;
 
-  /// Completes once stored values have been applied — or storage turned
+  /// Completes once stored values have been applied - or storage turned
   /// out to be unavailable and the defaults stand.
   Future<void> get ready => _ready;
 
@@ -56,15 +57,19 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfTextAlign? _textAlign;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
+  double _lineScale = 1;
   PdfLineEnding _lineStartEnding = PdfLineEnding.none;
   PdfLineEnding _lineEndEnding = PdfLineEnding.none;
   bool _fingerDrawsInk = true;
   bool _showThumbnailSidebar = true;
   bool _hasShowThumbnailSidebarPreference = false;
+  bool _showBookmarkSidebar = false;
   bool _showAnnotationSidebar = false;
   String? _author;
   PdfInkSignature? _signature;
   List<PdfCustomStamp> _customStamps = const [];
+  PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
+  PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
   ThemeMode _themeMode = ThemeMode.system;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
   Color _pageColor = const Color(0xFFFFFFFF);
@@ -79,6 +84,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _searchWholeWord = false;
   bool _searchRegex = false;
   double? _thumbnailSidebarWidth;
+  double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
   double? _propertiesPanelWidth;
   double? _searchPanelWidth;
@@ -122,7 +128,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     try {
       store = await SharedPreferences.getInstance();
     } catch (_) {
-      return; // no local storage here (e.g. widget tests) — defaults stand
+      return; // no local storage here (e.g. widget tests) - defaults stand
     }
     // a value set while the disk read was in flight wins over the stored one
     if (!_modified) {
@@ -142,6 +148,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
+      _lineScale = store.getDouble('${_prefix}lineScale') ?? _lineScale;
       final lineStyle = store.getString('${_prefix}lineStyle');
       if (lineStyle != null) {
         _lineStyle = PdfLineStyle.values.asNameMap()[lineStyle] ?? _lineStyle;
@@ -168,6 +175,8 @@ class PdfEditingPreferences extends ChangeNotifier {
         _showThumbnailSidebar =
             store.getBool(thumbnailSidebarKey) ?? _showThumbnailSidebar;
       }
+      _showBookmarkSidebar = store.getBool('${_prefix}showBookmarkSidebar') ??
+          _showBookmarkSidebar;
       _showAnnotationSidebar =
           store.getBool('${_prefix}showAnnotationSidebar') ??
               _showAnnotationSidebar;
@@ -200,6 +209,9 @@ class PdfEditingPreferences extends ChangeNotifier {
       _thumbnailSidebarWidth =
           store.getDouble('${_prefix}thumbnailSidebarWidth') ??
               _thumbnailSidebarWidth;
+      _bookmarkSidebarWidth =
+          store.getDouble('${_prefix}bookmarkSidebarWidth') ??
+              _bookmarkSidebarWidth;
       _annotationSidebarWidth =
           store.getDouble('${_prefix}annotationSidebarWidth') ??
               _annotationSidebarWidth;
@@ -234,9 +246,21 @@ class PdfEditingPreferences extends ChangeNotifier {
             if (PdfCustomStamp.decode(stamp) case final decoded?) decoded
         ]);
       }
+      final stampDateFormat = store.getString('${_prefix}stampDateFormat');
+      if (stampDateFormat != null) {
+        _stampDateFormat =
+            PdfStampDateFormat.values.asNameMap()[stampDateFormat] ??
+                _stampDateFormat;
+      }
+      final stampTimeFormat = store.getString('${_prefix}stampTimeFormat');
+      if (stampTimeFormat != null) {
+        _stampTimeFormat =
+            PdfStampTimeFormat.values.asNameMap()[stampTimeFormat] ??
+                _stampTimeFormat;
+      }
     }
     // viewports are a write-mostly store, not user-set UI state, so they
-    // load regardless of _modified and merge by key — any saved before the
+    // load regardless of _modified and merge by key - any saved before the
     // disk read (a fast scroll) keeps its place
     for (final entry in _decodeViewports(store.getString(_viewportsKey))) {
       _viewports.putIfAbsent(entry.$1, () => entry.$2);
@@ -281,14 +305,14 @@ class PdfEditingPreferences extends ChangeNotifier {
   }
 
   /// The saved viewport for the document keyed by [documentKey] (see
-  /// `pdfDocumentKey`), or null when none has been stored — what a host
+  /// `pdfDocumentKey`), or null when none has been stored - what a host
   /// passes to `PdfViewer.initialViewport` so reopening a document lands
   /// where the user left it.
   PdfViewport? viewportFor(String documentKey) => _viewports[documentKey];
 
   /// Remembers [viewport] as the position for the document keyed by
   /// [documentKey], evicting the least-recently-touched document past the
-  /// cap. Passing null forgets it. Persisted but deliberately silent — it
+  /// cap. Passing null forgets it. Persisted but deliberately silent - it
   /// is called on every scroll/zoom settle, so it never notifies
   /// listeners.
   void setViewport(String documentKey, PdfViewport? viewport) {
@@ -334,7 +358,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         }
       });
     } catch (_) {
-      // corrupt blob — drop it, the defaults stand
+      // corrupt blob - drop it, the defaults stand
     }
   }
 
@@ -347,24 +371,48 @@ class PdfEditingPreferences extends ChangeNotifier {
   /// While a scope is active every style setter ([color], [strokeWidth],
   /// [opacity], [fontSize], [fontFamily], [lineStyle], the line endings,
   /// the fill colors, [eraserRadius]) also records its new value under the
-  /// scope — so each annotation tool keeps its own colour, stroke and so on
+  /// scope - so each annotation tool keeps its own colour, stroke and so on
   /// across sessions. A null [scope] (select mode, or restyling a
   /// selection) writes only the shared defaults.
-  void beginStyleScope(String? scope, Set<String> fields) {
-    if (scope == _styleScope && setEquals(fields, _styleScopeFields)) return;
+  void beginStyleScope(String? scope, Set<String> fields,
+      {Map<String, Object?> defaults = const {},
+      Set<String> lockedFields = const {},
+      bool forceRestore = false}) {
+    var seeded = false;
+    if (scope != null &&
+        defaults.isNotEmpty &&
+        !_toolStyles.containsKey(scope)) {
+      final slot = {
+        for (final entry in defaults.entries)
+          if (fields.contains(entry.key)) entry.key: entry.value,
+      };
+      if (slot.isNotEmpty) {
+        _toolStyles[scope] = slot;
+        _writeToolStyles();
+        seeded = true;
+      }
+    }
+    if (scope == _styleScope && setEquals(fields, _styleScopeFields)) {
+      if ((seeded || forceRestore) && scope != null) {
+        _restoreScope(scope, lockedFields: lockedFields);
+      }
+      return;
+    }
     _styleScope = scope;
     _styleScopeFields = fields;
-    if (scope != null) _restoreScope(scope);
+    if (scope != null) _restoreScope(scope, lockedFields: lockedFields);
   }
 
-  void _restoreScope(String scope) {
+  void _restoreScope(String scope, {Set<String> lockedFields = const {}}) {
     final slot = _toolStyles[scope];
     if (slot == null || slot.isEmpty) return;
     // drive the public setters (they update the live value and the shared
     // default), guarding the re-record so this load doesn't rewrite the slot
     _restoringScope = true;
     try {
-      if (slot['color'] case final int v) color = Color(v);
+      if (!lockedFields.contains('color')) {
+        if (slot['color'] case final int v) color = Color(v);
+      }
       if (slot['strokeWidth'] case final num v) strokeWidth = v.toDouble();
       if (slot['eraserRadius'] case final num v) eraserRadius = v.toDouble();
       if (slot['opacity'] case final num v) opacity = v.toDouble();
@@ -381,6 +429,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         final style = PdfLineStyle.values.asNameMap()[v];
         if (style != null) lineStyle = style;
       }
+      if (slot['lineScale'] case final num v) lineScale = v.toDouble();
       if (slot['lineStartEnding'] case final String v) {
         final ending = PdfLineEnding.values.asNameMap()[v];
         if (ending != null) lineStartEnding = ending;
@@ -406,6 +455,44 @@ class PdfEditingPreferences extends ChangeNotifier {
   static Color? _colorOrNull(Object? value) =>
       value is int ? Color(value) : null;
 
+  /// Saves the current live style values into the active tool scope.
+  ///
+  /// This is separate from [_recordScoped], which only runs when a setter
+  /// changes a value. A tool still needs to remember the style it inherited
+  /// on first activation, otherwise switching to another tool with seeded
+  /// defaults can leak that other tool's style back into it.
+  void snapshotActiveStyleScope({Set<String> lockedFields = const {}}) {
+    final scope = _styleScope;
+    if (scope == null || _styleScopeFields.isEmpty) return;
+    final slot = _toolStyles[scope] ??= <String, Object?>{};
+    var changed = false;
+
+    void put(String field, Object? value) {
+      if (!_styleScopeFields.contains(field)) return;
+      if (lockedFields.contains(field)) return;
+      if (slot[field] == value && slot.containsKey(field)) return;
+      slot[field] = value;
+      changed = true;
+    }
+
+    put('color', _color.toARGB32());
+    put('strokeWidth', _strokeWidth);
+    put('eraserRadius', _eraserRadius);
+    put('opacity', _opacity);
+    put('fontSize', _fontSize);
+    put('fontFamily', _fontFamily.name);
+    put('textAlign', _textAlign?.name);
+    put('lineStyle', _lineStyle.name);
+    put('lineScale', _lineScale);
+    put('lineStartEnding', _lineStartEnding.name);
+    put('lineEndEnding', _lineEndEnding.name);
+    put('textFillColor', _textFillColor?.toARGB32());
+    put('textBorderColor', _textBorderColor?.toARGB32());
+    put('shapeFillColor', _shapeFillColor?.toARGB32());
+
+    if (changed) _writeToolStyles();
+  }
+
   /// Records [value] for [field] under the active scope when that scope
   /// remembers the field. Called from the style setters.
   void _recordScoped(String field, Object? value) {
@@ -418,11 +505,13 @@ class PdfEditingPreferences extends ChangeNotifier {
   /// The color new annotations are created with.
   Color get color => _color;
 
-  set color(Color value) {
+  set color(Color value) => setColor(value);
+
+  void setColor(Color value, {bool recordStyleScope = true}) {
     if (value == _color) return;
     _color = value;
     _write((s) => s.setInt('${_prefix}color', value.toARGB32()));
-    _recordScoped('color', value.toARGB32());
+    if (recordStyleScope) _recordScoped('color', value.toARGB32());
     notifyListeners();
   }
 
@@ -460,7 +549,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Font family for free-text annotations — one of the standard PDF
+  /// Font family for free-text annotations - one of the standard PDF
   /// text fonts (sans-serif, serif, monospace).
   PdfStandardFont get fontFamily => _fontFamily;
 
@@ -473,7 +562,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   }
 
   /// Horizontal alignment (left/center/right) new free-text boxes are
-  /// created with — the box's /Q quadding. Null (the default) follows the
+  /// created with - the box's /Q quadding. Null (the default) follows the
   /// text direction: left for LTR, right for RTL. Persisted.
   PdfTextAlign? get textAlign => _textAlign;
 
@@ -508,6 +597,20 @@ class PdfEditingPreferences extends ChangeNotifier {
     _lineStyle = value;
     _write((s) => s.setString('${_prefix}lineStyle', value.name));
     _recordScoped('lineStyle', value.name);
+    notifyListeners();
+  }
+
+  /// The pattern scale new shape and line annotations are created with - a
+  /// multiplier (1 = default) driving the size of dash patterns and cloudy
+  /// scallops *independently* of [strokeWidth], so the line thickness and
+  /// the pattern size change separately. Persisted.
+  double get lineScale => _lineScale;
+
+  set lineScale(double value) {
+    if (value == _lineScale) return;
+    _lineScale = value;
+    _write((s) => s.setDouble('${_prefix}lineScale', value));
+    _recordScoped('lineScale', value);
     notifyListeners();
   }
 
@@ -589,6 +692,26 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// User-selected format for built-in stamp `{{date}}` fields.
+  PdfStampDateFormat get stampDateFormat => _stampDateFormat;
+
+  set stampDateFormat(PdfStampDateFormat value) {
+    if (value == _stampDateFormat) return;
+    _stampDateFormat = value;
+    _write((s) => s.setString('${_prefix}stampDateFormat', value.name));
+    notifyListeners();
+  }
+
+  /// User-selected format for built-in stamp `{{time}}` fields.
+  PdfStampTimeFormat get stampTimeFormat => _stampTimeFormat;
+
+  set stampTimeFormat(PdfStampTimeFormat value) {
+    if (value == _stampTimeFormat) return;
+    _stampTimeFormat = value;
+    _write((s) => s.setString('${_prefix}stampTimeFormat', value.name));
+    notifyListeners();
+  }
+
   /// The author name new annotations carry (/T), shown in the
   /// annotation sidebar. Null leaves them unsigned.
   String? get author => _author;
@@ -615,7 +738,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   }
 
   /// The value format the color picker last showed (hex, RGB, HSL, or
-  /// CMYK) — the picker reopens in it.
+  /// CMYK) - the picker reopens in it.
   PdfColorFormat get colorPickerFormat => _colorPickerFormat;
 
   set colorPickerFormat(PdfColorFormat value) {
@@ -626,7 +749,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   }
 
   /// The paper color pages are displayed on (see [PdfViewer.pageColor]).
-  /// White — the PDF convention — by default; a display setting only,
+  /// White - the PDF convention - by default; a display setting only,
   /// the document is untouched.
   Color get pageColor => _pageColor;
 
@@ -638,7 +761,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   }
 
   /// Whether pages are displayed with their annotations (see
-  /// [PdfViewer.showAnnotations]). A display setting only — hiding
+  /// [PdfViewer.showAnnotations]). A display setting only - hiding
   /// changes nothing in the document.
   bool get showAnnotations => _showAnnotations;
 
@@ -673,7 +796,7 @@ class PdfEditingPreferences extends ChangeNotifier {
 
   /// Whether the host shows the dedicated full-area page thumbnail grid
   /// (`PdfThumbnailView`) in place of the page viewer. A view mode, not a
-  /// docked panel — distinct from [showThumbnailSidebar].
+  /// docked panel - distinct from [showThumbnailSidebar].
   bool get showThumbnailView => _showThumbnailView;
 
   set showThumbnailView(bool value) {
@@ -683,7 +806,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The page thumbnail grid's tile width, in logical pixels — the size
+  /// The page thumbnail grid's tile width, in logical pixels - the size
   /// control in `PdfThumbnailView` drives it. Null until first changed,
   /// where the widget's own default applies.
   double? get thumbnailViewTileWidth => _thumbnailViewTileWidth;
@@ -786,6 +909,29 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _showAnnotationSidebar) return;
     _showAnnotationSidebar = value;
     _write((s) => s.setBool('${_prefix}showAnnotationSidebar', value));
+    notifyListeners();
+  }
+
+  /// Whether the host shows the document bookmarks/outline panel.
+  bool get showBookmarkSidebar => _showBookmarkSidebar;
+
+  set showBookmarkSidebar(bool value) {
+    if (value == _showBookmarkSidebar) return;
+    _showBookmarkSidebar = value;
+    _write((s) => s.setBool('${_prefix}showBookmarkSidebar', value));
+    notifyListeners();
+  }
+
+  /// The bookmarks panel's user-dragged width, or null while it has
+  /// never been resized.
+  double? get bookmarkSidebarWidth => _bookmarkSidebarWidth;
+
+  set bookmarkSidebarWidth(double? value) {
+    if (value == _bookmarkSidebarWidth) return;
+    _bookmarkSidebarWidth = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}bookmarkSidebarWidth')
+        : s.setDouble('${_prefix}bookmarkSidebarWidth', value));
     notifyListeners();
   }
 

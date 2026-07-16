@@ -31,7 +31,7 @@ void main() {
     expect(find.byKey(thumb), findsOneWidget);
 
     // thumb height reflects the visible fraction: 600px viewport over
-    // 5 fit-width pages (5·800·792/612 + spacing) ≈ 11% — but never
+    // 5 fit-width pages (5·800·792/612 + spacing) ≈ 11% - but never
     // under the 36px minimum
     final height = tester.getSize(find.byKey(thumb)).height;
     final position = scrollPosition(tester);

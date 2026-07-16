@@ -1,26 +1,26 @@
 part of 'editor.dart';
 
-/// Tier 4 — paragraph reflow. Where [PdfContentEditing.replaceText] corrects
+/// Tier 4 - paragraph reflow. Where [PdfContentEditing.replaceText] corrects
 /// text *within* a line (holding everything after it put), this re-wraps a
 /// whole paragraph: the replacement may make the paragraph grow or shrink by
 /// lines, the paragraph's lines are re-broken at its right margin, and the
 /// lines that follow it cascade up or down so nothing overlaps.
 ///
 /// The paragraph is found by the same kind of geometric inference the reading
-/// (reflow) view uses — visual lines grouped into a left-aligned, single
-/// column, single font/size block with a regular leading — but ported to run
+/// (reflow) view uses - visual lines grouped into a left-aligned, single
+/// column, single font/size block with a regular leading - but ported to run
 /// directly over the content stream (this layer cannot import the renderer).
 ///
 /// ## Supported shape (others leave the page untouched, returning false)
 ///
 ///  * Single column, left-aligned, horizontal unrotated text (the text and
 ///    line matrices are pure translation: `a == d == 1`, `b == c == 0`).
-///  * Lines reached by a regular *relative* downward break — `T*`, or
-///    `0 -leading Td`/`TD` — so changing the paragraph's line count cascades
+///  * Lines reached by a regular *relative* downward break - `T*`, or
+///    `0 -leading Td`/`TD` - so changing the paragraph's line count cascades
 ///    into the following lines through the same relative breaks. The first
 ///    line keeps whatever positioned it (an absolute `Tm`/`Td` is fine).
 ///  * One show operator (`Tj`/`TJ`) per line, with nothing but the breaks
-///    between them — no mid-paragraph font, colour, or spacing changes.
+///    between them - no mid-paragraph font, colour, or spacing changes.
 ///  * Simple Latin-1 fonts, or Identity-H / CIDFontType2 / Identity-
 ///    CIDToGIDMap composite (/Type0) fonts whose embedded program carries a
 ///    glyph for every character of the reflowed text (no fallback-font path).
@@ -74,8 +74,12 @@ extension PdfParagraphReflow on PdfEditor {
       if (!joined.contains(find)) continue;
 
       final font = fontFor(group.first.fontName);
-      final reflowFont = _reflowFontFor(page, group.first.fontName, font,
-          group.first.fontSize);
+      final reflowFont = _reflowFontFor(
+        page,
+        group.first.fontName,
+        font,
+        group.first.fontSize,
+      );
       if (reflowFont == null) continue; // unsupported font for this group
 
       // available width: the widest line the author used (the column they
@@ -104,7 +108,7 @@ extension PdfParagraphReflow on PdfEditor {
       }
 
       // every show op between the first and last line of the paragraph must
-      // be a plain show or a recognized relative break — anything else
+      // be a plain show or a recognized relative break - anything else
       // (a font switch, colour, spacing) would be dropped by the rewrite.
       final firstShow = group.first.opIndex;
       final lastShow = group.last.opIndex;
@@ -124,11 +128,11 @@ extension PdfParagraphReflow on PdfEditor {
         }
         generated.add(show);
       }
-      if (generated.isEmpty) continue; // a line couldn't be encoded — bail
+      if (generated.isEmpty) continue; // a line couldn't be encoded - bail
 
       ops.replaceRange(firstShow, lastShow + 1, generated);
       reflowFont.commit();
-      _setContent(page, elements.serialize());
+      _setContent(index, page, elements.serialize());
       return true;
     }
     return false;
@@ -137,7 +141,11 @@ extension PdfParagraphReflow on PdfEditor {
   /// A measuring/encoding strategy for [font] at [size], or null when the
   /// font isn't one paragraph reflow can rewrite.
   _ReflowFont? _reflowFontFor(
-      PdfPage page, String? name, CosDictionary? font, double size) {
+    PdfPage page,
+    String? name,
+    CosDictionary? font,
+    double size,
+  ) {
     if (font == null) return null;
     if (PdfContentEditing._isType0(document.cos, font) && name != null) {
       final editing = _Type0Editing.tryCreate(this, page, name, font, const []);
@@ -150,7 +158,9 @@ extension PdfParagraphReflow on PdfEditor {
   /// [textByOp], tracking the text/line matrices so each line carries its
   /// origin, leading, font, and how it was reached.
   static List<_ReflowLine> _reflowLines(
-      List<ContentOperation> ops, Map<int, String> textByOp) {
+    List<ContentOperation> ops,
+    Map<int, String> textByOp,
+  ) {
     final lines = <_ReflowLine>[];
     var objId = -1;
     String? fontName;
@@ -173,28 +183,43 @@ extension PdfParagraphReflow on PdfEditor {
       switch (op.operator) {
         case 'BT':
           objId++;
-          a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+          a = 1;
+          b = 0;
+          c = 0;
+          d = 1;
+          e = 0;
+          f = 0;
           pending = const _ReflowBreak('first', 0, 0);
         case 'Tf':
           if (operands.isNotEmpty && operands[0] is CosName) {
             fontName = (operands[0] as CosName).value;
           }
-          if (operands.length >= 2) fontSize = PdfContentEditing._num(operands[1]);
+          if (operands.length >= 2) {
+            fontSize = PdfContentEditing._num(operands[1]);
+          }
         case 'TL':
-          if (operands.isNotEmpty) leading = PdfContentEditing._num(operands[0]);
+          if (operands.isNotEmpty) {
+            leading = PdfContentEditing._num(operands[0]);
+          }
         case 'Tc':
-          if (operands.isNotEmpty) charSpace = PdfContentEditing._num(operands[0]);
+          if (operands.isNotEmpty) {
+            charSpace = PdfContentEditing._num(operands[0]);
+          }
         case 'Tw':
-          if (operands.isNotEmpty) wordSpace = PdfContentEditing._num(operands[0]);
+          if (operands.isNotEmpty) {
+            wordSpace = PdfContentEditing._num(operands[0]);
+          }
         case 'Td':
           if (operands.length >= 2) {
-            final tx = PdfContentEditing._num(operands[0]), ty = PdfContentEditing._num(operands[1]);
+            final tx = PdfContentEditing._num(operands[0]),
+                ty = PdfContentEditing._num(operands[1]);
             translate(tx, ty);
             pending = _ReflowBreak('Td', tx, ty);
           }
         case 'TD':
           if (operands.length >= 2) {
-            final tx = PdfContentEditing._num(operands[0]), ty = PdfContentEditing._num(operands[1]);
+            final tx = PdfContentEditing._num(operands[0]),
+                ty = PdfContentEditing._num(operands[1]);
             leading = -ty;
             translate(tx, ty);
             pending = _ReflowBreak('TD', tx, ty);
@@ -214,9 +239,25 @@ extension PdfParagraphReflow on PdfEditor {
           pending = _ReflowBreak('T*', 0, -leading);
         case "'":
           translate(0, -leading);
-          _addLine(lines, op, i, objId, fontName, fontSize, leading, charSpace,
-              wordSpace, a, b, c, d, e, f,
-              const _ReflowBreak("'", 0, 0), textByOp);
+          _addLine(
+            lines,
+            op,
+            i,
+            objId,
+            fontName,
+            fontSize,
+            leading,
+            charSpace,
+            wordSpace,
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            const _ReflowBreak("'", 0, 0),
+            textByOp,
+          );
           pending = null;
         case '"':
           if (operands.length >= 2) {
@@ -224,15 +265,47 @@ extension PdfParagraphReflow on PdfEditor {
             charSpace = PdfContentEditing._num(operands[1]);
           }
           translate(0, -leading);
-          _addLine(lines, op, i, objId, fontName, fontSize, leading, charSpace,
-              wordSpace, a, b, c, d, e, f,
-              const _ReflowBreak('"', 0, 0), textByOp);
+          _addLine(
+            lines,
+            op,
+            i,
+            objId,
+            fontName,
+            fontSize,
+            leading,
+            charSpace,
+            wordSpace,
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            const _ReflowBreak('"', 0, 0),
+            textByOp,
+          );
           pending = null;
         case 'Tj':
         case 'TJ':
-          _addLine(lines, op, i, objId, fontName, fontSize, leading, charSpace,
-              wordSpace, a, b, c, d, e, f,
-              pending ?? const _ReflowBreak('cont', 0, 0), textByOp);
+          _addLine(
+            lines,
+            op,
+            i,
+            objId,
+            fontName,
+            fontSize,
+            leading,
+            charSpace,
+            wordSpace,
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            pending ?? const _ReflowBreak('cont', 0, 0),
+            textByOp,
+          );
           pending = null;
       }
     }
@@ -240,41 +313,44 @@ extension PdfParagraphReflow on PdfEditor {
   }
 
   static void _addLine(
-      List<_ReflowLine> lines,
-      ContentOperation op,
-      int opIndex,
-      int objId,
-      String? fontName,
-      double fontSize,
-      double leading,
-      double charSpace,
-      double wordSpace,
-      double a,
-      double b,
-      double c,
-      double d,
-      double e,
-      double f,
-      _ReflowBreak brk,
-      Map<int, String> textByOp) {
-    lines.add(_ReflowLine(
-      opIndex: opIndex,
-      objId: objId,
-      operator: op.operator,
-      fontName: fontName,
-      fontSize: fontSize,
-      leading: leading,
-      charSpace: charSpace,
-      wordSpace: wordSpace,
-      a: a,
-      b: b,
-      c: c,
-      d: d,
-      originX: e,
-      baselineY: f,
-      brk: brk,
-      text: textByOp[opIndex] ?? '',
-    ));
+    List<_ReflowLine> lines,
+    ContentOperation op,
+    int opIndex,
+    int objId,
+    String? fontName,
+    double fontSize,
+    double leading,
+    double charSpace,
+    double wordSpace,
+    double a,
+    double b,
+    double c,
+    double d,
+    double e,
+    double f,
+    _ReflowBreak brk,
+    Map<int, String> textByOp,
+  ) {
+    lines.add(
+      _ReflowLine(
+        opIndex: opIndex,
+        objId: objId,
+        operator: op.operator,
+        fontName: fontName,
+        fontSize: fontSize,
+        leading: leading,
+        charSpace: charSpace,
+        wordSpace: wordSpace,
+        a: a,
+        b: b,
+        c: c,
+        d: d,
+        originX: e,
+        baselineY: f,
+        brk: brk,
+        text: textByOp[opIndex] ?? '',
+      ),
+    );
   }
 
   /// Groups the eligible lines into paragraph candidates: consecutive,
@@ -345,7 +421,7 @@ extension PdfParagraphReflow on PdfEditor {
       (line.d - 1).abs() < 1e-6;
 
   /// Whether [line] was reached by a relative downward break (`T*`, or a
-  /// `Td`/`TD` that only moves down) — the breaks a line-count change can
+  /// `Td`/`TD` that only moves down) - the breaks a line-count change can
   /// cascade through.
   static bool _isRelativeDown(_ReflowLine line) {
     switch (line.brk.kind) {
@@ -362,7 +438,9 @@ extension PdfParagraphReflow on PdfEditor {
   /// The line immediately following [group] in the same text object, or null
   /// when the paragraph is the last text in its object.
   static _ReflowLine? _followingLine(
-      List<_ReflowLine> group, List<_ReflowLine> lines) {
+    List<_ReflowLine> group,
+    List<_ReflowLine> lines,
+  ) {
     final last = group.last;
     for (final line in lines) {
       if (line.objId == last.objId && line.opIndex > last.opIndex) return line;
@@ -374,7 +452,9 @@ extension PdfParagraphReflow on PdfEditor {
   /// the paragraph's own inter-line break when it has one, else the break
   /// that connects a single-line paragraph to its following content.
   static String? _breakStyleFor(
-      List<_ReflowLine> group, List<_ReflowLine> lines) {
+    List<_ReflowLine> group,
+    List<_ReflowLine> lines,
+  ) {
     if (group.length >= 2) {
       final kind = group[1].brk.kind;
       return kind == 'T*' ? 'T*' : 'Td';
@@ -392,14 +472,16 @@ extension PdfParagraphReflow on PdfEditor {
       final leading = group.length >= 2
           ? group.first.baselineY - group[1].baselineY
           : group.first.leading;
-      return ContentOperation(
-          'Td', [PdfContentEditing._numberObject(0), PdfContentEditing._numberObject(-leading)]);
+      return ContentOperation('Td', [
+        PdfContentEditing._numberObject(0),
+        PdfContentEditing._numberObject(-leading),
+      ]);
     }
     return ContentOperation('T*', const []);
   }
 
   /// Whether `ops[first..last]` holds only show operators and the recognized
-  /// relative breaks — so replacing the span drops nothing meaningful.
+  /// relative breaks - so replacing the span drops nothing meaningful.
   static bool _spanIsClean(List<ContentOperation> ops, int first, int last) {
     for (var i = first; i <= last; i++) {
       switch (ops[i].operator) {
@@ -541,8 +623,9 @@ class _SimpleReflowFont extends _ReflowFont {
     for (final unit in text.codeUnits) {
       if (unit > 0xFF) return null; // not representable in a simple font
     }
-    return ContentOperation(
-        'Tj', [CosString(Uint8List.fromList(text.codeUnits))]);
+    return ContentOperation('Tj', [
+      CosString(Uint8List.fromList(text.codeUnits)),
+    ]);
   }
 
   @override

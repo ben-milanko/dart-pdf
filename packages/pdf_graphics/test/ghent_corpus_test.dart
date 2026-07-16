@@ -1,4 +1,4 @@
-// Ghent PDF Output Suite V5.0 — pure-Dart pass.
+// Ghent PDF Output Suite V5.0 - pure-Dart pass.
 //
 // One test per patch: the file must open, every page must interpret without
 // throwing, and the page must actually paint something. No rasterization

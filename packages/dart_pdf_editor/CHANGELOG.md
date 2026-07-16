@@ -1,5 +1,153 @@
 # Changelog
 
+## Unreleased
+
+- Shapes and revision clouds: add an "Outline" colour row to the tune popup,
+  next to "Fill", so a cloud's stroke colour can be picked from the tune menu
+  (not just the toolbar swatches) — armed or with the shape selected.
+- Bound the render worker's page-record cache by entry count, not only by
+  decoded-image bytes: image-free and vector-first records weigh zero, so on a
+  long scroll they used to accumulate one (or more) per page for the life of
+  the worker with no limit (issue #283). The cache now caps retained records
+  (`pdfRenderWorkerCacheMaxEntries`, default 64), so a long document's memory
+  no longer grows unbounded in the page count.
+- Free-text boxes: add line spacing, character spacing, font width
+  (horizontal scaling), and underline controls (tune popup + properties
+  panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.
+- Fix backspacing in an inline free-text editor sliding a bold (or otherwise
+  styled) run onto the following characters — style runs now follow their
+  own text across edits.
+- Resize an embedded/bundled-font free-text box by re-wrapping it (as with
+  base-14 boxes) instead of stretching the glyphs, and keep rich per-run
+  styling across the resize.
+- Keep a free-text box's alignment in the resize preview and post-commit
+  afterimage so it no longer appears to snap to the left while dragging.
+- Show a free-text box's actual (embedded/bundled) font name in the font
+  picker instead of collapsing it to "Sans".
+- Stop the inline editor's line spacing shifting when a run's font changes
+  in the tune popup (font-independent leading, matching the appearance).
+- Fix tapping a free-text style-chip button (underline, size, …) on touch
+  devices committing and deselecting the box out from under the tap.
+
+## 1.4.6
+
+- Expose edit-and-style and markup actions when text is selected in an
+  editor-backed viewer, on both touch and desktop context menus.
+- Treat each `applyRemoteChange` as an undo checkpoint: local edits made after
+  a remote apply stay undoable, but undo can no longer remove remote state or
+  cross into older local history.
+- Fall back to the bundled DejaVu Sans and platform Arabic faces when
+  substituting fonts, so Arabic (including the presentation forms copied out
+  of shaped PDFs), Hebrew, Greek, and Cyrillic render on hosts whose Helvetica
+  substitute has no suitable fallback.
+- Regenerate the bundled web render worker so browser builds pick up the
+  scaled CCITT decode path and the right-to-left text fixes.
+
+## 1.4.5
+
+## 1.4.5
+
+- Correct selection and copy ordering for multi-word Arabic and other
+  right-to-left page text.
+
+## 1.4.4
+
+- Regenerate the bundled web render worker from the current sources so web
+  consumers receive the 1.4.3 form and fragmented-strip rendering fixes.
+
+## 1.4.3
+
+- Bake page rotation into regenerated form appearances so existing and newly
+  authored fields remain upright after rotating the document.
+- Add certificate-backed PAdES B-B digital signing to editing sessions via
+  `PdfDigitalSignatureIdentity` and `addDigitalSignature`, including key/cert
+  matching, validation before commit, and undo/redo support.
+- Allow a selected form field to be converted between text, check-box, and
+  image-button types from the contextual toolbar or properties panel while
+  keeping the rebuilt field selected.
+- Make form-field right-click select the field instead of opening an oversized
+  context menu, with value, rename, type, delete, flatten, and style actions in
+  the contextual toolbar.
+- Keep the floating stroke-width, opacity, and measurement readouts at a
+  constant screen size and cursor offset while the document is zoomed.
+- Show common and mixed (`Varies`) values for multi-selected annotations in
+  the properties panel, with bulk edits for compatible appearance, line,
+  contents, and author properties.
+- Restyle annotation-thread Reply and Resolve controls as compact, muted text
+  actions that emphasize only on hover, focus, or press.
+- Keep clip-heavy Visio and CAD pages responsive by detecting fragmented
+  sparse-strip plans before worker binning and using cached canvas replay.
+
+## 1.4.2
+
+- Keep touch scrolling responsive on zoomed mixed-width documents when a
+  gesture starts on the canvas or in an inter-page gap, and keep the current
+  page and render focus synchronized with the transformed viewport.
+- Prevent dense pages from rendering as solid magenta on iPad by routing iOS
+  deep-zoom replay through the stable canvas path instead of shader-backed
+  sparse strips.
+
+## 1.4.1
+
+- Add callout annotations and rich-text styling for in-place document text
+  edits, including the editor controls and annotation presentation support.
+- Make dense CAD and illustration pages substantially more responsive with
+  retained-scene replay, adaptive render policy, sparse strip rendering,
+  speculative visible-region detail, and exact raster reuse on revisits.
+- Run strip planning and dense recording off the UI thread on native and web;
+  reuse compact Web Worker transcripts and prioritize visible detail to reduce
+  cold-start, zoom, and pan latency.
+- Bundle the default web render worker as a package asset and repair production
+  web loading, while retaining the public override for custom worker hosting.
+- Keep page edges reachable after Android pinch gestures and keep Slug glyphs
+  and image content sharp while zooming and panning.
+- Consolidate annotation policy, editing interactions, shell lifecycle, page
+  rendering, sidebar framing, and edit transactions without removing exported
+  APIs.
+
+## 1.4.0
+
+- Color processing: add a Bluebeam-style tool that can list document colors,
+  replace one or more selected colors across selected pages or the whole
+  document, replace colors with transparency, and run large-document
+  processing in the background to avoid UI hangs.
+- Bookmarks: add a PDF outline/bookmarks panel with create, edit, delete, and
+  navigation support in the reader and editor shells.
+- Editing tools: add freehand highlighting, cloudy polygon annotations,
+  annotation apply-to-pages, selected-image export, color locking, and stronger
+  style isolation when switching tools.
+- Stamps: support hover placement previews, custom template dimensions, and
+  import/export for custom stamp libraries.
+- Page and annotation chrome: add hover-only controls on mouse platforms,
+  arrow-key navigation for thumbnail/page views, page-grid click-to-select
+  with double-click navigation, and layout fixes for thumbnail/search chrome.
+- Web rendering: ship the render worker as a package asset and use it by
+  default, so Flutter web apps no longer need to set
+  `pdfRenderWorkerScriptUrl` unless they want to self-host the worker.
+- App integrations: improve macOS open-with/file access handling, multi-file
+  picking, recent-file menus, menu shortcut labels, and the built-in feedback
+  link.
+
+## 1.3.2
+
+- Viewer rendering: annotation appearances now paint in a separate overlay
+  from the base page raster, so annotation-only edits no longer invalidate the
+  expensive page image or flicker while a refreshed appearance is rendering.
+- Viewer interaction: motion-based render hold defers expensive UI work during
+  active gestures, chrome stays visually constant while zoomed, and annotation
+  hit handling exposes a new `PdfAnnotationTapHandler` callback.
+- Editing UI: the draw toolbar includes a freehand highlight tool, active text
+  selections can be styled as markup, count-tool cursor previews are more
+  accurate, and the takeoff panel has improved accessibility labels.
+- Forms: right-click form-field editing and form-style controls are available
+  from the viewer, including font and visual style updates.
+- Stamps: custom stamps can be vector templates with dynamic fields, images,
+  saved signatures, metadata tags/types, host-provided stamp lists, and
+  configurable date/time placeholder formats.
+- Fix rendering artifacts from stale detail patches after visual content
+  changes and keep the current annotation layer visible while updated
+  appearances load.
+
 ## 1.3.1
 
 - Font menu: offer the host platform's installed fonts as embeddable choices
@@ -24,7 +172,7 @@
 ## 1.2.3
 
 - Free text: align a text box left, center, or right. The alignment buttons
-  sit in the text style popup and the annotation properties panel — they
+  sit in the text style popup and the annotation properties panel - they
   apply to the selected box and set the default for new boxes (remembered
   per the text tool). New boxes still follow the text direction until you
   pick an alignment.
@@ -70,7 +218,7 @@
 
 - Full font selection for text boxes: a font menu (in the style popup and
   the properties panel) offers the standard families, a set of bundled
-  full-Unicode fonts (DejaVu Sans/Serif/Mono), and "Load font…" — a
+  full-Unicode fonts (DejaVu Sans/Serif/Mono), and "Load font…" - a
   host-provided `PdfFontPicker` for any `.ttf`/`.otf` file. The chosen
   font embeds into the document so the text renders and prints
   identically everywhere. `PdfEditingController.activeFont`/`setCustomFont`
@@ -168,7 +316,7 @@ First stable release. Highlights since 0.1.0:
 - Keyboard shortcuts for the common editing tools: single, unmodified keys
   arm a tool from the viewer (V select, P pen/ink, E eraser, R rectangle,
   O ellipse, L line, A arrow, T text box, N note, S stamp, I image,
-  G signature, M measure, F form, C content, K redact); pressing a tool's
+  G snapshot, H signature, M measure, F form, C content, K redact); pressing a tool's
   key again drops back to Select. Active only during an editing session and
   suppressed while an in-place text editor (free text or form field) is
   open. The bindings are exposed as `pdfEditToolShortcuts` and surfaced in

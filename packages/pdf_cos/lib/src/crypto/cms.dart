@@ -1,5 +1,5 @@
-/// CMS / PKCS#7 SignedData (RFC 5652) — the container inside a PDF
-/// signature's /Contents — plus the X.509 reading it needs and
+/// CMS / PKCS#7 SignedData (RFC 5652) - the container inside a PDF
+/// signature's /Contents - plus the X.509 reading it needs and
 /// certificate-chain verification against caller-supplied trust anchors
 /// ([verifyCertificateChain]; no revocation or policy processing).
 library;
@@ -28,7 +28,7 @@ abstract final class _Oid {
 
 /// Parses RSASSA-PSS-params (RFC 4055 §3.1) from an AlgorithmIdentifier's
 /// parameters, returning the message/MGF hash and the explicit salt length
-/// (null when absent — the verifier then recovers it from the signature).
+/// (null when absent - the verifier then recovers it from the signature).
 /// Missing or partial parameters fall back to the ASN.1 defaults (SHA-1).
 (crypto.Hash, int?) _pssParams(DerObject? params) {
   var hash = crypto.sha1;
@@ -44,7 +44,7 @@ abstract final class _Oid {
         saltLength = field.children.first.asInteger.toInt();
       }
       // maskGenAlgorithm [1] is assumed MGF1 over the same hash, and
-      // trailerField [3] is always 1 — neither needs reading here.
+      // trailerField [3] is always 1 - neither needs reading here.
     }
   }
   return (hash, saltLength);
@@ -174,7 +174,7 @@ class X509Certificate {
   /// The DER of the whole SubjectPublicKeyInfo (algorithm + key bits).
   late final Uint8List subjectPublicKeyInfoDer;
 
-  /// The subjectPublicKey BIT STRING payload (no unused-bits octet) — what
+  /// The subjectPublicKey BIT STRING payload (no unused-bits octet) - what
   /// OCSP's issuerKeyHash is computed over (RFC 6960 §4.1.1).
   late final Uint8List subjectPublicKeyBytes;
 
@@ -245,7 +245,7 @@ class CmsSignerInfo {
   late final String digestAlgorithmOid;
   late final String signatureAlgorithmOid;
 
-  /// The signature AlgorithmIdentifier parameters, when present — carries
+  /// The signature AlgorithmIdentifier parameters, when present - carries
   /// the RSASSA-PSS-params (hash, MGF, salt length) for PSS signers.
   DerObject? signatureAlgorithmParams;
   late final Uint8List signature;
@@ -258,7 +258,7 @@ class CmsSignerInfo {
   DateTime? signingTime;
 
   /// True when an ESS signing-certificate / signing-certificate-v2 signed
-  /// attribute is present — the marker of a CAdES/PAdES baseline signature.
+  /// attribute is present - the marker of a CAdES/PAdES baseline signature.
   bool hasSigningCertificate = false;
 
   /// The DER of an embedded RFC 3161 signature-time-stamp token, when the
@@ -299,7 +299,7 @@ class CmsSignedData {
           try {
             certificates.add(X509Certificate.parse(certDer.encoded));
           } on Object {
-            // an attribute certificate or unparsable entry — skip it
+            // an attribute certificate or unparsable entry - skip it
           }
         }
       }
@@ -325,7 +325,7 @@ class CmsSignedData {
     if (fields[i].tag == DerTag.context(0)) {
       final attrs = fields[i];
       // the signature is over these bytes with the IMPLICIT [0] tag
-      // replaced by SET — same length, different identifier octet
+      // replaced by SET - same length, different identifier octet
       final retagged = Uint8List.fromList(attrs.encoded);
       retagged[0] = DerTag.set;
       signer.signedAttrsDer = retagged;
@@ -350,7 +350,7 @@ class CmsSignedData {
       signer.signatureAlgorithmParams = signatureAlgorithm[1];
     }
     signer.signature = fields[i++].content;
-    // unsignedAttrs [1] IMPLICIT — scan for a signature-time-stamp token
+    // unsignedAttrs [1] IMPLICIT - scan for a signature-time-stamp token
     if (i < fields.length && fields[i].tag == DerTag.context(1)) {
       for (final attribute in fields[i].children) {
         final oid = attribute.children[0].asOid;
@@ -720,7 +720,7 @@ X509Certificate? _findIssuer(
 /// Builds and verifies the path from [leaf] to one of [trustAnchors],
 /// using [intermediates] (typically the other certificates shipped in
 /// the CMS container) to fill the middle. [at] is the moment each
-/// certificate must be valid — pass the signing time; null skips the
+/// certificate must be valid - pass the signing time; null skips the
 /// validity-window check.
 CertificateChainResult verifyCertificateChain({
   required X509Certificate leaf,

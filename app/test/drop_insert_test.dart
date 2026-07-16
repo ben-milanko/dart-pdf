@@ -10,8 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
-// These tests exercise the *branching* a drop takes — show the open/insert
-// dialog when a document is open, and route to the right action — by driving
+// These tests exercise the *branching* a drop takes - show the open/insert
+// dialog when a document is open, and route to the right action - by driving
 // the desktop_drop channel directly. They deliberately do not read real files:
 // the bytes a dropped item carries are read lazily through dart:io, whose
 // futures never complete under the widget tester's fake clock (and the read is
@@ -45,18 +45,27 @@ void main() {
   }
 
   // Drives the desktop_drop channel the way the Linux platform side does when
-  // a file is dropped on the window. Only a path is delivered — the bytes are
-  // read lazily later — so no real file is needed to exercise the drop's
+  // a file is dropped on the window. Only a path is delivered - the bytes are
+  // read lazily later - so no real file is needed to exercise the drop's
   // branching (show the action dialog / add a loading tab). The drop point is
   // the centre of the surface so it lands inside the editor body (DropTarget
-  // only reports a done event for in-bounds drops).
+  // only reports a done event for in-bounds drops). Send an update first so
+  // the target is entered even when the test runs on a non-Linux host.
   Future<void> dropPdf(WidgetTester tester, String name) async {
     final size = tester.view.physicalSize / tester.view.devicePixelRatio;
     const codec = StandardMethodCodec();
+    final point = <double>[size.width / 2, size.height / 2];
+    final update = codec.encodeMethodCall(MethodCall('updated', point));
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'desktop_drop',
+      update,
+      (_) {},
+    );
+    await tester.pump();
     final message = codec.encodeMethodCall(
       MethodCall('performOperation_linux', <dynamic>[
         Uri.file('/dartpdf-test/$name').toString(),
-        <double>[size.width / 2, size.height / 2],
+        point,
       ]),
     );
     unawaited(

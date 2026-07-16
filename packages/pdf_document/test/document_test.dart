@@ -139,7 +139,7 @@ void main() {
 
     test('a /Count that is a reference to a stream still counts pages', () {
       // poppler-91414: /Count 4 0 R where object 4 is a (self-referencing)
-      // stream — counting must walk the tree instead of trusting it
+      // stream - counting must walk the tree instead of trusting it
       final doc = PdfDocument.open(build([
         '<< /Type /Catalog /Pages 2 0 R >>',
         '<< /Type /Pages /Kids [3 0 R] /Count 4 0 R '
@@ -152,7 +152,7 @@ void main() {
 
     test('an undecodable content stream renders the page as empty', () {
       // PDFBOX-4352: junk behind a /FlateDecode filter must not fail the
-      // page — and the rest of a /Contents array still draws
+      // page - and the rest of a /Contents array still draws
       const good = 'BT (still here) Tj ET';
       final doc = PdfDocument.open(build([
         '<< /Type /Catalog /Pages 2 0 R >>',

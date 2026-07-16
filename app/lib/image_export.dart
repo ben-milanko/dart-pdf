@@ -98,3 +98,13 @@ String imageExportFileName(
   if (stem.isEmpty) stem = 'page';
   return '$stem-p$pageNumber.${format.extension}';
 }
+
+/// Suggested PNG filename for an image selected with the Content tool.
+String selectedContentImageFileName(String title, int pageNumber) {
+  var stem = title.trim();
+  if (stem.toLowerCase().endsWith('.pdf')) {
+    stem = stem.substring(0, stem.length - 4).trim();
+  }
+  if (stem.isEmpty) stem = 'image';
+  return '$stem-p$pageNumber-image.png';
+}

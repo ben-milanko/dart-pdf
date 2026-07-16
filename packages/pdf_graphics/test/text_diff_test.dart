@@ -63,7 +63,7 @@ void main() {
     expect(diff.deletedTokens.map((t) => t.text), ['brown']);
     expect(diff.insertedTokens.map((t) => t.text), ['red']);
 
-    // 'the', 'quick' and 'fox' are unchanged — never flagged.
+    // 'the', 'quick' and 'fox' are unchanged - never flagged.
     final changed = {
       ...diff.deletedTokens.map((t) => t.text),
       ...diff.insertedTokens.map((t) => t.text),

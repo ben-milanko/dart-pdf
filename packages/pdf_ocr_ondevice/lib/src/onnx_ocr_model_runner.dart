@@ -73,8 +73,8 @@ class OnnxOcrModelRunner implements OcrModelRunner {
     // Hand ONNX Runtime the model *bytes*, not a path. `OrtSession.fromFile`
     // passes the path as a narrow UTF-8 `char*`, but on Windows ONNX Runtime's
     // `CreateSession` expects a wide `ORTCHAR_T*` (`wchar_t`/UTF-16). The UTF-8
-    // bytes are reinterpreted as UTF-16, which mangles *every* path — even a
-    // pure-ASCII one (e.g. `C:` → `㩃`) — into CJK mojibake and surfaces as the
+    // bytes are reinterpreted as UTF-16, which mangles *every* path - even a
+    // pure-ASCII one (e.g. `C:` → `㩃`) - into CJK mojibake and surfaces as the
     // "Load model from … failed. File doesn't exist" error. Reading the bytes
     // with Dart's own file API (which uses the wide Windows APIs internally)
     // and using `fromBuffer`/`CreateSessionFromArray` keeps the path off the

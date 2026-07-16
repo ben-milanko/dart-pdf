@@ -1,6 +1,6 @@
 part of 'editor.dart';
 
-/// A detached, **vector** copy of a rectangular region of a page — the page
+/// A detached, **vector** copy of a rectangular region of a page - the page
 /// content and resources under the region, resolved and copied inline so
 /// the snapshot survives edits, undo, and even closing the source document.
 ///
@@ -44,13 +44,13 @@ class PdfVectorSnapshot {
   /// bottom-left), before /Rotate.
   final PdfRect region;
 
-  /// The region's displayed width and height — [region] rotated by the
+  /// The region's displayed width and height - [region] rotated by the
   /// page's /Rotate, so a 90°/270° page swaps the two. The natural paste
   /// size.
   final double displayWidth;
   final double displayHeight;
 
-  /// The source page's content streams, decoded and concatenated — the
+  /// The source page's content streams, decoded and concatenated - the
   /// operators the appearance replays (under [_matrix], clipped to the
   /// form BBox).
   final Uint8List _content;
@@ -60,7 +60,7 @@ class PdfVectorSnapshot {
   final CosDictionary _resources;
 
   /// The cm mapping the page's user space onto an upright
-  /// `[0 0 displayWidth displayHeight]` box — translation for an unrotated
+  /// `[0 0 displayWidth displayHeight]` box - translation for an unrotated
   /// page, a rotation+translation for 90/180/270.
   final List<double> _matrix;
 
@@ -148,7 +148,7 @@ void _hoistBuilderStreams(CosDocumentBuilder builder, CosObject node) {
   }
 }
 
-/// Capturing and pasting vector regions ([PdfVectorSnapshot]) — the vector
+/// Capturing and pasting vector regions ([PdfVectorSnapshot]) - the vector
 /// half of the Snapshot tool, complementing the raster capture in
 /// `dart_pdf_editor`.
 extension PdfVectorSnapshotEditing on PdfEditor {
@@ -207,7 +207,7 @@ extension PdfVectorSnapshotEditing on PdfEditor {
     }
 
     // reuse an already-materialized captured form when one was handed back
-    // from a prior paste and still resolves — N pastes then share ONE
+    // from a prior paste and still resolves - N pastes then share ONE
     // XObject instead of embedding N copies of the page content
     CosObject? existing;
     if (sharedObject != null) {
@@ -241,7 +241,7 @@ extension PdfVectorSnapshotEditing on PdfEditor {
         }),
         bytes,
       );
-      // the resources hold fonts / images / nested forms as inline streams —
+      // the resources hold fonts / images / nested forms as inline streams -
       // hoist them to indirect objects (§7.3.8) before referencing the form
       _hoistStreams(captured.dictionary);
       capRef = _updater.addObject(captured);
@@ -261,7 +261,10 @@ extension PdfVectorSnapshotEditing on PdfEditor {
       ..restore();
     _addAnnotation(
       pageIndex,
-      _markupDict('Stamp', targetRect, 0x000000, null, author),
+      // mark the stamp so the editor can tell a pasted vector snapshot apart
+      // from an ordinary stamp - only these recolour as vectors
+      _markupDict('Stamp', targetRect, 0x000000, null, author)
+        ..[_vectorSnapshotMarker] = const CosBoolean(true),
       _form(targetRect, w,
           resources: _resources(
               extGState: gs, xObject: CosDictionary({'Cap': capRef}))),
@@ -269,9 +272,143 @@ extension PdfVectorSnapshotEditing on PdfEditor {
     );
     return capObject;
   }
+
+  /// Whether [annotation] is a vector snapshot this editor pasted - a /Stamp
+  /// carrying the [_vectorSnapshotMarker] whose appearance draws a captured
+  /// /Cap form. Only these can be recoloured in place by
+  /// [recolorVectorSnapshot].
+  bool isVectorSnapshotStamp(PdfAnnotation annotation) {
+    if (annotation.subtype != 'Stamp') return false;
+    final marker = document.cos.resolve(annotation.dict[_vectorSnapshotMarker]);
+    return marker is CosBoolean && marker.value;
+  }
+
+  /// Recolours a pasted vector snapshot to a single ink [color] (`0xRRGGBB`),
+  /// keeping it sharp vector graphics.
+  ///
+  /// Every fill/stroke colour the captured graphics set is rewritten to
+  /// [color] - the snapshot becomes a monochrome silhouette, the standard
+  /// "recolour a snapshot" behaviour - and colour-less (default-black) paths
+  /// are covered too. Embedded raster images, inline images, and shadings
+  /// keep their own colours (they are not vector fills). Nested Form XObjects
+  /// the capture draws are recoloured as well.
+  ///
+  /// The recolour is isolated to [annotation]: it gets its own recoloured
+  /// copy of the captured form, so other pastes of the same snapshot keep
+  /// their colours. Idempotent - recolouring again just retints. Returns
+  /// false when [annotation] is not a recolourable vector snapshot.
+  bool recolorVectorSnapshot(
+    int pageIndex,
+    PdfAnnotation annotation,
+    int color,
+  ) {
+    if (!isVectorSnapshotStamp(annotation)) return false;
+    final cos = document.cos;
+    final appearance = annotation.normalAppearance;
+    if (appearance == null) return false;
+    final resources = cos.resolve(appearance.dictionary['Resources']);
+    if (resources is! CosDictionary) return false;
+    final xObjects = cos.resolve(resources['XObject']);
+    if (xObjects is! CosDictionary) return false;
+    final captured = cos.resolve(xObjects['Cap']);
+    if (captured is! CosStream) return false;
+    final recolored = _recoloredForm(captured, color & 0xFFFFFF, {}, {});
+    // point THIS appearance at the recoloured copy; other pastes that share
+    // the original captured form are untouched
+    xObjects['Cap'] = _updater.addObject(recolored);
+    _updater.markChanged(appearance);
+    _markAnnotationChanged(pageIndex, annotation.dict);
+    return true;
+  }
+
+  /// A recoloured deep copy of a captured Form XObject: its content stream
+  /// with every colour operator forced to [rgb], recursing into the nested
+  /// Form XObjects it draws (copied once each through [done], guarded against
+  /// cyclic references by [visiting]).
+  CosStream _recoloredForm(
+    CosStream form,
+    int rgb,
+    Map<CosStream, CosReference> done,
+    Set<CosStream> visiting,
+  ) {
+    final cos = document.cos;
+    final recoloredContent =
+        _recolorContentBytes(cos.decodeStreamData(form), rgb);
+    final dict = CosDictionary({...form.dictionary.entries});
+    visiting.add(form);
+    final resources = cos.resolve(form.dictionary['Resources']);
+    if (resources is CosDictionary) {
+      final xObjects = cos.resolve(resources['XObject']);
+      if (xObjects is CosDictionary) {
+        CosDictionary? recoloredXObjects;
+        for (final entry in xObjects.entries.entries) {
+          final nested = cos.resolve(entry.value);
+          if (nested is! CosStream) continue;
+          final subtype = cos.resolve(nested.dictionary['Subtype']);
+          if (subtype is! CosName || subtype.value != 'Form') continue;
+          if (visiting.contains(nested)) continue; // guard cyclic forms
+          final ref = done[nested] ??=
+              _updater.addObject(_recoloredForm(nested, rgb, done, visiting));
+          (recoloredXObjects ??= CosDictionary({...xObjects.entries}))[
+              entry.key] = ref;
+        }
+        if (recoloredXObjects != null) {
+          dict['Resources'] = CosDictionary({...resources.entries})
+            ..['XObject'] = recoloredXObjects;
+        }
+      }
+    }
+    visiting.remove(form);
+    // the copy carries decoded (plaintext) content
+    dict.entries
+      ..remove('Filter')
+      ..remove('DecodeParms')
+      ..remove('DP');
+    dict['Length'] = CosInteger(recoloredContent.length);
+    return CosStream(dict, recoloredContent);
+  }
+
+  /// [content] with every fill/stroke colour operator rewritten to [rgb], so
+  /// the graphics paint in a single ink. An initial colour is forced up front
+  /// so paths that rely on the default black recolour too; colour-space
+  /// selectors (`cs`/`CS`) are dropped since every colour is DeviceRGB now.
+  /// Images, inline images, and shadings are left untouched.
+  Uint8List _recolorContentBytes(Uint8List content, int rgb) {
+    CosObject component(int value) => value <= 0
+        ? CosInteger(0)
+        : value >= 255
+            ? CosInteger(1)
+            : CosReal(value / 255);
+    final operands = [
+      component((rgb >> 16) & 0xFF),
+      component((rgb >> 8) & 0xFF),
+      component(rgb & 0xFF),
+    ];
+    ContentOperation fill() => ContentOperation('rg', operands);
+    ContentOperation stroke() => ContentOperation('RG', operands);
+    final out = <ContentOperation>[fill(), stroke()];
+    for (final op in ContentStreamParser.parse(content)) {
+      switch (op.operator) {
+        case 'g' || 'rg' || 'k' || 'sc' || 'scn':
+          out.add(fill());
+        case 'G' || 'RG' || 'K' || 'SC' || 'SCN':
+          out.add(stroke());
+        case 'cs' || 'CS':
+          break; // drop: colour space is moot once every colour is DeviceRGB
+        default:
+          out.add(op);
+      }
+    }
+    return ContentStreamSerializer.serialize(out);
+  }
 }
 
-/// Formats a matrix component for a content stream — integers without a
+/// The annotation-dictionary key [PdfVectorSnapshotEditing.pasteVectorSnapshot]
+/// stamps onto its /Stamp so a pasted vector snapshot is distinguishable from
+/// an ordinary stamp (see [PdfVectorSnapshotEditing.isVectorSnapshotStamp]).
+const _vectorSnapshotMarker = 'DartPdfVectorSnapshot';
+
+/// Formats a matrix component for a content stream - integers without a
 /// trailing `.0`.
 String _fmtNum(double v) =>
     v == v.roundToDouble() ? v.toInt().toString() : v.toString();

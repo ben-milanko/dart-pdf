@@ -201,7 +201,7 @@ class PdfShading {
   }
 
   /// Samples the shading into gradient stops. Returns null for shading
-  /// types other than axial (2) and radial (3) — mesh shadings (4-7)
+  /// types other than axial (2) and radial (3) - mesh shadings (4-7)
   /// decode via [toMesh]; function-based (1) decodes via
   /// [toFunctionMesh].
   PdfGradient? toGradient(PdfMatrix transform) {

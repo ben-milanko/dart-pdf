@@ -10,6 +10,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // 2x2 RGBA PNG fixture used by image-content replacement tests.
 final _tinyPng = base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
@@ -77,6 +78,28 @@ void main() {
       expect(editing.isModified, isFalse);
     });
 
+    test('bookmarks create, edit and delete PDF outline items', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      expect(editing.outline.isEmpty, isTrue);
+
+      expect(editing.addBookmark('Start', pageIndex: 0), isTrue);
+      expect(editing.outline.items.single.title, 'Start');
+      expect(editing.outline.items.single.destination?.pageIndex, 0);
+      expect(PdfOutline.rootCount(editing.document), 1);
+
+      expect(
+          editing.addBookmark('Child', pageIndex: 1, parentPath: [0]), isTrue);
+      expect(editing.outline.items.single.children.single.title, 'Child');
+      expect(PdfOutline.rootCount(editing.document), 2);
+
+      expect(editing.editBookmark([0], title: 'Renamed', pageIndex: 2), isTrue);
+      expect(editing.outline.items.single.title, 'Renamed');
+      expect(editing.outline.items.single.destination?.pageIndex, 2);
+
+      expect(editing.deleteBookmark([0, 0]), isTrue);
+      expect(editing.outline.items.single.children, isEmpty);
+    });
+
     test('ink strokes buffer until finishInk commits one Ink annotation', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addInkStroke(0, [(100, 100), (150, 130), (200, 100)])
@@ -126,7 +149,7 @@ void main() {
       editing.startColorPick();
       editing.finishColorPick(const Color(0x8000A040));
       expect(editing.isPickingColor, isFalse);
-      // the sample is adopted opaque — annotation alpha is [opacity]'s job
+      // the sample is adopted opaque - annotation alpha is [opacity]'s job
       expect(editing.color, const Color(0xFF00A040));
     });
 
@@ -345,6 +368,26 @@ void main() {
       expect(editing.elementsOn(0).elements.single.kind, PdfElementKind.image);
     });
 
+    testWidgets('exportSelectedElementImage renders the image as PNG',
+        (tester) async {
+      final editing = PdfEditingController(PdfImageDocument.fromImageBytes(
+        [_tinyPng],
+        pageSize: const PdfPageSize(100, 100),
+        fit: PdfImageFit.fill,
+      ));
+      addTearDown(editing.dispose);
+
+      expect(editing.selectElementAt(0, 50, 50), isTrue);
+      final exported = await tester
+          .runAsync(() => editing.exportSelectedElementImage(dpi: 72));
+
+      expect(exported, isNotNull);
+      expect(exported!.pageIndex, 0);
+      expect(exported.pageRect.left, closeTo(0, 0.01));
+      expect(exported.pageRect.right, closeTo(100, 0.01));
+      expect(exported.pngBytes.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+    });
+
     test('replaceSelectedElementImageAsync uses the worker-backed path',
         () async {
       final editing = PdfEditingController(PdfImageDocument.fromImageBytes(
@@ -358,6 +401,41 @@ void main() {
       expect(await editing.replaceSelectedElementImageAsync(_tinyPng), isTrue);
       expect(editing.elementsOn(0).elements, isEmpty);
       expect(editing.document.page(0).annotations.single.subtype, 'Stamp');
+    });
+
+    testWidgets('content toolbar exposes save for a selected image',
+        (tester) async {
+      final editing = PdfEditingController(PdfImageDocument.fromImageBytes(
+        [_tinyPng],
+        pageSize: const PdfPageSize(100, 100),
+        fit: PdfImageFit.fill,
+      ));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing
+        ..tool = PdfEditTool.content
+        ..selectElementAt(0, 50, 50);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+            onExportSelectedContentImage: (context, image) async {},
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      expect(
+          find.byKey(const ValueKey('pdf-save-element-image')), findsOneWidget);
+      expect(
+          tester
+              .widget<IconButton>(
+                  find.byKey(const ValueKey('pdf-save-element-image')))
+              .onPressed,
+          isNotNull);
     });
 
     test('replaceSelectedElementText rewrites the run in place', () {
@@ -478,6 +556,69 @@ void main() {
       expect(annotation.rect.width, greaterThan(100));
       expect(annotation.rect.height, greaterThan(50));
       expect(editing.document.page(1).annotations, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('dragging with the cloud polygon tool adds a cloudy Polygon',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudPolygon;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(250, 600));
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Polygon');
+      expect(annotation.hasCloudyBorder, isTrue);
+      expect(annotation.vertices, hasLength(4));
+      expect(annotation.vertices!.first.$1, closeTo(100, 1));
+      expect(annotation.vertices!.first.$2, closeTo(600, 1));
+      expect(editing.document.page(1).annotations, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('cloud polygon tool taps points and double-taps to finish',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudPolygon;
+      await tester.pump();
+
+      await tester.tapAt(view(100, 700));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(250, 720));
+      await tester.pump(const Duration(milliseconds: 400));
+      // one vertex short of a closed polygon: nothing committed yet
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await tester.tapAt(view(180, 620));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(180, 620));
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Polygon');
+      expect(annotation.hasCloudyBorder, isTrue);
+      expect(annotation.vertices, hasLength(3),
+          reason: 'three tapped vertices, the double-tap not double-counted');
+      expect(annotation.vertices!.first.$1, closeTo(100, 1));
+      expect(annotation.vertices!.first.$2, closeTo(700, 1));
+      await settle(tester);
+    });
+
+    testWidgets('a drag after the first cloud vertex does not add a rectangle',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudPolygon;
+      await tester.pump();
+
+      // place one vertex, then drag: the drag must be ignored, not commit a
+      // rectangle over the in-progress polygon
+      await tester.tapAt(view(120, 700));
+      await tester.pump(const Duration(milliseconds: 400));
+      await drag(tester, view(200, 650), view(300, 560));
+      await tester.pump();
+
+      expect(editing.document.page(0).annotations, isEmpty);
       await settle(tester);
     });
 
@@ -782,7 +923,7 @@ void main() {
       expect(editing.selectedAnnotation, isNotNull);
 
       // hold Shift across a bottom-right corner drag that only pushes the
-      // width out — the aspect lock must grow the height to match
+      // width out - the aspect lock must grow the height to match
       await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
       const from = Offset(250, 650), to = Offset(330, 650);
       final gesture = await tester.startGesture(view(from.dx, from.dy));
@@ -922,9 +1063,12 @@ void main() {
       await tester.tap(find.byTooltip('Ellipse (O)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ellipse);
+      await tester.tap(find.byTooltip('Cloud polygon'));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.cloudPolygon);
       // re-tapping the active tool drops back to Select (not a no-tool
       // limbo) so you can immediately select and move things
-      await tester.tap(find.byTooltip('Ellipse (O)'));
+      await tester.tap(find.byTooltip('Cloud polygon'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
 
@@ -933,6 +1077,78 @@ void main() {
       await tester.tap(find.byTooltip('Undo (⌘Z)'));
       await tester.pump();
       expect(editing.document.page(0).annotations, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('the Draw group exposes a freehand highlight tool',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(() => SharedPreferences.setMockInitialValues({}));
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-draw')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      final highlightButton = tester.widget<IconButton>(
+          find.widgetWithIcon(IconButton, Icons.border_color));
+      expect(highlightButton.onPressed, isNotNull);
+      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.highlight);
+      expect(viewer.hasSelection, isFalse);
+      expect(editing.color, const Color(0xFFFFD100));
+      expect(editing.strokeWidth, 12);
+      expect(editing.opacity, 0.45);
+
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.draw));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.ink);
+      expect(editing.color, const Color(0xFFE53935));
+      expect(editing.strokeWidth, 2);
+      expect(editing.opacity, 1);
+
+      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.highlight);
+      expect(editing.color, const Color(0xFFFFD100));
+      expect(editing.strokeWidth, 12);
+      expect(editing.opacity, 0.45);
+
+      final gesture = await tester.startGesture(view(80, 720),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(200, 720));
+      await gesture.up();
+      await tester.pump();
+      editing.finishInk();
+      await tester.pump();
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Ink');
+      expect(annotation.color, 0xFFD100);
+      expect(annotation.borderWidth, 12);
+      expect(annotation.appearanceOpacity, closeTo(0.45, 1e-6));
       await settle(tester);
     });
 
@@ -1079,14 +1295,14 @@ void main() {
           scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
-      // scope to the popup's sliders — the strip also has an inline opacity
+      // scope to the popup's sliders - the strip also has an inline opacity
       final menuSliders = find.descendant(
           of: find.byType(MenuAnchor), matching: find.byType(Slider));
-      // the shapes popup carries stroke width + opacity (font is irrelevant
-      // to a rectangle, so it's no longer shown)
-      expect(menuSliders, findsNWidgets(2));
+      // the shapes popup carries stroke width, opacity, and the pattern
+      // scale (font is irrelevant to a rectangle, so it's not shown)
+      expect(menuSliders, findsNWidgets(3));
 
-      // sliders are laid out stroke width, opacity
+      // sliders are laid out stroke width, opacity, pattern scale
       await tester.drag(menuSliders.at(0), const Offset(200, 0));
       await tester.pump();
       expect(editing.strokeWidth, greaterThan(2));
@@ -1094,6 +1310,13 @@ void main() {
       await tester.drag(menuSliders.at(1), const Offset(-200, 0));
       await tester.pump();
       expect(editing.opacity, lessThan(1));
+
+      // the pattern scale is independent of the pen width
+      final beforeStroke = editing.strokeWidth;
+      await tester.drag(menuSliders.at(2), const Offset(200, 0));
+      await tester.pump();
+      expect(editing.lineScale, greaterThan(1));
+      expect(editing.strokeWidth, beforeStroke);
       await tester.pumpAndSettle();
     });
 
@@ -1306,7 +1529,7 @@ void main() {
       await switchFormat(tester, 'RGB');
       final before = channelText(tester, 0);
 
-      // middle of the hue slider ≈ 180° — far from red, every channel moves
+      // middle of the hue slider ≈ 180° - far from red, every channel moves
       final origin = tester.getTopLeft(find.byType(PdfColorPicker));
       await tester.tapAt(origin + const Offset(130, 160 + 12 + 10));
       await tester.pump();

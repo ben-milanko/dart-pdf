@@ -104,7 +104,7 @@ void main() {
       final jpeg = img.decodeJpg(jpegBytes)!;
       final corner = jpeg.getPixel(0, 0);
       // The image fills the page, so even the corner is the red image, not
-      // black — proving the frame is a real composited picture.
+      // black - proving the frame is a real composited picture.
       expect(corner.r, greaterThan(corner.b));
     });
   });

@@ -29,6 +29,8 @@ void main() {
       a.searchMatchCase = true;
       a.searchWholeWord = true;
       a.searchRegex = true;
+      a.stampDateFormat = PdfStampDateFormat.dayMonthYear;
+      a.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds;
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -50,6 +52,8 @@ void main() {
       expect(b.searchMatchCase, isTrue);
       expect(b.searchWholeWord, isTrue);
       expect(b.searchRegex, isTrue);
+      expect(b.stampDateFormat, PdfStampDateFormat.dayMonthYear);
+      expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
     });
 
     test('empty storage leaves the defaults', () async {
@@ -74,6 +78,8 @@ void main() {
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);
       expect(prefs.searchRegex, isFalse);
+      expect(prefs.stampDateFormat, PdfStampDateFormat.iso);
+      expect(prefs.stampTimeFormat, PdfStampTimeFormat.twentyFourHour);
     });
 
     test('textAlign resets to null (follow text direction)', () async {
@@ -184,6 +190,28 @@ void main() {
 
       editing.useMarkupStyleScope();
       expect(editing.color, const Color(0xFFFFEB3B));
+    });
+
+    test('color locking preserves tool colours behind the locked value',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      await editing.preferences.ready;
+
+      editing
+        ..tool = PdfEditTool.ink
+        ..color = const Color(0xFF123456)
+        ..colorLocked = true
+        ..tool = PdfEditTool.highlight;
+
+      expect(editing.color, const Color(0xFF123456));
+      expect(editing.strokeWidth, 12);
+      expect(editing.opacity, 0.45);
+
+      editing.colorLocked = false;
+      expect(editing.color, const Color(0xFFFFD100));
+      editing.tool = PdfEditTool.ink;
+      expect(editing.color, const Color(0xFF123456));
     });
 
     test('a tool with no saved style inherits the current value', () async {

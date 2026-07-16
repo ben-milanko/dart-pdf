@@ -253,7 +253,7 @@ const _resetProbExpected = [
 /// near-grayscale text (white background, dark glyphs) compressed lossily and
 /// split into SIX tile-parts (one resolution each, RLCP). Decoding it exercises
 /// the SOT Psot field, whose offset bug used to fold every later tile-part's
-/// markers into the packet bitstream — desyncing tier-2 into chromatic noise.
+/// markers into the packet bitstream - desyncing tier-2 into chromatic noise.
 const _issue3371Im3 = [
   0, 0, 0, 12, 106, 80, 32, 32, 13, 10, 135, 10, 0, 0, 0, 28, 102, 116, 121, 112,
   106, 112, 50, 32, 0, 0, 0, 0, 106, 112, 50, 32, 106, 112, 120, 98, 106, 112, 120, 32,

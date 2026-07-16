@@ -45,6 +45,9 @@ jobs:
       - run: flutter build web --release
         working-directory: packages/dart_pdf_editor/example
 
+      - name: Cache-bust web build
+        run: bash tool/web_cache_bust.sh packages/dart_pdf_editor/example/build/web
+
       - name: Stage static preview artifact
         run: |
           set -euo pipefail
@@ -58,10 +61,12 @@ jobs:
           if-no-files-found: error
 
   deploy:
-    # Fork PRs do not receive repository secrets. Same-repo PRs deploy only the
-    # static build artifact from the build job; this job does not check out or
-    # execute repository code with Firebase credentials available.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Fork and Dependabot PRs do not receive repository secrets. Other same-repo
+    # PRs deploy only the static build artifact from the build job; this job does
+    # not check out or execute repository code with Firebase credentials available.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -85,15 +90,18 @@ jobs:
               "ignore": ["firebase.json", "**/.*"],
               "rewrites": [{ "source": "**", "destination": "/index.html" }],
               "headers": [
-                { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/flutter_bootstrap.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/flutter_service_worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/flutter.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/main.dart.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/main.dart.wasm", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/main.dart.mjs", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-                { "source": "/pdf_render_worker.dart.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+                { "source": "**/*.@(eot|otf|ttf|ttc|woff|woff2|font.css)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/@(AssetManifest*|FontManifest.json)", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "**/*.@(jpg|jpeg|gif|png|svg|webp|ico)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/*.@(wasm|mjs)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/*.@(js|css)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/manifest.json", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter_bootstrap.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter_service_worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
                 {
                   "source": "**",
                   "headers": [
@@ -169,7 +177,7 @@ jobs:
       # exits 1. The recover step below confirms the freshly finalized release
       # and reuses its URL; a genuine failure (no recent release) still fails.
       - id: deploy
-        uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
         continue-on-error: true
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -219,7 +227,7 @@ jobs:
 
       - name: Repair recovered deploy check
         if: steps.deploy.outcome == 'failure' && steps.recover.outcome == 'success'
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           PREVIEW_URL: ${{ steps.recover.outputs.details_url }}
         with:
@@ -302,7 +310,7 @@ jobs:
           rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json
 
       - name: Comment preview URL
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           PREVIEW_LABEL: Example demo preview
           PREVIEW_MARKER: dart-pdf-demo-preview

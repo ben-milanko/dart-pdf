@@ -61,7 +61,7 @@ class _FileCacheStore implements PdfCacheStore {
       try {
         result.add(utf8.decode(base64Url.decode(name)));
       } catch (_) {
-        // a stray file that isn't one of ours — ignore it
+        // a stray file that isn't one of ours - ignore it
       }
     }
     return result;

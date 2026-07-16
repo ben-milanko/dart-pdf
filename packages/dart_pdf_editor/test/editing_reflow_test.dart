@@ -64,7 +64,7 @@ List<({String text, double bottom})> textRuns(PdfDocument doc) => [
 void main() {
   // PdfEditingController loads PdfEditingPreferences (shared_preferences) from
   // its constructor, fire-and-forget. Without the mock plugin that async load
-  // throws MissingPluginException *after* the test completes, failing it — so
+  // throws MissingPluginException *after* the test completes, failing it - so
   // register the in-memory mock like the other editing tests do.
   setUp(() => SharedPreferences.setMockInitialValues({}));
 

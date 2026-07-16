@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// The value-entry formats [PdfColorPicker] can show: hex (the default),
-/// RGB (0–255), HSL (degrees and percentages), and CMYK (percentages —
+/// RGB (0–255), HSL (degrees and percentages), and CMYK (percentages -
 /// a naive device conversion for entry and display; the committed color
 /// is still RGB, no color management is applied).
 enum PdfColorFormat {
@@ -20,7 +20,7 @@ enum PdfColorFormat {
 }
 
 /// A compact full-spectrum color picker: a saturation/value area, a hue
-/// slider, and a value row — hex, RGB, HSL, or CMYK, switchable — kept
+/// slider, and a value row - hex, RGB, HSL, or CMYK, switchable - kept
 /// in sync. Annotation opacity is a separate controller property, so
 /// the picker deals in opaque colors.
 ///
@@ -138,7 +138,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
 
   /// Writes the current color into the visible value fields. Called for
   /// model changes the fields didn't cause (SV/hue drags, format
-  /// switches) — never while the user is typing in them.
+  /// switches) - never while the user is typing in them.
   void _syncFields() {
     if (_format == PdfColorFormat.hex) {
       _hex.text = _hexOf(_color);
@@ -166,8 +166,8 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
   }
 
   /// Any channel edit: parse the whole visible row (the other fields
-  /// already show their values). Incomplete input — an emptied field
-  /// mid-edit — leaves the model alone.
+  /// already show their values). Incomplete input - an emptied field
+  /// mid-edit - leaves the model alone.
   void _setChannels() {
     final maxima = _maxima[_format]!;
     final values = <int>[];
@@ -190,6 +190,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
   Widget _valueFields(BuildContext context) {
     if (_format == PdfColorFormat.hex) {
       return TextField(
+        key: const ValueKey('pdf-color-hex'),
         controller: _hex,
         onChanged: _setHex,
         maxLength: 6,
@@ -430,7 +431,7 @@ class _HuePainter extends CustomPainter {
 /// when dismissed.
 ///
 /// Pass [initialFormat]/[onFormatChanged] to keep the value row's format
-/// across openings — the stock chrome wires them to
+/// across openings - the stock chrome wires them to
 /// `PdfEditingPreferences.colorPickerFormat` so the choice persists on
 /// the device.
 Future<Color?> showPdfColorPicker(

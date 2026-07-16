@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 /// Colors for the viewer-style scrollbar ([PdfScrollbar] in the viewer
-/// and both sidebars). Null fields fall back to the stock palette — a
+/// and both sidebars). Null fields fall back to the stock palette - a
 /// light capsule with a dark outline, chosen to read against the dark
 /// canvas, white pages, and light or dark panel surfaces alike.
 @immutable
@@ -56,7 +56,7 @@ class PdfScrollbarThemeData {
       thumbColor, thumbActiveColor, outlineColor, trackColor, trackActiveColor);
 }
 
-/// Visual styling for [PdfViewer] and its companion widgets — the
+/// Visual styling for [PdfViewer] and its companion widgets - the
 /// scrollbars, text selection and search highlights, and the editing
 /// overlay's selection chrome. Every field is optional; nulls keep the
 /// stock look. Widget-level parameters ([PdfViewer.backgroundColor])
@@ -93,7 +93,7 @@ class PdfViewerThemeData {
   /// both.
   final Color? canvasColor;
 
-  /// The text-selection highlight wash (translucent — it paints over
+  /// The text-selection highlight wash (translucent - it paints over
   /// the page text).
   final Color? selectionColor;
 
@@ -121,7 +121,7 @@ class PdfViewerThemeData {
 
   /// The wash over form-field widgets while
   /// [PdfViewer.highlightFormFields] is on. Used as given (carry your
-  /// own alpha — the default is translucent blue); the fields' hairline
+  /// own alpha - the default is translucent blue); the fields' hairline
   /// border derives from it.
   final Color? formFieldHighlightColor;
 

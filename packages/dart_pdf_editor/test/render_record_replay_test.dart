@@ -3,7 +3,7 @@
 // [PdfPageRenderer.renderPictureRecorded] interprets a page into a portable
 // command buffer ([RecordingPdfDevice]) and replays it onto the canvas, where
 // [renderPicture] interprets straight onto the canvas. The two must rasterize
-// to byte-identical pixels — the replay issues exactly the same canvas calls.
+// to byte-identical pixels - the replay issues exactly the same canvas calls.
 //
 // Unlike the Ghent/PDF.js golden suites this needs no stored baseline and is
 // platform-independent: both renders happen in the same process this run, so
@@ -58,12 +58,14 @@ Future<double> _compare(PdfPage page) async {
     try {
       expect('${a.width}x${a.height}', '${b.width}x${b.height}',
           reason: 'recorded raster size differs');
-      final ap = (await a.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!
-          .buffer
-          .asUint8List();
-      final bp = (await b.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!
-          .buffer
-          .asUint8List();
+      final ap =
+          (await a.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!
+              .buffer
+              .asUint8List();
+      final bp =
+          (await b.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!
+              .buffer
+              .asUint8List();
       return PdfPageComparison.comparePixels(ap, bp,
               width: a.width, height: a.height, channelTolerance: 0)
           .differenceFraction;

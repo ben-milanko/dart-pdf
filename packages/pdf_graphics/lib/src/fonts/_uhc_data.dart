@@ -1,4 +1,4 @@
-// GENERATED — do not edit by hand.
+// GENERATED - do not edit by hand.
 //
 // Unified Hangul Code / EUC-KR (the `KSC*` Adobe-Korea1 CMaps) two-byte code → Unicode scalar table, used to decode non-embedded
 // CID text that declares the matching predefined CMap. Generated from Python's

@@ -1,15 +1,30 @@
 /// Flutter widgets for viewing and editing PDF documents.
 library;
 
+export 'package:pdf_document/pdf_document.dart'
+    show
+        PdfStampTemplate,
+        PdfStampTemplateComponent,
+        PdfStampTemplateComponentType,
+        PdfStandardFont,
+        PdfStandardFontFamily,
+        pdfResolveStampTemplateText;
+
+export 'src/annotation_tap.dart';
 export 'src/canvas_device.dart';
 export 'src/comparison/comparison_view.dart';
 export 'src/comparison/document_comparison.dart';
 export 'src/comparison/page_comparison.dart';
+export 'src/editing/editing_bookmarks.dart';
 export 'src/editing/editing_color_picker.dart';
+export 'src/editing/editing_color_processing.dart';
 export 'src/editing/editing_controller.dart';
+export 'src/editing/digital_signature.dart';
 export 'src/editing/editing_fonts.dart';
+export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_measure.dart';
 export 'src/editing/editing_menu.dart';
+export 'src/editing/editing_page_clipboard.dart';
 export 'src/editing/editing_panel.dart';
 export 'src/editing/editing_pencil.dart';
 export 'src/editing/editing_preferences.dart';
@@ -23,12 +38,14 @@ export 'src/editing/editing_toolbar.dart';
 export 'src/editing/line_style.dart';
 export 'src/editing/stroke_prediction.dart';
 export 'src/editing/text_prompt.dart';
+export 'src/editing/text_style_prompt.dart';
 export 'src/editing/tool_shortcuts.dart';
 export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';
 export 'src/page_export.dart';
 export 'src/page_geometry.dart';
 export 'src/page_number_field.dart';
+export 'src/page_render_session.dart';
 export 'src/perf_log.dart';
 export 'src/page_range_dialog.dart';
 export 'src/pdf_editor_view.dart';
@@ -36,11 +53,13 @@ export 'src/pdf_page_view.dart';
 export 'src/pdf_reader.dart';
 export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
+export 'src/performance_policy.dart';
 export 'src/preview_cache.dart';
 export 'src/raster_cache.dart';
 export 'src/render_scheduler.dart';
 export 'src/render_worker.dart';
 export 'src/renderer.dart';
+export 'src/retained_scene.dart';
 export 'src/search_panel.dart';
 export 'src/scrollbar.dart';
 export 'src/theme.dart';

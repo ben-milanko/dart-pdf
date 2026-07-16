@@ -1,4 +1,4 @@
-/// ECDSA signature verification over the NIST prime curves — enough to
+/// ECDSA signature verification over the NIST prime curves - enough to
 /// validate the EC-signed PDFs modern signing services produce. Signing
 /// stays RSA-only for now.
 library;

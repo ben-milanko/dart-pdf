@@ -155,7 +155,7 @@ void main() {
       // The cap's contract: decode no sharper than headroom(2x) the on-screen
       // footprint. When native pixels already sit at/under that, there is
       // nothing to cut (the page genuinely carries that much imagery at this
-      // zoom) and a no-op is correct — so the meaningful invariant is the
+      // zoom) and a no-op is correct - so the meaningful invariant is the
       // contract, not a fixed reduction.
       final footprintPixels = _onScreenFootprintPixels(capCmds, ratio);
       _line('on-screen footprint @${ratio}x: '
@@ -195,7 +195,7 @@ void main() {
           reason: 'capped pixels must never exceed native');
       // 2. The cap honored its contract: each image decodes to no more than
       //    headroom^2 (= 4x) its on-screen footprint, with two slacks baked
-      //    into cappedImagePixelSize — it leaves an image at native when a
+      //    into cappedImagePixelSize - it leaves an image at native when a
       //    resample would save <10% (the 0.9 skip threshold, so per-image
       //    decoded can reach target/0.9) and ceil()s each edge. A no-op when
       //    native already sits under that ceiling is correct. A failure here

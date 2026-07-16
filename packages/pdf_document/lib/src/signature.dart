@@ -50,7 +50,7 @@ class PdfSignature {
   }
 
   /// True for a document timestamp (DocTimeStamp / ETSI.RFC3161) rather than
-  /// an approval or author signature — the archive timestamp of PAdES B-LTA.
+  /// an approval or author signature - the archive timestamp of PAdES B-LTA.
   bool get isDocumentTimeStamp {
     final type = document.cos.resolve(dict['Type']);
     return (type is CosName && type.value == 'DocTimeStamp') ||
@@ -100,7 +100,7 @@ class PdfSignature {
   /// With a [trustStore], the signer's certificate chain is also built
   /// and verified up to one of the store's anchors (signatures up the
   /// chain, issuer matching, validity windows at the signing time;
-  /// revocation is not checked) — see [PdfSignatureValidation.chainTrusted].
+  /// revocation is not checked) - see [PdfSignatureValidation.chainTrusted].
   /// Without one, [PdfSignatureValidation.chainTrusted] stays null.
   PdfSignatureValidation validate({PdfTrustStore? trustStore}) {
     var result = _validateSignature();
@@ -393,7 +393,7 @@ class PdfSignature {
 
 /// Trust anchors for certificate-chain validation: the root (and any
 /// directly trusted) certificates the verifier chooses to rely on. The
-/// library ships no built-in roots — supply your platform's or your
+/// library ships no built-in roots - supply your platform's or your
 /// organization's.
 class PdfTrustStore {
   final List<X509Certificate> anchors = [];
@@ -478,14 +478,14 @@ class PdfSignatureValidation {
   final bool signatureValid;
 
   /// The byte range spans the entire file. False means the document
-  /// received incremental updates after signing — common and legitimate
+  /// received incremental updates after signing - common and legitimate
   /// (later signatures, form fills), but only the signed revision is
   /// attested.
   final bool coversWholeDocument;
 
   /// The certificate the signature verifies against. Trust in this
   /// certificate is established only when a [PdfTrustStore] is passed to
-  /// [PdfSignature.validate] — see [chainTrusted].
+  /// [PdfSignature.validate] - see [chainTrusted].
   final X509Certificate? signerCertificate;
 
   /// Every certificate shipped with the signature.
@@ -513,8 +513,8 @@ class PdfSignatureValidation {
   /// signature.
   final PdfPadesLevel? padesLevel;
 
-  /// The signature timestamp (PAdES B-T and up), or — for a document
-  /// timestamp signature — the timestamp itself. Null when none is present.
+  /// The signature timestamp (PAdES B-T and up), or - for a document
+  /// timestamp signature - the timestamp itself. Null when none is present.
   final PdfTimestampInfo? timestamp;
 
   /// What the document's embedded /DSS revocation material reports for the

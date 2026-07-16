@@ -1,4 +1,4 @@
-// Ghent PDF Output Suite V5.0 — rasterization regression suite.
+// Ghent PDF Output Suite V5.0 - rasterization regression suite.
 //
 // One test per patch PDF in test_corpora/ghent. Every page is rendered
 // through the real pipeline and must
@@ -15,7 +15,7 @@
 //
 // The pixel diff is a LOCAL golden check: baselines are rendered on macOS, and
 // CI (Linux) rasterizes text with different fonts/antialiasing, so the diff can
-// never match there. Under CI the comparison is skipped — every page is still
+// never match there. Under CI the comparison is skipped - every page is still
 // rasterized and asserted non-blank (catching crashes and blank-render
 // regressions), matching how pdfjs_render_test only diffs when opted in. Force
 // the comparison anywhere with GHENT_COMPARE=1.
@@ -40,7 +40,7 @@ const _pixelRatio = 2.0;
 /// colour handling (overprint simulation, DeviceN/spot separations, ICC v4
 /// CMYK, 16-bit images) is not reproduced pixel-for-pixel by this renderer,
 /// as documented in CLAUDE.md (the baselines pin current behavior, not GWG
-/// conformance). They are still rendered and asserted non-blank — only the
+/// conformance). They are still rendered and asserted non-blank - only the
 /// baseline comparison is skipped, so crashes and blank-render regressions
 /// are still caught. Accept an intentional change to any of these with
 /// GHENT_UPDATE=1 after removing it from this set.
@@ -141,7 +141,7 @@ void main() {
           }
         }
         if (knownDeviation) {
-          markTestSkipped('$name: known baseline deviation — colour handling '
+          markTestSkipped('$name: known baseline deviation - colour handling '
               '(overprint/DeviceN/spot/ICC-v4/16-bit) is not pixel-exact; '
               'still asserted to render non-blank. GHENT_UPDATE=1 to re-baseline.');
         }
@@ -206,7 +206,7 @@ Future<void> _checkBaseline({
     }
     expect(fraction, lessThanOrEqualTo(_maxDifferingFraction),
         reason: '$name page $page deviates from the baseline in '
-            '${(fraction * 100).toStringAsFixed(3)}% of pixels — actual and '
+            '${(fraction * 100).toStringAsFixed(3)}% of pixels - actual and '
             'diff written to test_corpora/ghent/_failures '
             '(GHENT_UPDATE=1 to accept)');
   } finally {

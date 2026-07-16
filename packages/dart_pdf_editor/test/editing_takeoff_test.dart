@@ -10,8 +10,8 @@ void main() {
 
   PdfEditingController scaled() {
     final c = PdfEditingController(buildMultiPagePdf(1));
-    c.measurementScale =
-        PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft', precision: 1);
+    c.measurementScale = PdfMeasurementScale(
+        unitsPerPoint: 20 / 72, unitLabel: 'ft', precision: 1);
     return c;
   }
 
@@ -47,15 +47,17 @@ void main() {
           '90 °');
       expect(editing.measuredSlope((0, 0), (100, 100)), '45 °');
       expect(
-          editing.measuredVolume(
-              const [(0, 0), (72, 0), (72, 72), (0, 72)], 2),
+          editing.measuredVolume(const [(0, 0), (72, 0), (72, 72), (0, 72)], 2),
           '800 ft³');
       expect(
-          editing.measuredNetArea(
-              const [(0, 0), (72, 0), (72, 72), (0, 72)],
-              const [
-                [(18, 18), (54, 18), (54, 54), (18, 54)],
-              ]),
+          editing.measuredNetArea(const [
+            (0, 0),
+            (72, 0),
+            (72, 72),
+            (0, 72)
+          ], const [
+            [(18, 18), (54, 18), (54, 54), (18, 54)],
+          ]),
           '300 ft²');
     });
   });
@@ -123,6 +125,84 @@ void main() {
 
       expect(find.text('Slab'), findsOneWidget);
       expect(find.text('Doors'), findsOneWidget);
+      expect(find.text('400 ft²'), findsOneWidget);
+    });
+
+    testWidgets('opens from the measure toolbar totals button', (tester) async {
+      final editing = scaled();
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing.addMeasurement(0, PdfMeasurementKind.area,
+          const [(0, 0), (72, 0), (72, 72), (0, 72)],
+          label: 'Slab');
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              width: 780,
+              child: PdfEditingToolbar(
+                controller: editing,
+                viewerController: viewer,
+                groups: const {PdfEditToolGroup.measure},
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-measure')));
+      await tester.pump();
+      final totals = find.byKey(const ValueKey('pdf-takeoff-totals'));
+      expect(totals, findsOneWidget);
+
+      await tester.tap(totals);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PdfTakeoffPanel), findsOneWidget);
+      expect(find.text('Slab'), findsOneWidget);
+      expect(find.text('400 ft²'), findsOneWidget);
+    });
+
+    testWidgets('opens from the compact measure tools sheet', (tester) async {
+      final editing = scaled();
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing.addMeasurement(0, PdfMeasurementKind.area,
+          const [(0, 0), (72, 0), (72, 72), (0, 72)],
+          label: 'Slab');
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              width: 380,
+              child: PdfEditingToolbar(
+                controller: editing,
+                viewerController: viewer,
+                groups: const {PdfEditToolGroup.measure},
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-tools-handle')));
+      await tester.pumpAndSettle();
+      final totals = find.byKey(const ValueKey('pdf-takeoff-totals'));
+      expect(totals, findsOneWidget);
+
+      await tester.tap(totals);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PdfTakeoffPanel), findsOneWidget);
+      expect(find.text('Slab'), findsOneWidget);
       expect(find.text('400 ft²'), findsOneWidget);
     });
   });

@@ -19,7 +19,7 @@ import 'shading.dart';
 /// The record/replay split produces a flat, `dart:ui`-free command list. To
 /// move the recording onto another thread (a native isolate, or a Web Worker
 /// reached over `postMessage`) the list has to cross a boundary that copies
-/// only plain data — not live Dart objects. This codec flattens the buffer to
+/// only plain data - not live Dart objects. This codec flattens the buffer to
 /// a [Uint8List] and back: re-serializing a decoded buffer yields the same
 /// bytes. Path coordinates are carried at float32 precision (see [_writePath]),
 /// which the render engine's own float32 truncation makes pixel-lossless;
@@ -28,29 +28,34 @@ import 'shading.dart';
 /// Every command and value type the interpreter emits is a pure value
 /// ([PdfPath], [PdfColor], [PdfMatrix], [PdfTextRun] with glyph outlines, …)
 /// EXCEPT [PdfImageRequest], whose `stream` is a live [CosStream] (a COS
-/// dictionary plus encoded bytes, often with nested references — colour
+/// dictionary plus encoded bytes, often with nested references - colour
 /// spaces, soft masks). Serializing that faithfully means serializing a slice
 /// of the COS object graph: [serializeCommands] (given the source [CosDocument]
-/// via `cos`) does exactly that for image XObjects — it inline-resolves the
+/// via `cos`) does exactly that for image XObjects - it inline-resolves the
 /// image's stream subgraph (every [CosReference] replaced by a detached copy
 /// of its resolved target, and every nested stream's bytes decrypted-but-still-
 /// filtered so the consumer re-runs the filters), then writes that self-
 /// contained tree. The consumer reconstructs the stream and decodes it with the
 /// unchanged image decoder. This matters on CAD documents, whose drawing sheets
-/// carry embedded raster underlays — without it the heaviest pages decline and
+/// carry embedded raster underlays - without it the heaviest pages decline and
 /// interpret synchronously on the UI thread.
 ///
 /// Two cases still decline (the buffer serializes to `null`, and the caller
 /// renders the page on the owning isolate): an INLINE image (`BI .. ID .. EI`),
 /// whose `/CS` may name a page-resource colour space that isn't reachable from
 /// the stream alone; and any image when no `cos` is supplied. Image-free pages
-/// — the dense vector/text pages that also dominate the interpret cost —
+/// - the dense vector/text pages that also dominate the interpret cost -
 /// serialize regardless.
 ///
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 1;
+const int _formatVersion = 2;
+
+/// Microseconds spent reconstructing worker command buffers on the consuming
+/// isolate. Accumulated for performance probes; this is the UI-thread half of
+/// the record path and intentionally mirrors `decodeStripPlanMicros`.
+int deserializeCommandsMicros = 0;
 
 // Command tags. Stable within a build; order mirrors the sealed hierarchy.
 const int _tSave = 0;
@@ -82,7 +87,7 @@ class _UnserializableImage implements Exception {
 /// When [decodeImages] is true, the serializer ALSO decodes each image's
 /// pixels off-thread (via the pure-Dart [decodePdfImagePixels]) and embeds the
 /// premultiplied RGBA beside the command, so the consumer skips the decode and
-/// only runs the engine codec — issue #73's image-decode offload. Images that
+/// only runs the engine codec - issue #73's image-decode offload. Images that
 /// need the platform JPEG codec carry no pixels and decode locally as before.
 /// When [imagePlaceholders] is true and [decodeImages] is false, images that
 /// cannot be serialized as self-contained streams are kept as draw-image
@@ -92,7 +97,7 @@ class _UnserializableImage implements Exception {
 ///
 /// [maxImagePixelRatio] (screen pixels per page point, including the device
 /// pixel ratio) caps the resolution of each decoded image to ~2× the pixels it
-/// covers on screen — a giant raster underlay on a CAD sheet is shipped (and
+/// covers on screen - a giant raster underlay on a CAD sheet is shipped (and
 /// later rasterized, and cached) at display resolution instead of its native
 /// 100+ megapixels, which is what otherwise blocks the (single-threaded, on
 /// web) raster thread for hundreds of milliseconds every time a settled scroll
@@ -105,6 +110,15 @@ class _UnserializableImage implements Exception {
 /// cropped page area; unsupported transforms fall back to the full scaled
 /// decode. The total decoded-image budget is also reduced to the region's own
 /// raster footprint, rather than the full-page raster budget.
+///
+/// [compactStateScopes] removes `save`/`restore` pairs whose scope never
+/// changes the device clip. Recorded geometry, image transforms, paint, and
+/// blend state are already explicit in the commands (the interpreter also
+/// emits blend restoration explicitly), so those pairs are redundant for
+/// replay. Clip-bearing scopes remain byte-for-byte ordered. Render workers
+/// enable this to shrink dense command buffers before they cross to the UI
+/// isolate; the default stays false so the public codec remains a lossless
+/// command-transcript round trip.
 /// The page raster never exceeds this many pixels (the viewer's full-page
 /// raster cap), so it is also the natural unit for the page image budget.
 const int _maxImagePixels = 1 << 24;
@@ -112,7 +126,7 @@ const int _maxImagePixels = 1 << 24;
 /// Total decoded image pixels per page are bounded to this multiple of
 /// [_maxImagePixels]. The per-image cap keeps each image near its own
 /// on-screen footprint, but a sheet layered from dozens of overlapping raster
-/// tiles can still sum to many times the page raster — only the topmost layer
+/// tiles can still sum to many times the page raster - only the topmost layer
 /// per pixel is ever shown, so the rest is decoded, shipped, and cached for
 /// nothing. This ceiling (~17 MP at the default) scales every image down to
 /// fit, bounding the command buffer and the decoded-image cache no matter how
@@ -144,7 +158,11 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     PdfRect? imageDecodeRegion,
     double imageBudgetFactor = _imageBudgetFactor,
     bool imagePlaceholders = false,
-    int? commandLimit}) {
+    int? commandLimit,
+    bool compactStateScopes = false}) {
+  final wireCommands = compactStateScopes
+      ? _compactStateScopes(commands, commandLimit: commandLimit)
+      : commands;
   final w = _Writer();
   w.u8(_formatVersion);
   // Page-pixel budget: a global downscale applied on top of the per-image
@@ -154,7 +172,7 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
   var budgetScale = 1.0;
   if (decodeImages && maxImagePixelRatio != null && cos != null) {
     budgetScale = _imageBudgetScale(
-        commands,
+        wireCommands,
         cos,
         maxImagePixelRatio,
         _imageBudgetPixels(maxImagePixelRatio, imageBudgetFactor,
@@ -162,17 +180,95 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
         imageDecodeRegion: imageDecodeRegion);
   }
   try {
-    _writeCommands(w, commands, cos,
+    _writeCommands(w, wireCommands, cos,
         decode: decodeImages,
         maxImageRatio: maxImagePixelRatio,
         imageDecodeRegion: imageDecodeRegion,
         budgetScale: budgetScale,
         imagePlaceholders: imagePlaceholders && !decodeImages,
-        commandLimit: commandLimit);
+        commandLimit: compactStateScopes ? null : commandLimit);
   } on _UnserializableImage {
     return null;
   }
   return w.takeBytes();
+}
+
+/// Drops replay-state scopes that cannot change rendering.
+///
+/// A recorded `q`/`Q` pair only has an observable device effect when a clip
+/// is installed at that same nesting depth. Paths are already transformed to
+/// page space, every paint command owns its complete style, images own their
+/// transform, and the interpreter emits an explicit blend-mode command when
+/// `Q` restores a different blend. Nested clip scopes protect themselves, so
+/// they do not make an otherwise empty parent scope necessary.
+///
+/// The command prefix is taken before compaction to preserve [commandLimit]'s
+/// existing preview semantics. Unbalanced prefixes keep their unmatched
+/// state commands. Soft-mask callback transcripts are compacted recursively.
+List<PdfRenderCommand> _compactStateScopes(
+  List<PdfRenderCommand> commands, {
+  int? commandLimit,
+}) {
+  final length = commandLimit == null
+      ? commands.length
+      : math.min(commands.length, math.max(0, commandLimit));
+  final keep = Uint8List(length)..fillRange(0, length, 1);
+  final saveIndices = <int>[];
+  final clipped = <bool>[];
+  var removed = 0;
+
+  for (var i = 0; i < length; i++) {
+    switch (commands[i]) {
+      case PdfSaveCommand():
+        saveIndices.add(i);
+        clipped.add(false);
+      case PdfClipPathCommand():
+        if (clipped.isNotEmpty) clipped[clipped.length - 1] = true;
+      case PdfRestoreCommand():
+        if (saveIndices.isEmpty) break;
+        final save = saveIndices.removeLast();
+        final scopeClipped = clipped.removeLast();
+        if (!scopeClipped) {
+          keep[save] = 0;
+          keep[i] = 0;
+          removed += 2;
+        }
+      default:
+        break;
+    }
+  }
+
+  final out = List<PdfRenderCommand>.filled(
+    length - removed,
+    const PdfSaveCommand(),
+    growable: false,
+  );
+  var outputIndex = 0;
+  for (var i = 0; i < length; i++) {
+    if (keep[i] == 0) continue;
+    final command = commands[i];
+    if (command
+        case PdfEndSoftMaskedCommand(
+          :final luminosity,
+          :final backdrop,
+          :final maskCommands,
+          :final backdropLuminance,
+          :final transferScale,
+          :final transferOffset,
+        )) {
+      out[outputIndex++] = PdfEndSoftMaskedCommand(
+        luminosity: luminosity,
+        backdrop: backdrop,
+        maskCommands: _compactStateScopes(maskCommands),
+        backdropLuminance: backdropLuminance,
+        transferScale: transferScale,
+        transferOffset: transferOffset,
+      );
+    } else {
+      out[outputIndex++] = command;
+    }
+  }
+  return out;
 }
 
 /// Linear downscale to apply to every image so the sum of the per-image-capped
@@ -180,7 +276,7 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
 /// Walks declared image dimensions only (no decode), descending soft-mask
 /// groups, so it is a cheap pre-pass before the decoding write pass. Images
 /// that ship un-decoded (platform-codec path) are counted too, so the scale is
-/// conservative when those are mixed in — acceptable, and they are rare on the
+/// conservative when those are mixed in - acceptable, and they are rare on the
 /// raster-tiled sheets this targets.
 double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
     double ratio, int budgetPixels,
@@ -216,7 +312,7 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
 }
 
 /// The native pixel dimensions an image stream declares (`/Width`, `/Height`),
-/// or null when absent/degenerate. Cheap — no pixels are decoded.
+/// or null when absent/degenerate. Cheap - no pixels are decoded.
 (int, int)? _declaredImageSize(CosDocument cos, CosStream stream) {
   final w = _cosInt(cos.resolve(stream.dictionary['Width']));
   final h = _cosInt(cos.resolve(stream.dictionary['Height']));
@@ -259,10 +355,13 @@ PdfDecodedPixels _capImageResolution(
 
 /// Reconstructs the command buffer written by [serializeCommands].
 List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
+  final sw = Stopwatch()..start();
   final r = _Reader(bytes);
   final version = r.u8();
   assert(version == _formatVersion, 'render command format version mismatch');
-  return _readCommands(r);
+  final commands = _readCommands(r);
+  deserializeCommandsMicros += sw.elapsedMicroseconds;
+  return commands;
 }
 
 void _writeCommands(
@@ -290,9 +389,17 @@ void _writeCommands(
 
 List<PdfRenderCommand> _readCommands(_Reader r) {
   final n = r.u32();
-  final out = <PdfRenderCommand>[];
+  // The wire format gives us the exact count. Pre-size instead of growing a
+  // 100k-command CAD page through repeated capacity reallocations on the UI
+  // isolate. Keep the list growable to preserve deserializeCommands' public
+  // behavior for callers that append diagnostic commands.
+  final out = List<PdfRenderCommand>.filled(
+    n,
+    const PdfSaveCommand(),
+    growable: true,
+  );
   for (var i = 0; i < n; i++) {
-    out.add(_readCommand(r));
+    out[i] = _readCommand(r);
   }
   return out;
 }
@@ -355,7 +462,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
     case PdfDrawImageCommand(:final request):
       // Inline images can name a page-resource colour space unreachable from
       // the stream alone; decline them. XObjects serialize as a self-contained
-      // (inline-resolved, decrypted) stream subgraph — any failure inlining or
+      // (inline-resolved, decrypted) stream subgraph - any failure inlining or
       // decrypting it declines too, so the page falls back to a local render
       // rather than shipping a broken image.
       if (request.isInline || cos == null) {
@@ -426,7 +533,7 @@ _CommandImage? _decodeImageForCommand(
       : _imageRegionPlan(
           document, request, imageDecodeRegion, maxImageRatio, budgetScale);
   if (regionPlan != null) {
-    final decoded = regionPlan.outside
+    var decoded = regionPlan.outside
         ? _transparentPixel
         : predecoded == null
             ? decodePdfImagePixelsRegionScaled(
@@ -448,6 +555,31 @@ _CommandImage? _decodeImageForCommand(
                 regionPlan.targetWidth,
                 regionPlan.targetHeight,
               );
+    // The fast region decoder ([decodePdfImagePixelsRegionScaled]) only handles
+    // single-filter Flate RGB/gray/indexed streams; for any other image the
+    // general decoder handles - an Indexed 8-bit palette, an /SMask'd logo, an
+    // ICC/Lab/Separation colour space, 16-bit, a stacked filter - it returns
+    // null. Falling through from here would leave the visible slice at the
+    // full-page 2x cap, so those images stay soft under deep zoom while vector
+    // text sharpens - the exact asymmetry the detail patch exists to remove.
+    // Decode the whole image once and crop+downsample it to the visible region
+    // instead, so every decodable image type re-sharpens on zoom. (Images that
+    // need the platform JPEG codec still decode null here and ship un-decoded
+    // at native resolution, so they are already sharp.)
+    if (decoded == null && !regionPlan.outside && predecoded == null) {
+      final full = decodePdfImagePixels(document, request.stream);
+      if (full != null) {
+        decoded = _cropDownsampleDecodedPixels(
+          full,
+          regionPlan.sourceX,
+          regionPlan.sourceY,
+          regionPlan.sourceWidth,
+          regionPlan.sourceHeight,
+          regionPlan.targetWidth,
+          regionPlan.targetHeight,
+        );
+      }
+    }
     if (decoded != null) {
       final croppedRequest = _copyImageRequest(request,
           transform: regionPlan.transform, decoded: decoded);
@@ -783,7 +915,8 @@ PdfRenderCommand _readCommand(_Reader r) {
       if (r.boolean()) {
         final width = r.u32();
         final height = r.u32();
-        decoded = PdfDecodedPixels(r.bytes(), width, height);
+        decoded =
+            PdfDecodedPixels(r.bytes(allowLargeView: true), width, height);
       }
       // isInline forces value (content) cache keying on replay: the
       // reconstructed stream is a fresh object every record, so stream-identity
@@ -830,14 +963,14 @@ PdfRenderCommand _readCommand(_Reader r) {
 // --- value types ---
 
 // Path coordinates are written as float32, not float64. A graphics-rich (CAD)
-// page is overwhelmingly path geometry — hundreds of thousands of segments —
+// page is overwhelmingly path geometry - hundreds of thousands of segments -
 // so halving each coordinate halves the serialized buffer and the time to
 // write and read it. The precision is not lost in practice: the render engine
 // truncates every coordinate to float32 anyway (Skia/Impeller are 32-bit), and
 // that truncation is idempotent, so shipping the float32 image renders
 // pixel-identically to shipping the original double (verified against the Ghent
-// baselines). Everything that needs full precision — transforms, colours,
-// stroke widths, text placement — stays float64.
+// baselines). Everything that needs full precision - transforms, colours,
+// stroke widths, text placement - stays float64.
 void _writePath(_Writer w, PdfPath path) {
   w.u32(path.segments.length);
   for (final s in path.segments) {
@@ -873,19 +1006,19 @@ void _writePath(_Writer w, PdfPath path) {
 
 PdfPath _readPath(_Reader r) {
   final n = r.u32();
-  final segments = <PdfPathSegment>[];
+  final segments = List<PdfPathSegment>.filled(
+    n,
+    const PdfClosePath(),
+    growable: true,
+  );
   for (var i = 0; i < n; i++) {
-    switch (r.u8()) {
-      case 0:
-        segments.add(PdfMoveTo(r.f32(), r.f32()));
-      case 1:
-        segments.add(PdfLineTo(r.f32(), r.f32()));
-      case 2:
-        segments.add(
-            PdfCubicTo(r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()));
-      case 3:
-        segments.add(const PdfClosePath());
-    }
+    segments[i] = switch (r.u8()) {
+      0 => PdfMoveTo(r.f32(), r.f32()),
+      1 => PdfLineTo(r.f32(), r.f32()),
+      2 => PdfCubicTo(r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()),
+      3 => const PdfClosePath(),
+      _ => throw FormatException('unknown path segment tag'),
+    };
   }
   return PdfPath(segments);
 }
@@ -1013,6 +1146,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     for (final g in glyphs) {
       w.f64(g.offset);
       w.f64(g.offsetY);
+      w.strOpt(g.text);
       if (g.outline == null) {
         w.boolean(false);
       } else {
@@ -1043,13 +1177,18 @@ PdfTextRun _readTextRun(_Reader r) {
   List<PdfGlyphPlacement>? glyphs;
   if (r.boolean()) {
     final n = r.u32();
-    glyphs = <PdfGlyphPlacement>[];
+    glyphs = List<PdfGlyphPlacement>.filled(
+      n,
+      const PdfGlyphPlacement(offset: 0),
+      growable: true,
+    );
     for (var i = 0; i < n; i++) {
       final offset = r.f64();
       final offsetY = r.f64();
+      final text = r.strOpt();
       final outline = r.boolean() ? _readPath(r) : null;
-      glyphs.add(PdfGlyphPlacement(
-          offset: offset, offsetY: offsetY, outline: outline));
+      glyphs[i] = PdfGlyphPlacement(
+          offset: offset, offsetY: offsetY, outline: outline, text: text);
     }
   }
   final invisible = r.boolean();
@@ -1086,7 +1225,7 @@ const int _cDict = 7;
 const int _cStream = 8;
 
 /// Returns a detached deep copy of [object] (resolved against [cos]) with every
-/// [CosReference] replaced by a copy of its target, so the result stands alone —
+/// [CosReference] replaced by a copy of its target, so the result stands alone -
 /// the consumer can decode it with no access to the source document. Stream
 /// bytes are taken decrypted-but-still-filtered (encryption removed, filters
 /// left for the consumer to undo); on an unencrypted document that is the raw
@@ -1118,7 +1257,7 @@ CosObject _inlineCos(CosDocument cos, CosObject? object, int depth) {
 }
 
 /// The first filter name on [dict] (`/Filter` as a name or array), or null when
-/// the stream is unfiltered — what [_inlineCos] stops before so the shipped
+/// the stream is unfiltered - what [_inlineCos] stops before so the shipped
 /// bytes stay filtered (decryption alone is undone).
 String? _firstFilterName(CosDocument cos, CosDictionary dict) {
   final filter = cos.resolve(dict['Filter']);
@@ -1195,7 +1334,7 @@ CosObject _readCos(_Reader r) {
       return CosArray([for (var i = 0; i < n; i++) _readCos(r)]);
     case _cStream:
       final dict = _readCos(r) as CosDictionary;
-      return CosStream(dict, r.bytes());
+      return CosStream(dict, r.bytes(allowLargeView: true));
     case _cDict:
       final n = r.u32();
       final entries = <String, CosObject>{};
@@ -1212,11 +1351,11 @@ CosObject _readCos(_Reader r) {
 // --- low-level reader/writer ---
 
 class _Writer {
-  // A graphics-rich (CAD) page serializes to many MB of mostly path geometry —
+  // A graphics-rich (CAD) page serializes to many MB of mostly path geometry -
   // millions of scalar writes. The old BytesBuilder approach allocated a fresh
   // ByteData and a Uint8List view per scalar (and a `_b.add` per call), which
   // dominated the serialize cost. Instead grow one backing buffer and write
-  // scalars straight into a [ByteData] view of it at a running offset — no
+  // scalars straight into a [ByteData] view of it at a running offset - no
   // per-value allocation. The output bytes are unchanged (ByteData defaults to
   // big-endian, matching the old per-scalar ByteData), so this rewrite is a
   // pure speed-up: it emits exactly the bytes the BytesBuilder version did.
@@ -1249,7 +1388,7 @@ class _Writer {
 
   // ByteData's 64-bit int accessors throw on the web (JS has no 64-bit int),
   // and this codec crosses the isolate/Web-Worker boundary, so encode the value
-  // as a float64 instead — exact for |v| <= 2^53, which covers every PDF
+  // as a float64 instead - exact for |v| <= 2^53, which covers every PDF
   // integer we serialize (on the web a Dart int is already capped at 2^53).
   void i64(int v) {
     _ensure(8);
@@ -1342,16 +1481,21 @@ class _Reader {
   }
 
   int i64() {
-    final v = _data.getFloat64(_o); // see [_Writer.i64] — float64-encoded
+    final v = _data.getFloat64(_o); // see [_Writer.i64] - float64-encoded
     _o += 8;
     return v.toInt();
   }
 
-  /// Reads a length-prefixed raw byte run as a copy (a sublist view would alias
-  /// the whole transferred buffer and keep it alive).
-  Uint8List bytes() {
+  /// Reads a length-prefixed raw byte run. Small values are copied so a tiny
+  /// COS string cannot pin a multi-megabyte transferred command buffer. Large
+  /// image streams/pixel planes may instead keep a zero-copy view: those bytes
+  /// dominate the buffer and are retained by the command list anyway, so
+  /// copying them only adds UI-thread latency and a second large allocation.
+  Uint8List bytes({bool allowLargeView = false}) {
     final n = u32();
-    final out = Uint8List.fromList(Uint8List.sublistView(_bytes, _o, _o + n));
+    final slice = Uint8List.sublistView(_bytes, _o, _o + n);
+    final out =
+        allowLargeView && n >= (1 << 20) ? slice : Uint8List.fromList(slice);
     _o += n;
     return out;
   }

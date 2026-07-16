@@ -53,7 +53,7 @@ void main() {
     editing.noteTouchInput();
     expect(editing.hasTouchInput, isTrue);
     expect(notified, 1);
-    editing.noteTouchInput(); // idempotent — no second notify
+    editing.noteTouchInput(); // idempotent - no second notify
     expect(notified, 1);
 
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -89,7 +89,7 @@ void main() {
     await tester.pump();
     expect(find.byIcon(Icons.touch_app), findsNothing);
 
-    // the first touch on the page does — in reader mode, so the tap
+    // the first touch on the page does - in reader mode, so the tap
     // isn't an ink dot (whose auto-commit timer would outlive the test)
     editing.tool = null;
     await tester.pump();

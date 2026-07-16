@@ -1,4 +1,4 @@
-# dart-pdf — pure-Dart PDF renderer & editor
+# dart-pdf - pure-Dart PDF renderer & editor
 
 Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 `packages/`). Flutter is managed with **fvm** (see `.fvmrc`); use
@@ -6,7 +6,7 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 
 ## Commands
 
-- `fvm flutter pub get` (at repo root — resolves every workspace package)
+- `fvm flutter pub get` (at repo root - resolves every workspace package)
 - `fvm dart analyze` (at root)
 - `cd packages/<pkg> && fvm dart test` (pure-Dart packages)
 - `cd packages/dart_pdf_editor && fvm flutter test`
@@ -19,7 +19,7 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
   Everything else must run on the Dart VM (server/CLI/tests) and on the web.
 - `dart:io` is not allowed anywhere in `lib/` (web support); use
   `package:archive` for compression.
-- `pdf_cos` knows nothing about pages or rendering — only the COS object
+- `pdf_cos` knows nothing about pages or rendering - only the COS object
   model, syntax, filters, xref, and (de)serialization.
 
 ## Design conventions
@@ -30,85 +30,39 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
   objects load lazily through the xref.
 - `CosDictionary` is keyed by `String` (name without the slash).
 - Test fixtures are built programmatically in `test/fixtures.dart` so byte
-  offsets are always correct — don't hand-edit offsets.
+  offsets are always correct - don't hand-edit offsets.
 
 ## Test corpus
 
-`corpus/` (git-ignored) holds ~50 real-world PDFs copied from Ben's local
-folders and OneDrive — CAD drawings, scanned docs, reports, forms. Use them
-to validate changes:
-
-- Parse check: `cd packages/pdf_document && fvm dart tool/inspect.dart ../../corpus/*.pdf`
-- Render check: `cd packages/dart_pdf_editor && PDF_PATH=../../corpus/<file>.pdf PDF_PAGE=0 fvm flutter test test/render_smoke_test.dart` (writes /tmp/dart_pdf_render.png)
-- Full render sweep: `cd packages/dart_pdf_editor && CORPUS_DIR=../../corpus RENDER_OUT=../../corpus/renders fvm flutter test test/corpus_render_test.dart`
-
-`test_corpora/ghent/` (checked in) is the Ghent PDF Output Suite V5.0 —
-54 print-conformance PDFs (overprint, DeviceN, spot, ICC v2/v4, 16-bit,
-transparency blend modes, softmasks, optional content, font formats,
-JBIG2/JPX) incl. 3 composite test pages. Two test layers:
-
-- `packages/pdf_graphics/test/ghent_corpus_test.dart` — pure-Dart: every
-  page must interpret without throwing and paint > 0 ops.
-- `packages/dart_pdf_editor/test/ghent_render_test.dart` — rasterizes every
-  page and diffs against checked-in baselines in
-  `test_corpora/ghent/_baselines` (fail when >0.05% of pixels differ by
-  >8/channel). Missing baselines seed on first run; accept intentional
-  rendering changes with `GHENT_UPDATE=1 fvm flutter test
-  test/ghent_render_test.dart`. Mismatches dump actual+diff PNGs to
-  `test_corpora/ghent/_failures/` (git-ignored). The baselines pin
-  current behavior, not GWG conformance — many patches print their own
-  pass criterion on the page (overprint simulation isn't implemented;
-  GWG173's faint "X" is a known JBIG2 deviation).
-
-Run the checked-in corpora from their package directories so the relative
-`../../test_corpora/...` paths line up:
-
-- Ghent pure-Dart pass: `cd packages/pdf_graphics && fvm dart test test/ghent_corpus_test.dart`
-- Ghent render/baseline pass: `cd packages/dart_pdf_editor && fvm flutter test test/ghent_render_test.dart`
-- Accept intentional Ghent baseline changes: `cd packages/dart_pdf_editor && GHENT_UPDATE=1 fvm flutter test test/ghent_render_test.dart`
-- Ghent visual review gallery: `cd packages/dart_pdf_editor && GHENT_RENDER_OUT=../../test_corpora/ghent/_renders fvm flutter test test/ghent_render_test.dart`, then open `test_corpora/ghent/_renders/index.html`
-- PDF.js pure-Dart pass: `cd packages/pdf_graphics && fvm dart test test/pdfjs_corpus_test.dart`
-- PDF.js render smoke pass: `cd packages/dart_pdf_editor && fvm flutter test test/pdfjs_render_test.dart`
-- PDF.js visual review gallery: `cd packages/dart_pdf_editor && PDFJS_RENDER_OUT=../../test_corpora/pdfjs/_renders fvm flutter test test/pdfjs_render_test.dart`, then open `test_corpora/pdfjs/_renders/index.html`
-- Generate PDF.js reference baselines: `cd packages/dart_pdf_editor/tool/pdfjs_baseline && npm install && npm run render`
-- PDF.js pixel compare + side-by-side results: `cd packages/dart_pdf_editor && PDFJS_BASELINE_DIR=../../test_corpora/pdfjs/_baselines fvm flutter test test/pdfjs_render_test.dart`, then open `test_corpora/pdfjs/_renders/index.html`
-- All checked-in corpus tests: run the four non-update test commands above
-  (excluding the visual galleries); they are intentionally split because
-  `pdf_graphics` is VM-only and `dart_pdf_editor` needs Flutter rasterization.
-
-The Ghent gallery writes the same 2x rasters used for baseline comparison.
-The PDF.js gallery writes the same pages as the smoke pass by default (up to
-five per file at 1x); override it with `PDFJS_RENDER_MAX_PAGES` and
-`PDFJS_RENDER_PIXEL_RATIO` when you need deeper or sharper review. When
-`PDFJS_BASELINE_DIR` is set, the Flutter test compares Dart rasters against
-the PDF.js baselines using `PDFJS_COMPARE_CHANNEL_TOLERANCE` (default 8) and
-`PDFJS_COMPARE_MAX_DIFF_FRACTION` (default 0.0005), and writes
-`test_corpora/pdfjs/_renders/index.html` unless `PDFJS_RENDER_OUT` overrides
-the output directory. The results page shows each page as one row with the
-PDF.js baseline, Dart render, and diff side by side.
+`corpus/` (git-ignored, ~50 real-world PDFs) plus the checked-in
+`test_corpora/ghent/` (Ghent PDF Output Suite, render baselines) and
+`test_corpora/pdfjs/` suites validate parser and rendering changes.
+For the commands (parse/render sweeps, baseline accept via GHENT_UPDATE,
+visual galleries, PDF.js pixel compare), invoke the `corpus-tests` skill
+(`.claude/skills/corpus-tests/SKILL.md`).
 
 ## Roadmap context
 
 See README.md. The pipeline through the viewer is done: interpreter, font
 engine, Flutter rendering, text selection/search, annotation appearance
 rendering, and encryption both ways (RC4/AES-128/AES-256 decryption;
-encrypt-on-write re-encrypts changed objects on save — `_encryptedCopy`
+encrypt-on-write re-encrypts changed objects on save - `_encryptedCopy`
 in updater.dart; signing encrypted files stays refused). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
 them into page content. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
-(`form_editor.dart` — text/checkbox/radio/choice, auto-size, quadding).
+(`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
 the page tree (materializing inherited attributes), `appendPagesFrom`
 deep-copies pages across documents, `extractPages` splits into a fresh
 file via `CosDocumentBuilder` (pdf_cos's from-scratch writer).
 Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
-`pdf_cos/src/crypto/` — asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
+`pdf_cos/src/crypto/` - asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
 (`signature_editor.dart`, adbe.pkcs7.detached with ByteRange patching).
-The enterprise tier — PAdES B-B/B-T/B-LT/B-LTA, RFC 3161 timestamps, the
-/DSS+/VRI Document Security Store, and Certify/DocMDP — is in
+The enterprise tier - PAdES B-B/B-T/B-LT/B-LTA, RFC 3161 timestamps, the
+/DSS+/VRI Document Security Store, and Certify/DocMDP - is in
 `PdfEditor.saveSignedPades` (`pades_editor.dart`, async; TSA/OCSP/CRL
 transports injected via `pades.dart`'s `PdfTimestampClient`/
 `PdfRevocationClient`, no `dart:io`); crypto in `pdf_cos/src/crypto/`
@@ -127,16 +81,16 @@ enumeration with approximate bounds, stream rewriting), and
 strings and consecutive Tj/TJ runs, with width-compensated re-measurement
 from the font's /Widths so following text holds position; composite
 /Type0 runs are handled too for the Identity-H/CIDFontType2/Identity-
-CIDToGIDMap shape — `content_editor_type0.dart`'s `_Type0Editing` reads
+CIDToGIDMap shape - `content_editor_type0.dart`'s `_Type0Editing` reads
 existing text from /ToUnicode, re-encodes replacements through the
 embedded font's own cmap so any glyph the program carries can be typed,
 and merges new glyphs' advances + Unicode into the descendant /W and
-/ToUnicode; when the document font can't draw a character — a subsetted
-font dropped it — `replaceText(fallbackFonts:)` embeds a style-matched
+/ToUnicode; when the document font can't draw a character - a subsetted
+font dropped it - `replaceText(fallbackFonts:)` embeds a style-matched
 bundled fallback as a new page /Font resource and emits that replacement
 between Tf switches (the editor passes the DejaVu trio via
-`loadFallbackFonts()`); within-line only — CFF/non-Identity Type0 still
-out) — all
+`loadFallbackFonts()`); within-line only - CFF/non-Identity Type0 still
+out) - all
 in `content_editor.dart`/`content_elements.dart`; shared Type0 metric
 parsing (/ToUnicode + /W) is in `type0_metrics.dart`, and
 `PdfPageElements` decodes Type0 runs through it so `element.text` is real
@@ -145,7 +99,7 @@ content-stream tokenizer (`ContentStreamParser`) now lives in pdf_cos.
 Paragraph-level reflow is in: `PdfEditor.reflowText` (`content_reflow.dart`)
 re-wraps a whole detected paragraph when the replacement changes its line
 count and cascades the following lines through the content stream's own
-relative breaks — single-column, left-aligned, simple + Identity-H Type0
+relative breaks - single-column, left-aligned, simple + Identity-H Type0
 fonts; multi-column/justified/first-line-indent/`'`/`"`/vertical out (see
 [doc/dev-log.md](doc/dev-log.md)).
 The roadmap is complete. Polish landed since: LZW/RunLength filters, xref recovery
@@ -166,20 +120,29 @@ embedded profile (`Jbig2Decoder` + shared `MqDecoder` in
 filters/mq.dart, KAT vs jbig2enc/jbig2dec), JPEG 2000 (`JpxDecoder`,
 lossless bit-perfect vs OpenJPEG, lossy ±1), deep-zoom detail patch
 (`PdfPageView` renders the visible slice past the raster caps;
-`rasterizeRegion`), and real ICC (`IccProfile` in pdf_graphics —
+`rasterizeRegion`), and real ICC (`IccProfile` in pdf_graphics -
 gray TRC, matrix/TRC, mft1/mft2/mAB LUTs, validated vs littleCMS;
 wired into sc/scn and image decoding). RSASSA-PSS verification is in
-(`rsaVerifyPss` in pdf_cos rsa.dart — MGF1 + EMSA-PSS with salt-length
+(`rsaVerifyPss` in pdf_cos rsa.dart - MGF1 + EMSA-PSS with salt-length
 recovery, KAT vs OpenSSL; PSS-params parsing and dispatch in cms.dart's
 `cmsVerify` and `X509Certificate.isSignedBy`). Remaining gaps:
 JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
+The decoded-image cache budget (`PdfImageCache.maxBytes`, settable) is
+platform-aware: `pdfDefaultImageCacheBytes()` in performance_policy.dart -
+desktop 256 MB, mobile/web 128 MB, 64 MB on a <=2 GB browser device
+(`navigator.deviceMemory`, web-only and secure-context-only, via the
+performance_memory.dart conditional export). The numbers are measured, not
+guessed - see doc/dev-log/2026-07-16-image-cache-budget.md and
+`test/benchmark_image_cache_budget_test.dart`; re-run it before changing
+them. `didHaveMemoryPressure` on the viewer clears the image + preview
+caches.
 The editing UI is in (dart_pdf_editor `src/editing/`): `PdfEditingController`
-owns the edit session — every edit is an incremental save, so revisions
+owns the edit session - every edit is an incremental save, so revisions
 are byte prefixes of one buffer and undo/redo is a stack of lengths;
 `PdfViewer(editing:)` injects per-page tool overlays (markup/ink/shapes/
 free text/note/stamp; select + move + resize via
 `PdfEditor.resizeAnnotation`, which rewrites /Rect and scales the point
-arrays — appearances regenerate for shapes/free text, stretch per
+arrays - appearances regenerate for shapes/free text, stretch per
 §12.5.5 otherwise; see the batch-3 session-1 block), binds undo/redo/delete/escape
 shortcuts, and preserves the viewport across same-geometry document
 swaps. `PdfEditingToolbar` is the stock chrome. The host must rebuild
@@ -187,21 +150,21 @@ the viewer with `editing.document` whenever the controller notifies
 (asserted in debug builds); the example app shows the wiring.
 On top of that: style controls (controller carries strokeWidth/opacity/
 fontSize; the toolbar's tune button opens a slider popup), an
-annotation sidebar (`PdfAnnotationSidebar` — lists by page, tap selects
+annotation sidebar (`PdfAnnotationSidebar` - lists by page, tap selects
 via `selectAnnotation(page, slot)`, trailing delete), and a content
-tool (`PdfEditTool.content`: taps hit-test `PdfPageElements` — cached
-per revision in the controller — orange selection chrome; delete via
+tool (`PdfEditTool.content`: taps hit-test `PdfPageElements` - cached
+per revision in the controller - orange selection chrome; delete via
 `deleteElements`, in-line text rewrite via `replaceText`
 (`replaceSelectedElementText`), and paragraph reflow via `reflowText`
-(`reflowSelectedElementText`) — the element strip's "Reflow paragraph"
+(`reflowSelectedElementText`) - the element strip's "Reflow paragraph"
 action (`pdf-reflow-element-text`) re-wraps the selected line's whole
 paragraph, toasting a fallback hint when the shape isn't reflowable;
 element ids die with every revision, so any edit clears the element
 selection).
-Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) —
+Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder
-(ReorderableListView `onReorderItem` — already index-adjusted), footer
+(ReorderableListView `onReorderItem` - already index-adjusted), footer
 delete; `controller.movePage`/`removePage` clear the slot-based
 annotation selection first because page indices shift under it, and
 `removePage` is a no-op on the last page. Reorder drag: immediate for
@@ -210,7 +173,7 @@ recognizer per pointer kind). The strip shows a viewport indicator fed
 by `PdfViewerController.visiblePageRegion(page)` (fractions 0–1) and
 repainted via `viewportChanges` (a separate Listenable so scrolling
 doesn't spam controller listeners). `PdfViewer.initialFit` defaults to
-`PdfViewerFit.page` (whole first page visible, Chrome-style) — widget
+`PdfViewerFit.page` (whole first page visible, Chrome-style) - widget
 tests that do view-coordinate math pin `initialFit: PdfViewerFit.width`.
 `PdfThumbnailView` (same file, exported) is the full-area sibling: a
 reflowing `Wrap` grid with the strip's whole control set plus a header
@@ -224,10 +187,10 @@ reflow; `altView` = reflow-or-grid suppresses the panels/toolbar).
 ## Development session log
 
 Detailed per-session notes (gotchas, file pointers, design rationale)
-live in [doc/dev-log/](doc/dev-log/) — **one file per session**, named
+live in [doc/dev-log/](doc/dev-log/) - **one file per session**, named
 `YYYY-MM-DD-slug.md`. Consult them (or git history) when you need the
 background on a specific subsystem. Record new session notes by **adding
-a new file** there (never append to a shared file — that conflicts on
+a new file** there (never append to a shared file - that conflicts on
 every concurrent PR); see [doc/dev-log/README.md](doc/dev-log/README.md).
 Notes written before 2026-06-22 are in the frozen
 [doc/dev-log.md](doc/dev-log.md) archive.

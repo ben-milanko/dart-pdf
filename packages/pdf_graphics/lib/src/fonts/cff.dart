@@ -8,7 +8,7 @@ import 'encodings.dart';
 ///
 /// Outlines come from a Type 2 charstring interpreter (§The Type 2
 /// Charstring Format); hints are parsed and discarded. Returns null rather
-/// than throwing on malformed input — callers fall back to substitution.
+/// than throwing on malformed input - callers fall back to substitution.
 class CffFont {
   CffFont._({
     required Uint8List bytes,
@@ -51,7 +51,7 @@ class CffFont {
 
   /// Whether the top dict carried an explicit FontMatrix. When it didn't but
   /// an FD did, the FD matrix stands alone (top is treated as identity, not
-  /// the 0.001 default — that default only applies when *no* matrix exists).
+  /// the 0.001 default - that default only applies when *no* matrix exists).
   final bool _topMatrixExplicit;
   final Map<int, int> _gidToSid;
   final List<(int, int)> _strings;
@@ -215,7 +215,7 @@ class CffFont {
 
   int gidForCode(int code) => _codeToGid[code] ?? 0;
 
-  /// Glyph lookup by name through the charset — what PDF /Differences and
+  /// Glyph lookup by name through the charset - what PDF /Differences and
   /// base encodings need.
   int gidForName(String name) {
     final map = _nameToGid ??= _buildNameToGid();

@@ -15,7 +15,7 @@ Uint8List buildStripsPdf() {
       'q 150.6 0 0 80 10 10 cm /Im Do Q Q '
       'q 85.3 10 75.3 80 re W n '
       'q 150.6 0 0 80 10 10 cm /Im Do Q Q';
-  // 1x1 DeviceRGB pixel (40,40,40) — the bytes are ASCII '((('
+  // 1x1 DeviceRGB pixel (40,40,40) - the bytes are ASCII '((('
   const pixel = '(((';
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',

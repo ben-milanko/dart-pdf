@@ -359,22 +359,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.5"
-  irondash_engine_context:
-    dependency: transitive
-    description:
-      name: irondash_engine_context
-      sha256: "086fbbcaef07b821b304b0371e472c687715f326219b69b18dc5c962dab09b55"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.1"
-  irondash_message_channel:
-    dependency: transitive
-    description:
-      name: irondash_message_channel
-      sha256: "081ff9631a2c6782a47ef4fdf9c97206053af1bb174e2a25851692b04f3bc126"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.1"
   jni:
     dependency: transitive
     description:
@@ -391,14 +375,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.1"
-  js:
-    dependency: transitive
-    description:
-      name: js
-      sha256: f2c445dce49627136094980615a031419f7f3eb393237e4ecd97ac15dea343f3
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.6.7"
   leak_tracker:
     dependency: transitive
     description:
@@ -507,10 +483,10 @@ packages:
     dependency: transitive
     description:
       name: package_info_plus
-      sha256: "4bf625947f6c7713ee242296a682e23e44823c09cf9d79e4f1238923c92db852"
+      sha256: f5c435dc0e0d461e5b32471a870f769b6a1cc46930637efe24fbc535314e78ad
       url: "https://pub.dev"
     source: hosted
-    version: "10.1.0"
+    version: "10.2.0"
   package_info_plus_platform_interface:
     dependency: transitive
     description:
@@ -683,10 +659,10 @@ packages:
     dependency: transitive
     description:
       name: share_plus
-      sha256: a857d8b1479250aff6b57a51b2c02d31ca05848d441817c43f1640c885c286c0
+      sha256: "9eee8283462d91a7a1c8bdb67d08874abd75a2f8fae3bc0ca033035e375fb3d8"
       url: "https://pub.dev"
     source: hosted
-    version: "13.1.0"
+    version: "13.2.0"
   share_plus_platform_interface:
     dependency: transitive
     description:
@@ -836,22 +812,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  super_clipboard:
-    dependency: transitive
-    description:
-      name: super_clipboard
-      sha256: "81005aa8f3ebdbe9f3473cb1ddb188e34f5d8bf6d1fde855f55da8801f9ab608"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.7+6"
-  super_native_extensions:
-    dependency: transitive
-    description:
-      name: super_native_extensions
-      sha256: "14c91b510baa58135d11136c17feef802cff320e72f9f3d3673eb64baf901af2"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.8+2"
   sync_http:
     dependency: transitive
     description:

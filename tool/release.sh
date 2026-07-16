@@ -4,7 +4,7 @@
 #
 # Publishes packages in dependency order. Because the cross-package
 # constraints are hosted, not path, so each package must be live on pub.dev
-# before a dependent can resolve — the script waits for each version to appear
+# before a dependent can resolve - the script waits for each version to appear
 # before publishing the next.
 #
 # Usage:
@@ -131,7 +131,7 @@ echo "Release plan:"
 for spec in "${PACKAGES[@]}"; do
   pkg="${spec%%:*}"; dir="${spec#*:}"; ver="$(version_for "$dir")"
   if pub_has_version "$pkg" "$ver"; then
-    echo "  - $pkg $ver  (already on pub.dev — will skip)"
+    echo "  - $pkg $ver  (already on pub.dev - will skip)"
   else
     echo "  - $pkg $ver  (will publish)"
   fi

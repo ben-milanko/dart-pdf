@@ -10,7 +10,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 /// The PAdES baseline levels, in increasing order of long-term assurance.
 enum PdfPadesLevel {
-  /// B-B: basic — correct signed attributes incl. signing-certificate-v2.
+  /// B-B: basic - correct signed attributes incl. signing-certificate-v2.
   bB,
 
   /// B-T: B-B plus a trusted signature timestamp.
@@ -27,7 +27,7 @@ enum PdfPadesLevel {
   bool operator >=(PdfPadesLevel other) => index >= other.index;
 }
 
-/// Obtains an RFC 3161 timestamp token for [timeStampRequest] — the DER
+/// Obtains an RFC 3161 timestamp token for [timeStampRequest] - the DER
 /// `TimeStampReq` built by [buildTimeStampRequest]. Implementations POST the
 /// request to their TSA and return the bare `TimeStampToken` (the inner
 /// ContentInfo, e.g. via [timeStampTokenFromResponse]). Injected by the

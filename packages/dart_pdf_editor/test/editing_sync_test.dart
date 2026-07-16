@@ -1,5 +1,5 @@
 // The controller's annotation sync surface: the change feed
-// (annotationChanges — per-revision /NM-keyed diffs across edits, undo,
+// (annotationChanges - per-revision /NM-keyed diffs across edits, undo,
 // and redo), remote replay (applyRemoteChange, echo-free), and the
 // onboarding helpers (ensureAnnotationNames, annotationBaseline,
 // findAnnotationByName). Two controllers piped together stand in for two
@@ -27,6 +27,22 @@ void main() {
     final sub = editing.annotationChanges.listen(batches.add);
     addTearDown(sub.cancel);
     return (batches, sub);
+  }
+
+  PdfAnnotationChange remoteRectangle({bool locked = false}) {
+    final source = PdfEditingController(buildClassicPdf());
+    try {
+      source.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      if (locked) {
+        final annotation = source.annotationAt(0, 0)!;
+        source.apply(
+          (editor) => editor.setAnnotationFlags(0, annotation, 128),
+        );
+      }
+      return source.annotationBaseline().single;
+    } finally {
+      source.dispose();
+    }
   }
 
   group('change feed', () {
@@ -119,6 +135,64 @@ void main() {
   });
 
   group('remote replay', () {
+    test('a remote locked creation is a non-crossable undo checkpoint', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      final change = remoteRectangle(locked: true);
+
+      expect(editing.applyRemoteChange(change), isTrue);
+      expect(editing.canUndo, isFalse);
+      final length = editing.bytes.length;
+
+      editing.undo();
+
+      expect(editing.bytes.length, length);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.name, change.name);
+      expect(annotation.isLocked, isTrue);
+    });
+
+    test('a local edit after a remote change undoes to the checkpoint', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      final remote = remoteRectangle(locked: true);
+      editing.applyRemoteChange(remote);
+
+      editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
+      expect(editing.canUndo, isTrue);
+      expect(editing.document.page(0).annotations, hasLength(2));
+
+      editing.undo();
+      expect(editing.canUndo, isFalse);
+      expect(editing.canRedo, isTrue);
+      expect(editing.document.page(0).annotations.single.name, remote.name);
+
+      editing.redo();
+      expect(editing.document.page(0).annotations, hasLength(2));
+      expect(
+        editing.document.page(0).annotations.first.name,
+        remote.name,
+      );
+    });
+
+    test('a later remote change seals older local history in place', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
+      final localName = editing.document.page(0).annotations.single.name;
+      final remote = remoteRectangle(locked: true);
+
+      expect(editing.applyRemoteChange(remote), isTrue);
+      expect(editing.canUndo, isFalse,
+          reason: 'history before a remote checkpoint is sealed');
+
+      editing.undo();
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(2));
+      expect(annotations.map((annotation) => annotation.name),
+          containsAll([localName, remote.name]));
+    });
+
     test('applyRemoteChange lands the annotation and never echoes', () async {
       // device A authors; device B replays
       final a = PdfEditingController(buildClassicPdf());

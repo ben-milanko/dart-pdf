@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 
@@ -7,6 +8,8 @@ import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
 import 'takeoff.dart';
+
+part 'annotation_behavior.dart';
 
 /// An entry in a page's /Annots array (§12.5).
 ///
@@ -68,6 +71,15 @@ class PdfAnnotation {
   /// The /F flag word (§12.5.3).
   final int flags;
 
+  /// PDF-semantic editing capabilities and authoritative style for this
+  /// annotation.
+  ///
+  /// The descriptor is lazy and cached for the lifetime of this parsed
+  /// annotation. A saved editor revision produces new [PdfAnnotation]
+  /// instances, so hot UI paths can reuse the derived facts without stale
+  /// cross-revision state or repeated appearance-stream parsing.
+  late final PdfAnnotationBehavior behavior = PdfAnnotationBehavior._(this);
+
   bool get isHidden => flags & 2 != 0;
   bool get isNoView => flags & 32 != 0;
 
@@ -76,7 +88,7 @@ class PdfAnnotation {
   bool get isReadOnly => flags & 64 != 0;
 
   /// The Locked flag (§12.5.3 bit 8): the annotation may not be deleted
-  /// and its properties (position, size) may not change — but its
+  /// and its properties (position, size) may not change - but its
   /// contents may, see [isLockedContents].
   bool get isLocked => flags & 128 != 0;
 
@@ -104,7 +116,7 @@ class PdfAnnotation {
   /// The editor stamps a generated UUID on every annotation it creates
   /// and preserves it through restyles and rewrites, which makes /NM the
   /// durable handle for syncing annotations across documents and devices
-  /// — slots shift, names don't.
+  /// - slots shift, names don't.
   String? get name {
     final nm = document.cos.resolve(dict['NM']);
     return nm is CosString ? nm.text : null;
@@ -122,6 +134,34 @@ class PdfAnnotation {
   /// placed by the editor's count tool. The editing UI tallies these
   /// Bluebeam-style.
   bool get isCheckMark => subtype == 'Stamp' && iconName == 'Check';
+
+  /// App-defined workflow type for a custom stamp annotation, e.g.
+  /// `Approval`, `Audit`, or `Tested`.
+  ///
+  /// The editor writes this private metadata when a custom stamp with a type
+  /// is placed. It stays in the annotation dictionary so tap handlers,
+  /// annotation sync, and reopened documents can classify placed stamps
+  /// without relying on their visible caption.
+  String? get stampType {
+    final value = document.cos.resolve(dict['DartPdfStampType']);
+    return value is CosString ? value.text : null;
+  }
+
+  /// App-defined labels attached to a custom stamp annotation.
+  ///
+  /// These are stored as private annotation metadata beside [stampType].
+  List<String> get stampTags {
+    final value = document.cos.resolve(dict['DartPdfStampTags']);
+    if (value is! CosArray) return const [];
+    final tags = <String>[];
+    for (final item in value.items) {
+      final tag = document.cos.resolve(item);
+      if (tag is CosString && tag.text.trim().isNotEmpty) {
+        tags.add(tag.text);
+      }
+    }
+    return List.unmodifiable(tags);
+  }
 
   /// The /NM of the annotation this one is in reply to (§12.5.6.x): /IRT
   /// is an indirect reference to the parent markup annotation, which this
@@ -152,7 +192,7 @@ class PdfAnnotation {
     return s is CosString ? s.text : null;
   }
 
-  /// The /StateModel naming which family [reviewState] belongs to —
+  /// The /StateModel naming which family [reviewState] belongs to -
   /// `Review` or `Marked` (§12.5.6.2). Its presence is what marks an
   /// annotation as a *state* annotation rather than a content reply.
   String? get stateModel {
@@ -167,8 +207,8 @@ class PdfAnnotation {
   }
 
   /// The /CreationDate parsed from its PDF date string (§7.9.4), if any.
-  DateTime? get creationDate => _parsePdfDate(
-      document.cos.resolve(dict['CreationDate']) is CosString
+  DateTime? get creationDate =>
+      _parsePdfDate(document.cos.resolve(dict['CreationDate']) is CosString
           ? (document.cos.resolve(dict['CreationDate']) as CosString).text
           : null);
 
@@ -230,6 +270,26 @@ class PdfAnnotation {
     return values.any((value) => value > 0) ? values : null;
   }
 
+  /// Whether the annotation asks conforming viewers to render its border as
+  /// a cloudy border effect (`/BE << /S /Cloudy ... >>`).
+  bool get hasCloudyBorder {
+    final be = document.cos.resolve(dict['BE']);
+    if (be is! CosDictionary) return false;
+    final style = document.cos.resolve(be['S']);
+    return style is CosName && style.value == 'Cloudy';
+  }
+
+  /// The cloud scallop scale carried on `/BE /I` (§12.5.4) - the border
+  /// effect intensity, which the editor also uses as a puff-size multiplier
+  /// so a cloud's scallop size survives a restyle or reshape independently
+  /// of its stroke width. Defaults to 1 when absent or not cloudy.
+  double get cloudBorderScale {
+    final be = document.cos.resolve(dict['BE']);
+    if (be is! CosDictionary) return 1;
+    final intensity = _number(document.cos.resolve(be['I']));
+    return intensity == null || intensity <= 0 ? 1 : intensity;
+  }
+
   /// The endpoints of a /Line annotation, page space.
   ((double, double), (double, double))? get line {
     if (subtype != 'Line') return null;
@@ -256,6 +316,47 @@ class PdfAnnotation {
       points.add((x, y));
     }
     return points;
+  }
+
+  /// True when this is a FreeText callout (§12.5.6.19): a text box joined
+  /// to a point on the page by a leader line (/CL) that ends in an arrow.
+  bool get isCallout {
+    if (subtype != 'FreeText') return false;
+    final it = document.cos.resolve(dict['IT']);
+    return it is CosName && it.value == 'FreeTextCallout';
+  }
+
+  /// The callout leader-line points (/CL, §12.5.6.19) in page space - the
+  /// first point is the arrow tip on the page, the last touches the text
+  /// box. Null when this is not a callout or carries no usable /CL.
+  List<(double, double)>? get calloutLine {
+    if (!isCallout) return null;
+    final raw = document.cos.resolve(dict['CL']);
+    if (raw is! CosArray || raw.items.length < 4) return null;
+    final points = <(double, double)>[];
+    for (var i = 0; i + 1 < raw.items.length; i += 2) {
+      final x = _number(document.cos.resolve(raw.items[i]));
+      final y = _number(document.cos.resolve(raw.items[i + 1]));
+      if (x == null || y == null) return null;
+      points.add((x, y));
+    }
+    return points;
+  }
+
+  /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
+  /// distinct from /Rect which also encloses the leader line and arrowhead.
+  /// Null when this is not a callout.
+  PdfRect? get calloutBox {
+    if (!isCallout) return null;
+    final rd = document.cos.resolve(dict['RD']);
+    double d(int i) {
+      if (rd is! CosArray || rd.items.length <= i) return 0;
+      return _number(document.cos.resolve(rd.items[i])) ?? 0;
+    }
+
+    final r = rect;
+    return PdfRect(
+        r.left + d(0), r.bottom + d(3), r.right - d(2), r.top - d(1));
   }
 
   /// The /Measure dictionary (§12.9): the scale and unit formats a
@@ -301,8 +402,8 @@ class PdfAnnotation {
     return null;
   }
 
-  /// The fully computed takeoff measurement — kind, real-world value, unit,
-  /// formatted text — or null when the annotation isn't a measurement (no
+  /// The fully computed takeoff measurement - kind, real-world value, unit,
+  /// formatted text - or null when the annotation isn't a measurement (no
   /// /Measure and not a count marker).
   PdfMeasurementResult? get measurementResult {
     final kind = measurementKind;
@@ -389,7 +490,7 @@ class PdfAnnotation {
   /// The real-world measurement this annotation represents, formatted
   /// through its /Measure: a distance for /Line, a perimeter (the sum of
   /// the segment lengths) for /PolyLine, and a shoelace area for
-  /// /Polygon — plus the takeoff kinds (count/volume/angle/arc/slope/net
+  /// /Polygon - plus the takeoff kinds (count/volume/angle/arc/slope/net
   /// area) when a /Takeoff is present. Null without a /Measure or for
   /// other subtypes.
   String? get measurementText => measurementResult?.text;
@@ -436,7 +537,7 @@ class PdfAnnotation {
     return da is CosString ? da.text : null;
   }
 
-  /// The free-text rich-content string (§12.7.3.4 `/RC`) — the XHTML that
+  /// The free-text rich-content string (§12.7.3.4 `/RC`) - the XHTML that
   /// records per-run styling the flat /DA can't, written by
   /// `PdfEditor.addFreeTextRich`. Null when absent (plain free text or a
   /// non-free-text annotation). Parse it with
@@ -448,13 +549,13 @@ class PdfAnnotation {
   }
 
   /// The complete style of a free-text annotation, parsed from /DA, /C,
-  /// and /BS — everything needed to regenerate its appearance at a new
+  /// and /BS - everything needed to regenerate its appearance at a new
   /// size. Null for other subtypes or when /DA has no usable `Tf`.
   ///
   /// Mapping: text color is /DA's `rg` (or `g`) operator; the background
-  /// is /C (per §12.5.6.6 — but a /C that *equals* the text color is
+  /// is /C (per §12.5.6.6 - but a /C that *equals* the text color is
   /// treated as a legacy text-color mirror, not a background); border
-  /// width is /BS /W (0 when absent — the /Border default of 1 would
+  /// width is /BS /W (0 when absent - the /Border default of 1 would
   /// conjure borders most viewers never drew); border color is /DA's
   /// `RG` operator, falling back to the text color when /BS declares a
   /// width without one.
@@ -490,6 +591,15 @@ class PdfAnnotation {
     final background = color;
     final width = borderWidth ?? 0;
     final q = document.cos.resolve(dict['Q']);
+    final cos = document.cos;
+    double? number(String key) {
+      final v = cos.resolve(dict[key]);
+      if (v is CosInteger) return v.value.toDouble();
+      if (v is CosReal) return v.value;
+      return null;
+    }
+
+    final underlineFlag = cos.resolve(dict[kPdfFreeTextUnderlineKey]);
     return PdfFreeTextStyle(
       fontName: tf.group(1)!,
       fontSize: size,
@@ -498,6 +608,12 @@ class PdfAnnotation {
       borderColor: lastColor('RG') ?? (width > 0 ? text : null),
       borderWidth: width,
       alignment: PdfTextAlign.fromQuadding(q is CosInteger ? q.value : null),
+      lineSpacing:
+          number(kPdfFreeTextLineSpacingKey) ?? kPdfFreeTextDefaultLineSpacing,
+      charSpacing: number(kPdfFreeTextCharSpacingKey) ?? 0,
+      horizontalScale:
+          number(kPdfFreeTextHScaleKey) ?? kPdfFreeTextDefaultHorizontalScale,
+      underline: underlineFlag is CosBoolean && underlineFlag.value,
     );
   }
 
@@ -552,7 +668,7 @@ class PdfAnnotation {
   }
 
   /// The constant alpha the normal appearance carries: the first /ca
-  /// among its /Resources /ExtGState entries — where [PdfEditor]-authored
+  /// among its /Resources /ExtGState entries - where [PdfEditor]-authored
   /// annotations store their opacity (they deliberately write no dict
   /// /CA, which conforming viewers would apply *on top* of the alpha
   /// already baked into the appearance). 1.0 without one.
@@ -647,8 +763,8 @@ DateTime? _parsePdfDate(String? value) {
   if (match == null) return null;
   int part(int i, [int fallback = 0]) =>
       match.group(i) == null ? fallback : int.parse(match.group(i)!);
-  var time = DateTime.utc(
-      part(1), part(2, 1), part(3, 1), part(4), part(5), part(6));
+  var time =
+      DateTime.utc(part(1), part(2, 1), part(3, 1), part(4), part(5), part(6));
   if (match.group(7) == '+' || match.group(7) == '-') {
     final offset = Duration(hours: part(8), minutes: part(9));
     time = match.group(7) == '+' ? time.subtract(offset) : time.add(offset);
@@ -656,7 +772,7 @@ DateTime? _parsePdfDate(String? value) {
   return time;
 }
 
-/// Formats [time] as a PDF date string (§7.9.4) in UTC — the form the
+/// Formats [time] as a PDF date string (§7.9.4) in UTC - the form the
 /// comment editor stamps on /CreationDate and /M, round-tripping through
 /// [_parsePdfDate] and parsing in other readers (Acrobat).
 String pdfFormatDate(DateTime time) {
@@ -665,6 +781,22 @@ String pdfFormatDate(DateTime time) {
   return "D:${t.year.toString().padLeft(4, '0')}${two(t.month)}${two(t.day)}"
       "${two(t.hour)}${two(t.minute)}${two(t.second)}Z00'00'";
 }
+
+/// Dictionary keys where free-text styling that /DA and /Q cannot express
+/// is persisted (line height, character spacing, horizontal glyph scaling,
+/// whole-box underline). Non-standard PDF keys, written and read back only
+/// by this package so a resize/edit can regenerate the same appearance.
+const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
+const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
+const String kPdfFreeTextHScaleKey = 'HScale';
+const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+
+/// The default free-text line-height multiplier (baseline-to-baseline
+/// distance is `fontSize * lineSpacing`).
+const double kPdfFreeTextDefaultLineSpacing = 1.2;
+
+/// The default free-text horizontal glyph scaling, as a percentage.
+const double kPdfFreeTextDefaultHorizontalScale = 100.0;
 
 /// A free-text annotation's text and box styling, as recoverable from
 /// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are
@@ -678,6 +810,10 @@ class PdfFreeTextStyle {
     this.borderColor,
     this.borderWidth = 0,
     this.alignment = PdfTextAlign.left,
+    this.lineSpacing = kPdfFreeTextDefaultLineSpacing,
+    this.charSpacing = 0,
+    this.horizontalScale = kPdfFreeTextDefaultHorizontalScale,
+    this.underline = false,
   });
 
   /// The /DA font resource name (e.g. `Helv`), unresolved.
@@ -697,6 +833,20 @@ class PdfFreeTextStyle {
   /// How the lines are aligned inside the box (the /Q quadding). Defaults
   /// to [PdfTextAlign.left] when the annotation carries no /Q.
   final PdfTextAlign alignment;
+
+  /// The line-height multiplier (baseline-to-baseline distance is
+  /// `fontSize * lineSpacing`). Defaults to [kPdfFreeTextDefaultLineSpacing].
+  final double lineSpacing;
+
+  /// Extra spacing added after each glyph, in points (the Tc value).
+  final double charSpacing;
+
+  /// Horizontal glyph scaling as a percentage - 100 is the font's natural
+  /// width (the Tz value).
+  final double horizontalScale;
+
+  /// Whether the whole box is drawn underlined.
+  final bool underline;
 }
 
 /// A /Link annotation: a clickable region with an action (§12.5.6.5).
@@ -777,7 +927,7 @@ class PdfWidgetAnnotation extends PdfAnnotation {
   /// Fully qualified field name (partial names joined with dots).
   final String? fieldName;
 
-  /// The field's current value — /V resolved up the /Parent chain
+  /// The field's current value - /V resolved up the /Parent chain
   /// (§12.7.4.2): the text of text and choice fields, the on-state name
   /// of buttons ('Off' when unchecked), the first element of a
   /// multi-select choice value.
@@ -860,7 +1010,7 @@ class PdfNamedAction extends PdfAction {
   final String name;
 }
 
-/// /JavaScript: the script is surfaced verbatim — there is deliberately no
+/// /JavaScript: the script is surfaced verbatim - there is deliberately no
 /// JS engine here. Apps that author their own PDFs can pattern-match the
 /// source; everything else should be ignored.
 class PdfJavaScriptAction extends PdfAction {

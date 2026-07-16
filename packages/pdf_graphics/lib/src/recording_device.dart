@@ -11,8 +11,8 @@ import 'shading.dart';
 /// replayable [commands] list instead of painting.
 ///
 /// It performs no rendering and touches no `dart:ui`, so it can run anywhere
-/// the interpreter does — including a background isolate, where the heavy
-/// content-stream parse and walk happen — and its output ([commands]) is fed
+/// the interpreter does - including a background isolate, where the heavy
+/// content-stream parse and walk happen - and its output ([commands]) is fed
 /// back through [replayCommands] into a real painting device on the side that
 /// owns the canvas. The recorded arguments are the interpreter's own value
 /// types ([PdfPath], [PdfColor], [PdfTextRun], …), all immutable, so the list
@@ -29,7 +29,7 @@ class RecordingPdfDevice implements PdfDevice {
 
   /// Every image the page referenced, in the order the interpreter drew them
   /// (including those inside soft-mask groups). The same list the device's
-  /// [drawImage] calls produced — useful for decoding ahead of replay.
+  /// [drawImage] calls produced - useful for decoding ahead of replay.
   final List<PdfImageRequest> imageRequests = [];
 
   /// The list new commands append to. Normally [commands]; temporarily a

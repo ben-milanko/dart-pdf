@@ -4,7 +4,7 @@ import 'dart:typed_data';
 const _pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
 
 /// A render passes when at most this fraction of pixels differ from the PDF.js
-/// baseline — mirrors `_maxDifferingFraction` in pdfjs_render_test.dart.
+/// baseline - mirrors `_maxDifferingFraction` in pdfjs_render_test.dart.
 const _passThreshold = 0.0005;
 
 void main(List<String> args) {
@@ -244,7 +244,7 @@ _Result _passFail(double? fraction) {
 enum _Result {
   pass('✅ pass'),
   fail('❌ fail'),
-  na('—');
+  na('-');
 
   const _Result(this.label);
 

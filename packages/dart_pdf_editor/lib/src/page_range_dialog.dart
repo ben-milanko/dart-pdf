@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// Asks the user for an inclusive page range, returning it 0-based as
-/// `(start, end)` — or null when cancelled. [pageCount] bounds the input
+/// `(start, end)` - or null when cancelled. [pageCount] bounds the input
 /// and seeds the default span (the whole document, unless [initialStart]/
 /// [initialEnd] narrow it). Fields are shown 1-based.
 ///

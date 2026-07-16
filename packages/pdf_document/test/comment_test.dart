@@ -45,7 +45,7 @@ void main() {
       expect(reply.inReplyTo, 'root-1',
           reason: '/IRT resolves to the parent /NM');
       expect(reply.creationDate, isNotNull);
-      // a reply carries no on-page appearance — it is thread content
+      // a reply carries no on-page appearance - it is thread content
       expect(reply.normalAppearance, isNull);
     });
 
@@ -398,7 +398,7 @@ extension<T> on T {
 
 /// A hand-written PDF whose page carries a root markup, two replies (one
 /// dated, one dateless), and an *orphan* state annotation whose /IRT
-/// dangles — the lenient-parsing edges of [PdfCommentThread] that the
+/// dangles - the lenient-parsing edges of [PdfCommentThread] that the
 /// authoring API never produces. Object offsets are computed so the xref
 /// is correct.
 Uint8List _threadEdgesPdf() {

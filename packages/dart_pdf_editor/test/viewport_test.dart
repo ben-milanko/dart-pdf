@@ -98,7 +98,7 @@ void main() {
     test('a viewport set before loading survives the disk read', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = PdfEditingPreferences();
-      // set before awaiting ready — _store is still null
+      // set before awaiting ready - _store is still null
       prefs.setViewport('early', const PdfViewport(page: 9));
       await prefs.ready;
       await pumpEventQueue();
@@ -125,7 +125,7 @@ void main() {
         );
 
     // pump a fresh viewer element (initState, not didUpdateWidget) by
-    // clearing the tree first — same-shape rebuilds reuse the State and
+    // clearing the tree first - same-shape rebuilds reuse the State and
     // would skip the initialViewport.
     Future<void> reopen(WidgetTester tester, Widget next) async {
       await tester.pumpWidget(const MaterialApp(home: Scaffold()));
@@ -184,7 +184,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       expect(c1.zoom, greaterThan(1));
       // public zoom is px/pt; the snapshot stores the fit-width multiple, so
-      // they differ — compare the restored viewer's px/pt zoom to c1's
+      // they differ - compare the restored viewer's px/pt zoom to c1's
       final zoomedIn = c1.zoom;
 
       final snapshot = c1.captureViewport();
@@ -317,7 +317,7 @@ void main() {
     testWidgets('app going hidden flushes the position before the debounce',
         (tester) async {
       // the web case: a tab is closed/hidden without disposing the widget,
-      // and faster than the 400ms save debounce — the lifecycle flush must
+      // and faster than the 400ms save debounce - the lifecycle flush must
       // still persist the position
       SharedPreferences.setMockInitialValues({});
       final prefs = PdfEditingPreferences();
@@ -344,7 +344,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(v.currentPage, 3);
 
-      // go hidden well within the debounce window — nothing written yet
+      // go hidden well within the debounce window - nothing written yet
       expect(prefs.viewportFor('doc-hide'), isNull);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       await tester.pump();

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'editing_color_picker.dart';
+
 /// A Bold / Italic toggle pair that picks the matching base-14 variant of
-/// [font]'s current family (Sans/Serif/Mono). Reports the new font — same
-/// family, the toggled style — through [onChanged].
+/// [font]'s current family (Sans/Serif/Mono). Reports the new font - same
+/// family, the toggled style - through [onChanged].
 ///
 /// Package-internal chrome shared by the toolbar style popup and the
 /// annotation properties panel; not part of the public API.
@@ -167,4 +169,133 @@ class TextAlignToggles extends StatelessWidget {
       ),
     ]);
   }
+}
+
+/// One labelled colour row: a "none" swatch, a [palette] of quick picks, and
+/// a custom-picker button. Reports the chosen colour (null for none) through
+/// [onChanged].
+///
+/// Package-internal chrome shared by the toolbar style popup (Text fill /
+/// Text border) and the content text-style dialog, so both look and behave
+/// the same; not part of the public API.
+class PdfColorSwatchRow extends StatelessWidget {
+  const PdfColorSwatchRow({
+    super.key,
+    required this.label,
+    required this.keyPrefix,
+    required this.value,
+    required this.palette,
+    required this.onChanged,
+    this.labelWidth = 86,
+    this.allowNone = true,
+  });
+
+  /// The row label (e.g. "Text fill").
+  final String label;
+
+  /// Prefix for the swatch keys (`<prefix>-none`, `<prefix>-0`, …).
+  final String keyPrefix;
+
+  /// The currently selected colour, or null when "none" is selected.
+  final Color? value;
+
+  /// The quick-pick swatches shown between "none" and the custom picker.
+  final List<Color> palette;
+
+  /// Called with the chosen colour, or null for the "none" swatch.
+  final ValueChanged<Color?> onChanged;
+
+  /// Width of the leading label column, matched to the popup's rows.
+  final double labelWidth;
+
+  /// Whether to include the leading "none" swatch. Background and border
+  /// rows allow no colour; foreground text always needs one.
+  final bool allowNone;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Widget swatch({
+      required Key key,
+      required Color? color,
+      required bool selected,
+      required VoidCallback onTap,
+    }) =>
+        Padding(
+          // 1px keeps six swatches + the picker inside the menu's width
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+          child: InkWell(
+            key: key,
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: color ?? const Color(0xFFFFFFFF),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: selected ? scheme.primary : scheme.outline,
+                  width: selected ? 3 : 1,
+                ),
+              ),
+              child: color == null
+                  ? const CustomPaint(painter: _NoneSlashPainter())
+                  : null,
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(children: [
+        SizedBox(width: labelWidth, child: Text(label)),
+        if (allowNone)
+          swatch(
+            key: ValueKey('$keyPrefix-none'),
+            color: null,
+            selected: value == null,
+            onTap: () => onChanged(null),
+          ),
+        for (var i = 0; i < palette.length; i++)
+          swatch(
+            key: ValueKey('$keyPrefix-$i'),
+            color: palette[i],
+            selected: value != null &&
+                (value!.toARGB32() & 0xFFFFFF) ==
+                    (palette[i].toARGB32() & 0xFFFFFF),
+            onTap: () => onChanged(palette[i]),
+          ),
+        IconButton(
+          key: ValueKey('$keyPrefix-more'),
+          icon: const Icon(Icons.palette_outlined, size: 18),
+          tooltip: 'More colors…',
+          visualDensity: VisualDensity.compact,
+          onPressed: () async {
+            final picked = await showPdfColorPicker(context,
+                initial: value ?? const Color(0xFFFFFFFF));
+            if (picked != null) onChanged(picked);
+          },
+        ),
+      ]),
+    );
+  }
+}
+
+/// Paints the diagonal slash of a "none" colour swatch.
+class _NoneSlashPainter extends CustomPainter {
+  const _NoneSlashPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawLine(
+        Offset(3, size.height - 3),
+        Offset(size.width - 3, 3),
+        Paint()
+          ..color = const Color(0xFFE53935)
+          ..strokeWidth = 1.5
+          ..strokeCap = StrokeCap.round);
+  }
+
+  @override
+  bool shouldRepaint(_NoneSlashPainter oldDelegate) => false;
 }

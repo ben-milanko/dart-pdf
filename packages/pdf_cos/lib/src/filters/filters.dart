@@ -48,7 +48,7 @@ const Map<String, CosFilter> _filters = {
 /// /DecodeParms, and /Length entries.
 ///
 /// [stopBeforeFilter] stops the chain just before the named filter and
-/// returns the partially decoded bytes — used to undo e.g. FlateDecode
+/// returns the partially decoded bytes - used to undo e.g. FlateDecode
 /// wrapped around a JPEG while leaving the JPEG for a platform codec.
 Uint8List decodeStream(CosStream stream,
     {CosResolver? resolve, String? stopBeforeFilter}) {

@@ -26,7 +26,10 @@ extension PdfPageOperations on PdfEditor {
         {...order}.length != count ||
         order.any((i) => i < 0 || i >= count)) {
       throw ArgumentError.value(
-          order, 'order', 'must be a permutation of 0..${count - 1}');
+        order,
+        'order',
+        'must be a permutation of 0..${count - 1}',
+      );
     }
     final leaves = _materializedLeaves();
     _rebuildPageTree([for (final i in order) leaves[i]]);
@@ -49,8 +52,10 @@ extension PdfPageOperations on PdfEditor {
       throw ArgumentError('cannot remove every page of a document');
     }
     final leaves = _materializedLeaves();
-    _rebuildPageTree(
-        [for (var i = 0; i < count; i++) if (!doomed.contains(i)) leaves[i]]);
+    _rebuildPageTree([
+      for (var i = 0; i < count; i++)
+        if (!doomed.contains(i)) leaves[i],
+    ]);
   }
 
   /// Rotates the pages at [indices] clockwise by [degrees] (a multiple of
@@ -60,8 +65,7 @@ extension PdfPageOperations on PdfEditor {
   /// page dictionary (so it overrides any value inherited from an ancestor).
   void rotatePages(Iterable<int> indices, int degrees) {
     if (degrees % 90 != 0) {
-      throw ArgumentError.value(
-          degrees, 'degrees', 'must be a multiple of 90');
+      throw ArgumentError.value(degrees, 'degrees', 'must be a multiple of 90');
     }
     final count = document.pageCount;
     final targets = {...indices};
@@ -76,8 +80,10 @@ extension PdfPageOperations on PdfEditor {
       if (next < 0) next += 360;
       dict['Rotate'] = CosInteger(next);
       _updater.markChanged(dict);
+      _regenerateFormAppearancesOnPage(i);
     }
     document.invalidatePageCache();
+    _markContent(targets);
   }
 
   /// Inserts a new blank page [at] the given index (default: appended at
@@ -101,11 +107,12 @@ extension PdfPageOperations on PdfEditor {
     });
     final ref = _updater.addObject(dict);
     _rebuildPageTree(
-        [...leaves]..insert(insertAt, _Leaf(ref, dict, isNew: true)));
+      [...leaves]..insert(insertAt, _Leaf(ref, dict, isNew: true)),
+    );
   }
 
-  /// Copies pages from [source] into this document — all of them, or the
-  /// given [indices] (in that order) — inserting [at] the given position
+  /// Copies pages from [source] into this document - all of them, or the
+  /// given [indices] (in that order) - inserting [at] the given position
   /// (default: appended at the end).
   ///
   /// Everything each page references is deep-copied: content streams,
@@ -115,11 +122,12 @@ extension PdfPageOperations on PdfEditor {
   /// document along).
   void appendPagesFrom(PdfDocument source, {List<int>? indices, int? at}) {
     if (identical(source.cos, document.cos)) {
-      throw ArgumentError('source is this document; '
-          'use movePage/reorderPages to rearrange within a file');
+      throw ArgumentError(
+        'source is this document; '
+        'use movePage/reorderPages to rearrange within a file',
+      );
     }
-    final picks =
-        indices ?? [for (var i = 0; i < source.pageCount; i++) i];
+    final picks = indices ?? [for (var i = 0; i < source.pageCount; i++) i];
     for (final i in picks) {
       RangeError.checkValidIndex(i, null, 'indices', source.pageCount);
     }
@@ -133,13 +141,11 @@ extension PdfPageOperations on PdfEditor {
   }
 
   /// Collects the current leaves in order, copying any attributes a page
-  /// inherits from its ancestors onto the page itself — flattening is
+  /// inherits from its ancestors onto the page itself - flattening is
   /// about to cut those ancestors out of the tree.
   List<_Leaf> _materializedLeaves() {
     final count = document.pageCount;
-    return [
-      for (var i = 0; i < count; i++) _materialize(document.page(i)),
-    ];
+    return [for (var i = 0; i < count; i++) _materialize(document.page(i))];
   }
 
   _Leaf _materialize(PdfPage page) {
@@ -185,6 +191,7 @@ extension PdfPageOperations on PdfEditor {
     root['Count'] = CosInteger(leaves.length);
     _updater.markChanged(root);
     document.invalidatePageCache();
+    _markStructure();
   }
 
   CosReference _pagesRootRef() {
@@ -228,10 +235,9 @@ extension PdfPageExtraction on PdfDocument {
     }
     pagesDict['Kids'] = CosArray([for (final leaf in leaves) leaf.ref]);
     pagesDict['Count'] = CosInteger(leaves.length);
-    final catalogRef = builder.add(CosDictionary({
-      'Type': const CosName('Catalog'),
-      'Pages': pagesRef,
-    }));
+    final catalogRef = builder.add(
+      CosDictionary({'Type': const CosName('Catalog'), 'Pages': pagesRef}),
+    );
     CosReference? infoRef;
     final info = cos.resolve(cos.trailer['Info']);
     if (info is CosDictionary) {
@@ -241,14 +247,13 @@ extension PdfPageExtraction on PdfDocument {
     return builder.build(
       root: catalogRef,
       info: infoRef,
-      version: RegExp(r'^\d+\.\d+$').hasMatch(headerVersion)
-          ? headerVersion
-          : '1.7',
+      version:
+          RegExp(r'^\d+\.\d+$').hasMatch(headerVersion) ? headerVersion : '1.7',
     );
   }
 
   /// Builds a standalone PDF of pages [start] through [end] inclusive, in
-  /// order — a convenience over [extractPages] for the common contiguous
+  /// order - a convenience over [extractPages] for the common contiguous
   /// range. [end] must not be before [start].
   Uint8List extractPageRange(int start, int end) {
     if (end < start) {
@@ -268,7 +273,7 @@ class _Leaf {
   /// Attributes were materialized onto the dict, so it must be rewritten.
   final bool changed;
 
-  /// Freshly imported — already queued for writing, [PdfEditor] must not
+  /// Freshly imported - already queued for writing, [PdfEditor] must not
   /// call markChanged on it.
   final bool isNew;
 }
@@ -291,8 +296,8 @@ class _PageImporter {
     final cos = source.cos;
     final pages = [for (final i in indices) source.page(i)];
 
-    // pre-register every imported page so references between them — link
-    // destinations, annotation /P entries — remap instead of dropping
+    // pre-register every imported page so references between them - link
+    // destinations, annotation /P entries - remap instead of dropping
     final leaves = <_Leaf>[];
     for (final page in pages) {
       final dest = CosDictionary();
@@ -345,8 +350,7 @@ class _PageImporter {
       case CosArray array:
         return CosArray([for (final item in array.items) copyValue(item)]);
       case CosString string:
-        return CosString(Uint8List.fromList(string.bytes),
-            isHex: string.isHex);
+        return CosString(Uint8List.fromList(string.bytes), isHex: string.isHex);
       default:
         return value; // names, numbers, booleans, null are immutable
     }
@@ -370,7 +374,7 @@ class _PageImporter {
       case CosNull():
         return CosNull.instance;
       default:
-        // an indirectly referenced scalar — inline it at the use site
+        // an indirectly referenced scalar - inline it at the use site
         return copyValue(target);
     }
   }
@@ -399,8 +403,7 @@ class _PageImporter {
     final filter = cos.resolve(stream.dictionary['Filter']);
     final first = switch (filter) {
       CosName(:final value) => value,
-      CosArray array when array.length > 0 =>
-        switch (cos.resolve(array[0])) {
+      CosArray array when array.length > 0 => switch (cos.resolve(array[0])) {
           CosName(:final value) => value,
           _ => null,
         },

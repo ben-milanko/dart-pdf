@@ -7,7 +7,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // The mobile dock shows its colour swatches only when colour is relevant to
-// the moment — a colour-using tool armed, or a recolourable selection — and
+// the moment - a colour-using tool armed, or a recolourable selection - and
 // gives the space to a selection's quick actions otherwise (Ben: "Only show
 // the colours on the mobile toolbar if it's relevant to the current tool").
 void main() {
@@ -45,6 +45,7 @@ void main() {
 
     for (final tool in [
       PdfEditTool.ink,
+      PdfEditTool.highlight,
       PdfEditTool.rectangle,
       PdfEditTool.line,
       PdfEditTool.freeText,
@@ -66,7 +67,7 @@ void main() {
       (tester) async {
     final editing = await pumpToolbar(tester);
 
-    // resting (Select) — no colour to set
+    // resting (Select) - no colour to set
     expect(swatch, findsNothing);
 
     editing.tool = PdfEditTool.eraser;
@@ -92,7 +93,7 @@ void main() {
     expect(swatch, findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsNothing);
 
-    // slot 0 is the Square annotation — selectable, unlike the Link/Widget
+    // slot 0 is the Square annotation - selectable, unlike the Link/Widget
     // entries the link fixture carries; selecting arms the select tool
     expect(editing.selectAnnotation(0, 0), isTrue);
     await tester.pump();
@@ -107,6 +108,37 @@ void main() {
     await tester.pump();
     expect(editing.hasAnnotationSelection, isFalse);
     expect(editing.isModified, isTrue, reason: 'the annotation was removed');
+  });
+
+  testWidgets('a selected form field exposes its mobile toolbar controls',
+      (tester) async {
+    final editing = await pumpToolbar(tester, bytes: buildAcroFormPdf());
+    expect(editing.selectFormWidgetAt(0, 186, 712), isTrue);
+    await tester.pump();
+
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-more')), findsOneWidget);
+    expect(tester.takeException(), isNull,
+        reason: 'the field controls fit the 380px mobile dock');
+
+    await tester.tap(find.byKey(const ValueKey('pdf-selected-form-more')));
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-edit')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-rename')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-style')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-type-text')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-type-checkbox')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-type-button')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-selected-form-delete')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-selected-form-flatten')),
+        findsOneWidget);
   });
 
   testWidgets('a selected content element surfaces mobile edit actions',

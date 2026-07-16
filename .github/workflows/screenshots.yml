@@ -2,7 +2,7 @@ name: Marketing screenshots
 
 # Captures native device screenshots of the DartPDF app and the example app
 # and frames them onto the gradient marketing canvas at store dimensions.
-# Manual / on-demand only — it boots simulators + an emulator and is slow.
+# Manual / on-demand only - it boots simulators + an emulator and is slow.
 # Artifacts (doc/marketing + doc/screenshots) are attached to the run.
 
 on:

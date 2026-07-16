@@ -59,12 +59,12 @@ void main() {
       final annots = out.page(0).annotations;
       final redact = annots.singleWhere((a) => a.subtype == 'Redact');
       expect(redact, isNotNull);
-      // it is a mark only — nothing removed from the content yet
+      // it is a mark only - nothing removed from the content yet
       expect(pageText(out), contains('BT'));
     });
   });
 
-  group('burn — text', () {
+  group('burn - text', () {
     // SECRET on the top line, PUBLIC well below it.
     const content = 'BT /F1 12 Tf 72 700 Td (SECRET) Tj ET\n'
         'BT /F1 12 Tf 72 600 Td (PUBLIC) Tj ET\n';
@@ -118,7 +118,7 @@ void main() {
     });
   });
 
-  group('burn — images', () {
+  group('burn - images', () {
     const imageContent = 'q 200 0 0 100 50 300 cm /Im1 Do Q\n';
 
     test('a fully covered image XObject is dropped', () {
@@ -142,7 +142,7 @@ void main() {
     });
   });
 
-  group('burn — overlay & scrubbing', () {
+  group('burn - overlay & scrubbing', () {
     test('overlay text is painted into the fill', () {
       final doc = PdfDocument.open(
           buildRedactPdf('BT /F1 12 Tf 72 700 Td (SECRET) Tj ET\n'));

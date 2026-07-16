@@ -36,13 +36,33 @@ void main() {
       'name': 'shared.pdf',
       'path': '/tmp/shared.pdf',
     }));
-    await TestDefaultBinaryMessengerBinding
-        .instance.defaultBinaryMessenger
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
             IncomingFileService.channelName, message, (_) {});
 
     final file = await received;
     expect(file.name, 'shared.pdf');
     expect(file.path, '/tmp/shared.pdf');
+  });
+
+  test('native openFile preserves a security bookmark', () async {
+    final service = IncomingFileService();
+    addTearDown(service.dispose);
+    service.start();
+
+    final received = service.files.first;
+    const codec = StandardMethodCodec();
+    final message = codec.encodeMethodCall(const MethodCall('openFile', {
+      'name': 'cloud.pdf',
+      'path': '/Users/ben/Library/CloudStorage/cloud.pdf',
+      'bookmark': 'bookmark-data',
+    }));
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+            IncomingFileService.channelName, message, (_) {});
+
+    final file = await received;
+    expect(file.path, '/Users/ben/Library/CloudStorage/cloud.pdf');
+    expect(file.bookmark, 'bookmark-data');
   });
 }

@@ -4,7 +4,7 @@ part of 'editor.dart';
 /// [PdfAnnotationEditing.addRedaction].
 ///
 /// True redaction per §12.5.6.23: covered text and images are *removed
-/// from the content-stream bytes* — not merely painted over — then the
+/// from the content-stream bytes* - not merely painted over - then the
 /// /IC fill is drawn into the page content and the /Redact annotations are
 /// deleted. The result is irreversible: a viewer (or a byte search of the
 /// saved file) cannot recover the glyphs that were under a redaction rect.
@@ -26,7 +26,7 @@ extension PdfRedactionApply on PdfEditor {
   /// whose /Rect is fully inside a redaction region.
   ///
   /// Unlike every other editor operation, the burn is NOT written as an
-  /// incremental update — an incremental save keeps the original bytes
+  /// incremental update - an incremental save keeps the original bytes
   /// (and therefore the redacted glyphs) physically in the file, where a
   /// byte search would recover them. Instead the whole document is
   /// re-serialized fresh (a compaction), dropping the superseded content
@@ -47,6 +47,7 @@ extension PdfRedactionApply on PdfEditor {
     }
     // No marks anywhere: keep any other staged edits as an incremental save.
     if (burned == 0) return save();
+    _markDestructive(pages);
     return _compactedSave();
   }
 
@@ -58,8 +59,9 @@ extension PdfRedactionApply on PdfEditor {
     final cos = document.cos;
     if (cos.encryption != null) {
       throw UnsupportedError(
-          'applyRedactions cannot compact an encrypted document; decrypt it '
-          'before redacting');
+        'applyRedactions cannot compact an encrypted document; decrypt it '
+        'before redacting',
+      );
     }
     final rootRef = cos.trailer['Root'];
     if (rootRef is! CosReference) {
@@ -128,8 +130,9 @@ extension PdfRedactionApply on PdfEditor {
 
     final builder = CosDocumentBuilder();
     for (final number in order) {
-      builder
-          .add(remap(cos.resolve(CosReference(number, generation[number]!))));
+      builder.add(
+        remap(cos.resolve(CosReference(number, generation[number]!))),
+      );
     }
     return builder.build(
       root: CosReference(newNumber[rootRef.objectNumber]!, 0),
@@ -171,18 +174,20 @@ extension PdfRedactionApply on PdfEditor {
       ..add(burned)
       ..add(latin1.encode('\nQ\n'))
       ..add(fill);
-    _setContent(page, rebuilt.takeBytes());
+    _setContent(pageIndex, page, rebuilt.takeBytes());
 
     // 3. Drop the /Redact annotations and scrub any annotation whose
     //    appearance is fully under a redaction region (it would leak the
     //    content the rect is meant to hide).
-    _PdfPageAnnotationList(this, pageIndex).removeWhere((_, resolved) {
+    final annotationsChanged =
+        _PdfPageAnnotationList(this, pageIndex).removeWhere((_, resolved) {
       if (resolved is! CosDictionary) return false;
       final subtype = cos.resolve(resolved['Subtype']);
       if (subtype is CosName && subtype.value == 'Redact') return true;
       final r = pdfRectFrom(cos, resolved['Rect']);
       return r != null && _rectFullyCovered(r, regions);
     });
+    if (annotationsChanged) _markAnnotations([pageIndex], visual: false);
     return true;
   }
 
@@ -202,21 +207,25 @@ extension PdfRedactionApply on PdfEditor {
       final v = <double>[];
       for (final n in quads.items) {
         final r = cos.resolve(n);
-        v.add(r is CosInteger
-            ? r.value.toDouble()
-            : r is CosReal
-                ? r.value
-                : 0);
+        v.add(
+          r is CosInteger
+              ? r.value.toDouble()
+              : r is CosReal
+                  ? r.value
+                  : 0,
+        );
       }
       for (var i = 0; i + 7 < v.length; i += 8) {
         final xs = [v[i], v[i + 2], v[i + 4], v[i + 6]];
         final ys = [v[i + 1], v[i + 3], v[i + 5], v[i + 7]];
-        rects.add(PdfRect(
-          xs.reduce(math.min),
-          ys.reduce(math.min),
-          xs.reduce(math.max),
-          ys.reduce(math.max),
-        ));
+        rects.add(
+          PdfRect(
+            xs.reduce(math.min),
+            ys.reduce(math.min),
+            xs.reduce(math.max),
+            ys.reduce(math.max),
+          ),
+        );
       }
     }
     if (rects.isEmpty) {
@@ -374,7 +383,7 @@ class _Redaction {
 }
 
 /// Walks a page content stream and rewrites it with the glyphs and images
-/// that fall inside any redaction [regions] removed — the content-stream
+/// that fall inside any redaction [regions] removed - the content-stream
 /// surgery half of a redaction burn.
 class _RedactionBurn {
   _RedactionBurn(this._cos, this._resources, this._regions);
@@ -419,8 +428,9 @@ class _RedactionBurn {
     final operands = op.operands;
     switch (op.operator) {
       case 'q':
-        _gsStack.add(_RedGraphicsState(
-            _ctm, _tfs, _tc, _tw, _th, _tl, _trise, _fontName));
+        _gsStack.add(
+          _RedGraphicsState(_ctm, _tfs, _tc, _tw, _th, _tl, _trise, _fontName),
+        );
         _writeOp(op, out);
         return;
       case 'Q':
@@ -445,7 +455,7 @@ class _RedactionBurn {
             _n(operands[2]),
             _n(operands[3]),
             _n(operands[4]),
-            _n(operands[5])
+            _n(operands[5]),
           ), _ctm);
         }
         _writeOp(op, out);
@@ -532,9 +542,12 @@ class _RedactionBurn {
         }
         _tlm = _redMul((1, 0, 0, 1, 0, -_tl), _tlm);
         _tm = _tlm;
-        _showText(op, out,
-            prefix: '${ContentWriter.fmt(_tw)} Tw '
-                '${ContentWriter.fmt(_tc)} Tc T*\n');
+        _showText(
+          op,
+          out,
+          prefix: '${ContentWriter.fmt(_tw)} Tw '
+              '${ContentWriter.fmt(_tc)} Tc T*\n',
+        );
         return;
       case 'TJ':
         _showText(op, out);
@@ -609,7 +622,7 @@ class _RedactionBurn {
 
     final font = _font(_fontName);
     // Composite fonts: bytes are CID codes, not characters. Don't try to
-    // split — drop the whole op if it touches a region, else keep verbatim.
+    // split - drop the whole op if it touches a region, else keep verbatim.
     if (font != null && font.isComposite) {
       final bounds = _compositeBounds(elements, font);
       if (bounds != null && _rectIntersectsAny(bounds)) {
@@ -813,8 +826,13 @@ class _RedactionBurn {
 
 /// The glyph metrics a redaction burn needs from one font.
 class _RedFont {
-  _RedFont._(this.isComposite, this._firstChar, this._widths, this._fallback,
-      this.defaultWidth);
+  _RedFont._(
+    this.isComposite,
+    this._firstChar,
+    this._widths,
+    this._fallback,
+    this.defaultWidth,
+  );
 
   final bool isComposite;
   final int _firstChar;
@@ -854,7 +872,7 @@ class _RedFont {
             CosInteger(:final value) => value.toDouble(),
             CosReal(:final value) => value,
             _ => 0.0,
-          }
+          },
       ];
     }
     return _RedFont._(false, firstChar, widths, fallback, 500);
@@ -883,8 +901,16 @@ class _RedFont {
 }
 
 class _RedGraphicsState {
-  _RedGraphicsState(this.ctm, this.tfs, this.tc, this.tw, this.th, this.tl,
-      this.trise, this.fontName);
+  _RedGraphicsState(
+    this.ctm,
+    this.tfs,
+    this.tc,
+    this.tw,
+    this.th,
+    this.tl,
+    this.trise,
+    this.fontName,
+  );
 
   final _RedMatrix ctm;
   final double tfs;

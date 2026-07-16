@@ -392,7 +392,7 @@ class _PdfComparisonToolbar extends StatelessWidget {
   }
 }
 
-/// Lists every change in a [PdfComparisonController], grouped by page —
+/// Lists every change in a [PdfComparisonController], grouped by page -
 /// tap to jump, mirroring [PdfSearchResultsPanel]'s shape. The inner edge
 /// is draggable.
 class PdfDiffNavigatorPanel extends StatefulWidget {

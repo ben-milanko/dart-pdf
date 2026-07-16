@@ -1,11 +1,11 @@
 // The Snapshot tool copies the captured region to the system clipboard as a
 // PNG (on top of keeping a vector copy for in-app paste-back). Flutter's
-// built-in Clipboard is text-only, so the app routes the PNG through
-// super_clipboard — behind the ImageClipboardWriter seam these tests fake.
-import 'dart:typed_data';
+// built-in Clipboard is text-only, so the app routes the PNG through its own
+// platform channel - behind the ImageClipboardWriter seam these tests fake.
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -91,12 +91,26 @@ void main() {
     expect(reported, isFalse);
   });
 
-  testWidgets('the default writer hands a PNG item to super_clipboard',
+  testWidgets('the default writer hands PNG bytes to the native channel',
       (tester) async {
-    // copyPngToClipboard is the production ImageClipboardWriter. There's no
-    // native clipboard channel under flutter_test, so the plugin call throws —
-    // which the handler turns into a copied=false result. This exercises the
-    // real writer + the handler's catch path together.
+    // copyPngToClipboard is the production ImageClipboardWriter. Its native
+    // channel is unavailable under flutter_test, so install a mock handler and
+    // assert the default writer sends the captured PNG through it.
+    const channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
+    Uint8List? written;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      (call) async {
+        expect(call.method, 'copyPng');
+        written = call.arguments as Uint8List;
+        return true;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
     bool? reported;
     final handler = clipboardSnapshotHandler(
       // no writer: → defaults to copyPngToClipboard
@@ -109,11 +123,37 @@ void main() {
         return const SizedBox();
       }),
     );
-    // let the async plugin call reject and the catch run
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    // Let the async channel call and handler callback run.
+    for (var i = 0; i < 10 && reported == null; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
 
-    expect(reported, isFalse);
+    expect(written, [0x89, 0x50, 1, 2]);
+    expect(reported, isTrue);
+  });
+
+  testWidgets('the default reader asks the native channel for image bytes',
+      (tester) async {
+    const channel = MethodChannel('dev.milanko.dartpdf/image_clipboard');
+    final image = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 1, 2]);
+    var calls = 0;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      (call) async {
+        expect(call.method, 'readImage');
+        calls++;
+        return image;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    final read = await readImageFromClipboard();
+
+    expect(calls, 1);
+    expect(read, image);
   });
 
   group('Snapshot tool through the viewer', () {
@@ -160,7 +200,7 @@ void main() {
         await gesture.moveTo(view(150, 720));
         await gesture.moveTo(view(220, 700));
         await gesture.up();
-        // captureSnapshot rasterizes + PNG-encodes (toImage) — let it finish.
+        // captureSnapshot rasterizes + PNG-encodes (toImage) - let it finish.
         for (var i = 0; i < 50 && written == null; i++) {
           await tester.pump(const Duration(milliseconds: 20));
           await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -169,7 +209,7 @@ void main() {
 
       expect(reported, isTrue);
       expect(written, isNotNull);
-      // PNG magic number — the captured raster reached the clipboard writer.
+      // PNG magic number - the captured raster reached the clipboard writer.
       expect(written!.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
       // the vector half still lands on the in-app clipboard for paste-back.
       expect(editing.hasSnapshotClipboard, isTrue);

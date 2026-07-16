@@ -121,7 +121,7 @@ void main() {
   testWidgets('a higher-res /Mask stencil keeps its resolution (issue4246)',
       (tester) async {
     await tester.runAsync(() async {
-      // A tiny colour image carrying its detail in a much larger stencil — the
+      // A tiny colour image carrying its detail in a much larger stencil - the
       // mask must NOT be crushed down to the base grid (that produced blocky
       // letters). Base 1x1 red, mask 4x1 paint/skip/paint/skip.
       final mask = CosStream(
@@ -341,7 +341,7 @@ void main() {
       // Two palette entries as L*a*b* bytes: white (L*=100, a*=b*=0) and
       // black (L*=0). Before the Lab base was handled, the palette fell
       // through to DeviceGray and the L/a/b triples were read as separate
-      // gray samples, so index 1 decoded to mid-gray (128) — banding a smooth
+      // gray samples, so index 1 decoded to mid-gray (128) - banding a smooth
       // gradient into diagonal stripes (issue2761.pdf).
       final image = CosStream(
         CosDictionary({
@@ -379,7 +379,7 @@ void main() {
       expect(pixels[0], greaterThan(230));
       expect((pixels[0] - pixels[1]).abs(), lessThan(16));
       expect((pixels[1] - pixels[2]).abs(), lessThan(16));
-      // index 1: near-black — the discriminator (the old gray fallback gave 128)
+      // index 1: near-black - the discriminator (the old gray fallback gave 128)
       expect(pixels[4], lessThan(30));
       expect(pixels[5], lessThan(30));
       expect(pixels[6], lessThan(30));
@@ -503,7 +503,7 @@ void main() {
       );
       final images = await decodeImages(cos, [req(image)]);
       final pixels = await pixelsOf(images[image]!);
-      // littleCMS: (0,164,219) — the naive cmyk() heuristic gives
+      // littleCMS: (0,164,219) - the naive cmyk() heuristic gives
       // (0,158,224), so this proves the profile path ran... barely;
       // the black test separates them decisively
       expect(pixels[0], closeTo(0, 3));
@@ -712,7 +712,7 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       // A representative process colour, fed both to the decoder and to
-      // PdfColor.cmyk directly — the inlined per-pixel path must match the
+      // PdfColor.cmyk directly - the inlined per-pixel path must match the
       // canonical conversion byte-for-byte (no hardcoded RGB constants).
       const c = 30, m = 90, y = 200, k = 60;
       final image = CosStream(

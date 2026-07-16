@@ -50,7 +50,7 @@ void main() {
   test('whole-word search needs non-word boundaries', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0); // 'Hello, world!'
-    // bounded by start/',' and by space/'!' — both whole words
+    // bounded by start/',' and by space/'!' - both whole words
     expect(text.findAll('Hello', wholeWord: true), hasLength(1));
     expect(text.findAll('world', wholeWord: true), hasLength(1));
     // a substring of a longer word is not a whole word
@@ -145,9 +145,142 @@ void main() {
     // 'Hello, world!' spans x 72..204, y 714..738 (center ~138, 726)
     expect(text.textIn(const PdfRect(60, 700, 300, 760)), 'Hello, world!');
     expect(text.textIn(const PdfRect(0, 0, 50, 50)), '');
-    // covering only the tail of the run misses its center — whole runs
+    // covering only the tail of the run misses its center - whole runs
     // are in or out, no partial text
     expect(text.textIn(const PdfRect(200, 700, 300, 760)), '');
+  });
+
+  test('Arabic visual-order glyphs extract in logical order with marks', () {
+    const logical = 'رَسُول اللَّه';
+    // Embedded PDF fonts normally paint glyphs in visual left-to-right stream
+    // order. Combining marks precede their logical base in that order.
+    const visual = 'هَّللا لوُسَر';
+    final page = PdfTextExtractor.extract(
+        PdfDocument.open(_buildArabicTextPdf(visual, embedded: true)), 0);
+
+    expect(page.text, logical);
+    expect(page.findAll(logical, caseSensitive: true), hasLength(1));
+    expect(page.findAll('اللَّه', caseSensitive: true), hasLength(1));
+    expect(page.textIn(const PdfRect(60, 690, 360, 750)), logical);
+    expect(
+      PdfTextExtractor.reflowPage(
+              PdfDocument.open(_buildArabicTextPdf(visual, embedded: true)), 0)
+          .text,
+      logical,
+    );
+
+    // Logical reading order starts on the physical right of the line.
+    final firstWord = page.findAll('رَسُول', caseSensitive: true).single;
+    final secondWord = page.findAll('اللَّه', caseSensitive: true).single;
+    expect(
+        firstWord.rects.first.left, greaterThan(secondWord.rects.first.left));
+  });
+
+  test('positioned tashkil stays clustered with its Arabic base glyph', () {
+    const logical = 'ٱﻟْﺣَﻣْدُ ل';
+    final page = PdfTextExtractor.extract(
+      PdfDocument.open(buildPositionedTashkilPdf()),
+      0,
+    );
+
+    expect(page.text, logical);
+    expect(page.findAll(logical, caseSensitive: true), hasLength(1));
+  });
+
+  test('Arabic logical-order substitute text is not double-reversed', () {
+    const logical = 'مرحبا 123';
+    final page = PdfTextExtractor.extract(
+        PdfDocument.open(_buildArabicTextPdf(logical, embedded: false)), 0);
+
+    expect(page.text, logical);
+    expect(page.findAll(logical, caseSensitive: true), hasLength(1));
+  });
+
+  test('Arabic extraction keeps mixed-script runs and numbers logical', () {
+    const logical = 'مرحبا ١٢٣ PDF عالم';
+    const visual = 'ملاع PDF ١٢٣ ابحرم';
+    final page = PdfTextExtractor.extract(
+      PdfDocument.open(
+          _buildArabicTextPdf(visual, embedded: true, splitAt: 11)),
+      0,
+    );
+
+    expect(page.text, logical);
+    expect(page.findAll('١٢٣ PDF', caseSensitive: true), hasLength(1));
+  });
+
+  test('Arabic span does not reverse an LTR paragraph', () {
+    const logical = 'Hello عالم from Dart';
+    const visual = 'Hello ملاع from Dart';
+    final page = PdfTextExtractor.extract(
+        PdfDocument.open(_buildArabicTextPdf(visual, embedded: true)), 0);
+
+    expect(page.text, logical);
+    expect(page.findAll(logical, caseSensitive: true), hasLength(1));
+  });
+
+  test('Arabic extraction preserves multi-character glyph mappings', () {
+    final page = PdfTextExtractor.extract(
+      PdfDocument.open(_buildArabicGlyphPdf(
+        const ['الله', ' ', 'ل', 'و', 'س', 'ر'],
+        embedded: true,
+      )),
+      0,
+    );
+
+    expect(page.text, 'رسول الله');
+    expect(page.findAll('الله', caseSensitive: true), hasLength(1));
+  });
+
+  test('positioned RTL word runs keep logical word and line order', () {
+    const logical = 'اهلا وسهلا\nكيف حالك\nخوش آمدید';
+    final document = PdfDocument.open(buildRtlTextPdf(lines: const [
+      'اهلا وسهلا',
+      'كيف حالك',
+      'خوش آمدید',
+    ]));
+    final page = PdfTextExtractor.extract(document, 0);
+
+    expect(page.text, logical);
+    expect(page.findAll('اهلا وسهلا', caseSensitive: true), hasLength(1));
+    expect(page.findAll('خوش آمدید', caseSensitive: true), hasLength(1));
+    expect(page.textIn(const PdfRect(200, 590, 380, 750)), logical);
+
+    final first = page.findAll('اهلا', caseSensitive: true).single;
+    final second = page.findAll('وسهلا', caseSensitive: true).single;
+    expect(first.rects.first.left, greaterThan(second.rects.first.left));
+    expect(first.quads.first.isRightToLeft, isTrue);
+    expect(page.positionNear(359, 720), 0);
+    expect(page.positionNear(313, 720), 4);
+  });
+
+  test('literal search ignores clipboard bidi formatting controls', () {
+    const text = '(اﻟرﺣﻣن';
+    const page = PdfPageText(pageIndex: 0, text: text, runs: []);
+
+    final match = page.findAll('\u2067$text\u2069', caseSensitive: true).single;
+    expect((match.start, match.end), (0, text.length));
+    expect(page.findAll('\u2067\u2069'), isEmpty);
+  });
+
+  test('copy text uses paragraph-scoped Unicode bidi isolates', () {
+    expect(pdfBidiIsolateForCopy('Hello, world!'), 'Hello, world!');
+    expect(
+      pdfBidiIsolateForCopy('اهلا وسهلا'),
+      '\u2067اهلا وسهلا\u2069',
+    );
+    expect(
+      pdfBidiIsolateForCopy('Invoice: اهلا'),
+      '\u2066Invoice: اهلا\u2069',
+    );
+    expect(
+      pdfBidiIsolateForCopy('اهلا\nکیف حالک'),
+      '\u2067اهلا\u2069\n\u2067کیف حالک\u2069',
+    );
+    expect(
+      pdfBidiIsolateForCopy('\u2067اهلا\u2069'),
+      '\u2067اهلا\u2069',
+    );
   });
 
   test('reflow reads visual columns before stream order', () {
@@ -326,6 +459,84 @@ Uint8List _buildTextPdf(List<String> operations) {
         '/Resources << /Font << /F1 5 0 R >> >> >>',
     '<< /Length ${content.length} >>\nstream\n$content\nendstream',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  return _assemblePdf(objects);
+}
+
+/// A one-line PDF whose character codes map to [text] through /ToUnicode.
+///
+/// The Type3 variant represents the common embedded-font case: its glyph list
+/// is authoritative, so the content stream is visual order. The Type1 variant
+/// has no font program and represents the package's Unicode substitution path,
+/// whose decoded text is already logical order.
+Uint8List _buildArabicTextPdf(String text,
+        {required bool embedded, int? splitAt}) =>
+    _buildArabicGlyphPdf(
+      [for (final rune in text.runes) String.fromCharCode(rune)],
+      embedded: embedded,
+      splitAt: splitAt,
+    );
+
+Uint8List _buildArabicGlyphPdf(List<String> glyphTexts,
+    {required bool embedded, int? splitAt}) {
+  final codes = [for (var i = 0; i < glyphTexts.length; i++) i + 1];
+  final shown = codes.map((c) => c.toRadixString(16).padLeft(2, '0')).join();
+  final shownText = splitAt == null
+      ? '<$shown> Tj'
+      : '<${shown.substring(0, splitAt * 2)}> Tj '
+          '<${shown.substring(splitAt * 2)}> Tj';
+  final content = 'BT /F1 24 Tf 72 720 Td $shownText ET';
+  final cmapEntries = <String>[];
+  final widths = <String>[];
+  final names = <String>[];
+  for (var i = 0; i < glyphTexts.length; i++) {
+    final code = codes[i];
+    final glyphText = glyphTexts[i];
+    final unicode = glyphText.codeUnits
+        .map((unit) => unit.toRadixString(16).padLeft(4, '0'))
+        .join();
+    cmapEntries.add('<${code.toRadixString(16).padLeft(2, '0')}> '
+        '<$unicode>');
+    widths.add(switch (glyphText.runes.toList()) {
+      [0x20] => '250',
+      [>= 0x064B && <= 0x065F] => '0',
+      _ => '500',
+    });
+    names.add('/g$code');
+  }
+  final cmap = [
+    '/CIDInit /ProcSet findresource begin',
+    '12 dict begin begincmap',
+    '1 begincodespacerange <00> <FF> endcodespacerange',
+    '${cmapEntries.length} beginbfchar',
+    ...cmapEntries,
+    'endbfchar endcmap CMapName currentdict /CMap defineresource pop',
+    'end end',
+  ].join('\n');
+  final type3 = embedded
+      ? ' /FontBBox [0 -200 1000 800] '
+          '/FontMatrix [0.001 0 0 0.001 0 0] '
+          '/CharProcs << ${[
+          for (final name in names) '$name 7 0 R'
+        ].join(' ')} >> '
+          '/Resources << >>'
+      : '';
+  final font = '<< /Type /Font /Subtype /${embedded ? 'Type3' : 'Type1'} '
+      '${embedded ? '' : '/BaseFont /Helvetica '}'
+      '/FirstChar 1 /LastChar ${glyphTexts.length} '
+      '/Widths [${widths.join(' ')}] '
+      '/Encoding << /Type /Encoding /Differences [1 ${names.join(' ')}] >> '
+      '/ToUnicode 6 0 R$type3 >>';
+  const charProc = '500 0 d0 0 0 450 700 re f';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    font,
+    '<< /Length ${cmap.length} >>\nstream\n$cmap\nendstream',
+    '<< /Length ${charProc.length} >>\nstream\n$charProc\nendstream',
   ];
   return _assemblePdf(objects);
 }

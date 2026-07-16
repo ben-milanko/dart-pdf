@@ -6,10 +6,14 @@
 
 #include <string.h>
 
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <variant>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "image_clipboard.h"
 #include "utils.h"
 
 namespace {
@@ -17,6 +21,11 @@ namespace {
 // Reverse-DNS channel shared with the Dart IncomingFileService and every other
 // platform runner (macOS/iOS/Android).
 constexpr const char kIncomingChannelName[] = "dev.milanko.dartpdf/incoming";
+
+// Reverse-DNS channel that carries Snapshot rasters to/from the OS clipboard,
+// matching the macOS/Android runners (see image_clipboard.cpp).
+constexpr const char kImageClipboardChannelName[] =
+    "dev.milanko.dartpdf/image_clipboard";
 
 // Builds the {name, path} payload the Dart side's IncomingFileService decodes.
 flutter::EncodableValue FilePayload(const std::wstring& path) {
@@ -76,6 +85,39 @@ bool FlutterWindow::OnCreate() {
             std::wstring path = initial_file_;
             initial_file_.clear();  // deliver the launch file exactly once
             result->Success(FilePayload(path));
+          }
+        } else {
+          result->NotImplemented();
+        }
+      });
+
+  // Bridge the Snapshot tool's PNG raster to the Win32 clipboard so it can be
+  // pasted into other apps, and read images back for the paste providers.
+  image_clipboard_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          kImageClipboardChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  image_clipboard_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() == "copyPng") {
+          const auto* bytes =
+              std::get_if<std::vector<uint8_t>>(call.arguments());
+          if (bytes == nullptr) {
+            result->Error("bad_args", "copyPng expects PNG bytes");
+            return;
+          }
+          result->Success(flutter::EncodableValue(
+              CopyPngToClipboard(GetHandle(), *bytes)));
+        } else if (call.method_name() == "readImage") {
+          std::optional<std::vector<uint8_t>> png =
+              ReadImageFromClipboard(GetHandle());
+          if (png.has_value()) {
+            result->Success(flutter::EncodableValue(std::move(*png)));
+          } else {
+            result->Success();  // null: no image on the clipboard
           }
         } else {
           result->NotImplemented();

@@ -4,19 +4,21 @@ On native platforms `dart_pdf_editor` runs page interpretation on a background
 **isolate** (`Isolate.spawn`), so the heavy content-stream parse and interpreter
 walk don't block frames while scrolling. The web has no isolates, so the same
 work runs on a **Web Worker** instead. Unlike the isolate, a Web Worker is a
-*separately compiled script* the host app must build and serve. This document
-shows the wiring.
+*separately compiled script*. `dart_pdf_editor` ships one as a Flutter package
+asset and uses it by default; this document shows how that works and how to
+override it.
 
-When no worker script is configured, the web build falls back to local
-rendering on the main thread. This is purely an opt-in performance upgrade.
+When no worker script is configured, or the script fails to load, the web build
+falls back to local rendering on the main thread.
 
 ## How it fits together
 
 ```
 main app  ──postMessage(init: ArrayBuffer)──▶  Web Worker (pdf_render_worker.dart.js)
           ──postMessage(record: page,id)───▶     opens the PdfDocument once,
+          ──postMessage(bin: geometry,id)──▶     records/caches strip commands,
           ◀─postMessage(ready)──────────────     serializeCommands(page) off-thread,
-          ◀─postMessage(result: ArrayBuffer)─     transfers the buffer back
+          ◀─postMessage(result: ArrayBuffer)─     transfers commands/plans back
 
 main app: deserializeCommands + PdfPageRenderer.pictureFromCommands (cheap replay
           + a final engine codec upload) on the main thread, like the isolate.
@@ -33,17 +35,35 @@ is no separate raster thread; an on-main-thread decode would block frames. Image
 that need the platform JPEG codec (a non-CMYK DCTDecode base) ship un-decoded
 and decode on the main thread as before.
 
+Dense-page strip plans use the same worker queue and transferable result shape.
+The worker keeps a two-entry LRU of wire-round-tripped command recordings, so
+repeat zoom settles re-bin stable command objects without re-interpreting the
+page and preserve the glyph/shape strip caches. `cancelBinStrips` drops queued
+plans and cooperatively stops an in-flight stale geometry. The main-side pool
+keeps the native static-page affinity, so one zoom session repeatedly reaches
+the same worker cache.
+
 ## Do I have to do anything?
 
-**No, not to use the library.** With no worker configured, web rendering runs
-on the main thread exactly as before, and if a configured worker script is
-missing it degrades to that automatically. The Web Worker is a pure opt-in
-performance upgrade. Skip this whole document and everything still works.
+**No.** The package declares `assets/web/pdf_render_worker.dart.js` as a Flutter
+asset, and the default `pdfRenderWorkerScriptUrl` points at Flutter's package
+asset path:
 
-## Opt in (host web app)
+```text
+assets/packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+```
 
-1. **Build the worker** from your app root. One command generates the entry.
-   Run it after `flutter pub get`, from the same directory that has your
+If that worker cannot load, the viewer degrades to main-thread rendering. Set
+`pdfRenderWorkerScriptUrl = null` before opening a viewer to force that fallback.
+
+## Self-host the worker (optional)
+
+Most apps should use the bundled package asset. Self-host only when you want the
+worker at an app-owned URL, need custom cache headers, or want to regenerate the
+worker in the app build pipeline.
+
+1. **Build the custom worker** from your app root. One command generates the
+   entry. Run it after `flutter pub get`, from the same directory that has your
    app's `pubspec.yaml` and `web/` folder:
 
    ```sh
@@ -54,7 +74,7 @@ performance upgrade. Skip this whole document and everything still works.
    your sources, and compiles it to `web/pdf_render_worker.dart.js`, which
    `flutter build web` and `flutter run` serve next to `index.html`.
 
-2. **Point the app at it** once, in `main()` (web only):
+2. **Point the app at that custom URL** once, before opening a viewer:
 
    ```dart
    import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -68,14 +88,14 @@ performance upgrade. Skip this whole document and everything still works.
    }
    ```
 
-That's it. `PdfReader` / `PdfEditorView` pick up the worker automatically (the
-shells call `PdfRenderWorker.start`, which routes to the Web Worker backend when
-the URL is set).
+Without this override, `PdfReader` / `PdfEditorView` use the bundled package
+asset automatically (the shells call `PdfRenderWorker.start`, which routes to
+the Web Worker backend when the URL is non-null).
 
 ### Does it run every build?
 
-**It doesn't have to.** `web/pdf_render_worker.dart.js` is a static file. You can
-either:
+**It doesn't have to.** A self-hosted `web/pdf_render_worker.dart.js` is a static
+file. You can either:
 
 - **Commit it** and re-run `dart run dart_pdf_editor:build_web_worker` only when
   you upgrade `dart_pdf_editor` (the bundle embeds the library, so a stale one
@@ -83,8 +103,8 @@ either:
 - **Gitignore it** and run the command before each `flutter build web` (e.g. a
   `tool/build_web.sh` wrapper that runs the tool, then `flutter build web`).
 
-Either way, if the file is missing or stale-by-absence the app just renders
-locally. A forgotten rebuild degrades gracefully; it never breaks.
+Either way, if the custom file is missing or stale-by-absence the app just
+renders locally. A forgotten rebuild degrades gracefully; it never breaks.
 
 ## Status
 
@@ -92,11 +112,12 @@ The backend is wired end to end. `render_worker_web.dart` (main-side worker) and
 `render_worker_web_entry.dart` (worker-side entry) mirror the isolate backend's
 priority queue and protocol, and the app is wired up:
 
-- `dart run dart_pdf_editor:build_web_worker` builds the worker; both
-  `app/lib/app.dart` and the example app set `pdfRenderWorkerScriptUrl` on
-  web. The live web deploys (the demo at `dart-pdf-demo.web.app` and the app at
-  `dartpdf-app.web.app`) build the worker and ship the `--wasm` renderer with
-  COOP/COEP headers. See `deploy-demo-web.yml` and the firebase configs.
+- The package ships a prebuilt worker asset and uses it by default. The helper
+  `dart run dart_pdf_editor:build_web_worker` still builds a self-hosted worker
+  for apps that want to override `pdfRenderWorkerScriptUrl`. The live web
+  deploys (the demo at `dart-pdf-demo.web.app` and the app at
+  `dartpdf-app.web.app`) ship the `--wasm` renderer with COOP/COEP headers. See
+  `deploy-demo-web.yml` and the firebase configs.
 - `dart compile js` of the worker entry **succeeds** (~857 KB bundle), so the
   `dart:js_interop` / `package:web` usage is valid on the web toolchain.
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
@@ -126,6 +147,15 @@ priority queue and protocol, and the app is wired up:
   `{kind:'cancel'}` message) fires within a few hundred operators. The
   cancelled job resolves to null (local render); the preempting request gets
   the worker's next slot immediately.
+
+- **Strip binning and routing** (issue #217): `binStrips` is a real Web Worker
+  request instead of the old null fallback. Encoded plans transfer as
+  `ArrayBuffer`s, decode on the main side, and feed the same sparse-strip
+  device used by native Impeller. A production-shaped browser probe verified
+  an 11-batch worker plan byte-for-byte against local binning and successfully
+  rasterized its plan-fed output at 612×792. Web therefore participates in
+  the dense-page strip route; native software Skia remains gated out because
+  its shader interpreter loses to the canvas path.
 
 Still open:
 

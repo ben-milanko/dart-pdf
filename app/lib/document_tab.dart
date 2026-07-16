@@ -7,7 +7,11 @@ import 'package:flutter/foundation.dart';
 /// A tab is one of four kinds: a normal editable [document], a [loading]
 /// placeholder, an [error] placeholder, or a two-file [comparison].
 class DocumentTab {
-  DocumentTab.loading({required this.title, this.originPath})
+  DocumentTab.loading(
+      {required this.title,
+      this.originPath,
+      this.originBookmark,
+      this.cachePath})
       : session = null,
         viewer = null,
         savedLength = 0,
@@ -22,10 +26,13 @@ class DocumentTab {
     required PdfEditingPreferences preferences,
     PdfSnapshotClipboard? snapshotClipboard,
     this.originPath,
+    this.originBookmark,
+    this.cachePath,
+    bool initiallyDirty = false,
   })  : session = PdfEditingController(bytes,
             preferences: preferences, snapshotClipboard: snapshotClipboard),
         viewer = PdfViewerController(),
-        savedLength = bytes.length,
+        savedLength = initiallyDirty ? -1 : bytes.length,
         error = null,
         compareBefore = null,
         compareAfter = null,
@@ -35,6 +42,8 @@ class DocumentTab {
       : session = null,
         viewer = null,
         originPath = null,
+        originBookmark = null,
+        cachePath = null,
         savedLength = 0,
         compareBefore = null,
         compareAfter = null,
@@ -49,12 +58,16 @@ class DocumentTab {
         viewer = null,
         error = null,
         originPath = null,
+        originBookmark = null,
+        cachePath = null,
         savedLength = 0,
         compareBefore = before,
         compareAfter = after,
         isLoading = false;
 
-  final String title;
+  /// The filename shown by the tab. Save As updates it to the chosen file's
+  /// name while keeping this tab's editing and viewer sessions alive.
+  String title;
   final String? error;
   final bool isLoading;
 
@@ -63,8 +76,18 @@ class DocumentTab {
   /// path. Null means save-as only.
   String? originPath;
 
+  /// macOS security-scoped bookmark for [originPath], when available.
+  String? originBookmark;
+
+  /// The app-private byte snapshot backing a mobile pick (see pdf_cache.dart),
+  /// or null when the document has a real [originPath] (desktop) or can't be
+  /// snapshotted (web). Carried so the tab re-persists into the session and
+  /// keeps its Recent entry reopenable across edits. Written just after open on
+  /// mobile, once the snapshot is on disk, so it stays off the open hot path.
+  String? cachePath;
+
   /// Byte length of the last-saved revision. Revisions are byte prefixes of one
-  /// buffer, so length uniquely identifies a revision — the document is dirty
+  /// buffer, so length uniquely identifies a revision - the document is dirty
   /// when the current [PdfEditingController.bytes] length differs from this.
   int savedLength;
 
@@ -76,6 +99,12 @@ class DocumentTab {
 
   /// True when the document has edits not yet written to disk.
   bool get isDirty => session != null && session!.bytes.length != savedLength;
+
+  /// True until this document has been saved at least once. A brand-new
+  /// document (created via New, [initiallyDirty]) has no saved baseline, so
+  /// it is savable even before the first edit; [markSaved] establishes the
+  /// baseline and clears this.
+  bool get isUnsaved => session != null && savedLength < 0;
 
   /// Marks the current revision as the saved baseline (call after a save).
   void markSaved() {

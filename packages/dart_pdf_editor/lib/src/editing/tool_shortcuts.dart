@@ -19,7 +19,7 @@ import 'editing_controller.dart';
 /// undo/redo shortcuts.
 ///
 /// The less-common multi-segment variants (polyline, polygon, perimeter,
-/// area measurement) deliberately have no key — they live one tap away in
+/// area measurement) deliberately have no key - they live one tap away in
 /// their group's strip and would only need obscure bindings here.
 const Map<PdfEditTool, LogicalKeyboardKey> pdfEditToolShortcuts = {
   PdfEditTool.select: LogicalKeyboardKey.keyV,
@@ -30,14 +30,16 @@ const Map<PdfEditTool, LogicalKeyboardKey> pdfEditToolShortcuts = {
   PdfEditTool.line: LogicalKeyboardKey.keyL,
   PdfEditTool.arrow: LogicalKeyboardKey.keyA,
   PdfEditTool.freeText: LogicalKeyboardKey.keyT,
+  PdfEditTool.callout: LogicalKeyboardKey.keyQ,
   PdfEditTool.note: LogicalKeyboardKey.keyN,
   PdfEditTool.stamp: LogicalKeyboardKey.keyS,
   PdfEditTool.image: LogicalKeyboardKey.keyI,
-  PdfEditTool.signature: LogicalKeyboardKey.keyG,
+  PdfEditTool.signature: LogicalKeyboardKey.keyH,
   PdfEditTool.measureDistance: LogicalKeyboardKey.keyM,
   PdfEditTool.form: LogicalKeyboardKey.keyF,
   PdfEditTool.content: LogicalKeyboardKey.keyC,
   PdfEditTool.redact: LogicalKeyboardKey.keyK,
+  PdfEditTool.snapshot: LogicalKeyboardKey.keyG,
 };
 
 /// The display label for [tool]'s shortcut key (e.g. `'V'`), or null when

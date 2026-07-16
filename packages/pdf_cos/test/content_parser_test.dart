@@ -61,7 +61,7 @@ void main() {
 
   test('an unterminated array operand keeps what parsed', () {
     final ops = ContentStreamParser.parse(ascii('[(a) 1 2'));
-    expect(ops, isEmpty); // no operator ever arrived — nothing to run
+    expect(ops, isEmpty); // no operator ever arrived - nothing to run
   });
 
   test('inline image becomes one BI operation', () {
@@ -77,6 +77,13 @@ void main() {
     expect(data.bytes, [0x00, 0xFF]);
   });
 
+  test('junk operands before an inline image do not leak past it', () {
+    final ops = ContentStreamParser.parse(
+        ascii('123 BI /W 1 /H 1 /CS /G /BPC 8 ID \x7f EI Q'));
+    expect(ops.map((op) => op.operator), ['BI', 'Q']);
+    expect(ops.last.operands, isEmpty);
+  });
+
   test('operationLimit returns a prefix on operation boundaries', () {
     final ops = ContentStreamParser.parse(
         ascii('q 1 0 0 1 50 50 cm BI /W 1 /H 1 /CS /G /BPC 8 ID \x7f EI Q'),
@@ -85,6 +92,28 @@ void main() {
     expect(ops.map((op) => op.operator), ['q', 'cm', 'BI']);
     final data = ops[2].operands[1] as CosString;
     expect(data.bytes, [0x7F]);
+  });
+
+  test('incremental cursor emits one operation at a time and honors its limit',
+      () {
+    final cursor = ContentStreamParser.cursor(
+      ascii('q 1 0 0 1 50 50 cm (Hello) Tj Q'),
+      operationLimit: 3,
+    );
+
+    expect(cursor.operationCount, 0);
+    expect(cursor.isFinished, isFalse);
+    expect(cursor.nextOperation()!.operator, 'q');
+    expect(cursor.operationCount, 1);
+    final matrix = cursor.nextOperation()!;
+    expect(matrix.operator, 'cm');
+    expect(matrix.operands, hasLength(6));
+    final text = cursor.nextOperation()!;
+    expect(text.operator, 'Tj');
+    expect((text.operands.single as CosString).text, 'Hello');
+    expect(cursor.isFinished, isTrue);
+    expect(cursor.nextOperation(), isNull);
+    expect(cursor.operationCount, 3);
   });
 
   test('DCT inline image ignores EI-like bytes before JPEG EOI', () {

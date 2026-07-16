@@ -17,7 +17,7 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 /// url_launcher, standing in for a real platform binding in tests.
 class _FakeUrlLauncher extends UrlLauncherPlatform
     with MockPlatformInterfaceMixin {
-  /// What [launchUrl] reports back — true means "opened".
+  /// What [launchUrl] reports back - true means "opened".
   bool result = true;
   final launched = <String>[];
 
@@ -35,7 +35,7 @@ class _FakeUrlLauncher extends UrlLauncherPlatform
 }
 
 /// A one-page PDF carrying a single /Link annotation whose /URI is [url],
-/// at /Rect [72 640 200 664] — the same spot as buildAnnotatedPdf's first
+/// at /Rect [72 640 200 664] - the same spot as buildAnnotatedPdf's first
 /// link, so [annotView](136, 652) hits its center.
 Uint8List buildUriLinkPdf(String url) {
   const content = 'BT /F1 24 Tf 72 720 Td (Link) Tj ET';
@@ -68,11 +68,18 @@ Uint8List buildUriLinkPdf(String url) {
   return ascii(buffer.toString());
 }
 
+Uint8List buildPlainAnnotationPdf() {
+  final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+    ..addNote(0, 100, 700, 'Host action');
+  return editor.save();
+}
+
 void main() {
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
       {int pages = 5,
       Uint8List? bytes,
       PdfActionHandler? onAction,
+      PdfAnnotationTapHandler? onAnnotationTap,
       PdfUrlLauncher? onLaunchUrl}) async {
     final controller = PdfViewerController();
     await tester.pumpWidget(MaterialApp(
@@ -82,6 +89,7 @@ void main() {
           document: PdfDocument.open(bytes ?? buildMultiPagePdf(pages)),
           controller: controller,
           onAction: onAction,
+          onAnnotationTap: onAnnotationTap,
           onLaunchUrl: onLaunchUrl,
         ),
       ),
@@ -94,7 +102,7 @@ void main() {
   // over a 612pt page): centers of the annotation rects on page 1
   const annotScale = 800 / 612;
   // The on-screen scale (px/pt) the viewer rests at with the 612pt-wide
-  // fixture filling the 800px-wide viewport — i.e. controller.zoom at
+  // fixture filling the 800px-wide viewport - i.e. controller.zoom at
   // fit-width. Public zoom is reported in px/pt (1.0 = actual size), so
   // fit-width is 800/612, not 1.
   const fitWidth = 800 / 612;
@@ -258,7 +266,7 @@ void main() {
       'scroll notifications during build', (tester) async {
     // Regression: didUpdateWidget (mid-build) used to call jumpTo(0) on a
     // document swap; jumpTo synchronously dispatches a ScrollNotification,
-    // and the AppBar's scrolled-under listener reacts with setState —
+    // and the AppBar's scrolled-under listener reacts with setState -
     // illegally dirtying an ancestor during build.
     Widget app(PdfDocument document) => MaterialApp(
           home: Scaffold(
@@ -344,7 +352,7 @@ void main() {
     expect(controller.selectionPages, [0]);
     final rects = controller.selectionRectsOn(0);
     expect(rects, isNotEmpty);
-    // 'Page 1' is drawn at 72,720 in 24pt — the quads must surround it,
+    // 'Page 1' is drawn at 72,720 in 24pt - the quads must surround it,
     // in page space (y up), not view space
     final bounds = rects.reduce((a, b) => PdfRect(
           a.left < b.left ? a.left : b.left,
@@ -483,7 +491,7 @@ void main() {
 
     await tester.tapAt(annotView(136, 652),
         kind: PointerDeviceKind.mouse); // URI link center
-    await tester.pump(); // next frame — no disambiguation wait
+    await tester.pump(); // next frame - no disambiguation wait
     expect(actions, hasLength(1));
   });
 
@@ -539,7 +547,7 @@ void main() {
     expect(controller.currentPage, greaterThan(0));
     expect(controller.zoom, greaterThan(fitWidth)); // scrolling didn't unzoom
 
-    // trackpad pinch-out keeps working — and crosses below fit-width
+    // trackpad pinch-out keeps working - and crosses below fit-width
     // (2.5 × 0.2 = 0.5 of fit-width)
     final pinch = await tester.createGesture(
         kind: PointerDeviceKind.trackpad, pointer: 22);
@@ -575,7 +583,7 @@ void main() {
     // minZoom (0.25) is a fit-width multiple; in px/pt that is 0.25 × fit-width
     expect(controller.zoom, moreOrLessEquals(0.25 * fitWidth, epsilon: 0.002));
 
-    // pages lay out at a quarter width, centered — and MORE of the
+    // pages lay out at a quarter width, centered - and MORE of the
     // document is on screen: several pages fit the viewport at once
     final pageRect = tester.getRect(find.byType(PdfPageView).first);
     expect(pageRect.left, moreOrLessEquals(800 * 0.75 / 2, epsilon: 1));
@@ -660,7 +668,7 @@ void main() {
         tester.state<ScrollableState>(find.byType(Scrollable).first);
 
     // macOS reports the fingers' drift as pan deltas during a magnify
-    // gesture — the pinch must zoom only, never scroll
+    // gesture - the pinch must zoom only, never scroll
     final pinch = await tester.createGesture(
         kind: PointerDeviceKind.trackpad, pointer: 30);
     await pinch.panZoomStart(const Offset(400, 300));
@@ -858,12 +866,34 @@ void main() {
     expect(controller.zoom, greaterThan(6));
   });
 
+  testWidgets('default max zoom keeps 2400% available on phone-width views',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final controller = await pumpViewer(tester, pages: 1);
+    const phoneFitWidth = 360 / 612;
+    expect(controller.zoom, closeTo(phoneFitWidth, 0.001));
+
+    final interactiveViewer =
+        tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
+    expect(interactiveViewer.maxScale, closeTo(24 / phoneFitWidth, 0.001));
+
+    controller.setZoom(24);
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, closeTo(24, 0.01));
+  });
+
   testWidgets('tapping a URI link surfaces the action', (tester) async {
     // The default launcher only opens well-known external schemes, so the
     // fixture's app:// link falls through to onAction unchanged.
     final actions = <PdfAction>[];
     final annotations = <PdfAnnotation>[];
-    await pumpViewer(tester, bytes: buildAnnotatedPdf(), onAction: (a, an) {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(tester,
+        bytes: buildAnnotatedPdf(),
+        onAnnotationTap: taps.add, onAction: (a, an) {
       actions.add(a);
       annotations.add(an);
     });
@@ -872,9 +902,32 @@ void main() {
     // the tap fires once the competing double-tap recognizer times out
     await tester.pump(const Duration(milliseconds: 400));
 
+    expect(taps, hasLength(1));
+    expect(taps.single.annotation, isA<PdfLinkAnnotation>());
+    expect(taps.single.pageIndex, 0);
+    expect(taps.single.pagePoint.dx, closeTo(136, 0.5));
+    expect(taps.single.pagePoint.dy, closeTo(652, 0.5));
     expect(actions, hasLength(1));
     expect((actions.single as PdfUriAction).uri, 'app://invoice/42');
     expect(annotations.single, isA<PdfLinkAnnotation>());
+  });
+
+  testWidgets('onAnnotationTap fires for a plain annotation', (tester) async {
+    final taps = <PdfAnnotationTapDetails>[];
+    await pumpViewer(tester,
+        bytes: buildPlainAnnotationPdf(), onAnnotationTap: taps.add);
+
+    await tester.tapAt(annotView(110, 690)); // note icon center
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(taps, hasLength(1));
+    final tap = taps.single;
+    expect(tap.pageIndex, 0);
+    expect(tap.annotation.subtype, 'Text');
+    expect(tap.pagePoint.dx, closeTo(110, 0.5));
+    expect(tap.pagePoint.dy, closeTo(690, 0.5));
+    expect(tap.pageViewPosition.dx, closeTo(annotView(110, 690).dx, 0.5));
+    expect(tap.pageViewPosition.dy, closeTo(annotView(110, 690).dy, 0.5));
   });
 
   testWidgets('tapping an http link opens it via the default launcher',
@@ -996,11 +1049,15 @@ void main() {
   testWidgets('hidden annotations neither fire nor change the cursor',
       (tester) async {
     final actions = <PdfAction>[];
+    final taps = <PdfAnnotationTapDetails>[];
     await pumpViewer(tester,
-        bytes: buildAnnotatedPdf(), onAction: (a, _) => actions.add(a));
+        bytes: buildAnnotatedPdf(),
+        onAnnotationTap: taps.add,
+        onAction: (a, _) => actions.add(a));
 
     await tester.tapAt(annotView(350, 612)); // hidden URI link center
     await tester.pump(const Duration(milliseconds: 400));
+    expect(taps, isEmpty);
     expect(actions, isEmpty);
   });
 

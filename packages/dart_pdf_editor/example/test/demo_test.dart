@@ -15,7 +15,7 @@ void main() {
 
   /// Demo pages are 612×792pt and the viewer opens fit-page (the whole
   /// page visible, centered horizontally), so the on-screen page rect is
-  /// derived from the viewer's own fit math — not assumed fit-width.
+  /// derived from the viewer's own fit math - not assumed fit-width.
   Rect pageRect(WidgetTester tester) {
     final viewer = tester.getRect(find.byType(PdfViewer));
     const aspect = 792 / 612;
@@ -35,7 +35,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
   }
 
-  // plain Text widgets only — find.text would also match the page-number
+  // plain Text widgets only - find.text would also match the page-number
   // field's EditableText, whose value is '1' on page 1
   Finder plainText(String value) =>
       find.byWidgetPredicate((w) => w is Text && w.data == value);
@@ -63,7 +63,7 @@ void main() {
       (tester) async {
     await openDemo(tester);
     await tapOnPage(tester, 176, 498); // "Go to the widgets page" link
-    // finish the scroll animation with plain pumps — the clock overlay's
+    // finish the scroll animation with plain pumps - the clock overlay's
     // periodic timer would keep pumpAndSettle from ever settling
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
@@ -75,13 +75,16 @@ void main() {
     expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
 
     // the counter control edits the same state the page-1 link increments
-    // (.first: the page overlay's button — the AppBar tab strip's new-tab
+    // (.first: the page overlay's button - the AppBar tab strip's new-tab
     // '+' is also an Icons.add, and Scaffold mounts the body before the bar)
-    await tester.tap(find.byIcon(Icons.add).first);
+    await tester.tap(find.descendant(
+      of: find.byType(PdfViewer),
+      matching: find.byIcon(Icons.add),
+    ));
     await tester.pump(const Duration(milliseconds: 400));
     expect(plainText('1'), findsWidgets);
 
-    // the note field accepts input above the page (by key — the app bar
+    // the note field accepts input above the page (by key - the app bar
     // hosts TextFields of its own now)
     await tester.enterText(
         find.byKey(const ValueKey('demo-note')), 'typed over the PDF');

@@ -1,6 +1,6 @@
 // The hide-all-annotations display toggle: the renderer's annotations:
 // flag, PdfViewer.showAnnotations (rendering AND link taps), and the
-// persisted preference. Display-only — the document never changes.
+// persisted preference. Display-only - the document never changes.
 
 import 'dart:typed_data';
 
@@ -26,7 +26,7 @@ void main() {
   }
 
   /// A one-page document with a solid green square annotation filling
-  /// (100, 600)–(200, 700) — page space, so the raster pixel at
+  /// (100, 600)–(200, 700) - page space, so the raster pixel at
   /// (150, 792-650=142) sits in its middle.
   Uint8List annotated() {
     final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
@@ -95,7 +95,7 @@ void main() {
   });
 
   testWidgets(
-      'hidden annotations take no taps — an invisible link must not '
+      'hidden annotations take no taps - an invisible link must not '
       'navigate', (tester) async {
     // the GoTo link in buildAnnotatedPdf: rect (72, 600)-(200, 624) on a
     // 612x792 page, targeting page 3; fit-width in an 800px viewport

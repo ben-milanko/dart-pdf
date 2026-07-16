@@ -111,7 +111,7 @@ void main() {
     testWidgets('a second surface over the same session reuses the cache',
         (tester) async {
       // the cache lives on the controller, so a second strip at the same tile
-      // resolution draws from the rasters the first already rendered — no
+      // resolution draws from the rasters the first already rendered - no
       // page is interpreted twice
       final editing = PdfEditingController(buildMultiPagePdf(3));
       final viewer = PdfViewerController();
@@ -201,7 +201,7 @@ void main() {
           worker: null,
           disk: disk,
         );
-        // storeThumbnail is fire-and-forget — let the PNG encode + write land
+        // storeThumbnail is fire-and-forget - let the PNG encode + write land
         await Future<void>.delayed(const Duration(milliseconds: 50));
       });
       expect(rendered, isNotNull);

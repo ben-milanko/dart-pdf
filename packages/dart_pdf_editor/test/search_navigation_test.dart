@@ -14,7 +14,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// One page whose single text line is long on both sides of the word
-/// "sentinel" — long enough that a search snippet truncates both ways.
+/// "sentinel" - long enough that a search snippet truncates both ways.
 Uint8List buildLongLinePdf() {
   const line = 'AAAA BBBB CCCC DDDD EEEE FFFF GGGG HHHH sentinel '
       'IIII JJJJ KKKK LLLL MMMM NNNN OOOO PPPP QQQQ RRRR SSSS TTTT';
@@ -345,10 +345,10 @@ void main() {
       expect(controller.matchCount, 3);
 
       // the three toggles are present
-      expect(find.byKey(const ValueKey('pdf-search-match-case')),
-          findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-search-whole-word')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-search-match-case')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-search-whole-word')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-search-regex')), findsOneWidget);
 
       // tapping match case re-runs the live search
@@ -364,8 +364,7 @@ void main() {
       expect(controller.matchCount, 3);
     });
 
-    testWidgets('toggles persist to and seed from preferences',
-        (tester) async {
+    testWidgets('toggles persist to and seed from preferences', (tester) async {
       // a stored option seeds the controller once preferences load
       SharedPreferences.setMockInitialValues(
           {'dart_pdf_editor.editing.searchWholeWord': true});
@@ -374,11 +373,11 @@ void main() {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);
       await pumpViewer(tester, controller, buildMultiPagePdf(2),
-          above: PdfSearchField(
-              controller: controller, preferences: preferences));
+          above:
+              PdfSearchField(controller: controller, preferences: preferences));
 
       // let the async preference load (and the bar's seeding) run, then
-      // rebuild — the stored whole-word option lands on the controller
+      // rebuild - the stored whole-word option lands on the controller
       await tester.runAsync(() => preferences.ready);
       await tester.pump();
       expect(controller.searchOptions.wholeWord, isTrue);
@@ -466,8 +465,8 @@ void main() {
           beside: PdfSearchResultsPanel(controller: controller));
 
       // toggles are present even before a query is entered
-      expect(find.byKey(const ValueKey('pdf-search-whole-word')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-search-whole-word')), findsOneWidget);
 
       unawaited(controller.search('page'));
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
@@ -477,6 +476,20 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(controller.searchOptions.matchCase, isTrue);
       expect(find.text('No matches for “page”'), findsOneWidget);
+    });
+
+    testWidgets('the options divider clears the right resize grip',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(2),
+          beside: PdfSearchResultsPanel(controller: controller));
+
+      final divider = tester.widget<Divider>(find.descendant(
+          of: find.byType(PdfSearchResultsPanel),
+          matching: find.byType(Divider)));
+      expect(divider.indent, 0);
+      expect(divider.endIndent, PdfSidebarResizeGrip.width);
     });
 
     testWidgets('an unmatched query says so', (tester) async {

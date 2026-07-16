@@ -1,11 +1,34 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:file_selector_platform_interface/file_selector_platform_interface.dart'
+    as fs;
 
 import 'package:dart_pdf_editor_app/file_io.dart';
+
+class _FakeFileSelector extends fs.FileSelectorPlatform {
+  _FakeFileSelector(this.files);
+
+  final List<fs.XFile> files;
+  bool openedMultiple = false;
+  List<fs.XTypeGroup>? acceptedTypeGroups;
+
+  @override
+  Future<List<fs.XFile>> openFiles({
+    List<fs.XTypeGroup>? acceptedTypeGroups,
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    openedMultiple = true;
+    this.acceptedTypeGroups = acceptedTypeGroups;
+    return files;
+  }
+}
 
 void main() {
   test('ensurePdfName adds a .pdf extension and a default stem', () {
@@ -22,12 +45,65 @@ void main() {
     expect(ensurePdfExtension(r'C:\Docs\export'), r'C:\Docs\export.pdf');
   });
 
+  test('ensureJsonExtension forces .json on a chosen save path', () {
+    expect(ensureJsonExtension('/home/ben/stamps'), '/home/ben/stamps.json');
+    expect(
+        ensureJsonExtension('/home/ben/stamps.JSON'), '/home/ben/stamps.JSON');
+  });
+
+  test('custom stamp bundles round-trip and accept plain lists', () {
+    final stamp = PdfCustomStamp(
+      text: 'PAID',
+      color: 0xC03030,
+      template: PdfStampTemplate.text('PAID', 0xC03030),
+      type: 'Approval',
+      tags: const ['audit'],
+    );
+
+    final bundle = encodeCustomStampBundle([stamp]);
+    final decoded = jsonDecode(bundle) as Map<String, dynamic>;
+    expect(decoded['version'], 1);
+    expect(decoded['stamps'], isA<List>());
+    expect(decodeCustomStampBundle(bundle), [stamp]);
+
+    final plainList = jsonEncode([stamp.encode()]);
+    expect(decodeCustomStampBundle(plainList), [stamp]);
+  });
+
+  test('custom stamp bundle rejects malformed entries', () {
+    expect(
+      () => decodeCustomStampBundle('{"stamps":[{"text":"BROKEN"}]}'),
+      throwsFormatException,
+    );
+  });
+
+  testWidgets('pickPdfFiles enables multi-select in the file picker',
+      (tester) async {
+    final dir = Directory.systemTemp.createTempSync('dartpdf_pick');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final a = '${dir.path}/a.pdf';
+    final b = '${dir.path}/b.pdf';
+    File(a).writeAsBytesSync([1]);
+    File(b).writeAsBytesSync([2]);
+
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector([fs.XFile(a), fs.XFile(b)]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    final files = await pickPdfFiles();
+    expect(fake.openedMultiple, isTrue);
+    expect(fake.acceptedTypeGroups, [pdfTypeGroup]);
+    expect(files.map((f) => f.path), [a, b]);
+  });
+
   test('saveBytesToPath overwrites the file in place', () async {
     final dir = await Directory.systemTemp.createTemp('dartpdf_test');
     addTearDown(() => dir.delete(recursive: true));
     final path = '${dir.path}/out.pdf';
 
-    final result = await saveBytesToPath(Uint8List.fromList([1, 2, 3, 4]), path);
+    final result =
+        await saveBytesToPath(Uint8List.fromList([1, 2, 3, 4]), path);
     expect(result.succeeded, isTrue);
     expect(result.path, path);
     expect(await File(path).readAsBytes(), [1, 2, 3, 4]);
@@ -38,13 +114,13 @@ void main() {
   });
 
   test('saveBytesToPath reports failure for an unwritable path', () async {
-    final result =
-        await saveBytesToPath(Uint8List(1), '/no/such/dir/out.pdf');
+    final result = await saveBytesToPath(Uint8List(1), '/no/such/dir/out.pdf');
     expect(result.succeeded, isFalse);
     expect(result.message, startsWith('Save failed'));
   });
 
-  testWidgets('saveBytesAs forces .pdf when the save dialog drops the extension',
+  testWidgets(
+      'saveBytesAs forces .pdf when the save dialog drops the extension',
       (tester) async {
     // Drive the desktop branch: the dialog returns whatever path the user
     // typed, so an extensionless choice must still be written as a `.pdf`.

@@ -62,7 +62,7 @@ def emit(name, path, codec, leads, trails, blurb):
     body = body.rstrip("'") + ";" if False else (
         "\n".join(f"    '{ln}'" + ("" if i < len(lines) - 1 else ";")
                   for i, ln in enumerate(lines)))
-    out = f"""// GENERATED — do not edit by hand.
+    out = f"""// GENERATED - do not edit by hand.
 //
 // {blurb} two-byte code → Unicode scalar table, used to decode non-embedded
 // CID text that declares the matching predefined CMap. Generated from Python's

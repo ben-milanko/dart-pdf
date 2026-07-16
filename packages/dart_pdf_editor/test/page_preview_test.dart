@@ -1,6 +1,6 @@
 // Low-res fast-scroll previews: pages whose full render is pending (the
 // render hold, or simply not interpreted yet) paint a small cached
-// raster instead of blank paper — Bluebeam-style. The cache is fed for
+// raster instead of blank paper - Bluebeam-style. The cache is fed for
 // free from on-screen renders and by the viewer's background prerender.
 import 'dart:async';
 import 'dart:typed_data';
@@ -60,10 +60,79 @@ void main() {
     clone.dispose();
   });
 
+  testWidgets('exact raster cache enforces entry and total pixel budgets',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final first = document.page(0);
+    final second = document.page(1);
+    final image = await PdfPageRenderer.renderImage(first, pixelRatio: 0.5);
+    addTearDown(image.dispose);
+    final pixels = image.width * image.height;
+    final cache = PdfPagePreviewCache(
+      maxFullRasterPixels: pixels + 1,
+      maxFullRasterEntryPixels: pixels,
+    );
+    addTearDown(cache.dispose);
+
+    void put(int index, PdfPage page) => cache.putFullImage(
+          index,
+          page,
+          image,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          rotation: null,
+        );
+
+    put(0, first);
+    expect(cache.debugFullRasterPixels, pixels);
+    put(1, second);
+    expect(cache.debugFullRasterPixels, pixels,
+        reason: 'the second exact raster evicts the first under the budget');
+    expect(
+      cache.fullImageFor(
+        0,
+        first,
+        width: image.width,
+        height: image.height,
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: null,
+      ),
+      isNull,
+    );
+    final retained = cache.fullImageFor(
+      1,
+      second,
+      width: image.width,
+      height: image.height,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    expect(retained, isNotNull);
+    retained!.dispose();
+
+    final rejecting = PdfPagePreviewCache(
+      maxFullRasterPixels: pixels,
+      maxFullRasterEntryPixels: pixels - 1,
+    );
+    addTearDown(rejecting.dispose);
+    rejecting.putFullImage(
+      0,
+      first,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    expect(rejecting.debugFullRasterPixels, 0,
+        reason: 'oversized pages remain on the scheduled render path');
+  });
+
   testWidgets('rebind drops previews of pages whose content changed',
       (tester) async {
     // A same-geometry edit revision rebinds previews to the new page objects
-    // without re-rendering — except pages whose content actually changed (a
+    // without re-rendering - except pages whose content actually changed (a
     // redaction burn), whose stale previews must be dropped so a fast scroll
     // can't flash the removed content.
     final document = PdfDocument.open(buildMultiPagePdf(3));
@@ -236,6 +305,56 @@ void main() {
     expect(previewRaster, findsNothing);
   });
 
+  testWidgets('a recycled page restores its exact raster through render hold',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    Widget pageView({PdfPageRenderScheduler? scheduler}) => MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                previewCache: cache,
+                renderScheduler: scheduler,
+              ),
+            ),
+          ),
+        );
+
+    // First visit pays the normal interpret + GPU readback and leaves an
+    // exact, bounded cache entry above the lazy page widget.
+    await tester.pumpWidget(pageView());
+    for (var i = 0;
+        i < 50 &&
+            (fullRaster.evaluate().isEmpty || cache.debugFullRasterPixels == 0);
+        i++) {
+      await settle(tester);
+    }
+    expect(fullRaster, findsOneWidget);
+    expect(cache.debugFullRasterPixels, greaterThan(0));
+
+    // Simulate the lazy list disposing the off-screen page, then revisit it
+    // while fast-scroll hold is still raised. Reuse is safe ahead of the
+    // scheduler because this exact physical-size raster already exists.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    await tester.pumpWidget(pageView(scheduler: scheduler));
+    await tester.pump();
+    await tester.pump();
+
+    expect(fullRaster, findsOneWidget,
+        reason: 'the recent exact raster should replace blur immediately');
+    expect(previewRaster, findsNothing);
+    expect(scheduler.hasPending, isFalse,
+        reason: 'a cache hit must not wait for scroll-settle release');
+  });
+
   testWidgets('an on-screen render feeds the cache without re-interpreting',
       (tester) async {
     final document = PdfDocument.open(buildClassicPdf());
@@ -275,7 +394,7 @@ void main() {
     await tester.pump();
 
     // the background prerender reaches the far pages while the viewer
-    // idles — pages 6 and 7 have never been built
+    // idles - pages 6 and 7 have never been built
     final cache = controller.debugPreviewCache!;
     for (var i = 0; i < 100 && !(cache.has(6) && cache.has(7)); i++) {
       await settle(tester);
@@ -347,7 +466,7 @@ void main() {
     expect(cache.has(11), isFalse);
 
     // jump to the far end (plain pumps complete the animation; runAsync
-    // interleaving would stall the clock) — the settle restarts the loop,
+    // interleaving would stall the clock) - the settle restarts the loop,
     // which now centers on the new current page and warms its neighbors
     unawaited(controller.jumpToPage(11));
     for (var i = 0; i < 20; i++) {
@@ -434,7 +553,7 @@ void main() {
     await tester.pump();
     final cache = controller.debugPreviewCache!;
 
-    // scroll the far page onto screen — its full render feeds the cache for
+    // scroll the far page onto screen - its full render feeds the cache for
     // free (putFromPicture), independent of the prerender window (plain
     // pumps complete the jump; runAsync would stall the animation clock)
     unawaited(controller.jumpToPage(11));
@@ -493,7 +612,7 @@ void main() {
   });
 }
 
-class _PreviewWorker implements PdfRenderWorker {
+class _PreviewWorker extends PdfRenderWorker {
   final calls = <(int, bool, double?)>[];
 
   @override
@@ -525,7 +644,7 @@ class _PreviewWorker implements PdfRenderWorker {
   void dispose() {}
 }
 
-class _DecliningWorker implements PdfRenderWorker {
+class _DecliningWorker extends PdfRenderWorker {
   final calls = <(int, bool, double?)>[];
 
   @override
@@ -550,7 +669,7 @@ class _DecliningWorker implements PdfRenderWorker {
   void dispose() {}
 }
 
-class _VectorOnlyWorker implements PdfRenderWorker {
+class _VectorOnlyWorker extends PdfRenderWorker {
   final commandLimits = <int?>[];
 
   @override

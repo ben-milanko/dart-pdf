@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.4.6
+
+- Add a positioned-tashkil Arabic fixture that mirrors Skia's output shape
+  (each zero-advance mark painted as its own run before its base glyph), for
+  extraction and selection ordering tests.
+
+## 1.4.5
+
+- Add reusable right-to-left text fixtures for Arabic extraction, selection,
+  and copy-order regression tests.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No fixture
+  API changes since 1.4.3.
+
+## 1.4.3
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.3. No fixture
+  API changes since 1.4.2.
+
+## 1.4.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No fixture
+  API changes since 1.4.1.
+
+## 1.4.1
+
+- Add fixtures for callout annotations, rich content editing, retained page
+  rendering, and the expanded viewer/editor regression suite.
+
+## 1.4.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.0. Fixture
+  updates support the new color-processing, bookmark, annotation, and app
+  workflow tests.
+
+## 1.3.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.3.2. No
+  fixture changes since 1.3.1.
+
 ## 1.3.1
 
 - Version bump to keep the dart-pdf package suite aligned at 1.3.1. No

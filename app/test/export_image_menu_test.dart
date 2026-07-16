@@ -66,7 +66,7 @@ void main() {
     expect(find.byKey(const ValueKey('export-image-dpi')), findsOneWidget);
     expect(find.byKey(const ValueKey('export-image-confirm')), findsOneWidget);
 
-    // Cancel — the rasterize + save path needs platform channels.
+    // Cancel - the rasterize + save path needs platform channels.
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(find.text('Export page as image'), findsNothing);

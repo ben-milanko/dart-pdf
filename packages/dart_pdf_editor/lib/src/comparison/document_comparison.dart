@@ -38,7 +38,7 @@ class PdfPagePair {
 /// What a [PdfDiffChange] is.
 enum PdfDiffChangeKind { inserted, deleted, replaced, pageInserted, pageRemoved }
 
-/// A single navigation stop in the diff — a text hunk on a page, or a whole
+/// A single navigation stop in the diff - a text hunk on a page, or a whole
 /// inserted/removed page. Carries the page-space bounds on each side so a
 /// side-by-side view can frame both panes and an overlay can frame one.
 class PdfDiffChange {
@@ -68,12 +68,12 @@ class PdfDiffChange {
 
 /// Drives a document comparison view: it pairs the two documents' pages,
 /// computes a word-level text diff per matched page (a [PdfTextDiff]), and
-/// exposes the resulting changes as an ordered, navigable list — the
+/// exposes the resulting changes as an ordered, navigable list - the
 /// model behind the diff navigator panel.
 ///
 /// v1 pairs pages by index: matched in the common range, trailing extra
 /// pages on either side become inserted/removed. Mid-document insertions
-/// therefore mis-align following pages — a documented limitation; a
+/// therefore mis-align following pages - a documented limitation; a
 /// content-similarity pairing is the planned upgrade.
 ///
 /// Pixel diffs (for the overlay mode and CAD-style drawings without text)

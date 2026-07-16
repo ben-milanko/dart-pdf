@@ -1,6 +1,6 @@
 /// A machine-checkable PDF/UA-1 (ISO 14289-1) validator. It checks the
-/// rules that can be decided from the file structure — tagging, metadata,
-/// language, fully-tagged content, figure alt text, standard roles — and
+/// rules that can be decided from the file structure - tagging, metadata,
+/// language, fully-tagged content, figure alt text, standard roles - and
 /// emits a [PdfConformanceReport]. Requirements a machine cannot judge
 /// (whether alt text is *meaningful*, whether reading order is correct) are
 /// out of scope or surfaced as warnings.
@@ -56,7 +56,7 @@ class _PdfUaValidator {
   PdfConformanceReport run() {
     final tree = PdfStructTree.of(document);
 
-    // 7.1 — the document must be marked as Tagged PDF.
+    // 7.1 - the document must be marked as Tagged PDF.
     if (!pdfIsMarkedTagged(document)) {
       _err('UA1:7.1',
           'Document is not marked as tagged (/MarkInfo << /Marked true >>).');
@@ -70,22 +70,22 @@ class _PdfUaValidator {
       }
     }
 
-    // 7.1 — a structure tree is required.
+    // 7.1 - a structure tree is required.
     if (tree == null) {
       _err('UA1:7.1', 'No /StructTreeRoot: the document has no structure tree.');
     }
 
-    // 7.2 — natural language must be specified for the document.
+    // 7.2 - natural language must be specified for the document.
     final lang = cos.resolve(document.catalog['Lang']);
     if (lang is! CosString || lang.text.trim().isEmpty) {
       _err('UA1:7.2',
           'Document /Lang is missing: a default natural language is required.');
     }
 
-    // 7.1 — the title must be set and shown in the title bar.
+    // 7.1 - the title must be set and shown in the title bar.
     _checkTitle();
 
-    // 5 — XMP metadata must carry the PDF/UA identifier.
+    // 5 - XMP metadata must carry the PDF/UA identifier.
     _checkMetadata();
 
     if (tree != null) {
@@ -142,7 +142,7 @@ class _PdfUaValidator {
             'Structure type "$type" is not a standard type and is not mapped '
             'to one through /RoleMap.');
       }
-      // 7.3 — figures need a text alternative.
+      // 7.3 - figures need a text alternative.
       if (standard == 'Figure') {
         final hasAlt = (element.alt?.trim().isNotEmpty ?? false) ||
             (element.actualText?.trim().isNotEmpty ?? false);
@@ -151,7 +151,7 @@ class _PdfUaValidator {
               'Figure structure element has no /Alt or /ActualText.');
         }
       }
-      // 7.10 — formulas likewise need an alternative.
+      // 7.10 - formulas likewise need an alternative.
       if (standard == 'Formula') {
         final hasAlt = (element.alt?.trim().isNotEmpty ?? false) ||
             (element.actualText?.trim().isNotEmpty ?? false);
@@ -163,7 +163,7 @@ class _PdfUaValidator {
     }
   }
 
-  /// 7.1 — every piece of real content must be tagged: inside a marked-content
+  /// 7.1 - every piece of real content must be tagged: inside a marked-content
   /// sequence that is either part of the structure tree (has an /MCID present
   /// in the structure tree) or an artifact.
   void _checkContentTagging(PdfStructTree tree) {
@@ -199,7 +199,7 @@ class _PdfUaValidator {
     return map;
   }
 
-  /// 7.18 — link annotations should be tagged. Mechanically we can only check
+  /// 7.18 - link annotations should be tagged. Mechanically we can only check
   /// that each /Link annotation carries a /StructParent tying it into the
   /// parent tree; the semantic Link-element nesting is reported as a warning.
   void _checkLinks() {

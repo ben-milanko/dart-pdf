@@ -12,7 +12,7 @@ enum PdfRasterFormat {
   /// Lossless PNG (RGBA, preserves any transparent margins).
   png,
 
-  /// Baseline JPEG (RGB, no alpha — translucent areas are flattened onto
+  /// Baseline JPEG (RGB, no alpha - translucent areas are flattened onto
   /// [PdfPageExport]'s page colour). Smaller files for photographic scans.
   jpeg,
 }
@@ -21,8 +21,8 @@ enum PdfRasterFormat {
 ///
 /// This is the public, documented entry point for the "PDF → image" side of
 /// the conversion pipeline. It wraps the existing rasterizer
-/// ([PdfPageRenderer.renderImage]) so a host can turn a page — or a whole
-/// document — into image files at a chosen resolution and colour, without
+/// ([PdfPageRenderer.renderImage]) so a host can turn a page - or a whole
+/// document - into image files at a chosen resolution and colour, without
 /// touching `dart:ui` directly.
 ///
 /// Resolution is given as [dpi] (dots per inch); a PDF point is 1/72 inch, so
@@ -32,7 +32,7 @@ enum PdfRasterFormat {
 /// ```dart
 /// final doc = PdfDocument.open(bytes);
 /// final png = await PdfPageExport.exportPage(doc.page(0), dpi: 200);
-/// // write `png` to disk / upload it — these bytes are a complete PNG file.
+/// // write `png` to disk / upload it - these bytes are a complete PNG file.
 /// ```
 class PdfPageExport {
   PdfPageExport._();
@@ -46,7 +46,7 @@ class PdfPageExport {
   /// overrides the page's own /Rotate for the export. [jpegQuality] (1–100)
   /// applies to [PdfRasterFormat.jpeg].
   ///
-  /// Returns a complete image file's bytes — write them straight to disk or
+  /// Returns a complete image file's bytes - write them straight to disk or
   /// upload them.
   static Future<Uint8List> exportPage(
     PdfPage page, {
@@ -149,7 +149,7 @@ class PdfPageExport {
   }
 
   /// Alpha-composites the RGBA [pixels] (straight alpha) over [background] in
-  /// place, leaving them opaque — JPEG cannot store the alpha channel.
+  /// place, leaving them opaque - JPEG cannot store the alpha channel.
   static void _flattenOnto(Uint8List pixels, Color background) {
     final br = (background.r * 255).round();
     final bg = (background.g * 255).round();

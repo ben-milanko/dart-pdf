@@ -53,7 +53,7 @@ void main() {
           (PdfLineEnding.none, PdfLineEnding.none));
 
       editing.setSelectedLineEndings(end: PdfLineEnding.openArrow);
-      // the selection survives — still slot 1
+      // the selection survives - still slot 1
       expect(editing.selectedAnnotationSlots, [(0, 1)]);
       expect(editing.selectedLineEndings,
           (PdfLineEnding.none, PdfLineEnding.openArrow));
@@ -85,7 +85,7 @@ void main() {
 
   group('line-ending picker', () {
     Future<void> openStyleMenu(WidgetTester tester) async {
-      // the tune button lives in the open group / selection strip — the
+      // the tune button lives in the open group / selection strip - the
       // first of the toolbar's two scrollables (strip above, dock below)
       await tester.scrollUntilVisible(
           find.byTooltip('Stroke, opacity, font'), 100,
@@ -119,7 +119,8 @@ void main() {
       await tester.pumpWidget(host(editing, viewer));
       await openStyleMenu(tester);
 
-      expect(find.byKey(const ValueKey('pdf-line-start-ending')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-line-start-ending')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-line-end-ending')), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('pdf-line-end-ending')));

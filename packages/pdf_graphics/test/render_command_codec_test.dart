@@ -1,4 +1,4 @@
-// Byte-codec round-trip for the recorded command buffer — the wire format the
+// Byte-codec round-trip for the recorded command buffer - the wire format the
 // background-isolate / Web-Worker render path crosses. A recorded buffer
 // serialized to bytes and read back must replay into the EXACT same device
 // transcript as the original buffer. Pure Dart, no dart:ui: it proves the
@@ -20,12 +20,12 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
 /// Deterministic transcript of every device call, recursing into soft-mask
-/// content — the same shape as render_command_test's oracle.
+/// content - the same shape as render_command_test's oracle.
 class _TranscriptDevice implements PdfDevice {
   final List<String> log = [];
 
   // Path coordinates ride the wire as float32 (the codec stores geometry at
-  // f32 precision — see _writePath in render_command_codec.dart). The render
+  // f32 precision - see _writePath in render_command_codec.dart). The render
   // engine truncates every coordinate to f32 regardless, and that truncation is
   // idempotent, so a page renders pixel-identically whether the codec shipped
   // the original f64 or its f32 image; the only observable effect is here, in
@@ -194,8 +194,98 @@ void main() {
     });
   });
 
+  group('worker state-scope compaction', () {
+    test('drops clip-free scopes but preserves clip-owning scopes', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final recorder = _record(
+          doc,
+          'q 0 0 10 10 re f Q '
+          'q 0 0 5 5 re W n 0 0 10 10 re f Q '
+          'q q 1 1 4 4 re W n 0 0 10 10 re f Q Q');
+
+      final bytes = serializeCommands(
+        recorder.commands,
+        compactStateScopes: true,
+      )!;
+      final compacted = deserializeCommands(bytes);
+
+      expect(compacted.whereType<PdfFillPathCommand>(), hasLength(3));
+      expect(compacted.whereType<PdfClipPathCommand>(), hasLength(2));
+      expect(compacted.whereType<PdfSaveCommand>(), hasLength(2));
+      expect(compacted.whereType<PdfRestoreCommand>(), hasLength(2));
+      expect(compacted.first, isA<PdfFillPathCommand>(),
+          reason: 'the first clip-free q/Q pair should disappear');
+    });
+
+    test('keeps unmatched state commands in a command-limited prefix', () {
+      final recorder =
+          _record(CosDocument.open(buildClassicPdf()), 'q 0 0 10 10 re f Q');
+      final bytes = serializeCommands(
+        recorder.commands,
+        commandLimit: 2,
+        compactStateScopes: true,
+      )!;
+      final compacted = deserializeCommands(bytes);
+
+      expect(compacted, hasLength(2));
+      expect(compacted[0], isA<PdfSaveCommand>());
+      expect(compacted[1], isA<PdfFillPathCommand>());
+    });
+
+    test('keeps explicit blend restoration while dropping its scope', () {
+      const path = PdfPath([
+        PdfMoveTo(0, 0),
+        PdfLineTo(1, 0),
+        PdfLineTo(1, 1),
+        PdfClosePath(),
+      ]);
+      final commands = <PdfRenderCommand>[
+        const PdfSaveCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfFillPathCommand(path, PdfColor.black, PdfFillRule.nonzero, 1),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        const PdfRestoreCommand(),
+      ];
+
+      final restored = deserializeCommands(
+        serializeCommands(commands, compactStateScopes: true)!,
+      );
+      expect(restored, hasLength(3));
+      expect(restored[0], isA<PdfSetBlendModeCommand>());
+      expect(restored[1], isA<PdfFillPathCommand>());
+      expect(restored[2], isA<PdfSetBlendModeCommand>());
+    });
+
+    test('compacts soft-mask callback commands recursively', () {
+      const path = PdfPath([
+        PdfMoveTo(0, 0),
+        PdfLineTo(1, 0),
+        PdfLineTo(1, 1),
+        PdfClosePath(),
+      ]);
+      final commands = <PdfRenderCommand>[
+        PdfEndSoftMaskedCommand(
+          luminosity: false,
+          backdrop: const PdfRect(0, 0, 1, 1),
+          maskCommands: const [
+            PdfSaveCommand(),
+            PdfFillPathCommand(path, PdfColor.black, PdfFillRule.nonzero, 1),
+            PdfRestoreCommand(),
+          ],
+        ),
+      ];
+
+      final restored = deserializeCommands(
+        serializeCommands(commands, compactStateScopes: true)!,
+      );
+      final mask = (restored.single as PdfEndSoftMaskedCommand).maskCommands;
+      expect(mask, hasLength(1));
+      expect(mask.single, isA<PdfFillPathCommand>());
+    });
+  });
+
   // Real pages exercise the fragile callbacks: transparency groups, soft masks
-  // (their drawMask content), blend modes, gradients, knockout — and images,
+  // (their drawMask content), blend modes, gradients, knockout - and images,
   // which round-trip through the inline-resolved stream subgraph (given `cos`)
   // to the same transcript, or decline to null without a `cos`.
   group('corpus round-trip', () {
@@ -230,14 +320,14 @@ void main() {
           final noCos = serializeCommands(recorder.commands);
           if (recorder.imageRequests.isNotEmpty) {
             expect(noCos, isNull,
-                reason: '$name page $i draws images — declines without a cos');
+                reason: '$name page $i draws images - declines without a cos');
           } else {
             expect(noCos, isNotNull, reason: '$name page $i has no images');
           }
 
           // With the document, image XObjects serialize via their inlined
           // stream subgraph; the buffer round-trips to the same transcript.
-          // (An inline image would still decline — none in these fixtures.)
+          // (An inline image would still decline - none in these fixtures.)
           final bytes = serializeCommands(recorder.commands, cos: doc.cos);
           expect(bytes, isNotNull,
               reason: '$name page $i should serialize with a cos');
@@ -273,7 +363,7 @@ void main() {
 
   // The worker path: serializeCommands(decodeImages: true) decodes each image
   // off-thread and embeds the premultiplied RGBA, so the reconstructed request
-  // carries pixels that match the pure-Dart decode — and the replay transcript
+  // carries pixels that match the pure-Dart decode - and the replay transcript
   // is unchanged (the decode never alters the command shape).
   group('image decode offload', () {
     test('uses predecoded image request pixels', () {
@@ -306,6 +396,37 @@ void main() {
       expect(restored.request.decoded!.width, 1);
       expect(restored.request.decoded!.height, 1);
       expect(restored.request.decoded!.rgba, decoded.rgba);
+    });
+
+    test('large decoded pixel planes stay zero-copy on deserialize', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(512),
+          'Height': const CosInteger(512),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+      );
+      final decoded = PdfDecodedPixels(Uint8List(512 * 512 * 4), 512, 512);
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: PdfMatrix.identity,
+        decoded: decoded,
+      ));
+
+      final bytes = serializeCommands([command], cos: cos, decodeImages: true)!;
+      final restored = _imageCommands(deserializeCommands(bytes)).single;
+      expect(restored.request.decoded!.rgba.buffer.lengthInBytes,
+          bytes.buffer.lengthInBytes,
+          reason: 'a large pixel payload should view the transferred buffer '
+              'instead of copying it again on the UI isolate');
+      // The public result remains growable after the pre-sizing optimization.
+      final commands = deserializeCommands(bytes);
+      commands.add(const PdfSaveCommand());
+      expect(commands, hasLength(2));
     });
 
     test('imageDecodeRegion crops pixels and retargets the image transform',
@@ -386,6 +507,71 @@ void main() {
       expect(decoded.rgba, [0, 0, 0, 0]);
     });
 
+    test('imageDecodeRegion sharpens images the fast path declines (SMask)',
+        () {
+      // An /SMask'd image (a transparent logo, say) is exactly the kind the
+      // fast region decoder bails on, so before the general-decoder fallback it
+      // would drop through to the full-page cap and stay soft under deep zoom.
+      // Here the visible slice must still come back cropped + region-keyed.
+      final cos = CosDocument.open(buildClassicPdf());
+      final baseRaw = <int>[];
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          baseRaw.addAll([x * 40, y * 50, 7]);
+        }
+      }
+      final smask = CosStream(
+        CosDictionary({
+          'Type': const CosName('XObject'),
+          'Subtype': const CosName('Image'),
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(List<int>.filled(16, 128))),
+      );
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+          'SMask': smask,
+        }),
+        Uint8List.fromList(zlib.encode(baseRaw)),
+      );
+      // The fast Flate region path must decline this (SMask present), so the
+      // fallback under test is the only way a region result comes back.
+      expect(
+        decodePdfImagePixelsRegionScaled(cos, stream, 1, 2, 1, 1, 1, 1),
+        isNull,
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(400, 0, 0, 400, 100, 200),
+      ));
+
+      final bytes = serializeCommands([command],
+          cos: cos,
+          decodeImages: true,
+          maxImagePixelRatio: 100,
+          imageDecodeRegion: const PdfRect(200, 300, 300, 400));
+
+      expect(bytes, isNotNull);
+      final restored = _imageCommands(deserializeCommands(bytes!)).single;
+      // Retargeted to the cropped slice, same as the fast-path region case.
+      expect(restored.request.transform.a, 100);
+      expect(restored.request.transform.d, 100);
+      final decoded = restored.request.decoded!;
+      expect(decoded.width, 1);
+      expect(decoded.height, 1);
+      // Base [40,100,7] premultiplied by the mask's alpha 128.
+      expect(decoded.rgba, [20, 50, 3, 128]);
+    });
+
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/'
           'GWG166_Softmasks_Images_DeviceCMYK_X4.pdf',
@@ -425,7 +611,7 @@ void main() {
             final got = images[k].request.decoded;
             if (expected == null) {
               expect(got, isNull,
-                  reason: '$name page $i image $k needs the platform codec — '
+                  reason: '$name page $i image $k needs the platform codec - '
                       'ships no pixels');
             } else {
               expect(got, isNotNull,
@@ -445,7 +631,7 @@ void main() {
   });
 
   // maxImagePixelRatio caps each decoded image to ~display resolution before it
-  // crosses the worker boundary — the fix for raster-thread jank on CAD sheets
+  // crosses the worker boundary - the fix for raster-thread jank on CAD sheets
   // whose embedded underlays are 100+ megapixels. A tiny ratio must shrink
   // them; a null/huge ratio must leave them at native resolution; and the
   // command transcript must be untouched either way (only the pixels change).
@@ -520,13 +706,13 @@ void main() {
           }
         }
         expect(sawCapped, isTrue,
-            reason: '$name capped no image — the test proved nothing');
+            reason: '$name capped no image - the test proved nothing');
       });
     }
   });
 
   // imageBudgetFactor bounds the TOTAL decoded pixels of a page to a multiple
-  // of the page raster cap, on top of the per-image cap — the fix for sheets
+  // of the page raster cap, on top of the per-image cap - the fix for sheets
   // layered from dozens of overlapping raster tiles, where each image is near
   // its own footprint yet their sum dwarfs the raster. A tiny factor forces
   // the page budget to bind even on these small pages: total decoded pixels
@@ -593,7 +779,7 @@ void main() {
           sawBudgeted = true;
         }
         expect(sawBudgeted, isTrue,
-            reason: '$name page budget bound no page — proved nothing');
+            reason: '$name page budget bound no page - proved nothing');
       });
     }
   });
@@ -610,7 +796,7 @@ int _decodedPixelSum(List<PdfRenderCommand> commands) {
 }
 
 /// Every image draw command in [commands], in replay (DFS) order, descending
-/// into soft-mask groups — the same order serializeCommands writes them.
+/// into soft-mask groups - the same order serializeCommands writes them.
 List<PdfDrawImageCommand> _imageCommands(List<PdfRenderCommand> commands) {
   final out = <PdfDrawImageCommand>[];
   void walk(List<PdfRenderCommand> cs) {

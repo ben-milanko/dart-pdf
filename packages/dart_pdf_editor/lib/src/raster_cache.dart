@@ -4,14 +4,14 @@ import 'dart:ui' as ui;
 import 'package:pdf_document/pdf_document.dart';
 
 /// Persists low-resolution page rasters to a [PdfDiskCache] so a document
-/// reopened in a later session shows soft page content immediately —
-/// instead of blank paper — while the (heavy, twice-over-the-content-
+/// reopened in a later session shows soft page content immediately -
+/// instead of blank paper - while the (heavy, twice-over-the-content-
 /// stream) full render computes.
 ///
 /// This is the raster half of the library's on-disk caching, layered on
 /// the same pluggable [PdfCacheStore] seam as the text cache. It only
-/// stores the small preview rasters (see [PdfPagePreviewCache]) — a few
-/// tens of KB of PNG per page — not full-resolution page images, so the
+/// stores the small preview rasters (see [PdfPagePreviewCache]) - a few
+/// tens of KB of PNG per page - not full-resolution page images, so the
 /// budget stays modest and the win (instant navigable content on cold
 /// open) is large. Rasters are encoded as PNG via [ui.Image] (no extra
 /// dependency) and decoded back with [ui.instantiateImageCodec].
@@ -29,7 +29,7 @@ class PdfRasterCache {
   /// Identifies the document these rasters belong to; empty disables I/O.
   final String documentKey;
 
-  /// A view of this cache bound to [documentKey] — share one underlying
+  /// A view of this cache bound to [documentKey] - share one underlying
   /// [PdfDiskCache] (and its byte budget) across every document the
   /// session opens.
   PdfRasterCache forDocument(String documentKey) =>

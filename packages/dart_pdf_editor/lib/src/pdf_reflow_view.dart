@@ -136,7 +136,7 @@ class _PdfReflowViewState extends State<PdfReflowView> {
           // extent is exact and the scrollbar thumb stays put. A lazy
           // ListView estimates the extent from built children, which jumps
           // as reflow pages of wildly different heights (text vs. tall image
-          // pages) come into view — the heights can't be precomputed because
+          // pages) come into view - the heights can't be precomputed because
           // they depend on text wrap and image aspect ratio.
           final imageMap = content?.images ?? const <Object, ui.Image>{};
           return Scrollbar(

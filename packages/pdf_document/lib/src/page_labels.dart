@@ -19,7 +19,7 @@ enum PdfPageLabelStyle {
   /// Lowercase letters (a, b, ..., z, aa, ...), `/S /a`.
   alphaLower,
 
-  /// No numeric portion — the prefix alone labels every page in the range.
+  /// No numeric portion - the prefix alone labels every page in the range.
   none;
 
   /// The `/S` name, or null for [none].

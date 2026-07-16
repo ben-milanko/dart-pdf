@@ -34,7 +34,7 @@ class CosDocument {
   StandardSecurityHandler? _encryption;
   int? _encryptObjectNumber;
 
-  /// Which indirect object owns each loaded stream — decryption keys are
+  /// Which indirect object owns each loaded stream - decryption keys are
   /// derived from the owner's number and generation.
   final Map<CosStream, CosReference> _streamOwners = {};
 
@@ -67,7 +67,7 @@ class CosDocument {
   ///
   /// When the cross-reference machinery is broken (missing `startxref`,
   /// corrupt offsets, truncated tables), falls back to rebuilding the xref
-  /// by scanning the file for object headers — see [_recover].
+  /// by scanning the file for object headers - see [_recover].
   static CosDocument open(Uint8List bytes, {String password = ''}) {
     final shift = _findHeader(bytes);
     try {
@@ -83,7 +83,7 @@ class CosDocument {
     } on UnsupportedEncryptionException {
       rethrow;
     } on Exception {
-      // broken xref chain or trailer — fall through to recovery
+      // broken xref chain or trailer - fall through to recovery
     } on RangeError {
       // ditto: an xref offset pointing outside the file
     }
@@ -124,8 +124,8 @@ class CosDocument {
   /// (the last definition of each object number wins, matching
   /// incremental-update semantics), recovers the trailer from `trailer`
   /// dictionaries and cross-reference stream dictionaries, indexes any
-  /// object streams so compressed objects stay reachable, and — failing a
-  /// recovered /Root — locates the catalog by its /Type.
+  /// object streams so compressed objects stay reachable, and - failing a
+  /// recovered /Root - locates the catalog by its /Type.
   static CosDocument _recover(Uint8List bytes, int shift, String password) {
     final entries = _scanObjectHeaders(bytes, shift);
     if (entries.isEmpty) {
@@ -386,7 +386,7 @@ class CosDocument {
           result = CosNull.instance;
         case CosXrefEntryType.inUse:
           // A junk target or one holding a different object means the
-          // xref offsets are off (shifted, or regenerated wrong) — fall
+          // xref offsets are off (shifted, or regenerated wrong) - fall
           // back to a one-time scan for `N G obj` headers, and failing
           // that treat the reference as dangling.
           final indirect = _parseIndirectAt(entry.offset, objectNumber) ??
@@ -403,7 +403,7 @@ class CosDocument {
           }
         case CosXrefEntryType.compressed:
           // objects inside an object stream were decrypted wholesale with
-          // the stream itself — never again individually (§7.6.3)
+          // the stream itself - never again individually (§7.6.3)
           result = _objectStream(entry.streamObjectNumber)
               .objectByNumber(objectNumber, entry.indexInStream);
       }
@@ -433,7 +433,7 @@ class CosDocument {
   }
 
   /// Looks [objectNumber] up in the lazily built header scan (the same
-  /// scan full recovery uses) — the rescue for xrefs whose offsets lie.
+  /// scan full recovery uses) - the rescue for xrefs whose offsets lie.
   CosIndirectObject? _parseScannedHeader(int objectNumber) {
     final headers =
         _scannedHeaders ??= _scanObjectHeaders(bytes, _offsetShift);
@@ -510,7 +510,7 @@ class CosDocument {
 
   /// Cross-reference streams are never encrypted (§7.5.8.2), /Metadata is
   /// exempt under /EncryptMetadata false, and a /Crypt filter whose /Name
-  /// is /Identity (or missing — the default) marks the bytes as plain.
+  /// is /Identity (or missing - the default) marks the bytes as plain.
   bool _streamIsEncrypted(CosStream stream) {
     final dict = stream.dictionary;
     final type = resolve(dict['Type']);

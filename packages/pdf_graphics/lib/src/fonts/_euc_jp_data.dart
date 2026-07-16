@@ -1,4 +1,4 @@
-// GENERATED — do not edit by hand.
+// GENERATED - do not edit by hand.
 //
 // EUC-JP (the `EUC-H`/`EUC-V` Adobe-Japan1 CMaps) two-byte code → Unicode scalar table, used to decode non-embedded
 // CID text that declares the matching predefined CMap. Generated from Python's

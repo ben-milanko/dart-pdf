@@ -5,13 +5,13 @@ import 'package:crypto/crypto.dart' show md5;
 import 'objects.dart';
 import 'serializer.dart';
 
-/// Assembles a brand-new PDF file from scratch — the counterpart of
+/// Assembles a brand-new PDF file from scratch - the counterpart of
 /// [CosIncrementalUpdater] for output that does not extend an existing
 /// byte stream (extracted page ranges, merged documents, generated files).
 ///
 /// Objects are numbered in registration order starting at 1. A container
-/// may be registered while still empty and filled in afterwards — nothing
-/// is serialized until [build] — which is how callers close reference
+/// may be registered while still empty and filled in afterwards - nothing
+/// is serialized until [build] - which is how callers close reference
 /// cycles (a page referencing its parent tree node, say).
 class CosDocumentBuilder {
   final List<CosObject> _objects = [];

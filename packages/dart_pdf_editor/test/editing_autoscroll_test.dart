@@ -51,7 +51,7 @@ void main() {
     await tester.pump();
     final atEdge = scrollPosition(tester).pixels;
 
-    // holding still — no more pointer moves — keeps panning frame by frame
+    // holding still - no more pointer moves - keeps panning frame by frame
     for (var i = 0; i < 4; i++) {
       await tester.pump(const Duration(milliseconds: 16));
     }

@@ -458,8 +458,8 @@ void main() {
             'BT /F1 10 Tf 3 Tr (ghost) Tj 0 Tr (real) Tj ET'.codeUnits)),
         page.resources,
       );
-      // the ghost run still reaches the device — it is the text layer of
-      // OCR'd scans, so extraction/selection must see it — but flagged so
+      // the ghost run still reaches the device - it is the text layer of
+      // OCR'd scans, so extraction/selection must see it - but flagged so
       // painting devices skip it
       expect(device.texts, hasLength(2));
       expect(device.texts[0].text, 'ghost');
@@ -477,7 +477,7 @@ void main() {
         'an unresolvable font substitutes Helvetica instead of dropping '
         'the text', () {
       // pdf.js issue4461 class: a page with no /Resources still shows
-      // its text — and keeps it selectable
+      // its text - and keeps it selectable
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();
       PdfInterpreter(cos: doc, device: device).run(
@@ -645,7 +645,7 @@ void main() {
       final doc = CosDocument.open(buildClassicPdf());
       final device = RecordingDevice();
       const cell = '1 0 1 rg 0 0 1 1 re f';
-      // No /Font entry needed — /Missing resolves to the Helvetica fallback.
+      // No /Font entry needed - /Missing resolves to the Helvetica fallback.
       final resources = CosDictionary({
         'Pattern': CosDictionary({
           'P1': CosStream(
@@ -718,7 +718,7 @@ void main() {
       // Embedded TrueType 'A' filled with a red tiling pattern: the pattern
       // must paint through the glyph outlines (clip + per-tile fill) and the
       // text run must be emitted invisibly so it stays selectable without the
-      // solid fill colour showing through (issue4246 sibling — pattern text).
+      // solid fill colour showing through (issue4246 sibling - pattern text).
       final doc = CosDocument.open(buildEmbeddedFontPdf());
       final device = RecordingDevice();
       const cell = '1 0 0 rg 0 0 1 1 re f';
@@ -1153,7 +1153,8 @@ void main() {
           reason: 'a cancelled walk stops before the full walk');
     });
 
-    test('drawPageOperationsAsync yields and checks the token', () async {
+    test('drawPageOperationsAsync configurable chunk yields and checks token',
+        () async {
       final bytes = heavyPdf();
       final doc = PdfDocument.open(bytes);
       final page = doc.page(0);
@@ -1170,7 +1171,56 @@ void main() {
       });
 
       await expectLater(
-        interp.drawPageOperationsAsync(page, ops),
+        interp.drawPageOperationsAsync(page, ops, yieldInterval: 1024),
+        throwsA(isA<PdfCancelledException>()),
+      );
+    });
+
+    test('drawPageContent streams the same device calls as a parsed list', () {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final content = page.contentBytes();
+
+      final materialized = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: materialized).drawPageOperations(
+        page,
+        ContentStreamParser.parse(content),
+      );
+      final streaming = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: streaming)
+          .drawPageContent(page, content);
+
+      expect(streaming.calls, materialized.calls);
+      expect(streaming.fills.length, materialized.fills.length);
+      expect(streaming.strokes.length, materialized.strokes.length);
+      expect(streaming.texts.length, materialized.texts.length);
+      expect(streaming.images.length, materialized.images.length);
+    });
+
+    test('drawPageContentAsync can cancel while parsing and interpreting',
+        () async {
+      final bytes = heavyPdf();
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final token = PdfCancellationToken();
+      final device = RecordingDevice();
+      final interpreter = PdfInterpreter(
+        cos: doc.cos,
+        device: device,
+        cancellation: token,
+      );
+
+      Future<void>.delayed(Duration.zero).then((_) {
+        token.cancelled = true;
+      });
+
+      await expectLater(
+        interpreter.drawPageContentAsync(
+          page,
+          page.contentBytes(),
+          yieldInterval: 1024,
+        ),
         throwsA(isA<PdfCancelledException>()),
       );
     });

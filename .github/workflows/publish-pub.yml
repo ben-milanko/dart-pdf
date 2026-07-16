@@ -1,7 +1,7 @@
 name: Publish to pub.dev
 
 # Tag-triggered OIDC publishing. Each `<pkg>-v<version>` tag publishes that
-# package's working directory to pub.dev with no stored token — pub.dev trusts
+# package's working directory to pub.dev with no stored token - pub.dev trusts
 # the GitHub Actions identity. Tags for versions that are already on pub.dev
 # are treated as successful no-ops, which keeps manually recovered releases
 # from creating failed publish runs when their record tags are pushed later.

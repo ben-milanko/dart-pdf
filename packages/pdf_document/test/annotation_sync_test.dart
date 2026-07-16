@@ -1,6 +1,6 @@
 // The annotation sync surface: /NM identity (stamped at creation,
 // preserved through rewrites), serializable snapshots, name-keyed
-// upsert/remove, and pdfDiffAnnotations — the building blocks for
+// upsert/remove, and pdfDiffAnnotations - the building blocks for
 // syncing annotations through an external store (Firestore, a server).
 
 import 'dart:convert';
@@ -266,7 +266,7 @@ void main() {
 
   group('pdfDiffAnnotations', () {
     // Editing mutates the in-memory COS of the document it runs on, so
-    // each diffed state opens fresh from its own bytes — exactly how the
+    // each diffed state opens fresh from its own bytes - exactly how the
     // editing controller hands revisions to the diff.
     Uint8List editBytes(Uint8List bytes, void Function(PdfEditor) edit) {
       final editor = PdfEditor(PdfDocument.open(bytes));

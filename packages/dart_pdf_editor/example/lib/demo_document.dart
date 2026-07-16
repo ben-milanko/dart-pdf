@@ -124,7 +124,7 @@ String _stream(String dict, String data) =>
 
 /// Builds the 6-page feature-showcase demo document.
 ///
-/// Pages 1–2 are the interactivity demo: page 1 is plain PDF — link and
+/// Pages 1–2 are the interactivity demo: page 1 is plain PDF - link and
 /// widget annotations any conforming viewer understands; the app reacts to
 /// them through PdfViewer.onAction. Page 2 is the inverse direction:
 /// Flutter widgets pinned over the page.
@@ -135,7 +135,7 @@ String _stream(String dict, String data) =>
 /// authored at build time through the dart-pdf editor API.
 Uint8List buildDemoPdf() {
   // The masthead banner (top) and the corner app mark are stamped onto this
-  // page as image XObjects in _authorShowcase — real PNGs don't fit this
+  // page as image XObjects in _authorShowcase - real PNGs don't fit this
   // text-only COS builder. The banner carries the wordmark + tagline, so the
   // page no longer draws a plain-text title of its own.
   final page1 = StringBuffer()
@@ -170,7 +170,7 @@ Uint8List buildDemoPdf() {
         '<< /S /GoTo /D [@PG$page@ 0 R /Fit] >>'));
   }
   // A real web hyperlink (https): the viewer opens it itself via
-  // PdfViewer.onLaunchUrl, no app wiring needed — unlike the app:// links
+  // PdfViewer.onLaunchUrl, no app wiring needed - unlike the app:// links
   // above, which the app dispatches through onAction.
   const webLinkY = 166.0;
   const webLinkLabel = 'Open dart-pdf on pub.dev (a real web link)';
@@ -398,6 +398,13 @@ Uint8List buildDemoPdf() {
       _stream('/Type /XObject /Subtype /Form /BBox [0 0 18 18]', radioBase));
   final radioOn = add(_stream('/Type /XObject /Subtype /Form /BBox [0 0 18 18]',
       '$radioBase q 0.1 0.15 0.4 rg ${_circle(9, 9, 3.6)}f Q'));
+  final jsButtonAppearance = add(_stream(
+      '/Type /XObject /Subtype /Form '
+          '/BBox [0 0 ${_n(_jsButton.width)} ${_n(_jsButton.height)}] '
+          '/Resources << /Font << /F1 $f1 0 R >> >>',
+      'q 0.92 0.94 1 rg 0 0 ${_n(_jsButton.width)} ${_n(_jsButton.height)} re f '
+          '0.25 0.35 0.85 RG 1 w 0 0 ${_n(_jsButton.width)} ${_n(_jsButton.height)} re S Q\n'
+          'BT /F1 12 Tf 12 14 Td (Run JavaScript) Tj ET\n'));
 
   // form fields: text / checkbox / radio group / combo
   const mk = '/MK << /BC [0.35 0.4 0.6] /BG [0.96 0.97 1] >>';
@@ -451,6 +458,7 @@ Uint8List buildDemoPdf() {
       '${_link(_goToLink, '<< /S /GoTo /D [@PG2@ 0 R /XYZ null null null] >>')} '
       '${_link(_nextPageLink, '<< /S /Named /N /NextPage >>')} '
       '<< /Type /Annot /Subtype /Widget /FT /Btn /T (demoJs) '
+      '/AP << /N $jsButtonAppearance 0 R >> '
       '/Rect ${_rect(_jsButton)} /A << /S /JavaScript '
       r'/JS (app.alert\(Hello from PDF JavaScript\)) >> >> '
       '${tocLinks.join(' ')} ]';
@@ -521,7 +529,7 @@ Uint8List buildDemoPdf() {
 }
 
 /// Adds page 6's annotations and fills its form fields through the public
-/// editor API — the demo document doubles as a smoke test of the authoring
+/// editor API - the demo document doubles as a smoke test of the authoring
 /// pipeline.
 Uint8List _authorShowcase(Uint8List base) {
   const page = 5; // page 6, zero-based

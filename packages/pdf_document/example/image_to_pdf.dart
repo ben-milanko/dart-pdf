@@ -1,4 +1,4 @@
-// A tiny CLI that assembles a PDF from one or more JPEG/PNG images — the
+// A tiny CLI that assembles a PDF from one or more JPEG/PNG images - the
 // pure-Dart image→PDF pipeline ([PdfImageDocument]).
 //
 // Usage:
@@ -12,7 +12,7 @@
 //                        contain)
 //   --margin=N          points of margin around the image on a fixed page
 //
-// `dart:io` here is fine — this is an example/CLI, not library code. The
+// `dart:io` here is fine - this is an example/CLI, not library code. The
 // library half ([PdfImageDocument]) stays pure Dart and web-safe.
 import 'dart:io';
 

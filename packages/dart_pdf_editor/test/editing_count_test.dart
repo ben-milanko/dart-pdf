@@ -2,11 +2,31 @@
 // Each tap places a /Stamp check-mark annotation and bumps the running
 // tally (PdfEditingController.checkMarkCount); the marks behave like any
 // other annotation (select/move/delete) and the tally tracks undo/redo.
+import 'dart:convert';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+String appearanceText(PdfEditingController editing) {
+  final annotation = editing.document.page(0).annotations.single;
+  return latin1.decode(
+      editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+}
+
+/// The editing overlay's preview painter, read through a dynamic cast
+/// (the painter class is private to the library).
+dynamic overlayPainter(WidgetTester tester) => tester
+    .widget<CustomPaint>(find
+        .descendant(
+            of: find.byType(EditingPageOverlay),
+            matching: find.byType(CustomPaint))
+        .first)
+    .painter;
 
 void main() {
   group('PdfEditingController check-marks', () {
@@ -21,7 +41,8 @@ void main() {
       expect((mark.rect.left + mark.rect.right) / 2, closeTo(300, 1e-9));
       expect((mark.rect.bottom + mark.rect.top) / 2, closeTo(400, 1e-9));
       // a default-size square mark
-      expect(mark.rect.width, closeTo(PdfEditingController.checkMarkSize, 1e-9));
+      expect(
+          mark.rect.width, closeTo(PdfEditingController.checkMarkSize, 1e-9));
       expect(mark.rect.width, closeTo(mark.rect.height, 1e-9));
     });
 
@@ -72,6 +93,20 @@ void main() {
 
       editing.placeTextStamp(0, 200, 200, 'APPROVED');
       expect(editing.checkMarkCount, 0);
+    });
+
+    test('placeCheckMark counter-rotates on a rotated page', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+
+      expect(editing.rotatePages([0], 90), isTrue);
+      expect(editing.placeCheckMark(0, 300, 400), isTrue);
+
+      final mark = editing.document.page(0).annotations.single;
+      expect(mark.isCheckMark, isTrue);
+      expect(editing.checkMarkCount, 1);
+      expect(appearanceText(editing), contains('0 1 -1 0'));
     });
   });
 
@@ -124,6 +159,108 @@ void main() {
       expect(editing.checkMarkCount, 2);
     });
 
+    testWidgets('count taps paint an immediate afterimage before the raster',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFF2E7D32)
+        ..tool = PdfEditTool.count;
+      addTearDown(editing.dispose);
+
+      final page = editing.document.page(0);
+      final geometry = PdfPageGeometry(
+        cropBox: page.cropBox,
+        rotation: 0,
+        viewSize: const Size(306, 396),
+      );
+      Offset local(double x, double y) => Offset(x * 0.5, (792 - y) * 0.5);
+      await tester.pumpWidget(MaterialApp(
+        home: Material(
+          child: Center(
+            child: SizedBox(
+              width: geometry.viewSize.width,
+              height: geometry.viewSize.height,
+              child: EditingPageOverlay(
+                controller: editing,
+                pageIndex: 0,
+                geometry: geometry,
+                textPrompt: showPdfTextPrompt,
+                rasterCurrent: false,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+      await tester.tapAt(origin + local(240, 420),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      final mark = editing.document.page(0).annotations.single;
+      final after = overlayPainter(tester).afterStamp;
+      expect(after, isNotNull);
+      expect(after.check, isTrue);
+      expect(after.text, isNull);
+      expect(after.color, const Color(0xFF2E7D32));
+      expect(after.rect,
+          rectMoreOrLessEquals(geometry.toViewRect(mark.rect), epsilon: 0.01));
+    });
+
+    testWidgets('count tool previews the check mark under the mouse',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFF2E7D32)
+        ..tool = PdfEditTool.count;
+      addTearDown(editing.dispose);
+
+      final page = editing.document.page(0);
+      final geometry = PdfPageGeometry(
+        cropBox: page.cropBox,
+        rotation: 0,
+        viewSize: const Size(306, 396),
+      );
+      Offset local(double x, double y) => Offset(x * 0.5, (792 - y) * 0.5);
+      await tester.pumpWidget(MaterialApp(
+        home: Material(
+          child: Center(
+            child: SizedBox(
+              width: geometry.viewSize.width,
+              height: geometry.viewSize.height,
+              child: EditingPageOverlay(
+                controller: editing,
+                pageIndex: 0,
+                geometry: geometry,
+                textPrompt: showPdfTextPrompt,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await gesture.addPointer(location: origin + local(200, 420));
+      await tester.pump();
+      await gesture.moveTo(origin + local(240, 420));
+      await tester.pump();
+
+      final preview = overlayPainter(tester).countPreview;
+      expect(preview, isNotNull);
+      expect(preview.check, isTrue);
+      expect(preview.text, isNull);
+      expect(preview.color, const Color(0xFF2E7D32));
+      expect(preview.rect.center,
+          offsetMoreOrLessEquals(local(240, 420), epsilon: 0.01));
+      expect(editing.document.page(0).annotations, isEmpty);
+
+      await gesture.removePointer();
+      await tester.pump();
+    });
+
     testWidgets('the toolbar shows the running tally while the tool is armed',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -151,15 +288,13 @@ void main() {
       editing.tool = PdfEditTool.count;
       await tester.pump();
       expect(find.byKey(tally), findsOneWidget);
-      expect(
-          find.descendant(of: find.byKey(tally), matching: find.text('0')),
+      expect(find.descendant(of: find.byKey(tally), matching: find.text('0')),
           findsOneWidget);
 
       editing.placeCheckMark(0, 100, 100);
       editing.placeCheckMark(0, 200, 200);
       await tester.pump();
-      expect(
-          find.descendant(of: find.byKey(tally), matching: find.text('2')),
+      expect(find.descendant(of: find.byKey(tally), matching: find.text('2')),
           findsOneWidget);
     });
   });

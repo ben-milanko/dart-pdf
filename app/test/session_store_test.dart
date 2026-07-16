@@ -9,7 +9,8 @@ void main() {
   test('save then load round-trips the open documents in order', () async {
     final a = SessionStore();
     await a.save(const [
-      SessionDocument(title: 'a.pdf', path: '/docs/a.pdf'),
+      SessionDocument(
+          title: 'a.pdf', path: '/docs/a.pdf', bookmark: 'bookmark-a'),
       SessionDocument(title: 'b.pdf', path: '/docs/b.pdf'),
     ]);
 
@@ -17,6 +18,7 @@ void main() {
     final restored = await b.load();
     expect(restored.map((d) => d.path), ['/docs/a.pdf', '/docs/b.pdf']);
     expect(restored.map((d) => d.title), ['a.pdf', 'b.pdf']);
+    expect(restored.map((d) => d.bookmark), ['bookmark-a', null]);
   });
 
   test('load is empty when nothing was persisted', () async {
@@ -41,5 +43,26 @@ void main() {
     final store = SessionStore();
     final restored = await store.load();
     expect(restored.map((d) => d.path), ['/k.pdf']);
+  });
+
+  test('a cache-backed document (mobile) round-trips and restores', () async {
+    final a = SessionStore();
+    await a.save(const [
+      SessionDocument(
+          title: 'shared.pdf', path: '', cachePath: '/app/recent_pdfs/x.pdf'),
+    ]);
+
+    final b = SessionStore();
+    final restored = await b.load();
+    expect(restored.single.cachePath, '/app/recent_pdfs/x.pdf');
+    expect(restored.single.readPath, '/app/recent_pdfs/x.pdf');
+  });
+
+  test('a document with neither path nor cache is dropped on load', () async {
+    SharedPreferences.setMockInitialValues({
+      'dart_pdf_editor_app.session': '[{"t":"orphan.pdf","p":""}]',
+    });
+    final store = SessionStore();
+    expect(await store.load(), isEmpty);
   });
 }

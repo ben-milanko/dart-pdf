@@ -122,7 +122,7 @@ void main() {
     final (r, _, _, a) = pixelAt(data, image.width, 30, 12);
     expect(a, closeTo(191, 25));
     expect(r, closeTo(191, 25));
-    // ...while view x (local y) did not grow — a page-axis stretch
+    // ...while view x (local y) did not grow - a page-axis stretch
     // would have covered (12,30)
     final (_, _, _, a2) = pixelAt(data, image.width, 12, 30);
     expect(a2, 0);
@@ -267,7 +267,7 @@ void main() {
       // local box 150×100 → 200×100, and the resize is ANCHORED: the
       // un-dragged local left edge stays put on screen, so the whole
       // 50pt of growth extends past the dragged handle. Page space:
-      // 100×200 about (175,725) — not about the naive (200,700), which
+      // 100×200 about (175,725) - not about the naive (200,700), which
       // would drift the anchored edge by Δ − R(Δ) = (25,-25)
       final annotation = editing.document.page(0).annotations.single;
       final rect = annotation.rect;
@@ -280,7 +280,7 @@ void main() {
       final quad = annotation.appearanceQuad!;
       expect(quad[0].$1, closeTo(225, 0.5));
       expect(quad[0].$2, closeTo(625, 0.5));
-      // still a pure 90° turn — no shear in the matrix
+      // still a pure 90° turn - no shear in the matrix
       expect(matrixEntry(editing.document, annotation, 0), closeTo(0, 1e-6));
       expect(matrixEntry(editing.document, annotation, 1), closeTo(1, 1e-6));
       // and the appearance was regenerated at the original stroke width

@@ -19,7 +19,7 @@ void main() {
     test('the tagged fixture flags only the missing title and metadata', () {
       final report = validatePdfUa(PdfDocument.open(buildTaggedPdf()));
       // It is tagged, has a struct tree, Lang and DisplayDocTitle, the figure
-      // has /Alt, and content is fully tagged — but it carries no title and
+      // has /Alt, and content is fully tagged - but it carries no title and
       // no XMP metadata.
       final rules = report.errors.map((e) => e.rule).toList();
       expect(rules, contains('UA1:7.1')); // missing title

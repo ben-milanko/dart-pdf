@@ -3,8 +3,8 @@
 // each one still and printing a marker line the host capture tool
 // watches for:
 //
-//   @@SHOT@@ <name>     a scene is settled and on screen — grab it now
-//   @@SHOT_DONE@@       all scenes done — the host can quit `flutter run`
+//   @@SHOT@@ <name>     a scene is settled and on screen - grab it now
+//   @@SHOT_DONE@@       all scenes done - the host can quit `flutter run`
 //
 // tool/capture_screenshots.dart launches this with `flutter run` and
 // fires the platform's native screenshot tool on each marker. Run by

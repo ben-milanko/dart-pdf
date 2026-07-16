@@ -38,7 +38,7 @@ void main() {
     await tester.pump();
 
     // Jump the first pane to a later page, then mirror it onto the second
-    // via the public sync snapshot — the primitive the comparison view's
+    // via the public sync snapshot - the primitive the comparison view's
     // sync link applies on every scroll.
     a.jumpToPage(3);
     await tester.pumpAndSettle();
@@ -49,8 +49,7 @@ void main() {
     expect(b.currentPage, a.currentPage);
   });
 
-  testWidgets('comparison view lists changes and toggles mode',
-      (tester) async {
+  testWidgets('comparison view lists changes and toggles mode', (tester) async {
     final before = _textPdf('the quick brown fox');
     final after = _textPdf('the quick red fox');
 
@@ -70,7 +69,7 @@ void main() {
     // The navigator lists the replaced text.
     expect(find.byKey(const ValueKey('pdf-diff-change-0')), findsOneWidget);
 
-    // Switch to overlay mode — one pane only.
+    // Switch to overlay mode - one pane only.
     await tester.tap(find.text('Overlay'));
     await tester.pump();
     expect(find.byKey(const ValueKey('pdf-compare-overlay')), findsOneWidget);
