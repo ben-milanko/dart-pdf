@@ -60,6 +60,10 @@ final bool _fastPass = _qBool(
     'fast', const bool.fromEnvironment('PERF_FAST_PASS', defaultValue: true));
 final int _targetPage = _qInt('targetPage', -1);
 
+/// Decoded-image cache budget, MB. 0 leaves the platform default in place; the
+/// driver sweeps it to measure what each budget costs a real tab (issue #281).
+final int _imageCacheMb = _qInt('imageCacheMb', 0);
+
 // ---------------------------------------------------------------------------
 // Capture: every debugPrint line + every frame's timing.
 // ---------------------------------------------------------------------------
@@ -123,6 +127,15 @@ void main() {
   final isolated =
       (globalContext['crossOriginIsolated'] as JSBoolean?)?.toDart ?? false;
   _record('[perf] HARNESS crossOriginIsolated=$isolated');
+  if (_imageCacheMb > 0) {
+    PdfImageCache.instance.maxBytes = _imageCacheMb * 1024 * 1024;
+  }
+  _record('[perf] HARNESS imageCacheBudget='
+      '${PdfImageCache.instance.maxBytes ~/ (1024 * 1024)}MB');
+  // The driver samples this alongside the tab's memory, so a run can show the
+  // cache's own occupancy against the agent total it drives.
+  _setGlobal(
+      '__perfImageCacheBytes', (() => PdfImageCache.instance.bytes).toJS);
 
   // Expose the driver's read surface up front (so a poll never races startup).
   _setGlobal('__perfDone', false.toJS);

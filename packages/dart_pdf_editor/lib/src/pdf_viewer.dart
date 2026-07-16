@@ -24,6 +24,7 @@ import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
+import 'image_decoder.dart';
 import 'page_geometry.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
@@ -825,7 +826,8 @@ class PdfViewer extends StatefulWidget {
   State<PdfViewer> createState() => _PdfViewerState();
 }
 
-class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
+class _PdfViewerState extends State<PdfViewer>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const int _jumpPreviewOperationLimit = 2000;
 
   late PdfViewerController _controller;
@@ -1139,9 +1141,29 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
         setState(() => _zoomModifierDown = false);
       }
     });
+    WidgetsBinding.instance.addObserver(this); // for didHaveMemoryPressure
     // background preview prerender starts once the first frame (and the
     // scroll metrics the priority order needs) exists
     WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+  }
+
+  /// The platform is short of memory (iOS/Android send this; the web never
+  /// does). Drop the decoded pixels we are holding purely to make a later
+  /// render fast - they are all reconstructible, and being killed is slower
+  /// than any re-decode.
+  ///
+  /// Every cache here hands out clones, so dropping the masters cannot pull
+  /// pixels out from under a picture that is still painting; the on-screen
+  /// pages keep their own retained scenes and are unaffected. Several viewers
+  /// mounted at once each clear the process-wide image cache - the second call
+  /// is a no-op.
+  @override
+  void didHaveMemoryPressure() {
+    PdfPerfLog.log(
+        'memory-pressure clearing imageCache='
+        '${PdfImageCache.instance.bytes >> 20}MB');
+    PdfImageCache.instance.clear();
+    _previews.clear();
   }
 
   void _onPerformanceChanged() {
@@ -1901,6 +1923,7 @@ class _PdfViewerState extends State<PdfViewer> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.performance?.removeListener(_onPerformanceChanged);
     if (widget.performance != null) {
       SchedulerBinding.instance.removeTimingsCallback(_onPerformanceTimings);

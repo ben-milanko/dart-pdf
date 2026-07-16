@@ -54,7 +54,7 @@ void main() {
     cache.put(a, await _solid(100, 100, 10)).dispose();
     cache.put(b, await _solid(100, 100, 20)).dispose();
     expect(cache.debugLength, 2);
-    expect(cache.debugBytes, 80000);
+    expect(cache.bytes, 80000);
 
     // Touch a so b is now the least-recently-used.
     cache.take(a)!.dispose();
@@ -85,7 +85,7 @@ void main() {
     expect(cache.debugLength, 2);
     cache.clear();
     expect(cache.debugLength, 0);
-    expect(cache.debugBytes, 0);
+    expect(cache.bytes, 0);
     cache.dispose();
   });
 
