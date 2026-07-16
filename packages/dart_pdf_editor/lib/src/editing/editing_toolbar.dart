@@ -1993,6 +1993,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           stroke: true,
           opacity: true,
           lineType: true,
+          lineScale: true,
           lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
           shapeFill: tool == PdfEditTool.rectangle ||
               tool == PdfEditTool.ellipse ||
@@ -2045,6 +2046,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
+            lineScale: controller.canSetLineStyleSelected,
             shapeFill: controller.canFillSelected);
       case 'Line':
       case 'PolyLine':
@@ -2054,6 +2056,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             // a measurement (/Line distance, /PolyLine perimeter) carries one
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
+            lineScale: controller.canSetLineStyleSelected,
             lineEndings: controller.canSetLineEndings);
       case 'Ink':
         return _StyleFields(
@@ -3147,6 +3150,7 @@ class _StyleFields {
     this.stroke = false,
     this.opacity = false,
     this.lineType = false,
+    this.lineScale = false,
     this.lineEndings = false,
     this.font = false,
     this.boxColors = false,
@@ -3161,6 +3165,10 @@ class _StyleFields {
   /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
   /// and the line family.
   final bool lineType;
+
+  /// The pattern-scale slider - sizes dash patterns and cloudy scallops
+  /// apart from the pen width. Shown alongside [lineType].
+  final bool lineScale;
   final bool lineEndings;
 
   /// Font size + family (free text).
@@ -3183,6 +3191,7 @@ class _StyleFields {
       !stroke &&
       !opacity &&
       !lineType &&
+      !lineScale &&
       !lineEndings &&
       !font &&
       !boxColors &&
@@ -3242,6 +3251,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// Same, for the stroke-width and opacity sliders restyling a
   /// selected annotation.
   double? _draggingStroke;
+  double? _draggingScale;
   double? _draggingOpacity;
   double? _draggingLineSpacing;
   double? _draggingCharSpacing;
@@ -3564,6 +3574,31 @@ class _StyleMenuState extends State<_StyleMenu> {
                         ],
                       ),
                     ),
+                  if (fields.lineScale)
+                    _slider(
+                      key: const ValueKey('pdf-line-scale'),
+                      label: 'Pattern scale',
+                      value: _draggingScale ??
+                          (restylingAnnotation
+                              ? (controller.selectedLineScale ??
+                                  controller.lineScale)
+                              : controller.lineScale),
+                      min: 0.5,
+                      max: 4,
+                      display: (v) => '${v.toStringAsFixed(1)}×',
+                      onChanged: (v) {
+                        setState(() => _draggingScale = v);
+                        if (!restylingAnnotation) controller.lineScale = v;
+                      },
+                      onChangeEnd: (v) {
+                        controller.lineScale = v;
+                        if (restylingAnnotation &&
+                            controller.canSetLineStyleSelected) {
+                          controller.restyleSelected(scale: v);
+                        }
+                        setState(() => _draggingScale = null);
+                      },
+                    ),
                   if (fields.lineEndings) ...[
                     _lineEndingRow(
                       context: context,
@@ -3689,12 +3724,12 @@ class _StyleMenuState extends State<_StyleMenu> {
                           key: const ValueKey('pdf-text-underline'),
                           icon: const Icon(Icons.format_underlined, size: 18),
                           tooltip: 'Underline',
-                          isSelected: controller.selectedFreeTextStyle
-                                  ?.underline ??
-                              controller.textUnderline,
+                          isSelected:
+                              controller.selectedFreeTextStyle?.underline ??
+                                  controller.textUnderline,
                           onPressed: () => controller.setSelectedTextBoxStyle(
-                              underline: !(controller.selectedFreeTextStyle
-                                      ?.underline ??
+                              underline: !(controller
+                                      .selectedFreeTextStyle?.underline ??
                                   controller.textUnderline)),
                         ),
                       ]),
@@ -3737,8 +3772,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                         key: const ValueKey('pdf-text-font-width'),
                         label: 'Font width',
                         value: _draggingFontWidth ??
-                            controller
-                                .selectedFreeTextStyle?.horizontalScale ??
+                            controller.selectedFreeTextStyle?.horizontalScale ??
                             controller.fontWidth,
                         min: 50,
                         max: 200,

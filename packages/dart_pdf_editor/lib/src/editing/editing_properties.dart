@@ -118,6 +118,7 @@ class _PdfAnnotationPropertiesPanelState
   /// revision, so it lands on release, and the thumb shows the dragged
   /// value meanwhile.
   double? _draggingStroke;
+  double? _draggingScale;
   double? _draggingOpacity;
   double? _draggingFontSize;
   double? _draggingLineSpacing;
@@ -597,6 +598,22 @@ class _PdfAnnotationPropertiesPanelState
             },
           ),
         ]),
+      ));
+      children.add(_sliderRow(
+        'Scale',
+        _draggingScale ??
+            _controller.selectedLineScale ??
+            _controller.lineScale,
+        key: const ValueKey('pdf-prop-line-scale'),
+        min: 0.5,
+        max: 4,
+        display: (v) => '${v.toStringAsFixed(1)}×',
+        onChanged: (v) => setState(() => _draggingScale = v),
+        onChangeEnd: (v) {
+          _controller.lineScale = v;
+          _controller.restyleSelected(scale: v);
+          setState(() => _draggingScale = null);
+        },
       ));
     }
     if (_controller.canSetLineEndings) {

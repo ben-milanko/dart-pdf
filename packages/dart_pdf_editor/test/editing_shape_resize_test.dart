@@ -113,8 +113,7 @@ void main() {
 
   testWidgets('a dashed shape uses the committed dash in its resize preview',
       (tester) async {
-    final editing =
-        await pumpOverlay(tester, shape: 'Square', dashed: true);
+    final editing = await pumpOverlay(tester, shape: 'Square', dashed: true);
     final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
     final corner = origin + const Offset(150, 121);
 
@@ -125,12 +124,13 @@ void main() {
 
     final shapeResize = overlayPainter(tester).shapeResize;
     expect(shapeResize, isNotNull);
-    // 4pt pen => [12, 8]pt /BS /D; the 0.5 px/pt view scales it once.
-    expect(shapeResize.dashPattern, [6.0, 4.0]);
+    // the dash size is driven by the pattern scale (1×), not the pen: a
+    // dashed shape => [6, 4]pt /BS /D; the 0.5 px/pt view scales it once.
+    expect(shapeResize.dashPattern, [3.0, 2.0]);
 
     await gesture.up();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(editing.document.page(0).annotations.single.borderDash, [12.0, 8.0]);
+    expect(editing.document.page(0).annotations.single.borderDash, [6.0, 4.0]);
   });
 
   testWidgets(
