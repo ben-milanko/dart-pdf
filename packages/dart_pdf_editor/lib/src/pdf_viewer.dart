@@ -141,6 +141,95 @@ class PdfViewSync {
   final Matrix4 transform;
 }
 
+/// A read-only snapshot of a [PdfViewer]'s vertical scroll state, enough to
+/// drive a custom scroll indicator or page scrubber without reaching into
+/// the viewer's private scroll controller. Read it from
+/// [PdfViewerController.scrollMetrics] (or the [PdfScrollIndicatorBuilder]),
+/// and listen to [PdfViewerController.viewportChanges] to know when to
+/// re-read it.
+///
+/// The normalized [position] and [extent] behave the same as the built-in
+/// scrollbar's thumb (they account for zoom and mixed page sizes): a thumb
+/// of height `extent` sitting at `position` along the track mirrors the
+/// stock bar. The pixel fields are in the viewer's internal list space
+/// (logical pixels at the current layout zoom, before the zoom-window
+/// transform) - useful for precise math, but most indicators only need the
+/// normalized pair.
+class PdfScrollMetrics {
+  const PdfScrollMetrics({
+    required this.pageCount,
+    required this.currentPage,
+    required this.position,
+    required this.extent,
+    required this.pixels,
+    required this.maxPixels,
+    required this.viewportPixels,
+    required this.zoom,
+    required this.hasOverflow,
+  });
+
+  /// Number of pages in the document.
+  final int pageCount;
+
+  /// Zero-based index of the page nearest the viewport center - the same
+  /// value as [PdfViewerController.currentPage].
+  final int currentPage;
+
+  /// Normalized scroll position along the vertical axis: 0 at the top, 1
+  /// fully scrolled to the bottom. 0 when the whole document fits and there
+  /// is nothing to scroll ([hasOverflow] is false).
+  final double position;
+
+  /// The visible fraction of the scrollable content (0–1) - a page scrubber
+  /// sizes its thumb by this. 1 when the whole document fits.
+  final double extent;
+
+  /// Leading (top) edge of the viewport in list-space pixels: the scroll
+  /// offset plus any zoom-window pan.
+  final double pixels;
+
+  /// The largest reachable [pixels] value (content extent minus the visible
+  /// extent); 0 when nothing overflows.
+  final double maxPixels;
+
+  /// The visible vertical extent in list-space pixels.
+  final double viewportPixels;
+
+  /// Effective zoom in logical pixels per PDF point (1 = actual size) - the
+  /// same value [PdfViewerController.zoom] reports.
+  final double zoom;
+
+  /// Whether the document overflows the viewport vertically enough to
+  /// scroll - true exactly when the built-in scrollbar would show. A page
+  /// that fits within a hair of the viewport (only the trailing page margin
+  /// overflows) reports false, so an indicator can hide itself the same way
+  /// the stock bar does. The viewer skips
+  /// [PdfViewer.scrollIndicatorBuilder] entirely while this is false.
+  final bool hasOverflow;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfScrollMetrics &&
+      other.pageCount == pageCount &&
+      other.currentPage == currentPage &&
+      other.position == position &&
+      other.extent == extent &&
+      other.pixels == pixels &&
+      other.maxPixels == maxPixels &&
+      other.viewportPixels == viewportPixels &&
+      other.zoom == zoom &&
+      other.hasOverflow == hasOverflow;
+
+  @override
+  int get hashCode => Object.hash(pageCount, currentPage, position, extent,
+      pixels, maxPixels, viewportPixels, zoom, hasOverflow);
+
+  @override
+  String toString() => 'PdfScrollMetrics(page ${currentPage + 1}/$pageCount, '
+      'position: ${position.toStringAsFixed(3)}, '
+      'extent: ${extent.toStringAsFixed(3)}, zoom: ${zoom.toStringAsFixed(2)})';
+}
+
 /// Drives a [PdfViewer] and reports its state: current page, zoom, and
 /// search results. Listeners fire on any change.
 class PdfViewerController extends ChangeNotifier {
@@ -274,6 +363,35 @@ class PdfViewerController extends ChangeNotifier {
   int get currentMatch => _currentMatch;
 
   Future<void> jumpToPage(int index) async => _state?._jumpToPage(index);
+
+  /// Scrolls to [index] with a smooth animation. Unlike [jumpToPage] (which
+  /// snaps when the target is far away, to avoid animating every intervening
+  /// page into view), this always animates for the given [duration] and
+  /// [curve] once the distance is within range - a very long jump still
+  /// snaps. A no-op while no viewer is attached.
+  Future<void> animateToPage(
+    int index, {
+    Duration duration = const Duration(milliseconds: 250),
+    Curve curve = Curves.easeInOut,
+  }) async =>
+      _state?._jumpToPage(index, duration: duration, curve: curve);
+
+  /// A read-only snapshot of the viewer's vertical scroll state - page,
+  /// normalized position/extent, pixel offsets, and zoom - for building a
+  /// custom scroll indicator or page scrubber (see [PdfScrollMetrics] and
+  /// [PdfViewer.scrollIndicatorBuilder]). Null while no viewer is attached
+  /// or it has not laid out yet. Listen to [viewportChanges] to know when
+  /// to re-read it, and drive the view with [jumpToNormalized],
+  /// [jumpToPage], or [animateToPage].
+  PdfScrollMetrics? get scrollMetrics => _state?._scrollMetrics();
+
+  /// Scrolls so the vertical scroll position lands at [position], a fraction
+  /// clamped to 0 (top) … 1 (bottom) - what a page-scrubber thumb drag maps
+  /// to. Immediate (no animation), so it follows a drag frame by frame, and
+  /// zoom-aware: while zoomed in it spills into the zoom window exactly like
+  /// dragging the built-in scrollbar. A no-op while no viewer is attached.
+  void jumpToNormalized(double position) =>
+      _state?._scrollToNormalized(position);
 
   /// Scrolls to a PDF destination, using the same `/Fit`, `/FitH`, and
   /// `/XYZ` handling as in-document GoTo links.
@@ -493,6 +611,25 @@ typedef PdfUrlLauncher = Future<bool> Function(Uri uri);
 typedef PdfPageOverlayBuilder = List<Widget> Function(
     BuildContext context, int pageIndex, PdfPageGeometry geometry);
 
+/// Signature for [PdfViewer.scrollIndicatorBuilder]: builds a custom
+/// vertical scroll indicator (a compact page number, a draggable page
+/// scrubber, a platform-styled bar) in place of the viewer's built-in
+/// scrollbar. It is stacked over the viewer's right edge and rebuilt
+/// whenever the scroll position, zoom, or current page changes.
+///
+/// Use [metrics] for the page count and the normalized position/extent, and
+/// drive the view through [controller] - [PdfViewerController.jumpToNormalized]
+/// for a scrubber-thumb drag, [PdfViewerController.jumpToPage] or
+/// [PdfViewerController.animateToPage] for page taps. Return an empty widget
+/// (e.g. `SizedBox.shrink()`) to show nothing; the indicator is not built at
+/// all before the viewer has laid out or when the document does not overflow
+/// ([PdfScrollMetrics.hasOverflow] is false), so a builder never has to guard
+/// those cases.
+typedef PdfScrollIndicatorBuilder = Widget Function(
+    BuildContext context,
+    PdfViewerController controller,
+    PdfScrollMetrics metrics);
+
 /// A scrolling, zoomable PDF viewer.
 ///
 /// Supports pinch zoom, double-tap zoom toggle, page tracking, and document
@@ -507,6 +644,7 @@ class PdfViewer extends StatefulWidget {
     this.onAnnotationTap,
     this.onLaunchUrl,
     this.pageOverlayBuilder,
+    this.scrollIndicatorBuilder,
     this.editing,
     this.interactionSession,
     this.formController,
@@ -636,6 +774,17 @@ class PdfViewer extends StatefulWidget {
   /// so they scroll and zoom with the page; they receive pointer events
   /// before the viewer's own selection and link handling.
   final PdfPageOverlayBuilder? pageOverlayBuilder;
+
+  /// Replaces the viewer's built-in vertical scrollbar with a custom scroll
+  /// indicator - a compact page number, a draggable page scrubber, a
+  /// platform-styled bar. See [PdfScrollIndicatorBuilder]; it receives the
+  /// live [PdfScrollMetrics] and the controller for page-aware navigation.
+  ///
+  /// Null keeps the stock scrollbar. The horizontal (zoom-window) scrollbar
+  /// is unaffected - it still appears when zoomed in. The indicator is
+  /// stacked over the viewer's right edge outside the zoom transform, so it
+  /// holds its place and size at any zoom.
+  final PdfScrollIndicatorBuilder? scrollIndicatorBuilder;
 
   /// Stable transition/effect surface for editing gestures. The viewer uses
   /// it for every page overlay; pointer samples do not notify listeners.
@@ -2139,7 +2288,11 @@ class _PdfViewerState extends State<PdfViewer>
     return m.storage[13] / m.getMaxScaleOnAxis();
   }
 
-  Future<void> _jumpToPage(int index) async {
+  Future<void> _jumpToPage(
+    int index, {
+    Duration duration = const Duration(milliseconds: 250),
+    Curve curve = Curves.easeInOut,
+  }) async {
     if (!_scroll.hasClients) return;
     final targetIndex = index.clamp(0, _pages.length - 1);
     _jumpFocusPage = targetIndex;
@@ -2152,11 +2305,61 @@ class _PdfViewerState extends State<PdfViewer>
       _scroll.jumpTo(clamped);
       return;
     }
-    await _scroll.animateTo(
-      clamped,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeInOut,
+    await _scroll.animateTo(clamped, duration: duration, curve: curve);
+  }
+
+  /// The viewport's leading (top) edge and the scrollable range along the
+  /// vertical axis, both in list-space pixels: `(offset, total, visible)`.
+  /// Mirrors the built-in scrollbar's own measurement (see
+  /// [PdfScrollbar] / [_visibleFractionOf]) so a custom indicator lines up
+  /// with the stock bar. Null until the viewer has laid out.
+  (double offset, double total, double visible)? _verticalScrollExtents() {
+    if (_viewWidth <= 0 || !_scroll.hasClients) return null;
+    final position = _scroll.position;
+    if (!position.hasContentDimensions) return null;
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final total = position.maxScrollExtent + position.viewportDimension;
+    final visible = position.viewportDimension / scale;
+    // the viewport unprojects to list space as (p - t) / s, riding the
+    // scroll offset (see _visibleFractionOf)
+    final offset = -_transform.value.storage[13] / scale + position.pixels;
+    return (offset, total, visible);
+  }
+
+  /// The public scroll snapshot behind [PdfViewerController.scrollMetrics]
+  /// and [PdfViewer.scrollIndicatorBuilder].
+  PdfScrollMetrics? _scrollMetrics() {
+    final extents = _verticalScrollExtents();
+    if (extents == null) return null;
+    final (offset, total, visible) = extents;
+    final range = total - visible;
+    return PdfScrollMetrics(
+      pageCount: _pages.length,
+      currentPage: _controller.currentPage,
+      position: range <= 0 ? 0 : (offset / range).clamp(0.0, 1.0),
+      extent: total <= 0 ? 1 : (visible / total).clamp(0.0, 1.0),
+      pixels: offset,
+      maxPixels: range <= 0 ? 0 : range,
+      viewportPixels: visible,
+      zoom: _displayScale,
+      // the list pads its bottom by pageSpacing, so a fully visible document
+      // still carries that much nominal slack - the stock bar hides for it
+      // (see PdfScrollbar.minOverflow), and so does this
+      hasOverflow: range > widget.pageSpacing + 0.5,
     );
+  }
+
+  /// Scrolls so the normalized vertical position lands at [fraction]
+  /// (0 = top, 1 = bottom). Reuses the scrollbar's own list-space motion so
+  /// it spills into the zoom window at the extents just like a bar drag.
+  void _scrollToNormalized(double fraction) {
+    final extents = _verticalScrollExtents();
+    if (extents == null) return;
+    final (offset, total, visible) = extents;
+    final range = total - visible;
+    if (range <= 0) return;
+    final target = fraction.clamp(0.0, 1.0) * range;
+    _scrollbarScrollBy(target - offset);
   }
 
   /// A resolution-independent snapshot of where the viewport sits: the
@@ -4293,6 +4496,25 @@ class _PdfViewerState extends State<PdfViewer>
     }
   }
 
+  /// Hosts [PdfViewer.scrollIndicatorBuilder]. Rebuilds on scroll, zoom, and
+  /// current-page changes (the three inputs to [PdfScrollMetrics]); the
+  /// controller notifies for the page flip, and _scroll/_transform for the
+  /// rest. Skips the builder entirely before the first layout or when the
+  /// document does not overflow, so the host never has to guard those.
+  Widget _buildScrollIndicator() {
+    final builder = widget.scrollIndicatorBuilder!;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_scroll, _transform, _controller]),
+      builder: (context, _) {
+        final metrics = _scrollMetrics();
+        if (metrics == null || !metrics.hasOverflow) {
+          return const SizedBox.shrink();
+        }
+        return builder(context, _controller, metrics);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     assert(
@@ -4774,19 +4996,22 @@ class _PdfViewerState extends State<PdfViewer>
                 ),
                 // outside the zoom transform, so they keep their place
                 // and size at any zoom
-                Positioned(
-                  top: 0,
-                  bottom: 0,
-                  right: 0,
-                  child: PdfScrollbar(
-                    axis: Axis.vertical,
-                    scroll: _scroll,
-                    transform: _transform,
-                    minOverflow: widget.pageSpacing,
-                    onScrollBy: _scrollbarScrollBy,
-                    thumbKey: const ValueKey('pdf-scrollbar-thumb'),
-                  ),
-                ),
+                if (widget.scrollIndicatorBuilder == null)
+                  Positioned(
+                    top: 0,
+                    bottom: 0,
+                    right: 0,
+                    child: PdfScrollbar(
+                      axis: Axis.vertical,
+                      scroll: _scroll,
+                      transform: _transform,
+                      minOverflow: widget.pageSpacing,
+                      onScrollBy: _scrollbarScrollBy,
+                      thumbKey: const ValueKey('pdf-scrollbar-thumb'),
+                    ),
+                  )
+                else
+                  Positioned.fill(child: _buildScrollIndicator()),
                 // appears only while zoomed in (the only sideways
                 // overflow); inset so the corner stays the vertical bar's
                 Positioned(

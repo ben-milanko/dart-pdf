@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Expose a customizable viewer scroll indicator / page-scrubber API: a
+  read-only `PdfScrollMetrics` snapshot (page count, current page,
+  normalized position/extent, pixel offsets, zoom) via
+  `PdfViewerController.scrollMetrics`, page-aware commands
+  `jumpToNormalized` and `animateToPage` alongside the existing
+  `jumpToPage`, and a `PdfViewer.scrollIndicatorBuilder` that replaces the
+  built-in vertical scrollbar with a host widget (#326).
+
 ## 1.4.7
 
 - Print through each platform's native print system: the Dart engine
