@@ -149,6 +149,82 @@ void main() {
     });
   });
 
+  group('range support changing or edge statuses mid-read', () {
+    // A server that answers the 0-0 probe with 206 but a later ranged read
+    // with something else, exercising readRange's non-206 branches.
+    MockClient probe206Then(http.Response Function(int start, int end) onRange) {
+      return MockClient((request) async {
+        final m =
+            RegExp(r'bytes=(\d+)-(\d+)').firstMatch(request.headers['Range']!)!;
+        final start = int.parse(m.group(1)!);
+        final end = int.parse(m.group(2)!);
+        if (start == 0 && end == 0) {
+          return http.Response.bytes(const [0], 206,
+              headers: {'content-range': 'bytes 0-0/1000'});
+        }
+        return onRange(start, end);
+      });
+    }
+
+    test('a later 200 adopts the full body and serves from memory', () async {
+      final data = Uint8List.fromList(List.generate(1000, (i) => i % 256));
+      final source = PdfHttpByteSource(uri,
+          client: probe206Then((_, __) => http.Response.bytes(data, 200)));
+      expect(await source.length, 1000);
+      expect(source.supportsRange, isTrue); // probe saw 206
+      final chunk = await source.readRange(100, 130);
+      expect(chunk, data.sublist(100, 130));
+    });
+
+    test('a 416 on a past-end read yields empty', () async {
+      final source = PdfHttpByteSource(uri,
+          client: probe206Then((_, __) => http.Response.bytes(const [], 416)));
+      await source.length;
+      expect(await source.readRange(5000, 5100), isEmpty);
+    });
+
+    test('an unexpected status on a read throws', () async {
+      final source = PdfHttpByteSource(uri,
+          client: probe206Then((_, __) => http.Response('boom', 500)));
+      await source.length;
+      await expectLater(
+          source.readRange(10, 20), throwsA(isA<PdfHttpException>()));
+    });
+
+    test('an empty file (416 probe) reports length zero', () async {
+      final source = PdfHttpByteSource(uri,
+          client: MockClient((_) async => http.Response.bytes(const [], 416)));
+      expect(await source.length, 0);
+      expect(await source.readRange(0, 10), isEmpty);
+    });
+
+    test('reads without an explicit range are a no-op past the end', () async {
+      final source = PdfHttpByteSource(uri, client: rangeServer(buildClassicPdf()));
+      await source.length;
+      expect(await source.readRange(10, 10), isEmpty);
+    });
+  });
+
+  group('owned client and diagnostics', () {
+    test('a default client is created and closed by close()', () async {
+      // No client injected: the source owns one. Exercises the owning path;
+      // close() must complete without error.
+      final source = PdfHttpByteSource(uri);
+      await source.close();
+    });
+
+    test('cancel token and exception strings are exposed', () {
+      final token = PdfCancelToken();
+      expect(token.isCancelled, isFalse);
+      token.cancel();
+      expect(token.isCancelled, isTrue);
+      expect(const PdfHttpCancelledException().toString(), contains('cancelled'));
+      expect(PdfHttpException('bad', statusCode: 404).toString(),
+          contains('404'));
+      expect(PdfHttpException('bad').toString(), contains('bad'));
+    });
+  });
+
   group('errors and cancellation', () {
     test('an error status throws PdfHttpException', () async {
       final source = PdfHttpByteSource(uri,
