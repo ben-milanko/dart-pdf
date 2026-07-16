@@ -15,7 +15,7 @@ import 'package:pdf_document/pdf_document.dart'
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
@@ -1792,11 +1792,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () async {
-                final picked = await showPdfColorPicker(context,
-                    initial: controller.color,
-                    initialFormat: controller.preferences.colorPickerFormat,
-                    onFormatChanged: (format) =>
-                        controller.preferences.colorPickerFormat = format);
+                final picked = await pickEditingColor(context, controller,
+                    initial: controller.color);
                 if (picked != null) _applyColor(picked);
               },
               child: SizedBox(
@@ -1911,6 +1908,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         value: value,
         min: 0.1,
         max: 1,
+        // a true ratio: typeable down to 0%, never past 100%
+        fieldMin: 0,
+        fieldMax: 1,
         width: 40,
         display: (v) => '${(v * 100).round()}%',
         parse: _parsePercent,
@@ -1991,8 +1991,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'shapes':
         return _StyleFields(
           stroke: true,
+          strokeColor: true,
           opacity: true,
           lineType: true,
+          lineScale: true,
           lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
           shapeFill: tool == PdfEditTool.rectangle ||
               tool == PdfEditTool.ellipse ||
@@ -2041,23 +2043,29 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'Polygon':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            // the outline colour of shapes and revision clouds
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
+            lineScale: controller.canSetLineStyleSelected,
             shapeFill: controller.canFillSelected);
       case 'Line':
       case 'PolyLine':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
             // a measurement (/Line distance, /PolyLine perimeter) carries one
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
+            lineScale: controller.canSetLineStyleSelected,
             lineEndings: controller.canSetLineEndings);
       case 'Ink':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity);
       default:
         // Markup and stamps expose opacity; notes and foreign subtypes do not.
@@ -3145,8 +3153,10 @@ double? _parsePercent(String s) {
 class _StyleFields {
   const _StyleFields({
     this.stroke = false,
+    this.strokeColor = false,
     this.opacity = false,
     this.lineType = false,
+    this.lineScale = false,
     this.lineEndings = false,
     this.font = false,
     this.boxColors = false,
@@ -3156,11 +3166,20 @@ class _StyleFields {
   });
 
   final bool stroke;
+
+  /// The stroke/outline colour row - shapes (including revision clouds) and
+  /// the line family. Distinct from [shapeFill], the interior fill.
+  final bool strokeColor;
+
   final bool opacity;
 
   /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
   /// and the line family.
   final bool lineType;
+
+  /// The pattern-scale slider - sizes dash patterns and cloudy scallops
+  /// apart from the pen width. Shown alongside [lineType].
+  final bool lineScale;
   final bool lineEndings;
 
   /// Font size + family (free text).
@@ -3181,8 +3200,10 @@ class _StyleFields {
 
   bool get isEmpty =>
       !stroke &&
+      !strokeColor &&
       !opacity &&
       !lineType &&
+      !lineScale &&
       !lineEndings &&
       !font &&
       !boxColors &&
@@ -3242,6 +3263,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// Same, for the stroke-width and opacity sliders restyling a
   /// selected annotation.
   double? _draggingStroke;
+  double? _draggingScale;
   double? _draggingOpacity;
   double? _draggingLineSpacing;
   double? _draggingCharSpacing;
@@ -3305,6 +3327,16 @@ class _StyleMenuState extends State<_StyleMenu> {
     }
   }
 
+  /// The shape/cloud/line outline colour. Sets the creation default and
+  /// restyles the selected shapes in place, mirroring the toolbar swatches.
+  void _setStrokeColor(Color? color) {
+    if (color == null) return;
+    controller.color = color; // the new default either way
+    if (controller.canRestyleSelected) {
+      controller.restyleSelected(color: color);
+    }
+  }
+
   void _setTextBorder(Color? color) {
     controller.textBorderColor = color;
     if (controller.canRestyleSelectedText) {
@@ -3334,6 +3366,8 @@ class _StyleMenuState extends State<_StyleMenu> {
         palette: widget.palette,
         onChanged: onChanged,
         allowNone: allowNone,
+        pickColor: (context, initial) =>
+            pickEditingColor(context, controller, initial: initial),
       );
 
   /// A short human label for a line ending in the picker.
@@ -3466,6 +3500,11 @@ class _StyleMenuState extends State<_StyleMenu> {
             final shapeFillValue = controller.canFillSelected
                 ? controller.selectedShapeFill
                 : controller.shapeFillColor;
+            // shape/cloud/line outline: a selected shape shows its own /C,
+            // else the creation default
+            final strokeColorValue = restylingAnnotation
+                ? (annotationStyle?.color ?? controller.color)
+                : controller.color;
             return Container(
               width: 300,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -3485,6 +3524,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: controller.eraserRadius,
                       min: 2,
                       max: 40,
+                      fieldMin: 1,
+                      fieldMax: kPdfTypedSizeMax,
                       display: (v) => '${v.round()} pt',
                       parse: _parsePoints,
                       onChanged: (v) =>
@@ -3496,6 +3537,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: strokeValue,
                       min: 0.5,
                       max: 12,
+                      fieldMin: 0,
+                      fieldMax: kPdfTypedSizeMax,
                       display: (v) => '${v.toStringAsFixed(1)} pt',
                       parse: _parsePoints,
                       onChanged: (v) {
@@ -3516,6 +3559,10 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: opacityValue,
                       min: 0.1,
                       max: 1,
+                      // opacity is a true ratio: let the field reach 0% but
+                      // never past 100%
+                      fieldMin: 0,
+                      fieldMax: 1,
                       display: (v) => '${(v * 100).round()}%',
                       parse: _parsePercent,
                       onChanged: (v) {
@@ -3564,6 +3611,31 @@ class _StyleMenuState extends State<_StyleMenu> {
                         ],
                       ),
                     ),
+                  if (fields.lineScale)
+                    _slider(
+                      key: const ValueKey('pdf-line-scale'),
+                      label: 'Pattern scale',
+                      value: _draggingScale ??
+                          (restylingAnnotation
+                              ? (controller.selectedLineScale ??
+                                  controller.lineScale)
+                              : controller.lineScale),
+                      min: 0.5,
+                      max: 4,
+                      display: (v) => '${v.toStringAsFixed(1)}×',
+                      onChanged: (v) {
+                        setState(() => _draggingScale = v);
+                        if (!restylingAnnotation) controller.lineScale = v;
+                      },
+                      onChangeEnd: (v) {
+                        controller.lineScale = v;
+                        if (restylingAnnotation &&
+                            controller.canSetLineStyleSelected) {
+                          controller.restyleSelected(scale: v);
+                        }
+                        setState(() => _draggingScale = null);
+                      },
+                    ),
                   if (fields.lineEndings) ...[
                     _lineEndingRow(
                       context: context,
@@ -3592,6 +3664,15 @@ class _StyleMenuState extends State<_StyleMenu> {
                       },
                     ),
                   ],
+                  if (fields.strokeColor && widget.showColor)
+                    _boxColorRow(
+                      context: context,
+                      label: 'Outline',
+                      keyPrefix: 'pdf-shape-outline',
+                      value: strokeColorValue,
+                      onChanged: _setStrokeColor,
+                      allowNone: false,
+                    ),
                   if (fields.shapeFill && widget.showColor)
                     _boxColorRow(
                       context: context,
@@ -3609,6 +3690,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                           controller.fontSize,
                       min: 8,
                       max: 48,
+                      fieldMin: 1,
+                      fieldMax: kPdfTypedSizeMax,
                       display: (v) => '${v.round()} pt',
                       parse: _parsePoints,
                       onChanged: (v) {
@@ -3689,12 +3772,12 @@ class _StyleMenuState extends State<_StyleMenu> {
                           key: const ValueKey('pdf-text-underline'),
                           icon: const Icon(Icons.format_underlined, size: 18),
                           tooltip: 'Underline',
-                          isSelected: controller.selectedFreeTextStyle
-                                  ?.underline ??
-                              controller.textUnderline,
+                          isSelected:
+                              controller.selectedFreeTextStyle?.underline ??
+                                  controller.textUnderline,
                           onPressed: () => controller.setSelectedTextBoxStyle(
-                              underline: !(controller.selectedFreeTextStyle
-                                      ?.underline ??
+                              underline: !(controller
+                                      .selectedFreeTextStyle?.underline ??
                                   controller.textUnderline)),
                         ),
                       ]),
@@ -3708,6 +3791,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                             controller.lineSpacing,
                         min: 0.8,
                         max: 3,
+                        fieldMin: 0.1,
+                        fieldMax: 100,
                         display: (v) => '${v.toStringAsFixed(1)}×',
                         onChanged: (v) =>
                             setState(() => _draggingLineSpacing = v),
@@ -3724,6 +3809,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                             controller.charSpacing,
                         min: -2,
                         max: 10,
+                        fieldMin: -kPdfTypedSizeMax,
+                        fieldMax: kPdfTypedSizeMax,
                         display: (v) => '${v.toStringAsFixed(1)} pt',
                         parse: _parsePoints,
                         onChanged: (v) =>
@@ -3737,11 +3824,12 @@ class _StyleMenuState extends State<_StyleMenu> {
                         key: const ValueKey('pdf-text-font-width'),
                         label: 'Font width',
                         value: _draggingFontWidth ??
-                            controller
-                                .selectedFreeTextStyle?.horizontalScale ??
+                            controller.selectedFreeTextStyle?.horizontalScale ??
                             controller.fontWidth,
                         min: 50,
                         max: 200,
+                        fieldMin: 1,
+                        fieldMax: kPdfTypedSizeMax,
                         display: (v) => '${v.round()}%',
                         parse: _parsePoints,
                         onChanged: (v) =>
@@ -3836,6 +3924,8 @@ class _StyleMenuState extends State<_StyleMenu> {
     double? Function(String)? parse,
     required ValueChanged<double> onChanged,
     ValueChanged<double>? onChangeEnd,
+    double? fieldMin,
+    double? fieldMax,
   }) {
     return Row(key: key, children: [
       SizedBox(width: 86, child: Text(label)),
@@ -3850,12 +3940,15 @@ class _StyleMenuState extends State<_StyleMenu> {
       ),
       // the readout is editable: type an exact value (general rule across
       // the editing UI) - committing routes through the change-end callback,
-      // or onChanged for sliders that have none (live-only)
+      // or onChanged for sliders that have none (live-only). The typed value
+      // may run past the slider's scale (fieldMin/fieldMax) within reason.
       PdfSliderValueField(
         key: key is ValueKey ? ValueKey('${key.value}-input') : null,
         value: value,
         min: min,
         max: max,
+        fieldMin: fieldMin,
+        fieldMax: fieldMax,
         width: 56,
         display: display,
         parse: parse,

@@ -1,13 +1,27 @@
 import 'package:flutter/material.dart';
 
+/// A generous ceiling for the typed readout of an open-ended point/size
+/// slider (stroke width, font size, eraser radius, char spacing, font
+/// width…). The slider's own scale stays fixed; typing an exact value can
+/// go past it, but is capped here so an accidental huge number can't blow
+/// up appearance generation or rendering. It is deliberately far larger
+/// than any slider max yet small enough to stay safe.
+const double kPdfTypedSizeMax = 1000;
+
 /// The numeric readout beside a slider, editable in place: the user can type
 /// an exact value instead of nudging the slider (a general rule across the
 /// editing UI - any slider's value is directly typeable).
 ///
 /// Tracks the slider's [value] while not focused (so a drag updates the
-/// text), and on Enter or focus loss parses, clamps to [min]..[max], and
-/// commits through [onSubmit] - the same callback the slider fires on
+/// text), and on Enter or focus loss parses, clamps to [fieldMin]..[fieldMax],
+/// and commits through [onSubmit] - the same callback the slider fires on
 /// change-end. Invalid text reverts to the current value.
+///
+/// The slider that owns this readout is scaled to [min]..[max], but typing
+/// is allowed a wider range: [fieldMin]/[fieldMax] default to [min]/[max]
+/// (so the readout matches the slider unless a caller opts in), and callers
+/// pass a looser pair to let an exact value exceed the slider's scale - the
+/// scale stays put while the field accepts more, within reason.
 ///
 /// [display] formats the value for show (e.g. `42` or `40%`); [parse] inverts
 /// it back to the underlying value (defaults to [double.tryParse], so pass a
@@ -21,13 +35,26 @@ class PdfSliderValueField extends StatefulWidget {
     required this.display,
     required this.onSubmit,
     double? Function(String)? parse,
+    double? fieldMin,
+    double? fieldMax,
     this.width = 52,
     this.varies = false,
-  }) : parse = parse ?? double.tryParse;
+  })  : parse = parse ?? double.tryParse,
+        fieldMin = fieldMin ?? min,
+        fieldMax = fieldMax ?? max;
 
   final double value;
+
+  /// The lower/upper bound of the slider's scale - the thumb never moves
+  /// outside these.
   final double min;
   final double max;
+
+  /// The clamp applied to a *typed* value. Defaults to [min]/[max]; pass a
+  /// wider range to let the field accept values the slider can't reach.
+  final double fieldMin;
+  final double fieldMax;
+
   final String Function(double) display;
   final double? Function(String) parse;
   final ValueChanged<double> onSubmit;
@@ -74,7 +101,7 @@ class _PdfSliderValueFieldState extends State<PdfSliderValueField> {
       _controller.text = widget.varies ? '' : widget.display(widget.value);
       return;
     }
-    final clamped = parsed.clamp(widget.min, widget.max).toDouble();
+    final clamped = parsed.clamp(widget.fieldMin, widget.fieldMax).toDouble();
     _controller.text = widget.display(clamped);
     widget.onSubmit(clamped);
   }

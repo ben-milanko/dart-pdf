@@ -188,6 +188,7 @@ class PdfColorSwatchRow extends StatelessWidget {
     required this.onChanged,
     this.labelWidth = 86,
     this.allowNone = true,
+    this.pickColor,
   });
 
   /// The row label (e.g. "Text fill").
@@ -211,6 +212,12 @@ class PdfColorSwatchRow extends StatelessWidget {
   /// Whether to include the leading "none" swatch. Background and border
   /// rows allow no colour; foreground text always needs one.
   final bool allowNone;
+
+  /// Opens the full colour picker for the "More colours…" button, given
+  /// the current colour, and returns the chosen colour (or null when
+  /// dismissed). Defaults to a plain [showPdfColorPicker]; pass
+  /// `pickEditingColor` to add the recents and document-colour grids.
+  final Future<Color?> Function(BuildContext context, Color initial)? pickColor;
 
   @override
   Widget build(BuildContext context) {
@@ -271,8 +278,10 @@ class PdfColorSwatchRow extends StatelessWidget {
           tooltip: 'More colors…',
           visualDensity: VisualDensity.compact,
           onPressed: () async {
-            final picked = await showPdfColorPicker(context,
-                initial: value ?? const Color(0xFFFFFFFF));
+            final initial = value ?? const Color(0xFFFFFFFF);
+            final picked = pickColor != null
+                ? await pickColor!(context, initial)
+                : await showPdfColorPicker(context, initial: initial);
             if (picked != null) onChanged(picked);
           },
         ),

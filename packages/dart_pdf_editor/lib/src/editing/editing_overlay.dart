@@ -13,7 +13,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_fonts.dart';
 import 'editing_interaction.dart';
@@ -1866,6 +1866,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       text: text,
       color: color,
     );
+  }
+
+  /// Placeholder caption previewed while hovering the text-stamp tool before
+  /// a click prompts for the real text.
+  static const String _textStampPreviewLabel = 'TEXT';
+
+  /// The stamp tool's hover preview: an active custom stamp when one is
+  /// selected, otherwise the plain text-stamp fallback shown as a
+  /// [_textStampPreviewLabel] placeholder so the click target is visible.
+  _StampAfterimage? _stampHoverAfterimageAt(Offset position) {
+    if (_controller.activeStamp != null) {
+      return _activeStampAfterimageAt(position);
+    }
+    return _textStampAfterimageAt(
+        position, _textStampPreviewLabel, _controller.color);
   }
 
   _StampAfterimage _countPreviewAt(Offset position) {
@@ -4190,12 +4205,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
       cursor = SystemMouseCursors.none;
     } else if (_tool == PdfEditTool.stamp) {
-      // active custom stamps can be placed by a plain click. Show the
-      // exact auto-sized placement before committing it; when the tool is
-      // in its prompt-for-text fallback there is no text to preview yet.
-      final preview = _controller.activeStamp == null
-          ? null
-          : _activeStampAfterimageAt(event.localPosition);
+      // active custom stamps can be placed by a plain click - show the exact
+      // auto-sized placement before committing it. The prompt-for-text
+      // fallback has no caption yet, so it previews a 'TEXT' placeholder to
+      // make the click target visible.
+      final preview = _stampHoverAfterimageAt(event.localPosition);
       if (preview == null) {
         if (_stampPreview != null) setState(() => _stampPreview = null);
       } else if (_stampPreview != event.localPosition) {
@@ -4466,7 +4480,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_canStyleInlineTextSelection) return;
     _textEditStyleMenuOpen = true;
     _textEditFocus.requestFocus();
-    final picked = await showPdfColorPicker(context, initial: initial);
+    final picked =
+        await pickEditingColor(context, _controller, initial: initial);
     _textEditStyleMenuOpen = false;
     if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
     if (picked != null && mounted) _applyInlineTextStyle(color: picked);
@@ -5136,7 +5151,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     stampPreview: _tool == PdfEditTool.stamp &&
                             _dragStart == null &&
                             _stampPreview != null
-                        ? _activeStampAfterimageAt(_stampPreview!)
+                        ? _stampHoverAfterimageAt(_stampPreview!)
                         : null,
                     rotateCursor: _rotateCursor,
                     afterGhost: afterGhost,

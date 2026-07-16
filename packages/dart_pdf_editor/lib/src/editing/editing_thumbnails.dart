@@ -26,10 +26,12 @@ import 'thumbnail_cache.dart';
 /// first so the list still scrolls), the per-tile button deletes a page
 /// (the last remaining page cannot be deleted), and the strip's footer
 /// appends a blank page. Right-clicking a tile (secondary tap) opens a
-/// page context menu - rotate, duplicate, insert a blank page before or
-/// after, export (when [onExportPages] is given), delete - that acts on
-/// the strip's selection when the tile belongs to it. All of this (export
-/// aside) needs [allowPageEditing].
+/// page context menu - rotate, duplicate, copy/cut/paste (a shared page
+/// clipboard, so pages copied here paste into a different document tab),
+/// insert a blank page before or after, export (when [onExportPages] is
+/// given), delete - that acts on the strip's selection when the tile
+/// belongs to it. Copy/cut/paste are also bound to ⌘/Ctrl+C/X/V. All of
+/// this (export aside) needs [allowPageEditing].
 ///
 /// Built to stay light on large documents: thumbnails are rasterized at
 /// tile resolution and cached, keyed by
@@ -242,6 +244,29 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     unawaited(widget.viewerController.jumpToPage(target));
   }
 
+  /// The pages a copy/cut shortcut acts on: the strip's selection, or the
+  /// keyboard/current page when nothing is selected.
+  List<int> _clipboardTargets() {
+    final selected = widget.controller.selectedPages;
+    if (selected.isNotEmpty) return selected;
+    if (widget.controller.document.pageCount == 0) return const [];
+    return [_keyboardBase()];
+  }
+
+  void _copyPages() => widget.controller.copyPages(_clipboardTargets());
+
+  void _cutPages() => widget.controller.cutPages(_clipboardTargets());
+
+  /// Pastes the shared clipboard's pages after the selection (or the
+  /// keyboard/current page) and reveals where they landed.
+  void _pastePages() {
+    final selected = widget.controller.selectedPages;
+    final at = (selected.isNotEmpty ? selected.last : _keyboardBase()) + 1;
+    if (!widget.controller.pastePages(at: at)) return;
+    _focusPage(at);
+    if (widget.followsViewer) _revealPage(at);
+  }
+
   Map<ShortcutActivator, VoidCallback> get _keyboardShortcuts => {
         const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
             _moveKeyboardSelection(-1),
@@ -259,6 +284,18 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
             _moveKeyboardSelection(-1),
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () =>
             _moveKeyboardSelection(1),
+        if (widget.allowPageEditing) ...{
+          const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyPages,
+          const SingleActivator(LogicalKeyboardKey.keyC, control: true):
+              _copyPages,
+          const SingleActivator(LogicalKeyboardKey.keyX, meta: true): _cutPages,
+          const SingleActivator(LogicalKeyboardKey.keyX, control: true):
+              _cutPages,
+          const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+              _pastePages,
+          const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+              _pastePages,
+        },
       };
 
   double get _frameWidth =>
@@ -524,11 +561,15 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                           ),
                                         ),
                                         if (widget.onPickPdfToInsert != null ||
-                                            widget.onExportPages != null)
+                                            widget.onExportPages != null ||
+                                            (widget.allowPageEditing &&
+                                                controller.hasPageClipboard))
                                           _PageActionsButton(
                                             controller: controller,
                                             viewerController:
                                                 widget.viewerController,
+                                            allowPageEditing:
+                                                widget.allowPageEditing,
                                             onPickPdfToInsert:
                                                 widget.onPickPdfToInsert,
                                             onExportPages: widget.onExportPages,
@@ -715,6 +756,20 @@ class _PageSelectionBar extends StatelessWidget {
           onPressed: () => controller.rotateSelectedPages(90),
         ),
       ],
+      if (allowPageEditing) ...[
+        _action(
+          key: 'pdf-thumbnail-copy-selected',
+          icon: Icons.copy_outlined,
+          tooltip: 'Copy selected pages',
+          onPressed: () => controller.copySelectedPages(),
+        ),
+        _action(
+          key: 'pdf-thumbnail-cut-selected',
+          icon: Icons.content_cut,
+          tooltip: 'Cut selected pages',
+          onPressed: () => controller.cutSelectedPages(),
+        ),
+      ],
       if (onExportPages != null)
         _action(
           key: 'pdf-thumbnail-export-selected',
@@ -770,7 +825,7 @@ class _PageSelectionBar extends StatelessWidget {
   }
 }
 
-enum _PageAction { insert, export }
+enum _PageAction { paste, insert, export }
 
 const _densePopupMenuHeight = 34.0;
 
@@ -789,14 +844,28 @@ class _PageActionsButton extends StatelessWidget {
   const _PageActionsButton({
     required this.controller,
     required this.viewerController,
+    required this.allowPageEditing,
     this.onPickPdfToInsert,
     this.onExportPages,
   });
 
   final PdfEditingController controller;
   final PdfViewerController viewerController;
+
+  /// Whether structural page edits (paste, insert) are offered - a
+  /// read-only strip drops them and keeps only Export.
+  final bool allowPageEditing;
   final Future<Uint8List?> Function()? onPickPdfToInsert;
   final void Function(Uint8List bytes)? onExportPages;
+
+  void _paste() {
+    // paste the shared clipboard's pages after the current page, then
+    // scroll there so the reader sees what landed
+    final pastedAt = viewerController.currentPage + 1;
+    if (controller.pastePages(at: pastedAt)) {
+      unawaited(_jumpToInsertedPage(viewerController, pastedAt));
+    }
+  }
 
   Future<void> _insert(BuildContext context) async {
     final pick = onPickPdfToInsert;
@@ -835,6 +904,7 @@ class _PageActionsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canPaste = allowPageEditing && controller.hasPageClipboard;
     final canInsert = onPickPdfToInsert != null;
     final canExport = onExportPages != null;
     return PopupMenuButton<_PageAction>(
@@ -844,6 +914,8 @@ class _PageActionsButton extends StatelessWidget {
       style: const ButtonStyle(visualDensity: VisualDensity.compact),
       onSelected: (action) {
         switch (action) {
+          case _PageAction.paste:
+            _paste();
           case _PageAction.insert:
             _insert(context);
           case _PageAction.export:
@@ -851,6 +923,18 @@ class _PageActionsButton extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
+        if (canPaste)
+          PopupMenuItem(
+            key: const ValueKey('pdf-thumbnail-paste-pages'),
+            value: _PageAction.paste,
+            height: _densePopupMenuHeight,
+            child: Text(
+              controller.pageClipboard.pageCount == 1
+                  ? 'Paste page'
+                  : 'Paste ${controller.pageClipboard.pageCount} pages',
+              style: _densePopupTextStyle(context),
+            ),
+          ),
         if (canInsert)
           PopupMenuItem(
             key: const ValueKey('pdf-thumbnail-insert-pdf'),
@@ -1079,6 +1163,29 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     _revealPage(target);
   }
 
+  /// The pages a copy/cut shortcut acts on: the grid's selection, or the
+  /// keyboard/current page when nothing is selected.
+  List<int> _clipboardTargets() {
+    final selected = widget.controller.selectedPages;
+    if (selected.isNotEmpty) return selected;
+    if (widget.controller.document.pageCount == 0) return const [];
+    return [_keyboardBase()];
+  }
+
+  void _copyPages() => widget.controller.copyPages(_clipboardTargets());
+
+  void _cutPages() => widget.controller.cutPages(_clipboardTargets());
+
+  /// Pastes the shared clipboard's pages after the selection (or the
+  /// keyboard/current page) and reveals where they landed.
+  void _pastePages() {
+    final selected = widget.controller.selectedPages;
+    final at = (selected.isNotEmpty ? selected.last : _keyboardBase()) + 1;
+    if (!widget.controller.pastePages(at: at)) return;
+    _focusPage(at);
+    _revealPage(at);
+  }
+
   Map<ShortcutActivator, VoidCallback> _keyboardShortcuts(int columns) => {
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
             _moveKeyboardSelection(-1),
@@ -1096,6 +1203,18 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
             _moveKeyboardSelection(-columns),
         SingleActivator(LogicalKeyboardKey.arrowDown, shift: true): () =>
             _moveKeyboardSelection(columns),
+        if (widget.allowPageEditing) ...{
+          const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyPages,
+          const SingleActivator(LogicalKeyboardKey.keyC, control: true):
+              _copyPages,
+          const SingleActivator(LogicalKeyboardKey.keyX, meta: true): _cutPages,
+          const SingleActivator(LogicalKeyboardKey.keyX, control: true):
+              _cutPages,
+          const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+              _pastePages,
+          const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+              _pastePages,
+        },
       };
 
   void _revealPage(int index) {
@@ -1215,10 +1334,13 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                 _preferences.thumbnailViewTileWidth = value,
                           ),
                           if (widget.onPickPdfToInsert != null ||
-                              widget.onExportPages != null)
+                              widget.onExportPages != null ||
+                              (widget.allowPageEditing &&
+                                  controller.hasPageClipboard))
                             _PageActionsButton(
                               controller: controller,
                               viewerController: widget.viewerController,
+                              allowPageEditing: widget.allowPageEditing,
                               onPickPdfToInsert: widget.onPickPdfToInsert,
                               onExportPages: widget.onExportPages,
                             ),
@@ -1878,6 +2000,9 @@ enum _PageTileAction {
   rotateRight,
   rotate180,
   duplicate,
+  copy,
+  cut,
+  paste,
   insertBefore,
   insertAfter,
   export,
@@ -1937,6 +2062,25 @@ Future<void> _showPageTileMenu({
           tileKey: 'pdf-thumbnail-menu-duplicate',
           icon: Icons.copy_all_outlined,
           label: forPages('Duplicate')),
+      // copy/cut fill the shared page clipboard (cross-tab); paste drops
+      // its pages after the right-clicked page. Cut can't empty the
+      // document, so it dims when it would take every page.
+      _pageMenuRow(context, _PageTileAction.copy,
+          tileKey: 'pdf-thumbnail-menu-copy',
+          icon: Icons.copy_outlined,
+          label: forPages('Copy')),
+      _pageMenuRow(context, _PageTileAction.cut,
+          tileKey: 'pdf-thumbnail-menu-cut',
+          icon: Icons.content_cut,
+          label: forPages('Cut'),
+          enabled: multi ? targets.length < pageCount : pageCount > 1),
+      _pageMenuRow(context, _PageTileAction.paste,
+          tileKey: 'pdf-thumbnail-menu-paste',
+          icon: Icons.content_paste,
+          label: controller.pageClipboard.pageCount == 1
+              ? 'Paste page'
+              : 'Paste ${controller.pageClipboard.pageCount} pages',
+          enabled: controller.hasPageClipboard),
       // insert is relative to the right-clicked page - a single insertion
       // point - so it stays singular even under a multi-selection
       _pageMenuRow(context, _PageTileAction.insertBefore,
@@ -1981,6 +2125,15 @@ Future<void> _showPageTileMenu({
       controller.rotatePages(targets, 180);
     case _PageTileAction.duplicate:
       controller.duplicatePages(targets);
+    case _PageTileAction.copy:
+      controller.copyPages(targets);
+    case _PageTileAction.cut:
+      controller.cutPages(targets);
+    case _PageTileAction.paste:
+      final pastedAt = pageIndex + 1;
+      if (controller.pastePages(at: pastedAt)) {
+        unawaited(_jumpToInsertedPage(viewerController, pastedAt));
+      }
     case _PageTileAction.insertBefore:
       controller.addBlankPage(at: pageIndex);
     case _PageTileAction.insertAfter:

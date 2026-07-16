@@ -1509,6 +1509,10 @@ class _EditorScreenState extends State<EditorScreen>
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
+      // A brand-new untitled document has no on-disk origin yet, so keep
+      // Save (button + Ctrl/⌘+S) live even before the first edit - the first
+      // save writes the file via the Save As flow.
+      alwaysAllowSave: tab.isUnsaved,
       onPickPdfToInsert: pickPdfBytes,
       onExportPages: (bytes) =>
           unawaited(saveBytesAs(context, bytes, tab.title)),

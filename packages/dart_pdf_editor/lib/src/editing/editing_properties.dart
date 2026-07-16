@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:pdf_document/pdf_document.dart';
 
 import 'annotation_presentation.dart';
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
@@ -118,6 +118,7 @@ class _PdfAnnotationPropertiesPanelState
   /// revision, so it lands on release, and the thumb shows the dragged
   /// value meanwhile.
   double? _draggingStroke;
+  double? _draggingScale;
   double? _draggingOpacity;
   double? _draggingFontSize;
   double? _draggingLineSpacing;
@@ -312,18 +313,14 @@ class _PdfAnnotationPropertiesPanelState
   Future<void> _pickColor() async {
     final initial =
         _controller.selectedAnnotationStyle?.color ?? _controller.color;
-    final picked = await showPdfColorPicker(context,
-        initial: initial,
-        initialFormat: _preferences.colorPickerFormat,
-        onFormatChanged: (format) => _preferences.colorPickerFormat = format);
+    final picked =
+        await pickEditingColor(context, _controller, initial: initial);
     if (picked != null) _controller.restyleSelected(color: picked);
   }
 
   Future<void> _pickFill(Color? current) async {
-    final picked = await showPdfColorPicker(context,
-        initial: current ?? const Color(0xFFFFF59D),
-        initialFormat: _preferences.colorPickerFormat,
-        onFormatChanged: (format) => _preferences.colorPickerFormat = format);
+    final picked = await pickEditingColor(context, _controller,
+        initial: current ?? const Color(0xFFFFF59D));
     if (picked != null) _controller.restyleSelected(fill: (picked,));
   }
 
@@ -331,10 +328,8 @@ class _PdfAnnotationPropertiesPanelState
       color == null ? null : color.toARGB32() & 0xFFFFFF;
 
   Future<void> _pickTextBorder(Color? current) async {
-    final picked = await showPdfColorPicker(context,
-        initial: current ?? const Color(0xFF000000),
-        initialFormat: _preferences.colorPickerFormat,
-        onFormatChanged: (format) => _preferences.colorPickerFormat = format);
+    final picked = await pickEditingColor(context, _controller,
+        initial: current ?? const Color(0xFF000000));
     if (picked != null) {
       _controller.restyleSelectedText(
           border: (_rgb(picked),), borderWidth: _controller.strokeWidth);
@@ -403,6 +398,8 @@ class _PdfAnnotationPropertiesPanelState
       required ValueChanged<double> onChangeEnd,
       String Function(double)? display,
       double? Function(String)? parse,
+      double? fieldMin,
+      double? fieldMax,
       bool varies = false}) {
     final base = key is ValueKey ? '${key.value}' : '$key';
     return Padding(
@@ -421,12 +418,15 @@ class _PdfAnnotationPropertiesPanelState
         ),
         // the value also reads back as an editable number, so it can be set
         // exactly without nudging the slider (general rule: any slider's
-        // value is directly typeable)
+        // value is directly typeable). A typed value may exceed the slider's
+        // scale within reason (fieldMin/fieldMax).
         PdfSliderValueField(
           key: ValueKey('$base-input'),
           value: value,
           min: min,
           max: max,
+          fieldMin: fieldMin,
+          fieldMax: fieldMax,
           display: display ?? _fmt,
           parse: parse,
           varies: varies,
@@ -562,6 +562,8 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-stroke'),
         min: 0.5,
         max: 16,
+        fieldMin: 0,
+        fieldMax: kPdfTypedSizeMax,
         varies: _draggingStroke == null && widths.varies,
         onChanged: (v) => setState(() => _draggingStroke = v),
         onChangeEnd: (v) {
@@ -598,6 +600,22 @@ class _PdfAnnotationPropertiesPanelState
           ),
         ]),
       ));
+      children.add(_sliderRow(
+        'Scale',
+        _draggingScale ??
+            _controller.selectedLineScale ??
+            _controller.lineScale,
+        key: const ValueKey('pdf-prop-line-scale'),
+        min: 0.5,
+        max: 4,
+        display: (v) => '${v.toStringAsFixed(1)}×',
+        onChanged: (v) => setState(() => _draggingScale = v),
+        onChangeEnd: (v) {
+          _controller.lineScale = v;
+          _controller.restyleSelected(scale: v);
+          setState(() => _draggingScale = null);
+        },
+      ));
     }
     if (_controller.canSetLineEndings) {
       final starts = _common<PdfLineEnding>([
@@ -632,6 +650,9 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-opacity'),
         min: 0.05,
         max: 1,
+        // a true ratio: typeable down to 0%, never past 100%
+        fieldMin: 0,
+        fieldMax: 1,
         varies: _draggingOpacity == null && opacities.varies,
         display: (v) => '${(v * 100).round()}%',
         parse: (s) {
@@ -697,6 +718,8 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-font-size'),
         min: 6,
         max: 72,
+        fieldMin: 1,
+        fieldMax: kPdfTypedSizeMax,
         onChanged: (v) => setState(() => _draggingFontSize = v),
         onChangeEnd: (v) {
           _controller.restyleSelectedText(size: v.roundToDouble());
@@ -727,6 +750,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-line-spacing'),
           min: 0.8,
           max: 3,
+          fieldMin: 0.1,
+          fieldMax: 100,
           display: (v) => '${v.toStringAsFixed(1)}×',
           onChanged: (v) => setState(() => _draggingLineSpacing = v),
           onChangeEnd: (v) {
@@ -742,6 +767,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-char-spacing'),
           min: -2,
           max: 10,
+          fieldMin: -kPdfTypedSizeMax,
+          fieldMax: kPdfTypedSizeMax,
           display: (v) => '${v.toStringAsFixed(1)} pt',
           onChanged: (v) => setState(() => _draggingCharSpacing = v),
           onChangeEnd: (v) {
@@ -757,6 +784,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-font-width'),
           min: 50,
           max: 200,
+          fieldMin: 1,
+          fieldMax: kPdfTypedSizeMax,
           display: (v) => '${v.round()}%',
           onChanged: (v) => setState(() => _draggingFontWidth = v),
           onChangeEnd: (v) {
@@ -834,6 +863,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-form-size'),
           min: 6,
           max: 72,
+          fieldMin: 1,
+          fieldMax: kPdfTypedSizeMax,
           onChanged: (v) => setState(() => _draggingFontSize = v),
           onChangeEnd: (v) {
             _controller.setFormFieldStyle(name, fontSize: v.roundToDouble());
@@ -855,10 +886,8 @@ class _PdfAnnotationPropertiesPanelState
   }
 
   Future<void> _pickFormColor(String name, Color current) async {
-    final picked = await showPdfColorPicker(context,
-        initial: current,
-        initialFormat: _preferences.colorPickerFormat,
-        onFormatChanged: (format) => _preferences.colorPickerFormat = format);
+    final picked =
+        await pickEditingColor(context, _controller, initial: current);
     if (picked != null) {
       _controller.setFormFieldStyle(name, color: picked.toARGB32() & 0xFFFFFF);
     }

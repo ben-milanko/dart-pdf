@@ -258,6 +258,26 @@ void main() {
       expect(editing.selectedAnnotation!.borderWidth, width);
     });
 
+    testWidgets('the pattern-scale slider rescales a selected cloud',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCloudPolygon(0, const PdfRect(100, 500, 300, 620));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the scale row shows the cloud's current /BE /I (1×) and drives it
+      final scale = find.byKey(const ValueKey('pdf-prop-line-scale'));
+      expect(scale, findsOneWidget);
+      expect(editing.selectedLineScale, closeTo(1, 1e-9));
+
+      await tester.drag(scale, const Offset(60, 0));
+      await tester.pump();
+      expect(editing.selectedLineScale, greaterThan(1));
+      expect(editing.selectedAnnotation!.hasCloudyBorder, isTrue);
+    });
+
     testWidgets('typing an exact value into a slider readout commits it',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
@@ -275,11 +295,19 @@ void main() {
       await tester.pump();
       expect(editing.selectedAnnotation!.borderWidth, 9);
 
-      // out-of-range input clamps to the slider's max (16)
-      await tester.enterText(field, '500');
+      // the typed field is looser than the slider's scale: a value past the
+      // slider max (16) is accepted, up to the safety cap
+      await tester.enterText(field, '80');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      expect(editing.selectedAnnotation!.borderWidth, 16);
+      expect(editing.selectedAnnotation!.borderWidth, 80);
+
+      // absurd input still clamps to the safety cap (kPdfTypedSizeMax = 1000)
+      // so nothing blows up
+      await tester.enterText(field, '999999');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editing.selectedAnnotation!.borderWidth, 1000);
 
       // opacity reads back as a percentage and round-trips through it
       final opacity = find.byKey(const ValueKey('pdf-prop-opacity-input'));
@@ -288,6 +316,13 @@ void main() {
       await tester.pump();
       expect(
           editing.selectedAnnotation!.appearanceOpacity, closeTo(0.4, 0.001));
+
+      // opacity is a true ratio: an over-100% entry still clamps to 100%
+      await tester.enterText(opacity, '150');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(
+          editing.selectedAnnotation!.appearanceOpacity, closeTo(1, 0.001));
     });
 
     testWidgets('the fill clear button removes a shape fill', (tester) async {

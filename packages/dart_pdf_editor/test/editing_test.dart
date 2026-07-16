@@ -497,6 +497,41 @@ void main() {
           reason: 'the last page cannot be removed');
       expect(editing.document.page(0).annotations.single.subtype, 'Square');
     });
+
+    test('documentAnnotationColors collects annotation stroke/fill colours',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      expect(editing.documentAnnotationColors(), isEmpty);
+
+      editing
+        ..color = const Color(0xFF1E88E5)
+        ..addInkStroke(0, [(100, 100), (150, 130)])
+        ..finishInk();
+      editing
+        ..color = const Color(0xFFE53935)
+        ..addInkStroke(1, [(100, 100), (150, 130)])
+        ..finishInk();
+      // a second blue stroke makes blue the most-frequent colour
+      editing
+        ..color = const Color(0xFF1E88E5)
+        ..addInkStroke(0, [(120, 90), (140, 95)])
+        ..finishInk();
+
+      final colors = editing.documentAnnotationColors();
+      expect(colors, [const Color(0xFF1E88E5), const Color(0xFFE53935)],
+          reason: 'most-frequent first, deduplicated by RGB');
+    });
+
+    test('documentAnnotationColors respects the limit', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      for (var i = 0; i < 5; i++) {
+        editing
+          ..color = Color(0xFF000000 | (i * 0x102030))
+          ..addInkStroke(0, [(100.0 + i, 100), (150, 130)])
+          ..finishInk();
+      }
+      expect(editing.documentAnnotationColors(limit: 3), hasLength(3));
+    });
   });
 
   group('editing in the viewer', () {
@@ -1298,11 +1333,11 @@ void main() {
       // scope to the popup's sliders - the strip also has an inline opacity
       final menuSliders = find.descendant(
           of: find.byType(MenuAnchor), matching: find.byType(Slider));
-      // the shapes popup carries stroke width + opacity (font is irrelevant
-      // to a rectangle, so it's no longer shown)
-      expect(menuSliders, findsNWidgets(2));
+      // the shapes popup carries stroke width, opacity, and the pattern
+      // scale (font is irrelevant to a rectangle, so it's not shown)
+      expect(menuSliders, findsNWidgets(3));
 
-      // sliders are laid out stroke width, opacity
+      // sliders are laid out stroke width, opacity, pattern scale
       await tester.drag(menuSliders.at(0), const Offset(200, 0));
       await tester.pump();
       expect(editing.strokeWidth, greaterThan(2));
@@ -1310,6 +1345,13 @@ void main() {
       await tester.drag(menuSliders.at(1), const Offset(-200, 0));
       await tester.pump();
       expect(editing.opacity, lessThan(1));
+
+      // the pattern scale is independent of the pen width
+      final beforeStroke = editing.strokeWidth;
+      await tester.drag(menuSliders.at(2), const Offset(200, 0));
+      await tester.pump();
+      expect(editing.lineScale, greaterThan(1));
+      expect(editing.strokeWidth, beforeStroke);
       await tester.pumpAndSettle();
     });
 
@@ -1537,6 +1579,85 @@ void main() {
       expect(calls.changed, isEmpty);
       await enterChannel(tester, 0, '12');
       expect(calls.changed.last, const Color(0xFF0C3935));
+    });
+
+    testWidgets('the palette grid shows and a swatch tap drives onChanged',
+        (tester) async {
+      Color? last;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PdfColorPicker(
+              color: const Color(0xFFE53935),
+              onChanged: (color) => last = color,
+            ),
+          ),
+        ),
+      ));
+
+      // the fixed palette always shows; recents/document grids do not
+      // unless supplied
+      expect(find.byKey(const ValueKey('pdf-color-grid-palette')), findsOne);
+      expect(find.byKey(const ValueKey('pdf-color-grid-recent')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-color-grid-document')), findsNothing);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-color-swatch-palette-1E88E5')));
+      expect(last, const Color(0xFF1E88E5));
+    });
+
+    testWidgets('recent and document grids show their swatches and select',
+        (tester) async {
+      Color? last;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PdfColorPicker(
+              color: const Color(0xFFE53935),
+              onChanged: (color) => last = color,
+              recentColors: const [Color(0xFF112233)],
+              documentColors: const [Color(0xFF445566), Color(0xFF778899)],
+            ),
+          ),
+        ),
+      ));
+
+      expect(find.byKey(const ValueKey('pdf-color-grid-recent')), findsOne);
+      expect(find.byKey(const ValueKey('pdf-color-grid-document')), findsOne);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-color-swatch-recent-112233')));
+      expect(last, const Color(0xFF112233));
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-color-swatch-document-778899')));
+      expect(last, const Color(0xFF778899));
+    });
+
+    testWidgets('a grid deduplicates repeated colours by RGB', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: PdfColorPicker(
+              color: const Color(0xFFE53935),
+              onChanged: (_) {},
+              swatches: const [],
+              recentColors: const [
+                Color(0xFF112233),
+                Color(0xFF112233),
+                Color(0xFFABCDEF),
+              ],
+            ),
+          ),
+        ),
+      ));
+
+      // the duplicate collapses to a single swatch under one key
+      expect(find.byKey(const ValueKey('pdf-color-swatch-recent-112233')),
+          findsOne);
+      expect(find.byKey(const ValueKey('pdf-color-swatch-recent-ABCDEF')),
+          findsOne);
     });
   });
 }

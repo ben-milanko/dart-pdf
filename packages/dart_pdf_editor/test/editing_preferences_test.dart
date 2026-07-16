@@ -56,6 +56,43 @@ void main() {
       expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
     });
 
+    test('noteRecentColor moves to front, dedupes, caps, and persists',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      expect(a.recentColors, isEmpty);
+
+      // alpha is dropped and RGB deduplicated; newest goes first
+      a.noteRecentColor(const Color(0xFFE53935));
+      a.noteRecentColor(const Color(0x8043A047));
+      a.noteRecentColor(const Color(0xFFE53935)); // re-pick moves it to front
+      expect(a.recentColors,
+          const [Color(0xFF43A047), Color(0xFFE53935)].reversed.toList());
+      expect(a.recentColors.first, const Color(0xFFE53935));
+      expect(a.recentColors.length, 2);
+
+      // re-noting the newest colour (any alpha) is a no-op: no duplicate,
+      // no reorder, no listener churn
+      var notified = 0;
+      a.addListener(() => notified++);
+      a.noteRecentColor(const Color(0x00E53935)); // same RGB, alpha ignored
+      a.noteRecentColor(const Color(0xFFE53935));
+      expect(notified, 0);
+
+      // the cap holds: pushing 20 distinct colours keeps only the newest 18
+      for (var i = 0; i < 20; i++) {
+        a.noteRecentColor(Color(0xFF000000 | i));
+      }
+      expect(a.recentColors.length, 18);
+      expect(a.recentColors.first, const Color(0xFF000013)); // 19th push (i=19)
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.recentColors, a.recentColors);
+    });
+
     test('empty storage leaves the defaults', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = PdfEditingPreferences();
