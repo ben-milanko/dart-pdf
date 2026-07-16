@@ -24,10 +24,19 @@ lean 0 (with any inset) is indistinguishable from the shipped cloud.
 ### Real fix — tangential foot lean
 
 The thing that actually curls a puff is leaning the foot control handle
-*tangentially toward its neck* (`-u` at the start foot, `+u` at the end foot),
-so the arc overshoots past vertical into a rounder, near-closed shape with a
-pinched neck. Added `_cloudNeckCurl = 0.5` (fraction of the perpendicular foot
-handle `cf`); the foot handles become `n*cf ∓ u*(cf*_cloudNeckCurl)`.
+*tangentially along the edge*, so the arc overshoots past vertical into a
+rounder shape with a pinched neck. Added `_cloudNeckCurl` (fraction of the
+perpendicular foot handle `cf`).
+
+Leaning *both* feet symmetrically (`-u` at the start foot, `+u` at the end
+foot, curl 0.5) rounded the puffs but left them symmetric. The reviewer wanted
+only one side leaned per arc, which reads as the hand-drawn revision-cloud
+"roll" - each scallop rises upright on its leading foot and curls over on its
+trailing foot, and because the lean follows the edge direction `+u`, every
+puff rolls the same way around the whole outline. Final: lean the **trailing
+(end) foot only** by `+u*(cf*_cloudNeckCurl)`, leading foot upright, with
+`_cloudNeckCurl = 0.75` (a single handle needs more lean than two to reach the
+same roundness; 0.75 rounds cleanly with no loop - loops start past ~1.0).
 
 Crucially the lean is **purely tangential** (along the edge), so a puff's
 outward `n`-extent is still bounded by the apex height `bulge` — the convex
@@ -41,9 +50,11 @@ humps.
 
 - `pdf_document` `annotation_editor.dart`: `_appendCloudPath` computes the
   apex from the raw edge midpoint (`mx`/`my`), subtracts `nx*inset` /
-  `ny*inset` from each foot, and leans each foot handle by `∓ux*curl` /
-  `∓uy*curl`; new `_cloudNeckCurl` (and existing `_cloudNeckInset`) constants
-  next to `_cloudBulgeFactor`.
+  `ny*inset` from each foot, and leans only the *trailing* foot handle by
+  `+ux*curl` / `+uy*curl` (leading foot handle left at `nx*cf` / `ny*cf`); new
+  `_cloudNeckCurl` (and existing `_cloudNeckInset`) constants next to
+  `_cloudBulgeFactor`. Flip the roll direction by moving the lean to the
+  leading foot (`-ux*curl` on the start handle) instead.
 - `dart_pdf_editor` `editing_overlay.dart`: `_cloudPath` mirrors the same
   inset *and* curl (its own `_cloudNeckInset` / `_cloudNeckCurl` constants) so
   the live preview and afterimage curl identically to the committed
@@ -52,12 +63,12 @@ humps.
 ## Tuning
 
 Replicated the Dart path math in a JS/canvas harness (same approach as the
-2026-07-09 cloud-shape session) and rendered with Chromium. A lean sweep
-0.4→1.6 showed: below ~0.4 barely rounds; ~0.5 rounds into clean near-closed
-puffs with pinched necks; ≥0.7 the feet start crossing into little decorative
-loops at each neck; ≥1.3 the puffs spiral. Picked `_cloudNeckCurl = 0.5` — a
-clear, unmistakable curl (obviously different from the shipped half-circle
-humps) with no loops, filled or stroked. `_cloudNeckInset` kept at 0.2.
+2026-07-09 cloud-shape session) and rendered with Chromium. First a
+both-feet sweep (0.4→1.6) to find the rounding range; then a one-sided
+(trailing-foot-only) sweep (0.6/0.75/0.9). Picked `_cloudNeckCurl = 0.75`,
+trailing foot only — a clear asymmetric roll (obviously different from the
+shipped half-circle humps and from the symmetric both-feet version), clean and
+loop-free whether filled or stroked. `_cloudNeckInset` kept at 0.2.
 
 ## Notes
 

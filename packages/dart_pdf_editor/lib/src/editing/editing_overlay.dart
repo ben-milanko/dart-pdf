@@ -5965,12 +5965,12 @@ class _EditingPreviewPainter extends CustomPainter {
   /// appearance.
   static const double _cloudNeckInset = 0.2;
 
-  /// Tangential lean of each foot control handle toward its neck (fraction of
-  /// the perpendicular foot handle length) - this is what curls the scallops
-  /// into rounder, near-closed puffs. Mirrors `_cloudNeckCurl` in
-  /// pdf_document's annotation_editor so the preview matches the committed
-  /// appearance.
-  static const double _cloudNeckCurl = 0.5;
+  /// Tangential forward lean of each puff's trailing (end) foot control handle
+  /// (fraction of the perpendicular foot handle length) - this is what curls
+  /// the scallops into rounder, asymmetric rolled puffs. Mirrors
+  /// `_cloudNeckCurl` in pdf_document's annotation_editor so the preview
+  /// matches the committed appearance.
+  static const double _cloudNeckCurl = 0.75;
 
   Path _cloudPath(List<Offset> points, double strokeWidth) {
     final path = Path();
@@ -6012,9 +6012,12 @@ class _EditingPreviewPainter extends CustomPainter {
           path.moveTo(start.dx, start.dy);
           first = false;
         }
+        // Only the trailing (end) foot leans forward (+u); the leading foot
+        // stays upright, so each scallop rolls the same way (see annotation
+        // editor's _appendCloudPath).
         path.cubicTo(
-          start.dx + normal.dx * cf - unit.dx * curl,
-          start.dy + normal.dy * cf - unit.dy * curl,
+          start.dx + normal.dx * cf,
+          start.dy + normal.dy * cf,
           apex.dx - unit.dx * ca,
           apex.dy - unit.dy * ca,
           apex.dx,

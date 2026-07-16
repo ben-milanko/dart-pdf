@@ -5269,17 +5269,20 @@ extension PdfAnnotationEditing on PdfEditor {
   /// so the outer extent - and `_cloudPadding` - is unaffected.
   static const double _cloudNeckInset = 0.2;
 
-  /// Tangential lean of each puff's foot control handle toward its neck, as a
-  /// fraction of the (perpendicular) foot handle length. This is what actually
-  /// *curls* the scallops: leaning the handle along the edge makes each puff
-  /// overshoot past vertical into a rounder, near-closed shape with a pinched
-  /// neck - the Bluebeam/Acrobat revision-cloud look - instead of a plain
-  /// half-circle hump. A perpendicular inset alone (no lean) only lowers the
-  /// cusp and leaves the humps looking flat. The lean is purely along the edge,
-  /// so the outward extent (apex height) - and `_cloudPadding` - is unchanged;
-  /// `0` reproduces plain humps exactly. Kept below ~0.6 so the puffs round
-  /// cleanly without the feet crossing into decorative loops.
-  static const double _cloudNeckCurl = 0.5;
+  /// Tangential lean of each puff's *trailing* (end) foot control handle,
+  /// forward along the edge (`+u`), as a fraction of the (perpendicular) foot
+  /// handle length. This is what actually *curls* the scallops: leaning the
+  /// handle along the edge makes each puff overshoot past vertical into a
+  /// rounder, rolled shape with a pinched neck - the hand-drawn revision-cloud
+  /// look - instead of a plain half-circle hump. Only the trailing foot leans
+  /// (the leading foot stays upright), so each scallop is asymmetric and the
+  /// puffs all roll the same way around the outline; leaning both feet gave a
+  /// symmetric puff instead. A perpendicular inset alone (no lean) only lowers
+  /// the cusp and leaves the humps looking flat. The lean is purely along the
+  /// edge, so the outward extent (apex height) - and `_cloudPadding` - is
+  /// unchanged; `0` reproduces plain humps exactly. Kept below ~1.0 so the
+  /// puffs round cleanly without the trailing foot crossing into a loop.
+  static const double _cloudNeckCurl = 0.75;
 
   /// Target radius of one cloud scallop, in page points. Its size is driven
   /// by [scale] (a multiplier, 1 = the default puff) *independently* of the
@@ -5387,15 +5390,16 @@ extension PdfAnnotationEditing on PdfEditor {
           w.moveTo(sx, sy);
           first = false;
         }
-        // Two arcs meeting at the apex. The feet leave the edge perpendicular
-        // (+n) but with their handles leaned tangentially toward the neck
-        // (-u at the start foot, +u at the end foot) so each puff overshoots
-        // into a rounder, near-closed shape with a pinched neck; the apex runs
-        // parallel to the edge. The lean is purely tangential, so the outward
-        // extent (apex height) is unchanged.
+        // Two arcs meeting at the apex. Both feet leave the edge perpendicular
+        // (+n); the trailing (end) foot additionally leans forward along the
+        // edge (+u) so each puff overshoots on its trailing side into an
+        // asymmetric, rolled scallop with a pinched neck (the hand-drawn
+        // revision-cloud look), while the leading foot stays upright. The apex
+        // runs parallel to the edge. The lean is purely tangential, so the
+        // outward extent (apex height) is unchanged.
         w.curveTo(
-          sx + nx * cf - ux * curl,
-          sy + ny * cf - uy * curl,
+          sx + nx * cf,
+          sy + ny * cf,
           apx - ux * ca,
           apy - uy * ca,
           apx,
