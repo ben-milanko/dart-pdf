@@ -46,6 +46,32 @@ void main() {
     expect(y, moreOrLessEquals(456));
   });
 
+  test('an inset origin makes the surrounding band map off-page', () {
+    // the page is inset 40px on the left inside a wider drawing surface;
+    // the 612pt page shows 720px wide (scale 720/612)
+    const inset = PdfPageGeometry(
+      cropBox: PdfRect(0, 0, 612, 792),
+      rotation: 0,
+      viewSize: Size(720, 932.9),
+      origin: Offset(40, 0),
+    );
+    final scale = 720 / 612;
+    // the page's top-left now sits at the origin, not the surface corner
+    final topLeft = inset.toViewOffset(0, 792);
+    expect(topLeft.dx, moreOrLessEquals(40));
+    expect(topLeft.dy, moreOrLessEquals(0));
+    // a gesture in the left pasteboard band (left of the page) maps to a
+    // negative (off-page) x, unclamped - exactly what off-page authoring needs
+    final (x, y) = inset.toPagePoint(const Offset(10, 100));
+    expect(x, lessThan(0), reason: 'left of the page is off-page in x');
+    expect(x, moreOrLessEquals((10 - 40) / scale));
+    expect(y, moreOrLessEquals(792 - 100 / scale));
+    // and the round-trip still holds through the origin
+    final (rx, ry) = inset.toPagePoint(inset.toViewOffset(123, 456));
+    expect(rx, moreOrLessEquals(123));
+    expect(ry, moreOrLessEquals(456));
+  });
+
   test('rotated pages swap the on-screen aspect and round-trip', () {
     for (final rotation in [90, 180, 270]) {
       final sideways = rotation != 180;

@@ -17,6 +17,7 @@ class PdfPageGeometry {
     required this.cropBox,
     required this.rotation,
     required this.viewSize,
+    this.origin = Offset.zero,
   });
 
   /// The page's crop box - the region the view displays.
@@ -28,10 +29,18 @@ class PdfPageGeometry {
   /// The size the page occupies on screen, in logical pixels.
   final Size viewSize;
 
+  /// Where the page's top-left corner sits within the coordinate space the
+  /// view offsets are expressed in, in logical pixels. Zero (the default)
+  /// means the page fills the surface from its top-left. A non-zero origin
+  /// insets the page inside a larger drawing surface - the surrounding band
+  /// is the off-page pasteboard, and view positions there map (unclamped)
+  /// to PDF coordinates outside the crop box.
+  final Offset origin;
+
   bool get _sideways => rotation == 90 || rotation == 270;
 
   /// Logical pixels per PDF point. A sideways page shows the crop box's
-  /// height across the view's width.
+  /// height across the page's on-screen width ([viewSize]).
   double get scale {
     final width = _sideways ? cropBox.height : cropBox.width;
     return width <= 0 ? 1 : viewSize.width / width;
@@ -49,7 +58,7 @@ class PdfPageGeometry {
       270 => (uy, w - ux),
       _ => (ux, uy),
     };
-    return Offset(vx * scale, vy * scale);
+    return Offset(vx * scale + origin.dx, vy * scale + origin.dy);
   }
 
   Rect toViewRect(PdfRect rect) {
@@ -58,10 +67,13 @@ class PdfPageGeometry {
     return Rect.fromPoints(a, b);
   }
 
-  /// View position → (x, y) in page space.
+  /// View position → (x, y) in page space. Positions outside the page's
+  /// on-screen rect map to PDF coordinates outside the crop box (the
+  /// pasteboard) - the mapping is deliberately unclamped so off-page
+  /// annotations can be authored in the margin.
   (double, double) toPagePoint(Offset offset) {
-    final vx = offset.dx / scale;
-    final vy = offset.dy / scale;
+    final vx = (offset.dx - origin.dx) / scale;
+    final vy = (offset.dy - origin.dy) / scale;
     final w = cropBox.width;
     final h = cropBox.height;
     final (ux, uy) = switch (rotation) {
