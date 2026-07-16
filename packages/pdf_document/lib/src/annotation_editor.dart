@@ -58,8 +58,8 @@ const double _defaultHorizontalScale = kPdfFreeTextDefaultHorizontalScale;
 /// One underline segment recorded while a free-text line is laid out, drawn
 /// as a filled rectangle after the enclosing text object closes.
 class _UnderlineRun {
-  const _UnderlineRun(this.x, this.baseline, this.width, this.fontSize,
-      this.color);
+  const _UnderlineRun(
+      this.x, this.baseline, this.width, this.fontSize, this.color);
 
   final double x;
   final double baseline;
@@ -1133,6 +1133,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double opacity = 1,
     List<double>? dashPattern,
     bool cloudy = false,
+    double cloudScale = 1,
     String? contents,
     String? author,
     String? name,
@@ -1142,7 +1143,9 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final rect = _pointBounds(
       vertices,
-      cloudy ? _cloudPadding(strokeWidth) : _linePadding(strokeWidth),
+      cloudy
+          ? _cloudPadding(strokeWidth, cloudScale)
+          : _linePadding(strokeWidth),
     );
     final gs = _alphaState(opacity);
     final w = cloudy
@@ -1150,6 +1153,7 @@ extension PdfAnnotationEditing on PdfEditor {
             vertices,
             strokeColor: strokeColor,
             strokeWidth: strokeWidth,
+            cloudScale: cloudScale,
             dashPattern: dashPattern,
             fillColor: fillColor,
             hasAlpha: gs != null,
@@ -1169,7 +1173,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (cloudy) {
       dict['BE'] = CosDictionary({
         'S': const CosName('Cloudy'),
-        'I': const CosReal(1),
+        'I': CosReal(cloudScale),
       });
     }
     if (fillColor != null) dict['IC'] = _colorComponents(fillColor);
@@ -2433,8 +2437,8 @@ extension PdfAnnotationEditing on PdfEditor {
           font: _richSpanFont(style, fallbackFont),
           fontSize: _richSpanSize(style) ?? fallbackSize,
           color: _richSpanColor(style) ?? fallbackColor,
-          underline: RegExp(r'text-decoration\s*:\s*[^;]*underline')
-              .hasMatch(style),
+          underline:
+              RegExp(r'text-decoration\s*:\s*[^;]*underline').hasMatch(style),
         ),
       );
     }
@@ -3602,6 +3606,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (stroke == null || width <= 0) return;
     final dashed = annotation.borderDash != null;
     final cloudy = subtype == 'Polygon' && annotation.hasCloudyBorder;
+    final cloudScale = annotation.cloudBorderScale;
     final fill = subtype == 'Polygon' ? annotation.interiorColor : null;
     final endings = _lineEndings(annotation);
     final endingPoints = subtype == 'Polygon'
@@ -3615,10 +3620,14 @@ extension PdfAnnotationEditing on PdfEditor {
               width,
             ),
           ];
-    final rect = _pointBounds([
-      ...points,
-      ...endingPoints,
-    ], cloudy ? _cloudPadding(width) : _linePadding(width, dashed: dashed));
+    final rect = _pointBounds(
+        [
+          ...points,
+          ...endingPoints,
+        ],
+        cloudy
+            ? _cloudPadding(width, cloudScale)
+            : _linePadding(width, dashed: dashed));
     final form = annotation.normalAppearance;
     final gs = _alphaState(form == null ? 1 : _appearanceOpacity(form));
     final w = cloudy
@@ -3626,6 +3635,7 @@ extension PdfAnnotationEditing on PdfEditor {
             points,
             strokeColor: stroke,
             strokeWidth: width,
+            cloudScale: cloudScale,
             dashPattern: annotation.borderDash,
             fillColor: fill,
             hasAlpha: gs != null,
@@ -4239,9 +4249,8 @@ extension PdfAnnotationEditing on PdfEditor {
         final stdFont = behavior.standardTextFont;
         // an embedded/bundled-font box re-wraps in its own recovered face
         // rather than reverting to Helvetica or stretching its glyphs
-        final embedded = stdFont == null
-            ? PdfEmbeddedFont.fromFreeText(annotation)
-            : null;
+        final embedded =
+            stdFont == null ? PdfEmbeddedFont.fromFreeText(annotation) : null;
         if (stdFont == null && embedded == null) return false;
         final text = annotation.contents ?? '';
         final callout = _calloutInfo(annotation);
@@ -4427,11 +4436,15 @@ extension PdfAnnotationEditing on PdfEditor {
         annotation.subtype == 'Polygon' ? annotation.interiorColor : null;
     final endings = _lineEndings(annotation);
     final gs = _alphaState(opacity ?? _appearanceOpacity(form));
-    final w = annotation.subtype == 'Polygon' && annotation.hasCloudyBorder
+    final cloudy =
+        annotation.subtype == 'Polygon' && annotation.hasCloudyBorder;
+    final cloudScale = annotation.cloudBorderScale;
+    final w = cloudy
         ? _cloudPolygonContent(
             points,
             strokeColor: stroke,
             strokeWidth: width,
+            cloudScale: cloudScale,
             dashPattern: annotation.borderDash,
             fillColor: fill,
             hasAlpha: gs != null,
@@ -4447,11 +4460,18 @@ extension PdfAnnotationEditing on PdfEditor {
             endEnding: endings.$2,
             hasAlpha: gs != null,
           );
+    // The scallops' size (pen width and cloud scale both drive it) can widen
+    // past the stored /Rect, so re-derive the cloud's bounds from the padded
+    // footprint - otherwise the form BBox clips the outer half of each puff
+    // after a restyle.
+    final base =
+        cloudy ? _pointBounds(points, _cloudPadding(width, cloudScale)) : rect;
+    if (cloudy) annotation.dict['Rect'] = _rectArray(base);
     // A measurement carries a caption drawn over the line; regenerate it
     // too (recovering its font/size/color from /DA) so a width or style
     // change never drops the label, widening the BBox/Rect to keep it
     // unclipped.
-    final (bbox, font) = _appendMeasurementCaption(annotation, rect, points, w);
+    final (bbox, font) = _appendMeasurementCaption(annotation, base, points, w);
     _replaceAppearance(
       annotation.dict,
       form,
@@ -4500,6 +4520,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double? strokeWidth,
     double? opacity,
     (List<double>?,)? dashPattern,
+    double? cloudScale,
     int? pageRotation,
   }) {
     final effectivePageRotation = _appearancePageRotation(
@@ -4510,7 +4531,8 @@ extension PdfAnnotationEditing on PdfEditor {
         fillColor == null &&
         strokeWidth == null &&
         opacity == null &&
-        dashPattern == null) {
+        dashPattern == null &&
+        cloudScale == null) {
       return false;
     }
     final behavior = annotation.behavior;
@@ -4610,6 +4632,12 @@ extension PdfAnnotationEditing on PdfEditor {
             dict['IC'] = _colorComponents(fill);
           } else {
             dict.entries.remove('IC');
+          }
+          // a new cloud scale rides on /BE /I; the regenerate below reads it
+          // back through PdfAnnotation.cloudBorderScale
+          if (cloudScale != null && annotation.hasCloudyBorder) {
+            final be = document.cos.resolve(dict['BE']);
+            if (be is CosDictionary) be['I'] = CosReal(cloudScale);
           }
         }
         return _restyleRegenerate(pageIndex, dict, opacity: opacity);
@@ -5235,11 +5263,14 @@ extension PdfAnnotationEditing on PdfEditor {
   /// puffs (with cusps between them) instead of flat half-circles.
   static const double _cloudBulgeFactor = 1.15;
 
-  /// Target radius of one cloud scallop, in page points. Independent of the
-  /// (usually hairline) stroke so the puffs stay fluffy; grows only when the
-  /// stroke itself is heavy enough to crowd them.
-  double _cloudArcRadius(double strokeWidth) =>
-      math.max(12.0, strokeWidth * 4.0);
+  /// Target radius of one cloud scallop, in page points. Its size is driven
+  /// by [scale] (a multiplier, 1 = the default puff) *independently* of the
+  /// pen so the line thickness and the scallop size change separately; a
+  /// heavy stroke still raises a floor so the puffs never crowd narrower
+  /// than the pen can draw them. At `scale: 1` and the default 2pt pen this
+  /// matches the historical `max(12, strokeWidth * 4)`.
+  double _cloudArcRadius(double strokeWidth, double scale) =>
+      math.max(strokeWidth * 4.0, 12.0 * scale);
 
   /// Padding for the cloud's `/Rect` and form BBox. A scallop's apex sits
   /// `_cloudArcRadius * _cloudBulgeFactor` past the polygon edge (plus half
@@ -5248,15 +5279,17 @@ extension PdfAnnotationEditing on PdfEditor {
   /// by only `pad / 2 + 1`, so the padding is doubled here; otherwise the
   /// form BBox clips the outer half of every puff (the scallops render as
   /// flattened brackets at the edges).
-  double _cloudPadding(double strokeWidth) => math.max(
+  double _cloudPadding(double strokeWidth, double scale) => math.max(
         _linePadding(strokeWidth),
-        2 * _cloudArcRadius(strokeWidth) * _cloudBulgeFactor + strokeWidth,
+        2 * _cloudArcRadius(strokeWidth, scale) * _cloudBulgeFactor +
+            strokeWidth,
       );
 
   ContentWriter _cloudPolygonContent(
     List<(double, double)> points, {
     required int strokeColor,
     required double strokeWidth,
+    required double cloudScale,
     required List<double>? dashPattern,
     required int? fillColor,
     required bool hasAlpha,
@@ -5265,27 +5298,22 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = ContentWriter();
     if (hasAlpha) w.extGState('GS0');
 
-    // Fill the actual polygon footprint first. The cloudy border then
-    // protrudes from it, matching the /Vertices geometry while still
-    // producing the expected cloud outline in viewers that honor /AP.
-    if (fillColor != null) {
-      w.fillColor(fillColor);
-      w.moveTo(points.first.$1, points.first.$2);
-      for (final (x, y) in points.skip(1)) {
-        w.lineTo(x, y);
-      }
-      w.closePath();
-      w.fill();
-    }
-
+    // Fill the actual scalloped cloud outline (not just the straight-edged
+    // polygon footprint) so the interior colour reaches the puffed edges.
+    // The same path is stroked, so fill and stroke share one construction.
+    if (fillColor != null) w.fillColor(fillColor);
     w
       ..strokeColor(strokeColor)
       ..lineWidth(strokeWidth)
       ..lineCap(1)
       ..lineJoin(1);
     if (dashed) w.dash(dashPattern);
-    _appendCloudPath(w, points, strokeWidth);
-    w.stroke();
+    _appendCloudPath(w, points, strokeWidth, cloudScale);
+    if (fillColor != null) {
+      w.fillAndStroke();
+    } else {
+      w.stroke();
+    }
     if (dashed) w.dash(const []);
     return w;
   }
@@ -5294,10 +5322,11 @@ extension PdfAnnotationEditing on PdfEditor {
     ContentWriter w,
     List<(double, double)> points,
     double strokeWidth,
+    double cloudScale,
   ) {
     if (points.length < 3) return;
     final clockwise = _signedArea(points) < 0;
-    final arc = _cloudArcRadius(strokeWidth);
+    final arc = _cloudArcRadius(strokeWidth, cloudScale);
     const k = 0.5522847498307936;
     var first = true;
     for (var i = 0; i < points.length; i++) {

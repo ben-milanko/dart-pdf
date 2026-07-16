@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../page_range_dialog.dart';
+import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_form_style.dart';
 import 'text_prompt.dart';
@@ -185,6 +186,24 @@ Future<void> showPdfAnnotationMenu({
               request.controller.removeSelectedVertexNear(pagePoint),
         ),
       ],
+      if (controller.canRecolorSnapshotSelected)
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
+          label: 'Recolour…',
+          icon: Icons.palette_outlined,
+          onSelected: (request) async {
+            final picked = await showPdfColorPicker(
+              context,
+              initial: request.controller.color,
+              initialFormat: request.controller.preferences.colorPickerFormat,
+              onFormatChanged: (format) =>
+                  request.controller.preferences.colorPickerFormat = format,
+            );
+            if (picked != null) {
+              request.controller.recolorSnapshotSelected(picked);
+            }
+          },
+        ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-delete'),
         label: 'Delete',
