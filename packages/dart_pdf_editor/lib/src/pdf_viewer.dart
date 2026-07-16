@@ -4132,26 +4132,26 @@ class _PdfViewerState extends State<PdfViewer>
     _scheduleMotionRenderHoldRelease();
   }
 
-  /// How far past the content edges the zoom window may be panned, on each
-  /// axis, so material that sits outside the page box - bleed, crop and
-  /// registration marks, art that overflows the MediaBox - can be pulled
-  /// into view instead of being pinned to the viewport edge (the vector
-  /// display path draws it; nothing clips at the page boundary). A modest
-  /// fraction of the viewport, capped so a large viewport doesn't pan off
-  /// into a wide empty margin.
+  /// How far past the content's left/right edges the zoom window may be
+  /// panned, so material that sits outside the page box - bleed, crop and
+  /// registration marks, art that overflows the MediaBox, a narrow page
+  /// islanded in a wide canvas - can be pulled in from the edge instead of
+  /// being pinned to it (the vector display path draws it; nothing clips at
+  /// the page boundary). A modest fraction of the viewport, capped so a
+  /// large viewport doesn't pan off into a wide empty margin.
+  ///
+  /// Horizontal only: sideways overflow lives entirely in this transform,
+  /// so widening its clamp is the whole story. The vertical axis is driven
+  /// by the scrollable's own extents (the transform's y-translation just
+  /// covers the current view), so it stays tightly clamped - over-panning
+  /// it would rest the zoom window on blank canvas mid-document.
   double get _panMarginX => math.min(_viewWidth * 0.25, 160.0);
-  double get _panMarginY => math.min(_viewHeight * 0.25, 160.0);
 
   /// The allowed x-translation range for the zoom window at [scale]: the
   /// tight cover range `[_viewWidth * (1 - scale), 0]` widened by
   /// [_panMarginX] on each side.
   (double, double) _panBoundsX(double scale) =>
       (_viewWidth * (1 - scale) - _panMarginX, _panMarginX);
-
-  /// The allowed y-translation range for the zoom window at [scale] (see
-  /// [_panBoundsX]).
-  (double, double) _panBoundsY(double scale) =>
-      (_viewHeight * (1 - scale) - _panMarginY, _panMarginY);
 
   /// One frame of the horizontal fling: moves the zoom window's
   /// x-translation along the friction simulation, stopping at the edges
@@ -4172,17 +4172,17 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Keeps the zoom window over the content: snaps near-1 scales back to
   /// identity (sub-1 zoom is layout zoom, not a transform) and clamps the
-  /// translation to the allowed range - the tight cover range widened by
-  /// the over-pan margin ([_panBoundsX]/[_panBoundsY]), so a reasonable
-  /// amount of off-page content stays reachable.
+  /// translation - the horizontal axis to the allowed range (cover range
+  /// widened by the over-pan margin, [_panBoundsX], so a reasonable amount
+  /// of off-page content stays reachable), the vertical axis tightly so no
+  /// blank edge shows.
   Matrix4 _clampedTransform(Matrix4 matrix) {
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return Matrix4.identity();
     final s = matrix.storage;
     final (minX, maxX) = _panBoundsX(scale);
-    final (minY, maxY) = _panBoundsY(scale);
     s[12] = s[12].clamp(minX, maxX);
-    s[13] = s[13].clamp(minY, maxY);
+    s[13] = s[13].clamp(_viewHeight * (1 - scale), 0.0);
     return matrix;
   }
 
@@ -4192,8 +4192,7 @@ class _PdfViewerState extends State<PdfViewer>
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return Matrix4.identity();
     final s = matrix.storage;
-    final (minY, maxY) = _panBoundsY(scale);
-    s[13] = s[13].clamp(minY, maxY);
+    s[13] = s[13].clamp(_viewHeight * (1 - scale), 0.0);
     return matrix;
   }
 
