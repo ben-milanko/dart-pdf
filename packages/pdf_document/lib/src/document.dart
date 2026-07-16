@@ -85,6 +85,19 @@ class PdfDocument {
   /// changes (reorder, removal, insertion) so lookups re-walk the tree.
   void invalidatePageCache() => _leafCache = null;
 
+  /// Feeds an append-only incremental revision into this open document in
+  /// place (see [CosDocument.applyIncrementalUpdate]) and re-walks the page
+  /// tree, so a render worker can reflect one page's edit without re-parsing
+  /// the whole document. [newBytes] must begin with this document's current
+  /// bytes (`cos.bytes`).
+  /// Returns the set of redefined COS object numbers. Throws when the update
+  /// cannot be applied incrementally; the caller should re-open instead.
+  Set<int> applyIncrementalUpdate(Uint8List newBytes) {
+    final changed = cos.applyIncrementalUpdate(newBytes);
+    invalidatePageCache();
+    return changed;
+  }
+
   /// Zero-based index of a page dictionary, or -1 if it isn't a leaf of
   /// this document's page tree. Resolved objects are cached by reference,
   /// so identity comparison is sound. Used to resolve link destinations.

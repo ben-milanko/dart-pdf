@@ -333,6 +333,40 @@ abstract class PdfRenderWorker {
   /// passes bins straight through).
   void cancelBinStrips(int pageIndex, {int priority = 0}) {}
 
+  /// Whether this backend can absorb an [updateRevision] in place instead of
+  /// being torn down and restarted on every edit. The native isolate backend
+  /// (and the wrappers around it) do; the null fallback and the web backend do
+  /// not yet, so their host restarts the worker on a revision change as before.
+  bool get supportsRevisionUpdate => false;
+
+  /// Feeds one append-only editor revision into the worker's already-open
+  /// document instead of disposing and restarting it, then invalidates the
+  /// worker's cached renders for the [changedPages] only.
+  ///
+  /// Revisions are byte prefixes of one growing buffer, so a page the edit did
+  /// not touch is byte-identical across the boundary: keeping the worker (and
+  /// its decoded-image, transcript, and record caches) alive turns "every
+  /// visible page re-warms from cold on every pen stroke" into "only the edited
+  /// page re-renders".
+  ///
+  /// The worker holds the bytes of the revision it currently reflects. To reach
+  /// the new revision it keeps that buffer's first [baseLength] bytes (the
+  /// shared prefix) and appends [appendedBytes], giving a buffer [newLength]
+  /// bytes long ([newLength] == [baseLength] + `appendedBytes.length`). A pure
+  /// undo therefore passes empty [appendedBytes] with [baseLength] ==
+  /// [newLength] (the worker just re-reads a shorter prefix it already holds).
+  ///
+  /// [changedPages] are the pages whose rendering the transition changed; null
+  /// means every page may have changed (the worker clears its per-page caches).
+  ///
+  /// The base implementation is a no-op (see [supportsRevisionUpdate]).
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {}
+
   /// Whether this worker actually offloads. False for the null fallback, so
   /// callers can skip the round-trip and render locally without asking.
   bool get isActive;
@@ -406,7 +440,10 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   static const int _urgentPriority = -2000;
 
-  final Uint8List? _urgentBytes;
+  // The bytes a lazily-created one-off urgent worker opens. Kept at the current
+  // revision by [updateRevision] so a long-jump preview after an edit opens the
+  // edited document, not the stale spawn snapshot. Null in the test seam.
+  Uint8List? _urgentBytes;
   final List<PdfRenderWorker> _workers;
   late final List<int> _loads;
   final _routes = <(int, int), _PoolRoute>{};
@@ -606,6 +643,36 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       );
 
   @override
+  bool get supportsRevisionUpdate =>
+      _workers.every((worker) => worker.supportsRevisionUpdate);
+
+  @override
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {
+    for (final worker in _workers) {
+      worker.updateRevision(baseLength, appendedBytes, newLength, changedPages);
+    }
+    // Roll the urgent-worker seed bytes forward to the new revision and drop
+    // any live one-off worker so the next long-jump preview reopens the edited
+    // document instead of the snapshot it was spawned on.
+    final urgentBytes = _urgentBytes;
+    if (urgentBytes != null &&
+        baseLength <= urgentBytes.length &&
+        newLength == baseLength + appendedBytes.length) {
+      final next = Uint8List(newLength);
+      next.setRange(0, baseLength, urgentBytes);
+      next.setRange(baseLength, newLength, appendedBytes);
+      _urgentBytes = next;
+    }
+    _urgentWorker?.dispose();
+    _urgentWorker = null;
+  }
+
+  @override
   void dispose() {
     _routes.clear();
     _pageWorkers.clear();
@@ -705,6 +772,45 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   // Keys whose decode is running now, so concurrent requests share one decode.
   final _inflight = <_RecordCacheKey, Future<List<PdfRenderCommand>?>>{};
 
+  // Revision-invalidation epochs. A decode dispatched before an edit that
+  // touched its page must not store its now-stale result: the worker's document
+  // has moved on under it. Each [updateRevision] bumps [_epoch] and stamps the
+  // pages it invalidated (or [_globalInvalidatedAt] for an all-pages revision);
+  // a decode captures the epoch at dispatch and stores only if its page was not
+  // invalidated since.
+  int _epoch = 0;
+  int _globalInvalidatedAt = 0;
+  final Map<int, int> _pageInvalidatedAt = {};
+
+  int _invalidationEpochFor(int page) =>
+      math.max(_globalInvalidatedAt, _pageInvalidatedAt[page] ?? 0);
+
+  @override
+  bool get supportsRevisionUpdate => _inner.supportsRevisionUpdate;
+
+  @override
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {
+    _epoch++;
+    if (changedPages == null) {
+      _globalInvalidatedAt = _epoch;
+      _pageInvalidatedAt.clear();
+      _cache.clear();
+      _inflight.clear();
+    } else {
+      for (final page in changedPages) {
+        _pageInvalidatedAt[page] = _epoch;
+      }
+      _cache.evictWhere((key) => changedPages.contains(key.$1));
+      _inflight.removeWhere((key, _) => changedPages.contains(key.$1));
+    }
+    _inner.updateRevision(baseLength, appendedBytes, newLength, changedPages);
+  }
+
   @override
   bool get isActive => _inner.isActive;
 
@@ -782,6 +888,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
       imageDecodeRegion: effectiveRegion,
+      dispatchEpoch: _epoch,
     );
     _inflight[key] = future;
     return future;
@@ -795,6 +902,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     required double? imagePixelRatio,
     required bool decodeImages,
     required PdfRect? imageDecodeRegion,
+    required int dispatchEpoch,
   }) async {
     try {
       final timeout = pdfRenderWorkerRecordTimeout;
@@ -816,7 +924,11 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
           return null;
         },
       );
-      if (commands != null) {
+      // Skip storing a result whose page was invalidated by a revision update
+      // after this decode was dispatched: the worker's document has moved on,
+      // so the buffer is stale and must not be cached (a later request would
+      // hit it and paint pre-edit content).
+      if (commands != null && _invalidationEpochFor(pageIndex) <= dispatchEpoch) {
         final weight = _weigh(commands);
         final storeKey =
             key.$6 != null && weight == 0 ? _withoutRegion(key) : key;

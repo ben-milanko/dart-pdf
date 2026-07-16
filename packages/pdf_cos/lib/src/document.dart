@@ -15,18 +15,22 @@ class CosDocument {
   CosDocument._(
       this.bytes, this._offsetShift, this._xref, this.trailer, this.startXref);
 
-  final Uint8List bytes;
+  /// The document image the xref offsets refer to. Grows in place when an
+  /// append-only incremental revision is fed through [applyIncrementalUpdate];
+  /// the prefix is always byte-identical, so objects cached against the old
+  /// buffer stay valid.
+  Uint8List bytes;
 
   /// Offset of the `%PDF-` header. Some files carry junk before the header;
   /// xref offsets are then relative to the header, not the file start.
   final int _offsetShift;
 
   final Map<int, CosXrefEntry> _xref;
-  final CosDictionary trailer;
+  CosDictionary trailer;
 
   /// The newest cross-reference section's offset, as declared after the
   /// `startxref` keyword. An incremental update points /Prev here.
-  final int startXref;
+  int startXref;
 
   final Map<CosReference, CosObject> _cache = {};
   final Map<int, _ObjectStream> _objectStreams = {};
@@ -88,6 +92,75 @@ class CosDocument {
       // ditto: an xref offset pointing outside the file
     }
     return _recover(bytes, shift, password);
+  }
+
+  /// Feeds an append-only incremental revision into this already-parsed
+  /// document in place, so a caller holding an open document (a render worker)
+  /// need not re-open and re-parse the whole xref chain to see one page's edit.
+  ///
+  /// [newBytes] must begin with this document's current [bytes] (a strict
+  /// prefix) and carry one or more appended incremental-update sections. Only
+  /// the cross-reference sections newer than the current [startXref] are
+  /// parsed; their entries replace the matching ones (newest wins), the trailer
+  /// is refreshed (keeping keys the newest section omits, like /Root), and the
+  /// cached state of every object the update redefined is evicted so the next
+  /// resolve re-reads it from the appended bytes. Returns the set of redefined
+  /// object numbers.
+  ///
+  /// Throws when the update cannot be applied incrementally (this document was
+  /// opened through xref recovery, [newBytes] is not an append, or the appended
+  /// xref chain is malformed); the caller should re-open from scratch instead.
+  Set<int> applyIncrementalUpdate(Uint8List newBytes) {
+    if (startXref <= 0) {
+      // A recovered document has no trustworthy xref chain to hang a /Prev off.
+      throw CosParseException('cannot incrementally update a recovered document');
+    }
+    if (newBytes.length <= bytes.length) {
+      throw CosParseException('incremental update is not an append');
+    }
+    final newStartXref = _findStartXref(newBytes);
+    final oldStartOffset = startXref + _offsetShift;
+    final changed = <int>{};
+    CosDictionary? newestTrailer;
+    final pending = <int>[newStartXref + _offsetShift];
+    final visited = <int>{};
+    while (pending.isNotEmpty) {
+      final offset = pending.removeAt(0);
+      // Everything at or below the previous newest section is already loaded.
+      if (offset == oldStartOffset) continue;
+      if (!visited.add(offset)) continue;
+      final section = _parseXrefSection(newBytes, offset);
+      newestTrailer ??= section.trailer;
+      for (final entry in section.entries.entries) {
+        // First occurrence among the appended sections wins, and it overrides
+        // whatever the old chain held for that object.
+        if (changed.add(entry.key)) _xref[entry.key] = entry.value;
+      }
+      final hybrid = section.trailer['XRefStm'];
+      if (hybrid is CosInteger) pending.add(hybrid.value + _offsetShift);
+      final prev = section.trailer['Prev'];
+      if (prev is CosInteger) pending.add(prev.value + _offsetShift);
+    }
+
+    bytes = newBytes;
+    startXref = newStartXref;
+    if (newestTrailer != null) {
+      // The newest trailer wins, but an incremental trailer may omit doc-level
+      // keys (/Root, /Encrypt, /ID) that still carry over from the base.
+      final merged = CosDictionary();
+      trailer.entries.forEach((key, value) => merged.entries[key] = value);
+      newestTrailer.entries.forEach((key, value) => merged.entries[key] = value);
+      trailer = merged;
+    }
+
+    // Drop cached state for every redefined object so the next resolve re-reads
+    // it from the appended bytes; untouched objects keep their warm cache.
+    _cache.removeWhere((ref, _) => changed.contains(ref.objectNumber));
+    _objectStreams.removeWhere((number, _) => changed.contains(number));
+    _streamOwners
+        .removeWhere((stream, ref) => changed.contains(ref.objectNumber));
+    _scannedHeaders = null;
+    return changed;
   }
 
   static CosDocument _openFromXref(Uint8List bytes, int shift) {

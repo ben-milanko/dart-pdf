@@ -218,6 +218,17 @@ class PdfBudgetedCache<K, V> {
   /// Drops (and disposes) the retained value for [key]. A no-op on a miss.
   void evict(K key) => _removeEntry(key);
 
+  /// Drops (and disposes) every retained entry whose key satisfies [test].
+  /// Used for targeted, per-page invalidation - a render worker evicting just
+  /// the pages an incremental revision changed instead of clearing the whole
+  /// cache. Counters and every non-matching entry are untouched.
+  void evictWhere(bool Function(K key) test) {
+    final doomed = _entries.keys.where(test).toList();
+    for (final key in doomed) {
+      _removeEntry(key);
+    }
+  }
+
   /// Empties the cache, disposing every retained value. Counters survive - a
   /// clear is a cache operation, not a fresh measurement. Any clones already
   /// handed out are unaffected.

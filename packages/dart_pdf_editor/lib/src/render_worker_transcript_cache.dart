@@ -240,4 +240,16 @@ class PdfWorkerTranscriptCache {
   }
 
   void clear() => _entries.clear();
+
+  /// Evicts the transcripts for [pages] only, or every transcript when [pages]
+  /// is null (a structural / all-pages revision). A worker calls this when an
+  /// incremental revision changes those pages: their transcripts are stale, but
+  /// every other page's stays warm across the edit boundary.
+  void evictPages(Set<int>? pages) {
+    if (pages == null) {
+      _entries.clear();
+    } else {
+      _entries.evictWhere((key) => pages.contains(key.$1));
+    }
+  }
 }

@@ -64,6 +64,36 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   @override
   bool get isActive => !_disposed && !_spawnFailed;
 
+  @override
+  bool get supportsRevisionUpdate => true;
+
+  static const int _updatePriority = -1000;
+
+  @override
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {
+    if (_disposed || _spawnFailed) return;
+    // Route the update through the ordinary priority queue so it runs only when
+    // the worker is idle: it mutates the worker's document in place, so it must
+    // not overlap an in-flight record/bin walk. Its high priority preempts a
+    // running record (which requeues and then re-runs against the new revision)
+    // and jumps ahead of queued prefetch.
+    final request = _PendingRequest.update(
+      _updatePriority,
+      _seq++,
+      baseLength,
+      appendedBytes,
+      newLength,
+      changedPages,
+    );
+    _queue.add(request);
+    _pump();
+  }
+
   Future<void> _spawn(Uint8List bytes) async {
     try {
       await _spawnInner(bytes);
@@ -289,7 +319,16 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     }
     final request = _queue.removeAt(best)..id = _nextId++;
     _inFlight = request;
-    if (request.kind == _RequestKind.record) {
+    if (request.kind == _RequestKind.update) {
+      port.send([
+        'update',
+        request.id,
+        request.baseLength,
+        TransferableTypedData.fromList([request.appendedBytes!]),
+        request.newLength,
+        request.changedPages?.toList(),
+      ]);
+    } else if (request.kind == _RequestKind.record) {
       port.send([
         'record',
         request.id,
@@ -427,7 +466,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _RequestKind { record, bin, detail }
+enum _RequestKind { record, bin, detail, update }
 
 /// One queued request (a page record or a strip bin) and its pending result.
 class _PendingRequest {
@@ -445,7 +484,11 @@ class _PendingRequest {
         deviceWidth = 0,
         deviceHeight = 0,
         binPixelRatio = 0,
-        slugGlyphs = false;
+        slugGlyphs = false,
+        baseLength = 0,
+        appendedBytes = null,
+        newLength = 0,
+        changedPages = null;
 
   _PendingRequest.bin(
       this.priority,
@@ -461,7 +504,11 @@ class _PendingRequest {
         imagePixelRatio = null,
         decodeImages = false,
         commandLimit = null,
-        imageDecodeRegion = null;
+        imageDecodeRegion = null,
+        baseLength = 0,
+        appendedBytes = null,
+        newLength = 0,
+        changedPages = null;
 
   _PendingRequest.detail(
       this.priority,
@@ -477,6 +524,30 @@ class _PendingRequest {
         imagePixelRatio = null,
         decodeImages = true,
         commandLimit = null,
+        slugGlyphs = false,
+        baseLength = 0,
+        appendedBytes = null,
+        newLength = 0,
+        changedPages = null;
+
+  _PendingRequest.update(
+      this.priority,
+      this.seq,
+      this.baseLength,
+      this.appendedBytes,
+      this.newLength,
+      this.changedPages)
+      : kind = _RequestKind.update,
+        pageIndex = -1,
+        annotations = false,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
         slugGlyphs = false;
 
   final _RequestKind kind;
@@ -497,6 +568,12 @@ class _PendingRequest {
   final int deviceHeight;
   final double binPixelRatio;
   final bool slugGlyphs;
+
+  // update-only
+  final int baseLength;
+  final Uint8List? appendedBytes;
+  final int newLength;
+  final Set<int>? changedPages;
 
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
@@ -521,9 +598,13 @@ void _workerMain(_WorkerInit init) {
   final cancelPort = ReceivePort();
   init.reply.send([requests.sendPort, cancelPort.sendPort]);
 
+  // The worker's own copy of the document image. It grows in place as
+  // append-only revisions arrive ('update' messages), so the buffer the open
+  // document parses from stays valid across edits.
+  var workerBytes = init.bytes.materialize().asUint8List();
   PdfDocument? document;
   try {
-    document = PdfDocument.open(init.bytes.materialize().asUint8List());
+    document = PdfDocument.open(workerBytes);
   } catch (_) {
     document = null; // a broken document fails every page → all local renders
   }
@@ -547,6 +628,46 @@ void _workerMain(_WorkerInit init) {
     final request = message as List<Object?>;
     final kind = request[0] as String;
     final id = request[1] as int;
+
+    if (kind == 'update') {
+      // The main side only dispatches an update when the worker is idle, so it
+      // never overlaps an in-flight record/bin walk that would see the document
+      // mutate mid-interpret.
+      final baseLength = request[2] as int;
+      final appended =
+          (request[3] as TransferableTypedData).materialize().asUint8List();
+      final newLength = request[4] as int;
+      final changed = (request[5] as List?)?.cast<int>().toSet();
+      workerBytes = Uint8List(baseLength + appended.length)
+        ..setRange(0, baseLength, workerBytes)
+        ..setRange(baseLength, baseLength + appended.length, appended);
+      final live = Uint8List.sublistView(workerBytes, 0, newLength);
+      var incremental = false;
+      final doc = document;
+      if (doc != null) {
+        try {
+          doc.applyIncrementalUpdate(live);
+          incremental = true;
+        } catch (_) {
+          // Not a forward append (an undo shrinks to a prefix) or an
+          // unsupported document: re-open from the target prefix instead.
+        }
+      }
+      if (!incremental) {
+        try {
+          document = PdfDocument.open(live);
+        } catch (_) {
+          document = null;
+        }
+      }
+      // On the in-place fast path only the changed pages' cached commands are
+      // stale; a re-open makes a fresh document, so every cached command (which
+      // referenced the old one) must go.
+      binCommands.evictPages(incremental ? changed : null);
+      init.reply.send([id, null]);
+      return;
+    }
+
     final pageIndex = request[2] as int;
     final annotations = request[3] as bool;
 
@@ -555,11 +676,15 @@ void _workerMain(_WorkerInit init) {
     activeRequestId = id;
     Uint8List? buffer;
     Uint8List? detailPlanBuffer;
+    // Snapshot the (reassignable) document so an 'update' arriving between
+    // yields of this walk can't null it out mid-flight - and so the compiler
+    // can type-promote it.
+    final doc = document;
     try {
-      if (document != null) {
+      if (doc != null) {
         if (kind == 'bin') {
           buffer = await _binStripsAsync(
-              document,
+              doc,
               binCommands,
               pageIndex,
               annotations,
@@ -571,7 +696,7 @@ void _workerMain(_WorkerInit init) {
               token);
         } else if (kind == 'detail') {
           final result = await _recordStripDetailAsync(
-            document,
+            doc,
             binCommands,
             pageIndex,
             annotations,
@@ -597,7 +722,7 @@ void _workerMain(_WorkerInit init) {
                   request[9] as double, request[10] as double)
               : null;
           buffer = await _recordPageAsync(
-              document,
+              doc,
               pageIndex,
               annotations,
               imagePixelRatio,
@@ -764,6 +889,16 @@ class _BinCommandCache {
         0,
         (total, entry) => total + entry.retainedCommandWeight,
       );
+
+  /// Drops the cached commands for [pages] (or every page when null) after a
+  /// revision update, so a later bin re-records them from the new document.
+  void evictPages(Set<int>? pages) {
+    if (pages == null) {
+      _entries.clear();
+    } else {
+      _entries.removeWhere((key, _) => pages.contains(key.$1));
+    }
+  }
 
   Future<List<PdfRenderCommand>?> commandsFor(PdfDocument document,
           int pageIndex, bool annotations, PdfCancellationToken token) async =>

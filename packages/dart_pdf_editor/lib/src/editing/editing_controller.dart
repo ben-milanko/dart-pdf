@@ -257,6 +257,31 @@ class PdfFormFieldStyle {
   final bool multiline;
 }
 
+/// The byte-level shape of one editor revision transition (an edit, undo, or
+/// redo), consumed by the shell to feed the render worker's incremental
+/// in-place update instead of restarting it. See
+/// [PdfEditingController.lastRevisionDelta].
+class PdfWorkerRevisionDelta {
+  const PdfWorkerRevisionDelta({
+    required this.baseLength,
+    required this.newLength,
+    required this.changedPages,
+  });
+
+  /// Byte length of the prefix shared with the previous revision. Revisions are
+  /// prefixes of one growing buffer, so the worker keeps its buffer up to here
+  /// and appends the `newLength - baseLength` bytes that follow. A pure undo
+  /// (shrinking to an earlier prefix) has [baseLength] == [newLength].
+  final int baseLength;
+
+  /// Byte length of the revision after the transition.
+  final int newLength;
+
+  /// Pages whose rendering the transition changed, or null when every page may
+  /// have (the worker then clears its per-page caches).
+  final Set<int>? changedPages;
+}
+
 /// An editing session over a PDF document: applies edits through
 /// [PdfEditor], owns the resulting document revisions, and carries the
 /// UI state of the editing tools (active tool, color, pending ink
@@ -429,6 +454,16 @@ class PdfEditingController extends ChangeNotifier {
   /// edit, undo, and redo.
   PdfDocument get document => _document;
 
+  PdfWorkerRevisionDelta? _lastRevisionDelta;
+
+  /// The byte-level shape of the most recent revision transition (edit, undo,
+  /// redo) for the render worker's incremental update path, or null when the
+  /// last transition cannot be applied incrementally (the initial open, a page
+  /// structure change, or a redaction burn that replaced the buffer). Only
+  /// meaningful the moment [document]'s identity changes; the shell reads it
+  /// then and ignores it otherwise.
+  PdfWorkerRevisionDelta? get lastRevisionDelta => _lastRevisionDelta;
+
   /// The current revision's bytes - what "save to disk" should write.
   Uint8List get bytes => Uint8List.sublistView(_bytes, 0, _revisions[_cursor]);
 
@@ -451,6 +486,14 @@ class PdfEditingController extends ChangeNotifier {
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
     _cursor--;
+    // The worker keeps the shared prefix and re-reads it - no bytes to append.
+    _lastRevisionDelta = impact.pageStructureChanged
+        ? null
+        : PdfWorkerRevisionDelta(
+            baseLength: _revisions[_cursor],
+            newLength: _revisions[_cursor],
+            changedPages: impact.visualPages,
+          );
     _reopen();
     _emitAnnotationChanges(beforeLength, impact.annotationPages);
   }
@@ -462,6 +505,15 @@ class PdfEditingController extends ChangeNotifier {
     final impact = _revisionImpacts[_cursor];
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
+    // Re-extend to the redone revision - its bytes already sit in the buffer as
+    // a prefix, so the worker re-appends bytes it may already hold.
+    _lastRevisionDelta = impact.pageStructureChanged
+        ? null
+        : PdfWorkerRevisionDelta(
+            baseLength: beforeLength,
+            newLength: _revisions[_cursor],
+            changedPages: impact.visualPages,
+          );
     _reopen();
     _emitAnnotationChanges(beforeLength, impact.annotationPages);
   }
@@ -519,6 +571,17 @@ class PdfEditingController extends ChangeNotifier {
     _bumpContentRenderStamps(impact.contentPages);
     if (impact.destructive) _destructiveStampEpoch++;
     _cursor++;
+    // The incremental save appended to the previous revision, so its bytes are
+    // that revision's prefix plus the new tail: the worker keeps the first
+    // [beforeLength] bytes and appends the rest. A structural edit can shift
+    // page indices, so fall back to a full worker restart there.
+    _lastRevisionDelta = impact.pageStructureChanged
+        ? null
+        : PdfWorkerRevisionDelta(
+            baseLength: beforeLength,
+            newLength: saved.length,
+            changedPages: impact.visualPages,
+          );
     if (_committingRemoteRevision) _undoFloor = _cursor;
     final selected = List.of(_selected);
     _document = PdfDocument.open(bytes, password: _password);
@@ -1852,6 +1915,9 @@ class PdfEditingController extends ChangeNotifier {
     _cursor = 0;
     _undoFloor = 0;
     _hardModified = true;
+    // A burn recompacts the whole file: the new buffer is not a prefix-append
+    // of the prior one, so the worker cannot update in place and must restart.
+    _lastRevisionDelta = null;
     _selected.clear();
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);

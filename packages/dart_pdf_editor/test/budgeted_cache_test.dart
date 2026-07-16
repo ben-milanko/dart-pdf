@@ -317,6 +317,23 @@ void main() {
       expect(registry.registrationCount, before);
     });
 
+    test('evictWhere drops only the matching keys and disposes them', () {
+      final dropped = <int>[];
+      final c = PdfBudgetedCache<int, _Res>(
+        maxEntries: 10,
+        disposer: (v) => dropped.add(v.id),
+      );
+      addTearDown(c.dispose);
+      for (var i = 0; i < 6; i++) {
+        c.put(i, _Res(i));
+      }
+      // Evict the even keys (mirrors a worker dropping a changed page set).
+      c.evictWhere((key) => key.isEven);
+      expect(c.length, 3);
+      expect(c.keys, [1, 3, 5]);
+      expect(dropped, [0, 2, 4]);
+    });
+
     test('a cache without clearsUnderMemoryPressure is not registered', () {
       final registry = PdfCacheRegistry.instance;
       final before = registry.registrationCount;

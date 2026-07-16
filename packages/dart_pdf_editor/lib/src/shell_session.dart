@@ -131,6 +131,35 @@ class PdfShellSessionLifecycle {
 
   void _syncWorker() {
     if (identical(session.document, _workerDocument)) return;
+
+    // Revision-aware fast path: revisions are byte prefixes of one growing
+    // buffer, so an edit to one page leaves every other page byte-identical.
+    // Feed the incremental append into the live worker and evict only the
+    // changed pages' cached renders instead of tearing down the whole pool and
+    // re-parsing N private documents from cold. See issue #308.
+    final worker = _worker;
+    final delta = session.lastRevisionDelta;
+    if (worker != null &&
+        worker.supportsRevisionUpdate &&
+        delta != null &&
+        delta.newLength == session.bytes.length) {
+      final appended = delta.newLength > delta.baseLength
+          ? Uint8List.fromList(
+              Uint8List.sublistView(session.bytes, delta.baseLength))
+          : Uint8List(0);
+      worker.updateRevision(
+        delta.baseLength,
+        appended,
+        delta.newLength,
+        delta.changedPages,
+      );
+      _workerDocument = session.document;
+      return;
+    }
+
+    // Fresh open, a backend that can't update in place (web/null), or a
+    // non-incremental transition (a structural edit or a redaction burn that
+    // replaced the buffer): start a new worker generation.
     _worker?.dispose();
     final workerCount = performance.beginWorkerGeneration();
     _worker = startPdfRenderWorker(session.bytes,
