@@ -11,6 +11,7 @@ import '../page_geometry.dart';
 import '../renderer.dart';
 import 'digital_signature.dart';
 import 'editing_measure.dart';
+import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -295,12 +296,17 @@ class PdfEditingController extends ChangeNotifier {
     Uint8List bytes, {
     String password = '',
     PdfEditingPreferences? preferences,
+    PdfPageClipboard? pageClipboard,
   })  : _bytes = bytes,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
-        preferences = preferences ?? PdfEditingPreferences() {
+        preferences = preferences ?? PdfEditingPreferences(),
+        pageClipboard = pageClipboard ?? PdfPageClipboard.instance {
     this.preferences.addListener(notifyListeners);
+    // rebuild paste affordances live as the shared page clipboard fills or
+    // clears - from this controller or from another document tab sharing it
+    this.pageClipboard.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences backing [color], [strokeWidth],
@@ -309,6 +315,12 @@ class PdfEditingController extends ChangeNotifier {
   /// to share it with the host's chrome (the sidebar-visibility flags
   /// live there too).
   final PdfEditingPreferences preferences;
+
+  /// The clipboard whole copied/cut pages live in, shared across document
+  /// tabs so pages copied from one document paste into another. Defaults to
+  /// the process-wide [PdfPageClipboard.instance]; pass a private one to
+  /// isolate a session. See [copyPages], [cutPages], and [pastePages].
+  final PdfPageClipboard pageClipboard;
 
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
@@ -326,6 +338,7 @@ class PdfEditingController extends ChangeNotifier {
     _changeFeed?.close();
     thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
+    pageClipboard.removeListener(notifyListeners);
     super.dispose();
   }
 
@@ -3109,6 +3122,76 @@ class PdfEditingController extends ChangeNotifier {
   /// leaving this document untouched. Null when nothing is selected.
   Uint8List? exportSelectedPages() =>
       _selectedPages.isEmpty ? null : exportPages(selectedPages);
+
+  // ---------------------------------------------------------------------
+  // page clipboard (copy / cut / paste, shared across document tabs)
+
+  /// Whether [pastePages] has pages waiting on the shared [pageClipboard].
+  bool get hasPageClipboard => pageClipboard.isNotEmpty;
+
+  /// Copies [indices] (de-duplicated, ascending) onto the shared
+  /// [pageClipboard] as a self-contained PDF, leaving this document
+  /// untouched. Because the clipboard is shared, the copy can then be
+  /// pasted into this document or a different open document tab. Returns
+  /// false (a no-op) when no valid page is given.
+  bool copyPages(Iterable<int> indices) {
+    final targets = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty) return false;
+    pageClipboard.setPages(exportPages(targets), targets.length);
+    return true;
+  }
+
+  /// Copies the strip's selected pages onto the shared [pageClipboard].
+  /// A no-op (returns false) when nothing is selected.
+  bool copySelectedPages() => copyPages(selectedPages);
+
+  /// Copies [indices] onto the shared [pageClipboard] and removes them in
+  /// one edit (one undo) - copy + delete. Refused (nothing copied, nothing
+  /// removed, returns false) when the pages would empty the document; at
+  /// least one page must remain. Clears the page selection, like
+  /// [removeSelectedPages].
+  bool cutPages(Iterable<int> indices) {
+    final targets = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || targets.length >= _document.pageCount) return false;
+    pageClipboard.setPages(exportPages(targets), targets.length);
+    _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    return apply((e) => e.removePages(targets));
+  }
+
+  /// Cuts the strip's selected pages onto the shared [pageClipboard].
+  /// A no-op (returns false) when nothing is selected or the cut would
+  /// empty the document.
+  bool cutSelectedPages() => cutPages(selectedPages);
+
+  /// Inserts the shared [pageClipboard]'s pages at [at] (default: appended
+  /// at the end) and selects the pasted block. Because the clipboard is
+  /// shared across tabs, this pastes pages copied from any document.
+  /// Returns false (a no-op) when the clipboard is empty. The paste is one
+  /// undoable edit.
+  bool pastePages({int? at}) {
+    final bytes = pageClipboard.bytes;
+    if (bytes == null) return false;
+    final count = pageClipboard.pageCount;
+    final insertAt = (at ?? _document.pageCount).clamp(0, _document.pageCount);
+    insertPagesFromBytes(bytes, at: insertAt);
+    // surface what landed: select the pasted run so the strip highlights it
+    _selectedPages
+      ..clear()
+      ..addAll([for (var i = insertAt; i < insertAt + count; i++) i]);
+    _pageSelectionAnchor = insertAt;
+    notifyListeners();
+    return true;
+  }
 
   /// Rotates [indices] clockwise by [degrees] (a multiple of 90; negative
   /// turns counterclockwise) in one edit (one undo). Rotation is a visual
