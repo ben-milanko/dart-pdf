@@ -688,14 +688,17 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   // The shared budgeted LRU: bounded by decoded image bytes ([_budgetBytes])
   // and, so the weight-0 vector-first records the byte budget can't see stay
   // bounded on a long scroll (#283), by entry count ([_maxEntries]). Byte
-  // eviction skips weight-0 records - all handled once in PdfBudgetedCache.
-  // Registered with PdfCacheRegistry so a memory-pressure signal reaches the
-  // record cache too (it used to be deaf to pressure).
+  // eviction skips weight-0 records, a single record bigger than the whole
+  // budget is rejected outright (rejectOversize) rather than starving every
+  // reusable buffer - all handled once in PdfBudgetedCache. Registered with
+  // PdfCacheRegistry so a memory-pressure signal reaches the record cache too
+  // (it used to be deaf to pressure).
   late final PdfBudgetedCache<_RecordCacheKey, _CachedRecord> _cache =
       PdfBudgetedCache<_RecordCacheKey, _CachedRecord>(
     weigher: (record) => record.weight,
     maxWeight: _budgetBytes,
     maxEntries: _maxEntries,
+    rejectOversize: true,
     clearsUnderMemoryPressure: true,
     debugLabel: 'render-record',
   );
@@ -905,15 +908,12 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     List<PdfRenderCommand> commands,
     int weight,
   ) {
-    // One page bigger than the whole cache is not stored at all (unlike the
-    // decoded-image cache, which keeps an oversize master for the current
-    // render): the record LRU would otherwise keep it as the protected
-    // most-recently-used entry and starve every reusable buffer for one page.
-    if (weight > _budgetBytes) return;
-    // PdfBudgetedCache applies both bounds: byte eviction that skips the
-    // weight-0 vector-first buffers (evicting them frees nothing yet costs a
-    // re-decode) and a total-count cap that does bound them (#283), never
-    // evicting the record just inserted.
+    // PdfBudgetedCache applies every bound: it rejects a single record bigger
+    // than the whole budget outright (rejectOversize - one page must not starve
+    // every reusable buffer), evicts the least-recently-used weight-bearing
+    // buffers under the byte budget (skipping the costless weight-0 vector-first
+    // buffers), and caps total record count so those weight-0 buffers still stay
+    // bounded on a long scroll (#283) - never evicting the record just inserted.
     _cache.put(key, _CachedRecord(commands, weight));
   }
 

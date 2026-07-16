@@ -84,6 +84,36 @@ The worker **transcript** cache is the one cache the pressure path can't reach:
 it lives in the render isolate, unreachable from the UI thread. It stays bounded
 per-worker and dies with the worker, so that is acceptable.
 
+## Review follow-ups
+
+Three changes from the PR review:
+
+- **Registry holds weak references.** Registering a per-instance cache
+  (`PdfCachingRenderWorker`'s record cache) with `clearsUnderMemoryPressure`
+  used to pin it in the process-wide registry, so a worker dropped without
+  `dispose()` leaked its decoded pixels forever. `PdfCacheRegistry` now stores
+  `WeakReference`s and prunes dead ones, so a missed dispose is bounded waste
+  until the next GC, not a permanent leak. `dispose()` still unregisters
+  eagerly.
+- **Thumbnail cache registers directly, no callback.** The thumbnail clear
+  notifies no one, so instead of the registry carrying a strong-capturing clear
+  callback, its inner `PdfBudgetedCache` registers with
+  `clearsUnderMemoryPressure: true` like the others; `dispose()` calls
+  `_images.dispose()`. The whole `addCallback`/`removeCallback`/`_Member`
+  machinery is gone (nothing else used it - the preview cache clears from the
+  viewer because its clear notifies listeners).
+- **`rejectOversize` is a first-class cache option.** The record cache's "a
+  record bigger than the whole budget is not cached at all" policy moved off the
+  call site into `PdfBudgetedCache` (property-tested), so the divergence from
+  the image/preview keep-MRU-oversize policy is now an explicit, tested flag
+  rather than a hand-rolled `if` at one call site.
+
+`getOrAdd` after `dispose()` still returns the built value uncached without
+running the disposer - there is no crash-free alternative (the caller is about
+to use the value), so it is now documented as a deliberate hand-back contract.
+Unreachable in practice: the only `getOrAdd` user (the text-layout cache) is
+never disposed.
+
 ## Not done / future
 
 The issue's "single memory manager owning the *total* budget, rebalancing

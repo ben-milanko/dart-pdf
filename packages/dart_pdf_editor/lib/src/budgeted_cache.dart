@@ -15,7 +15,9 @@ import 'dart:math' as math;
 ///    command slots. Eviction under this budget skips weight-0 entries (they
 ///    free nothing yet cost a re-decode to rebuild) and never drops the single
 ///    most-recently-used entry, so a lone page larger than the whole budget is
-///    still available for the render that just asked for it.
+///    still available for the render that just asked for it - unless
+///    `rejectOversize` is set, in which case an entry heavier than the whole
+///    budget is never stored (the record cache's policy).
 ///  * an **entry count** ([maxEntries]), which *does* see weight-0 entries -
 ///    the bound that stops image-free / vector-first buffers piling up one per
 ///    page on a long scroll (issue #283, the weight-0 unbounded-growth bug).
@@ -45,6 +47,7 @@ class PdfBudgetedCache<K, V> {
     int? maxEntries,
     void Function(V value)? disposer,
     V Function(V value)? cloner,
+    bool rejectOversize = false,
     bool clearsUnderMemoryPressure = false,
     this.debugLabel = 'cache',
   })  : _weigher = weigher,
@@ -53,6 +56,7 @@ class PdfBudgetedCache<K, V> {
         _maxEntries = maxEntries == null ? null : math.max(1, maxEntries),
         _disposer = disposer,
         _cloner = cloner,
+        _rejectOversize = rejectOversize,
         _clearsUnderMemoryPressure = clearsUnderMemoryPressure {
     if (_clearsUnderMemoryPressure) PdfCacheRegistry.instance.register(this);
   }
@@ -62,6 +66,13 @@ class PdfBudgetedCache<K, V> {
   final int? _maxEntries;
   final void Function(V value)? _disposer;
   final V Function(V value)? _cloner;
+
+  /// When set, a value whose weight alone exceeds [maxWeight] is not stored at
+  /// all (rather than kept as the protected most-recently-used entry): caching
+  /// one entry bigger than the whole budget would starve every reusable entry.
+  /// The render-worker record cache wants this; the image and preview caches do
+  /// not (they keep an oversize master for the render that just asked for it).
+  final bool _rejectOversize;
   final bool _clearsUnderMemoryPressure;
 
   /// A short name used in registry accounting and diagnostics.
@@ -145,8 +156,13 @@ class PdfBudgetedCache<K, V> {
   /// the caller still owns [value].
   V put(K key, V value) {
     if (_disposed) return value;
-    _removeEntry(key);
     final weight = _weigher?.call(value) ?? 0;
+    // An oversize value under rejectOversize is left uncached, and any existing
+    // entry for [key] is kept untouched (as the pre-shared record cache did).
+    if (_rejectOversize && _hasWeightBudget && weight > _maxWeight) {
+      return value;
+    }
+    _removeEntry(key);
     _entries[key] = _Entry(value, weight);
     _weight += weight;
     _trim();
@@ -172,6 +188,13 @@ class PdfBudgetedCache<K, V> {
   /// are built lazily (text layouts, per-page derived objects). The stored
   /// value is returned directly (no clone) - the master is shared, not handed
   /// out. A hit marks the entry most-recently used and never runs [ifAbsent].
+  ///
+  /// After [dispose] the built value is returned uncached and the [disposer] is
+  /// *not* run on it - the caller is about to use it, so the cache can neither
+  /// dispose it (that would hand back a dead value) nor keep it. The caller
+  /// therefore owns it. In practice this cache's only [getOrAdd] user (the
+  /// process-wide text-layout cache) is never disposed, so this path is a
+  /// documented contract rather than a live one.
   V getOrAdd(K key, V Function() ifAbsent) {
     final entry = _entries.remove(key);
     if (entry != null) {
@@ -183,6 +206,9 @@ class PdfBudgetedCache<K, V> {
     final value = ifAbsent();
     if (_disposed) return value;
     final weight = _weigher?.call(value) ?? 0;
+    if (_rejectOversize && _hasWeightBudget && weight > _maxWeight) {
+      return value;
+    }
     _entries[key] = _Entry(value, weight);
     _weight += weight;
     _trim();
@@ -281,84 +307,77 @@ class _Entry<V> {
 
 /// The one place a memory-pressure signal fans out to every in-process cache.
 ///
-/// Caches (or the owners that must run extra work on clear - a preview cache
-/// that also notifies listeners, a thumbnail cache bound to disk) register a
-/// clear callback here; the platform's `didHaveMemoryPressure` drives
-/// [handleMemoryPressure], which fires them all. Before this existed the viewer
-/// cleared only the decoded-image cache and previews, leaving the text-layout,
-/// render-record, and thumbnail caches deaf to pressure.
+/// A [PdfBudgetedCache] created with `clearsUnderMemoryPressure: true` registers
+/// here; the platform's `didHaveMemoryPressure` drives [handleMemoryPressure],
+/// which clears them all. Before this existed the viewer cleared only the
+/// decoded-image cache and previews, leaving the text-layout, render-record, and
+/// thumbnail caches deaf to pressure.
+///
+/// Registrations are held by [WeakReference], so a cache dropped without
+/// [PdfBudgetedCache.dispose] (a worker replaced on a document swap, say) is
+/// still collectable - a missed dispose is a bounded waste until the next GC,
+/// never a permanent leak pinning decoded pixels. [dispose] still unregisters
+/// eagerly; the weak ref is only the safety net.
 ///
 /// It is also the seam for a future coordinated budget: [totalWeight] already
-/// reports live occupancy across every registered [PdfBudgetedCache], the
-/// measurement a single top-level budget would rebalance against.
+/// reports live occupancy across every registered cache, the measurement a
+/// single top-level budget would rebalance against.
 class PdfCacheRegistry {
   PdfCacheRegistry._();
 
   /// The process-wide registry the pressure path drives.
   static final PdfCacheRegistry instance = PdfCacheRegistry._();
 
-  final List<PdfBudgetedCache<Object?, Object?>> _caches = [];
-  final List<_Member> _members = [];
+  final List<WeakReference<PdfBudgetedCache<Object?, Object?>>> _caches = [];
 
   /// Registers [cache] so its weight is counted in [totalWeight] and it is
-  /// cleared on memory pressure. Idempotent.
+  /// cleared on memory pressure. Idempotent; holds only a weak reference.
   void register(PdfBudgetedCache cache) {
     final erased = cache as PdfBudgetedCache<Object?, Object?>;
-    if (!_caches.contains(erased)) _caches.add(erased);
+    _pruneDead();
+    for (final ref in _caches) {
+      if (identical(ref.target, erased)) return; // already registered
+    }
+    _caches.add(WeakReference(erased));
   }
 
-  /// Detaches [cache] (its owner was disposed).
-  void unregister(PdfBudgetedCache cache) => _caches.remove(cache);
+  /// Detaches [cache] (its owner was disposed), and prunes any refs whose
+  /// target has since been collected.
+  void unregister(PdfBudgetedCache cache) => _caches.removeWhere((ref) {
+        final target = ref.target;
+        return target == null || identical(target, cache);
+      });
 
-  /// Registers a clear [callback] for a cache whose clear must do more than
-  /// drop entries (notify listeners, keep a disk mirror). Returns a token to
-  /// pass to [removeCallback] when the owner is disposed.
-  Object addCallback(void Function() callback, {int Function()? weight}) {
-    final member = _Member(callback, weight);
-    _members.add(member);
-    return member;
-  }
-
-  /// Detaches a callback registered with [addCallback].
-  void removeCallback(Object token) => _members.remove(token);
-
-  /// Approximate total weight retained across every registered
-  /// [PdfBudgetedCache] plus any callback-reported weights - the measurement a
-  /// single coordinated budget would rebalance against.
+  /// Approximate total weight retained across every live registered cache - the
+  /// measurement a single coordinated budget would rebalance against.
   int get totalWeight {
     var total = 0;
-    for (final cache in _caches) {
-      total += cache.weight;
-    }
-    for (final member in _members) {
-      total += member.weight?.call() ?? 0;
+    for (final ref in _caches) {
+      total += ref.target?.weight ?? 0;
     }
     return total;
   }
 
-  /// Number of registered caches plus callbacks - diagnostic hook.
-  int get registrationCount => _caches.length + _members.length;
+  /// Number of live registered caches - diagnostic hook.
+  int get registrationCount {
+    _pruneDead();
+    return _caches.length;
+  }
 
-  /// Clears every registered cache and fires every registered callback. Wired
-  /// to the platform `didHaveMemoryPressure`. Returns the weight freed from the
-  /// [PdfBudgetedCache] members (callback weights are owner-defined and not
-  /// summed here).
+  /// Clears every live registered cache. Wired to the platform
+  /// `didHaveMemoryPressure`. Returns the weight freed.
   int handleMemoryPressure() {
     var freed = 0;
-    for (final cache in _caches) {
+    // Copy: a cache's clear cannot mutate _caches, but a future disposer might.
+    for (final ref in _caches.toList()) {
+      final cache = ref.target;
+      if (cache == null) continue;
       freed += cache.weight;
       cache.clear();
     }
-    // Copy: a callback may unregister itself (owner disposal) mid-fan-out.
-    for (final member in _members.toList()) {
-      member.callback();
-    }
+    _pruneDead();
     return freed;
   }
-}
 
-class _Member {
-  _Member(this.callback, this.weight);
-  final void Function() callback;
-  final int Function()? weight;
+  void _pruneDead() => _caches.removeWhere((ref) => ref.target == null);
 }

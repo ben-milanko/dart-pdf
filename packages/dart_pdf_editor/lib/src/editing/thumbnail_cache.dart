@@ -43,18 +43,10 @@ import '../raster_cache.dart';
 /// document never adds latency to the visible page. See the panels'
 /// `_warmRender`.
 class PdfThumbnailCache {
-  PdfThumbnailCache({this.capacity = 256}) {
-    // Join the coordinated memory-pressure path: a clear here notifies no one,
-    // so it registers a plain callback rather than the cache object. Detached
-    // in [dispose]. Before this the thumbnail cache was deaf to pressure.
-    _pressureToken = PdfCacheRegistry.instance
-        .addCallback(clear, weight: () => _images.weight);
-  }
+  PdfThumbnailCache({this.capacity = 256});
 
   /// Maximum number of cached rasters (LRU eviction past it).
   final int capacity;
-
-  Object? _pressureToken;
 
   /// Optional persistent backing for thumbnails, bound to the open document
   /// (see [PdfRasterCache]). The thumbnail surfaces set this each build; when
@@ -63,12 +55,16 @@ class PdfThumbnailCache {
   PdfRasterCache? disk;
 
   // The shared budgeted LRU: count-bounded, cloning on claim so eviction never
-  // pulls pixels from a painting tile, disposing evicted rasters.
+  // pulls pixels from a painting tile, disposing evicted rasters. Registered
+  // with PdfCacheRegistry (a thumbnail clear notifies no one, so the cache
+  // joins the coordinated pressure path directly) - before this the thumbnail
+  // cache was deaf to pressure.
   late final PdfBudgetedCache<String, ui.Image> _images =
       PdfBudgetedCache<String, ui.Image>(
     maxEntries: capacity,
     cloner: (image) => image.clone(),
     disposer: (image) => image.dispose(),
+    clearsUnderMemoryPressure: true,
     debugLabel: 'thumbnail',
   );
   bool _disposed = false;
@@ -293,11 +289,7 @@ class PdfThumbnailCache {
     _disposed = true;
     _pending.clear();
     _warmRenderer = null;
-    if (_pressureToken != null) {
-      PdfCacheRegistry.instance.removeCallback(_pressureToken!);
-      _pressureToken = null;
-    }
-    clear();
+    _images.dispose(); // clears every raster and unregisters from the registry
   }
 }
 

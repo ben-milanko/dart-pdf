@@ -97,6 +97,27 @@ void main() {
       expect(cache.weight, lessThanOrEqualTo(40));
       expect(cache.keys, [3, 4]);
     });
+
+    test('rejectOversize leaves an over-budget value uncached, others intact',
+        () {
+      final dropped = <int>[];
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 100,
+        rejectOversize: true,
+        disposer: (r) => dropped.add(r.id),
+      );
+      cache.put(0, _Res(0, weight: 50));
+      // An oversize value is not stored (contrast the keep-MRU cache above).
+      cache.put(1, _Res(1, weight: 500));
+      expect(cache.containsKey(1), isFalse);
+      expect(cache.containsKey(0), isTrue, reason: 'the fitting entry survives');
+      expect(cache.weight, 50);
+      // A re-store of an oversize value leaves any existing entry untouched.
+      cache.put(0, _Res(100, weight: 500));
+      expect(cache.peek(0)!.id, 0, reason: 'the old fitting entry is kept');
+      expect(dropped, isEmpty, reason: 'nothing was stored, nothing disposed');
+    });
   });
 
   group('weight-0 entries', () {
@@ -296,15 +317,15 @@ void main() {
       expect(registry.registrationCount, before);
     });
 
-    test('a clear callback fires under pressure and detaches on removal', () {
+    test('a cache without clearsUnderMemoryPressure is not registered', () {
       final registry = PdfCacheRegistry.instance;
-      var cleared = 0;
-      final token = registry.addCallback(() => cleared++);
+      final before = registry.registrationCount;
+      final c = PdfBudgetedCache<int, _Res>(maxEntries: 2);
+      addTearDown(c.dispose);
+      c.put(0, _Res(0));
+      expect(registry.registrationCount, before, reason: 'opted out');
       registry.handleMemoryPressure();
-      expect(cleared, 1);
-      registry.removeCallback(token);
-      registry.handleMemoryPressure();
-      expect(cleared, 1);
+      expect(c.length, 1, reason: 'pressure does not touch an unregistered cache');
     });
   });
 }

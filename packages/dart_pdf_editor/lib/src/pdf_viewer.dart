@@ -1172,9 +1172,9 @@ class _PdfViewerState extends State<PdfViewer>
   ///
   /// One coordinated path now: [PdfCacheRegistry.handleMemoryPressure] clears
   /// every registered cache - the decoded-image cache, the text-layout cache,
-  /// each render worker's record cache, and (via a callback) any session
-  /// thumbnail cache - which before this were deaf to pressure. The previews
-  /// cache is cleared here directly because its clear also notifies listeners.
+  /// each render worker's record cache, and any session thumbnail cache - which
+  /// before this were deaf to pressure. The previews cache is cleared here
+  /// directly because its clear also notifies listeners.
   @override
   void didHaveMemoryPressure() {
     final freed = PdfCacheRegistry.instance.handleMemoryPressure();
