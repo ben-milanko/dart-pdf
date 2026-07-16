@@ -2,10 +2,86 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import 'performance_memory.dart';
 import 'performance_processors.dart';
 
 /// Coarse runtime family used by the adaptive render policy.
 enum PdfPerformancePlatform { mobile, desktop, web, other }
+
+/// The current runtime family, however the platform will admit to it.
+PdfPerformancePlatform get detectedPdfPerformancePlatform => kIsWeb
+    ? PdfPerformancePlatform.web
+    : switch (defaultTargetPlatform) {
+        TargetPlatform.android ||
+        TargetPlatform.iOS ||
+        TargetPlatform.fuchsia =>
+          PdfPerformancePlatform.mobile,
+        TargetPlatform.linux ||
+        TargetPlatform.macOS ||
+        TargetPlatform.windows =>
+          PdfPerformancePlatform.desktop,
+      };
+
+/// The default byte budget for the process-wide decoded-image cache
+/// ([PdfImageCache]) on this platform.
+///
+/// ## What the budget actually buys
+///
+/// The budget is a ceiling, not a reservation: a document whose images decode
+/// to 40 MB costs 40 MB under any budget. Raising it only changes behaviour for
+/// documents that *exceed* it - and for those, measurements (issue #281) say a
+/// budget short of the whole working set buys very little, because the cache
+/// only pays off when it can hold everything a reader revisits:
+///
+/// - Decoded footprint of a 49-document real-world corpus: 88% fit in 64 MB,
+///   94% in 128 MB, 96% in 256 MB. Beyond that the curve is flat - the only
+///   documents left are a 1.2 GB and a 1.9 GB CAD drawing, which no sane budget
+///   holds.
+/// - On a 62-page print PDF whose images decode to 436 MB (so every budget
+///   below is pegged and evicting), reading straight through: 64 MB → 180
+///   ms/page, 128 MB → 147, 256 MB → 145. The last doubling buys 2 ms/page and
+///   costs ~100 MB of RSS. Re-reading the same pages, where a fitting cache
+///   would pay off, 256 MB → 149 ms/page against 128 MB's 164 - real, but only
+///   a fifth of what actually holding the document (512 MB → 113 ms/page)
+///   would give.
+///
+/// So the budget is sized to hold the *common* document outright, and is only
+/// raised past that where the memory is genuinely free.
+///
+/// ## Why the platforms differ
+///
+/// - **Desktop** keeps 256 MB: it covers 96% of the corpus whole, and ~700 MB
+///   of RSS on a pathological document is affordable where a machine has tens
+///   of GB.
+/// - **Mobile** takes 128 MB: it still covers 94% of documents outright, and on
+///   the documents it cannot hold, the ~100 MB it gives back matters under an
+///   iOS jetsam limit far more than 2 ms/page does.
+/// - **Web** takes 128 MB, less on a small device. A tab is the tightest target
+///   (Chrome caps the JS heap near 4 GB) and CanvasKit's wasm heap, where
+///   decoded pixels live, never shrinks back. Notably this budget is *not* what
+///   pressures a tab: measured over a 62-page scroll, tab memory ran to ~2.3 GB
+///   whatever the budget, of which the image cache was ~60-200 MB - the rest is
+///   per-page retention (issue #283). 128 MB is cheap insurance under a
+///   ceiling that other retention is already spending, not a fix for it.
+int pdfDefaultImageCacheBytes({
+  PdfPerformancePlatform? platform,
+  double? deviceMemoryGb,
+}) {
+  const mb = 1024 * 1024;
+  final family = platform ?? detectedPdfPerformancePlatform;
+  final ram = deviceMemoryGb ?? detectedPdfDeviceMemoryGb;
+  return switch (family) {
+    PdfPerformancePlatform.desktop => 256 * mb,
+    PdfPerformancePlatform.mobile => 128 * mb,
+    // Only Chromium reports deviceMemory, and only over a secure context, so
+    // the constant is the common case rather than the fallback. A device that
+    // admits to 2 GB or less is a phone browser, where the tab's ceiling is
+    // lower than the desktop's by more than this budget is wide.
+    PdfPerformancePlatform.web =>
+      ram != null && ram <= 2 ? 64 * mb : 128 * mb,
+    PdfPerformancePlatform.other => 128 * mb,
+  };
+}
 
 /// The current auto-policy posture. Exposed in diagnostics and tests.
 enum PdfPerformanceTier { conservative, balanced, throughput }
@@ -61,20 +137,8 @@ class PdfPerformanceEnvironment {
     required int pageCount,
     required int documentBytes,
   }) {
-    final platform = kIsWeb
-        ? PdfPerformancePlatform.web
-        : switch (defaultTargetPlatform) {
-            TargetPlatform.android ||
-            TargetPlatform.iOS ||
-            TargetPlatform.fuchsia =>
-              PdfPerformancePlatform.mobile,
-            TargetPlatform.linux ||
-            TargetPlatform.macOS ||
-            TargetPlatform.windows =>
-              PdfPerformancePlatform.desktop,
-          };
     return PdfPerformanceEnvironment(
-      platform: platform,
+      platform: detectedPdfPerformancePlatform,
       logicalProcessors: detectedPdfLogicalProcessors,
       pageCount: pageCount,
       documentBytes: documentBytes,

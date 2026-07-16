@@ -47,6 +47,27 @@ List<((double, double), (double, double))> pdfInkCurveControls(
 /// orders of magnitude above the rounding noise.
 const double _wrapTolerance = 1e-6;
 
+/// The default line-height multiplier for free-text appearances: the
+/// baseline-to-baseline distance is `fontSize * lineSpacing`.
+const double _defaultLineSpacing = kPdfFreeTextDefaultLineSpacing;
+
+/// The default horizontal text scaling (per cent) for free-text: 100 is the
+/// font's natural glyph width.
+const double _defaultHorizontalScale = kPdfFreeTextDefaultHorizontalScale;
+
+/// One underline segment recorded while a free-text line is laid out, drawn
+/// as a filled rectangle after the enclosing text object closes.
+class _UnderlineRun {
+  const _UnderlineRun(
+      this.x, this.baseline, this.width, this.fontSize, this.color);
+
+  final double x;
+  final double baseline;
+  final double width;
+  final double fontSize;
+  final int color;
+}
+
 /// One styled run inside a rich free-text annotation.
 ///
 /// A normal FreeText annotation has one `/DA` default appearance. Runs let
@@ -59,12 +80,16 @@ class PdfFreeTextRun {
     this.font = PdfStandardFont.helvetica,
     this.fontSize = 12,
     this.color = 0x000000,
+    this.underline = false,
   });
 
   final String text;
   final PdfTextFont font;
   final double fontSize;
   final int color;
+
+  /// Whether this run is drawn with an underline.
+  final bool underline;
 }
 
 class _RichTextPiece {
@@ -76,7 +101,8 @@ class _RichTextPiece {
   bool sameStyle(PdfFreeTextRun other) =>
       style.font.resourceName == other.font.resourceName &&
       style.fontSize == other.fontSize &&
-      style.color == other.color;
+      style.color == other.color &&
+      style.underline == other.underline;
 }
 
 class _RichTextLine {
@@ -1107,6 +1133,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double opacity = 1,
     List<double>? dashPattern,
     bool cloudy = false,
+    double cloudScale = 1,
     String? contents,
     String? author,
     String? name,
@@ -1116,7 +1143,9 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final rect = _pointBounds(
       vertices,
-      cloudy ? _cloudPadding(strokeWidth) : _linePadding(strokeWidth),
+      cloudy
+          ? _cloudPadding(strokeWidth, cloudScale)
+          : _linePadding(strokeWidth),
     );
     final gs = _alphaState(opacity);
     final w = cloudy
@@ -1124,6 +1153,7 @@ extension PdfAnnotationEditing on PdfEditor {
             vertices,
             strokeColor: strokeColor,
             strokeWidth: strokeWidth,
+            cloudScale: cloudScale,
             dashPattern: dashPattern,
             fillColor: fillColor,
             hasAlpha: gs != null,
@@ -1143,7 +1173,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (cloudy) {
       dict['BE'] = CosDictionary({
         'S': const CosName('Cloudy'),
-        'I': const CosReal(1),
+        'I': CosReal(cloudScale),
       });
     }
     if (fillColor != null) dict['IC'] = _colorComponents(fillColor);
@@ -1729,6 +1759,10 @@ extension PdfAnnotationEditing on PdfEditor {
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
+    double lineSpacing = _defaultLineSpacing,
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
+    bool underline = false,
     int? pageRotation,
     String? author,
     String? name,
@@ -1762,6 +1796,10 @@ extension PdfAnnotationEditing on PdfEditor {
       fillColor: fillColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      lineSpacing: lineSpacing,
+      charSpacing: charSpacing,
+      horizontalScale: horizontalScale,
+      underline: underline,
       pageRotation: effectivePageRotation,
     );
 
@@ -1776,6 +1814,11 @@ extension PdfAnnotationEditing on PdfEditor {
         align?.quadding ??
             (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0),
       );
+    _writeFreeTextSpacing(dict,
+        lineSpacing: lineSpacing,
+        charSpacing: charSpacing,
+        horizontalScale: horizontalScale,
+        underline: underline);
     if (borderColor != null && borderWidth > 0) {
       dict['BS'] = _borderStyle(borderWidth);
     }
@@ -1976,6 +2019,40 @@ extension PdfAnnotationEditing on PdfEditor {
     return (px.clamp(box.left, box.right).toDouble(), box.top);
   }
 
+  /// Persists the free-text spacing/decoration that /DA and /Q cannot carry
+  /// (line height, character spacing, horizontal scaling, whole-box
+  /// underline) onto [dict], as the vendor keys [PdfFreeTextStyle] reads
+  /// back. Default values are omitted so a plain box's dictionary is
+  /// unchanged.
+  static void _writeFreeTextSpacing(
+    CosDictionary dict, {
+    required double lineSpacing,
+    required double charSpacing,
+    required double horizontalScale,
+    required bool underline,
+  }) {
+    if (lineSpacing != _defaultLineSpacing) {
+      dict[kPdfFreeTextLineSpacingKey] = CosReal(lineSpacing);
+    } else {
+      dict.entries.remove(kPdfFreeTextLineSpacingKey);
+    }
+    if (charSpacing != 0) {
+      dict[kPdfFreeTextCharSpacingKey] = CosReal(charSpacing);
+    } else {
+      dict.entries.remove(kPdfFreeTextCharSpacingKey);
+    }
+    if (horizontalScale != _defaultHorizontalScale) {
+      dict[kPdfFreeTextHScaleKey] = CosReal(horizontalScale);
+    } else {
+      dict.entries.remove(kPdfFreeTextHScaleKey);
+    }
+    if (underline) {
+      dict[kPdfFreeTextUnderlineKey] = const CosBoolean(true);
+    } else {
+      dict.entries.remove(kPdfFreeTextUnderlineKey);
+    }
+  }
+
   /// The /RD (rectangle differences, §12.5.6.19) insets - left, top, right,
   /// bottom - from the annotation [rect] to the text [box] within it.
   CosArray _rdArray(PdfRect rect, PdfRect box) => CosArray([
@@ -2002,6 +2079,10 @@ extension PdfAnnotationEditing on PdfEditor {
     required int lineColor,
     required double lineWidth,
     required PdfLineEnding ending,
+    double lineSpacing = _defaultLineSpacing,
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
+    bool underline = false,
     int pageRotation = 0,
   }) {
     final leader = _lineContent(
@@ -2026,6 +2107,10 @@ extension PdfAnnotationEditing on PdfEditor {
       fillColor: fillColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      lineSpacing: lineSpacing,
+      charSpacing: charSpacing,
+      horizontalScale: horizontalScale,
+      underline: underline,
       pageRotation: pageRotation,
     );
     return ContentWriter()
@@ -2192,6 +2277,9 @@ extension PdfAnnotationEditing on PdfEditor {
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
+    double lineSpacing = _defaultLineSpacing,
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
     int? pageRotation,
     String? author,
     String? name,
@@ -2216,6 +2304,7 @@ extension PdfAnnotationEditing on PdfEditor {
             font: PdfUnicodeFont(run.font as PdfStandardFont)..resetUsage(),
             fontSize: run.fontSize,
             color: run.color,
+            underline: run.underline,
           )
         else
           run,
@@ -2231,6 +2320,9 @@ extension PdfAnnotationEditing on PdfEditor {
       fillColor: fillColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      lineSpacing: lineSpacing,
+      charSpacing: charSpacing,
+      horizontalScale: horizontalScale,
       pageRotation: effectivePageRotation,
     );
 
@@ -2253,6 +2345,13 @@ extension PdfAnnotationEditing on PdfEditor {
             align?.quadding ??
                 (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0),
           );
+    // a whole-box underline (every run underlined) is also mirrored in the
+    // box-level flag so a flat re-read still shows it
+    _writeFreeTextSpacing(dict,
+        lineSpacing: lineSpacing,
+        charSpacing: charSpacing,
+        horizontalScale: horizontalScale,
+        underline: nonEmpty.every((run) => run.underline));
     if (borderColor != null && borderWidth > 0) {
       dict['BS'] = _borderStyle(borderWidth);
     }
@@ -2305,6 +2404,7 @@ extension PdfAnnotationEditing on PdfEditor {
       if (font.isBold) parts.add('font-weight:bold');
       if (font.isItalic) parts.add('font-style:italic');
     }
+    if (run.underline) parts.add('text-decoration:underline');
     return parts.join(';');
   }
 
@@ -2337,6 +2437,8 @@ extension PdfAnnotationEditing on PdfEditor {
           font: _richSpanFont(style, fallbackFont),
           fontSize: _richSpanSize(style) ?? fallbackSize,
           color: _richSpanColor(style) ?? fallbackColor,
+          underline:
+              RegExp(r'text-decoration\s*:\s*[^;]*underline').hasMatch(style),
         ),
       );
     }
@@ -2395,6 +2497,10 @@ extension PdfAnnotationEditing on PdfEditor {
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
+    double lineSpacing = _defaultLineSpacing,
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
+    bool underline = false,
     int pageRotation = 0,
   }) {
     const pad = 3.0;
@@ -2422,26 +2528,34 @@ extension PdfAnnotationEditing on PdfEditor {
         )
         ..stroke();
     }
+    final lineHeight = fontSize * lineSpacing;
     w
       ..save()
       ..rect(vr.left, vr.bottom, vr.width, vr.height)
       ..clip()
       ..beginText()
       ..font(font.resourceName, fontSize)
-      ..leading(fontSize * 1.2)
+      ..leading(lineHeight)
       ..fillColor(color);
+    if (charSpacing != 0) w.charSpacing(charSpacing);
+    if (horizontalScale != _defaultHorizontalScale) {
+      w.horizontalScale(horizontalScale);
+    }
     // first baseline sits one ascent below the top padding
     final firstY = vr.top - pad - fontSize * font.ascent / 1000;
-    final lines = _wrap(text, fontSize, vr.width - 2 * pad, font: font);
+    final lines = _wrap(text, fontSize, vr.width - 2 * pad,
+        font: font, charSpacing: charSpacing, horizontalScale: horizontalScale);
     final resolvedDirection = textDirection.resolve(text);
     final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
+    final underlines = <_UnderlineRun>[];
     var prevX = 0.0;
     var prevY = 0.0;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
-      final width = font.measure(line, fontSize);
+      final width = _advanceWidth(font, line, fontSize,
+          charSpacing: charSpacing, horizontalScale: horizontalScale);
       final x = _lineX(effectiveAlign, vr, width, pad);
-      final y = firstY - i * fontSize * 1.2;
+      final y = firstY - i * lineHeight;
       w.textAt(x - prevX, y - prevY);
       if (font is PdfUnicodeFont) {
         // Logical order: our renderer's TextPainter applies BiDi and shaping
@@ -2456,14 +2570,31 @@ extension PdfAnnotationEditing on PdfEditor {
           w.showText(visual);
         }
       }
+      if (underline && line.isNotEmpty) {
+        underlines.add(_UnderlineRun(x, y, width, fontSize, color));
+      }
       prevX = x;
       prevY = y;
     }
-    w
-      ..endText()
-      ..restore();
+    w.endText();
+    _drawUnderlines(w, underlines);
+    w.restore();
     if (pageRotation != 0) w.restore();
     return w;
+  }
+
+  /// Draws the collected [runs] as filled underline rectangles - path
+  /// artwork must sit outside the enclosing BT/ET, so the caller records
+  /// each run during the text loop and flushes it here.
+  static void _drawUnderlines(ContentWriter w, List<_UnderlineRun> runs) {
+    for (final run in runs) {
+      final thickness = math.max(0.5, run.fontSize * 0.06);
+      final y = run.baseline - run.fontSize * 0.12;
+      w
+        ..fillColor(run.color)
+        ..rect(run.x, y, run.width, thickness)
+        ..fill();
+    }
   }
 
   ContentWriter _freeTextRichContent(
@@ -2474,6 +2605,9 @@ extension PdfAnnotationEditing on PdfEditor {
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
+    double lineSpacing = _defaultLineSpacing,
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
     int pageRotation = 0,
   }) {
     const pad = 3.0;
@@ -2504,18 +2638,24 @@ extension PdfAnnotationEditing on PdfEditor {
     final plain = runs.map((run) => run.text).join();
     final resolvedDirection = textDirection.resolve(plain);
     final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
-    final lines = _wrapRich(runs, vr.width - 2 * pad);
+    final lines = _wrapRich(runs, vr.width - 2 * pad,
+        charSpacing: charSpacing, horizontalScale: horizontalScale);
     var top = vr.top - pad;
     var prevX = 0.0;
     var prevY = 0.0;
+    final underlines = <_UnderlineRun>[];
     w
       ..save()
       ..rect(vr.left, vr.bottom, vr.width, vr.height)
       ..clip()
       ..beginText();
+    if (charSpacing != 0) w.charSpacing(charSpacing);
+    if (horizontalScale != _defaultHorizontalScale) {
+      w.horizontalScale(horizontalScale);
+    }
     for (final line in lines) {
       if (line.runs.isEmpty) {
-        top -= 12 * 1.2;
+        top -= 12 * lineSpacing;
         continue;
       }
       final ascent = line.runs.fold<double>(
@@ -2525,7 +2665,7 @@ extension PdfAnnotationEditing on PdfEditor {
       );
       final lineHeight = line.runs.fold<double>(
         0,
-        (max, run) => math.max(max, run.style.fontSize * 1.2),
+        (max, run) => math.max(max, run.style.fontSize * lineSpacing),
       );
       var x = _lineX(effectiveAlign, vr, line.width, pad);
       final y = top - ascent;
@@ -2537,7 +2677,8 @@ extension PdfAnnotationEditing on PdfEditor {
         final isUnicode = style.font is PdfUnicodeFont;
         final visual =
             isUnicode ? run.text : pdfVisualText(run.text, resolvedDirection);
-        final width = style.font.measure(visual, style.fontSize);
+        final width = _advanceWidth(style.font, visual, style.fontSize,
+            charSpacing: charSpacing, horizontalScale: horizontalScale);
         w
           ..font(style.font.resourceName, style.fontSize)
           ..fillColor(style.color)
@@ -2549,15 +2690,19 @@ extension PdfAnnotationEditing on PdfEditor {
         } else {
           w.showText(visual);
         }
+        if (style.underline && run.text.isNotEmpty) {
+          underlines
+              .add(_UnderlineRun(x, y, width, style.fontSize, style.color));
+        }
         prevX = x;
         prevY = y;
         x += width;
       }
       top -= lineHeight;
     }
-    w
-      ..endText()
-      ..restore();
+    w.endText();
+    _drawUnderlines(w, underlines);
+    w.restore();
     if (pageRotation != 0) w.restore();
     return w;
   }
@@ -2627,6 +2772,25 @@ extension PdfAnnotationEditing on PdfEditor {
     }
   }
 
+  /// Rebuilds [runs] so any base-14 run carrying non-Latin-1 text is wrapped
+  /// in a fresh [PdfUnicodeFont] (Identity-H) - the standard faces only speak
+  /// WinAnsi. Preserves each run's size, colour, and underline. Shared by
+  /// [addFreeTextRich] and the resize regenerator.
+  List<PdfFreeTextRun> _wrapNonLatinRuns(List<PdfFreeTextRun> runs) => [
+        for (final run in runs)
+          if (run.font is PdfStandardFont &&
+              run.text.codeUnits.any((c) => c > 0xFF))
+            PdfFreeTextRun(
+              run.text,
+              font: PdfUnicodeFont(run.font as PdfStandardFont)..resetUsage(),
+              fontSize: run.fontSize,
+              color: run.color,
+              underline: run.underline,
+            )
+          else
+            run,
+      ];
+
   Iterable<PdfTextFont> _richFonts(List<PdfFreeTextRun> runs) sync* {
     final seen = <String>{};
     for (final run in runs) {
@@ -2650,7 +2814,12 @@ extension PdfAnnotationEditing on PdfEditor {
     return dict;
   }
 
-  List<_RichTextLine> _wrapRich(List<PdfFreeTextRun> runs, double maxWidth) {
+  List<_RichTextLine> _wrapRich(
+    List<PdfFreeTextRun> runs,
+    double maxWidth, {
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
+  }) {
     final lines = <_RichTextLine>[];
     var current = <_RichTextPiece>[];
     var width = 0.0;
@@ -2671,7 +2840,8 @@ extension PdfAnnotationEditing on PdfEditor {
       } else {
         current.add(_RichTextPiece(text, style));
       }
-      width += style.font.measure(text, style.fontSize);
+      width += _advanceWidth(style.font, text, style.fontSize,
+          charSpacing: charSpacing, horizontalScale: horizontalScale);
     }
 
     for (final run in runs) {
@@ -2681,7 +2851,8 @@ extension PdfAnnotationEditing on PdfEditor {
           continue;
         }
         final text = String.fromCharCode(rune);
-        final w = run.font.measure(text, run.fontSize);
+        final w = _advanceWidth(run.font, text, run.fontSize,
+            charSpacing: charSpacing, horizontalScale: horizontalScale);
         if (width > 0 && width + w > maxWidth + _wrapTolerance) flushLine();
         addText(run, text);
       }
@@ -3435,6 +3606,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (stroke == null || width <= 0) return;
     final dashed = annotation.borderDash != null;
     final cloudy = subtype == 'Polygon' && annotation.hasCloudyBorder;
+    final cloudScale = annotation.cloudBorderScale;
     final fill = subtype == 'Polygon' ? annotation.interiorColor : null;
     final endings = _lineEndings(annotation);
     final endingPoints = subtype == 'Polygon'
@@ -3448,10 +3620,14 @@ extension PdfAnnotationEditing on PdfEditor {
               width,
             ),
           ];
-    final rect = _pointBounds([
-      ...points,
-      ...endingPoints,
-    ], cloudy ? _cloudPadding(width) : _linePadding(width, dashed: dashed));
+    final rect = _pointBounds(
+        [
+          ...points,
+          ...endingPoints,
+        ],
+        cloudy
+            ? _cloudPadding(width, cloudScale)
+            : _linePadding(width, dashed: dashed));
     final form = annotation.normalAppearance;
     final gs = _alphaState(form == null ? 1 : _appearanceOpacity(form));
     final w = cloudy
@@ -3459,6 +3635,7 @@ extension PdfAnnotationEditing on PdfEditor {
             points,
             strokeColor: stroke,
             strokeWidth: width,
+            cloudScale: cloudScale,
             dashPattern: annotation.borderDash,
             fillColor: fill,
             hasAlpha: gs != null,
@@ -4034,7 +4211,7 @@ extension PdfAnnotationEditing on PdfEditor {
   /// [opacity], when given, replaces the alpha the old appearance
   /// carried - [restyleAnnotation]'s opacity path.
   bool _regenerateResizedAppearance(PdfAnnotation annotation, PdfRect to,
-      {double? opacity, int pageRotation = 0}) {
+      {double? opacity, int pageRotation = 0, bool preserveRich = true}) {
     final behavior = annotation.behavior;
     if (behavior.resizeBehavior == PdfAnnotationResizeBehavior.none ||
         behavior.resizeBehavior == PdfAnnotationResizeBehavior.stretch) {
@@ -4069,72 +4246,133 @@ extension PdfAnnotationEditing on PdfEditor {
         return true;
       case 'FreeText':
         final style = behavior.style.freeText!;
-        final stdFont = behavior.standardTextFont!;
+        final stdFont = behavior.standardTextFont;
+        // an embedded/bundled-font box re-wraps in its own recovered face
+        // rather than reverting to Helvetica or stretching its glyphs
+        final embedded =
+            stdFont == null ? PdfEmbeddedFont.fromFreeText(annotation) : null;
+        if (stdFont == null && embedded == null) return false;
         final text = annotation.contents ?? '';
-        PdfUnicodeFont? unicodeFont;
-        if (text.codeUnits.any((c) => c > 0xFF)) {
-          unicodeFont = PdfUnicodeFont(stdFont);
-          unicodeFont.resetUsage();
-        }
-        final PdfTextFont effectiveFont = unicodeFont ?? stdFont;
-        // A callout draws its leader line and box together, and its text box
-        // is a sub-rect of /Rect, so map both through the resize and keep /RD
-        // and /CL in step rather than filling the whole rect with text.
         final callout = _calloutInfo(annotation);
-        final ContentWriter w;
-        if (callout != null) {
-          final from = annotation.rect;
-          final sx = from.width == 0 ? 1.0 : to.width / from.width;
-          final sy = from.height == 0 ? 1.0 : to.height / from.height;
-          (double, double) map((double, double) p) => (
-                to.left + (p.$1 - from.left) * sx,
-                to.bottom + (p.$2 - from.bottom) * sy,
+        // a rich (/RC) box keeps its per-run styling across a resize; a
+        // restyle (colour/opacity) deliberately flattens to the new uniform
+        // /DA instead, so [preserveRich] is false there
+        final rc = preserveRich ? annotation.richContent : null;
+        final richRuns = (rc == null || callout != null)
+            ? null
+            : parseFreeTextRichContent(
+                rc,
+                fallbackFont: stdFont ?? PdfStandardFont.helvetica,
+                fallbackSize: style.fontSize,
+                fallbackColor: style.color,
               );
-          final line = [for (final p in callout.line) map(p)];
-          final oldBox = _boxFromRd(annotation, from);
-          final box = PdfRect(
-            to.left + (oldBox.left - from.left) * sx,
-            to.bottom + (oldBox.bottom - from.bottom) * sy,
-            to.left + (oldBox.right - from.left) * sx,
-            to.bottom + (oldBox.top - from.bottom) * sy,
-          );
-          dict['RD'] = _rdArray(to, box);
-          w = _calloutContent(
-            box,
-            line,
-            text,
-            fontSize: style.fontSize,
-            font: effectiveFont,
-            textDirection: PdfTextDirection.auto,
-            align: style.alignment,
-            color: style.color,
-            fillColor: style.fillColor,
-            borderColor: style.borderColor,
-            borderWidth: style.borderWidth,
-            lineColor: style.borderColor ?? style.color,
-            lineWidth: style.borderWidth > 0 ? style.borderWidth : 1,
-            ending: callout.ending,
-            pageRotation: pageRotation,
-          );
-        } else {
-          w = _freeTextContent(
+        final ContentWriter w;
+        final CosDictionary fontResource;
+        if (richRuns != null && richRuns.isNotEmpty) {
+          final runs = style.underline
+              ? [
+                  for (final r in richRuns)
+                    PdfFreeTextRun(r.text,
+                        font: r.font,
+                        fontSize: r.fontSize,
+                        color: r.color,
+                        underline: true)
+                ]
+              : richRuns;
+          final effective = _wrapNonLatinRuns(runs);
+          for (final font in _richFonts(effective)) {
+            if (font is PdfEmbeddedFont) font.resetUsage();
+          }
+          w = _freeTextRichContent(
             to,
-            text,
-            fontSize: style.fontSize,
-            font: effectiveFont,
-            // direction follows the text; /Q carries the explicit alignment
+            effective,
             textDirection: PdfTextDirection.auto,
             align: style.alignment,
-            color: style.color,
             fillColor: style.fillColor,
             borderColor: style.borderColor,
             borderWidth: style.borderWidth,
+            lineSpacing: style.lineSpacing,
+            charSpacing: style.charSpacing,
+            horizontalScale: style.horizontalScale,
             pageRotation: pageRotation,
           );
+          fontResource = _richFontResources(effective);
+        } else {
+          final PdfTextFont baseFont = embedded ?? stdFont!;
+          PdfUnicodeFont? unicodeFont;
+          if (baseFont is PdfStandardFont &&
+              text.codeUnits.any((c) => c > 0xFF)) {
+            unicodeFont = PdfUnicodeFont(baseFont)..resetUsage();
+          }
+          if (baseFont is PdfEmbeddedFont) baseFont.resetUsage();
+          final PdfTextFont effectiveFont = unicodeFont ?? baseFont;
+          if (callout != null) {
+            // A callout draws its leader line and box together, and its text
+            // box is a sub-rect of /Rect, so map both through the resize and
+            // keep /RD and /CL in step rather than filling the whole rect.
+            final from = annotation.rect;
+            final sx = from.width == 0 ? 1.0 : to.width / from.width;
+            final sy = from.height == 0 ? 1.0 : to.height / from.height;
+            (double, double) map((double, double) p) => (
+                  to.left + (p.$1 - from.left) * sx,
+                  to.bottom + (p.$2 - from.bottom) * sy,
+                );
+            final line = [for (final p in callout.line) map(p)];
+            final oldBox = _boxFromRd(annotation, from);
+            final box = PdfRect(
+              to.left + (oldBox.left - from.left) * sx,
+              to.bottom + (oldBox.bottom - from.bottom) * sy,
+              to.left + (oldBox.right - from.left) * sx,
+              to.bottom + (oldBox.top - from.bottom) * sy,
+            );
+            dict['RD'] = _rdArray(to, box);
+            w = _calloutContent(
+              box,
+              line,
+              text,
+              fontSize: style.fontSize,
+              font: effectiveFont,
+              textDirection: PdfTextDirection.auto,
+              align: style.alignment,
+              color: style.color,
+              fillColor: style.fillColor,
+              borderColor: style.borderColor,
+              borderWidth: style.borderWidth,
+              lineColor: style.borderColor ?? style.color,
+              lineWidth: style.borderWidth > 0 ? style.borderWidth : 1,
+              ending: callout.ending,
+              lineSpacing: style.lineSpacing,
+              charSpacing: style.charSpacing,
+              horizontalScale: style.horizontalScale,
+              underline: style.underline,
+              pageRotation: pageRotation,
+            );
+          } else {
+            w = _freeTextContent(
+              to,
+              text,
+              fontSize: style.fontSize,
+              font: effectiveFont,
+              // direction follows the text; /Q carries the explicit alignment
+              textDirection: PdfTextDirection.auto,
+              align: style.alignment,
+              color: style.color,
+              fillColor: style.fillColor,
+              borderColor: style.borderColor,
+              borderWidth: style.borderWidth,
+              lineSpacing: style.lineSpacing,
+              charSpacing: style.charSpacing,
+              horizontalScale: style.horizontalScale,
+              underline: style.underline,
+              pageRotation: pageRotation,
+            );
+          }
+          fontResource = unicodeFont != null
+              ? unicodeFont.buildResource(_updater.addObject)
+              : baseFont is PdfEmbeddedFont
+                  ? baseFont.buildResource(_updater.addObject)
+                  : _standardFont(baseFont as PdfStandardFont);
         }
-        final CosDictionary fontResource = unicodeFont != null
-            ? unicodeFont.buildResource(_updater.addObject)
-            : _standardFont(stdFont);
         _replaceAppearance(
           dict,
           form,
@@ -4198,11 +4436,15 @@ extension PdfAnnotationEditing on PdfEditor {
         annotation.subtype == 'Polygon' ? annotation.interiorColor : null;
     final endings = _lineEndings(annotation);
     final gs = _alphaState(opacity ?? _appearanceOpacity(form));
-    final w = annotation.subtype == 'Polygon' && annotation.hasCloudyBorder
+    final cloudy =
+        annotation.subtype == 'Polygon' && annotation.hasCloudyBorder;
+    final cloudScale = annotation.cloudBorderScale;
+    final w = cloudy
         ? _cloudPolygonContent(
             points,
             strokeColor: stroke,
             strokeWidth: width,
+            cloudScale: cloudScale,
             dashPattern: annotation.borderDash,
             fillColor: fill,
             hasAlpha: gs != null,
@@ -4218,11 +4460,18 @@ extension PdfAnnotationEditing on PdfEditor {
             endEnding: endings.$2,
             hasAlpha: gs != null,
           );
+    // The scallops' size (pen width and cloud scale both drive it) can widen
+    // past the stored /Rect, so re-derive the cloud's bounds from the padded
+    // footprint - otherwise the form BBox clips the outer half of each puff
+    // after a restyle.
+    final base =
+        cloudy ? _pointBounds(points, _cloudPadding(width, cloudScale)) : rect;
+    if (cloudy) annotation.dict['Rect'] = _rectArray(base);
     // A measurement carries a caption drawn over the line; regenerate it
     // too (recovering its font/size/color from /DA) so a width or style
     // change never drops the label, widening the BBox/Rect to keep it
     // unclipped.
-    final (bbox, font) = _appendMeasurementCaption(annotation, rect, points, w);
+    final (bbox, font) = _appendMeasurementCaption(annotation, base, points, w);
     _replaceAppearance(
       annotation.dict,
       form,
@@ -4271,6 +4520,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double? strokeWidth,
     double? opacity,
     (List<double>?,)? dashPattern,
+    double? cloudScale,
     int? pageRotation,
   }) {
     final effectivePageRotation = _appearancePageRotation(
@@ -4281,7 +4531,8 @@ extension PdfAnnotationEditing on PdfEditor {
         fillColor == null &&
         strokeWidth == null &&
         opacity == null &&
-        dashPattern == null) {
+        dashPattern == null &&
+        cloudScale == null) {
       return false;
     }
     final behavior = annotation.behavior;
@@ -4381,6 +4632,12 @@ extension PdfAnnotationEditing on PdfEditor {
             dict['IC'] = _colorComponents(fill);
           } else {
             dict.entries.remove('IC');
+          }
+          // a new cloud scale rides on /BE /I; the regenerate below reads it
+          // back through PdfAnnotation.cloudBorderScale
+          if (cloudScale != null && annotation.hasCloudyBorder) {
+            final be = document.cos.resolve(dict['BE']);
+            if (be is CosDictionary) be['I'] = CosReal(cloudScale);
           }
         }
         return _restyleRegenerate(pageIndex, dict, opacity: opacity);
@@ -4494,6 +4751,7 @@ extension PdfAnnotationEditing on PdfEditor {
           to,
           opacity: opacity,
           pageRotation: pageRotation,
+          preserveRich: false,
         );
       case 'Stamp':
         final form = annotation.normalAppearance;
@@ -5005,11 +5263,14 @@ extension PdfAnnotationEditing on PdfEditor {
   /// puffs (with cusps between them) instead of flat half-circles.
   static const double _cloudBulgeFactor = 1.15;
 
-  /// Target radius of one cloud scallop, in page points. Independent of the
-  /// (usually hairline) stroke so the puffs stay fluffy; grows only when the
-  /// stroke itself is heavy enough to crowd them.
-  double _cloudArcRadius(double strokeWidth) =>
-      math.max(12.0, strokeWidth * 4.0);
+  /// Target radius of one cloud scallop, in page points. Its size is driven
+  /// by [scale] (a multiplier, 1 = the default puff) *independently* of the
+  /// pen so the line thickness and the scallop size change separately; a
+  /// heavy stroke still raises a floor so the puffs never crowd narrower
+  /// than the pen can draw them. At `scale: 1` and the default 2pt pen this
+  /// matches the historical `max(12, strokeWidth * 4)`.
+  double _cloudArcRadius(double strokeWidth, double scale) =>
+      math.max(strokeWidth * 4.0, 12.0 * scale);
 
   /// Padding for the cloud's `/Rect` and form BBox. A scallop's apex sits
   /// `_cloudArcRadius * _cloudBulgeFactor` past the polygon edge (plus half
@@ -5018,15 +5279,17 @@ extension PdfAnnotationEditing on PdfEditor {
   /// by only `pad / 2 + 1`, so the padding is doubled here; otherwise the
   /// form BBox clips the outer half of every puff (the scallops render as
   /// flattened brackets at the edges).
-  double _cloudPadding(double strokeWidth) => math.max(
+  double _cloudPadding(double strokeWidth, double scale) => math.max(
         _linePadding(strokeWidth),
-        2 * _cloudArcRadius(strokeWidth) * _cloudBulgeFactor + strokeWidth,
+        2 * _cloudArcRadius(strokeWidth, scale) * _cloudBulgeFactor +
+            strokeWidth,
       );
 
   ContentWriter _cloudPolygonContent(
     List<(double, double)> points, {
     required int strokeColor,
     required double strokeWidth,
+    required double cloudScale,
     required List<double>? dashPattern,
     required int? fillColor,
     required bool hasAlpha,
@@ -5035,27 +5298,22 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = ContentWriter();
     if (hasAlpha) w.extGState('GS0');
 
-    // Fill the actual polygon footprint first. The cloudy border then
-    // protrudes from it, matching the /Vertices geometry while still
-    // producing the expected cloud outline in viewers that honor /AP.
-    if (fillColor != null) {
-      w.fillColor(fillColor);
-      w.moveTo(points.first.$1, points.first.$2);
-      for (final (x, y) in points.skip(1)) {
-        w.lineTo(x, y);
-      }
-      w.closePath();
-      w.fill();
-    }
-
+    // Fill the actual scalloped cloud outline (not just the straight-edged
+    // polygon footprint) so the interior colour reaches the puffed edges.
+    // The same path is stroked, so fill and stroke share one construction.
+    if (fillColor != null) w.fillColor(fillColor);
     w
       ..strokeColor(strokeColor)
       ..lineWidth(strokeWidth)
       ..lineCap(1)
       ..lineJoin(1);
     if (dashed) w.dash(dashPattern);
-    _appendCloudPath(w, points, strokeWidth);
-    w.stroke();
+    _appendCloudPath(w, points, strokeWidth, cloudScale);
+    if (fillColor != null) {
+      w.fillAndStroke();
+    } else {
+      w.stroke();
+    }
     if (dashed) w.dash(const []);
     return w;
   }
@@ -5064,10 +5322,11 @@ extension PdfAnnotationEditing on PdfEditor {
     ContentWriter w,
     List<(double, double)> points,
     double strokeWidth,
+    double cloudScale,
   ) {
     if (points.length < 3) return;
     final clockwise = _signedArea(points) < 0;
-    final arc = _cloudArcRadius(strokeWidth);
+    final arc = _cloudArcRadius(strokeWidth, cloudScale);
     const k = 0.5522847498307936;
     var first = true;
     for (var i = 0; i < points.length; i++) {
@@ -5527,6 +5786,8 @@ extension PdfAnnotationEditing on PdfEditor {
     double fontSize,
     double maxWidth, {
     PdfTextFont font = PdfStandardFont.helvetica,
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
   }) {
     final lines = <String>[];
     for (final paragraph in text.split('\n')) {
@@ -5534,7 +5795,10 @@ extension PdfAnnotationEditing on PdfEditor {
       for (final word in paragraph.split(' ')) {
         final candidate = line.isEmpty ? word : '$line $word';
         if (line.isNotEmpty &&
-            font.measure(candidate, fontSize) > maxWidth + _wrapTolerance) {
+            _advanceWidth(font, candidate, fontSize,
+                    charSpacing: charSpacing,
+                    horizontalScale: horizontalScale) >
+                maxWidth + _wrapTolerance) {
           lines.add(line);
           line = word;
         } else {
@@ -5544,5 +5808,20 @@ extension PdfAnnotationEditing on PdfEditor {
       lines.add(line);
     }
     return lines;
+  }
+
+  /// The horizontal advance of [text] at [fontSize] in [font], including the
+  /// per-glyph [charSpacing] (Tc) and the [horizontalScale] per cent (Tz) -
+  /// so wrapping and alignment measure the same width the appearance draws.
+  static double _advanceWidth(
+    PdfTextFont font,
+    String text,
+    double fontSize, {
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
+  }) {
+    final natural = font.measure(text, fontSize);
+    final count = text.runes.length;
+    return (natural + charSpacing * count) * (horizontalScale / 100);
   }
 }

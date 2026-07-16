@@ -278,7 +278,9 @@ subsampling/PCRL-CPRL progressions.
   included, so a synced annotation renders identically on every device.
 - `annotationChanges` emits per-revision diffs (created/modified/removed,
   undo and redo included); `applyRemoteChange` replays remote edits
-  without echoing them back. Two controllers piped together converge.
+  without echoing them back. Each remote apply is an undo checkpoint: local
+  edits after it remain undoable, but undo cannot remove remote state or
+  cross into older local history. Two controllers piped together converge.
 - Permissions: the document's /F ReadOnly and Locked flags are honored,
   and a `canEditAnnotation` predicate covers policies like "users may
   only edit their own annotations". Gated annotations still render and

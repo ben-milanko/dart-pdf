@@ -39,6 +39,39 @@ void main() {
     });
   });
 
+  group('visible signature box', () {
+    test('renders a box while staying a valid B-LTA signature', () async {
+      final bytes = await freshEditor().saveSignedPades(
+        privateKey: signerKey,
+        certificates: [signerCert],
+        level: PdfPadesLevel.bLTA,
+        timestampClient: testTsa(),
+        signingTime: signedAt,
+        reason: 'Approval',
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 640, 340, 720),
+        ),
+      );
+      final doc = PdfDocument.open(bytes);
+      final signature = PdfSignature.of(doc)
+          .firstWhere((s) => !s.isDocumentTimeStamp);
+      final result = signature.validate();
+      expect(result.intact, isTrue);
+      expect(result.padesLevel, PdfPadesLevel.bLTA);
+
+      final widget = signature.field.widgets.first;
+      final ap = doc.cos.resolve(widget['AP']) as CosDictionary;
+      final form = doc.cos.resolve(ap['N']) as CosStream;
+      final content = String.fromCharCodes(doc.cos.decodeStreamData(form));
+      final shown = RegExp(r'\(([^)]*)\) Tj')
+          .allMatches(content)
+          .map((m) => m.group(1))
+          .join(' ');
+      expect(shown, contains('Digitally signed by Dart PDF Test Signer'));
+      expect(shown, contains('Reason: Approval'));
+    });
+  });
+
   group('PAdES B-T', () {
     test('embeds a verifiable signature timestamp', () async {
       final bytes = await freshEditor().saveSignedPades(

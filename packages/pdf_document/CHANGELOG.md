@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- Free-text appearances support line spacing, character spacing (Tc),
+  horizontal glyph scaling (Tz), and underline (per box and per rich run),
+  round-tripping through the annotation dictionary and `/RC`.
+- Regenerate embedded-font and rich free-text boxes on resize (re-wrapping
+  in the recovered face and preserving per-run styling) instead of falling
+  back to the appearance stretch.
+
+## 1.4.6
+
+- Add operation-scoped page-content text replacement and expose the active
+  font resource on text element snapshots for selection-driven editing.
+
+## 1.4.5
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.5. No
+  document API changes since 1.4.4.
+
 ## 1.4.4
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.4. No

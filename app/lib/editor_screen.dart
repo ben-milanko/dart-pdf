@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -33,7 +34,12 @@ const double _tabStripHeight = 42;
 const double _mobileTabsBreakpoint = 700;
 const double _appMenuLeadingWidth = 60;
 const double _appMenuIconSize = 24;
+const double _compactAppMenuItemHeight = 36;
+const double _compactRecentMenuItemHeight = 48;
 const int _maxRecentMenuItems = 8;
+const Duration _tabHoverPreviewDelay = Duration(milliseconds: 400);
+const double _tabHoverPreviewWidth = 240;
+const double _tabHoverPreviewHeight = 300;
 
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
@@ -1157,6 +1163,20 @@ class _EditorScreenState extends State<EditorScreen>
       defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
+  bool get _usesCompactAppMenu => switch (defaultTargetPlatform) {
+        TargetPlatform.macOS ||
+        TargetPlatform.windows ||
+        TargetPlatform.linux =>
+          true,
+        _ => false,
+      };
+
+  double _appMenuItemHeight({bool twoLine = false}) => !_usesCompactAppMenu
+      ? kMinInteractiveDimension
+      : twoLine
+          ? _compactRecentMenuItemHeight
+          : _compactAppMenuItemHeight;
+
   bool get _showsSelectionCopyAction => switch (defaultTargetPlatform) {
         TargetPlatform.android ||
         TargetPlatform.iOS ||
@@ -1177,10 +1197,13 @@ class _EditorScreenState extends State<EditorScreen>
     required String title,
     String? shortcut,
     Widget? trailing,
+    Widget? subtitle,
+    TextOverflow? overflow,
   }) =>
       ListTile(
         leading: Icon(icon),
-        title: Text(title),
+        title: Text(title, overflow: overflow),
+        subtitle: subtitle,
         trailing: trailing ??
             (shortcut == null
                 ? null
@@ -1191,6 +1214,12 @@ class _EditorScreenState extends State<EditorScreen>
                         ),
                   )),
         contentPadding: EdgeInsets.zero,
+        minTileHeight: _usesCompactAppMenu
+            ? subtitle == null
+                ? _compactAppMenuItemHeight
+                : _compactRecentMenuItemHeight
+            : null,
+        minVerticalPadding: _usesCompactAppMenu ? 0 : null,
       );
 
   List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
@@ -1211,6 +1240,7 @@ class _EditorScreenState extends State<EditorScreen>
     );
     return [
       PopupMenuItem<VoidCallback>(
+        height: _appMenuItemHeight(),
         value: () {},
         padding: EdgeInsets.zero,
         child: PopupMenuButton<VoidCallback>(
@@ -1224,24 +1254,23 @@ class _EditorScreenState extends State<EditorScreen>
           },
           itemBuilder: (_) => [
             if (recents.isEmpty)
-              const PopupMenuItem<VoidCallback>(
+              PopupMenuItem<VoidCallback>(
+                height: _appMenuItemHeight(),
                 enabled: false,
-                child: ListTile(
-                  leading: Icon(Icons.history_toggle_off),
-                  title: Text('No recent files'),
-                  contentPadding: EdgeInsets.zero,
+                child: _appMenuTile(
+                  icon: Icons.history_toggle_off,
+                  title: 'No recent files',
                 ),
               )
             else ...[
               for (final entry in recents)
                 PopupMenuItem<VoidCallback>(
+                  height: _appMenuItemHeight(twoLine: entry.path != null),
                   value: () => unawaited(_openRecent(entry)),
-                  child: ListTile(
-                    leading: const Icon(Icons.picture_as_pdf_outlined),
-                    title: Text(
-                      entry.title.isEmpty ? 'Untitled' : entry.title,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                  child: _appMenuTile(
+                    icon: Icons.picture_as_pdf_outlined,
+                    title: entry.title.isEmpty ? 'Untitled' : entry.title,
+                    overflow: TextOverflow.ellipsis,
                     subtitle: entry.path == null
                         ? null
                         : Text(
@@ -1249,16 +1278,15 @@ class _EditorScreenState extends State<EditorScreen>
                             overflow: TextOverflow.ellipsis,
                             maxLines: 1,
                           ),
-                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
               const PopupMenuDivider(),
               PopupMenuItem<VoidCallback>(
+                height: _appMenuItemHeight(),
                 value: () => unawaited(_recents.clear()),
-                child: const ListTile(
-                  leading: Icon(Icons.clear_all),
-                  title: Text('Clear recent files'),
-                  contentPadding: EdgeInsets.zero,
+                child: _appMenuTile(
+                  icon: Icons.clear_all,
+                  title: 'Clear recent files',
                 ),
               ),
             ],
@@ -1278,6 +1306,7 @@ class _EditorScreenState extends State<EditorScreen>
       [
         PopupMenuItem(
           key: const ValueKey('menu-new-document'),
+          height: _appMenuItemHeight(),
           value: () => unawaited(_newDocument()),
           child: _appMenuTile(
             icon: Icons.note_add_outlined,
@@ -1287,6 +1316,7 @@ class _EditorScreenState extends State<EditorScreen>
         ),
         PopupMenuItem(
           key: const ValueKey('menu-open'),
+          height: _appMenuItemHeight(),
           value: () => unawaited(_pickAndOpen()),
           child: _appMenuTile(
             icon: Icons.folder_open,
@@ -1299,6 +1329,7 @@ class _EditorScreenState extends State<EditorScreen>
         if (tab?.session != null) ...[
           PopupMenuItem(
             key: const ValueKey('menu-save-as'),
+            height: _appMenuItemHeight(),
             value: () => _save(tab!, saveAs: true),
             child: _appMenuTile(
               icon: Icons.save_as_outlined,
@@ -1308,6 +1339,7 @@ class _EditorScreenState extends State<EditorScreen>
           ),
           PopupMenuItem(
             key: const ValueKey('menu-digital-signature'),
+            height: _appMenuItemHeight(),
             enabled: !_digitallySigning,
             value: () => unawaited(_digitallySign(tab!)),
             child: _appMenuTile(
@@ -1318,6 +1350,7 @@ class _EditorScreenState extends State<EditorScreen>
           ),
           PopupMenuItem(
             key: const ValueKey('menu-print'),
+            height: _appMenuItemHeight(),
             value: () => unawaited(_print(tab!)),
             child: _appMenuTile(
               icon: Icons.print_outlined,
@@ -1327,6 +1360,7 @@ class _EditorScreenState extends State<EditorScreen>
           ),
           PopupMenuItem(
             key: const ValueKey('menu-export-image'),
+            height: _appMenuItemHeight(),
             value: () => unawaited(_exportImage(tab!)),
             child: _appMenuTile(
               icon: Icons.image_outlined,
@@ -1334,6 +1368,7 @@ class _EditorScreenState extends State<EditorScreen>
             ),
           ),
           PopupMenuItem(
+            height: _appMenuItemHeight(),
             value: _compareWith,
             child: _appMenuTile(
               icon: Icons.compare_arrows,
@@ -1341,6 +1376,7 @@ class _EditorScreenState extends State<EditorScreen>
             ),
           ),
           PopupMenuItem(
+            height: _appMenuItemHeight(),
             value: () => setState(() => _readOnly = !_readOnly),
             child: _appMenuTile(
               icon: _readOnly ? Icons.edit : Icons.edit_off,
@@ -1350,6 +1386,7 @@ class _EditorScreenState extends State<EditorScreen>
           if (OnDeviceOcr.isSupported)
             PopupMenuItem(
               key: const ValueKey('menu-ocr'),
+              height: _appMenuItemHeight(),
               value: () => unawaited(_runOcr()),
               child: _appMenuTile(
                 icon: Icons.document_scanner_outlined,
@@ -1359,6 +1396,7 @@ class _EditorScreenState extends State<EditorScreen>
           const PopupMenuDivider(),
         ],
         PopupMenuItem(
+          height: _appMenuItemHeight(),
           value: () => showAppSettings(
             context,
             prefs: _prefs,
@@ -1471,6 +1509,10 @@ class _EditorScreenState extends State<EditorScreen>
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
+      // A brand-new untitled document has no on-disk origin yet, so keep
+      // Save (button + Ctrl/⌘+S) live even before the first edit - the first
+      // save writes the file via the Save As flow.
+      alwaysAllowSave: tab.isUnsaved,
       onPickPdfToInsert: pickPdfBytes,
       onExportPages: (bytes) =>
           unawaited(saveBytesAs(context, bytes, tab.title)),
@@ -1594,88 +1636,128 @@ class _EditorScreenState extends State<EditorScreen>
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
-          final scheme = Theme.of(sheetContext).colorScheme;
           return SafeArea(
             top: false,
             child: SizedBox(
               height: MediaQuery.sizeOf(sheetContext).height * 0.72,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Tabs',
-                            style: Theme.of(sheetContext).textTheme.titleMedium,
-                          ),
-                        ),
-                        IconButton(
-                          key: const ValueKey('mobile-tabs-open'),
-                          icon: const Icon(Icons.add),
-                          tooltip: 'Open PDF in a new tab',
-                          onPressed: () {
-                            Navigator.of(sheetContext).pop();
-                            unawaited(_pickAndOpen());
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: GridView.builder(
-                      key: const ValueKey('mobile-tabs-grid'),
-                      padding: const EdgeInsets.all(12),
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 220,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 0.78,
-                      ),
-                      itemCount: _tabs.length,
-                      itemBuilder: (context, index) {
-                        final tab = _tabs[index];
-                        final selected = index == _activeIndex;
-                        return _MobileTabTile(
-                          key: ValueKey('mobile-tab-${tab.hashCode}'),
-                          tab: tab,
-                          selected: selected,
-                          onTap: () {
-                            setState(() => _activeIndex = index);
-                            Navigator.of(sheetContext).pop();
-                          },
-                          onClose: () async {
-                            await _closeTabs([tab]);
-                            if (!mounted || !sheetContext.mounted) return;
-                            if (_tabs.isEmpty) {
-                              Navigator.of(sheetContext).pop();
-                            } else {
-                              setSheetState(() {});
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: Text(
-                      '${_tabs.length} open',
-                      style: Theme.of(sheetContext)
-                          .textTheme
-                          .labelMedium
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                  ),
-                ],
+              child: _buildTabsGrid(
+                sheetContext,
+                setOverlayState: setSheetState,
+                keyPrefix: 'mobile',
+                headerTopPadding: 0,
               ),
             ),
           );
         },
       ),
+    );
+  }
+
+  Future<void> _showTabsDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final viewport = MediaQuery.sizeOf(dialogContext);
+          final width = viewport.width > 888 ? 840.0 : viewport.width - 48;
+          final height = viewport.height > 688 ? 640.0 : viewport.height - 48;
+          return Dialog(
+            key: const ValueKey('desktop-tabs-dialog'),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: _buildTabsGrid(
+                dialogContext,
+                setOverlayState: setDialogState,
+                keyPrefix: 'desktop',
+                headerTopPadding: 12,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTabsGrid(
+    BuildContext overlayContext, {
+    required StateSetter setOverlayState,
+    required String keyPrefix,
+    required double headerTopPadding,
+  }) {
+    final scheme = Theme.of(overlayContext).colorScheme;
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, headerTopPadding, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Tabs',
+                  style: Theme.of(overlayContext).textTheme.titleMedium,
+                ),
+              ),
+              IconButton(
+                key: ValueKey('$keyPrefix-tabs-open'),
+                icon: const Icon(Icons.add),
+                tooltip: 'Open PDF in a new tab',
+                onPressed: () {
+                  Navigator.of(overlayContext).pop();
+                  unawaited(_pickAndOpen());
+                },
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: GridView.builder(
+            key: ValueKey('$keyPrefix-tabs-grid'),
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 220,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.78,
+            ),
+            itemCount: _tabs.length,
+            itemBuilder: (context, index) {
+              final tab = _tabs[index];
+              final selected = index == _activeIndex;
+              return _MobileTabTile(
+                key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
+                tab: tab,
+                selected: selected,
+                onTap: () {
+                  setState(() => _activeIndex = index);
+                  Navigator.of(overlayContext).pop();
+                },
+                onClose: () async {
+                  await _closeTabs([tab]);
+                  if (!mounted || !overlayContext.mounted) return;
+                  if (_tabs.isEmpty) {
+                    Navigator.of(overlayContext).pop();
+                  } else {
+                    setOverlayState(() {});
+                  }
+                },
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            '${_tabs.length} open',
+            style: Theme.of(overlayContext)
+                .textTheme
+                .labelMedium
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1698,7 +1780,8 @@ class _EditorScreenState extends State<EditorScreen>
       child: LayoutBuilder(
         builder: (context, constraints) {
           const buttonWidth = 40.0;
-          final maxTabsWidth = (constraints.maxWidth - buttonWidth)
+          const controlsWidth = buttonWidth * 2;
+          final maxTabsWidth = (constraints.maxWidth - controlsWidth)
               .clamp(0.0, double.infinity)
               .toDouble();
           final desiredTabsWidth = _estimatedTabStripWidth(context);
@@ -1726,6 +1809,7 @@ class _EditorScreenState extends State<EditorScreen>
                 width: buttonWidth,
                 height: _tabStripHeight,
                 child: IconButton(
+                  key: const ValueKey('desktop-tab-add-button'),
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
                   constraints:
@@ -1733,6 +1817,21 @@ class _EditorScreenState extends State<EditorScreen>
                   icon: const Icon(Icons.add),
                   tooltip: 'Open PDF in a new tab',
                   onPressed: _pickAndOpen,
+                ),
+              ),
+              const Spacer(key: ValueKey('desktop-tabs-spacer')),
+              SizedBox(
+                width: buttonWidth,
+                height: _tabStripHeight,
+                child: IconButton(
+                  key: const ValueKey('desktop-tabs-button'),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: buttonWidth),
+                  icon: const Icon(Icons.grid_view),
+                  tooltip: 'View all tabs',
+                  onPressed: _showTabsDialog,
                 ),
               ),
             ],
@@ -1798,40 +1897,46 @@ class _EditorScreenState extends State<EditorScreen>
 
     // Dragging anywhere on the tab reorders it; the tap/close gestures still
     // win when the pointer doesn't travel (gesture arena resolves drag vs tap).
-    return _TabDragStartListener(
+    return _TabHoverPreview(
       key: ValueKey(tab),
-      index: index,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-        child: Material(
-          color: selected
-              ? scheme.secondaryContainer
-              : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-          child: InkWell(
+      tab: tab,
+      enabled: !selected,
+      child: _TabDragStartListener(
+        index: index,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+          child: Material(
+            color: selected
+                ? scheme.secondaryContainer
+                : scheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
-            onTap: () => setState(() => _activeIndex = index),
-            onSecondaryTapUp: (details) =>
-                _showTabMenu(index, details.globalPosition),
-            child: Padding(
-              padding: const EdgeInsets.only(left: 12, right: 2),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 160),
-                    child: label(),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 16),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
-                    tooltip: 'Close tab',
-                    onPressed: () => _closeTab(index),
-                  ),
-                ],
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => setState(() => _activeIndex = index),
+              onSecondaryTapUp: (details) =>
+                  _showTabMenu(index, details.globalPosition),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 12, right: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 160),
+                      child: label(),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 16),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 30,
+                        minHeight: 30,
+                      ),
+                      tooltip: 'Close tab',
+                      onPressed: () => _closeTab(index),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1871,6 +1976,221 @@ class _OpeningDocument extends StatelessWidget {
 /// The actions offered by a tab's right-click context menu.
 enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 
+/// Shows a non-interactive thumbnail card for an inactive desktop tab after a
+/// short hover. This uses a plain [OverlayEntry], not an OverlayPortal: the tab
+/// is a reorderable-list item, and portals must not be reactivated from that
+/// subtree while the list is laying out or moving its drag proxy.
+class _TabHoverPreview extends StatefulWidget {
+  const _TabHoverPreview({
+    super.key,
+    required this.tab,
+    required this.enabled,
+    required this.child,
+  });
+
+  final DocumentTab tab;
+  final bool enabled;
+  final Widget child;
+
+  @override
+  State<_TabHoverPreview> createState() => _TabHoverPreviewState();
+}
+
+class _TabHoverPreviewState extends State<_TabHoverPreview> {
+  final _imageCache = _TabPreviewImageCache();
+  Timer? _timer;
+  OverlayEntry? _entry;
+  bool _hovering = false;
+
+  @override
+  void didUpdateWidget(_TabHoverPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.tab, widget.tab)) {
+      _imageCache.clear();
+    }
+    if (!widget.enabled || !identical(oldWidget.tab, widget.tab)) {
+      _hide();
+    } else if (widget.enabled && !oldWidget.enabled && _hovering) {
+      _schedule();
+    }
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    if (!widget.enabled) return;
+    _timer = Timer(_tabHoverPreviewDelay, _show);
+  }
+
+  void _show() {
+    _timer = null;
+    if (!mounted || !widget.enabled || !_hovering || _entry != null) return;
+    final target = context.findRenderObject();
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final overlayBox = overlay.context.findRenderObject();
+    if (target is! RenderBox || overlayBox is! RenderBox) return;
+
+    final origin = target.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final overlaySize = overlayBox.size;
+    final width = math.min(
+      _tabHoverPreviewWidth,
+      math.max(0.0, overlaySize.width - 16),
+    ).toDouble();
+    final height = math.min(
+      _tabHoverPreviewHeight,
+      math.max(0.0, overlaySize.height - 16),
+    ).toDouble();
+    if (width <= 0 || height <= 0) return;
+
+    final maxLeft = math.max(8.0, overlaySize.width - width - 8);
+    final left = (origin.dx + (target.size.width - width) / 2)
+        .clamp(8.0, maxLeft)
+        .toDouble();
+    final below = origin.dy + target.size.height + 4;
+    final top = below + height <= overlaySize.height - 8
+        ? below
+        : math.max(8.0, origin.dy - height - 4);
+
+    _entry = OverlayEntry(
+      builder: (context) => Positioned(
+        left: left,
+        top: top,
+        width: width,
+        height: height,
+        child: IgnorePointer(
+          child: _DesktopTabPreviewCard(
+            tab: widget.tab,
+            imageCache: _imageCache,
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_entry!);
+  }
+
+  void _hide() {
+    _timer?.cancel();
+    _timer = null;
+    _entry?.remove();
+    _entry = null;
+  }
+
+  @override
+  void dispose() {
+    _hide();
+    _imageCache.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) {
+        _hovering = true;
+        _schedule();
+      },
+      onExit: (_) {
+        _hovering = false;
+        _hide();
+      },
+      child: Listener(
+        // A click may activate/close/reorder the tab or open its context menu.
+        // Dismiss before any of those operations mutate the strip.
+        onPointerDown: (_) => _hide(),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+class _DesktopTabPreviewCard extends StatelessWidget {
+  const _DesktopTabPreviewCard({required this.tab, required this.imageCache});
+
+  final DocumentTab tab;
+  final _TabPreviewImageCache imageCache;
+
+  @override
+  Widget build(BuildContext context) {
+    final listeners = <Listenable>[
+      if (tab.session != null) tab.session!,
+      if (tab.viewer != null) tab.viewer!,
+    ];
+    if (listeners.isEmpty) return _buildCard(context);
+    return ListenableBuilder(
+      listenable: Listenable.merge(listeners),
+      builder: (context, _) => _buildCard(context),
+    );
+  }
+
+  Widget _buildCard(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final pageIndex = _tabPreviewPage(tab);
+    return Material(
+      key: const ValueKey('tab-hover-preview'),
+      elevation: 10,
+      shadowColor: scheme.shadow.withValues(alpha: 0.28),
+      color: scheme.surfaceContainerHigh,
+      surfaceTintColor: scheme.surfaceTint,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _TabPreview(
+                tab: tab,
+                pageIndex: pageIndex,
+                imageCache: imageCache,
+                previewKey: const ValueKey('tab-hover-preview-thumbnail'),
+                imageKey: const ValueKey('tab-hover-preview-image'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (tab.isDirty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.circle, size: 8, color: scheme.primary),
+                  ),
+                Expanded(
+                  child: Text(
+                    tab.title.isEmpty ? 'Untitled' : tab.title,
+                    key: const ValueKey('tab-hover-preview-title'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                if (tab.session != null)
+                  Text(
+                    'Page ${pageIndex + 1}',
+                    key: const ValueKey('tab-hover-preview-page'),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+int _tabPreviewPage(DocumentTab tab) {
+  final session = tab.session;
+  if (session == null || session.document.pageCount <= 0) return 0;
+  return (tab.viewer?.currentPage ?? 0)
+      .clamp(0, session.document.pageCount - 1)
+      .toInt();
+}
+
 /// Starts a tab drag immediately for mouse pointers (the desktop expectation -
 /// a mouse drag never means scrolling the strip) but only after a long press
 /// for touch and stylus, so finger drags still scroll the tab strip. Plain
@@ -1878,7 +2198,6 @@ enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
 /// past the slop.
 class _TabDragStartListener extends ReorderableDragStartListener {
   const _TabDragStartListener({
-    super.key,
     required super.index,
     required super.child,
   });
@@ -2048,7 +2367,12 @@ class _MobileTabTile extends StatelessWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-                child: _MobileTabPreview(tab: tab),
+                child: _TabPreview(
+                  tab: tab,
+                  pageIndex: 0,
+                  previewKey: const ValueKey('mobile-tab-preview'),
+                  imageKey: const ValueKey('mobile-tab-preview-image'),
+                ),
               ),
             ),
             Padding(
@@ -2093,21 +2417,36 @@ class _MobileTabTile extends StatelessWidget {
   }
 }
 
-class _MobileTabPreview extends StatelessWidget {
-  const _MobileTabPreview({required this.tab});
+class _TabPreview extends StatelessWidget {
+  const _TabPreview({
+    required this.tab,
+    required this.pageIndex,
+    required this.previewKey,
+    required this.imageKey,
+    this.imageCache,
+  });
 
   final DocumentTab tab;
+  final int pageIndex;
+  final Key previewKey;
+  final Key imageKey;
+  final _TabPreviewImageCache? imageCache;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final session = tab.session;
     if (session != null) {
-      return _MobileTabDocumentPreview(
+      return _TabDocumentPreview(
         controller: session,
-        stamp: session.pageRenderStamp(0),
+        pageIndex: pageIndex,
+        stamp: session.pageRenderStamp(pageIndex),
         pageColor: session.preferences.pageColor,
         showAnnotations: session.preferences.showAnnotations,
+        rotation: tab.viewer?.viewRotation,
+        previewKey: previewKey,
+        imageKey: imageKey,
+        imageCache: imageCache,
       );
     }
     final (icon, label) = tab.isLoading
@@ -2118,6 +2457,7 @@ class _MobileTabPreview extends StatelessWidget {
                 ? (Icons.compare_arrows, 'Comparison')
                 : (Icons.picture_as_pdf_outlined, 'PDF');
     return DecoratedBox(
+      key: previewKey,
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(8),
@@ -2150,43 +2490,88 @@ class _MobileTabPreview extends StatelessWidget {
   }
 }
 
-class _MobileTabDocumentPreview extends StatefulWidget {
-  const _MobileTabDocumentPreview({
+class _TabPreviewImageCache {
+  Object? _key;
+  ui.Image? _image;
+  bool _disposed = false;
+
+  ui.Image? claim(Object key) {
+    if (_disposed || _key != key) return null;
+    return _image?.clone();
+  }
+
+  void store(Object key, ui.Image image) {
+    if (_disposed) {
+      image.dispose();
+      return;
+    }
+    _image?.dispose();
+    _key = key;
+    _image = image;
+  }
+
+  void clear() {
+    _image?.dispose();
+    _image = null;
+    _key = null;
+  }
+
+  void dispose() {
+    _disposed = true;
+    clear();
+  }
+}
+
+class _TabDocumentPreview extends StatefulWidget {
+  const _TabDocumentPreview({
     required this.controller,
+    required this.pageIndex,
     required this.stamp,
     required this.pageColor,
     required this.showAnnotations,
+    required this.rotation,
+    required this.previewKey,
+    required this.imageKey,
+    this.imageCache,
   });
 
   final PdfEditingController controller;
+  final int pageIndex;
   final int stamp;
   final Color pageColor;
   final bool showAnnotations;
+  final int? rotation;
+  final Key previewKey;
+  final Key imageKey;
+  final _TabPreviewImageCache? imageCache;
 
   @override
-  State<_MobileTabDocumentPreview> createState() =>
-      _MobileTabDocumentPreviewState();
+  State<_TabDocumentPreview> createState() => _TabDocumentPreviewState();
 }
 
-class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
+class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   ui.Image? _image;
   Object? _pendingKey;
   Object? _imageKey;
 
   Object get _key => (
         widget.controller,
+        widget.pageIndex,
         widget.stamp,
         widget.pageColor.toARGB32(),
         widget.showAnnotations,
+        widget.rotation,
       );
 
   @override
-  void didUpdateWidget(_MobileTabDocumentPreview oldWidget) {
+  void didUpdateWidget(_TabDocumentPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller) ||
+        oldWidget.pageIndex != widget.pageIndex ||
         oldWidget.stamp != widget.stamp ||
         oldWidget.pageColor != widget.pageColor ||
-        oldWidget.showAnnotations != widget.showAnnotations) {
+        oldWidget.showAnnotations != widget.showAnnotations ||
+        oldWidget.rotation != widget.rotation) {
       _image?.dispose();
       _image = null;
       _imageKey = null;
@@ -2205,8 +2590,8 @@ class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
   Future<void> _render(Object key, double pixelRatio) async {
     _pendingKey = key;
     try {
-      final page = widget.controller.pageAt(0);
-      final size = PdfPageRenderer.pageSize(page);
+      final page = widget.controller.pageAt(widget.pageIndex);
+      final size = PdfPageRenderer.pageSize(page, rotation: widget.rotation);
       if (size.width <= 0 || size.height <= 0) return;
       final ratio = (150 * pixelRatio / size.width).clamp(0.08, 0.5);
       final image = await PdfPageRenderer.renderImage(
@@ -2214,14 +2599,25 @@ class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
         pixelRatio: ratio,
         pageColor: widget.pageColor,
         annotations: widget.showAnnotations,
+        rotation: widget.rotation,
       );
       if (!mounted || _pendingKey != key) {
         image.dispose();
         return;
       }
+      final cache = widget.imageCache;
+      final ui.Image shown;
+      if (cache == null) {
+        shown = image;
+      } else {
+        cache.store(key, image);
+        final cached = cache.claim(key);
+        if (cached == null) return;
+        shown = cached;
+      }
       setState(() {
         _image?.dispose();
-        _image = image;
+        _image = shown;
         _imageKey = key;
         _pendingKey = null;
       });
@@ -2233,33 +2629,55 @@ class _MobileTabDocumentPreviewState extends State<_MobileTabDocumentPreview> {
   @override
   Widget build(BuildContext context) {
     final key = _key;
+    if (_imageKey != key) {
+      final cached = widget.imageCache?.claim(key);
+      if (cached != null) {
+        _image?.dispose();
+        _image = cached;
+        _imageKey = key;
+        _pendingKey = null;
+      }
+    }
     if (_imageKey != key && _pendingKey != key) {
       unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
     }
+    final page = widget.controller.pageAt(widget.pageIndex);
+    final pageSize = PdfPageRenderer.pageSize(
+      page,
+      rotation: widget.rotation,
+    );
+    final aspectRatio = pageSize.width > 0 && pageSize.height > 0
+        ? pageSize.width / pageSize.height
+        : 1.0;
     final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      key: const ValueKey('mobile-tab-preview'),
-      decoration: BoxDecoration(
-        color: widget.pageColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: scheme.shadow.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(7),
-        child: _image == null
-            ? const SizedBox.expand()
-            : RawImage(
-                key: const ValueKey('mobile-tab-preview-image'),
-                image: _image,
-                fit: BoxFit.contain,
+    return Center(
+      child: AspectRatio(
+        aspectRatio: aspectRatio,
+        child: DecoratedBox(
+          key: widget.previewKey,
+          decoration: BoxDecoration(
+            color: widget.pageColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: scheme.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.shadow.withValues(alpha: 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(7),
+            child: _image == null
+                ? const SizedBox.expand()
+                : RawImage(
+                    key: widget.imageKey,
+                    image: _image,
+                    fit: BoxFit.contain,
+                  ),
+          ),
+        ),
       ),
     );
   }

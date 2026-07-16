@@ -43,6 +43,10 @@ class CanvasPdfDevice implements PdfDevice {
   @visibleForTesting
   static int get debugTextLayoutCacheLength => _textCache.length;
 
+  /// Ordered fallbacks used for normal substituted text — test hook.
+  @visibleForTesting
+  static List<String> get debugDefaultFontFallbacks => _defaultFontFallbacks;
+
   /// Diagnostic kill switches for the command replay benchmark.
   @visibleForTesting
   static bool debugReuseSolidPaints = true;
@@ -743,6 +747,21 @@ class CanvasPdfDevice implements PdfDevice {
   ];
 
   static const _defaultFontFallbacks = [
+    // Shipped with dart_pdf_editor, so Arabic (including presentation forms
+    // copied from shaped PDFs), Hebrew, Greek and Cyrillic render consistently
+    // even when the host's Helvetica substitute has no suitable fallback.
+    'packages/dart_pdf_editor/DejaVu Sans',
+    // The unprefixed family is used when this package itself is the Flutter
+    // application under test, and by hosts that register DejaVu system-wide.
+    'DejaVu Sans',
+    // Platform Arabic faces. These also cover the Arabic Presentation Forms
+    // commonly exposed by PDFs that store already-shaped text.
+    'Geeza Pro',
+    '.SF Arabic',
+    'Noto Naskh Arabic',
+    'Noto Sans Arabic',
+    'Segoe UI',
+    'Arial Unicode MS',
     'Hiragino Sans',
     'PingFang SC',
     'Noto Sans CJK SC',

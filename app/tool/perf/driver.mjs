@@ -209,6 +209,40 @@ function parse(lines, frames) {
 
 function fmt(n, d = 1) { return Number(n).toFixed(d); }
 
+// What the tab actually holds. performance.memory only sees the JS heap, and
+// decoded PDF images live in CanvasKit's wasm heap - so the number that matters
+// comes from measureUserAgentSpecificMemory(), which counts WASM and is why the
+// server sends COOP/COEP (it needs cross-origin isolation). Returns the agent
+// total plus the ceilings a tab is judged against.
+const MEMORY_PROBE = `(async () => {
+  const out = { deviceMemoryGb: navigator.deviceMemory ?? null };
+  // Chrome is launched with --expose-gc so the numbers below are retained
+  // memory, not whatever V8 had not got round to collecting.
+  if (window.gc) { window.gc(); await new Promise((r) => setTimeout(r, 500)); window.gc(); out.gc = true; }
+  const m = performance.memory;
+  if (m) {
+    out.jsHeapUsed = m.usedJSHeapSize;
+    out.jsHeapLimit = m.jsHeapSizeLimit;
+  }
+  if (window.__perfImageCacheBytes) out.imageCacheBytes = window.__perfImageCacheBytes();
+  if (performance.measureUserAgentSpecificMemory) {
+    try {
+      const r = await performance.measureUserAgentSpecificMemory();
+      out.agentBytes = r.bytes;
+      out.breakdown = r.breakdown
+        .filter((b) => b.bytes > 0)
+        .map((b) => ({ bytes: b.bytes, types: b.types }))
+        .sort((a, b) => b.bytes - a.bytes)
+        .slice(0, 6);
+    } catch (e) { out.measureError = String(e); }
+  } else {
+    out.measureError = 'measureUserAgentSpecificMemory unavailable (not cross-origin isolated?)';
+  }
+  return out;
+})()`;
+
+function mb(bytes) { return bytes == null ? '?' : `${(bytes / 1048576).toFixed(0)}MB`; }
+
 async function main() {
   if (!existsSync(WEB_DIR) || !existsSync(join(WEB_DIR, 'index.html'))) {
     console.error(`✗ no harness build at ${WEB_DIR} - run tool/perf/build.sh first`);
@@ -232,6 +266,7 @@ async function main() {
   if (process.env.PERF_PASSES) qp.set('passes', process.env.PERF_PASSES);
   if (process.env.PERF_FAST_PASS) qp.set('fast', process.env.PERF_FAST_PASS);
   if (process.env.PERF_TARGET_PAGE) qp.set('targetPage', process.env.PERF_TARGET_PAGE);
+  if (process.env.PERF_IMAGE_CACHE_MB) qp.set('imageCacheMb', process.env.PERF_IMAGE_CACHE_MB);
   const qs = qp.toString();
   const url = `http://127.0.0.1:${PORT}/${qs ? '?' + qs : ''}`;
   console.log(`▶ serving ${WEB_DIR} + /perf.pdf at ${url} (headless=${HEADLESS}, isolated=${ISOLATED})`);
@@ -239,7 +274,8 @@ async function main() {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: HEADLESS ? 'shell' : false,
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1400,1000'],
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1400,1000',
+      '--js-flags=--expose-gc'],
     defaultViewport: { width: 1400, height: 1000 },
   });
 
@@ -275,6 +311,10 @@ async function main() {
     if (!done && !fatal) fatal = `timeout after ${TIMEOUT_S}s waiting for __perfDone`;
     if (pageErrors.length) (result ??= {}).pageErrors = pageErrors;
 
+    // Sample memory before scraping the trace, while the run's peak is still
+    // resident (the wasm heap never shrinks, so this is a high-water mark).
+    const memory = await page.evaluate(MEMORY_PROBE).catch((e) => ({ measureError: String(e) }));
+
     const harnessError = await page.evaluate('window.__perfError ?? null').catch(() => null);
     const dump = await page.evaluate('window.__perfDump ? window.__perfDump() : ""').catch(() => '');
     const framesJson = await page.evaluate('window.__perfFrames ? window.__perfFrames() : "[]"').catch(() => '[]');
@@ -283,7 +323,7 @@ async function main() {
     let frames = [];
     try { frames = JSON.parse(framesJson); } catch { /* ignore */ }
 
-    result = { ...(result ?? {}), harnessError, lines: lines.length, ...parse(lines, frames) };
+    result = { ...(result ?? {}), harnessError, memory, lines: lines.length, ...parse(lines, frames) };
     result.rawLineSample = lines.filter((l) => /interpret|webworker|vector-first|preview-paint|HARNESS|JANK|error/i.test(l)).slice(0, 60);
   } catch (e) {
     fatal = String(e?.stack ?? e);
@@ -317,6 +357,15 @@ async function main() {
     console.log(`  prerender warms    vector=${result.prerender.vector} full=${result.prerender.full}`);
     if (result.target?.firstContentMs != null) {
       console.log(`  target first paint page=${result.target.page} ${fmt(result.target.firstContentMs)}ms via ${result.target.kind}`);
+    }
+    const mem = result.memory;
+    if (mem && !mem.measureError) {
+      console.log(`  tab memory         agent=${mb(mem.agentBytes)} imageCache=${mb(mem.imageCacheBytes)} jsHeap=${mb(mem.jsHeapUsed)}/${mb(mem.jsHeapLimit)} deviceMemory=${mem.deviceMemoryGb ?? '?'}GB`);
+      for (const b of mem.breakdown ?? []) {
+        console.log(`      ${mb(b.bytes).padStart(7)}  ${b.types.join(', ')}`);
+      }
+    } else if (mem?.measureError) {
+      console.log(`  tab memory         unavailable: ${mem.measureError}`);
     }
     console.log(`  frames             ${f.count}  buildP50=${fmt(f.buildP50)}ms p95=${fmt(f.buildP95)}ms max=${fmt(f.buildMax)}ms`);
     console.log(`  build over budget  >16ms=${f.buildOver16}  >32ms=${f.buildOver32}  >50ms=${f.buildOver50}   (PdfPerfLog JANK lines=${result.jankCount})`);

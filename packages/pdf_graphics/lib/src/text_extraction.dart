@@ -11,6 +11,9 @@ import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
 
+final _bidiFormattingControls =
+    RegExp(r'[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]');
+
 /// One positioned run of text on a page, in page space.
 class PdfExtractedRun {
   const PdfExtractedRun({
@@ -57,11 +60,15 @@ class PdfExtractedRun {
 /// painted as a quad rotates with the text instead of ballooning out to
 /// an axis-aligned bounding box.
 class PdfTextQuad {
-  const PdfTextQuad(this.corners);
+  const PdfTextQuad(this.corners, {this.isRightToLeft = false});
 
   /// The four `(x, y)` page-space points in perimeter order (ll, lr, ur,
   /// ul). Always length 4.
   final List<(double x, double y)> corners;
+
+  /// Whether logical text advances from the quad's right edge toward its
+  /// left edge. Selection chrome uses this to anchor its logical endpoints.
+  final bool isRightToLeft;
 
   /// The axis-aligned page-space bounding box of the four corners.
   PdfRect get bounds {
@@ -120,6 +127,8 @@ class PdfPageText {
   /// throwing); matching is synchronous with no timeout, so a pathological
   /// (catastrophically backtracking) pattern over a large page can block
   /// the caller. [caseSensitive] applies to both literal and regex search.
+  /// Literal queries ignore Unicode BiDi formatting controls so text copied
+  /// with direction metadata can be pasted back into search.
   List<PdfTextMatch> findAll(
     String query, {
     bool caseSensitive = false,
@@ -142,6 +151,8 @@ class PdfPageText {
       }
       return matches;
     }
+    query = query.replaceAll(_bidiFormattingControls, '');
+    if (query.isEmpty) return const [];
     final haystack = caseSensitive ? text : text.toLowerCase();
     final needle = caseSensitive ? query : query.toLowerCase();
     var from = 0;
@@ -205,7 +216,12 @@ class PdfPageText {
       final logicalEnd = (overlapEnd - run.startIndex) / run.text.length;
       final f0 = run.isRightToLeft ? 1 - logicalEnd : logicalStart;
       final f1 = run.isRightToLeft ? 1 - logicalStart : logicalEnd;
-      quads.add(_quadOf(run.transform, run.width * f0, run.width * f1));
+      quads.add(_quadOf(
+        run.transform,
+        run.width * f0,
+        run.width * f1,
+        isRightToLeft: run.isRightToLeft,
+      ));
     }
     return quads;
   }
@@ -266,6 +282,49 @@ class PdfPageText {
     final logicalFraction = best.isRightToLeft ? 1 - fraction : fraction;
     return best.startIndex + (logicalFraction * best.text.length).round();
   }
+}
+
+/// Adds Unicode direction metadata suitable for putting extracted [text] on
+/// a plain-text clipboard.
+///
+/// Searchable PDF text remains in clean logical order. Each paragraph that
+/// contains strong RTL text is instead wrapped at copy time in the isolate
+/// matching its first strong character (`RLI` or `LRI`), followed by `PDI`.
+/// Isolates are paragraph-scoped, so line endings are preserved outside the
+/// controls. A paragraph already wrapped in `LRI`/`RLI`/`FSI` and `PDI` is
+/// left alone.
+///
+/// This follows the W3C guidance for carrying bidirectional metadata in
+/// plain text when markup is unavailable:
+/// https://www.w3.org/International/questions/qa-bidi-unicode-controls.en.html
+String pdfBidiIsolateForCopy(String text) {
+  if (text.isEmpty) return text;
+  return text.splitMapJoin(
+    RegExp(r'\r\n|[\r\n]'),
+    onMatch: (match) => match.group(0)!,
+    onNonMatch: _isolateBidiParagraph,
+  );
+}
+
+String _isolateBidiParagraph(String text) {
+  if (text.isEmpty || _hasOuterBidiIsolate(text)) return text;
+  _BidiKind? firstStrong;
+  var hasRightToLeft = false;
+  for (final rune in text.runes) {
+    final direction = _strongBidiKind(rune);
+    if (direction == null) continue;
+    firstStrong ??= direction;
+    if (direction == _BidiKind.rtl) hasRightToLeft = true;
+  }
+  if (!hasRightToLeft) return text;
+  final opener = firstStrong == _BidiKind.rtl ? '\u2067' : '\u2066';
+  return '$opener$text\u2069';
+}
+
+bool _hasOuterBidiIsolate(String text) {
+  final first = text.codeUnitAt(0);
+  return (first == 0x2066 || first == 0x2067 || first == 0x2068) &&
+      text.codeUnitAt(text.length - 1) == 0x2069;
 }
 
 /// A line of text inferred from positioned page text.
@@ -516,33 +575,46 @@ class PdfTextExtractor {
       flush();
     }
 
-    for (final item in line) {
-      add(item.separator, null);
-      final glyphs = item.run.glyphs;
-      final hasGlyphText = glyphs != null &&
-          glyphs.every((glyph) => glyph.text != null) &&
-          glyphs.map((glyph) => glyph.text!).join() == item.run.text;
-      if (!hasGlyphText) {
-        add(item.run.text, item.run);
-        continue;
+    final visualLine = _visualSourceClusters(line);
+    PdfTextRun? visualPrevious;
+    for (final cluster in visualLine) {
+      add(
+        visualPrevious == null
+            ? ''
+            : _separatorWithinVisualLine(visualPrevious, cluster.anchor),
+        null,
+      );
+      if (_isZeroAdvanceMark(cluster.sources.first.run)) {
+        previousKind = _firstStrongKind(cluster.anchor.text) ?? previousKind;
       }
-      var sourceOffset = 0;
-      for (var i = 0; i < glyphs.length; i++) {
-        final glyph = glyphs[i];
-        final text = glyph.text!;
-        final end = i + 1 < glyphs.length
-            ? math.max(glyph.offset, glyphs[i + 1].offset)
-            : item.run.width;
-        add(
-          text,
-          item.run,
-          sourceOffset: sourceOffset,
-          preserveText: true,
-          sourceX0: glyph.offset,
-          sourceX1: end,
-        );
-        sourceOffset += text.length;
+      for (final item in cluster.sources) {
+        final glyphs = item.run.glyphs;
+        final hasGlyphText = glyphs != null &&
+            glyphs.every((glyph) => glyph.text != null) &&
+            glyphs.map((glyph) => glyph.text!).join() == item.run.text;
+        if (!hasGlyphText) {
+          add(item.run.text, item.run);
+          continue;
+        }
+        var sourceOffset = 0;
+        for (var i = 0; i < glyphs.length; i++) {
+          final glyph = glyphs[i];
+          final text = glyph.text!;
+          final end = i + 1 < glyphs.length
+              ? math.max(glyph.offset, glyphs[i + 1].offset)
+              : item.run.width;
+          add(
+            text,
+            item.run,
+            sourceOffset: sourceOffset,
+            preserveText: true,
+            sourceX0: glyph.offset,
+            sourceX1: end,
+          );
+          sourceOffset += text.length;
+        }
       }
+      visualPrevious = cluster.anchor;
     }
     if (!hasRtl || hasUnpositionedRtl) return null;
 
@@ -591,6 +663,96 @@ class PdfTextExtractor {
       isRightToLeft: rightToLeft,
       mcid: source.mcid,
     ));
+  }
+
+  /// Groups zero-advance marks with their following base run, then orders the
+  /// clusters by their location along the line's visual baseline.
+  ///
+  /// Skia emits Arabic marks as separate text-showing operators immediately
+  /// before their base glyph. Sorting those marks independently moves them
+  /// across the base and makes the gap heuristic insert spaces inside words.
+  /// Keeping the source-order cluster intact lets the RTL reversal restore
+  /// base-then-mark logical order while separately positioned words can still
+  /// move into visual order before the reversal.
+  static List<_SourceCluster> _visualSourceClusters(List<_SourceRun> line) {
+    final clusters = <_SourceCluster>[];
+    final pendingMarks = <_SourceRun>[];
+    for (final source in line) {
+      if (_isZeroAdvanceMark(source.run)) {
+        pendingMarks.add(source);
+        continue;
+      }
+      clusters.add(_SourceCluster(
+        [...pendingMarks, source],
+        source.run,
+      ));
+      pendingMarks.clear();
+    }
+    if (pendingMarks.isNotEmpty) {
+      if (clusters.isEmpty) {
+        clusters.add(_SourceCluster([...pendingMarks], pendingMarks.last.run));
+      } else {
+        final last = clusters.removeLast();
+        clusters.add(_SourceCluster(
+          [...last.sources, ...pendingMarks],
+          last.anchor,
+        ));
+      }
+    }
+    if (clusters.length < 2) return clusters;
+
+    final baseline = line.first.run.transform;
+    final length = math.sqrt(baseline.a * baseline.a + baseline.b * baseline.b);
+    if (length <= 1e-9) return clusters;
+    final ux = baseline.a / length;
+    final uy = baseline.b / length;
+    final positioned = <({int index, double offset, _SourceCluster cluster})>[
+      for (var i = 0; i < clusters.length; i++)
+        (
+          index: i,
+          offset: clusters[i].anchor.transform.e * ux +
+              clusters[i].anchor.transform.f * uy,
+          cluster: clusters[i],
+        ),
+    ];
+    positioned.sort((a, b) {
+      final order = a.offset.compareTo(b.offset);
+      return order != 0 ? order : a.index.compareTo(b.index);
+    });
+    return [for (final item in positioned) item.cluster];
+  }
+
+  static bool _isZeroAdvanceMark(PdfTextRun run) =>
+      run.width.abs() <= 1e-9 && run.text.trim().isNotEmpty;
+
+  static _BidiKind? _firstStrongKind(String text) {
+    for (final rune in text.runes) {
+      final kind = _strongBidiKind(rune);
+      if (kind != null) return kind;
+    }
+    return null;
+  }
+
+  /// Reconstructs an inferred separator after source runs have been reordered
+  /// visually. The gap is measured along the preceding run's baseline so the
+  /// same logic works for rotated text.
+  static String _separatorWithinVisualLine(
+      PdfTextRun previous, PdfTextRun next) {
+    if (previous.text.trim().isEmpty || next.text.trim().isEmpty) return '';
+    final em = previous.transform.scaleFactor;
+    final axisLength = math.sqrt(previous.transform.a * previous.transform.a +
+        previous.transform.b * previous.transform.b);
+    if (em <= 0 || axisLength <= 1e-9) return ' ';
+    final endX = previous.transform.transformX(previous.width, 0);
+    final endY = previous.transform.transformY(previous.width, 0);
+    final dx = next.transform.e - endX;
+    final dy = next.transform.f - endY;
+    final ux = previous.transform.a / axisLength;
+    final uy = previous.transform.b / axisLength;
+    final along = dx * ux + dy * uy;
+    final across = (dx * -uy + dy * ux).abs();
+    if (across > 0.5 * em || along > 0.15 * em) return ' ';
+    return '';
   }
 
   /// Extracts every page and infers paragraph blocks in reading order.
@@ -995,6 +1157,13 @@ class _SourceRun {
   final PdfTextRun run;
 }
 
+class _SourceCluster {
+  const _SourceCluster(this.sources, this.anchor);
+
+  final List<_SourceRun> sources;
+  final PdfTextRun anchor;
+}
+
 enum _BidiKind { ltr, rtl, neutral }
 
 class _BidiPiece {
@@ -1063,6 +1232,20 @@ _BidiKind _bidiKind(int rune, _BidiKind? previous) {
   };
 }
 
+/// Strong direction only, for choosing a plain-text paragraph isolate.
+/// Numbers and neutral/formatting characters deliberately return null.
+_BidiKind? _strongBidiKind(int rune) {
+  if ((rune >= 0x10800 && rune <= 0x10FFF) ||
+      (rune >= 0x1E800 && rune <= 0x1EDFF)) {
+    return _BidiKind.rtl;
+  }
+  return switch (bidi.getCharacterType(rune)) {
+    bidi.CharacterType.rtl || bidi.CharacterType.al => _BidiKind.rtl,
+    bidi.CharacterType.ltr => _BidiKind.ltr,
+    _ => null,
+  };
+}
+
 String _reverseRunes(String text) =>
     String.fromCharCodes(text.runes.toList().reversed);
 
@@ -1083,18 +1266,26 @@ class _Column {
 /// Quad of the em-space span [x0]..[x1] (with conventional 0.25 em descent
 /// and 0.75 em ascent) mapped through [transform], in perimeter order
 /// (ll, lr, ur, ul). Rotated text yields a rotated parallelogram.
-PdfTextQuad _quadOf(PdfMatrix transform, double x0, double x1) {
+PdfTextQuad _quadOf(
+  PdfMatrix transform,
+  double x0,
+  double x1, {
+  bool isRightToLeft = false,
+}) {
   const descent = -0.25;
   const ascent = 0.75;
-  return PdfTextQuad([
-    for (final (x, y) in [
-      (x0, descent),
-      (x1, descent),
-      (x1, ascent),
-      (x0, ascent),
-    ])
-      (transform.transformX(x, y), transform.transformY(x, y)),
-  ]);
+  return PdfTextQuad(
+    [
+      for (final (x, y) in [
+        (x0, descent),
+        (x1, descent),
+        (x1, ascent),
+        (x0, ascent),
+      ])
+        (transform.transformX(x, y), transform.transformY(x, y)),
+    ],
+    isRightToLeft: isRightToLeft,
+  );
 }
 
 /// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped

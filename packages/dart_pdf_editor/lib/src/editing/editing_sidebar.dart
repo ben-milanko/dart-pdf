@@ -279,7 +279,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   Widget _tile(BuildContext context, int pageIndex, int index,
       PdfAnnotation annotation) {
     final slot = (pageIndex, index);
-    final selectable = annotation.behavior.selectable;
+    final editable = annotation.behavior.selectable &&
+        widget.controller.isAnnotationEditable(annotation);
     final detail = _detail(pageIndex, annotation);
     final actionsVisible =
         !pdfPanelControlsRevealOnHover() || _hoveredSlot == slot;
@@ -291,7 +292,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         leading: _selecting
             ? Checkbox(
                 value: _checked.contains(slot),
-                onChanged: selectable ? (_) => _toggle(slot) : null,
+                onChanged: editable ? (_) => _toggle(slot) : null,
               )
             : Icon(
                 annotation.isCallout
@@ -306,23 +307,23 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         selected: !_selecting &&
             widget.controller.isAnnotationSelected(pageIndex, index),
         onTap: _selecting
-            ? (selectable ? () => _toggle(slot) : null)
+            ? (editable ? () => _toggle(slot) : null)
             : () {
                 unawaited(widget.viewerController
                     .showRect(pageIndex, annotation.rect));
-                if (selectable) {
+                if (editable) {
                   widget.controller.selectAnnotation(pageIndex, index);
                 }
                 // pulse it on the page so the eye lands right
                 widget.controller.flashAnnotation(pageIndex, index);
               },
-        onLongPress: selectable && !_selecting
+        onLongPress: editable && !_selecting
             ? () => setState(() {
                   _selecting = true;
                   _checked.add(slot);
                 })
             : null,
-        trailing: _selecting || !selectable
+        trailing: _selecting || !editable
             ? null
             : Visibility(
                 visible: actionsVisible,

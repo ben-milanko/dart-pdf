@@ -15,6 +15,7 @@ import 'editing/editing_stamps.dart';
 import 'editing/editing_thumbnails.dart';
 import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
+import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'page_number_field.dart';
 import 'performance_policy.dart';
@@ -212,6 +213,7 @@ class PdfEditorView extends StatefulWidget {
     this.onSave,
     this.onSaveAs,
     this.showSaveButton = true,
+    this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
@@ -229,6 +231,7 @@ class PdfEditorView extends StatefulWidget {
     this.fontPicker,
     this.onSnapshot,
     this.textPrompt,
+    this.styledTextPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.toolbarLeading = const [],
@@ -304,6 +307,13 @@ class PdfEditorView extends StatefulWidget {
   /// shortcut active.
   final bool showSaveButton;
 
+  /// Keeps Save (the button and ⌘S / Ctrl+S) enabled even when the
+  /// document has no unsaved edits. Hosts set this for a document that has
+  /// never been written to disk - a new untitled file - so the first Save
+  /// can create the file before any edit is made. Defaults to false, where
+  /// Save is gated on [PdfEditingController.isModified] as usual.
+  final bool alwaysAllowSave;
+
   /// Called after every revision - edits, undo, redo - with the new
   /// current bytes. For autosaving hosts.
   final void Function(Uint8List bytes)? onDocumentChanged;
@@ -368,6 +378,10 @@ class PdfEditorView extends StatefulWidget {
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
   final PdfTextPrompt? textPrompt;
+
+  /// How selected page-content text is edited together with its rich style.
+  /// Defaults to [showPdfStyledTextPrompt].
+  final PdfStyledTextPrompt? styledTextPrompt;
 
   /// The toolbar's color palette.
   final List<Color> palette;
@@ -528,8 +542,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   /// Whether there's anything to save: false while the document still
   /// matches what was opened, which disables the Save button (and makes
-  /// the ⌘S / Ctrl+S shortcut a no-op).
-  bool get _canSave => _session.isModified;
+  /// the ⌘S / Ctrl+S shortcut a no-op). A host that flags the document as
+  /// never-saved ([PdfEditorView.alwaysAllowSave]) keeps Save enabled so a
+  /// brand-new file can be written before its first edit.
+  bool get _canSave => _session.isModified || widget.alwaysAllowSave;
 
   void _save() {
     if (!_canSave) return;
@@ -752,6 +768,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     viewerController: _viewer,
                     // save lives in the header now, not the dock
                     textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                    styledTextPrompt:
+                        widget.styledTextPrompt ?? showPdfStyledTextPrompt,
                     imagePicker: widget.imagePicker,
                     formImagePicker: widget.formImagePicker,
                     onExportSelectedContentImage:
@@ -960,6 +978,18 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             widget.systemImagePasteProvider,
                         onSnapshot: widget.onSnapshot,
                         editingTextPrompt: widget.textPrompt,
+                        editingStyledTextPrompt: widget.styledTextPrompt,
+                        editingPalette: widget.palette,
+                        textSelectionEditing: (features.tools == null ||
+                                features.tools!
+                                    .contains(PdfEditTool.content)) &&
+                            (features.toolGroups == null ||
+                                features.toolGroups!
+                                    .contains(PdfEditToolGroup.edit)),
+                        textSelectionMarkup: features.markup &&
+                            (features.toolGroups == null ||
+                                features.toolGroups!
+                                    .contains(PdfEditToolGroup.markup)),
                         initialFit: widget.initialFit,
                         toolShortcuts: _toolShortcuts,
                         backgroundColor: widget.backgroundColor,
@@ -1009,8 +1039,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       body = PdfViewerTheme(data: widget.viewerTheme!, child: body);
     }
     final bindings = <ShortcutActivator, VoidCallback>{
-      ..._shell.searchShortcuts(
-          enabled: features.headerBar && features.search),
+      ..._shell.searchShortcuts(enabled: features.headerBar && features.search),
       // ⌘S / Ctrl+S saves through the host's [onSave], the same path the
       // toolbar's save button takes. ⌘⇧S / Ctrl+Shift+S invokes the
       // host's Save As path when one is provided.

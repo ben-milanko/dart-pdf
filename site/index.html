@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DartPDF: private, local PDF editor for every device</title>
   <meta name="description"
-    content="Edit PDFs locally on desktop, mobile, or web. Annotate, run OCR, fill forms, add drawn signatures, redact, compare, and make small edits. No uploads." />
+    content="Edit PDFs locally on desktop, mobile, or web. Annotate, run OCR, fill forms, add drawn or digital signatures, redact, compare, and edit text. No uploads." />
   <link rel="canonical" href="https://dart-pdf.com/" />
 
   <!-- Open Graph -->
@@ -15,7 +15,7 @@
   <meta property="og:url" content="https://dart-pdf.com/" />
   <meta property="og:title" content="DartPDF: private, local PDF editor for every device" />
   <meta property="og:description"
-    content="Annotate, run OCR, fill forms, add drawn signatures, redact, compare, and make small edits. Your files stay local." />
+    content="Annotate, run OCR, fill forms, add drawn or digital signatures, redact, compare, and edit text. Your files stay local." />
   <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -25,7 +25,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="DartPDF: private, local PDF editor for every device" />
   <meta name="twitter:description"
-    content="Edit, annotate, run OCR, fill forms, add drawn signatures, redact, and compare PDFs without uploads." />
+    content="Edit, annotate, run OCR, fill forms, add drawn or digital signatures, redact, and compare PDFs without uploads." />
   <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
 
   <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -1108,7 +1108,7 @@
     "name": "DartPDF",
     "applicationCategory": "BusinessApplication",
     "operatingSystem": "iOS, iPadOS, macOS, Android, Windows, Linux, Web",
-    "description": "A local PDF editor for desktop, mobile, and web. Annotate, run OCR on scanned pages, fill forms, add drawn signatures, redact, compare, and make small edits without uploading files.",
+    "description": "A local PDF editor for desktop, mobile, and web. Annotate, run OCR on scanned pages, fill forms, add drawn or certificate-backed digital signatures, redact, compare, and edit text without uploading files.",
     "url": "https://dart-pdf.com/",
     "image": "https://dart-pdf.com/assets/og-image.png",
     "offers": {
@@ -1298,7 +1298,7 @@
               <path d="M8 16c2.5 1 4-1 6-1s3 1.5 4 .5" />
             </svg></div>
           <h3>Sign</h3>
-          <p>Save a drawn signature and place it where it belongs.</p>
+          <p>Place a drawn signature, or add a certificate-backed digital signature.</p>
         </article>
         <!-- Redact -->
         <article class="feature reveal">
@@ -1309,7 +1309,7 @@
               <path d="M4 17h5" />
             </svg></div>
           <h3>Redact</h3>
-          <p>Black out sensitive content on the page.</p>
+          <p>Remove sensitive text and images from the file, not just from view.</p>
         </article>
         <!-- Edit text & images -->
         <article class="feature reveal">
@@ -1535,7 +1535,9 @@
         <p class="eyebrow" style="color:#6fd0ff;">Developers</p>
         <h2 style="margin-top:14px;">A pure-Dart PDF engine you can use too.</h2>
         <p>The engine uses Dart instead of PDFium or native bindings, so it runs anywhere Dart and Flutter do. The
-          packages are Apache-2.0 licensed and published on pub.dev.</p>
+          packages are Apache-2.0 licensed and published on pub.dev. Read the <a href="/sdk"
+            style="color:#6fd0ff;font-weight:700;">Flutter PDF SDK overview</a> for benchmarks and a comparison with
+          commercial SDKs.</p>
         <div class="dev-cta">
           <a class="btn btn-primary" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
@@ -1609,6 +1611,7 @@
             <h4>Open source</h4>
             <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
             <a href="https://pub.dev/packages/dart_pdf_editor" target="_blank" rel="noopener">pub.dev</a>
+            <a href="/sdk">Flutter PDF SDK</a>
             <a href="#developers">Engine</a>
           </div>
           <div class="foot-col">

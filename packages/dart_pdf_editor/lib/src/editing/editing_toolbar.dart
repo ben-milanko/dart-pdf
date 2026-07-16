@@ -1991,8 +1991,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'shapes':
         return _StyleFields(
           stroke: true,
+          strokeColor: true,
           opacity: true,
           lineType: true,
+          lineScale: true,
           lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
           shapeFill: tool == PdfEditTool.rectangle ||
               tool == PdfEditTool.ellipse ||
@@ -2041,23 +2043,29 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'Polygon':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            // the outline colour of shapes and revision clouds
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
+            lineScale: controller.canSetLineStyleSelected,
             shapeFill: controller.canFillSelected);
       case 'Line':
       case 'PolyLine':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
             // a measurement (/Line distance, /PolyLine perimeter) carries one
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
+            lineScale: controller.canSetLineStyleSelected,
             lineEndings: controller.canSetLineEndings);
       case 'Ink':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity);
       default:
         // Markup and stamps expose opacity; notes and foreign subtypes do not.
@@ -3145,8 +3153,10 @@ double? _parsePercent(String s) {
 class _StyleFields {
   const _StyleFields({
     this.stroke = false,
+    this.strokeColor = false,
     this.opacity = false,
     this.lineType = false,
+    this.lineScale = false,
     this.lineEndings = false,
     this.font = false,
     this.boxColors = false,
@@ -3156,11 +3166,20 @@ class _StyleFields {
   });
 
   final bool stroke;
+
+  /// The stroke/outline colour row - shapes (including revision clouds) and
+  /// the line family. Distinct from [shapeFill], the interior fill.
+  final bool strokeColor;
+
   final bool opacity;
 
   /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
   /// and the line family.
   final bool lineType;
+
+  /// The pattern-scale slider - sizes dash patterns and cloudy scallops
+  /// apart from the pen width. Shown alongside [lineType].
+  final bool lineScale;
   final bool lineEndings;
 
   /// Font size + family (free text).
@@ -3181,8 +3200,10 @@ class _StyleFields {
 
   bool get isEmpty =>
       !stroke &&
+      !strokeColor &&
       !opacity &&
       !lineType &&
+      !lineScale &&
       !lineEndings &&
       !font &&
       !boxColors &&
@@ -3242,7 +3263,11 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// Same, for the stroke-width and opacity sliders restyling a
   /// selected annotation.
   double? _draggingStroke;
+  double? _draggingScale;
   double? _draggingOpacity;
+  double? _draggingLineSpacing;
+  double? _draggingCharSpacing;
+  double? _draggingFontWidth;
   bool _holdingTextEditFocus = false;
 
   @override
@@ -3299,6 +3324,16 @@ class _StyleMenuState extends State<_StyleMenu> {
     controller.shapeFillColor = color; // the new default either way
     if (controller.canFillSelected) {
       controller.restyleSelected(fill: (color,));
+    }
+  }
+
+  /// The shape/cloud/line outline colour. Sets the creation default and
+  /// restyles the selected shapes in place, mirroring the toolbar swatches.
+  void _setStrokeColor(Color? color) {
+    if (color == null) return;
+    controller.color = color; // the new default either way
+    if (controller.canRestyleSelected) {
+      controller.restyleSelected(color: color);
     }
   }
 
@@ -3463,6 +3498,11 @@ class _StyleMenuState extends State<_StyleMenu> {
             final shapeFillValue = controller.canFillSelected
                 ? controller.selectedShapeFill
                 : controller.shapeFillColor;
+            // shape/cloud/line outline: a selected shape shows its own /C,
+            // else the creation default
+            final strokeColorValue = restylingAnnotation
+                ? (annotationStyle?.color ?? controller.color)
+                : controller.color;
             return Container(
               width: 300,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -3561,6 +3601,31 @@ class _StyleMenuState extends State<_StyleMenu> {
                         ],
                       ),
                     ),
+                  if (fields.lineScale)
+                    _slider(
+                      key: const ValueKey('pdf-line-scale'),
+                      label: 'Pattern scale',
+                      value: _draggingScale ??
+                          (restylingAnnotation
+                              ? (controller.selectedLineScale ??
+                                  controller.lineScale)
+                              : controller.lineScale),
+                      min: 0.5,
+                      max: 4,
+                      display: (v) => '${v.toStringAsFixed(1)}×',
+                      onChanged: (v) {
+                        setState(() => _draggingScale = v);
+                        if (!restylingAnnotation) controller.lineScale = v;
+                      },
+                      onChangeEnd: (v) {
+                        controller.lineScale = v;
+                        if (restylingAnnotation &&
+                            controller.canSetLineStyleSelected) {
+                          controller.restyleSelected(scale: v);
+                        }
+                        setState(() => _draggingScale = null);
+                      },
+                    ),
                   if (fields.lineEndings) ...[
                     _lineEndingRow(
                       context: context,
@@ -3589,6 +3654,15 @@ class _StyleMenuState extends State<_StyleMenu> {
                       },
                     ),
                   ],
+                  if (fields.strokeColor && widget.showColor)
+                    _boxColorRow(
+                      context: context,
+                      label: 'Outline',
+                      keyPrefix: 'pdf-shape-outline',
+                      value: strokeColorValue,
+                      onChanged: _setStrokeColor,
+                      allowNone: false,
+                    ),
                   if (fields.shapeFill && widget.showColor)
                     _boxColorRow(
                       context: context,
@@ -3646,7 +3720,9 @@ class _StyleMenuState extends State<_StyleMenu> {
                             child: PdfFontMenuButton(
                               controller: controller,
                               fontPicker: widget.fontPicker,
-                              currentFont: selectedStyle?.font ??
+                              // the box's real face (embedded/bundled shows its
+                              // own name, not "Sans")
+                              currentFont: controller.selectedTextFont ??
                                   captionStyle?.font ??
                                   controller.activeFont ??
                                   controller.fontFamily,
@@ -3677,8 +3753,75 @@ class _StyleMenuState extends State<_StyleMenu> {
                               PdfTextAlign.left,
                           onChanged: _setTextAlign,
                         ),
+                        const Spacer(),
+                        // whole-box underline (a per-run underline is set from
+                        // the inline editor's style chip)
+                        IconButton(
+                          key: const ValueKey('pdf-text-underline'),
+                          icon: const Icon(Icons.format_underlined, size: 18),
+                          tooltip: 'Underline',
+                          isSelected:
+                              controller.selectedFreeTextStyle?.underline ??
+                                  controller.textUnderline,
+                          onPressed: () => controller.setSelectedTextBoxStyle(
+                              underline: !(controller
+                                      .selectedFreeTextStyle?.underline ??
+                                  controller.textUnderline)),
+                        ),
                       ]),
                     ),
+                    if (captionStyle == null) ...[
+                      _slider(
+                        key: const ValueKey('pdf-text-line-spacing'),
+                        label: 'Line spacing',
+                        value: _draggingLineSpacing ??
+                            controller.selectedFreeTextStyle?.lineSpacing ??
+                            controller.lineSpacing,
+                        min: 0.8,
+                        max: 3,
+                        display: (v) => '${v.toStringAsFixed(1)}×',
+                        onChanged: (v) =>
+                            setState(() => _draggingLineSpacing = v),
+                        onChangeEnd: (v) {
+                          controller.setSelectedTextBoxStyle(lineSpacing: v);
+                          setState(() => _draggingLineSpacing = null);
+                        },
+                      ),
+                      _slider(
+                        key: const ValueKey('pdf-text-char-spacing'),
+                        label: 'Char spacing',
+                        value: _draggingCharSpacing ??
+                            controller.selectedFreeTextStyle?.charSpacing ??
+                            controller.charSpacing,
+                        min: -2,
+                        max: 10,
+                        display: (v) => '${v.toStringAsFixed(1)} pt',
+                        parse: _parsePoints,
+                        onChanged: (v) =>
+                            setState(() => _draggingCharSpacing = v),
+                        onChangeEnd: (v) {
+                          controller.setSelectedTextBoxStyle(charSpacing: v);
+                          setState(() => _draggingCharSpacing = null);
+                        },
+                      ),
+                      _slider(
+                        key: const ValueKey('pdf-text-font-width'),
+                        label: 'Font width',
+                        value: _draggingFontWidth ??
+                            controller.selectedFreeTextStyle?.horizontalScale ??
+                            controller.fontWidth,
+                        min: 50,
+                        max: 200,
+                        display: (v) => '${v.round()}%',
+                        parse: _parsePoints,
+                        onChanged: (v) =>
+                            setState(() => _draggingFontWidth = v),
+                        onChangeEnd: (v) {
+                          controller.setSelectedTextBoxStyle(fontWidth: v);
+                          setState(() => _draggingFontWidth = null);
+                        },
+                      ),
+                    ],
                   ],
                   if (fields.boxColors && widget.showColor) ...[
                     _boxColorRow(

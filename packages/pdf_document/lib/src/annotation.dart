@@ -279,6 +279,17 @@ class PdfAnnotation {
     return style is CosName && style.value == 'Cloudy';
   }
 
+  /// The cloud scallop scale carried on `/BE /I` (§12.5.4) - the border
+  /// effect intensity, which the editor also uses as a puff-size multiplier
+  /// so a cloud's scallop size survives a restyle or reshape independently
+  /// of its stroke width. Defaults to 1 when absent or not cloudy.
+  double get cloudBorderScale {
+    final be = document.cos.resolve(dict['BE']);
+    if (be is! CosDictionary) return 1;
+    final intensity = _number(document.cos.resolve(be['I']));
+    return intensity == null || intensity <= 0 ? 1 : intensity;
+  }
+
   /// The endpoints of a /Line annotation, page space.
   ((double, double), (double, double))? get line {
     if (subtype != 'Line') return null;
@@ -580,6 +591,15 @@ class PdfAnnotation {
     final background = color;
     final width = borderWidth ?? 0;
     final q = document.cos.resolve(dict['Q']);
+    final cos = document.cos;
+    double? number(String key) {
+      final v = cos.resolve(dict[key]);
+      if (v is CosInteger) return v.value.toDouble();
+      if (v is CosReal) return v.value;
+      return null;
+    }
+
+    final underlineFlag = cos.resolve(dict[kPdfFreeTextUnderlineKey]);
     return PdfFreeTextStyle(
       fontName: tf.group(1)!,
       fontSize: size,
@@ -588,6 +608,12 @@ class PdfAnnotation {
       borderColor: lastColor('RG') ?? (width > 0 ? text : null),
       borderWidth: width,
       alignment: PdfTextAlign.fromQuadding(q is CosInteger ? q.value : null),
+      lineSpacing:
+          number(kPdfFreeTextLineSpacingKey) ?? kPdfFreeTextDefaultLineSpacing,
+      charSpacing: number(kPdfFreeTextCharSpacingKey) ?? 0,
+      horizontalScale:
+          number(kPdfFreeTextHScaleKey) ?? kPdfFreeTextDefaultHorizontalScale,
+      underline: underlineFlag is CosBoolean && underlineFlag.value,
     );
   }
 
@@ -756,6 +782,22 @@ String pdfFormatDate(DateTime time) {
       "${two(t.hour)}${two(t.minute)}${two(t.second)}Z00'00'";
 }
 
+/// Dictionary keys where free-text styling that /DA and /Q cannot express
+/// is persisted (line height, character spacing, horizontal glyph scaling,
+/// whole-box underline). Non-standard PDF keys, written and read back only
+/// by this package so a resize/edit can regenerate the same appearance.
+const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
+const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
+const String kPdfFreeTextHScaleKey = 'HScale';
+const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+
+/// The default free-text line-height multiplier (baseline-to-baseline
+/// distance is `fontSize * lineSpacing`).
+const double kPdfFreeTextDefaultLineSpacing = 1.2;
+
+/// The default free-text horizontal glyph scaling, as a percentage.
+const double kPdfFreeTextDefaultHorizontalScale = 100.0;
+
 /// A free-text annotation's text and box styling, as recoverable from
 /// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are
 /// 0xRRGGBB.
@@ -768,6 +810,10 @@ class PdfFreeTextStyle {
     this.borderColor,
     this.borderWidth = 0,
     this.alignment = PdfTextAlign.left,
+    this.lineSpacing = kPdfFreeTextDefaultLineSpacing,
+    this.charSpacing = 0,
+    this.horizontalScale = kPdfFreeTextDefaultHorizontalScale,
+    this.underline = false,
   });
 
   /// The /DA font resource name (e.g. `Helv`), unresolved.
@@ -787,6 +833,20 @@ class PdfFreeTextStyle {
   /// How the lines are aligned inside the box (the /Q quadding). Defaults
   /// to [PdfTextAlign.left] when the annotation carries no /Q.
   final PdfTextAlign alignment;
+
+  /// The line-height multiplier (baseline-to-baseline distance is
+  /// `fontSize * lineSpacing`). Defaults to [kPdfFreeTextDefaultLineSpacing].
+  final double lineSpacing;
+
+  /// Extra spacing added after each glyph, in points (the Tc value).
+  final double charSpacing;
+
+  /// Horizontal glyph scaling as a percentage - 100 is the font's natural
+  /// width (the Tz value).
+  final double horizontalScale;
+
+  /// Whether the whole box is drawn underlined.
+  final bool underline;
 }
 
 /// A /Link annotation: a clickable region with an action (§12.5.6.5).

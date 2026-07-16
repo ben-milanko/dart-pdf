@@ -98,6 +98,12 @@ class DocumentTab {
   /// True when the document has edits not yet written to disk.
   bool get isDirty => session != null && session!.bytes.length != savedLength;
 
+  /// True until this document has been saved at least once. A brand-new
+  /// document (created via New, [initiallyDirty]) has no saved baseline, so
+  /// it is savable even before the first edit; [markSaved] establishes the
+  /// baseline and clears this.
+  bool get isUnsaved => session != null && savedLength < 0;
+
   /// Marks the current revision as the saved baseline (call after a save).
   void markSaved() {
     if (session != null) savedLength = session!.bytes.length;

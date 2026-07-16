@@ -182,6 +182,54 @@ extension PdfContentEditing on PdfEditor {
     String replace, {
     List<PdfEmbeddedFont> fallbackFonts = const [],
     PdfTextStyle? style,
+  }) =>
+      _replaceText(
+        index,
+        find,
+        replace,
+        fallbackFonts: fallbackFonts,
+        style: style,
+      );
+
+  /// Replaces [find] only inside one text [element], leaving identical text
+  /// in every other page-content operation untouched.
+  ///
+  /// [elements] and [element] must come from the same [PdfPageElements]
+  /// snapshot. Element handles die with every edit revision. This targeted
+  /// form backs selection-driven editing, where changing the occurrence the
+  /// user selected must not rewrite the same word elsewhere on the page.
+  int replaceElementText(
+    PdfPageElements elements,
+    PdfContentElement element,
+    String find,
+    String replace, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+    PdfTextStyle? style,
+  }) {
+    if (element.kind != PdfElementKind.text ||
+        element.id < 0 ||
+        element.id >= elements.elements.length ||
+        !identical(elements.elements[element.id], element)) {
+      throw ArgumentError.value(
+          element, 'element', 'is not a text element in this snapshot');
+    }
+    return _replaceText(
+      elements.pageIndex,
+      find,
+      replace,
+      fallbackFonts: fallbackFonts,
+      style: style,
+      operationRange: (element.start, element.end),
+    );
+  }
+
+  int _replaceText(
+    int index,
+    String find,
+    String replace, {
+    required List<PdfEmbeddedFont> fallbackFonts,
+    required PdfTextStyle? style,
+    (int start, int end)? operationRange,
   }) {
     if (find.isEmpty) throw ArgumentError.value(find, 'find', 'is empty');
     // the simple-font path is byte-encoded; non-Latin-1 strings can only be
@@ -249,12 +297,22 @@ extension PdfContentEditing on PdfEditor {
         }
       }
       if (op.operator == 'Tj' || op.operator == 'TJ') {
+        // Targeted selection edits leave every show operation outside the
+        // selected element byte-for-byte alone. In particular, do not merge
+        // an adjacent unselected Tj/TJ into the selected run.
+        if (operationRange != null &&
+            (i < operationRange.$1 || i >= operationRange.$2)) {
+          rewritten.add(op);
+          i++;
+          continue;
+        }
         // a run is a maximal stretch of adjacent show operators: text
         // state (font, position) is constant across it, so the strings
         // read as one line and may be merged into a single TJ.
         final run = <ContentOperation>[];
         while (i < ops.length &&
-            (ops[i].operator == 'Tj' || ops[i].operator == 'TJ')) {
+            (ops[i].operator == 'Tj' || ops[i].operator == 'TJ') &&
+            (operationRange == null || i < operationRange.$2)) {
           run.add(ops[i]);
           i++;
         }
@@ -293,6 +351,8 @@ extension PdfContentEditing on PdfEditor {
       // ' and " carry a line break, so they stand alone; a single string
       // with nothing after it on its line needs no width compensation.
       if ((op.operator == "'" || op.operator == '"') &&
+          (operationRange == null ||
+              (i >= operationRange.$1 && i < operationRange.$2)) &&
           !_isType0(cos, font) &&
           findBytes != null &&
           replaceBytes != null) {

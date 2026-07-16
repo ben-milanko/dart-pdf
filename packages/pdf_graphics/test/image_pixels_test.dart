@@ -402,6 +402,86 @@ void main() {
     ]);
   });
 
+  test('scaled CCITT gray avoids native RGBA expansion', () {
+    // 64x24 Group-4 image encoded independently by libtiff. The direct scaled
+    // result must be identical to the historical full decode + area-average,
+    // including /Decode inversion and raw-sample color-key transparency.
+    const group4 = [
+      200,
+      25,
+      156,
+      93,
+      148,
+      12,
+      216,
+      49,
+      178,
+      139,
+      251,
+      40,
+      71,
+      143,
+      254,
+      72,
+      95,
+      101,
+      107,
+      236,
+      173,
+      61,
+      148,
+      31,
+      178,
+      136,
+      29,
+      148,
+      141,
+      148,
+      124,
+      127,
+      32,
+      215,
+      101,
+      102,
+      202,
+      189,
+      130,
+      136,
+      240,
+      1,
+      0,
+      16,
+    ];
+    final stream = image({
+      'Width': const CosInteger(64),
+      'Height': const CosInteger(24),
+      'BitsPerComponent': const CosInteger(1),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('CCITTFaxDecode'),
+      'DecodeParms': CosDictionary({
+        'K': const CosInteger(-1),
+        'Columns': const CosInteger(64),
+        'Rows': const CosInteger(24),
+      }),
+      'Decode': CosArray([
+        const CosInteger(1),
+        const CosInteger(0),
+      ]),
+      'Mask': CosArray([
+        const CosInteger(1),
+        const CosInteger(1),
+      ]),
+    }, group4);
+
+    final full = decodePdfImagePixels(cos, stream)!;
+    final expected = downsamplePdfDecodedPixels(full, 8, 3);
+    final scaled = decodePdfImagePixelsScaled(cos, stream, 8, 3)!;
+
+    expect(scaled.width, 8);
+    expect(scaled.height, 3);
+    expect(scaled.rgba, expected.rgba);
+  });
+
   test('decodePdfImageBase returns straight, unmasked, opaque RGBA', () {
     final smask = image({
       'Width': const CosInteger(1),
@@ -427,5 +507,147 @@ void main() {
     final base = decodePdfImageBase(cos, stream)!;
     expect(base.opaque, isTrue);
     expect(base.rgba, [10, 20, 30, 255]);
+  });
+
+  // Separation and DeviceN samples reach RGB through a tint transform, which
+  // the decoder resolves once per distinct sample tuple rather than once per
+  // pixel. These pin that the shared answers stay per-pixel correct.
+  group('tint transform', () {
+    /// `{ dup 0.5 mul exch 0.25 mul 0.0 0.0 }`: one ink in, CMYK out, with
+    /// different factors per output so a mixed-up tuple cannot pass by luck.
+    CosStream separation(List<int> samples, {Map<String, CosObject> extra = const {}}) =>
+        image({
+          'Width': CosInteger(samples.length),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': CosArray([
+            const CosName('Separation'),
+            const CosName('Spot'),
+            const CosName('DeviceCMYK'),
+            CosStream(
+                CosDictionary({
+                  'FunctionType': const CosInteger(4),
+                  'Domain': CosArray([const CosReal(0), const CosReal(1)]),
+                  'Range': CosArray([
+                    for (var i = 0; i < 4; i++) ...[
+                      const CosReal(0),
+                      const CosReal(1)
+                    ]
+                  ]),
+                }),
+                Uint8List.fromList(
+                    '{ dup 0.5 mul exch 0.25 mul 0.0 0.0 }'.codeUnits)),
+          ]),
+          ...extra,
+        }, samples);
+
+    test('repeated samples decode the same as their first occurrence', () {
+      // 0 and 255 repeat out of order, so a stale or mis-keyed answer shows up
+      // as one pixel disagreeing with its twin.
+      const samples = [0, 128, 255, 128, 0, 255, 64];
+      final pixels = decodePdfImagePixels(cos, separation(samples))!;
+      expect(pixels.width, samples.length);
+
+      List<int> pixelAt(int i) => pixels.rgba.sublist(i * 4, i * 4 + 4);
+      for (var i = 0; i < samples.length; i++) {
+        final first = samples.indexOf(samples[i]);
+        expect(pixelAt(i), pixelAt(first),
+            reason: 'sample ${samples[i]} at $i differs from its first '
+                'occurrence at $first');
+      }
+      // Distinct inks must not collapse onto one another.
+      expect(pixelAt(0), isNot(pixelAt(1)));
+      expect(pixelAt(1), isNot(pixelAt(2)));
+    });
+
+    test('every distinct sample maps through the tint transform', () {
+      // All 256 inputs, each appearing twice: the answers must match the
+      // transform evaluated directly, so sharing cannot drift from the maths.
+      final samples = [for (var i = 0; i < 256; i++) i, for (var i = 0; i < 256; i++) i];
+      final pixels = decodePdfImagePixels(cos, separation(samples))!;
+
+      for (var i = 0; i < samples.length; i++) {
+        final tint = samples[i] / 255;
+        // The tint transform's CMYK, converted the way the decoder does.
+        final expected = colorFromComponents(
+            [tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
+        expect(pixels.rgba[i * 4], (expected.red * 255).round().clamp(0, 255),
+            reason: 'red for sample ${samples[i]}');
+        expect(pixels.rgba[i * 4 + 1],
+            (expected.green * 255).round().clamp(0, 255),
+            reason: 'green for sample ${samples[i]}');
+        expect(pixels.rgba[i * 4 + 2],
+            (expected.blue * 255).round().clamp(0, 255),
+            reason: 'blue for sample ${samples[i]}');
+        expect(pixels.rgba[i * 4 + 3], 255);
+      }
+    });
+
+    test('color-key /Mask stays per-pixel when samples repeat', () {
+      // Alpha depends on the raw sample, not the shared colour: the two 128s
+      // must both key out while their neighbours stay opaque.
+      final pixels = decodePdfImagePixels(
+          cos,
+          separation([0, 128, 255, 128], extra: {
+            'Mask': CosArray([const CosInteger(128), const CosInteger(128)]),
+          }))!;
+      expect([for (var i = 0; i < 4; i++) pixels.rgba[i * 4 + 3]],
+          [255, 0, 255, 0]);
+    });
+
+    test('/Decode inverts the ink before the tint transform', () {
+      // /Decode [1 0] maps sample 0 to full ink: pixel 0 must equal what
+      // sample 255 gives without /Decode.
+      final plain = decodePdfImagePixels(cos, separation([0, 255]))!;
+      final inverted = decodePdfImagePixels(
+          cos,
+          separation([0, 255], extra: {
+            'Decode': CosArray([const CosReal(1), const CosReal(0)]),
+          }))!;
+      expect(inverted.rgba.sublist(0, 4), plain.rgba.sublist(4, 8));
+      expect(inverted.rgba.sublist(4, 8), plain.rgba.sublist(0, 4));
+    });
+
+    test('DeviceN keys each colorant separately', () {
+      // `{ pop dup 0.0 0.0 }` drops InkB and paints with InkA alone, so a key
+      // that ignored InkA would make (0,255) and (255,0) agree, while one that
+      // ignored InkB would (correctly) keep (0,255) and (0,0) together.
+      final stream = image({
+        'Width': const CosInteger(3),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': CosArray([
+          const CosName('DeviceN'),
+          CosArray([const CosName('InkA'), const CosName('InkB')]),
+          const CosName('DeviceCMYK'),
+          CosStream(
+              CosDictionary({
+                'FunctionType': const CosInteger(4),
+                'Domain': CosArray([
+                  const CosReal(0),
+                  const CosReal(1),
+                  const CosReal(0),
+                  const CosReal(1)
+                ]),
+                'Range': CosArray([
+                  for (var i = 0; i < 4; i++) ...[
+                    const CosReal(0),
+                    const CosReal(1)
+                  ]
+                ]),
+              }),
+              Uint8List.fromList('{ pop dup 0.0 0.0 }'.codeUnits)),
+        ]),
+      }, [
+        0, 255, //
+        0, 0, //
+        255, 0,
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      List<int> pixelAt(int i) => pixels.rgba.sublist(i * 4, i * 4 + 4);
+      expect(pixelAt(0), pixelAt(1)); // InkB is dropped by the transform
+      expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
+    });
   });
 }

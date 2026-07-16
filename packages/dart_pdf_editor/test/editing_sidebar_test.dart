@@ -114,6 +114,65 @@ void main() {
     expect(editing.document.page(0).annotations, hasLength(2));
   });
 
+  testWidgets('locked rows still navigate and flash but expose no edit actions',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(250, 350, 400, 450))
+      ..addEllipse(0, const PdfRect(100, 100, 200, 150));
+    final locked = editing.annotationAt(0, 0)!;
+    editing.apply(
+      (editor) => editor.setAnnotationFlags(0, locked, 128),
+    );
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await pumpSidebar(tester, editing, viewer);
+
+    expect(
+        find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsNothing);
+    expect(find.byKey(const ValueKey('pdf-annotation-delete-0-1')),
+        findsOneWidget);
+
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    expect(editing.hasAnnotationSelection, isFalse);
+    expect(editing.pendingFlash, isNotNull);
+    expect(editing.pendingFlash?.slot, 0);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Square'));
+    await tester.pump();
+    expect(find.text('1 selected'), findsNothing);
+
+    await tester.longPress(find.text('Circle'));
+    await tester.pump();
+    expect(find.text('1 selected'), findsOneWidget);
+
+    final squareTile = find.ancestor(
+      of: find.text('Square'),
+      matching: find.byType(ListTile),
+    );
+    final circleTile = find.ancestor(
+      of: find.text('Circle'),
+      matching: find.byType(ListTile),
+    );
+    final squareCheckbox = tester.widget<Checkbox>(find.descendant(
+      of: squareTile,
+      matching: find.byType(Checkbox),
+    ));
+    final circleCheckbox = tester.widget<Checkbox>(find.descendant(
+      of: circleTile,
+      matching: find.byType(Checkbox),
+    ));
+    expect(squareCheckbox.onChanged, isNull);
+    expect(circleCheckbox.onChanged, isNotNull);
+
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    expect(find.text('1 selected'), findsOneWidget);
+    await tester.pump(PdfEditingController.flashLifetime);
+  });
+
   testWidgets('tapping a tile zooms the viewer to the annotation',
       (tester) async {
     // mid-page, so framing it needs no clamping at the document edges

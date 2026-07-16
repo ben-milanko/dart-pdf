@@ -1,6 +1,15 @@
 # DartPDF App Store / Play Store listing copy
 
 Accurate to what the app ships today. Character budgets noted per field.
+Update this file whenever the live listings change — it is the source of
+truth for re-submissions.
+
+> ⚠️ **Apple Guideline 2.3.10 — do not mention other platforms.** The App
+> Store description, subtitle, promo text, keywords, and screenshots must
+> not reference Android, Windows, Linux, or the web. Version 1.1.0 was
+> rejected for exactly this; it was fixed in 1.2.2. The cross-platform
+> sentence appears **only** in the Google Play description below. Never
+> copy the Play description into App Store Connect.
 
 ---
 
@@ -11,10 +20,14 @@ Accurate to what the app ships today. Character budgets noted per field.
 **Subtitle** (≤30): `Edit, annotate & sign PDFs` _(26)_
 
 **Promotional text** (≤170, editable without review):
-`A PDF editor that runs entirely on your device. Mark up, fill in forms, sign, redact, and rearrange pages. No account, no ads, no uploads.` _(135)_
+`A PDF editor that runs entirely on your device. Mark up, fill in forms, sign, redact, and rearrange pages. No account, no ads, no uploads.` _(138)_
 
 **Keywords** (≤100, comma-separated, no spaces):
-`pdf,editor,annotate,markup,highlight,sign,signature,form,fill,redact,merge,pages,document,viewer,scan` _(100)_
+`pdf,editor,annotate,markup,highlight,sign,signature,form,fill,redact,merge,pages,scan,ocr,compare` _(97)_
+
+_(Dropped `document` and `viewer` — too generic to rank for an editor app —
+in favor of `ocr` and `compare`, which are real features people search by
+name.)_
 
 **Description** (≤4000):
 
@@ -30,7 +43,7 @@ Features:
 • Highlight, underline, strikethrough, and freehand ink
 • Shapes, arrows, text boxes, notes, and stamps
 • Edit existing text and add images
-• Redaction
+• Redaction that removes the covered text and images from the file, not just from view
 • Fill form fields (text, checkboxes, radio buttons, dropdowns), or add your own
 • Drawn signatures placed anywhere, plus certificate-backed PAdES digital signatures
 • OCR scanned PDFs so text can be selected and searched
@@ -39,11 +52,14 @@ Features:
 • Compare two versions side by side
 • Open password-protected files
 
-Runs on iPhone, iPad, and Mac, plus Android, Windows, Linux, and the web. Opens PDFs from the Files app, share sheets, or drag-and-drop. Light and dark themes.
+Runs on iPhone, iPad, and Mac. Opens PDFs from the Files app, share sheets, or drag-and-drop. Light and dark themes.
 ```
 
-**What's New** (first release):
-`First release. A PDF editor that runs on your device: annotate, fill forms, sign, redact, edit text and images, and rearrange pages.`
+**What's New** (write per release, in user-benefit language — no engine
+jargon like "retained rendering" or "off-thread processing"):
+
+Current (1.4.1):
+`Large drawings and scanned plans now render sharper and stay smooth while you scroll. New: callout annotations with leader lines, and rich-text styling when editing text.`
 
 ---
 
@@ -68,7 +84,7 @@ Features:
 • Highlight, underline, strikethrough, and freehand ink
 • Shapes, arrows, text boxes, notes, and stamps
 • Edit existing text and add images
-• Redaction
+• Redaction that removes the covered text and images from the file, not just from view
 • Fill form fields (text, checkboxes, radio buttons, dropdowns), or add your own
 • Drawn signatures placed anywhere, plus certificate-backed PAdES digital signatures
 • OCR scanned PDFs so text can be selected and searched
@@ -91,5 +107,11 @@ Runs on Android, iPhone, iPad, and Mac, plus Windows, Linux, and the web. Opens 
   native builds download a model once and then run OCR on device; web builds
   download browser model/runtime files and run OCR in the browser. Do not imply
   that OCR goes through a DartPDF server.
-- "Redaction" hides content on the page; describe it as blacking-out/hiding rather than guaranteeing forensic removal.
+- Redaction: "removes from the file" is accurate — applying redactions burns
+  them per PDF §12.5.6.23 (covered glyphs and fully-covered images are
+  deleted from the content stream, then the whole file is re-serialized so
+  the old bytes are gone; a byte search cannot recover them). One honest
+  limit: an image only *partially* inside a redaction rect is painted over,
+  not stripped — don't claim pixel-level removal *inside* partially-redacted
+  images. See `pdf_document/lib/src/redaction.dart`.
 - Keep the privacy claims exact. They match `app/PRIVACY.md` (collects nothing, on-device).

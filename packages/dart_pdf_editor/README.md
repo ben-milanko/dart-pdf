@@ -142,6 +142,9 @@ are byte prefixes of one buffer.
 - Certificate-backed digital signatures: load an in-memory RSA private key
   and X.509 chain, then add a validated PAdES B-B signature as an undoable
   document revision. This is separate from the drawn ink-signature tool.
+- True redaction: place `/Redact` marks, then burn them per §12.5.6.23 —
+  covered text and images are removed from the file bytes with a compacted
+  save (not painted over), so the redacted content is unrecoverable.
 - Direct manipulation: select (single, marquee, ⌘A), move, resize, and
   rotate with live appearance previews, plus a slicing circle eraser,
   copy/cut/paste, z-order, restyling, and a context menu with
@@ -161,7 +164,9 @@ are byte prefixes of one buffer.
   `canEditAnnotation` predicate implements policies like "users may
   only edit their own annotations" in one line.
 - Sync: an `annotationChanges` feed plus `applyRemoteChange` for wiring
-  annotations to a collaborative store (Firestore, websockets, etc.).
+  annotations to a collaborative store (Firestore, websockets, etc.). A
+  remote apply is a non-crossable undo checkpoint; later local edits remain
+  undoable without removing the remote state.
 
 ## Composing your own UI
 

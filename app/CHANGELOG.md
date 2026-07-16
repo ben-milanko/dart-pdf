@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.6
+
+- Hover a document tab on desktop to preview the page before switching to it,
+  and open a grid of all open documents to jump between them.
+- Edit, style, and markup actions are now offered directly when you select text
+  in a document.
+- Tightened the desktop menus so more fits on screen without scrolling.
+- Arabic search now matches text copied out of a page, marks and vowel signs
+  stay attached to their letters when selecting or copying, and pasted Arabic
+  renders with a bundled font.
+- Large scanned pages open faster and use less memory.
+
+## 1.4.5
+
+- Correct Arabic and other right-to-left page-text extraction, selection, and
+  copy ordering, including multi-word lines.
+
 ## 1.4.4
 
 - Ship the regenerated editor web worker so browser builds include the current

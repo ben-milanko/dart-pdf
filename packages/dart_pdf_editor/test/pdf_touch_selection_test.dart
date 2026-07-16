@@ -23,20 +23,47 @@ void main() {
   Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
 
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
-      {int pages = 3}) async {
+      {int pages = 3, Uint8List? bytes}) async {
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: PdfViewer(
           initialFit: PdfViewerFit.width,
-          document: PdfDocument.open(buildMultiPagePdf(pages)),
+          document: PdfDocument.open(bytes ?? buildMultiPagePdf(pages)),
           controller: controller,
         ),
       ),
     ));
     await tester.pump();
     return controller;
+  }
+
+  Future<({PdfViewerController viewer, PdfEditingController editing})>
+      pumpEditor(
+    WidgetTester tester, {
+    PdfStyledTextPrompt? styledTextPrompt,
+  }) async {
+    final viewer = PdfViewerController();
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(viewer.dispose);
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            controller: viewer,
+            editing: editing,
+            editingStyledTextPrompt: styledTextPrompt,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    return (viewer: viewer, editing: editing);
   }
 
   /// Long-presses the word at [at] and lifts, leaving handles + chip.
@@ -95,6 +122,50 @@ void main() {
   });
 
   group('long-press selection', () {
+    testWidgets('RTL selection starts on the right edge', (tester) async {
+      final controller = await pumpViewer(tester, bytes: buildRtlTextPdf());
+      await longPressSelect(tester, view(336, 720));
+
+      expect(controller.selectedText, 'اهلا');
+      final start =
+          tester.getCenter(find.byKey(const ValueKey('pdf-text-handle-start')));
+      final end =
+          tester.getCenter(find.byKey(const ValueKey('pdf-text-handle-end')));
+      expect(start.dx, closeTo(view(360, 720).dx, 1));
+      expect(end.dx, closeTo(view(312, 720).dx, 1));
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('RTL long-press selection keeps word order across lines',
+        (tester) async {
+      final controller = await pumpViewer(tester, bytes: buildRtlTextPdf());
+      final gesture = await tester.startGesture(view(336, 720));
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(view(276, 680));
+      await tester.pump();
+
+      expect(controller.selectedText, 'اهلا وسهلا\nكيف حالك');
+      await gesture.up();
+      await tester.pump();
+
+      final copied = <String?>[];
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String?);
+        }
+        return null;
+      });
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-text-selection-chip-copy')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(copied, [
+        '\u2067اهلا وسهلا\u2069\n'
+            '\u2067كيف حالك\u2069'
+      ]);
+    });
+
     testWidgets(
         'long press selects the word under the finger and shows '
         'handles and the chip', (tester) async {
@@ -107,6 +178,10 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-text-handle-end')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-text-selection-chip')),
           findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-selection-chip-edit')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-text-selection-chip-markup')),
+          findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -302,6 +377,66 @@ void main() {
       expect(controller.selectedText, 'Page 1');
       expect(find.byKey(const ValueKey('pdf-text-selection-chip')),
           findsOneWidget);
+    });
+  });
+
+  group('editor selection actions', () {
+    testWidgets('the editor chip exposes pencil and markup actions',
+        (tester) async {
+      await pumpEditor(tester);
+      await longPressSelect(tester, view(100, 720));
+
+      expect(find.byKey(const ValueKey('pdf-text-selection-chip-edit')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-selection-chip-markup')),
+          findsOneWidget);
+    });
+
+    testWidgets('the pencil edits only the selected text occurrence',
+        (tester) async {
+      String? promptedWith;
+      final state = await pumpEditor(
+        tester,
+        styledTextPrompt: (context,
+            {required initial, palette = const <Color>[], pickFont}) async {
+          promptedWith = initial;
+          return const PdfStyledTextEdit('Document', PdfTextStyle());
+        },
+      );
+      await longPressSelect(tester, view(100, 720));
+      expect(state.viewer.selectedText, 'Page');
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-text-selection-chip-edit')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(promptedWith, 'Page');
+      final text = PdfPageElements.of(state.editing.document, 0)
+          .elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .map((element) => element.text)
+          .join();
+      expect(text, 'Document 1');
+      expect(state.viewer.hasSelection, isFalse);
+    });
+
+    testWidgets('the markup menu applies a highlight to the selection',
+        (tester) async {
+      final state = await pumpEditor(tester);
+      await longPressSelect(tester, view(100, 720));
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-text-selection-chip-markup')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-text-selection-highlight')));
+      await tester.pumpAndSettle();
+
+      expect(state.editing.document.page(0).annotations.single.subtype,
+          'Highlight');
+      expect(state.viewer.hasSelection, isFalse);
     });
   });
 }

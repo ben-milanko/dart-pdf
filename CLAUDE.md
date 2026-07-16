@@ -127,6 +127,15 @@ wired into sc/scn and image decoding). RSASSA-PSS verification is in
 recovery, KAT vs OpenSSL; PSS-params parsing and dispatch in cms.dart's
 `cmsVerify` and `X509Certificate.isSignedBy`). Remaining gaps:
 JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
+The decoded-image cache budget (`PdfImageCache.maxBytes`, settable) is
+platform-aware: `pdfDefaultImageCacheBytes()` in performance_policy.dart -
+desktop 256 MB, mobile/web 128 MB, 64 MB on a <=2 GB browser device
+(`navigator.deviceMemory`, web-only and secure-context-only, via the
+performance_memory.dart conditional export). The numbers are measured, not
+guessed - see doc/dev-log/2026-07-16-image-cache-budget.md and
+`test/benchmark_image_cache_budget_test.dart`; re-run it before changing
+them. `didHaveMemoryPressure` on the viewer clears the image + preview
+caches.
 The editing UI is in (dart_pdf_editor `src/editing/`): `PdfEditingController`
 owns the edit session - every edit is an incremental save, so revisions
 are byte prefixes of one buffer and undo/redo is a stack of lengths;

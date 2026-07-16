@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased
+
+- Shapes and revision clouds: add an "Outline" colour row to the tune popup,
+  next to "Fill", so a cloud's stroke colour can be picked from the tune menu
+  (not just the toolbar swatches) — armed or with the shape selected.
+- Bound the render worker's page-record cache by entry count, not only by
+  decoded-image bytes: image-free and vector-first records weigh zero, so on a
+  long scroll they used to accumulate one (or more) per page for the life of
+  the worker with no limit (issue #283). The cache now caps retained records
+  (`pdfRenderWorkerCacheMaxEntries`, default 64), so a long document's memory
+  no longer grows unbounded in the page count.
+- Free-text boxes: add line spacing, character spacing, font width
+  (horizontal scaling), and underline controls (tune popup + properties
+  panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.
+- Fix backspacing in an inline free-text editor sliding a bold (or otherwise
+  styled) run onto the following characters — style runs now follow their
+  own text across edits.
+- Resize an embedded/bundled-font free-text box by re-wrapping it (as with
+  base-14 boxes) instead of stretching the glyphs, and keep rich per-run
+  styling across the resize.
+- Keep a free-text box's alignment in the resize preview and post-commit
+  afterimage so it no longer appears to snap to the left while dragging.
+- Show a free-text box's actual (embedded/bundled) font name in the font
+  picker instead of collapsing it to "Sans".
+- Stop the inline editor's line spacing shifting when a run's font changes
+  in the tune popup (font-independent leading, matching the appearance).
+- Fix tapping a free-text style-chip button (underline, size, …) on touch
+  devices committing and deselecting the box out from under the tap.
+
+## 1.4.6
+
+- Expose edit-and-style and markup actions when text is selected in an
+  editor-backed viewer, on both touch and desktop context menus.
+- Treat each `applyRemoteChange` as an undo checkpoint: local edits made after
+  a remote apply stay undoable, but undo can no longer remove remote state or
+  cross into older local history.
+- Fall back to the bundled DejaVu Sans and platform Arabic faces when
+  substituting fonts, so Arabic (including the presentation forms copied out
+  of shaped PDFs), Hebrew, Greek, and Cyrillic render on hosts whose Helvetica
+  substitute has no suitable fallback.
+- Regenerate the bundled web render worker so browser builds pick up the
+  scaled CCITT decode path and the right-to-left text fixes.
+
+## 1.4.5
+
+## 1.4.5
+
+- Correct selection and copy ordering for multi-word Arabic and other
+  right-to-left page text.
+
 ## 1.4.4
 
 - Regenerate the bundled web render worker from the current sources so web

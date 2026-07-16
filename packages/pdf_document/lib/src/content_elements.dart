@@ -57,7 +57,8 @@ class PdfContentElement {
   /// Multi-byte and symbolic encodings come out garbled but unique.
   final String? text;
 
-  /// The /XObject resource name for [PdfElementKind.image] and
+  /// The active /Font resource name for [PdfElementKind.text], or the
+  /// /XObject resource name for [PdfElementKind.image] and
   /// [PdfElementKind.form].
   final String? resourceName;
 
@@ -321,6 +322,7 @@ class PdfPageElements {
           final m = _multiply(text.matrix, ctm);
           addElement(PdfElementKind.text, i, i + 1,
               shown: string,
+              resource: text.fontName,
               bounds: _hull([
                 _apply(m, 0, -0.2 * text.size),
                 _apply(m, width, -0.2 * text.size),

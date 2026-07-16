@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.6
+
+- Keep Arabic tashkil and other zero-advance marks with their base glyph when
+  reconstructing page text, so extraction and selection follow logical order
+  even when the content stream paints each mark as its own positioned run.
+- Ignore Unicode BiDi formatting controls in literal `PdfPageText.findAll`
+  queries, so right-to-left text copied out of a page can be pasted back into
+  search and still match.
+- Decode scaled and region CCITT and 1-bit gray images straight into the
+  display raster, skipping the native-size RGBA expansion that large scans
+  previously paid for.
+
+## 1.4.5
+
+- Preserve logical word order while reconstructing Arabic and other
+  right-to-left text, including multi-word lines and mixed-direction content.
+
 ## 1.4.4
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.4. No

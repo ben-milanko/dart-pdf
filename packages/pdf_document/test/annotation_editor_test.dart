@@ -1103,8 +1103,10 @@ void main() {
     expect(annotation.rect.right, greaterThan(220));
     final content = appearanceText(doc, annotation);
     expect(content, contains(' c\n'));
-    expect(content, contains('f\n'));
-    expect(content, contains('S\n'));
+    // The scalloped cloud outline is filled and stroked in one pass (B), so
+    // the interior colour reaches the puffed edges rather than stopping at
+    // the straight polygon footprint.
+    expect(content, contains('B\n'));
   });
 
   test('cloud scallops stay inside the form BBox (no clipped puffs)', () {
@@ -1130,6 +1132,7 @@ void main() {
         _ => throw StateError('not a number: $r'),
       };
     }
+
     final bx0 = num(bbox[0]);
     final by0 = num(bbox[1]);
     final bx1 = num(bbox[2]);
@@ -1180,6 +1183,76 @@ void main() {
     // and the puffs really do bulge out past the polygon vertices
     expect(maxY, greaterThan(640));
     expect(minY, lessThan(500));
+  });
+
+  test('a cloud scale rides on /BE /I and bulges bigger scallops', () {
+    // The scallop size is driven by cloudScale, independent of the pen.
+    Iterable<double> puffExtent(double scale) {
+      final doc = roundTrip((e) {
+        e.addPolygon(
+          0,
+          [(120, 500), (420, 500), (420, 640), (120, 640)],
+          strokeWidth: 2,
+          cloudy: true,
+          cloudScale: scale,
+        );
+      });
+      final annotation = doc.page(0).annotations.single;
+      expect(annotation.cloudBorderScale, closeTo(scale, 1e-9));
+      final be = doc.cos.resolve(annotation.dict['BE']) as CosDictionary;
+      expect((doc.cos.resolve(be['I']) as CosReal).value, closeTo(scale, 1e-9));
+      // how far the /Rect balloons past the polygon footprint - a proxy for
+      // the scallop bulge
+      return [
+        120 - annotation.rect.left,
+        annotation.rect.right - 420,
+        annotation.rect.top - 640,
+      ];
+    }
+
+    final small = puffExtent(1).toList();
+    final big = puffExtent(2.5).toList();
+    for (var i = 0; i < small.length; i++) {
+      expect(big[i], greaterThan(small[i]));
+    }
+  });
+
+  test('restyling a cloud preserves its scale across a colour change', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+        cloudScale: 2.5,
+      );
+    });
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, color: 0x123456);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.hasCloudyBorder, isTrue);
+    expect(annotation.cloudBorderScale, closeTo(2.5, 1e-9));
+    // and the puffs are still the wider ones the scale asked for
+    expect(annotation.rect.top - 640, greaterThan(20));
+  });
+
+  test('restyleAnnotation cloudScale resizes the scallops', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+      );
+    });
+    final before = doc.page(0).annotations.single.rect.top - 640;
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, cloudScale: 3);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.cloudBorderScale, closeTo(3, 1e-9));
+    expect(annotation.rect.top - 640, greaterThan(before));
   });
 
   test('resizing a dashed arrow regenerates with scaled endpoints', () {
@@ -1397,6 +1470,91 @@ void main() {
     final content = appearanceText(reopened, box);
     final m = RegExp(r'(-?[\d.]+) -?[\d.]+ Td').firstMatch(content);
     expect(double.parse(m!.group(1)!), greaterThan(150));
+  });
+
+  test('free text line/character spacing and width round-trip and emit', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 660),
+          'Spaced out text',
+          lineSpacing: 2.0,
+          charSpacing: 3,
+          horizontalScale: 150,
+        ));
+    final box = doc.page(0).annotations.single;
+    final style = box.freeTextStyle!;
+    expect(style.lineSpacing, closeTo(2.0, 1e-9));
+    expect(style.charSpacing, closeTo(3, 1e-9));
+    expect(style.horizontalScale, closeTo(150, 1e-9));
+
+    final content = appearanceText(doc, box);
+    expect(content, contains('3 Tc'));
+    expect(content, contains('150 Tz'));
+    // leading is fontSize (12) * lineSpacing (2) = 24
+    expect(content, contains('24 TL'));
+
+    // the values survive a resize (which regenerates the appearance)
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 520, 660));
+    final reopened = PdfDocument.open(editor.save());
+    final resized = reopened.page(0).annotations.single.freeTextStyle!;
+    expect(resized.lineSpacing, closeTo(2.0, 1e-9));
+    expect(resized.charSpacing, closeTo(3, 1e-9));
+    expect(resized.horizontalScale, closeTo(150, 1e-9));
+    expect(appearanceText(reopened, reopened.page(0).annotations.single),
+        contains('150 Tz'));
+  });
+
+  test('a plain free text box writes no spacing keys', () {
+    final doc = roundTrip(
+        (e) => e.addFreeText(0, const PdfRect(100, 600, 400, 640), 'Plain'));
+    final dict = doc.page(0).annotations.single.dict;
+    expect(dict[kPdfFreeTextLineSpacingKey], isNull);
+    expect(dict[kPdfFreeTextCharSpacingKey], isNull);
+    expect(dict[kPdfFreeTextHScaleKey], isNull);
+    expect(dict[kPdfFreeTextUnderlineKey], isNull);
+  });
+
+  test('underlined free text draws a rule and round-trips the flag', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          'Underlined',
+          underline: true,
+        ));
+    final box = doc.page(0).annotations.single;
+    expect(box.freeTextStyle!.underline, isTrue);
+    // the underline is a filled rectangle drawn after the text object
+    final content = appearanceText(doc, box);
+    expect(content, contains('ET'));
+    expect(content.lastIndexOf(' re'), greaterThan(content.lastIndexOf('ET')));
+
+    // it survives a resize
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 500, 640));
+    final reopened = PdfDocument.open(editor.save());
+    expect(
+        reopened.page(0).annotations.single.freeTextStyle!.underline, isTrue);
+  });
+
+  test('rich free text carries per-run underline through /RC', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          const [
+            PdfFreeTextRun('plain '),
+            PdfFreeTextRun('under', underline: true),
+          ],
+        ));
+    final box = doc.page(0).annotations.single;
+    final rc = box.richContent!;
+    expect(rc, contains('text-decoration:underline'));
+    final runs = PdfAnnotationEditing.parseFreeTextRichContent(rc);
+    expect(runs.where((r) => r.underline).map((r) => r.text).join(),
+        contains('under'));
+    // the appearance draws one underline rule (a re after the text object)
+    final content = appearanceText(doc, box);
+    expect(content.lastIndexOf('ET'), lessThan(content.lastIndexOf(' re')));
   });
 
   test('resizeAnnotation rejects degenerate rects', () {

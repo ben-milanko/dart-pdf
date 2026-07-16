@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -293,6 +294,38 @@ void main() {
   });
 
   group('live preview', () {
+    testWidgets('locked ink is excluded from the live preview and commit',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester);
+      editing
+        ..addInkStroke(0, [(150, 500), (250, 500)])
+        ..finishInk();
+      final ink = editing.annotationAt(0, 0)!;
+      editing.apply(
+        (editor) => editor.setAnnotationFlags(0, ink, 128),
+      );
+      editing.tool = PdfEditTool.eraser;
+      await tester.pump();
+
+      final g = await tester.startGesture(view(200, 520),
+          kind: PointerDeviceKind.mouse);
+      for (var i = 0; i < 4; i++) {
+        await g.moveBy(Offset(0, 10 * scale));
+        await tester.pump();
+      }
+
+      final painter = overlayPainter(tester);
+      expect((painter.fadeInk as List), isEmpty);
+      expect((painter.extraInk as List), isEmpty);
+
+      await g.up();
+      await tester.pump();
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.isLocked, isTrue);
+      expect(annotation.inkList, hasLength(1));
+      expect(annotation.inkList!.single, [(150.0, 500.0), (250.0, 500.0)]);
+    });
+
     testWidgets('mid-swipe the original fades and the remainder paints',
         (tester) async {
       final (editing, _) = await pumpViewer(tester);

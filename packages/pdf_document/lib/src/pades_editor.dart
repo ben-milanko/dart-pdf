@@ -22,7 +22,9 @@ extension PdfPadesSigning on PdfEditor {
   /// author signature with a /DocMDP transform at [docMdpPermissions]
   /// (1 = no changes, 2 = form-fill + signing, 3 = + annotations).
   ///
-  /// After this call the editor is spent.
+  /// Pass an [appearance] to draw a visible signature box (the Acrobat/
+  /// Bluebeam two-column layout); the same rules as [PdfSigning.saveSigned]
+  /// apply. After this call the editor is spent.
   Future<Uint8List> saveSignedPades({
     required RsaPrivateKey privateKey,
     required List<Uint8List> certificates,
@@ -37,6 +39,7 @@ extension PdfPadesSigning on PdfEditor {
     DateTime? signingTime,
     bool certify = false,
     int docMdpPermissions = 2,
+    PdfSignatureAppearance? appearance,
   }) async {
     if (certificates.isEmpty) {
       throw ArgumentError('the signer certificate is required');
@@ -61,6 +64,7 @@ extension PdfPadesSigning on PdfEditor {
       contactInfo: contactInfo,
       defaultSignerCert: certificates.first,
       docMdpPermissions: certify ? docMdpPermissions : null,
+      appearance: appearance,
     );
     final signedAttrs = cmsSignedAttributes(
       contentDigest: crypto.sha256.convert(revision.signedData).bytes,
