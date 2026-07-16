@@ -65,3 +65,31 @@ Tests: `test/scroll_indicator_test.dart` (metrics equality, snapshot
 before/after layout, position tracking, no-overflow, `jumpToNormalized`
 top/bottom/mid/clamp, `animateToPage`, builder replacing the stock bar +
 receiving live metrics + not building on no-overflow + a scrubber drag).
+
+## Example app demo
+
+`example/lib/scroll_indicator_demo.dart` (`ScrollIndicatorDemoScreen`) is a
+self-contained screen that exercises the whole API for people to see, opened
+from the DartPDF menu ("Scroll indicator API demo") as a full-screen route
+over the demo PDF. It replaces the stock bar with a draggable page scrubber
+(`scrollIndicatorBuilder` → a `_PageScrubber` sized by `extent`, positioned
+by `position`, driven with `jumpToNormalized`), pops a page bubble while
+dragging, animates page taps in the app bar via `animateToPage`, and shows a
+live corner readout of the raw `PdfScrollMetrics`.
+
+Gotchas that shaped it:
+
+- **The readout is fed from the builder, not `viewportChanges`.** The corner
+  readout renders from the last metrics the viewer handed `scrollIndicatorBuilder`
+  (stashed via a post-frame `setState`, only when changed), so it is populated
+  the moment the viewer lays out. Listening to `viewportChanges` alone leaves
+  it in the "not laid out" state until the first scroll/zoom, because that
+  `Listenable` doesn't fire on the initial layout.
+- **The drag target must be the strip, not the fill.** The builder's return
+  fills the viewer's `Positioned.fill` slot, so the scrubber `Align`s its 48px
+  strip to the right edge; the test-facing key sits on the strip's
+  `GestureDetector` (not the outer widget, whose box is full-screen) so a
+  `tester.drag` lands on the opaque strip rather than the page underneath.
+
+Test: `example/test/scroll_indicator_demo_test.dart` (scrubber replaces the
+stock thumb, readout populates after layout, a strip drag scrolls the list).

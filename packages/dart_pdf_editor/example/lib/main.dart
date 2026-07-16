@@ -18,6 +18,7 @@ import 'feedback.dart';
 import 'persistent_cache.dart';
 import 'platform_fonts.dart';
 import 'recent_files.dart';
+import 'scroll_indicator_demo.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
 final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
@@ -382,6 +383,18 @@ class _ViewerScreenState extends State<ViewerScreen> {
           child: _appMenuTile(
             icon: Icons.auto_awesome,
             title: 'Open the interactive demo',
+          ),
+        ),
+        PopupMenuItem(
+          value: () => unawaited(Navigator.of(menuContext).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  ScrollIndicatorDemoScreen(bytes: buildDemoPdf()),
+            ),
+          )),
+          child: _appMenuTile(
+            icon: Icons.straighten,
+            title: 'Scroll indicator API demo',
           ),
         ),
         ..._recentMenuItems(menuContext),
