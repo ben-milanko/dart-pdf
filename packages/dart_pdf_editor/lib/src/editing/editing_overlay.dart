@@ -812,6 +812,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   double _textEditLineSpacing = kPdfFreeTextDefaultLineSpacing;
   double _textEditCharSpacing = 0;
   bool _textEditStyleMenuOpen = false;
+  // holds the editor's keyboard focus while a pointer is down on the inline
+  // style chip, so tapping a chip button (underline, size, …) on mobile
+  // doesn't blur the field and commit/deselect the box under it
+  bool _chipFocusHeld = false;
   // resting view-space rotation of the box being edited (radians,
   // clockwise positive): nonzero only when editing already-rotated text,
   // so the inline editor and afterimage sit on the artwork instead of
@@ -2182,6 +2186,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // pixels. Guarded by _moveStart so disposing some other (off-screen)
     // page's overlay never clears a preview the dragging page still owns.
     if (_moveStart != null) _host.moveDragPreview?.call(null);
+    if (_chipFocusHeld) {
+      _chipFocusHeld = false;
+      _controller.endEditingTextFocusHold();
+    }
     _textEditFocus
       ..removeListener(_onTextEditFocus)
       ..dispose();
@@ -2843,6 +2851,31 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         !_controller.isEditingTextFocusCommitHeld) {
       _commitTextEdit();
     }
+  }
+
+  /// Holds the inline editor's focus while a pointer is down on the style
+  /// chip, so a chip tap on mobile (which blurs the field) can't trip the
+  /// focus-loss commit and deselect the box before the button runs.
+  void _holdChipFocus() {
+    if (_chipFocusHeld || _textEditRect == null) return;
+    _chipFocusHeld = true;
+    _controller.beginEditingTextFocusHold();
+  }
+
+  void _releaseChipFocus() {
+    if (!_chipFocusHeld) return;
+    // pointer-up fires before the button's onPressed, so defer to the next
+    // frame: by then the button's style change has run against the live
+    // selection. Restore the keyboard to the field (unless a colour/font
+    // menu now owns it) and drop the hold so a later real blur commits.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_chipFocusHeld) return;
+      _chipFocusHeld = false;
+      if (mounted && _textEditRect != null && !_textEditStyleMenuOpen) {
+        _textEditFocus.requestFocus();
+      }
+      _controller.endEditingTextFocusHold();
+    });
   }
 
   void _panStart(DragStartDetails details) {
@@ -4461,7 +4494,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         child: Transform.scale(
           scale: s,
           alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
-          child: Focus(
+          // pin the editor's focus while a chip button is pressed - on mobile
+          // the tap otherwise blurs the field and the focus-loss listener
+          // commits/deselects the box before the button's action runs
+          child: Listener(
+            behavior: HitTestBehavior.deferToChild,
+            onPointerDown: (_) => _holdChipFocus(),
+            onPointerUp: (_) => _releaseChipFocus(),
+            onPointerCancel: (_) => _releaseChipFocus(),
+            child: Focus(
             canRequestFocus: false,
             descendantsAreFocusable: false,
             child: Material(
@@ -4523,6 +4564,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 }),
               ]),
             ),
+          ),
           ),
         ),
       ),

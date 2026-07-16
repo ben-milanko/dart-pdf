@@ -842,6 +842,53 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the inline chip underline button keeps the box in edit mode',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // enter edit mode with a bare caret (no range selection, so no text
+      // selection toolbar floats over the chip): the underline button then
+      // styles the whole box and the box must stay in edit mode - tapping a
+      // chip button must never commit/deselect it (the mobile report)
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      final underline =
+          find.byKey(const ValueKey('pdf-inline-text-underline'));
+      expect(underline, findsOneWidget);
+      // invoke the button's handler directly: the chip sits inside scaled,
+      // translated chrome that makes a synthetic tap's hit-test unreliable,
+      // and the mobile focus-drop it guards against isn't reproducible in a
+      // widget test (a tap never blurs a non-focusable button here)
+      tester.widget<IconButton>(underline).onPressed!.call();
+      await tester.pump();
+
+      // still editing (not committed/deselected) and the box is now underlined
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.controller!.text, 'Hello world');
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final underlined = span.children!
+          .whereType<TextSpan>()
+          .where((c) => c.style?.decoration == TextDecoration.underline)
+          .map((c) => c.text)
+          .join();
+      expect(underlined, contains('Hello world'));
+
+      editing.textUnderline = false;
+      await settle(tester);
+    });
+
     testWidgets('Ctrl+B and Ctrl+I toggle bold/italic on the selection',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

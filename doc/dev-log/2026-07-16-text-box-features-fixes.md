@@ -103,6 +103,27 @@ Underline is a per-character format like bold: the inline style chip's
 underline button and Cmd/Ctrl+U toggle it on the selection (or the whole box
 when nothing is selected), so an underlined box commits as rich `/RC`.
 
+## Follow-up — the chip deselected the box on mobile
+
+A tap on the inline style chip (underline, size, …) on touch devices blurred
+the `TextField`, and `_onTextEditFocus` treats any focus loss as a commit —
+so the box committed and deselected out from under the tap. Desktop was fine
+because the chip's `Focus(canRequestFocus:false, descendantsAreFocusable:
+false)` keeps the field focused; a mobile tap drops it anyway.
+
+Fix: wrap the chip in a `Listener` that begins the controller's
+`beginEditingTextFocusHold()` on pointer-down (the same hold the tune popup
+already uses, which `_onTextEditFocus` honours) and releases it on pointer-up.
+The release is deferred to a post-frame callback — pointer-up fires *before*
+the button's `onPressed`, so re-focusing synchronously there collapsed the
+selection before the style could apply. It's also cleared in `dispose` so the
+hold counter can't leak.
+
+Note this is not reproducible in `flutter_test`: a synthetic tap never blurs a
+non-focusable button, so the harness can't exercise the focus drop. The chip
+underline button's *action* is tested by invoking its handler directly (the
+scaled/translated chrome also makes a synthetic tap's hit-test unreliable).
+
 ## Left open
 
 - Horizontal scaling (Tz) has no Flutter `TextField` equivalent, so it isn't

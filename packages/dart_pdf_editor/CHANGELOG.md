@@ -17,6 +17,8 @@
   picker instead of collapsing it to "Sans".
 - Stop the inline editor's line spacing shifting when a run's font changes
   in the tune popup (font-independent leading, matching the appearance).
+- Fix tapping a free-text style-chip button (underline, size, …) on touch
+  devices committing and deselecting the box out from under the tap.
 
 ## 1.4.6
 
