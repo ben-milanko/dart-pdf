@@ -11,6 +11,7 @@ import '../page_geometry.dart';
 import '../renderer.dart';
 import 'digital_signature.dart';
 import 'editing_measure.dart';
+import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -295,12 +296,17 @@ class PdfEditingController extends ChangeNotifier {
     Uint8List bytes, {
     String password = '',
     PdfEditingPreferences? preferences,
+    PdfPageClipboard? pageClipboard,
   })  : _bytes = bytes,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
-        preferences = preferences ?? PdfEditingPreferences() {
+        preferences = preferences ?? PdfEditingPreferences(),
+        pageClipboard = pageClipboard ?? PdfPageClipboard.instance {
     this.preferences.addListener(notifyListeners);
+    // rebuild paste affordances live as the shared page clipboard fills or
+    // clears - from this controller or from another document tab sharing it
+    this.pageClipboard.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences backing [color], [strokeWidth],
@@ -309,6 +315,12 @@ class PdfEditingController extends ChangeNotifier {
   /// to share it with the host's chrome (the sidebar-visibility flags
   /// live there too).
   final PdfEditingPreferences preferences;
+
+  /// The clipboard whole copied/cut pages live in, shared across document
+  /// tabs so pages copied from one document paste into another. Defaults to
+  /// the process-wide [PdfPageClipboard.instance]; pass a private one to
+  /// isolate a session. See [copyPages], [cutPages], and [pastePages].
+  final PdfPageClipboard pageClipboard;
 
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
@@ -326,6 +338,7 @@ class PdfEditingController extends ChangeNotifier {
     _changeFeed?.close();
     thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
+    pageClipboard.removeListener(notifyListeners);
     super.dispose();
   }
 
@@ -1031,6 +1044,7 @@ class PdfEditingController extends ChangeNotifier {
             'strokeWidth',
             'opacity',
             'lineStyle',
+            'lineScale',
             'shapeFillColor',
           },
         PdfEditTool.line || PdfEditTool.polyline => const {
@@ -1038,6 +1052,7 @@ class PdfEditingController extends ChangeNotifier {
             'strokeWidth',
             'opacity',
             'lineStyle',
+            'lineScale',
             'lineStartEnding',
             'lineEndEnding',
           },
@@ -1045,7 +1060,8 @@ class PdfEditingController extends ChangeNotifier {
             'color',
             'strokeWidth',
             'opacity',
-            'lineStyle'
+            'lineStyle',
+            'lineScale',
           },
         PdfEditTool.measureDistance ||
         PdfEditTool.measurePerimeter ||
@@ -1248,10 +1264,19 @@ class PdfEditingController extends ChangeNotifier {
   set dashedStroke(bool value) =>
       preferences.lineStyle = value ? PdfLineStyle.dashed : PdfLineStyle.solid;
 
+  /// The pattern scale new shape and line annotations are created with - a
+  /// multiplier (1 = default) sizing the dash pattern and cloudy scallops
+  /// *independently* of [strokeWidth], so the line thickness and the
+  /// pattern size are set separately. Persisted.
+  double get lineScale => preferences.lineScale;
+
+  set lineScale(double value) => preferences.lineScale = value;
+
   /// The `/BS /D` dash array new annotations get, for the current
-  /// [lineStyle] at the current [strokeWidth] - null for a solid border.
-  List<double>? get _lineDashPattern =>
-      preferences.lineStyle.dashArray(preferences.strokeWidth);
+  /// [lineStyle] at the current [strokeWidth], sized by [lineScale] - null
+  /// for a solid border.
+  List<double>? get _lineDashPattern => preferences.lineStyle
+      .dashArray(preferences.strokeWidth, scale: preferences.lineScale);
 
   /// The line ending new /Line and /PolyLine annotations carry at their
   /// start vertex (§12.5.6.7). Persisted.
@@ -1379,8 +1404,12 @@ class PdfEditingController extends ChangeNotifier {
   bool _editingText = false;
   TextSelection? _editingTextSelection;
   int _editingTextStyleRevision = 0;
-  ({PdfTextFont? font, double? size, int? color, bool? underline})?
-      _editingTextStyleRequest;
+  ({
+    PdfTextFont? font,
+    double? size,
+    int? color,
+    bool? underline
+  })? _editingTextStyleRequest;
   int _editSelectedTextRevision = 0;
   int _editingTextFocusHoldCount = 0;
   int _editingTextFocusHoldRevision = 0;
@@ -1908,6 +1937,7 @@ class PdfEditingController extends ChangeNotifier {
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
           cloudy: true,
+          cloudScale: preferences.lineScale,
           author: author,
         ),
       );
@@ -3110,6 +3140,76 @@ class PdfEditingController extends ChangeNotifier {
   Uint8List? exportSelectedPages() =>
       _selectedPages.isEmpty ? null : exportPages(selectedPages);
 
+  // ---------------------------------------------------------------------
+  // page clipboard (copy / cut / paste, shared across document tabs)
+
+  /// Whether [pastePages] has pages waiting on the shared [pageClipboard].
+  bool get hasPageClipboard => pageClipboard.isNotEmpty;
+
+  /// Copies [indices] (de-duplicated, ascending) onto the shared
+  /// [pageClipboard] as a self-contained PDF, leaving this document
+  /// untouched. Because the clipboard is shared, the copy can then be
+  /// pasted into this document or a different open document tab. Returns
+  /// false (a no-op) when no valid page is given.
+  bool copyPages(Iterable<int> indices) {
+    final targets = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty) return false;
+    pageClipboard.setPages(exportPages(targets), targets.length);
+    return true;
+  }
+
+  /// Copies the strip's selected pages onto the shared [pageClipboard].
+  /// A no-op (returns false) when nothing is selected.
+  bool copySelectedPages() => copyPages(selectedPages);
+
+  /// Copies [indices] onto the shared [pageClipboard] and removes them in
+  /// one edit (one undo) - copy + delete. Refused (nothing copied, nothing
+  /// removed, returns false) when the pages would empty the document; at
+  /// least one page must remain. Clears the page selection, like
+  /// [removeSelectedPages].
+  bool cutPages(Iterable<int> indices) {
+    final targets = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || targets.length >= _document.pageCount) return false;
+    pageClipboard.setPages(exportPages(targets), targets.length);
+    _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    return apply((e) => e.removePages(targets));
+  }
+
+  /// Cuts the strip's selected pages onto the shared [pageClipboard].
+  /// A no-op (returns false) when nothing is selected or the cut would
+  /// empty the document.
+  bool cutSelectedPages() => cutPages(selectedPages);
+
+  /// Inserts the shared [pageClipboard]'s pages at [at] (default: appended
+  /// at the end) and selects the pasted block. Because the clipboard is
+  /// shared across tabs, this pastes pages copied from any document.
+  /// Returns false (a no-op) when the clipboard is empty. The paste is one
+  /// undoable edit.
+  bool pastePages({int? at}) {
+    final bytes = pageClipboard.bytes;
+    if (bytes == null) return false;
+    final count = pageClipboard.pageCount;
+    final insertAt = (at ?? _document.pageCount).clamp(0, _document.pageCount);
+    insertPagesFromBytes(bytes, at: insertAt);
+    // surface what landed: select the pasted run so the strip highlights it
+    _selectedPages
+      ..clear()
+      ..addAll([for (var i = insertAt; i < insertAt + count; i++) i]);
+    _pageSelectionAnchor = insertAt;
+    notifyListeners();
+    return true;
+  }
+
   /// Rotates [indices] clockwise by [degrees] (a multiple of 90; negative
   /// turns counterclockwise) in one edit (one undo). Rotation is a visual
   /// change that does not shift page indices, so the page selection is
@@ -4309,6 +4409,17 @@ class PdfEditingController extends ChangeNotifier {
     return PdfLineStyle.ofDashArray(annotation.borderDash);
   }
 
+  /// The primary selected cloudy /Polygon's scallop scale (its `/BE /I`),
+  /// for the pattern-scale control to display, or null when the selection
+  /// isn't a cloud - other shapes bake their pattern scale into the stored
+  /// dash array rather than a readable field, so the control falls back to
+  /// the creation default [lineScale] for them.
+  double? get selectedLineScale {
+    final annotation = selectedAnnotation;
+    if (annotation == null) return null;
+    return annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
+  }
+
   /// Restyles every selected annotation in place - one revision, one
   /// undo, and the selection survives (annotations keep their /Annots
   /// slots). Parameters follow [PdfEditor.restyleAnnotation]: [color]
@@ -4322,12 +4433,14 @@ class PdfEditingController extends ChangeNotifier {
     double? strokeWidth,
     double? opacity,
     PdfLineStyle? lineStyle,
+    double? scale,
   }) {
     if (color == null &&
         fill == null &&
         strokeWidth == null &&
         opacity == null &&
-        lineStyle == null) {
+        lineStyle == null &&
+        scale == null) {
       return false;
     }
     if (!canRestyleSelected) return false;
@@ -4339,8 +4452,14 @@ class PdfEditingController extends ChangeNotifier {
     return apply(
       (e) {
         for (final (page, annotation) in targets) {
-          // the dash array scales to the (possibly just-changed) pen width
           final width = strokeWidth ?? annotation.borderWidth ?? 1;
+          // Recompute the dash array when the line style *or* the pattern
+          // scale changes - both size it, and the scale is otherwise baked
+          // into the stored array with no readable field. A pen-width change
+          // alone no longer resizes it: thickness and pattern are separate.
+          final style =
+              lineStyle ?? PdfLineStyle.ofDashArray(annotation.borderDash);
+          final recomputeDash = lineStyle != null || scale != null;
           e.restyleAnnotation(
             page,
             annotation,
@@ -4348,10 +4467,50 @@ class PdfEditingController extends ChangeNotifier {
             fillColor: fill == null ? null : (_rgbOf(fill.$1),),
             strokeWidth: strokeWidth,
             opacity: opacity,
-            dashPattern:
-                lineStyle == null ? null : (lineStyle.dashArray(width),),
+            dashPattern: recomputeDash
+                ? (style.dashArray(width, scale: scale ?? lineScale),)
+                : null,
+            cloudScale: scale,
             pageRotation: _page(page).rotation,
           );
+        }
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // vector snapshot recolour
+
+  /// Whether every selected annotation is a pasted vector snapshot, so
+  /// [recolorSnapshotSelected] can retint them as vectors. Vector snapshots
+  /// keep the captured page's own colours, which the generic restyle path
+  /// ([canRestyleSelected]) can't rewrite, so they get their own recolour.
+  bool get canRecolorSnapshotSelected {
+    if (_selected.isEmpty) return false;
+    final editor = PdfEditor(_document);
+    return _selected.every((slot) {
+      final annotation = _annotationAt(slot);
+      return annotation != null && editor.isVectorSnapshotStamp(annotation);
+    });
+  }
+
+  /// Recolours every selected vector snapshot to [color] in one revision
+  /// (one undo), keeping the selection. The captured graphics are rewritten
+  /// to a single ink - see [PdfVectorSnapshotEditing.recolorVectorSnapshot].
+  /// Returns whether anything changed.
+  bool recolorSnapshotSelected(Color color) {
+    if (!canRecolorSnapshotSelected) return false;
+    final rgb = _rgbOf(color);
+    if (rgb == null) return false;
+    final targets = <(int, PdfAnnotation)>[
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final annotation?) (slot.$1, annotation),
+    ];
+    if (targets.isEmpty) return false;
+    return apply(
+      (e) {
+        for (final (page, annotation) in targets) {
+          e.recolorVectorSnapshot(page, annotation, rgb);
         }
       },
     );
@@ -4912,7 +5071,9 @@ class PdfEditingController extends ChangeNotifier {
                     underline: underline)
             ];
       _rewriteSelectedRich(annotation, runs,
-          lineSpacing: lineSpacing, charSpacing: charSpacing, fontWidth: fontWidth);
+          lineSpacing: lineSpacing,
+          charSpacing: charSpacing,
+          fontWidth: fontWidth);
     } else {
       _rewriteSelected(
         annotation,

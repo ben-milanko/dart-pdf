@@ -1,9 +1,15 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
+
+// 2x2 RGBA PNG (from png_test.dart), used as a handwritten-signature graphic.
+final _png = base64.decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGUlEQVR4nGP4z8DwHwgb'
+    'WBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==');
 
 final key = RsaPrivateKey.fromPem(testSignerKeyPem);
 final cert = pemBytes(testSignerCertPem);
@@ -54,7 +60,184 @@ Uint8List buildEmptySigFieldPdf() {
   return ascii(buffer.toString());
 }
 
+/// The decoded content of a field's /AP /N appearance form, or null.
+String? appearanceContent(PdfDocument doc, PdfFormField field) {
+  final widget = field.widgets.first;
+  final ap = doc.cos.resolve(widget['AP']);
+  if (ap is! CosDictionary) return null;
+  final n = doc.cos.resolve(ap['N']);
+  if (n is! CosStream) return null;
+  return String.fromCharCodes(doc.cos.decodeStreamData(n));
+}
+
+/// All the text shown by an appearance's `(...) Tj` operators, joined with
+/// spaces so word-wrapped lines read back as the original strings.
+String shownText(String content) => RegExp(r'\(([^)]*)\) Tj')
+    .allMatches(content)
+    .map((m) => m.group(1))
+    .join(' ');
+
 void main() {
+  group('visible signature box', () {
+    test('a placed appearance draws the Acrobat-style box', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approval',
+        location: 'Melbourne',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 320, 700),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      // the widget is visible at the requested rectangle
+      final widget = signature.field.widgets.first;
+      final rect = doc.cos.resolve(widget['Rect']) as CosArray;
+      expect((doc.cos.resolve(rect[0]) as CosReal).value, 72);
+      expect((doc.cos.resolve(rect[3]) as CosReal).value, 700);
+
+      // the appearance form has a BBox matching the box size and shows the
+      // signer name, date, reason and location
+      final ap = doc.cos.resolve(widget['AP']) as CosDictionary;
+      final form = doc.cos.resolve(ap['N']) as CosStream;
+      final bbox = doc.cos.resolve(form.dictionary['BBox']) as CosArray;
+      expect((doc.cos.resolve(bbox[2]) as CosReal).value, 248); // 320-72
+      expect((doc.cos.resolve(bbox[3]) as CosReal).value, 100); // 700-600
+
+      final shown = shownText(appearanceContent(doc, signature.field)!);
+      expect(shown, contains('Digitally signed by Dart PDF Test Signer'));
+      expect(shown, contains('Date: 2026.06.10 12:00:00'));
+      expect(shown, contains('Reason: Approval'));
+      expect(shown, contains('Location: Melbourne'));
+    });
+
+    test('placing on a later page attaches the widget to that page', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          page: 2,
+          rect: PdfRect(100, 100, 300, 160),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final annots0 = doc.cos.resolve(doc.page(0).dict['Annots']);
+      expect(annots0 is CosArray ? annots0.length : 0, 0);
+      final annots2 = doc.cos.resolve(doc.page(2).dict['Annots']) as CosArray;
+      expect(annots2.length, 1);
+      expect(PdfSignature.of(doc).single.validate().intact, isTrue);
+    });
+
+    test('signing an existing visible field fills its box', () {
+      final editor = PdfEditor(PdfDocument.open(buildEmptySigFieldPdf()));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        fieldName: 'ApproverSig',
+        reason: 'Reviewed',
+        signingTime: signedAt,
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+      final content = appearanceContent(doc, signature.field);
+      expect(content, isNotNull);
+      expect(content, contains('Digitally signed by'));
+      expect(content, contains('Reason: Reviewed'));
+    });
+
+    test('showing fewer fields omits them from the box', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approval',
+        location: 'Melbourne',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 320, 700),
+          showReason: false,
+          showLocation: false,
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final shown =
+          shownText(appearanceContent(doc, PdfSignature.of(doc).single.field)!);
+      expect(shown, contains('Digitally signed by'));
+      expect(shown, isNot(contains('Reason:')));
+      expect(shown, isNot(contains('Location:')));
+    });
+
+    test('a graphic renders in the left panel as an image XObject', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        appearance: PdfSignatureAppearance(
+          rect: const PdfRect(72, 600, 320, 700),
+          graphic: PdfEmbeddableImage.png(_png),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      final widget = signature.field.widgets.first;
+      final ap = doc.cos.resolve(widget['AP']) as CosDictionary;
+      final form = doc.cos.resolve(ap['N']) as CosStream;
+      final resources =
+          doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+      final xobjects = doc.cos.resolve(resources['XObject']) as CosDictionary;
+      expect(xobjects.entries.keys, contains('SigImg'));
+
+      final content = String.fromCharCodes(doc.cos.decodeStreamData(form));
+      expect(content, contains('/SigImg Do'));
+      // the big name text is replaced by the graphic in the left panel
+      expect(shownText(content), isNot(contains('Dart PDF Test Signer Dart')));
+    });
+
+    test('a details-only box (no name/graphic) omits the left panel', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approval',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 320, 700),
+          backgroundColor: 0xEEF3F8,
+          showName: false,
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+      final content = appearanceContent(doc, signature.field)!;
+      // background fill rectangle emitted before the border
+      expect(content, contains('0 0 248 100 re'));
+      final shown = shownText(content);
+      expect(shown, isNot(contains('Digitally signed by')));
+      expect(shown, contains('Reason: Approval'));
+    });
+
+    test('no appearance keeps an invisible field (backward compatible)', () {
+      final doc = PdfDocument.open(signedFixture());
+      final signature = PdfSignature.of(doc).single;
+      expect(appearanceContent(doc, signature.field), isNull);
+      final widget = signature.field.widgets.first;
+      final rect = doc.cos.resolve(widget['Rect']) as CosArray;
+      expect((doc.cos.resolve(rect[2]) as CosInteger).value, 0);
+    });
+  });
+
   group('signing', () {
     test('a signed document validates as intact and whole', () {
       final doc = PdfDocument.open(signedFixture());

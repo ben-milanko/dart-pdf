@@ -24,6 +24,7 @@ export 'src/editing/editing_fonts.dart';
 export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_measure.dart';
 export 'src/editing/editing_menu.dart';
+export 'src/editing/editing_page_clipboard.dart';
 export 'src/editing/editing_panel.dart';
 export 'src/editing/editing_pencil.dart';
 export 'src/editing/editing_preferences.dart';
