@@ -31,47 +31,27 @@ void main() {
     });
   });
 
-  testWidgets('printPdfBytes renders and streams the document to the runner',
-      (tester) async {
-    await tester.runAsync(() async {
-      const channel = MethodChannel('dev.milanko.dartpdf/native_print');
-      final messenger = binding.defaultBinaryMessenger;
+  test('printPdfBytes hands the document to the runner as vector', () async {
+    const channel = MethodChannel('dev.milanko.dartpdf/native_print');
+    final messenger = binding.defaultBinaryMessenger;
 
-      var begins = 0;
-      var pages = 0;
-      var ends = 0;
-      String? jobName;
-      messenger.setMockMethodCallHandler(channel, (call) async {
-        switch (call.method) {
-          case 'beginJob':
-            begins += 1;
-            jobName = (call.arguments as Map)['name'] as String?;
-            return {'dpi': 72};
-          case 'printPage':
-            pages += 1;
-            return true;
-          case 'endJob':
-            ends += 1;
-            return true;
-        }
-        return null;
-      });
-      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
-
-      final progress = <(int, int)>[];
-      await printPdfBytes(
-        bytes: buildClassicPdf(),
-        title: 'Report.pdf',
-        onProgress: (rendered, total) => progress.add((rendered, total)),
-      );
-
-      expect(begins, 1);
-      expect(jobName, 'Report'); // the .pdf-stripped job name
-      expect(pages, greaterThanOrEqualTo(1));
-      expect(ends, 1);
-      // Progress is reported per page and reaches total on the last page.
-      expect(progress, isNotEmpty);
-      expect(progress.last.$1, progress.last.$2);
+    Uint8List? sentPdf;
+    String? jobName;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'printPdf') {
+        final args = call.arguments as Map;
+        sentPdf = args['pdf'] as Uint8List;
+        jobName = args['name'] as String?;
+        return true;
+      }
+      return null;
     });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final bytes = buildClassicPdf();
+    await printPdfBytes(bytes: bytes, title: 'Report.pdf');
+
+    expect(sentPdf, bytes); // the document went over as vector
+    expect(jobName, 'Report'); // the .pdf-stripped job name
   });
 }

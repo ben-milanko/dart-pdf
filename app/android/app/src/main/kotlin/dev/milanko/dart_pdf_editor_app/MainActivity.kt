@@ -4,9 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
-import android.graphics.Rect
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Bundle
 import android.os.CancellationSignal
@@ -33,12 +30,6 @@ class MainActivity : FlutterActivity() {
 
     /// The file the activity was launched with, drained by `getInitialFile`.
     private var pending: Map<String, Any>? = null
-
-    /// Pages accumulated for the current native print job (JPEG bytes) and its
-    /// title. Printing renders with our own engine and spools through the
-    /// Android print framework, never a bundled PDF engine.
-    private var printPages: MutableList<ByteArray> = mutableListOf()
-    private var printJobTitle: String = "Document"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -70,30 +61,19 @@ class MainActivity : FlutterActivity() {
                     result.error("clipboard_error", e.message, null)
                 }
             }
-        // Print without a bundled PDF engine: the Dart side renders each page
-        // and streams it here as a JPEG; endJob spools them through Android's
-        // own PrintManager (drawing into the framework's PdfDocument).
+        // Print without a bundled PDF engine: the Dart side hands over the whole
+        // PDF and Android's own print framework renders its vector content,
+        // keeping text selectable.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, nativePrintChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "beginJob" -> {
-                        printPages = mutableListOf()
-                        printJobTitle = call.argument<String>("name") ?: "Document"
-                        result.success(mapOf("dpi" to 300))
-                    }
-                    "printPage" -> {
-                        val bytes = call.argument<ByteArray>("image")
-                        if (bytes == null) {
-                            result.error("bad_args", "printPage expects image bytes", null)
+                    "printPdf" -> {
+                        val pdf = call.argument<ByteArray>("pdf")
+                        if (pdf == null) {
+                            result.error("bad_args", "printPdf expects pdf bytes", null)
                         } else {
-                            printPages.add(bytes)
-                            result.success(true)
+                            result.success(printPdf(pdf, call.argument<String>("name") ?: "Document"))
                         }
-                    }
-                    "endJob" -> result.success(startPrintJob())
-                    "cancelJob" -> {
-                        printPages = mutableListOf()
-                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }
@@ -103,17 +83,14 @@ class MainActivity : FlutterActivity() {
         handleIntent(intent, initial = true)
     }
 
-    /// Submits the accumulated page images to Android's print framework.
-    /// Returns false when there is nothing to print or the service is missing.
-    private fun startPrintJob(): Boolean {
-        val pages = printPages.toList()
-        printPages = mutableListOf()
-        if (pages.isEmpty()) return false
+    /// Hands the whole PDF to Android's print framework, which renders it.
+    /// Returns false when the print service is unavailable.
+    private fun printPdf(pdf: ByteArray, name: String): Boolean {
         val printManager =
             getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return false
         printManager.print(
-            printJobTitle,
-            ImagePrintAdapter(pages, printJobTitle),
+            name,
+            PdfBytesPrintAdapter(pdf, name),
             PrintAttributes.Builder().build()
         )
         return true
@@ -191,16 +168,13 @@ class MainActivity : FlutterActivity() {
     }
 }
 
-/// A PrintDocumentAdapter that paints one image per page into a framework
-/// [PdfDocument] (the OS's own PDF writer, not a bundled PDFium) and hands it to
-/// Android's print spooler. Each image is aspect-fitted and centred on the
-/// sheet at the print job's chosen media size.
-private class ImagePrintAdapter(
-    private val pages: List<ByteArray>,
+/// A PrintDocumentAdapter that streams the document's own PDF bytes straight to
+/// Android's print spooler, which renders the vector content itself - no
+/// re-rendering, no bundled PDF engine.
+private class PdfBytesPrintAdapter(
+    private val pdf: ByteArray,
     private val jobName: String
 ) : PrintDocumentAdapter() {
-    private var attributes: PrintAttributes? = null
-
     override fun onLayout(
         oldAttributes: PrintAttributes?,
         newAttributes: PrintAttributes,
@@ -208,16 +182,16 @@ private class ImagePrintAdapter(
         callback: LayoutResultCallback,
         extras: Bundle?
     ) {
-        attributes = newAttributes
         if (cancellationSignal?.isCanceled == true) {
             callback.onLayoutCancelled()
             return
         }
+        // The page count is unknown without parsing the PDF; the framework
+        // accepts PAGE_COUNT_UNKNOWN and discovers it while rendering.
         val info = PrintDocumentInfo.Builder("$jobName.pdf")
             .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
-            .setPageCount(pages.size)
             .build()
-        callback.onLayoutFinished(info, oldAttributes != newAttributes)
+        callback.onLayoutFinished(info, true)
     }
 
     override fun onWrite(
@@ -226,51 +200,11 @@ private class ImagePrintAdapter(
         cancellationSignal: CancellationSignal?,
         callback: WriteResultCallback
     ) {
-        // Media size is in mils (1/1000 in); PdfDocument pages are in points
-        // (1/72 in). The high-resolution bitmap is drawn into the point-sized
-        // page, so the printer keeps the raster's detail.
-        val mediaSize = attributes?.mediaSize ?: PrintAttributes.MediaSize.ISO_A4
-        val widthPts = (mediaSize.widthMils / 1000.0 * 72).toInt().coerceAtLeast(1)
-        val heightPts = (mediaSize.heightMils / 1000.0 * 72).toInt().coerceAtLeast(1)
-
-        val pdf = PdfDocument()
         try {
-            for ((index, bytes) in pages.withIndex()) {
-                if (cancellationSignal?.isCanceled == true) {
-                    callback.onWriteCancelled()
-                    return
-                }
-                val pageInfo = PdfDocument.PageInfo
-                    .Builder(widthPts, heightPts, index + 1)
-                    .create()
-                val page = pdf.startPage(pageInfo)
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bitmap != null) {
-                    page.canvas.drawBitmap(
-                        bitmap, null,
-                        aspectFit(bitmap.width, bitmap.height, widthPts, heightPts),
-                        null
-                    )
-                    bitmap.recycle()
-                }
-                pdf.finishPage(page)
-            }
-            FileOutputStream(destination.fileDescriptor).use { pdf.writeTo(it) }
+            FileOutputStream(destination.fileDescriptor).use { it.write(pdf) }
             callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
         } catch (e: Exception) {
             callback.onWriteFailed(e.message)
-        } finally {
-            pdf.close()
         }
-    }
-
-    private fun aspectFit(iw: Int, ih: Int, pw: Int, ph: Int): Rect {
-        if (iw <= 0 || ih <= 0) return Rect(0, 0, pw, ph)
-        val scale = minOf(pw.toFloat() / iw, ph.toFloat() / ih)
-        val w = (iw * scale).toInt()
-        val h = (ih * scale).toInt()
-        val left = (pw - w) / 2
-        val top = (ph - h) / 2
-        return Rect(left, top, left + w, top + h)
     }
 }

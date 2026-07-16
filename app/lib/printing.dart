@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:pdf_document/pdf_document.dart';
 
 import 'native_print.dart';
 
@@ -15,24 +14,25 @@ typedef PdfPrinter = Future<void> Function({
 /// Prints [bytes] through the running platform's own print system, without any
 /// bundled PDF engine.
 ///
-/// Every page is rendered with our own engine and handed to the OS print
-/// system (GDI on Windows, `NSPrintOperation` on macOS,
-/// `UIPrintInteractionController` on iOS, `PrintManager` on Android,
-/// `GtkPrintOperation` on Linux) or the browser's print dialog on the web -
-/// see [printDocumentPages]. This replaces the `printing` plugin, whose
-/// desktop backend spooled through a bundled PDFium that crashed the process
-/// on some of the broken-but-renderable files this engine opens.
+/// Where a platform can print a PDF natively (iOS, macOS, Android, web), the
+/// document's own vector content is handed straight to the OS print system -
+/// crisp, selectable, and fast. Windows and Linux have no native PDF-print
+/// API, so there each page is rendered by our own engine and streamed as a
+/// raster. Either way there is no third-party PDF engine: this replaces the
+/// `printing` plugin, whose desktop backend spooled through a bundled PDFium
+/// that crashed on some of the broken-but-renderable files this engine opens.
+/// See [printDocumentPages].
 ///
-/// [onProgress] is called `(rendered, total)` as each page is rendered, so the
-/// caller can show print progress (rasterising every page up front is slow for
-/// large documents).
+/// [onProgress] is called `(rendered, total)` as each page is rendered on the
+/// raster path, so the caller can show progress (the vector path renders
+/// nothing here and completes at once).
 Future<void> printPdfBytes({
   required Uint8List bytes,
   required String title,
   void Function(int rendered, int total)? onProgress,
 }) async {
   await printDocumentPages(
-    PdfDocument.open(bytes),
+    bytes,
     name: printJobName(title),
     onProgress: onProgress,
   );

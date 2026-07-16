@@ -1,47 +1,28 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:js_interop';
+import 'dart:typed_data';
 
-import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:web/web.dart' as web;
 
-/// Prints [document] in a browser without any bundled PDF engine.
+/// Prints the PDF [pdfBytes] in a browser without any bundled PDF engine.
 ///
-/// Each page is rendered with our own engine to a PNG, laid out one-per-sheet
-/// in a hidden iframe, and printed with the browser's own print dialog
-/// (`window.print()`). This replaces the `printing` plugin's web path so the
-/// whole app drops the dependency.
+/// The PDF is loaded into a hidden iframe as a `blob:` URL and printed with the
+/// browser's own print dialog (`window.print()`), so the browser renders the
+/// document's vector content directly - crisp and selectable. This replaces the
+/// `printing` plugin's web path so the whole app drops the dependency.
 ///
-/// [name] titles the print job (browsers use the document title as the default
-/// filename for "Save as PDF"). [onProgress] is called `(rendered, total)`
-/// after each page renders, so the host can show progress.
+/// [name] titles the print job. [onProgress] is unused on the web (there is
+/// nothing to render here); it exists to match the native signature.
 Future<void> printDocumentPages(
-  PdfDocument document, {
+  Uint8List pdfBytes, {
   required String name,
   void Function(int rendered, int total)? onProgress,
 }) async {
-  final images = StringBuffer();
-  for (var i = 0; i < document.pageCount; i++) {
-    final png = await PdfPageExport.exportPage(
-      document.page(i),
-      format: PdfRasterFormat.png,
-      dpi: 150,
-    );
-    final b64 = base64Encode(png);
-    images.write(
-        '<img class="page" src="data:image/png;base64,$b64" alt="page ${i + 1}"/>');
-    onProgress?.call(i + 1, document.pageCount);
-  }
-
-  // One image per printed sheet; @page removes the browser's default margins so
-  // the raster fills the paper, and each image breaks to a new page.
-  final html = '<!doctype html><html><head><title>${_escape(name)}</title>'
-      '<style>'
-      '@page { margin: 0; }'
-      'html, body { margin: 0; padding: 0; }'
-      '.page { display: block; width: 100%; page-break-after: always; }'
-      '.page:last-child { page-break-after: auto; }'
-      '</style></head><body>$images</body></html>';
+  final blob = web.Blob(
+    <JSUint8Array>[pdfBytes.toJS].toJS,
+    web.BlobPropertyBag(type: 'application/pdf'),
+  );
+  final url = web.URL.createObjectURL(blob);
 
   final iframe = web.HTMLIFrameElement()
     ..style.position = 'fixed'
@@ -49,30 +30,31 @@ Future<void> printDocumentPages(
     ..style.bottom = '0'
     ..style.width = '0'
     ..style.height = '0'
-    ..style.border = '0';
+    ..style.border = '0'
+    ..src = url;
+
+  // Print once the PDF has loaded into the frame, then clean up. Some browsers
+  // won't print a cross-frame PDF viewer; the frame still offers the document
+  // for a manual print in that case.
+  final loaded = Completer<void>();
+  iframe.addEventListener(
+    'load',
+    (web.Event _) {
+      if (!loaded.isCompleted) loaded.complete();
+    }.toJS,
+  );
   web.document.body!.appendChild(iframe);
 
-  final frameWindow = iframe.contentWindow;
-  final frameDoc = iframe.contentDocument;
-  if (frameWindow == null || frameDoc == null) {
-    iframe.remove();
-    throw StateError('could not open a print frame');
+  await loaded.future.timeout(const Duration(seconds: 5), onTimeout: () {});
+  try {
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
+  } catch (_) {
+    // Printing the frame isn't available; leave the loaded PDF in place.
   }
-  frameDoc.open();
-  frameDoc.write(html.toJS);
-  frameDoc.close();
 
-  // Give the images a beat to decode before printing, then tear the frame down
-  // after the (modal) print dialog returns.
-  await Future<void>.delayed(const Duration(milliseconds: 250));
-  frameWindow.focus();
-  frameWindow.print();
+  // Give the (modal) print dialog time to open before revoking the URL.
   await Future<void>.delayed(const Duration(seconds: 1));
+  web.URL.revokeObjectURL(url);
   iframe.remove();
 }
-
-/// Minimal HTML-escaping for the job title in the document <title>.
-String _escape(String text) => text
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');

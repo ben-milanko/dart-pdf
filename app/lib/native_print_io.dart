@@ -2,39 +2,52 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
-/// The platform channel every native runner registers to print without a PDF
-/// rasteriser (see `windows/runner/native_print.cpp`, the macOS/iOS Swift
-/// handlers, the Android handler, and the Linux runner).
+/// The platform channel every native runner registers (see
+/// `windows/runner/native_print.cpp`, the macOS/iOS Swift handlers, the Android
+/// handler, and the Linux runner).
 const MethodChannel _channel = MethodChannel('dev.milanko.dartpdf/native_print');
 
-/// Prints [document] through the OS print system on a native platform, without
-/// any bundled PDF engine.
+/// Prints the PDF [pdfBytes] through the running platform's own print system,
+/// without any bundled PDF engine.
 ///
-/// The `printing` plugin used to spool by rendering the PDF through a bundled
-/// PDFium, which crashes the process on some of the broken-but-renderable
-/// files this engine opens. Here we render every page with our own engine,
-/// hand each one to the runner as a JPEG, and let the platform's own print
-/// system (GDI on Windows, `NSPrintOperation` on macOS,
-/// `UIPrintInteractionController` on iOS, `PrintManager` on Android,
-/// `GtkPrintOperation` on Linux) put it on paper. PDFium is gone.
+/// Two strategies, tried in order:
 ///
-/// The protocol is uniform: `beginJob` resets the job and returns a target
-/// `dpi`; `printPage` streams one page's JPEG; `endJob` shows the platform's
-/// print UI and prints the accumulated pages (returning false if the user
-/// cancels). A [MissingPluginException] from `beginJob` means the runner has
-/// no native printer; the caller surfaces that as a failure.
+///  1. **Vector** (`printPdf`): hand the whole PDF to the OS print system,
+///     which renders its vector content directly - CoreGraphics on Apple, the
+///     print framework on Android, the browser on web. No rasterising here, so
+///     text stays selectable and the output is crisp and small. This is the
+///     path on iOS, macOS, Android, and web.
+///  2. **Raster** (`beginJob`/`printPage`/`endJob`): Windows and Linux have no
+///     native PDF-print API - that is exactly why the old `printing` plugin
+///     bundled PDFium, which crashed on our broken-but-renderable inputs. There
+///     we render each page with our own engine and stream it as a JPEG. The
+///     runner reports `printPdf` unimplemented (a [MissingPluginException]),
+///     which drops us onto this path.
 ///
-/// [onProgress] is called `(rendered, total)` after each page is streamed, so
-/// the host can show progress (rasterising every page up front is slow for
-/// large documents). [channel] is a test seam.
+/// [onProgress] is called `(rendered, total)` after each page in the raster
+/// path (the vector path has nothing to render, so it never reports progress).
+/// [channel] is a test seam.
 Future<void> printDocumentPages(
-  PdfDocument document, {
+  Uint8List pdfBytes, {
   required String name,
   MethodChannel channel = _channel,
   void Function(int rendered, int total)? onProgress,
 }) async {
-  // A MissingPluginException here propagates: the platform has no native
-  // printer registered.
+  // 1. Native vector printing. A MissingPluginException means this platform
+  //    has no `printPdf` (Windows/Linux) - fall through to rasterising.
+  try {
+    await channel.invokeMethod<bool>('printPdf', <String, dynamic>{
+      'name': name,
+      'pdf': pdfBytes,
+    });
+    return; // printed as vector (or the user cancelled) - done
+  } on MissingPluginException {
+    // no native PDF printing here; rasterise below
+  }
+
+  // 2. Raster fallback. A MissingPluginException from beginJob means there is
+  //    no native printer at all, and propagates to the caller.
+  final document = PdfDocument.open(pdfBytes);
   final info = await channel.invokeMapMethod<String, dynamic>(
     'beginJob',
     <String, dynamic>{'name': name},

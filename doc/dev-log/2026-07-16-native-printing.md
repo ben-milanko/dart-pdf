@@ -68,6 +68,35 @@ and the same broken-but-renderable inputs this engine opens now print too.
 image-only PDF - stays as a public utility with its test, though the app no
 longer routes printing through it.
 
+## Vector printing (later in the session)
+
+The first cut rasterised every page on every platform - portable, but it loses
+selectable text, bloats jobs, and (the real complaint) is *slow*, because it
+renders and JPEG-encodes the whole document up front. Switched to letting the
+OS print the PDF's own vector content where it can:
+
+- The channel gained a `printPdf(name, pdf)` method. `printDocumentPages` now
+  takes the raw PDF bytes and tries `printPdf` first; a `MissingPluginException`
+  (the runner returned not-implemented) drops it onto the raster path.
+- **iOS** (`AppDelegate`): `UIPrintInteractionController.printingItem = pdfData`.
+- **macOS** (`MainFlutterWindow`): `PDFKit.PDFDocument(data:).printOperation(...)`.
+- **Android** (`MainActivity`): a `PrintDocumentAdapter` that writes the PDF
+  bytes straight to the print fd - the framework renders it.
+- **web** (`native_print_web.dart`): load the PDF into a hidden iframe as a
+  `blob:` URL and `window.print()` - the browser renders it.
+- **Windows/Linux**: no native PDF-print API (the reason the plugin bundled
+  PDFium), so they don't implement `printPdf` and keep the raster path. The
+  runner's existing not-implemented `else` branch is all that's needed - no
+  Windows/Linux code changed.
+
+So four platforms print vector (crisp, selectable, and *fast* - no
+rasterising), two stay raster. The old per-platform raster runners (the macOS
+`ImagePrintView`, the Android image `PrintDocumentAdapter`, the iOS image
+accumulation) were replaced by the one-shot `printPdf` handlers.
+
+Windows/Linux vector would need our interpreter to emit to GDI / Cairo (or a
+PDF→XPS path on Windows) - still tracked in #303.
+
 ## Follow-ups
 
 - Large documents made the app unresponsive while printing: the loop renders
