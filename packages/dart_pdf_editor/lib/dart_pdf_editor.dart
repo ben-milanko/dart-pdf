@@ -41,6 +41,11 @@ export 'src/editing/stroke_prediction.dart';
 export 'src/editing/text_prompt.dart';
 export 'src/editing/text_style_prompt.dart';
 export 'src/editing/tool_shortcuts.dart';
+// The network-agnostic byte-source API the HTTP adapter and progressive
+// loader build on, surfaced so viewer hosts get the whole remote-loading
+// vocabulary from this one package.
+export 'package:pdf_cos/pdf_cos.dart'
+    show PdfByteSource, PdfBytesByteSource, PdfSourceLoadOptions, PdfSourceProgress;
 export 'src/http_byte_source.dart';
 export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';

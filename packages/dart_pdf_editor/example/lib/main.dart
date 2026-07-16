@@ -25,6 +25,20 @@ final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
 /// The published Flutter package the example is built on.
 final _pubDevUrl = Uri.parse('https://pub.dev/packages/dart_pdf_editor');
 
+/// A CORS-enabled, Range-capable sample used to prefill the "Open from a URL"
+/// field - the classic pdf.js test document, served by raw.githubusercontent
+/// with `Access-Control-Allow-Origin: *`.
+const _sampleRemotePdfUrl =
+    'https://raw.githubusercontent.com/mozilla/pdf.js/master/web/'
+    'compressed.tracemonkey-pldi-09.pdf';
+
+/// Test seam: builds the byte source a remote open reads from. Defaults to a
+/// real [PdfHttpByteSource]; tests swap in an in-memory source so no network
+/// is touched. See `test/remote_open_test.dart`.
+@visibleForTesting
+PdfByteSource Function(Uri uri) remoteByteSourceFactory =
+    (uri) => PdfHttpByteSource(uri);
+
 /// One filter, every platform: desktop and web match on the extension,
 /// Android on the MIME type, iOS/macOS on the uniform type identifier -
 /// a type group missing the field a platform filters by throws there.
@@ -375,6 +389,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
             icon: Icons.folder_open,
             title: 'Open a PDF…',
             shortcut: _menuShortcut('O'),
+          ),
+        ),
+        PopupMenuItem(
+          value: () => unawaited(_openFromUrl()),
+          child: _appMenuTile(
+            icon: Icons.cloud_download_outlined,
+            title: 'Open from a URL…',
           ),
         ),
         PopupMenuItem(
@@ -761,6 +782,71 @@ class _ViewerScreenState extends State<ViewerScreen> {
       );
     }
   }
+
+  /// Opens a PDF hosted at a URL without downloading it whole up front, using
+  /// the asynchronous byte-source API: [PdfHttpByteSource] streams the ranges
+  /// the parser needs (Range requests, falling back to a full download), and
+  /// [PdfDocument.openSource] assembles the document. A live download percent
+  /// is shown while it loads.
+  Future<void> _openFromUrl() async {
+    final input = await _promptForUrl();
+    if (input == null) return;
+    final uri = Uri.tryParse(input.trim());
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      _openError(input, 'Not a valid URL:\n$input');
+      return;
+    }
+    final name =
+        uri.pathSegments.isNotEmpty && uri.pathSegments.last.isNotEmpty
+            ? uri.pathSegments.last
+            : uri.host;
+
+    final progress = ValueNotifier<double>(0);
+    final loading = _DocumentTab.loading(title: name, loadingProgress: progress);
+    _addTab(loading);
+
+    final source = remoteByteSourceFactory(uri);
+    try {
+      final doc = await PdfDocument.openSource(
+        source,
+        options: PdfSourceLoadOptions(onProgress: (received, total) {
+          if (total != null && total > 0) progress.value = received / total;
+        }),
+      );
+      await source.close();
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final bytes = doc.cos.bytes;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.document(
+            title: name, bytes: bytes, preferences: _prefs),
+      );
+      unawaited(_recents.record(name, bytes));
+    } catch (e, s) {
+      AppLog.instance.error('Could not open $uri', error: e, stackTrace: s);
+      await source.close();
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        _DocumentTab.error(
+          title: name,
+          error: 'Could not open $uri\n$e\n\n'
+              'On the web this is often a CORS restriction: the server must '
+              'send Access-Control-Allow-Origin and expose the Range headers.',
+        ),
+      );
+    } finally {
+      progress.dispose();
+    }
+  }
+
+  /// Prompts for a URL to open, prefilled with a known CORS-enabled sample.
+  /// Returns null when cancelled.
+  Future<String?> _promptForUrl() => showDialog<String>(
+        context: context,
+        builder: (context) => const _OpenUrlDialog(initial: _sampleRemotePdfUrl),
+      );
 
   /// Picks a PDF and returns its bytes (null when cancelled) - the source
   /// for the editor's "Insert PDF…" action.
@@ -1256,7 +1342,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 ),
               )
             : tab.isLoading
-                ? _OpeningDocument(title: tab.title)
+                ? _OpeningDocument(
+                    title: tab.title, progress: tab.loadingProgress)
                 : tab.error != null
                     ? Center(
                         child: Text(tab.error!, textAlign: TextAlign.center))
@@ -1450,12 +1537,18 @@ const double _appMenuIconSize = 24;
 const int _maxRecentMenuItems = 8;
 
 class _OpeningDocument extends StatelessWidget {
-  const _OpeningDocument({required this.title});
+  const _OpeningDocument({required this.title, this.progress});
 
   final String title;
 
+  /// Determinate download progress (0..1) for a remote load, or null for the
+  /// indeterminate spinner used by local opens.
+  final ValueListenable<double>? progress;
+
   @override
   Widget build(BuildContext context) {
+    final label = title.isEmpty ? 'Opening PDF…' : 'Opening $title…';
+    final tracker = progress;
     return Center(
       child: Semantics(
         label: 'Opening document',
@@ -1463,12 +1556,33 @@ class _OpeningDocument extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
+            if (tracker == null)
+              const CircularProgressIndicator()
+            else
+              ValueListenableBuilder<double>(
+                valueListenable: tracker,
+                builder: (context, value, _) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(
+                        // Indeterminate until the first byte lands, then a
+                        // determinate ring driven by PdfHttpByteSource's
+                        // onProgress.
+                        value: value > 0 ? value.clamp(0.0, 1.0) : null,
+                      ),
+                    ),
+                    if (value > 0) ...[
+                      const SizedBox(height: 8),
+                      Text('${(value.clamp(0.0, 1.0) * 100).round()}%'),
+                    ],
+                  ],
+                ),
+              ),
             const SizedBox(height: 16),
-            Text(
-              title.isEmpty ? 'Opening PDF…' : 'Opening $title…',
-              textAlign: TextAlign.center,
-            ),
+            Text(label, textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -1480,7 +1594,7 @@ class _OpeningDocument extends StatelessWidget {
 /// so switching tabs preserves edits, undo history, scroll position,
 /// and any demo-specific overlay state.
 class _DocumentTab {
-  _DocumentTab.loading({required this.title})
+  _DocumentTab.loading({required this.title, this.loadingProgress})
       : session = null,
         viewer = null,
         isDemo = false,
@@ -1499,6 +1613,7 @@ class _DocumentTab {
         error = null,
         compareBefore = null,
         compareAfter = null,
+        loadingProgress = null,
         isLoading = false;
 
   _DocumentTab.error({required this.title, required this.error})
@@ -1507,6 +1622,7 @@ class _DocumentTab {
         isDemo = false,
         compareBefore = null,
         compareAfter = null,
+        loadingProgress = null,
         isLoading = false;
 
   /// A document-comparison tab: hosts a [PdfComparisonView] over two
@@ -1521,12 +1637,18 @@ class _DocumentTab {
         error = null,
         compareBefore = before,
         compareAfter = after,
+        loadingProgress = null,
         isLoading = false;
 
   final String title;
   final String? error;
   final bool isDemo;
   final bool isLoading;
+
+  /// Download progress (0..1) for a remote-load ([_openFromUrl]) loading tab,
+  /// or null for an indeterminate spinner. The notifier is owned by the code
+  /// that started the load, not the tab.
+  final ValueListenable<double>? loadingProgress;
 
   /// The two documents a comparison tab diffs; null on every other tab.
   final Uint8List? compareBefore;
@@ -1548,6 +1670,71 @@ class _DocumentTab {
     session?.dispose();
     viewer?.dispose();
     noteField.dispose();
+  }
+}
+
+/// Collects a URL to open a remote PDF from. Returns the entered string on
+/// "Open", or null on cancel. Submitting the text field also confirms.
+class _OpenUrlDialog extends StatefulWidget {
+  const _OpenUrlDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_OpenUrlDialog> createState() => _OpenUrlDialogState();
+}
+
+class _OpenUrlDialogState extends State<_OpenUrlDialog> {
+  late final TextEditingController _url =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _url.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_url.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Open from a URL'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Streams the PDF over HTTP Range requests via PdfHttpByteSource, '
+            'fetching only what the parser needs and falling back to a full '
+            'download when the server has no range support.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('open-url-field'),
+            controller: _url,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              labelText: 'PDF URL',
+              hintText: 'https://example.com/document.pdf',
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('open-url-confirm'),
+          onPressed: _submit,
+          child: const Text('Open'),
+        ),
+      ],
+    );
   }
 }
 

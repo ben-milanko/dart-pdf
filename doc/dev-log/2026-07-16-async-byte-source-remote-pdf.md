@@ -103,6 +103,21 @@ created itself.
 
 `dart analyze` clean; full `pdf_cos` (217) and `pdf_document` (665) suites pass.
 
+## Example wiring
+
+The example app now has an **Open from a URL…** menu action
+(`_openFromUrl` in `example/lib/main.dart`) so the API is visible in the live
+demo. It builds a `PdfHttpByteSource` and calls `PdfDocument.openSource` with a
+`PdfSourceLoadOptions.onProgress` that drives a determinate download-percent
+ring in the loading tab (`_OpeningDocument` gained an optional
+`ValueListenable<double>`), then hands `doc.cos.bytes` to the normal viewer
+tab. The field prefills with a CORS-enabled, Range-capable pdf.js sample; the
+error tab spells out the web CORS requirement. A `remoteByteSourceFactory` test
+seam swaps in a `PdfBytesByteSource` so `test/remote_open_test.dart` covers the
+flow with no network. `dart_pdf_editor` now re-exports `PdfByteSource`,
+`PdfBytesByteSource`, `PdfSourceLoadOptions`, and `PdfSourceProgress`, so a
+viewer host gets the whole remote-loading vocabulary from the one package.
+
 ## Left open / scope
 
 Because the sync core needs all referenced bytes present before it runs, the
