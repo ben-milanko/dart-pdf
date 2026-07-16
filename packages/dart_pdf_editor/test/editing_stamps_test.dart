@@ -1335,6 +1335,52 @@ void main() {
       expect(text.height, greaterThan(36));
     });
 
+    testWidgets('stamp editor resizes from any corner with a forgiving target',
+        (tester) async {
+      PdfCustomStamp? saved;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: FilledButton(
+              onPressed: () async {
+                saved = await showPdfStampEditor(context);
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final canvas = find.byKey(const ValueKey('pdf-stamp-template-canvas'));
+      final rect = tester.getRect(canvas);
+      final scale = rect.width / 240;
+      final origin = rect.topLeft;
+      // The default text component's top-left corner is at (20, 30). Grab it a
+      // few logical pixels off-center - the old single bottom-right handle
+      // could not do this, and the generous hit radius forgives the miss - then
+      // drag up and left so that corner (and only that corner) follows.
+      final resize = await tester.startGesture(
+          origin + Offset(20 * scale + 5, 30 * scale + 5),
+          kind: PointerDeviceKind.mouse);
+      await resize.moveBy(const Offset(-16, -10));
+      await resize.up();
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final text = saved!.template!.components
+          .firstWhere((c) => c.type == PdfStampTemplateComponentType.text);
+      // Top-left corner moved out, so the origin shrank and the box grew.
+      expect(text.x, lessThan(20));
+      expect(text.y, lessThan(30));
+      expect(text.width, greaterThan(200));
+      expect(text.height, greaterThan(36));
+    });
+
     testWidgets('the picker lists and deletes saved stamps', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
