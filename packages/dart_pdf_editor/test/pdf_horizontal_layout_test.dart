@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -50,6 +51,16 @@ void main() {
           isNot(const PdfPageLayout.horizontalContinuous()));
       expect(const PdfPageLayout.horizontalContinuous().hashCode,
           const PdfPageLayout.horizontalContinuous().hashCode);
+    });
+
+    test('constructs at runtime and describes itself', () {
+      // non-const invocations exercise the constructors at runtime
+      final horizontal = PdfPageLayout.horizontalContinuous();
+      final vertical = PdfPageLayout.verticalContinuous();
+      expect(horizontal.scrollAxis, Axis.horizontal);
+      expect(vertical.scrollAxis, Axis.vertical);
+      expect(horizontal.toString(), 'PdfPageLayout.horizontalContinuous');
+      expect(vertical.toString(), 'PdfPageLayout.verticalContinuous');
     });
   });
 
@@ -218,6 +229,97 @@ void main() {
             of: find.byType(PdfViewer), matching: find.byType(Scrollable))
         .first);
     expect(scrollable.axisDirection, AxisDirection.right);
+  });
+
+  testWidgets('showDestination scrolls to a page position horizontally',
+      (tester) async {
+    // 8 pages so page 3 sits well clear of the max scroll extent (no clamp)
+    final controller = await pumpHorizontal(tester, pages: 8);
+    // an /XYZ destination carries a left (horizontal) coordinate; a
+    // horizontal layout scrolls the main axis to it (page 612pt wide)
+    controller.showDestination(const PdfDestination(
+      pageIndex: 3,
+      fit: 'XYZ',
+      params: [306, 700, null],
+    ));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    // the destination scrolled page 3 so that 306/612 = 0.5 of the way
+    // across it sits at the viewport's left edge (currentPage tracks the
+    // viewport centre, which by then is the following page)
+    final region = controller.visiblePageRegion(3);
+    expect(region, isNotNull);
+    expect(region!.left, moreOrLessEquals(0.5, epsilon: 0.05));
+  });
+
+  testWidgets('zooming out below fit relays the pages out horizontally',
+      (tester) async {
+    final controller = await pumpHorizontal(tester, pages: 5);
+    // fit-height rests at 600/792 px/pt; zoom out below it to relayout the
+    // pages smaller (exercises the layout-zoom path on the main axis)
+    controller.setZoom(0.5);
+    await tester.pumpAndSettle(const Duration(milliseconds: 200));
+    expect(controller.zoom, moreOrLessEquals(0.5, epsilon: 0.01));
+    // more pages fit across the viewport once shrunk
+    expect(controller.visiblePageRegion(0), isNotNull);
+    expect(controller.visiblePageRegion(2), isNotNull);
+  });
+
+  testWidgets('touch cross-axis pan rubber-bands and springs back',
+      (tester) async {
+    // In a horizontal layout the cross (rubber-band) axis is vertical, so a
+    // vertical touch drag past the page edge over-scrolls and springs back.
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final controller = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            document: editing.document,
+            editing: editing,
+            controller: controller,
+            pageLayout: const PdfPageLayout.horizontalContinuous(),
+            initialFit: PdfViewerFit.width,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    editing.tool = PdfEditTool.select;
+    await tester.pump();
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    final regionBefore = controller.visiblePageRegion(0)!;
+
+    // vertical touch drag downward → content slides down, visible region
+    // pushes past the top edge (top < 0 in rubber-band)
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.touch);
+    var stamp = Duration.zero;
+    for (var i = 0; i < 12; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(const Offset(0, 60), timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final regionMidDrag = controller.visiblePageRegion(0)!;
+    expect(regionMidDrag.top, lessThan(regionBefore.top),
+        reason: 'the content should have shifted down');
+
+    await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
+    await tester.pump();
+    // the spring-back animation brings the page back to the edge
+    await tester.pumpAndSettle(const Duration(milliseconds: 500));
+    final regionAfter = controller.visiblePageRegion(0)!;
+    expect(regionAfter.top, moreOrLessEquals(0, epsilon: 0.02));
+
+    await tester.pump(const Duration(milliseconds: 400));
   });
 
   testWidgets('mixed page sizes keep their aspect ratios centred',
