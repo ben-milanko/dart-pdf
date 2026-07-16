@@ -283,6 +283,24 @@ void main() {
           editing.document.page(0).annotations.last.vertices, hasLength(5));
     });
 
+    testWidgets('Remove node from the menu drops the nearest vertex',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.addPolygon(
+          0, const [(400, 600), (500, 600), (500, 700), (400, 700)]);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(405, 605)); // near vertex (400, 600)
+      expect(editing.selectedAnnotation?.subtype, 'Polygon');
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-remove-node')));
+      await tester.pumpAndSettle();
+
+      final vertices = editing.document.page(0).annotations.last.vertices;
+      expect(vertices, hasLength(3));
+      expect(vertices, isNot(contains((400.0, 600.0))));
+    });
+
     testWidgets('a rectangle right-click has no node entries', (tester) async {
       await pumpViewer(tester);
 
