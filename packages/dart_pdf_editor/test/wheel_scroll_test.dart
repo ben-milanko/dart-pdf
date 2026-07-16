@@ -94,6 +94,59 @@ void main() {
         reason: 'horizontal trackpad scroll should pan the zoom window');
   });
 
+  testWidgets('web-style trackpad scroll: horizontal at fit zoom reaches the '
+      'pasteboard', (tester) async {
+    // On web a two-finger sideways trackpad swipe arrives as a horizontal
+    // wheel event. At the default fit zoom it must still pan the page a
+    // bounded distance onto the off-page pasteboard (not do nothing), so
+    // off-page material is reachable without zooming in first.
+    final controller = await pumpViewer(tester);
+    expect(controller.captureViewport()!.left,
+        moreOrLessEquals(0, epsilon: 0.01));
+    final state = tester.state<ScrollableState>(find.byType(Scrollable).first);
+
+    final pointer = TestPointer(107, PointerDeviceKind.trackpad);
+    pointer.hover(const Offset(400, 300));
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(60, 0)));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+
+    final vp = controller.captureViewport()!;
+    expect(vp.left.abs(), greaterThan(0.05),
+        reason: 'a fit-zoom horizontal wheel reaches the pasteboard');
+    expect(vp.left.abs(), lessThan(0.25),
+        reason: 'the pasteboard pan is bounded to the margin');
+    expect(vp.top, moreOrLessEquals(0, epsilon: 0.02),
+        reason: 'no vertical drift: the list owns vertical scrolling');
+    expect(state.position.pixels, moreOrLessEquals(0, epsilon: 0.5),
+        reason: 'a pure horizontal pan does not scroll the list');
+  });
+
+  testWidgets('shift+mouse wheel at fit zoom reaches the pasteboard',
+      (tester) async {
+    final controller = await pumpViewer(tester);
+    final state = tester.state<ScrollableState>(find.byType(Scrollable).first);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    final pointer = TestPointer(108, PointerDeviceKind.mouse);
+    pointer.hover(const Offset(400, 300));
+    for (var i = 0; i < 5; i++) {
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 60)));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+
+    final vp = controller.captureViewport()!;
+    expect(vp.left.abs(), greaterThan(0.05),
+        reason: 'shift+wheel reaches the pasteboard at fit zoom');
+    expect(vp.left.abs(), lessThan(0.25));
+    expect(state.position.pixels, moreOrLessEquals(0, epsilon: 0.5),
+        reason: 'shift+wheel pans horizontally, it does not scroll the list');
+  });
+
   // Two ways a shift+mouse-wheel reaches Flutter: with the vertical delta
   // still in dy (the engine passes the wheel through raw and Flutter's
   // own pointerAxisModifiers do the flip) and pre-flipped into dx (the

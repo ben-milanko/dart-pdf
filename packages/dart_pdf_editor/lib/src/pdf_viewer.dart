@@ -1283,7 +1283,10 @@ class _PdfViewerState extends State<PdfViewer>
         dx = dy;
         dy = 0;
       }
-      if (zoomed) matrix.storage[12] -= dx;
+      // horizontal pan applies at every zoom - at fit zoom the clamp bounds
+      // it to the pasteboard margin, so a web trackpad's sideways wheel (and
+      // shift+mouse-wheel) can reach off-page material without zooming first
+      matrix.storage[12] -= dx;
       if (_scroll.hasClients && dy != 0) {
         final position = _scroll.position;
         // deltas are screen pixels; the list lives under the zoom transform
@@ -1293,7 +1296,9 @@ class _PdfViewerState extends State<PdfViewer>
         if (clamped != position.pixels) position.jumpTo(clamped);
         if (zoomed) matrix.storage[13] -= (target - clamped) * scale;
       }
-      if (zoomed) _transform.value = _clampedTransform(matrix);
+      // update the transform when zoomed (x + spilled y) or when there is a
+      // horizontal component to rest on the pasteboard at fit zoom
+      if (zoomed || dx != 0) _transform.value = _clampedTransform(matrix);
     });
   }
 
