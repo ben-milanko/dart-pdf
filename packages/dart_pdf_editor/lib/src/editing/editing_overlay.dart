@@ -5945,6 +5945,11 @@ class _EditingPreviewPainter extends CustomPainter {
   /// live preview matches the committed appearance stream.
   static const double _cloudBulgeFactor = 1.15;
 
+  /// Fraction of the bulge by which the shared foot between puffs is pulled
+  /// inward, curling the necks. Mirrors `_cloudNeckInset` in pdf_document's
+  /// annotation_editor so the preview matches the committed appearance.
+  static const double _cloudNeckInset = 0.2;
+
   Path _cloudPath(List<Offset> points, double strokeWidth) {
     final path = Path();
     if (points.length < 3) return path;
@@ -5970,12 +5975,16 @@ class _EditingPreviewPainter extends CustomPainter {
       final bulge = math.min(r, arc) * _cloudBulgeFactor;
       final ca = r * k; // apex control handle, along the edge
       final cf = bulge * k; // foot control handle, perpendicular (outward)
+      final inset = bulge * _cloudNeckInset; // pull necks inward to curl them
       for (var j = 0; j < scallops; j++) {
         final t0 = j / scallops;
         final t1 = (j + 1) / scallops;
-        final start = Offset.lerp(a, b, t0)!;
-        final end = Offset.lerp(a, b, t1)!;
-        final apex = Offset.lerp(start, end, 0.5)! + normal * bulge;
+        // Apex height is measured from the edge (before insetting the feet) so
+        // the outward extent matches the committed appearance stream.
+        final mid = Offset.lerp(a, b, (t0 + t1) / 2)!;
+        final start = Offset.lerp(a, b, t0)! - normal * inset;
+        final end = Offset.lerp(a, b, t1)! - normal * inset;
+        final apex = mid + normal * bulge;
         if (first) {
           path.moveTo(start.dx, start.dy);
           first = false;

@@ -5235,6 +5235,14 @@ extension PdfAnnotationEditing on PdfEditor {
   /// puffs (with cusps between them) instead of flat half-circles.
   static const double _cloudBulgeFactor = 1.15;
 
+  /// How far the shared foot between two puffs is pulled *inward* (toward the
+  /// interior), as a fraction of the puff's outward bulge. Non-zero makes the
+  /// necks curl in so each scallop reads as a rounder, near-closed puff with a
+  /// pinched inward cusp between neighbours, instead of feet that meet flat on
+  /// the polygon edge. The apex still sits at the original edge midpoint, so
+  /// the outer extent - and `_cloudPadding` - is unaffected.
+  static const double _cloudNeckInset = 0.2;
+
   /// Target radius of one cloud scallop, in page points. Independent of the
   /// (usually hairline) stroke so the puffs stay fluffy; grows only when the
   /// stroke itself is heavy enough to crowd them.
@@ -5316,15 +5324,20 @@ extension PdfAnnotationEditing on PdfEditor {
       final bulge = math.min(r, arc) * _cloudBulgeFactor; // apex height
       final ca = r * k; // apex control handle, along the edge
       final cf = bulge * k; // foot control handle, perpendicular (outward)
+      final inset = bulge * _cloudNeckInset; // pull necks inward to curl them
       for (var j = 0; j < scallops; j++) {
         final t0 = j / scallops;
         final t1 = (j + 1) / scallops;
-        final sx = a.$1 + dx * t0;
-        final sy = a.$2 + dy * t0;
-        final ex = a.$1 + dx * t1;
-        final ey = a.$2 + dy * t1;
-        final apx = (sx + ex) / 2 + nx * bulge;
-        final apy = (sy + ey) / 2 + ny * bulge;
+        // Apex height is measured from the polygon edge, before the feet are
+        // pulled in, so the outward extent (and padding) stays the same.
+        final mx = a.$1 + dx * (t0 + t1) / 2;
+        final my = a.$2 + dy * (t0 + t1) / 2;
+        final sx = a.$1 + dx * t0 - nx * inset;
+        final sy = a.$2 + dy * t0 - ny * inset;
+        final ex = a.$1 + dx * t1 - nx * inset;
+        final ey = a.$2 + dy * t1 - ny * inset;
+        final apx = mx + nx * bulge;
+        final apy = my + ny * bulge;
         if (first) {
           w.moveTo(sx, sy);
           first = false;
