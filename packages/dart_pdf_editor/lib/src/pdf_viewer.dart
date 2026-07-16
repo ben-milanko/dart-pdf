@@ -4132,8 +4132,30 @@ class _PdfViewerState extends State<PdfViewer>
     _scheduleMotionRenderHoldRelease();
   }
 
+  /// How far past the content edges the zoom window may be panned, on each
+  /// axis, so material that sits outside the page box - bleed, crop and
+  /// registration marks, art that overflows the MediaBox - can be pulled
+  /// into view instead of being pinned to the viewport edge (the vector
+  /// display path draws it; nothing clips at the page boundary). A modest
+  /// fraction of the viewport, capped so a large viewport doesn't pan off
+  /// into a wide empty margin.
+  double get _panMarginX => math.min(_viewWidth * 0.25, 160.0);
+  double get _panMarginY => math.min(_viewHeight * 0.25, 160.0);
+
+  /// The allowed x-translation range for the zoom window at [scale]: the
+  /// tight cover range `[_viewWidth * (1 - scale), 0]` widened by
+  /// [_panMarginX] on each side.
+  (double, double) _panBoundsX(double scale) =>
+      (_viewWidth * (1 - scale) - _panMarginX, _panMarginX);
+
+  /// The allowed y-translation range for the zoom window at [scale] (see
+  /// [_panBoundsX]).
+  (double, double) _panBoundsY(double scale) =>
+      (_viewHeight * (1 - scale) - _panMarginY, _panMarginY);
+
   /// One frame of the horizontal fling: moves the zoom window's
-  /// x-translation along the friction simulation, stopping at the edges.
+  /// x-translation along the friction simulation, stopping at the edges
+  /// (the allowed range includes the over-pan margin).
   void _onPanFlingTick() {
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
@@ -4141,22 +4163,26 @@ class _PdfViewerState extends State<PdfViewer>
       _panFlinger.stop();
       return;
     }
-    final min = _viewWidth * (1 - scale);
+    final (min, max) = _panBoundsX(scale);
     final value = _panFlinger.value;
-    matrix.storage[12] = value.clamp(min, 0.0);
+    matrix.storage[12] = value.clamp(min, max);
     _transform.value = matrix;
-    if (value <= min || value >= 0) _panFlinger.stop();
+    if (value <= min || value >= max) _panFlinger.stop();
   }
 
   /// Keeps the zoom window over the content: snaps near-1 scales back to
   /// identity (sub-1 zoom is layout zoom, not a transform) and clamps the
-  /// translation so no blank edges show.
+  /// translation to the allowed range - the tight cover range widened by
+  /// the over-pan margin ([_panBoundsX]/[_panBoundsY]), so a reasonable
+  /// amount of off-page content stays reachable.
   Matrix4 _clampedTransform(Matrix4 matrix) {
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return Matrix4.identity();
     final s = matrix.storage;
-    s[12] = s[12].clamp(_viewWidth * (1 - scale), 0.0);
-    s[13] = s[13].clamp(_viewHeight * (1 - scale), 0.0);
+    final (minX, maxX) = _panBoundsX(scale);
+    final (minY, maxY) = _panBoundsY(scale);
+    s[12] = s[12].clamp(minX, maxX);
+    s[13] = s[13].clamp(minY, maxY);
     return matrix;
   }
 
@@ -4166,41 +4192,45 @@ class _PdfViewerState extends State<PdfViewer>
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return Matrix4.identity();
     final s = matrix.storage;
-    s[13] = s[13].clamp(_viewHeight * (1 - scale), 0.0);
+    final (minY, maxY) = _panBoundsY(scale);
+    s[13] = s[13].clamp(minY, maxY);
     return matrix;
   }
 
-  /// Rubber-band damping for the horizontal translation: within bounds
-  /// returns [tx] unchanged; past the edge, excess motion is dampened
-  /// logarithmically (the further past the edge, the harder it resists).
-  /// Matches the iOS UIScrollView rubber-band feel.
+  /// Rubber-band damping for the horizontal translation: within the
+  /// allowed range (cover range plus over-pan margin) returns [tx]
+  /// unchanged; past that range, excess motion is dampened logarithmically
+  /// (the further past the edge, the harder it resists). Matches the iOS
+  /// UIScrollView rubber-band feel.
   double _rubberBandClamp(double tx, double scale) {
-    final min = _viewWidth * (1 - scale);
-    if (tx >= min && tx <= 0) return tx;
+    final (min, max) = _panBoundsX(scale);
+    if (tx >= min && tx <= max) return tx;
     final limit = _viewWidth * 0.5;
-    if (tx > 0) {
-      return limit * (1 - math.exp(-tx / limit));
+    if (tx > max) {
+      return max + limit * (1 - math.exp(-(tx - max) / limit));
     } else {
       final overshoot = min - tx;
       return min - limit * (1 - math.exp(-overshoot / limit));
     }
   }
 
-  /// How far the horizontal translation is past the content bounds (> 0
-  /// means overshot), or 0 when within bounds.
+  /// How far the horizontal translation is past the allowed range (> 0
+  /// means overshot the max edge, < 0 the min edge), or 0 when inside it.
   double _horizontalOverscroll() {
     final matrix = _transform.value;
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return 0;
     final tx = matrix.storage[12];
-    final min = _viewWidth * (1 - scale);
-    if (tx > 0) return tx;
+    final (min, max) = _panBoundsX(scale);
+    if (tx > max) return tx - max;
     if (tx < min) return tx - min;
     return 0;
   }
 
-  /// If the horizontal translation is past the content edge, animates it
-  /// back with a spring. Called when a touch gesture ends.
+  /// If the horizontal translation is past the allowed range, animates it
+  /// back to the nearest edge with a spring. Called when a touch gesture
+  /// ends. The over-pan margin is inside the allowed range, so material
+  /// there is held, not sprung away.
   void _springBackHorizontal() {
     _touchPanning = false;
     final overscroll = _horizontalOverscroll();
@@ -4214,8 +4244,8 @@ class _PdfViewerState extends State<PdfViewer>
     }
     final tx = _transform.value.storage[12];
     final scale = _transform.value.getMaxScaleOnAxis();
-    final min = _viewWidth * (1 - scale);
-    final target = tx > 0 ? 0.0 : min;
+    final (min, max) = _panBoundsX(scale);
+    final target = tx > max ? max : min;
     _hBounceController
         .animateWith(SpringSimulation(_hBounceSpring, tx, target, 0));
     _scheduleMotionRenderHoldRelease();

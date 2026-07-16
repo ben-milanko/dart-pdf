@@ -716,6 +716,42 @@ void main() {
     expect(controller.zoom, greaterThan(1)); // flinging didn't unzoom
   });
 
+  testWidgets('trackpad pan rests a reasonable amount past the page edge',
+      (tester) async {
+    // Content sometimes sits outside the page box (bleed, crop marks, art
+    // overflowing the MediaBox); the pan clamp allows a bounded over-pan
+    // so it can be brought into view instead of being pinned to the edge.
+    final controller = await pumpViewer(tester);
+
+    // zoom in with a touch double-tap (2.5×)
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(400, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(1));
+
+    // trackpad-pan hard right (positive dx) far past the page's left edge
+    final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.trackpad, pointer: 41);
+    await gesture.panZoomStart(const Offset(400, 300));
+    for (var i = 1; i <= 10; i++) {
+      await gesture.panZoomUpdate(const Offset(400, 300),
+          pan: Offset(80.0 * i, 0), timeStamp: Duration(milliseconds: 16 * i));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await gesture.panZoomEnd(timeStamp: const Duration(milliseconds: 176));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+    // captureViewport reports the true (unclamped) top-left fraction: the
+    // page has been pulled right of its left edge and stays there, but the
+    // over-pan is bounded to a reasonable margin, not a runaway void.
+    final vp = controller.captureViewport()!;
+    expect(vp.left, lessThan(0),
+        reason: 'the page can rest past its left edge to show off-page art');
+    expect(vp.left, greaterThan(-0.2),
+        reason: 'the over-pan is bounded to a reasonable margin');
+  });
+
   testWidgets('search lands on the match in a long mixed-size document',
       (tester) async {
     final bytes = buildVariedHeightPdf(48);
