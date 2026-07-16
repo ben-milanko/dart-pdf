@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../mouse_cursor.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
@@ -482,6 +483,7 @@ class EditingPageOverlay extends StatefulWidget {
     required this.textPrompt,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.interactiveForms = true,
     this.interactionHost,
     this.interactionSession,
     this.onPanViewport,
@@ -524,6 +526,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// Whether the page is displayed with its annotations - same
   /// requirement as [pageColor]: the eyedropper samples what's visible.
   final bool showAnnotations;
+
+  /// Whether the direct form-fill layer is mounted above this overlay. Its
+  /// field-local custom cursor owns those rects, so the page cursor stands
+  /// down there instead of painting a second glyph underneath it.
+  final bool interactiveForms;
 
   /// Viewer-owned services used by this page's interaction session.
   final PdfEditingInteractionHost? interactionHost;
@@ -972,7 +979,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
-  MouseCursor _cursor = MouseCursor.defer;
+  PdfMouseCursorKind? _cursor;
+  Offset? _cursorPosition;
 
   late PdfEditingInteractionSession _interaction;
   late bool _ownsInteraction;
@@ -1182,6 +1190,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// - with ink or the eraser armed - the stroke itself.
   void _onPointerDown(PointerDownEvent event) {
     _pointerPressure = _normalizedPressure(event);
+    if (event.kind == PointerDeviceKind.mouse ||
+        event.kind == PointerDeviceKind.trackpad) {
+      _cursorPosition = event.localPosition;
+    }
     if (_lastPointerKind != event.kind) {
       // the selection action chip shows for touch/stylus input only
       setState(() => _lastPointerKind = event.kind);
@@ -1256,6 +1268,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onPointerMove(PointerMoveEvent event) {
+    if ((event.kind == PointerDeviceKind.mouse ||
+            event.kind == PointerDeviceKind.trackpad) &&
+        _cursor != null) {
+      _cursorPosition = event.localPosition;
+    }
     final pressure = _normalizedPressure(event);
     if (pressure != null) _pointerPressure = pressure;
     if (_controller.isPickingColor) {
@@ -2301,12 +2318,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   /// The resize cursor for a handle by its corner/edge: orthogonal edges
   /// get the straight resize cursors, corners the matching diagonal.
-  static MouseCursor _resizeCursorFor(_Handle handle) =>
+  static PdfMouseCursorKind _resizeCursorFor(_Handle handle) =>
       switch ((handle.dx, handle.dy)) {
-        (0, _) => SystemMouseCursors.resizeUpDown,
-        (_, 0) => SystemMouseCursors.resizeLeftRight,
-        (-1, -1) || (1, 1) => SystemMouseCursors.resizeUpLeftDownRight,
-        _ => SystemMouseCursors.resizeUpRightDownLeft,
+        (0, _) => PdfMouseCursorKind.resizeUpDown,
+        (_, 0) => PdfMouseCursorKind.resizeLeftRight,
+        (-1, -1) || (1, 1) =>
+          PdfMouseCursorKind.resizeUpLeftDownRight,
+        _ => PdfMouseCursorKind.resizeUpRightDownLeft,
       };
 
   _Handle? _handleAt(Rect rect, Offset position) {
@@ -3058,6 +3076,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _resizeFlipY = false;
           _moveStart = position;
           _moveCurrent = position;
+          _cursorPosition = position;
           // hold the matching resize cursor through the drag (hover stops
           // firing once the pointer is down)
           _cursor = _resizeCursorFor(handle);
@@ -3076,7 +3095,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _rotateDelta = 0;
           // keep the painted rotation glyph riding the pointer mid-drag
           _rotateCursor = position;
-          _cursor = SystemMouseCursors.none;
+          _cursor = null;
         });
         return;
       }
@@ -3088,7 +3107,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         setState(() {
           _moveStart = position;
           _moveCurrent = position;
-          _cursor = SystemMouseCursors.move; // 4-arrow while dragging
+          _cursorPosition = position;
+          _cursor = PdfMouseCursorKind.move; // 4-arrow while dragging
         });
         _ensureSourceClean();
         return;
@@ -3102,7 +3122,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       setState(() {
         _moveStart = position;
         _moveCurrent = position;
-        _cursor = SystemMouseCursors.move;
+        _cursorPosition = position;
+        _cursor = PdfMouseCursorKind.move;
       });
       _ensureSourceClean();
       return;
@@ -3328,6 +3349,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final vertexHandle = _vertexHandle;
     final rotating = _rotateStartAngle != null;
     final rotateDelta = _rotateDelta;
+    final retainMouseCursor =
+        _lastPointerKind == PointerDeviceKind.mouse ||
+        _lastPointerKind == PointerDeviceKind.trackpad;
+    final restingRotateCursor = _rotateCursor;
     final marquee = _marqueeStart != null && _marqueeCurrent != null
         ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
         : null;
@@ -3365,14 +3390,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _vertexPoints = null;
       _rotateStartAngle = null;
       _rotateDelta = 0;
-      _rotateCursor = null;
+      _rotateCursor =
+          retainMouseCursor && rotating ? restingRotateCursor : null;
       _marqueeStart = null;
       _marqueeCurrent = null;
       _marqueeAdd = false;
       _viewportPanning = false;
       _signatureDrag = false;
-      // drop any drag cursor; the next hover recomputes it
-      _cursor = MouseCursor.defer;
+      // A hardware cursor remains under the lifted pointer. Keep its custom
+      // counterpart there too; touch/stylus gestures have no hover cursor.
+      if (!retainMouseCursor) {
+        _cursor = null;
+        _cursorPosition = null;
+      }
     });
     _stopAutoScroll();
     // the in-flight lift is done; the afterimage covers the commit gap
@@ -4138,10 +4168,23 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onHover(PointerHoverEvent event) {
-    final MouseCursor cursor;
+    final PdfMouseCursorKind? cursor;
     if (_controller.isPickingColor) {
       _updatePickPreview(event.localPosition);
-      cursor = SystemMouseCursors.precise;
+      cursor = PdfMouseCursorKind.precise;
+    } else if (widget.interactiveForms &&
+        (_tool == null || _tool == PdfEditTool.select) &&
+        (() {
+          final (x, y) = _geometry.toPagePoint(event.localPosition);
+          final hit = _controller.formFieldAt(widget.pageIndex, x, y);
+          return hit != null &&
+              pdfFormFieldMouseCursor(hit.$1,
+                      canPickButtonImage: widget.formImagePicker != null) !=
+                  null;
+        })()) {
+      // FormInteractionLayer sits above this overlay and paints the field's
+      // own text/click cursor. Do not leave move/resize chrome underneath it.
+      cursor = null;
     } else if (_selectMode) {
       final selected = _selectedViewRect;
       final chrome = _selectionChrome;
@@ -4159,7 +4202,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   _rotatePoint(
                       event.localPosition, chrome.$1.center, -resting));
       if (vertex != null) {
-        cursor = SystemMouseCursors.grab;
+        cursor = PdfMouseCursorKind.grab;
       } else if (handle != null) {
         cursor = _resizeCursorFor(handle);
       } else if (chrome != null &&
@@ -4168,42 +4211,42 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (_rotateCursor != event.localPosition) {
           setState(() => _rotateCursor = event.localPosition);
         }
-        cursor = SystemMouseCursors.none;
+        cursor = null;
       } else if (_selectedViewRects
           .any((rect) => rect.contains(event.localPosition))) {
         // hovering a selected annotation: the 4-arrow reads as "drag me"
-        cursor = SystemMouseCursors.move;
+        cursor = PdfMouseCursorKind.move;
       } else {
         final (x, y) = _geometry.toPagePoint(event.localPosition);
         // a pointer over a selectable annotation, a crosshair-ish basic
         // over empty page (a drag there rubber-bands)
         cursor =
             _controller.selectableAnnotationAt(widget.pageIndex, x, y) != null
-                ? SystemMouseCursors.click
-                : SystemMouseCursors.basic;
+                ? PdfMouseCursorKind.click
+                : PdfMouseCursorKind.basic;
       }
     } else if (_tool == PdfEditTool.note) {
-      cursor = SystemMouseCursors.click;
+      cursor = PdfMouseCursorKind.click;
     } else if (_inkTool) {
       // the painted dot (pen colour at pen width) is the cursor, so the
       // chosen colour and stroke width are visible before drawing
       if (_penCursor != event.localPosition) {
         setState(() => _penCursor = event.localPosition);
       }
-      cursor = SystemMouseCursors.none;
+      cursor = null;
     } else if (_tool == PdfEditTool.eraser) {
       // the painted ring is the cursor
       if (_eraserCursor != event.localPosition) {
         setState(() => _eraserCursor = event.localPosition);
       }
-      cursor = SystemMouseCursors.none;
+      cursor = null;
     } else if (_tool == PdfEditTool.count) {
       // the painted check-mark is the cursor, showing exactly what a click
       // will place before the page gets a new annotation.
       if (_countCursor != event.localPosition) {
         setState(() => _countCursor = event.localPosition);
       }
-      cursor = SystemMouseCursors.none;
+      cursor = null;
     } else if (_tool == PdfEditTool.stamp) {
       // active custom stamps can be placed by a plain click - show the exact
       // auto-sized placement before committing it. The prompt-for-text
@@ -4215,50 +4258,60 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       } else if (_stampPreview != event.localPosition) {
         setState(() => _stampPreview = event.localPosition);
       }
-      cursor = SystemMouseCursors.precise;
+      // The stamp itself is the cursor when it can be previewed. Keep the
+      // crosshair fallback for the prompt-for-text flow, where there is no
+      // placement artwork yet.
+      cursor = preview == null ? PdfMouseCursorKind.precise : null;
     } else if (_tool == PdfEditTool.signature) {
-      // the live preview rides the mouse; a click commits it
+      // The live signature is the cursor: a click commits it. Painting a
+      // crosshair over the hotspot would obscure thin signature strokes.
       if (_controller.signature != null &&
           event.localPosition != _signaturePreview) {
         setState(() => _signaturePreview = event.localPosition);
       }
-      cursor = SystemMouseCursors.precise;
+      cursor = _controller.signature == null
+          ? PdfMouseCursorKind.precise
+          : null;
     } else if (_polyTool || _tool == PdfEditTool.cloudPolygon) {
       // once a cloud vertex is down, the hover rubber-bands the next edge;
       // before that the cloud tool still rubber-bands a rectangle on drag
       if (_polyPoints != null && event.localPosition != _polyHover) {
         setState(() => _polyHover = event.localPosition);
       }
-      cursor = SystemMouseCursors.precise;
+      cursor = PdfMouseCursorKind.precise;
     } else if (_tool == PdfEditTool.content) {
       final (x, y) = _geometry.toPagePoint(event.localPosition);
       cursor =
           _controller.elementsOn(widget.pageIndex).elementsAt(x, y).isNotEmpty
-              ? SystemMouseCursors.click
-              : SystemMouseCursors.basic;
+              ? PdfMouseCursorKind.click
+              : PdfMouseCursorKind.basic;
     } else if (_tool == PdfEditTool.form) {
       final (x, y) = _geometry.toPagePoint(event.localPosition);
       final selectedRect = _selectedViewRect;
-      final onHandle = selectedRect != null &&
-          _controller.canResizeSelected &&
-          _handleAt(selectedRect, event.localPosition) != null;
-      if (onHandle) {
-        cursor = SystemMouseCursors.precise; // a resize handle
+      final handle = selectedRect != null && _controller.canResizeSelected
+          ? _handleAt(selectedRect, event.localPosition)
+          : null;
+      if (handle != null) {
+        cursor = _resizeCursorFor(handle);
       } else if (selectedRect?.contains(event.localPosition) ?? false) {
-        cursor = SystemMouseCursors.move; // drag the selected field
+        cursor = PdfMouseCursorKind.move; // drag the selected field
       } else if (_controller.selectableWidgetAt(widget.pageIndex, x, y) !=
           null) {
-        cursor = SystemMouseCursors.click; // tap to select / double-tap fills
+        cursor = PdfMouseCursorKind.click; // tap to select / double-tap fills
       } else {
-        cursor = SystemMouseCursors.precise; // a drag here adds a field
+        cursor = PdfMouseCursorKind.precise; // a drag here adds a field
       }
     } else {
-      cursor = SystemMouseCursors.precise;
+      cursor = PdfMouseCursorKind.precise;
     }
     // retract the painted glyph cursors when the pointer leaves their zone:
     // the rotate glyph shows only over the knob (the lone `none` in select
     // mode), the pen dot only with the ink tool armed
-    final overKnob = _selectMode && cursor == SystemMouseCursors.none;
+    final currentChrome = _selectionChrome;
+    final overKnob = _selectMode &&
+        currentChrome != null &&
+        _hitsRotateHandle(
+            currentChrome.$1, currentChrome.$2, event.localPosition);
     if (!overKnob && _rotateCursor != null) {
       setState(() => _rotateCursor = null);
     }
@@ -4271,7 +4324,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_tool != PdfEditTool.stamp && _stampPreview != null) {
       setState(() => _stampPreview = null);
     }
-    if (cursor != _cursor) setState(() => _cursor = cursor);
+    if (cursor != _cursor || event.localPosition != _cursorPosition) {
+      setState(() {
+        _cursor = cursor;
+        _cursorPosition = event.localPosition;
+      });
+    }
   }
 
   /// The floating action row beside a touch/stylus selection - the
@@ -5012,10 +5070,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 ? _onDoubleTap
                 : null,
         child: MouseRegion(
-          cursor: _cursor,
+          cursor: SystemMouseCursors.none,
           onHover: _onHover,
           onExit: (_) {
-            if (_pickPosition == null &&
+            if (_cursorPosition == null &&
+                _pickPosition == null &&
                 (_signaturePreview == null || _signatureDrag) &&
                 (_eraserCursor == null || _erasePath.isNotEmpty) &&
                 _penCursor == null &&
@@ -5035,6 +5094,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               _stampPreview = null;
               if (_rotateStartAngle == null) _rotateCursor = null;
               _polyHover = null;
+              _cursor = null;
+              _cursorPosition = null;
             });
           },
           // touch and stylus long-press opens the context menu (the
@@ -5153,6 +5214,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         ? _stampHoverAfterimageAt(_stampPreview!)
                         : null,
                     rotateCursor: _rotateCursor,
+                    mouseCursor: _cursor,
+                    mouseCursorPosition: _cursorPosition,
                     afterGhost: afterGhost,
                     afterShape: _afterShape,
                     afterStamp: _afterStamp,
@@ -5683,6 +5746,8 @@ class _EditingPreviewPainter extends CustomPainter {
     this.countPreview,
     this.stampPreview,
     this.rotateCursor,
+    this.mouseCursor,
+    this.mouseCursorPosition,
     required this.afterGhost,
     required this.afterShape,
     required this.afterStamp,
@@ -5828,6 +5893,12 @@ class _EditingPreviewPainter extends CustomPainter {
   /// (Flutter has no built-in rotation cursor, so the system cursor is
   /// hidden over the knob and this tracks the pointer instead).
   final Offset? rotateCursor;
+
+  /// A standard package-owned cursor and its interaction hotspot. Tool-aware
+  /// cursors (pen, eraser, count, stamp and rotate) use their richer fields
+  /// above instead.
+  final PdfMouseCursorKind? mouseCursor;
+  final Offset? mouseCursorPosition;
 
   /// A just-committed move/resize/rotate, kept painted at full strength
   /// until the new revision's raster lands. [source] is the old
@@ -6730,36 +6801,18 @@ class _EditingPreviewPainter extends CustomPainter {
       _paintStampAfterimage(canvas, stamp);
     }
 
+    final standard = mouseCursor;
+    final standardPosition = mouseCursorPosition;
+    if (standard != null && standardPosition != null) {
+      paintPdfMouseCursor(canvas, standardPosition, standard,
+          scale: chromeScale);
+    }
+
     // the rotate knob's cursor: a curved arrow (no system rotation cursor)
     final rotate = rotateCursor;
     if (rotate != null) {
-      final rr = 9 * chromeScale;
-      // a 290° arc, leaving a gap for the arrowhead at its end
-      const start = -math.pi / 2;
-      const sweep = 290 * math.pi / 180;
-      final box = Rect.fromCircle(center: rotate, radius: rr);
-      final halo = Paint()
-        ..color = const Color(0x66000000)
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = 4 * chromeScale;
-      final arc = Paint()
-        ..color = const Color(0xFFFFFFFF)
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = 2 * chromeScale;
-      canvas.drawArc(box, start, sweep, false, halo);
-      canvas.drawArc(box, start, sweep, false, arc);
-      // arrowhead tangent to the arc end
-      final end = start + sweep;
-      final tip = rotate + Offset(math.cos(end), math.sin(end)) * rr;
-      final tangent = end + math.pi / 2; // clockwise travel
-      final wing = 4 * chromeScale;
-      for (final a in [tangent + 2.5, tangent - 2.5]) {
-        final p = tip + Offset(math.cos(a), math.sin(a)) * wing;
-        canvas.drawLine(tip, p, halo);
-        canvas.drawLine(tip, p, arc);
-      }
+      paintPdfMouseCursor(canvas, rotate, PdfMouseCursorKind.rotate,
+          scale: chromeScale);
     }
   }
 
@@ -6823,6 +6876,8 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.countPreview != countPreview ||
       oldDelegate.stampPreview != stampPreview ||
       oldDelegate.rotateCursor != rotateCursor ||
+      oldDelegate.mouseCursor != mouseCursor ||
+      oldDelegate.mouseCursorPosition != mouseCursorPosition ||
       oldDelegate.afterGhost != afterGhost ||
       oldDelegate.afterShape != afterShape ||
       oldDelegate.afterStamp != afterStamp ||

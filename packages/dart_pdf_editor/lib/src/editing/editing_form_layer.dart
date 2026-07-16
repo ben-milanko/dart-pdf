@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../annotation_tap.dart';
+import '../mouse_cursor.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
@@ -316,31 +317,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     if (picked != null) _controller.setFormChoiceValue(name, picked);
   }
 
-  MouseCursor _cursorFor(PdfFormField field) {
-    if (field.isReadOnly) return SystemMouseCursors.basic;
-    return switch (field.type) {
-      PdfFieldType.text => SystemMouseCursors.text,
-      PdfFieldType.signature ||
-      PdfFieldType.unknown =>
-        SystemMouseCursors.basic,
-      _ => SystemMouseCursors.click,
-    };
-  }
-
-  bool _interactive(PdfFormField field) {
-    if (field.isReadOnly) return false;
-    return switch (field.type) {
-      PdfFieldType.text ||
-      PdfFieldType.checkBox ||
-      PdfFieldType.radioGroup ||
-      PdfFieldType.comboBox ||
-      PdfFieldType.listBox =>
-        true,
-      // push buttons only fill when the host supplies an image picker
-      PdfFieldType.pushButton => widget.formImagePicker != null,
-      PdfFieldType.signature || PdfFieldType.unknown => false,
-    };
-  }
+  PdfMouseCursorKind? _cursorFor(PdfFormField field) =>
+      pdfFormFieldMouseCursor(field,
+          canPickButtonImage: widget.formImagePicker != null);
 
   @override
   Widget build(BuildContext context) {
@@ -372,7 +351,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
     return Stack(children: [
       for (final (field, widgetIndex, annotation) in fields)
-        if (_interactive(field) && field.name != _editingField)
+        if (_cursorFor(field) != null && field.name != _editingField)
           _tapTarget(field, widgetIndex, annotation,
               geometry.toViewRect(annotation.rect)),
       if (_afterValue != null && _afterRect != null)
@@ -385,8 +364,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       PdfAnnotation annotation, Rect rect) {
     return Positioned.fromRect(
       rect: rect,
-      child: MouseRegion(
-        cursor: _cursorFor(field),
+      child: PdfMouseCursorRegion(
+        kind: _cursorFor(field),
+        scale: _chromeScale,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (details) {

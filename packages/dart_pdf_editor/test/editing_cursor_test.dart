@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:dart_pdf_editor/src/mouse_cursor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -102,7 +103,8 @@ void main() {
       (tester) async {
     await selectedSquare(tester);
     await hoverAt(tester, view(225, 500));
-    expect(regionCursor(tester), SystemMouseCursors.move);
+    expect(regionCursor(tester), SystemMouseCursors.none);
+    expect(overlayPainter(tester).mouseCursor, PdfMouseCursorKind.move);
   });
 
   testWidgets('the top-left handle shows the ↖↘ diagonal resize cursor',
@@ -110,21 +112,46 @@ void main() {
     await selectedSquare(tester);
     // the chrome's top-left corner sits at the annotation's (left, top)
     await hoverAt(tester, view(150, 550));
-    expect(regionCursor(tester), SystemMouseCursors.resizeUpLeftDownRight);
+    expect(regionCursor(tester), SystemMouseCursors.none);
+    expect(overlayPainter(tester).mouseCursor,
+        PdfMouseCursorKind.resizeUpLeftDownRight);
   });
 
   testWidgets('the top-right handle shows the ↗↙ diagonal resize cursor',
       (tester) async {
     await selectedSquare(tester);
     await hoverAt(tester, view(300, 550));
-    expect(regionCursor(tester), SystemMouseCursors.resizeUpRightDownLeft);
+    expect(regionCursor(tester), SystemMouseCursors.none);
+    expect(overlayPainter(tester).mouseCursor,
+        PdfMouseCursorKind.resizeUpRightDownLeft);
   });
 
   testWidgets('an edge handle shows a straight resize cursor', (tester) async {
     await selectedSquare(tester);
     // top-centre handle: vertical resize
     await hoverAt(tester, view(225, 550));
-    expect(regionCursor(tester), SystemMouseCursors.resizeUpDown);
+    expect(regionCursor(tester), SystemMouseCursors.none);
+    expect(
+        overlayPainter(tester).mouseCursor, PdfMouseCursorKind.resizeUpDown);
+  });
+
+  testWidgets('the custom move cursor follows and survives a mouse drag',
+      (tester) async {
+    await selectedSquare(tester);
+    final start = view(225, 500);
+    final end = start + const Offset(40, 25);
+    final gesture =
+        await tester.startGesture(start, kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(start + const Offset(20, 12));
+    await gesture.moveTo(end);
+    await tester.pump();
+    expect(overlayPainter(tester).mouseCursor, PdfMouseCursorKind.move);
+    expect(overlayPainter(tester).mouseCursorPosition, end);
+
+    await gesture.up();
+    await tester.pump();
+    expect(overlayPainter(tester).mouseCursor, PdfMouseCursorKind.move);
+    expect(overlayPainter(tester).mouseCursorPosition, end);
   });
 
   testWidgets('the rotate knob hides the cursor and paints the glyph',

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'mouse_cursor.dart';
 import 'theme.dart';
 
 /// The viewer-style scrollbar: a light thumb with a dark outline over a
@@ -194,7 +195,10 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
 
         void dragStop() => setState(() => _dragging = false);
 
-        return MouseRegion(
+        return PdfMouseCursorRegion(
+          kind: _dragging
+              ? PdfMouseCursorKind.grabbing
+              : PdfMouseCursorKind.grab,
           onEnter: (_) => setState(() => _hovered = true),
           onExit: (_) => setState(() => _hovered = false),
           child: GestureDetector(
