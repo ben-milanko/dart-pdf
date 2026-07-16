@@ -787,8 +787,12 @@ Future<void> _selectViewOption(
         initial: preferences.pageColor,
         initialFormat: preferences.colorPickerFormat,
         onFormatChanged: (format) => preferences.colorPickerFormat = format,
+        recentColors: preferences.recentColors,
       );
-      if (color != null) preferences.pageColor = color;
+      if (color != null) {
+        preferences.noteRecentColor(color);
+        preferences.pageColor = color;
+      }
     case _ViewOption.author:
       onAuthorPressed?.call();
     case _ViewOption.shortcuts:

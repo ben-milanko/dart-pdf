@@ -71,6 +71,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
   ThemeMode _themeMode = ThemeMode.system;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
+  List<Color> _recentColors = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
   bool _showAnnotations = true;
   bool _highlightFormFields = true;
@@ -190,6 +191,13 @@ class PdfEditingPreferences extends ChangeNotifier {
         _colorPickerFormat =
             PdfColorFormat.values.asNameMap()[colorPickerFormat] ??
                 _colorPickerFormat;
+      }
+      final recentColors = store.getStringList('${_prefix}recentColors');
+      if (recentColors != null) {
+        _recentColors = List.unmodifiable([
+          for (final entry in recentColors)
+            if (int.tryParse(entry) case final rgb?) Color(0xFF000000 | rgb),
+        ]);
       }
       final pageColor = store.getInt('${_prefix}pageColor');
       if (pageColor != null) _pageColor = Color(pageColor);
@@ -727,6 +735,39 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _colorPickerFormat) return;
     _colorPickerFormat = value;
     _write((s) => s.setString('${_prefix}colorPickerFormat', value.name));
+    notifyListeners();
+  }
+
+  /// How many recently-picked colours to remember (see [recentColors]).
+  static const _maxRecentColors = 18;
+
+  /// The colours most recently chosen in the full colour picker, newest
+  /// first - the picker's "Recent" quick-pick grid. Opaque (alpha
+  /// dropped); deduplicated by RGB. Persisted on the device.
+  List<Color> get recentColors => _recentColors;
+
+  /// Records [color] as the most-recently-used colour, moving it to the
+  /// front (deduplicated by RGB) and dropping the oldest past
+  /// [_maxRecentColors]. Alpha is ignored - the picker deals in opaque
+  /// colours. A no-op when [color] is already the newest entry.
+  void noteRecentColor(Color color) {
+    final rgb = color.toARGB32() & 0xFFFFFF;
+    final opaque = Color(0xFF000000 | rgb);
+    if (_recentColors.isNotEmpty &&
+        (_recentColors.first.toARGB32() & 0xFFFFFF) == rgb) {
+      return;
+    }
+    final next = [
+      opaque,
+      for (final existing in _recentColors)
+        if ((existing.toARGB32() & 0xFFFFFF) != rgb) existing,
+    ];
+    if (next.length > _maxRecentColors) {
+      next.removeRange(_maxRecentColors, next.length);
+    }
+    _recentColors = List.unmodifiable(next);
+    _write((s) => s.setStringList('${_prefix}recentColors',
+        [for (final c in _recentColors) '${c.toARGB32() & 0xFFFFFF}']));
     notifyListeners();
   }
 

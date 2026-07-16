@@ -15,7 +15,7 @@ import 'package:pdf_document/pdf_document.dart'
 
 import '../pdf_viewer.dart';
 import '../toast.dart';
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
@@ -1792,11 +1792,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () async {
-                final picked = await showPdfColorPicker(context,
-                    initial: controller.color,
-                    initialFormat: controller.preferences.colorPickerFormat,
-                    onFormatChanged: (format) =>
-                        controller.preferences.colorPickerFormat = format);
+                final picked = await pickEditingColor(context, controller,
+                    initial: controller.color);
                 if (picked != null) _applyColor(picked);
               },
               child: SizedBox(
@@ -3334,6 +3331,8 @@ class _StyleMenuState extends State<_StyleMenu> {
         palette: widget.palette,
         onChanged: onChanged,
         allowNone: allowNone,
+        pickColor: (context, initial) =>
+            pickEditingColor(context, controller, initial: initial),
       );
 
   /// A short human label for a line ending in the picker.

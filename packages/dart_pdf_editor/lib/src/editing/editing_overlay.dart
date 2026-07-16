@@ -13,7 +13,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_fonts.dart';
 import 'editing_interaction.dart';
@@ -4466,7 +4466,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_canStyleInlineTextSelection) return;
     _textEditStyleMenuOpen = true;
     _textEditFocus.requestFocus();
-    final picked = await showPdfColorPicker(context, initial: initial);
+    final picked =
+        await pickEditingColor(context, _controller, initial: initial);
     _textEditStyleMenuOpen = false;
     if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
     if (picked != null && mounted) _applyInlineTextStyle(color: picked);

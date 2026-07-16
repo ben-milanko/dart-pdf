@@ -3211,6 +3211,33 @@ class PdfEditingController extends ChangeNotifier {
     return [for (final entry in entries) Color(0xFF000000 | entry.key)];
   }
 
+  /// The colours already used by the document's annotations - each
+  /// annotation's /C stroke colour and /IC interior fill - as opaque
+  /// Flutter colours, most-frequent first and deduplicated by RGB.
+  ///
+  /// Cheap and synchronous (a dictionary read per annotation, no content
+  /// stream scan), so it is the "In document" quick-pick grid the colour
+  /// picker shows while styling annotations. Capped at [limit] entries.
+  List<Color> documentAnnotationColors({int limit = 24}) {
+    final counts = <int, int>{};
+    for (var pageIndex = 0; pageIndex < _document.pageCount; pageIndex++) {
+      for (final annotation in _page(pageIndex).annotations) {
+        for (final rgb in [annotation.color, annotation.interiorColor]) {
+          if (rgb == null) continue;
+          counts.update(rgb & 0xFFFFFF, (n) => n + 1, ifAbsent: () => 1);
+        }
+      }
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final byUses = b.value.compareTo(a.value);
+        return byUses != 0 ? byUses : a.key.compareTo(b.key);
+      });
+    return [
+      for (final entry in entries.take(limit)) Color(0xFF000000 | entry.key),
+    ];
+  }
+
   /// Replaces matching page-content colors across [pages], or the whole
   /// document when [pages] is null. Returns the number of color-setting
   /// operators rewritten, or the number of paint sides suppressed when

@@ -74,14 +74,18 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
       _pickColor(_replace, (value) => _replace = value);
 
   Future<void> _pickColor(Color initial, ValueChanged<Color> setColor) async {
+    // The dialog already lists the document's page-content colours, so the
+    // picker only adds the "Recent" grid here (no document grid).
     final color = await showPdfColorPicker(
       context,
       initial: initial,
       initialFormat: widget.preferences.colorPickerFormat,
       onFormatChanged: (format) =>
           widget.preferences.colorPickerFormat = format,
+      recentColors: widget.preferences.recentColors,
     );
     if (color == null || !mounted) return;
+    widget.preferences.noteRecentColor(color);
     setState(() => setColor(color));
   }
 

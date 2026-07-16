@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
 import 'editing_fonts.dart';
@@ -140,11 +140,8 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
   PdfEditingController get _controller => widget.controller;
 
   Future<void> _pickColor(String name, Color current) async {
-    final prefs = _controller.preferences;
-    final picked = await showPdfColorPicker(context,
-        initial: current,
-        initialFormat: prefs.colorPickerFormat,
-        onFormatChanged: (format) => prefs.colorPickerFormat = format);
+    final picked =
+        await pickEditingColor(context, _controller, initial: current);
     if (picked != null) {
       _controller.setFormFieldStyle(name, color: picked.toARGB32() & 0xFFFFFF);
     }
