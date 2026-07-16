@@ -1834,7 +1834,11 @@ class _PdfViewerState extends State<PdfViewer>
       // index-keyed disk backing, leaving it must restore (and re-prime) it
       _bindRasterCache();
     }
-    if (oldWidget.pageLayout != widget.pageLayout) {
+    // A document swap in the same rebuild already reset the fit and scroll
+    // (above), so only re-anchor for a pure layout flip - otherwise the two
+    // branches would schedule competing post-frame scrolls.
+    if (oldWidget.pageLayout != widget.pageLayout &&
+        identical(oldWidget.document, widget.document)) {
       // the scroll axis flipped: the fit dimension and every scroll extent
       // change, so drop the zoom window, re-fit, and re-anchor on the page
       // the reader was on once the new layout's extents exist.

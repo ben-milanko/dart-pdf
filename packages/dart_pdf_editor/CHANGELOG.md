@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.8
+## Unreleased
 
 - Add configurable page layouts to `PdfViewer`: the new `pageLayout`
   parameter takes a `PdfPageLayout` - `verticalContinuous()` (the default,

@@ -211,6 +211,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
 
+  /// Demo of [PdfViewer.pageLayout]: the toggle flips the viewer between the
+  /// default vertical continuous layout and horizontal continuous
+  /// (left-to-right, book-like). App-wide.
+  bool _horizontalLayout = false;
+
+  PdfPageLayout get _pageLayout => _horizontalLayout
+      ? const PdfPageLayout.horizontalContinuous()
+      : const PdfPageLayout.verticalContinuous();
+
   final PdfPerformanceController _performance = PdfPerformanceController();
   int _workerConfigEpoch = 0;
 
@@ -408,6 +417,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
           child: _appMenuTile(
             icon: _readOnly ? Icons.edit : Icons.edit_off,
             title: _readOnly ? 'Switch to edit mode' : 'Switch to read-only',
+          ),
+        ),
+        PopupMenuItem(
+          value: () =>
+              setState(() => _horizontalLayout = !_horizontalLayout),
+          enabled: tab?.session != null,
+          child: _appMenuTile(
+            icon: _horizontalLayout
+                ? Icons.swap_vert
+                : Icons.swap_horiz,
+            title: _horizontalLayout
+                ? 'Vertical page layout'
+                : 'Horizontal page layout',
           ),
         ),
         PopupMenuItem(
@@ -1281,6 +1303,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 performance: _performance,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
+                                pageLayout: _pageLayout,
                                 onAction: _onAction,
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
@@ -1293,6 +1316,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 performance: _performance,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
+                                pageLayout: _pageLayout,
                                 onSave: (saved) => unawaited(_saveAs(saved)),
                                 onPickPdfToInsert: _pickPdfBytes,
                                 onExportPages: (bytes) =>

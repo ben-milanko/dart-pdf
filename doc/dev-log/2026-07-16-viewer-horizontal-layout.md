@@ -78,7 +78,17 @@ which.
 
 `didUpdateWidget` on a `pageLayout` change drops the zoom window, re-fits,
 and re-anchors on `currentPage` in a post-frame callback (the new extents
-only exist after the relayout).
+only exist after the relayout). It skips the re-anchor when the `document`
+also changed in the same rebuild - that branch already resets fit + scroll,
+so running both would schedule competing post-frame scrolls.
+
+## Example app
+
+The demo app (`example/lib/main.dart`) exercises the API: a "Horizontal
+page layout" / "Vertical page layout" toggle in the app menu flips
+`_pageLayout` (a `PdfPageLayout`), passed to both the `PdfReader` and
+`PdfEditorView` shells - so both the read-only and editing modes can be
+seen in either layout.
 
 ## Tests
 
