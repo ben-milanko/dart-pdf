@@ -9,33 +9,59 @@ make them "curl in a little" so each scallop reads as a rounder, near-closed
 puff with a pinched inward cusp between neighbours (the classic
 Bluebeam/Acrobat revision-cloud look).
 
-Added a single tuning constant `_cloudNeckInset = 0.2`: the shared foot
-between two puffs is now pulled *inward* (toward the interior) by
-`bulge * _cloudNeckInset`. The apex is still measured from the polygon edge
-midpoint before the feet move, so the outward extent - and therefore
-`_cloudPadding` / the form BBox - is unchanged (no clipped puffs, no padding
-retune).
+### First attempt (insufficient) — perpendicular inset only
+
+The first cut added just `_cloudNeckInset = 0.2`: pull the shared foot between
+two puffs *inward* (toward the interior) by `bulge * _cloudNeckInset`. This
+turned out to be visually invisible on screen — the reviewer said the cloud
+"still looks the same." The reason: the foot control handle still pointed
+purely perpendicular (`+n`), so each puff rose straight up off its foot as a
+plain half-circle hump regardless of where the foot sat. Insetting the foot
+only lowered the cusp point a couple of points; it did not change the
+half-circle *character* of the puff. See the before/after in the harness —
+lean 0 (with any inset) is indistinguishable from the shipped cloud.
+
+### Real fix — tangential foot lean
+
+The thing that actually curls a puff is leaning the foot control handle
+*tangentially toward its neck* (`-u` at the start foot, `+u` at the end foot),
+so the arc overshoots past vertical into a rounder, near-closed shape with a
+pinched neck. Added `_cloudNeckCurl = 0.5` (fraction of the perpendicular foot
+handle `cf`); the foot handles become `n*cf ∓ u*(cf*_cloudNeckCurl)`.
+
+Crucially the lean is **purely tangential** (along the edge), so a puff's
+outward `n`-extent is still bounded by the apex height `bulge` — the convex
+hull of the control points never reaches past `bulge` in the normal direction.
+So `_cloudPadding` / the form BBox math is untouched, exactly as with the
+inset. `_cloudNeckInset = 0.2` is kept alongside the curl: it deepens the
+pinched cusp, while the curl does the rounding. Both `0` reproduce the plain
+humps.
 
 ## Where
 
 - `pdf_document` `annotation_editor.dart`: `_appendCloudPath` computes the
-  apex from the raw edge midpoint (`mx`/`my`) and subtracts `nx*inset` /
-  `ny*inset` from each foot; new `_cloudNeckInset` constant next to
-  `_cloudBulgeFactor`.
+  apex from the raw edge midpoint (`mx`/`my`), subtracts `nx*inset` /
+  `ny*inset` from each foot, and leans each foot handle by `∓ux*curl` /
+  `∓uy*curl`; new `_cloudNeckCurl` (and existing `_cloudNeckInset`) constants
+  next to `_cloudBulgeFactor`.
 - `dart_pdf_editor` `editing_overlay.dart`: `_cloudPath` mirrors the same
-  inset (its own `_cloudNeckInset` constant) so the live preview and
-  afterimage curl identically to the committed appearance.
+  inset *and* curl (its own `_cloudNeckInset` / `_cloudNeckCurl` constants) so
+  the live preview and afterimage curl identically to the committed
+  appearance. Three constants now stay in lock-step across the two files.
 
 ## Tuning
 
-Replicated the Dart path math in a JS/SVG harness (same approach as the
-2026-07-09 cloud-shape session), rendered a `footInset` sweep (0.12–0.28)
-with Chromium, and picked 0.2: a clear curl-in while the puffs still round
-cleanly and the valleys don't spike. Value 0 reproduces the previous shape
-exactly, so this is a pure additive tweak.
+Replicated the Dart path math in a JS/canvas harness (same approach as the
+2026-07-09 cloud-shape session) and rendered with Chromium. A lean sweep
+0.4→1.6 showed: below ~0.4 barely rounds; ~0.5 rounds into clean near-closed
+puffs with pinched necks; ≥0.7 the feet start crossing into little decorative
+loops at each neck; ≥1.3 the puffs spiral. Picked `_cloudNeckCurl = 0.5` — a
+clear, unmistakable curl (obviously different from the shipped half-circle
+humps) with no loops, filled or stroked. `_cloudNeckInset` kept at 0.2.
 
 ## Notes
 
 - The existing "cloud scallops stay inside the form BBox" test still passes:
-  insetting only moves feet inward, and the apex (the outward extreme) is
-  untouched, so the padded BBox still contains the whole outline.
+  insetting only moves feet inward, the tangential lean adds no outward
+  extent, and the apex (the outward extreme) is untouched, so the padded BBox
+  still contains the whole outline.

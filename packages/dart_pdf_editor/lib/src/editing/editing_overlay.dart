@@ -5946,9 +5946,17 @@ class _EditingPreviewPainter extends CustomPainter {
   static const double _cloudBulgeFactor = 1.15;
 
   /// Fraction of the bulge by which the shared foot between puffs is pulled
-  /// inward, curling the necks. Mirrors `_cloudNeckInset` in pdf_document's
-  /// annotation_editor so the preview matches the committed appearance.
+  /// inward, deepening the pinched cusp. Mirrors `_cloudNeckInset` in
+  /// pdf_document's annotation_editor so the preview matches the committed
+  /// appearance.
   static const double _cloudNeckInset = 0.2;
+
+  /// Tangential lean of each foot control handle toward its neck (fraction of
+  /// the perpendicular foot handle length) - this is what curls the scallops
+  /// into rounder, near-closed puffs. Mirrors `_cloudNeckCurl` in
+  /// pdf_document's annotation_editor so the preview matches the committed
+  /// appearance.
+  static const double _cloudNeckCurl = 0.5;
 
   Path _cloudPath(List<Offset> points, double strokeWidth) {
     final path = Path();
@@ -5975,7 +5983,8 @@ class _EditingPreviewPainter extends CustomPainter {
       final bulge = math.min(r, arc) * _cloudBulgeFactor;
       final ca = r * k; // apex control handle, along the edge
       final cf = bulge * k; // foot control handle, perpendicular (outward)
-      final inset = bulge * _cloudNeckInset; // pull necks inward to curl them
+      final inset = bulge * _cloudNeckInset; // pull cusp inward
+      final curl = cf * _cloudNeckCurl; // tangential lean that rounds each puff
       for (var j = 0; j < scallops; j++) {
         final t0 = j / scallops;
         final t1 = (j + 1) / scallops;
@@ -5990,8 +5999,8 @@ class _EditingPreviewPainter extends CustomPainter {
           first = false;
         }
         path.cubicTo(
-          start.dx + normal.dx * cf,
-          start.dy + normal.dy * cf,
+          start.dx + normal.dx * cf - unit.dx * curl,
+          start.dy + normal.dy * cf - unit.dy * curl,
           apex.dx - unit.dx * ca,
           apex.dy - unit.dy * ca,
           apex.dx,
@@ -6000,8 +6009,8 @@ class _EditingPreviewPainter extends CustomPainter {
         path.cubicTo(
           apex.dx + unit.dx * ca,
           apex.dy + unit.dy * ca,
-          end.dx + normal.dx * cf,
-          end.dy + normal.dy * cf,
+          end.dx + normal.dx * cf + unit.dx * curl,
+          end.dy + normal.dy * cf + unit.dy * curl,
           end.dx,
           end.dy,
         );
