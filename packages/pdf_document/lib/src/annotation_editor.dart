@@ -4492,6 +4492,10 @@ extension PdfAnnotationEditing on PdfEditor {
   ///   through the text-style path).
   /// * [opacity] - shapes, ink, markups, stamps. Free text and notes
   ///   stay opaque, as authored.
+  /// * [cornerRadius] - the rounded-corner radius (page points) of a
+  ///   /Square rectangle, rewritten into /Border and baked into the
+  ///   appearance; `0` restores square corners. Ignored by every other
+  ///   subtype (Circle and the rest have no corners to round).
   ///
   /// Rotation survives: a rotated appearance regenerates in its local
   /// frame and re-rotates, exactly like [resizeAnnotationLocal].
@@ -4505,6 +4509,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double? strokeWidth,
     double? opacity,
     (List<double>?,)? dashPattern,
+    double? cornerRadius,
     int? pageRotation,
   }) {
     final effectivePageRotation = _appearancePageRotation(
@@ -4515,7 +4520,8 @@ extension PdfAnnotationEditing on PdfEditor {
         fillColor == null &&
         strokeWidth == null &&
         opacity == null &&
-        dashPattern == null) {
+        dashPattern == null &&
+        cornerRadius == null) {
       return false;
     }
     final behavior = annotation.behavior;
@@ -4586,6 +4592,17 @@ extension PdfAnnotationEditing on PdfEditor {
         _markAnnotationChanged(pageIndex, dict);
         return true;
       case 'Square' || 'Circle':
+        // cornerRadius is the only rectangle-specific knob; a circle has no
+        // corners, so a radius-only call there changes nothing (don't stage a
+        // pointless regeneration)
+        if (annotation.subtype == 'Circle' &&
+            color == null &&
+            fillColor == null &&
+            strokeWidth == null &&
+            opacity == null &&
+            dashPattern == null) {
+          return false;
+        }
         final width = strokeWidth ?? currentStyle.strokeWidth ?? 1;
         final stroke = color ?? currentStyle.color;
         final fill = fillColor != null ? fillColor.$1 : currentStyle.fillColor;
@@ -4593,11 +4610,27 @@ extension PdfAnnotationEditing on PdfEditor {
         if (stroke != null) dict['C'] = _colorComponents(stroke);
         final dash =
             dashPattern != null ? dashPattern.$1 : annotation.borderDash;
+        final stroking = stroke != null && width > 0;
         dict['BS'] = _borderStyle(width, dashPattern: dash);
         if (fill != null) {
           dict['IC'] = _colorComponents(fill);
         } else {
           dict.entries.remove('IC');
+        }
+        // Rounding only applies to rectangles; the regeneration below reads
+        // the radius back from /Border (§12.5.4 [hCornerRadius vCornerRadius
+        // width]) so writing it here rebakes the rounded /AP.
+        if (cornerRadius != null && annotation.subtype == 'Square') {
+          final radius = math.max(0.0, cornerRadius);
+          if (radius > 0) {
+            dict['Border'] = CosArray([
+              CosReal(radius),
+              CosReal(radius),
+              CosReal(stroking ? width : 0),
+            ]);
+          } else {
+            dict.entries.remove('Border');
+          }
         }
         return _restyleRegenerate(pageIndex, dict, opacity: opacity);
       case 'Line' || 'PolyLine' || 'Polygon':

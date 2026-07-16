@@ -2043,6 +2043,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
+            // only a rectangle rounds its corners
+            cornerRadius: controller.canRoundSelectedCorners,
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
@@ -3248,6 +3250,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// Same, for the stroke-width and opacity sliders restyling a
   /// selected annotation.
   double? _draggingStroke;
+  double? _draggingCornerRadius;
   double? _draggingOpacity;
   double? _draggingLineSpacing;
   double? _draggingCharSpacing;
@@ -3520,13 +3523,31 @@ class _StyleMenuState extends State<_StyleMenu> {
                     _slider(
                       key: const ValueKey('pdf-corner-radius'),
                       label: 'Corner radius',
-                      value: controller.cornerRadius,
+                      // a selected rectangle shows its own radius; otherwise
+                      // the creation default while the rectangle tool is armed
+                      value: _draggingCornerRadius ??
+                          (restylingAnnotation
+                              ? controller.selectedCornerRadius
+                              : null) ??
+                          controller.cornerRadius,
                       min: 0,
                       max: 40,
                       display: (v) => '${v.round()} pt',
                       parse: _parsePoints,
-                      onChanged: (v) =>
-                          controller.cornerRadius = v.roundToDouble(),
+                      onChanged: (v) {
+                        setState(() => _draggingCornerRadius = v);
+                        if (!restylingAnnotation) {
+                          controller.cornerRadius = v.roundToDouble();
+                        }
+                      },
+                      onChangeEnd: (v) {
+                        controller.cornerRadius = v.roundToDouble();
+                        if (restylingAnnotation) {
+                          controller.restyleSelected(
+                              cornerRadius: v.roundToDouble());
+                        }
+                        setState(() => _draggingCornerRadius = null);
+                      },
                     ),
                   if (fields.opacity)
                     _slider(

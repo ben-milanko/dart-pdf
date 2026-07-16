@@ -4336,12 +4336,14 @@ class PdfEditingController extends ChangeNotifier {
     double? strokeWidth,
     double? opacity,
     PdfLineStyle? lineStyle,
+    double? cornerRadius,
   }) {
     if (color == null &&
         fill == null &&
         strokeWidth == null &&
         opacity == null &&
-        lineStyle == null) {
+        lineStyle == null &&
+        cornerRadius == null) {
       return false;
     }
     if (!canRestyleSelected) return false;
@@ -4364,11 +4366,30 @@ class PdfEditingController extends ChangeNotifier {
             opacity: opacity,
             dashPattern:
                 lineStyle == null ? null : (lineStyle.dashArray(width),),
+            // rounding only lands on /Square rectangles; other subtypes
+            // ignore it, so a mixed selection is safe to pass through
+            cornerRadius: cornerRadius,
             pageRotation: _page(page).rotation,
           );
         }
       },
     );
+  }
+
+  /// Whether [restyleSelected]'s `cornerRadius` applies - every selected
+  /// annotation is a restylable /Square rectangle (the only subtype that
+  /// rounds its corners). Gates the selection corner-radius control.
+  bool get canRoundSelectedCorners =>
+      canRestyleSelected &&
+      _selected.every((slot) => _annotationAt(slot)?.subtype == 'Square');
+
+  /// The primary selected rectangle's current corner radius (page points),
+  /// or null when the selection isn't a roundable /Square - for the corner
+  /// radius control to display.
+  double? get selectedCornerRadius {
+    final annotation = selectedAnnotation;
+    if (annotation == null || annotation.subtype != 'Square') return null;
+    return annotation.cornerRadius;
   }
 
   // ---------------------------------------------------------------------

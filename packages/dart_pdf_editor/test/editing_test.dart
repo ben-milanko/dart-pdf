@@ -1318,6 +1318,43 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets('the style menu rounds a selected rectangle in place',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing
+        ..addRectangle(0, const PdfRect(100, 100, 300, 200))
+        ..selectAnnotation(0, 0);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      // the selection strip carries the tune button for the selected shape
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+
+      final radius = find.byKey(const ValueKey('pdf-corner-radius'));
+      expect(radius, findsOneWidget);
+      await tester.drag(
+          find.descendant(of: radius, matching: find.byType(Slider)),
+          const Offset(200, 0));
+      await tester.pump();
+
+      // dragging restyled the selection, not just the creation default
+      expect(editing.document.page(0).annotations.single.cornerRadius,
+          greaterThan(0));
+      expect(editing.selectedCornerRadius, greaterThan(0));
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('the thumbnail sidebar jumps, reorders, and deletes pages',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(3));
