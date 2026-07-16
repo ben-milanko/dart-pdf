@@ -24,7 +24,7 @@ import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
-import 'image_decoder.dart';
+import 'budgeted_cache.dart';
 import 'page_geometry.dart';
 import 'page_object_cache.dart';
 import 'perf_log.dart';
@@ -1168,14 +1168,18 @@ class _PdfViewerState extends State<PdfViewer>
   /// Every cache here hands out clones, so dropping the masters cannot pull
   /// pixels out from under a picture that is still painting; the on-screen
   /// pages keep their own retained scenes and are unaffected. Several viewers
-  /// mounted at once each clear the process-wide image cache - the second call
-  /// is a no-op.
+  /// mounted at once each fan the signal out - the repeated clears are no-ops.
+  ///
+  /// One coordinated path now: [PdfCacheRegistry.handleMemoryPressure] clears
+  /// every registered cache - the decoded-image cache, the text-layout cache,
+  /// each render worker's record cache, and (via a callback) any session
+  /// thumbnail cache - which before this were deaf to pressure. The previews
+  /// cache is cleared here directly because its clear also notifies listeners.
   @override
   void didHaveMemoryPressure() {
-    PdfPerfLog.log(
-        'memory-pressure clearing imageCache='
-        '${PdfImageCache.instance.bytes >> 20}MB');
-    PdfImageCache.instance.clear();
+    final freed = PdfCacheRegistry.instance.handleMemoryPressure();
+    PdfPerfLog.log('memory-pressure cleared ${freed >> 20}MB across '
+        '${PdfCacheRegistry.instance.registrationCount} caches');
     _previews.clear();
   }
 

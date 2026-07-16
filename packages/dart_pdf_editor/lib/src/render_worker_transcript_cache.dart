@@ -1,6 +1,7 @@
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'budgeted_cache.dart';
 import 'render_trace.dart';
 
 // The worker fills its half of the unified [PdfRenderTrace]; re-exported so
@@ -133,21 +134,29 @@ class PdfWorkerTranscriptCache {
   /// Whether transcripts may share the compact wire graph, patching only its
   /// document-backed image requests. Exposed for A/B benchmarks.
   final bool deduplicateCommands;
-  final _entries = <(int, bool), PdfWorkerTranscript>{};
 
-  int hits = 0;
-  int misses = 0;
-  int evictions = 0;
+  // The shared budgeted LRU, bounded by both entry count ([capacity]) and
+  // retained command weight ([maxRetainedCommands]); the weight bound keeps one
+  // oversize hot entry (the most-recently-used is never evicted) so a dense
+  // page still benefits from reuse.
+  late final PdfBudgetedCache<(int, bool), PdfWorkerTranscript> _entries =
+      PdfBudgetedCache<(int, bool), PdfWorkerTranscript>(
+    weigher: (t) => t.retainedCommandWeight,
+    maxWeight: maxRetainedCommands,
+    maxEntries: capacity,
+    debugLabel: 'worker-transcript',
+  );
+
+  int get hits => _entries.hits;
+  int get misses => _entries.misses;
+  int get evictions => _entries.evictions;
 
   int get length => _entries.length;
   int get retainedCommandCount => _entries.values.fold(
         0,
         (total, entry) => total + entry.sourceCommands.length,
       );
-  int get retainedCommandWeight => _entries.values.fold(
-        0,
-        (total, entry) => total + entry.retainedCommandWeight,
-      );
+  int get retainedCommandWeight => _entries.weight;
 
   Future<PdfWorkerTranscript?> transcriptFor(
     PdfDocument document,
@@ -159,14 +168,11 @@ class PdfWorkerTranscriptCache {
   }) async {
     if (token.cancelled) throw const PdfCancelledException();
     final key = (pageIndex, annotations);
-    final hit = _entries.remove(key);
+    final hit = _entries.take(key);
     if (hit != null) {
-      hits++;
       timings?.transcriptHit = true;
-      _entries[key] = hit;
       return hit;
     }
-    misses++;
     if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
     final page = document.page(pageIndex);
     final recorder = RecordingPdfDevice();
@@ -229,13 +235,7 @@ class PdfWorkerTranscriptCache {
       sourceCommands,
       wireCommands,
     );
-    _entries[key] = transcript;
-    while (_entries.length > 1 &&
-        (_entries.length > capacity ||
-            retainedCommandWeight > maxRetainedCommands)) {
-      _entries.remove(_entries.keys.first);
-      evictions++;
-    }
+    _entries.put(key, transcript);
     return transcript;
   }
 

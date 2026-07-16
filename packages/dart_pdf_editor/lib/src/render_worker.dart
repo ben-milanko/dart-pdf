@@ -5,6 +5,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
+import 'budgeted_cache.dart';
 import 'render_trace.dart';
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
@@ -684,12 +685,22 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   /// [pdfRenderWorkerCacheMaxEntries].
   final int _maxEntries;
 
-  // LinkedHashMap iteration order doubles as LRU order: a hit re-inserts to
-  // the end, eviction takes the oldest (first) key.
-  final _cache = <_RecordCacheKey, _CachedRecord>{};
+  // The shared budgeted LRU: bounded by decoded image bytes ([_budgetBytes])
+  // and, so the weight-0 vector-first records the byte budget can't see stay
+  // bounded on a long scroll (#283), by entry count ([_maxEntries]). Byte
+  // eviction skips weight-0 records - all handled once in PdfBudgetedCache.
+  // Registered with PdfCacheRegistry so a memory-pressure signal reaches the
+  // record cache too (it used to be deaf to pressure).
+  late final PdfBudgetedCache<_RecordCacheKey, _CachedRecord> _cache =
+      PdfBudgetedCache<_RecordCacheKey, _CachedRecord>(
+    weigher: (record) => record.weight,
+    maxWeight: _budgetBytes,
+    maxEntries: _maxEntries,
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'render-record',
+  );
   // Keys whose decode is running now, so concurrent requests share one decode.
   final _inflight = <_RecordCacheKey, Future<List<PdfRenderCommand>?>>{};
-  int _bytes = 0;
 
   @override
   bool get isActive => _inner.isActive;
@@ -702,7 +713,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   /// This is intentionally the same weight used for eviction, not a full heap
   /// estimate. It gives callers a cheap signal for whether speculative warming
   /// is likely to evict useful full-image records before they are reused.
-  int get cachedBytes => _bytes;
+  int get cachedBytes => _cache.weight;
 
   /// Maximum decoded image bytes this cache tries to retain.
   int get cacheBudgetBytes => _budgetBytes;
@@ -716,7 +727,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   /// Fraction of [cacheBudgetBytes] currently occupied by decoded image data.
   double get cachePressure {
     if (_budgetBytes <= 0) return 1;
-    return (_bytes / _budgetBytes).clamp(0.0, 1.0).toDouble();
+    return (_cache.weight / _budgetBytes).clamp(0.0, 1.0).toDouble();
   }
 
   @override
@@ -875,72 +886,35 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
 
   @override
   void dispose() {
-    _cache.clear();
+    _cache.dispose();
     _inflight.clear();
-    _bytes = 0;
     _inner.dispose();
   }
 
-  _CachedRecord? _takeCached(_RecordCacheKey key) {
-    final hit = _cache.remove(key);
-    if (hit != null) {
-      _cache[key] = hit; // re-insert: now most-recently used
-    }
-    return hit;
-  }
+  _CachedRecord? _takeCached(_RecordCacheKey key) => _cache.take(key);
 
-  _CachedRecord? _takeCachedWeightless(_RecordCacheKey key) {
-    final hit = _cache[key];
-    if (hit == null || hit.weight != 0) return null;
-    _cache.remove(key);
-    _cache[key] = hit; // re-insert: now most-recently used
-    return hit;
-  }
+  /// Reuses a full-page (region-less) record for a region request only when it
+  /// carries no decoded bytes: a weight-0 vector-first buffer covers any region
+  /// unchanged, while a weight-bearing full-page buffer decoded at a different
+  /// resolution must not stand in for a region decode.
+  _CachedRecord? _takeCachedWeightless(_RecordCacheKey key) =>
+      _cache.weightOf(key) == 0 ? _cache.take(key) : null;
 
   void _store(
     _RecordCacheKey key,
     List<PdfRenderCommand> commands,
     int weight,
   ) {
-    if (weight > _budgetBytes) return; // one page bigger than the cache itself
-    final previous = _cache.remove(key);
-    if (previous != null) _bytes -= previous.weight;
-    _cache[key] = _CachedRecord(commands, weight);
-    _bytes += weight;
-    // Evict the least-recently-used entries that actually hold bytes until
-    // under budget. The budget bounds DECODED image memory, so evicting a
-    // weight-0 buffer (a vector-first pass or an image-free page) frees
-    // nothing - yet it would have to be re-decoded on the next revisit. On a
-    // heavy CAD sheet the full-image buffers (tens of MB each) are exactly
-    // what blows the budget while the cheap vector-first buffers are the ones
-    // re-requested every scroll settle, so a blind oldest-first eviction
-    // discarded the very entries the cache exists to keep. Skip the costless
-    // ones and never evict the entry we just inserted.
-    while (_bytes > _budgetBytes) {
-      final victim = _oldestHeavyKey(except: key);
-      if (victim == null) break; // nothing left worth evicting
-      _bytes -= _cache.remove(victim)!.weight;
-    }
-    // Second bound: total record count. The byte budget above cannot see the
-    // weight-0 records (image-free pages, vector-first passes), so on a long
-    // scroll they would otherwise pile up one-per-page without limit (issue
-    // #283). Evict the least-recently-used records - weight-0 or not - until
-    // back under the cap, never the entry we just inserted.
-    while (_cache.length > _maxEntries) {
-      final oldest = _cache.keys.first;
-      if (oldest == key) break;
-      _bytes -= _cache.remove(oldest)!.weight;
-    }
-  }
-
-  /// The least-recently-used key whose buffer holds decoded bytes (weight > 0),
-  /// other than [except] (the entry just inserted, which we keep). Null when no
-  /// such entry exists - every remaining buffer is costless, so eviction stops.
-  _RecordCacheKey? _oldestHeavyKey({required _RecordCacheKey except}) {
-    for (final entry in _cache.entries) {
-      if (entry.value.weight > 0 && entry.key != except) return entry.key;
-    }
-    return null;
+    // One page bigger than the whole cache is not stored at all (unlike the
+    // decoded-image cache, which keeps an oversize master for the current
+    // render): the record LRU would otherwise keep it as the protected
+    // most-recently-used entry and starve every reusable buffer for one page.
+    if (weight > _budgetBytes) return;
+    // PdfBudgetedCache applies both bounds: byte eviction that skips the
+    // weight-0 vector-first buffers (evicting them frees nothing yet costs a
+    // re-decode) and a total-count cap that does bound them (#283), never
+    // evicting the record just inserted.
+    _cache.put(key, _CachedRecord(commands, weight));
   }
 
   /// Quantises the image-pixel ratio so tiny per-frame jitter (a 1px layout

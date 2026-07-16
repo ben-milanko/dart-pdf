@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'budgeted_cache.dart';
 import 'image_decoder.dart';
 
 /// Paints interpreter callbacks onto a Flutter [Canvas].
@@ -27,8 +28,17 @@ class CanvasPdfDevice implements PdfDevice {
   /// Process-wide cache of laid-out substituted-text painters. Shaping is the
   /// dominant paint-pass cost and the same runs recur across pages and
   /// re-renders, so this is shared by every render (like the decoded-image
-  /// cache). Clear it under memory pressure with [clearTextLayoutCache].
-  static final _textCache = _TextLayoutCache();
+  /// cache). Keyed by (text, font, colour); bounded by entry count, evicting
+  /// the least-recently-used layout and disposing its painter. Registered with
+  /// [PdfCacheRegistry] so a memory-pressure signal reaches it too (it used to
+  /// be deaf to pressure); [clearTextLayoutCache] drops it on demand.
+  static final PdfBudgetedCache<String, _TextLayout> _textCache =
+      PdfBudgetedCache<String, _TextLayout>(
+    maxEntries: 2048,
+    disposer: (layout) => layout.painter.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'text-layout',
+  );
 
   /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
   /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
@@ -599,7 +609,7 @@ class CanvasPdfDevice implements PdfDevice {
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
         '${c.red},${c.green},${c.blue}';
-    return _textCache.get(key, () {
+    return _textCache.getOrAdd(key, () {
       final painter = TextPainter(
         text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
         textDirection: TextDirection.ltr,
@@ -875,34 +885,3 @@ class _TextLayout {
   final double baseline;
 }
 
-/// Bounded LRU over [_TextLayout], keyed by a (text, font, colour) string.
-/// Insertion order is the LRU order; a hit re-inserts to mark it most-recent.
-class _TextLayoutCache {
-  static const _maxEntries = 2048;
-  final _entries = <String, _TextLayout>{};
-
-  /// Returns the cached layout for [key], building (and caching) it with
-  /// [build] on a miss. Evicts the least-recently-used entries past the cap.
-  _TextLayout get(String key, _TextLayout Function() build) {
-    final hit = _entries.remove(key);
-    if (hit != null) {
-      _entries[key] = hit; // touch → most-recently-used
-      return hit;
-    }
-    final created = build();
-    _entries[key] = created;
-    while (_entries.length > _maxEntries) {
-      _entries.remove(_entries.keys.first)!.painter.dispose();
-    }
-    return created;
-  }
-
-  void clear() {
-    for (final entry in _entries.values) {
-      entry.painter.dispose();
-    }
-    _entries.clear();
-  }
-
-  int get length => _entries.length;
-}
