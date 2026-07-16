@@ -1,9 +1,15 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
+
+// 2x2 RGBA PNG (from png_test.dart), used as a handwritten-signature graphic.
+final _png = base64.decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGUlEQVR4nGP4z8DwHwgb'
+    'WBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==');
 
 final key = RsaPrivateKey.fromPem(testSignerKeyPem);
 final cert = pemBytes(testSignerCertPem);
@@ -167,6 +173,59 @@ void main() {
       expect(shown, contains('Digitally signed by'));
       expect(shown, isNot(contains('Reason:')));
       expect(shown, isNot(contains('Location:')));
+    });
+
+    test('a graphic renders in the left panel as an image XObject', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        appearance: PdfSignatureAppearance(
+          rect: const PdfRect(72, 600, 320, 700),
+          graphic: PdfEmbeddableImage.png(_png),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      final widget = signature.field.widgets.first;
+      final ap = doc.cos.resolve(widget['AP']) as CosDictionary;
+      final form = doc.cos.resolve(ap['N']) as CosStream;
+      final resources =
+          doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+      final xobjects = doc.cos.resolve(resources['XObject']) as CosDictionary;
+      expect(xobjects.entries.keys, contains('SigImg'));
+
+      final content = String.fromCharCodes(doc.cos.decodeStreamData(form));
+      expect(content, contains('/SigImg Do'));
+      // the big name text is replaced by the graphic in the left panel
+      expect(shownText(content), isNot(contains('Dart PDF Test Signer Dart')));
+    });
+
+    test('a details-only box (no name/graphic) omits the left panel', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approval',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 320, 700),
+          backgroundColor: 0xEEF3F8,
+          showName: false,
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+      final content = appearanceContent(doc, signature.field)!;
+      // background fill rectangle emitted before the border
+      expect(content, contains('0 0 248 100 re'));
+      final shown = shownText(content);
+      expect(shown, isNot(contains('Digitally signed by')));
+      expect(shown, contains('Reason: Approval'));
     });
 
     test('no appearance keeps an invisible field (backward compatible)', () {
