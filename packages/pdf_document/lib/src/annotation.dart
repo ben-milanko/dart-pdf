@@ -270,6 +270,17 @@ class PdfAnnotation {
     return values.any((value) => value > 0) ? values : null;
   }
 
+  /// The corner radius (page points) of a /Square annotation's rounded
+  /// rectangle, from the /Border array's first entry (§12.5.4
+  /// `[hCornerRadius vCornerRadius width]`); 0 for square corners or when
+  /// /Border is absent or malformed.
+  double get cornerRadius {
+    final border = document.cos.resolve(dict['Border']);
+    if (border is! CosArray || border.length < 3) return 0;
+    final r = _number(document.cos.resolve(border[0]));
+    return r != null && r > 0 ? r : 0;
+  }
+
   /// Whether the annotation asks conforming viewers to render its border as
   /// a cloudy border effect (`/BE << /S /Cloudy ... >>`).
   bool get hasCloudyBorder {

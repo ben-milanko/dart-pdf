@@ -51,6 +51,7 @@ class PdfEditingPreferences extends ChangeNotifier {
 
   Color _color = const Color(0xFFE53935);
   double _strokeWidth = 2;
+  double _cornerRadius = 0;
   double _eraserRadius = 8;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
@@ -134,6 +135,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       final color = store.getInt('${_prefix}color');
       if (color != null) _color = Color(color);
       _strokeWidth = store.getDouble('${_prefix}strokeWidth') ?? _strokeWidth;
+      _cornerRadius =
+          store.getDouble('${_prefix}cornerRadius') ?? _cornerRadius;
       _eraserRadius =
           store.getDouble('${_prefix}eraserRadius') ?? _eraserRadius;
       _fontSize = store.getDouble('${_prefix}fontSize') ?? _fontSize;
@@ -412,6 +415,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         if (slot['color'] case final int v) color = Color(v);
       }
       if (slot['strokeWidth'] case final num v) strokeWidth = v.toDouble();
+      if (slot['cornerRadius'] case final num v) cornerRadius = v.toDouble();
       if (slot['eraserRadius'] case final num v) eraserRadius = v.toDouble();
       if (slot['opacity'] case final num v) opacity = v.toDouble();
       if (slot['fontSize'] case final num v) fontSize = v.toDouble();
@@ -474,6 +478,7 @@ class PdfEditingPreferences extends ChangeNotifier {
 
     put('color', _color.toARGB32());
     put('strokeWidth', _strokeWidth);
+    put('cornerRadius', _cornerRadius);
     put('eraserRadius', _eraserRadius);
     put('opacity', _opacity);
     put('fontSize', _fontSize);
@@ -519,6 +524,18 @@ class PdfEditingPreferences extends ChangeNotifier {
     _strokeWidth = value;
     _write((s) => s.setDouble('${_prefix}strokeWidth', value));
     _recordScoped('strokeWidth', value);
+    notifyListeners();
+  }
+
+  /// Corner radius for new rectangle shapes, in PDF points; 0 (the default)
+  /// gives square corners.
+  double get cornerRadius => _cornerRadius;
+
+  set cornerRadius(double value) {
+    if (value == _cornerRadius) return;
+    _cornerRadius = value;
+    _write((s) => s.setDouble('${_prefix}cornerRadius', value));
+    _recordScoped('cornerRadius', value);
     notifyListeners();
   }
 

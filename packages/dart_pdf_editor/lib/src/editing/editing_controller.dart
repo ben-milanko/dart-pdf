@@ -1022,7 +1022,14 @@ class PdfEditingController extends ChangeNotifier {
             'opacity'
           },
         PdfEditTool.eraser => const {'eraserRadius'},
-        PdfEditTool.rectangle ||
+        PdfEditTool.rectangle => const {
+            'color',
+            'strokeWidth',
+            'opacity',
+            'lineStyle',
+            'shapeFillColor',
+            'cornerRadius',
+          },
         PdfEditTool.ellipse ||
         PdfEditTool.polygon ||
         PdfEditTool.cloudPolygon =>
@@ -1113,6 +1120,12 @@ class PdfEditingController extends ChangeNotifier {
   double get strokeWidth => preferences.strokeWidth;
 
   set strokeWidth(double value) => preferences.strokeWidth = value;
+
+  /// Corner radius for new rectangle shapes, in PDF points; 0 gives square
+  /// corners. Persisted (remembered per the rectangle tool's style scope).
+  double get cornerRadius => preferences.cornerRadius;
+
+  set cornerRadius(double value) => preferences.cornerRadius = value;
 
   /// The circle eraser's radius, in PDF points - the eraser removes
   /// every part of an ink stroke within this distance of its swept
@@ -1741,6 +1754,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.shapeFillColor),
           opacity: preferences.opacity,
           dashPattern: _lineDashPattern,
+          cornerRadius: preferences.cornerRadius,
           author: author,
         ),
       );

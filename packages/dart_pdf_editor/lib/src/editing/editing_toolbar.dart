@@ -1998,6 +1998,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               tool == PdfEditTool.ellipse ||
               tool == PdfEditTool.polygon ||
               tool == PdfEditTool.cloudPolygon,
+          cornerRadius: tool == PdfEditTool.rectangle,
         );
       case 'insert':
         return const _StyleFields(opacity: true, font: true, boxColors: true);
@@ -3151,12 +3152,16 @@ class _StyleFields {
     this.font = false,
     this.boxColors = false,
     this.shapeFill = false,
+    this.cornerRadius = false,
     this.eraser = false,
     this.formField = false,
   });
 
   final bool stroke;
   final bool opacity;
+
+  /// The rectangle corner-radius slider (rectangle shape only).
+  final bool cornerRadius;
 
   /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
   /// and the line family.
@@ -3187,6 +3192,7 @@ class _StyleFields {
       !font &&
       !boxColors &&
       !shapeFill &&
+      !cornerRadius &&
       !eraser &&
       !formField;
 }
@@ -3509,6 +3515,18 @@ class _StyleMenuState extends State<_StyleMenu> {
                         }
                         setState(() => _draggingStroke = null);
                       },
+                    ),
+                  if (fields.cornerRadius)
+                    _slider(
+                      key: const ValueKey('pdf-corner-radius'),
+                      label: 'Corner radius',
+                      value: controller.cornerRadius,
+                      min: 0,
+                      max: 40,
+                      display: (v) => '${v.round()} pt',
+                      parse: _parsePoints,
+                      onChanged: (v) =>
+                          controller.cornerRadius = v.roundToDouble(),
                     ),
                   if (fields.opacity)
                     _slider(

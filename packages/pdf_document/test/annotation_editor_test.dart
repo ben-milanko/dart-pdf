@@ -226,6 +226,60 @@ void main() {
     expect(circle, contains('S'));
   });
 
+  test('rounded rectangle curves its corners and records /Border', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+          cornerRadius: 12,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.subtype, 'Square');
+    expect(square.cornerRadius, 12);
+
+    final content = appearanceText(doc, square);
+    // roundedRect draws corners as Bézier curves rather than a single `re`.
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
+
+    // §12.5.4 /Border = [hCornerRadius vCornerRadius width].
+    final border = doc.cos.resolve(square.dict['Border']) as CosArray;
+    expect(border.length, 3);
+    expect((doc.cos.resolve(border[0]) as CosReal).value, 12);
+    expect((doc.cos.resolve(border[1]) as CosReal).value, 12);
+  });
+
+  test('a plain rectangle keeps square corners and no /Border radius', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.cornerRadius, 0);
+    expect(appearanceText(doc, square), contains(' re'));
+  });
+
+  test('resizing a rounded rectangle keeps its corner radius', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addSquare(
+      0,
+      const PdfRect(100, 100, 300, 200),
+      strokeWidth: 2,
+      cornerRadius: 12,
+    );
+    final doc = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(doc);
+    final square = doc.page(0).annotations.single;
+    editor2.resizeAnnotation(0, square, const PdfRect(100, 100, 500, 400));
+    final resized = PdfDocument.open(editor2.save());
+    final annot = resized.page(0).annotations.single;
+    expect(annot.cornerRadius, 12);
+    final content = appearanceText(resized, annot);
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
+  });
+
   test('free text wraps to the rect and records /DA', () {
     final doc = roundTrip((e) => e.addFreeText(
           0,

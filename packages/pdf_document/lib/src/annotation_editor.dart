@@ -950,7 +950,9 @@ extension PdfAnnotationEditing on PdfEditor {
   }
 
   /// Adds a rectangle annotation. At least one of [strokeColor] and
-  /// [fillColor] must be given.
+  /// [fillColor] must be given. [cornerRadius] (page points, 0 for a plain
+  /// rectangle) rounds the corners - it is baked into the appearance and
+  /// recorded in the annotation's /Border array so it survives a resize.
   void addSquare(
     int pageIndex,
     PdfRect rect, {
@@ -959,6 +961,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? fillColor,
     double opacity = 1,
     List<double>? dashPattern,
+    double cornerRadius = 0,
     String? contents,
     String? author,
     String? name,
@@ -975,6 +978,7 @@ extension PdfAnnotationEditing on PdfEditor {
         author,
         name,
         dashPattern,
+        cornerRadius: cornerRadius,
       );
 
   /// Adds an ellipse annotation inscribed in [rect]. At least one of
@@ -4224,6 +4228,7 @@ extension PdfAnnotationEditing on PdfEditor {
           width,
           fill,
           dashPattern: annotation.borderDash,
+          cornerRadius: annotation.cornerRadius,
           hasAlpha: gs != null,
         );
         _replaceAppearance(
@@ -5090,13 +5095,15 @@ extension PdfAnnotationEditing on PdfEditor {
     String? contents,
     String? author,
     String? name,
-    List<double>? dashPattern,
-  ) {
+    List<double>? dashPattern, {
+    double cornerRadius = 0,
+  }) {
     if (strokeColor == null && fillColor == null) {
       throw ArgumentError('strokeColor and fillColor are both null');
     }
     final stroking = strokeColor != null && strokeWidth > 0;
     final dash = stroking ? dashPattern : null;
+    final radius = subtype == 'Square' ? math.max(0.0, cornerRadius) : 0.0;
     final gs = _alphaState(opacity);
     final w = _shapeContent(
       subtype,
@@ -5105,6 +5112,7 @@ extension PdfAnnotationEditing on PdfEditor {
       strokeWidth,
       fillColor,
       dashPattern: dash,
+      cornerRadius: radius,
       hasAlpha: gs != null,
     );
 
@@ -5115,6 +5123,16 @@ extension PdfAnnotationEditing on PdfEditor {
       contents,
       author,
     )..['BS'] = _borderStyle(stroking ? strokeWidth : 0, dashPattern: dash);
+    if (radius > 0) {
+      // §12.5.4 /Border = [hCornerRadius vCornerRadius width]. /BS above
+      // governs the actual border render (and hides /Border from conforming
+      // viewers), but our own resize path reads the radius back from here.
+      dict['Border'] = CosArray([
+        CosReal(radius),
+        CosReal(radius),
+        CosReal(stroking ? strokeWidth : 0),
+      ]);
+    }
     if (fillColor != null) {
       dict['IC'] = CosArray([
         for (final c in ContentWriter.rgbComponents(fillColor)) CosReal(c),
@@ -5137,6 +5155,7 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth,
     int? fillColor, {
     List<double>? dashPattern,
+    double cornerRadius = 0,
     required bool hasAlpha,
   }) {
     final stroking = strokeColor != null && strokeWidth > 0;
@@ -5151,12 +5170,18 @@ extension PdfAnnotationEditing on PdfEditor {
       if (dashPattern != null && dashPattern.isNotEmpty) w.dash(dashPattern);
     }
     if (subtype == 'Square') {
-      w.rect(
-        rect.left + inset,
-        rect.bottom + inset,
-        rect.width - 2 * inset,
-        rect.height - 2 * inset,
-      );
+      final x = rect.left + inset;
+      final y = rect.bottom + inset;
+      final width = rect.width - 2 * inset;
+      final height = rect.height - 2 * inset;
+      if (cornerRadius > 0) {
+        // Pull the radius in with the stroke so the rounded outer edge stays
+        // inside /Rect; roundedRect clamps it to half the smaller side.
+        w.roundedRect(x, y, width, height,
+            math.max(0.0, cornerRadius - inset));
+      } else {
+        w.rect(x, y, width, height);
+      }
     } else {
       w.ellipse(
         (rect.left + rect.right) / 2,

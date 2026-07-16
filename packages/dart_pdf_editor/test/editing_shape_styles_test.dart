@@ -53,6 +53,24 @@ void main() {
     });
   });
 
+  group('rectangle corner radius on the controller', () {
+    test('the corner radius preference rounds new rectangles', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..cornerRadius = 10;
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
+      expect(
+          editing.document.page(0).annotations.single.cornerRadius, 10);
+    });
+
+    test('a zero radius leaves the rectangle square', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
+      expect(editing.document.page(0).annotations.single.cornerRadius, 0);
+    });
+  });
+
   group('polygon fill', () {
     test('a polygon drawn with a shape fill colour stores /IC', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
