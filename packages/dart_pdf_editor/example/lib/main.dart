@@ -1290,6 +1290,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 documentId: tab.title,
                                 controller: tab.session,
                                 viewerController: tab.viewer,
+                                // a blank band beside each page for drawing
+                                // annotations in the margin (off-page)
+                                pasteboardMargin: 96,
                                 performance: _performance,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,

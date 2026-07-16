@@ -237,6 +237,7 @@ class PdfEditorView extends StatefulWidget {
     this.toolbarTrailing = const [],
     this.toolbarBuilder,
     this.initialFit = PdfViewerFit.page,
+    this.pasteboardMargin = 0,
     this.backgroundColor,
     this.pageColor,
     this.viewerTheme,
@@ -409,6 +410,10 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.initialFit].
   final PdfViewerFit initialFit;
+
+  /// See [PdfViewer.pasteboardMargin]. A drawable blank band beside each
+  /// page for authoring annotations outside the page box (0 = off).
+  final double pasteboardMargin;
 
   /// See [PdfViewer.backgroundColor].
   final Color? backgroundColor;
@@ -958,6 +963,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         document: session.document,
                         controller: _viewer,
                         editing: session,
+                        pasteboardMargin: widget.pasteboardMargin,
                         onAction: widget.onAction,
                         onAnnotationTap: widget.onAnnotationTap,
                         pageOverlayBuilder: widget.pageOverlayBuilder,

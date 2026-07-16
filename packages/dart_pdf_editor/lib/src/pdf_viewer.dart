@@ -516,6 +516,7 @@ class PdfViewer extends StatefulWidget {
     this.systemImagePasteProvider,
     this.onSnapshot,
     this.pageSpacing = 12,
+    this.pasteboardMargin = 0,
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
     this.minZoom = 0.25,
@@ -708,6 +709,15 @@ class PdfViewer extends StatefulWidget {
   final PdfSnapshotHandler? onSnapshot;
 
   final double pageSpacing;
+
+  /// A drawable pasteboard band, in logical pixels, reserved on each side
+  /// of every page (0 = off, the default). When set, pages fit-width to
+  /// the viewport minus this band on each side, so a strip of blank canvas
+  /// stays visible beside the page for authoring annotations *outside* the
+  /// page box (bleed, call-outs, notes in the margin). Gestures in the band
+  /// map to PDF coordinates outside the crop box, and the annotations save
+  /// with the page. Off by default so the page fills the width as before.
+  final double pasteboardMargin;
 
   /// The zoom the document opens at: the whole first page visible
   /// (default, like desktop browser viewers) or filling the viewport
@@ -1964,9 +1974,20 @@ class _PdfViewerState extends State<PdfViewer>
   /// == 1, transform identity): the widest page exactly fills the viewport.
   /// The public zoom is expressed against actual size (1 px/pt), so it is
   /// this scale times the fit-width multiplier ([_currentZoom]).
-  double get _fitWidthScale => (_maxPointWidth <= 0 || _viewWidth <= 0)
+  /// The drawable pasteboard band on each side of a page, in view pixels
+  /// (0 when [PdfViewer.pasteboardMargin] is off). Clamped so the page
+  /// always keeps the bulk of the viewport.
+  double get _pasteboardX => widget.pasteboardMargin <= 0 || _viewWidth <= 0
+      ? 0
+      : math.min(widget.pasteboardMargin, _viewWidth * 0.3);
+
+  /// Viewport width available to the page after reserving the pasteboard
+  /// band on each side; the widest page fits this, not the full viewport.
+  double get _contentWidth => _viewWidth - 2 * _pasteboardX;
+
+  double get _fitWidthScale => (_maxPointWidth <= 0 || _contentWidth <= 0)
       ? 1
-      : _viewWidth / _maxPointWidth;
+      : _contentWidth / _maxPointWidth;
 
   /// Gesture/controller zoom clamps are expressed as fit-width multiples.
   /// On phone-width viewports fit-width is less than actual size, so the
@@ -4463,6 +4484,7 @@ class _PdfViewerState extends State<PdfViewer>
                 renderWorker: widget.renderWorker,
                 performance: widget.performance,
                 predictStrokes: widget.predictStrokes,
+                pasteboard: _pasteboardX,
               ),
             ),
           ),
@@ -5071,12 +5093,19 @@ class _PdfViewerPage extends StatefulWidget {
     required this.renderWorker,
     required this.performance,
     required this.predictStrokes,
+    this.pasteboard = 0,
   });
 
   final PdfPage page;
 
   /// The combined document + view rotation for this page.
   final int effectiveRotation;
+
+  /// Drawable pasteboard band, in view pixels, on each side of the page
+  /// (0 = off). When set, the page raster and its page-space layers are
+  /// inset by this much and the editing overlay spans the full tile, so a
+  /// gesture in the band authors an annotation outside the page box.
+  final double pasteboard;
 
   final int index;
   final Color pageColor;
@@ -5235,9 +5264,15 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
             ? editing ?? (widget.interactiveForms ? formController : null)
             : null;
     return Stack(children: [
-      PdfPageView(
-        page: widget.page,
-        rotation: widget.effectiveRotation,
+      // the page and its page-space layers (raster, annotation appearance,
+      // highlights, field wash) sit inset by the pasteboard band; the
+      // editing overlay below spans the full tile so the band is drawable
+      Padding(
+        padding: EdgeInsets.symmetric(horizontal: widget.pasteboard),
+        child: Stack(children: [
+          PdfPageView(
+            page: widget.page,
+            rotation: widget.effectiveRotation,
         scale: widget.scale,
         settleGeneration: widget.settleGeneration,
         pageEpoch: widget.pageEpoch,
@@ -5302,22 +5337,30 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
       // the slice of a cross-page move ghost landing on this page: drawn
       // over the raster, clipped to the page by the Stack, so a drag onto
       // this page from a neighbour shows here instead of vanishing behind
-      if (widget.crossPageGhost case final ghost?)
-        Positioned.fill(
-          child: IgnorePointer(
-            child: CustomPaint(painter: _MoveDragPreviewPainter(ghost)),
-          ),
-        ),
+          if (widget.crossPageGhost case final ghost?)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(painter: _MoveDragPreviewPainter(ghost)),
+              ),
+            ),
+        ]),
+      ),
       if (builder != null ||
           editing != null ||
           (formController != null && widget.interactiveForms) ||
           textSelection != null)
         Positioned.fill(
           child: LayoutBuilder(builder: (context, constraints) {
+            // the page occupies the tile inset by the pasteboard band on
+            // each side; view offsets in the band map (via the origin) to
+            // PDF coordinates outside the crop box - off-page authoring
+            final full = constraints.biggest;
             final geometry = PdfPageGeometry(
               cropBox: widget.page.cropBox,
               rotation: widget.effectiveRotation,
-              viewSize: constraints.biggest,
+              viewSize: Size(
+                  full.width - 2 * widget.pasteboard, full.height),
+              origin: Offset(widget.pasteboard, 0),
             );
             return Stack(children: [
               if (builder != null) ...builder(context, widget.index, geometry),
