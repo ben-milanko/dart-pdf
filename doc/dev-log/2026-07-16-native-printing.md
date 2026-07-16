@@ -68,6 +68,18 @@ and the same broken-but-renderable inputs this engine opens now print too.
 image-only PDF - stays as a public utility with its test, though the app no
 longer routes printing through it.
 
+## Follow-ups
+
+- Large documents made the app unresponsive while printing: the loop renders
+  and JPEG-encodes every page on the UI isolate (the encode is synchronous), so
+  a big doc holds the isolate too long. `printDocumentPages` now yields
+  (`await Future.delayed(Duration.zero)`) before each page so the engine can
+  service input and paint between pages. Fuller offloading (encode in an
+  isolate) is possible future work.
+- Rasterized output loses selectable text and is heavier than vector - tracked
+  as a follow-up enhancement (#303) to print vector content without
+  reintroducing a third-party PDF engine.
+
 ## Validation
 
 - Dart is fully checked: `dart analyze --fatal-infos` clean; app + dart_pdf_

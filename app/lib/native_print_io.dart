@@ -39,6 +39,11 @@ Future<void> printDocumentPages(
   final dpi = _resolveDpi(info);
   try {
     for (var i = 0; i < document.pageCount; i++) {
+      // Rendering and JPEG-encoding a page is heavy CPU on the UI isolate (the
+      // encode is synchronous). Yield first so the engine can service input and
+      // paint a frame between pages - otherwise a large document's print holds
+      // the isolate long enough to make the app unresponsive.
+      await Future<void>.delayed(Duration.zero);
       final jpeg = await PdfPageExport.exportPage(
         document.page(i),
         format: PdfRasterFormat.jpeg,
