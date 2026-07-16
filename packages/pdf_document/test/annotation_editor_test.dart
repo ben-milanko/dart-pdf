@@ -1103,8 +1103,10 @@ void main() {
     expect(annotation.rect.right, greaterThan(220));
     final content = appearanceText(doc, annotation);
     expect(content, contains(' c\n'));
-    expect(content, contains('f\n'));
-    expect(content, contains('S\n'));
+    // The scalloped cloud outline is filled and stroked in one pass (B), so
+    // the interior colour reaches the puffed edges rather than stopping at
+    // the straight polygon footprint.
+    expect(content, contains('B\n'));
   });
 
   test('cloud scallops stay inside the form BBox (no clipped puffs)', () {

@@ -5265,19 +5265,10 @@ extension PdfAnnotationEditing on PdfEditor {
     final w = ContentWriter();
     if (hasAlpha) w.extGState('GS0');
 
-    // Fill the actual polygon footprint first. The cloudy border then
-    // protrudes from it, matching the /Vertices geometry while still
-    // producing the expected cloud outline in viewers that honor /AP.
-    if (fillColor != null) {
-      w.fillColor(fillColor);
-      w.moveTo(points.first.$1, points.first.$2);
-      for (final (x, y) in points.skip(1)) {
-        w.lineTo(x, y);
-      }
-      w.closePath();
-      w.fill();
-    }
-
+    // Fill the actual scalloped cloud outline (not just the straight-edged
+    // polygon footprint) so the interior colour reaches the puffed edges.
+    // The same path is stroked, so fill and stroke share one construction.
+    if (fillColor != null) w.fillColor(fillColor);
     w
       ..strokeColor(strokeColor)
       ..lineWidth(strokeWidth)
@@ -5285,7 +5276,11 @@ extension PdfAnnotationEditing on PdfEditor {
       ..lineJoin(1);
     if (dashed) w.dash(dashPattern);
     _appendCloudPath(w, points, strokeWidth);
-    w.stroke();
+    if (fillColor != null) {
+      w.fillAndStroke();
+    } else {
+      w.stroke();
+    }
     if (dashed) w.dash(const []);
     return w;
   }
