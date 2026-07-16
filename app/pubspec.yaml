@@ -28,11 +28,12 @@ dependencies:
   file_selector: ^1.0.3
   share_plus: ^13.2.0
   url_launcher: ^6.3.0
-  # Hands a finished PDF to the OS print dialog (iOS, Android, macOS, Windows,
-  # Linux, and the web). Documents print verbatim except on Windows, where the
-  # plugin's PDFium backend can crash on our broken-but-renderable inputs, so
-  # we print a self-rendered raster copy instead (see lib/printing.dart).
-  printing: ^5.13.0
+  # Printing has no third-party PDF engine: every page is rendered by our own
+  # engine and handed to the platform's native print system (GDI / AppKit /
+  # UIKit / Android PrintManager / GTK) or the browser's print dialog. This
+  # drops the `printing` plugin, whose desktop backend crashed on some of our
+  # broken-but-renderable inputs via its bundled PDFium (see lib/printing.dart,
+  # lib/native_print*.dart, and the per-platform runners).
   shared_preferences: ^2.3.0
   # Snapshots mobile picks into the app's private store so Recent entries and
   # the last session can be reopened without a fresh pick (see pdf_cache.dart).

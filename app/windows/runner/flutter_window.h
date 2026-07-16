@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "native_print.h"
 #include "win32_window.h"
 
 // Identifies WM_COPYDATA messages that carry a file path forwarded from a
@@ -54,6 +55,15 @@ class FlutterWindow : public Win32Window {
   // clipboard (`copyPng` / `readImage`). Created once the engine exists.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       image_clipboard_channel_;
+
+  // Channel that prints page rasters straight to a GDI printer DC
+  // (`beginJob` / `printPage` / `endJob` / `cancelJob`), bypassing the
+  // `printing` plugin's PDFium. Created once the engine exists.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      native_print_channel_;
+
+  // Backs native_print_channel_: holds the in-progress print job's DC.
+  NativePrinter native_printer_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;

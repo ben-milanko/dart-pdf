@@ -2,6 +2,12 @@ import Cocoa
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
+  // Pages accumulated for the current native print job (JPEG bytes), and its
+  // title. See the `native_print` channel below - printing renders here with
+  // our own engine and spools through AppKit, never a bundled PDF engine.
+  private var printPages: [Data] = []
+  private var printJobTitle = "Document"
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
@@ -91,9 +97,63 @@ class MainFlutterWindow: NSWindow {
       result(pasteboard.setData(typed.data, forType: .png))
     }
 
+    // Print without a bundled PDF engine: the Dart side renders each page and
+    // streams it here as a JPEG; endJob spools them through AppKit's own print
+    // system (NSPrintOperation).
+    let nativePrintChannel = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/native_print",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    nativePrintChannel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "beginJob":
+        self.printPages = []
+        self.printJobTitle =
+          (call.arguments as? [String: Any])?["name"] as? String ?? "Document"
+        result(["dpi": 300])
+      case "printPage":
+        guard let args = call.arguments as? [String: Any],
+              let typed = args["image"] as? FlutterStandardTypedData else {
+          result(FlutterError(
+            code: "bad_args", message: "printPage expects image bytes",
+            details: nil))
+          return
+        }
+        self.printPages.append(typed.data)
+        result(true)
+      case "endJob":
+        result(self.runPrintJob())
+      case "cancelJob":
+        self.printPages = []
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
+  }
+
+  /// Spools the accumulated page images through AppKit's print panel. Returns
+  /// false when there is nothing to print or the user cancels.
+  private func runPrintJob() -> Bool {
+    let images = printPages.compactMap { NSImage(data: $0) }
+    printPages = []
+    guard !images.isEmpty else { return false }
+
+    let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo.shared
+    printInfo.topMargin = 0
+    printInfo.bottomMargin = 0
+    printInfo.leftMargin = 0
+    printInfo.rightMargin = 0
+    printInfo.horizontalPagination = .fit
+    printInfo.verticalPagination = .fit
+
+    let view = ImagePrintView(images: images, pageSize: printInfo.paperSize)
+    let operation = NSPrintOperation(view: view, printInfo: printInfo)
+    operation.jobTitle = printJobTitle
+    return operation.run()
   }
 
   private func readImageFromClipboard() -> FlutterStandardTypedData? {
@@ -184,5 +244,60 @@ class MainFlutterWindow: NSWindow {
       return nil
     }
     return bitmap.representation(using: .png, properties: [:])
+  }
+}
+
+/// An off-screen view that lays out one image per printed page, top to bottom,
+/// each aspect-fitted and centred on the sheet. Drives NSPrintOperation's page
+/// range so AppKit spools one image per page.
+private final class ImagePrintView: NSView {
+  private let images: [NSImage]
+  private let pageSize: NSSize
+
+  init(images: [NSImage], pageSize: NSSize) {
+    self.images = images
+    self.pageSize = pageSize
+    super.init(frame: NSRect(
+      x: 0, y: 0,
+      width: pageSize.width,
+      height: pageSize.height * CGFloat(max(images.count, 1))))
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func knowsPageRange(_ range: NSRangePointer) -> Bool {
+    range.pointee = NSRange(location: 1, length: images.count)
+    return true
+  }
+
+  // Page 1 is the top of the (unflipped, y-up) view.
+  override func rectForPage(_ page: Int) -> NSRect {
+    let index = page - 1
+    let y = CGFloat(images.count - 1 - index) * pageSize.height
+    return NSRect(x: 0, y: y, width: pageSize.width, height: pageSize.height)
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    for (index, image) in images.enumerated() {
+      let y = CGFloat(images.count - 1 - index) * pageSize.height
+      let pageRect = NSRect(
+        x: 0, y: y, width: pageSize.width, height: pageSize.height)
+      image.draw(
+        in: ImagePrintView.aspectFit(imageSize: image.size, into: pageRect),
+        from: .zero, operation: .sourceOver, fraction: 1.0)
+    }
+  }
+
+  private static func aspectFit(imageSize: NSSize, into rect: NSRect) -> NSRect {
+    guard imageSize.width > 0, imageSize.height > 0 else { return rect }
+    let scale = min(rect.width / imageSize.width, rect.height / imageSize.height)
+    let width = imageSize.width * scale
+    let height = imageSize.height * scale
+    return NSRect(
+      x: rect.minX + (rect.width - width) / 2,
+      y: rect.minY + (rect.height - height) / 2,
+      width: width, height: height)
   }
 }

@@ -27,6 +27,30 @@ constexpr const char kIncomingChannelName[] = "dev.milanko.dartpdf/incoming";
 constexpr const char kImageClipboardChannelName[] =
     "dev.milanko.dartpdf/image_clipboard";
 
+// Reverse-DNS channel that streams page rasters to the GDI printer DC,
+// bypassing the `printing` plugin's PDFium (see native_print.cpp).
+constexpr const char kNativePrintChannelName[] =
+    "dev.milanko.dartpdf/native_print";
+
+// Looks up |key| in |map|, or returns null when absent.
+const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
+                                      const char* key) {
+  auto it = map.find(flutter::EncodableValue(key));
+  return it == map.end() ? nullptr : &it->second;
+}
+
+// Converts a UTF-8 std::string to UTF-16, for Win32 wide APIs.
+std::wstring Utf16FromUtf8(const std::string& utf8) {
+  if (utf8.empty()) return std::wstring();
+  int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
+                                  static_cast<int>(utf8.size()), nullptr, 0);
+  if (len <= 0) return std::wstring();
+  std::wstring utf16(static_cast<size_t>(len), L'\0');
+  ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
+                        utf16.data(), len);
+  return utf16;
+}
+
 // Builds the {name, path} payload the Dart side's IncomingFileService decodes.
 flutter::EncodableValue FilePayload(const std::wstring& path) {
   std::wstring name = path;
@@ -119,6 +143,58 @@ bool FlutterWindow::OnCreate() {
           } else {
             result->Success();  // null: no image on the clipboard
           }
+        } else {
+          result->NotImplemented();
+        }
+      });
+
+  // Bridge printing to a GDI printer DC so pages our own engine renders never
+  // pass through the plugin's PDFium (which crashes on some documents). The
+  // Dart side opens a job, streams one page bitmap at a time, then ends it.
+  native_print_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), kNativePrintChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  native_print_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const auto* args =
+            std::get_if<flutter::EncodableMap>(call.arguments());
+        if (call.method_name() == "beginJob") {
+          std::string name = "Document";
+          if (args != nullptr) {
+            if (const auto* value = Lookup(*args, "name")) {
+              if (const auto* text = std::get_if<std::string>(value)) {
+                if (!text->empty()) name = *text;
+              }
+            }
+          }
+          native_printer_.Begin(Utf16FromUtf8(name));
+          // Render at 300 dpi: a good print resolution, and the printer's real
+          // dpi is not known until the dialog at endJob.
+          result->Success(flutter::EncodableValue(flutter::EncodableMap{
+              {flutter::EncodableValue("dpi"), flutter::EncodableValue(300)},
+          }));
+        } else if (call.method_name() == "printPage") {
+          const flutter::EncodableValue* image_value =
+              args == nullptr ? nullptr : Lookup(*args, "image");
+          const auto* image =
+              image_value == nullptr
+                  ? nullptr
+                  : std::get_if<std::vector<uint8_t>>(image_value);
+          if (image == nullptr) {
+            result->Error("bad_args", "printPage expects image bytes");
+            return;
+          }
+          result->Success(
+              flutter::EncodableValue(native_printer_.AddPage(*image)));
+        } else if (call.method_name() == "endJob") {
+          result->Success(
+              flutter::EncodableValue(native_printer_.End(GetHandle())));
+        } else if (call.method_name() == "cancelJob") {
+          native_printer_.Cancel();
+          result->Success();
         } else {
           result->NotImplemented();
         }
