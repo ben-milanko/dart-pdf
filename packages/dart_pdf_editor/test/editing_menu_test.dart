@@ -78,6 +78,85 @@ void main() {
     });
   });
 
+  group('polyline/polygon nodes', () {
+    test('addSelectedVertexAt splices a node into the nearest edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100), (200, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      expect(editing.canAddSelectedVertex, isTrue);
+
+      // a point beside the first edge lands between vertices 0 and 1
+      editing.addSelectedVertexAt((150, 90));
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, hasLength(4));
+      expect(vertices![1], (150, 90));
+      expect(vertices, const [(100, 100), (150, 90), (200, 100), (200, 200)]);
+    });
+
+    test('addSelectedVertexAt on a polygon can splice the closing edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolygon(0, const [(100, 100), (200, 100), (150, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+
+      // nearest the last→first edge: appended at the end
+      editing.addSelectedVertexAt((120, 150));
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, hasLength(4));
+      expect(vertices!.last, (120, 150));
+    });
+
+    test('removeSelectedVertexNear drops the closest node', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100), (200, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      expect(editing.canRemoveSelectedVertex, isTrue);
+
+      editing.removeSelectedVertexNear((205, 105)); // nearest (200, 100)
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, const [(100, 100), (200, 200)]);
+    });
+
+    test('removal stops at the subtype minimum', () {
+      final line = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(line.dispose);
+      expect(line.canRemoveSelectedVertex, isFalse);
+      final before = line.document;
+      line.removeSelectedVertexNear((100, 100));
+      expect(identical(line.document, before), isTrue);
+
+      final polygon = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolygon(0, const [(100, 100), (200, 100), (150, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(polygon.dispose);
+      expect(polygon.canRemoveSelectedVertex, isFalse); // 3 is the floor
+    });
+
+    test('node editing is unavailable for a plain /Line or /Square', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addLine(0, const (100, 100), const (200, 200))
+        ..addRectangle(0, const PdfRect(60, 700, 160, 750))
+        ..tool = PdfEditTool.select;
+      addTearDown(editing.dispose);
+
+      editing.selectAnnotation(0, 0); // the /Line
+      expect(editing.canAddSelectedVertex, isFalse);
+      expect(editing.canRemoveSelectedVertex, isFalse);
+
+      editing.selectAnnotation(0, 1); // the /Square
+      expect(editing.canAddSelectedVertex, isFalse);
+    });
+  });
+
   group('context menu', () {
     Future<PdfEditingController> pumpViewer(WidgetTester tester,
         {PdfAnnotationMenuBuilder? menuBuilder}) async {
@@ -181,6 +260,37 @@ void main() {
         PdfRect(200, 700, 300, 750),
       ]);
       expect(editing.selectedAnnotationSlots, [(0, 1), (0, 2)]);
+    });
+
+    testWidgets('a polygon right-click offers add/remove node, and adds one',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.addPolygon(
+          0, const [(400, 600), (500, 600), (500, 700), (400, 700)]);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(450, 650)); // inside the polygon
+      expect(editing.selectedAnnotation?.subtype, 'Polygon');
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-node')),
+          findsOneWidget);
+      final remove = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-annot-menu-remove-node')));
+      expect(remove.enabled, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-node')));
+      await tester.pumpAndSettle();
+      expect(
+          editing.document.page(0).annotations.last.vertices, hasLength(5));
+    });
+
+    testWidgets('a rectangle right-click has no node entries', (tester) async {
+      await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-node')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-remove-node')),
+          findsNothing);
     });
 
     testWidgets('host actions ride below a divider and get the request',

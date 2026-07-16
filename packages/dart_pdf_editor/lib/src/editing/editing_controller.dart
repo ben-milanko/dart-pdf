@@ -4648,6 +4648,119 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// The single selected /PolyLine or /Polygon whose vertices can be edited
+  /// by adding or removing nodes. A /Line is fixed at two points, so it is
+  /// excluded. Null unless exactly one such annotation is selected.
+  PdfAnnotation? get _editableVertexAnnotation {
+    if (_selected.length != 1) return null;
+    final annotation = selectedAnnotation;
+    if (annotation == null) return null;
+    final subtype = annotation.subtype;
+    if (subtype != 'PolyLine' && subtype != 'Polygon') return null;
+    return annotation.vertices == null ? null : annotation;
+  }
+
+  /// Whether a node can be added to the selected /PolyLine or /Polygon.
+  bool get canAddSelectedVertex => _editableVertexAnnotation != null;
+
+  /// Whether a node can be removed from the selected /PolyLine or /Polygon -
+  /// true only when removing one still leaves a valid shape (2+ vertices for
+  /// a polyline, 3+ for a polygon).
+  bool get canRemoveSelectedVertex {
+    final annotation = _editableVertexAnnotation;
+    final vertices = annotation?.vertices;
+    if (annotation == null || vertices == null) return false;
+    final min = annotation.subtype == 'Polygon' ? 3 : 2;
+    return vertices.length > min;
+  }
+
+  /// Adds a node to the selected /PolyLine or /Polygon at [at] (page space),
+  /// splicing it into the edge nearest the point so the shape grows a vertex
+  /// there. No-op unless a single editable poly is selected.
+  void addSelectedVertexAt((double, double) at) {
+    final annotation = _editableVertexAnnotation;
+    final vertices = annotation?.vertices;
+    if (annotation == null || vertices == null || vertices.length < 2) return;
+    final insertAt = _nearestEdgeInsertIndex(
+      vertices,
+      at,
+      closed: annotation.subtype == 'Polygon',
+    );
+    final points = List<(double, double)>.of(vertices)..insert(insertAt, at);
+    apply(
+      (e) => e.reshapeLineAnnotation(_selected.last.$1, annotation, points),
+    );
+  }
+
+  /// Removes the node of the selected /PolyLine or /Polygon nearest [near]
+  /// (page space). No-op when removing would drop below the subtype minimum
+  /// (see [canRemoveSelectedVertex]) or nothing editable is selected.
+  void removeSelectedVertexNear((double, double) near) {
+    if (!canRemoveSelectedVertex) return;
+    final annotation = _editableVertexAnnotation!;
+    final vertices = annotation.vertices!;
+    final index = _nearestVertexIndex(vertices, near);
+    final points = List<(double, double)>.of(vertices)..removeAt(index);
+    apply(
+      (e) => e.reshapeLineAnnotation(_selected.last.$1, annotation, points),
+    );
+  }
+
+  /// Index of the vertex in [pts] closest to [p] (page space).
+  static int _nearestVertexIndex(
+      List<(double, double)> pts, (double, double) p) {
+    var best = 0;
+    var bestDist = double.infinity;
+    for (var i = 0; i < pts.length; i++) {
+      final dx = pts[i].$1 - p.$1, dy = pts[i].$2 - p.$2;
+      final dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /// The list index at which inserting [p] lands it on the edge of [pts]
+  /// nearest the point. A [closed] polygon also weighs the wrap-around edge
+  /// (last→first), for which the insertion index is the list end.
+  static int _nearestEdgeInsertIndex(
+    List<(double, double)> pts,
+    (double, double) p, {
+    required bool closed,
+  }) {
+    var best = pts.length; // append if nothing beats it
+    var bestDist = double.infinity;
+    final segments = closed ? pts.length : pts.length - 1;
+    for (var i = 0; i < segments; i++) {
+      final a = pts[i];
+      final b = pts[(i + 1) % pts.length];
+      final dist = _segmentDistanceSq(p, a, b);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i + 1;
+      }
+    }
+    return best;
+  }
+
+  /// Squared distance from point [p] to the segment [a]–[b] (page space).
+  static double _segmentDistanceSq(
+    (double, double) p,
+    (double, double) a,
+    (double, double) b,
+  ) {
+    final abx = b.$1 - a.$1, aby = b.$2 - a.$2;
+    final apx = p.$1 - a.$1, apy = p.$2 - a.$2;
+    final len2 = abx * abx + aby * aby;
+    var t = len2 == 0 ? 0.0 : (apx * abx + apy * aby) / len2;
+    t = t.clamp(0.0, 1.0);
+    final cx = a.$1 + t * abx, cy = a.$2 + t * aby;
+    final dx = p.$1 - cx, dy = p.$2 - cy;
+    return dx * dx + dy * dy;
+  }
+
   /// Whether every selected annotation is a /Line or /PolyLine whose endings
   /// can be set together ([setSelectedLineEndings]).
   bool get canSetLineEndings {
