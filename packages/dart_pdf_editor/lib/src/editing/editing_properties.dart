@@ -403,6 +403,8 @@ class _PdfAnnotationPropertiesPanelState
       required ValueChanged<double> onChangeEnd,
       String Function(double)? display,
       double? Function(String)? parse,
+      double? fieldMin,
+      double? fieldMax,
       bool varies = false}) {
     final base = key is ValueKey ? '${key.value}' : '$key';
     return Padding(
@@ -421,12 +423,15 @@ class _PdfAnnotationPropertiesPanelState
         ),
         // the value also reads back as an editable number, so it can be set
         // exactly without nudging the slider (general rule: any slider's
-        // value is directly typeable)
+        // value is directly typeable). A typed value may exceed the slider's
+        // scale within reason (fieldMin/fieldMax).
         PdfSliderValueField(
           key: ValueKey('$base-input'),
           value: value,
           min: min,
           max: max,
+          fieldMin: fieldMin,
+          fieldMax: fieldMax,
           display: display ?? _fmt,
           parse: parse,
           varies: varies,
@@ -562,6 +567,8 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-stroke'),
         min: 0.5,
         max: 16,
+        fieldMin: 0,
+        fieldMax: kPdfTypedSizeMax,
         varies: _draggingStroke == null && widths.varies,
         onChanged: (v) => setState(() => _draggingStroke = v),
         onChangeEnd: (v) {
@@ -632,6 +639,9 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-opacity'),
         min: 0.05,
         max: 1,
+        // a true ratio: typeable down to 0%, never past 100%
+        fieldMin: 0,
+        fieldMax: 1,
         varies: _draggingOpacity == null && opacities.varies,
         display: (v) => '${(v * 100).round()}%',
         parse: (s) {
@@ -697,6 +707,8 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-font-size'),
         min: 6,
         max: 72,
+        fieldMin: 1,
+        fieldMax: kPdfTypedSizeMax,
         onChanged: (v) => setState(() => _draggingFontSize = v),
         onChangeEnd: (v) {
           _controller.restyleSelectedText(size: v.roundToDouble());
@@ -727,6 +739,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-line-spacing'),
           min: 0.8,
           max: 3,
+          fieldMin: 0.1,
+          fieldMax: 100,
           display: (v) => '${v.toStringAsFixed(1)}×',
           onChanged: (v) => setState(() => _draggingLineSpacing = v),
           onChangeEnd: (v) {
@@ -742,6 +756,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-char-spacing'),
           min: -2,
           max: 10,
+          fieldMin: -kPdfTypedSizeMax,
+          fieldMax: kPdfTypedSizeMax,
           display: (v) => '${v.toStringAsFixed(1)} pt',
           onChanged: (v) => setState(() => _draggingCharSpacing = v),
           onChangeEnd: (v) {
@@ -757,6 +773,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-font-width'),
           min: 50,
           max: 200,
+          fieldMin: 1,
+          fieldMax: kPdfTypedSizeMax,
           display: (v) => '${v.round()}%',
           onChanged: (v) => setState(() => _draggingFontWidth = v),
           onChangeEnd: (v) {
@@ -834,6 +852,8 @@ class _PdfAnnotationPropertiesPanelState
           key: const ValueKey('pdf-prop-form-size'),
           min: 6,
           max: 72,
+          fieldMin: 1,
+          fieldMax: kPdfTypedSizeMax,
           onChanged: (v) => setState(() => _draggingFontSize = v),
           onChangeEnd: (v) {
             _controller.setFormFieldStyle(name, fontSize: v.roundToDouble());

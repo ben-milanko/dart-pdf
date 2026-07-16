@@ -223,6 +223,8 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                   value: _draggingSize ?? style.size,
                   min: 6,
                   max: 72,
+                  fieldMin: 1,
+                  fieldMax: kPdfTypedSizeMax,
                   width: 40,
                   display: (v) => '${v.round()}',
                   onSubmit: (v) {
