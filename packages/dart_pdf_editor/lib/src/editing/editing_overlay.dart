@@ -5920,19 +5920,16 @@ class _EditingPreviewPainter extends CustomPainter {
   void _paintCloudPolygon(Canvas canvas, List<Offset> points, Color color,
       Color? fillColor, double width, bool dashed) {
     if (points.length < 3) return;
-    final fillPath = Path()..moveTo(points.first.dx, points.first.dy);
-    for (final point in points.skip(1)) {
-      fillPath.lineTo(point.dx, point.dy);
-    }
-    fillPath.close();
+    final cloud = _cloudPath(points, width);
     if (fillColor != null) {
+      // Fill the scalloped outline itself so the interior colour reaches the
+      // puffed edges, matching the committed appearance stream.
       canvas.drawPath(
-          fillPath,
+          cloud,
           Paint()
             ..color = fillColor
             ..style = PaintingStyle.fill);
     }
-    final cloud = _cloudPath(points, width);
     canvas.drawPath(
         dashed ? _dashPath(cloud, width) : cloud,
         Paint()

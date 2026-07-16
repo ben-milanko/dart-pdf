@@ -776,6 +776,84 @@ void main() {
       expect(inner.calls.length, 2, reason: 'a declined page must re-ask');
     });
 
+    test('the record count is bounded so weight-0 pages cannot grow unbounded',
+        () async {
+      // Every record weighs 0 (image-free), so the byte budget never trips.
+      // Without the entry cap these would pile up one-per-page for the whole
+      // life of the worker - the unbounded growth issue #283 measured.
+      final inner = _CountingWorker();
+      final worker = PdfCachingRenderWorker(inner, maxEntries: 3);
+      addTearDown(worker.dispose);
+      for (var page = 0; page < 10; page++) {
+        await worker.record(page, decodeImages: false);
+      }
+      expect(worker.cachedEntryCount, 3,
+          reason: 'the cache is capped, not one entry per page scrolled');
+      expect(inner.calls.length, 10);
+      // The oldest pages were evicted, so page 0 must re-record.
+      await worker.record(0, decodeImages: false);
+      expect(inner.calls.length, 11, reason: 'the evicted page 0 re-records');
+      // The most-recent survivors still hit.
+      await worker.record(9, decodeImages: false);
+      await worker.record(8, decodeImages: false);
+      expect(inner.calls.length, 11, reason: 'recent pages stayed cached');
+    });
+
+    test('count eviction removes the least-recently-used record', () async {
+      final inner = _CountingWorker();
+      final worker = PdfCachingRenderWorker(inner, maxEntries: 3);
+      addTearDown(worker.dispose);
+      await worker.record(0, decodeImages: false); // {0}
+      await worker.record(1, decodeImages: false); // {0,1}
+      await worker.record(2, decodeImages: false); // {0,1,2}
+      await worker.record(0, decodeImages: false); // hit: 0 now MRU -> {1,2,0}
+      expect(inner.calls.length, 3);
+      await worker.record(3, decodeImages: false); // count 4>3: evict LRU (1)
+      expect(inner.calls.length, 4);
+      expect(worker.cachedEntryCount, 3);
+      await worker.record(0, decodeImages: false); // still cached
+      await worker.record(2, decodeImages: false); // still cached
+      expect(inner.calls.length, 4, reason: 'touched pages survived');
+      await worker.record(1, decodeImages: false); // 1 was the LRU eviction
+      expect(inner.calls.length, 5, reason: 'the least-recently-used page went');
+    });
+
+    test('count eviction of a heavy record frees its decoded bytes', () async {
+      final inner = _CountingWorker(decodedPixels: 64); // 256 bytes each
+      // A byte budget wide enough to never trip, so only the count cap evicts.
+      final worker =
+          PdfCachingRenderWorker(inner, budgetBytes: 1 << 20, maxEntries: 2);
+      addTearDown(worker.dispose);
+      await worker.record(0, imagePixelRatio: 2.0); // {0} bytes=256
+      await worker.record(1, imagePixelRatio: 2.0); // {0,1} bytes=512
+      await worker.record(2, imagePixelRatio: 2.0); // evict LRU 0, bytes=512
+      expect(worker.cachedEntryCount, 2);
+      expect(worker.cachedBytes, 256 * 2,
+          reason: 'evicting the LRU heavy record decremented the byte total');
+    });
+
+    test('uses the runtime default cache max entries when not overridden', () {
+      final previous = pdfRenderWorkerCacheMaxEntries;
+      addTearDown(() => pdfRenderWorkerCacheMaxEntries = previous);
+
+      pdfRenderWorkerCacheMaxEntries = 7;
+      final worker = PdfCachingRenderWorker(_CountingWorker());
+      addTearDown(worker.dispose);
+
+      expect(worker.cacheMaxEntries, 7);
+    });
+
+    test('explicit max entries overrides the runtime default', () {
+      final previous = pdfRenderWorkerCacheMaxEntries;
+      addTearDown(() => pdfRenderWorkerCacheMaxEntries = previous);
+
+      pdfRenderWorkerCacheMaxEntries = 7;
+      final worker = PdfCachingRenderWorker(_CountingWorker(), maxEntries: 9);
+      addTearDown(worker.dispose);
+
+      expect(worker.cacheMaxEntries, 9);
+    });
+
     test('record bypasses the cache while the inner worker is inactive',
         () async {
       final inner = _CountingWorker()..active = false;

@@ -62,6 +62,21 @@ const int defaultPdfRenderWorkerCacheBudgetBytes = 96 << 20;
 /// constrained devices can lower it once at startup before opening viewers.
 int pdfRenderWorkerCacheBudgetBytes = defaultPdfRenderWorkerCacheBudgetBytes;
 
+/// Default maximum number of records the caching worker retains.
+const int defaultPdfRenderWorkerCacheMaxEntries = 64;
+
+/// Maximum number of records the caching worker retains, regardless of weight.
+///
+/// The byte budget ([pdfRenderWorkerCacheBudgetBytes]) only bounds decoded image
+/// pixels, so image-free and vector-first records weigh zero and never trip it.
+/// Without a second bound they accumulate one (or more) per page for the whole
+/// life of the worker - unbounded in the page count, which is exactly the tab
+/// growth issue #283 measured on a long scroll. This caps the retained record
+/// count so a thousand-page scroll cannot pin a thousand transcripts; the window
+/// stays well above the on-screen plus preview-warm working set, so ordinary
+/// revisits still hit. Lower it once at startup on memory-constrained devices.
+int pdfRenderWorkerCacheMaxEntries = defaultPdfRenderWorkerCacheMaxEntries;
+
 /// Whether newly-created web render workers reuse one image-free page
 /// transcript across progressive record, image, detail, and strip phases.
 ///
@@ -632,11 +647,18 @@ typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
 /// those repeats into one decode per page. A scrolled-away page is cancelled
 /// for every sharer at once, which is correct - none of them want it any more.
 class PdfCachingRenderWorker extends PdfRenderWorker {
-  PdfCachingRenderWorker(this._inner, {int? budgetBytes})
-      : _budgetBytes = budgetBytes ?? pdfRenderWorkerCacheBudgetBytes;
+  PdfCachingRenderWorker(this._inner, {int? budgetBytes, int? maxEntries})
+      : _budgetBytes = budgetBytes ?? pdfRenderWorkerCacheBudgetBytes,
+        _maxEntries =
+            math.max(1, maxEntries ?? pdfRenderWorkerCacheMaxEntries);
 
   final PdfRenderWorker _inner;
   final int _budgetBytes;
+
+  /// Hard cap on retained records, bounding the weight-0 (image-free /
+  /// vector-first) records the byte budget cannot see. See
+  /// [pdfRenderWorkerCacheMaxEntries].
+  final int _maxEntries;
 
   // LinkedHashMap iteration order doubles as LRU order: a hit re-inserts to
   // the end, eviction takes the oldest (first) key.
@@ -657,6 +679,12 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
 
   /// Maximum decoded image bytes this cache tries to retain.
   int get cacheBudgetBytes => _budgetBytes;
+
+  /// Records currently retained (both weight-bearing and weight-0).
+  int get cachedEntryCount => _cache.length;
+
+  /// Maximum records this cache retains regardless of weight.
+  int get cacheMaxEntries => _maxEntries;
 
   /// Fraction of [cacheBudgetBytes] currently occupied by decoded image data.
   double get cachePressure {
@@ -865,6 +893,16 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       final victim = _oldestHeavyKey(except: key);
       if (victim == null) break; // nothing left worth evicting
       _bytes -= _cache.remove(victim)!.weight;
+    }
+    // Second bound: total record count. The byte budget above cannot see the
+    // weight-0 records (image-free pages, vector-first passes), so on a long
+    // scroll they would otherwise pile up one-per-page without limit (issue
+    // #283). Evict the least-recently-used records - weight-0 or not - until
+    // back under the cap, never the entry we just inserted.
+    while (_cache.length > _maxEntries) {
+      final oldest = _cache.keys.first;
+      if (oldest == key) break;
+      _bytes -= _cache.remove(oldest)!.weight;
     }
   }
 
