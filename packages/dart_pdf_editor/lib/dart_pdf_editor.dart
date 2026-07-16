@@ -41,6 +41,7 @@ export 'src/editing/stroke_prediction.dart';
 export 'src/editing/text_prompt.dart';
 export 'src/editing/text_style_prompt.dart';
 export 'src/editing/tool_shortcuts.dart';
+export 'src/http_byte_source.dart';
 export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';
 export 'src/page_export.dart';

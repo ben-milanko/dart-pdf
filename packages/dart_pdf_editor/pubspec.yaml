@@ -20,6 +20,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Cross-platform HTTP client (VM + web via fetch) for the progressive remote
+  # PDF byte source (PdfHttpByteSource); uses Range requests, no dart:io in our
+  # code. See src/http_byte_source.dart.
+  http: ^1.2.0
   image: ^4.9.1
   pdf_cos: ^1.4.7
   pdf_document: ^1.4.7
