@@ -24,6 +24,12 @@ import 'text_prompt.dart';
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
 
+TextAlign _flutterTextAlign(PdfTextAlign align) => switch (align) {
+      PdfTextAlign.left => TextAlign.left,
+      PdfTextAlign.center => TextAlign.center,
+      PdfTextAlign.right => TextAlign.right,
+    };
+
 String? _textEditUiFamily(PdfTextFont font) {
   if (font is PdfStandardFont) {
     return switch (font.family) {
@@ -66,30 +72,43 @@ FontStyle _textEditSlant(PdfTextFont font) =>
 
 class _TextEditStyle {
   const _TextEditStyle(
-      {required this.font, required this.size, required this.color});
+      {required this.font,
+      required this.size,
+      required this.color,
+      this.underline = false});
 
   final PdfTextFont font;
   final double size;
   final Color color;
+  final bool underline;
 
-  _TextEditStyle merge({PdfTextFont? font, double? size, int? color}) =>
+  _TextEditStyle merge(
+          {PdfTextFont? font, double? size, int? color, bool? underline}) =>
       _TextEditStyle(
         font: font ?? this.font,
         size: size ?? this.size,
         color: color == null ? this.color : Color(0xFF000000 | color),
+        underline: underline ?? this.underline,
       );
 
-  TextStyle toTextStyle(double scale) => TextStyle(
+  TextStyle toTextStyle(double scale, {double height = 1.2, double? letterSpacing}) =>
+      TextStyle(
         color: color,
         fontSize: size * scale,
-        height: 1.2,
+        height: height,
+        letterSpacing: letterSpacing,
         fontFamily: _textEditUiFamily(font),
         fontWeight: _textEditWeight(font),
         fontStyle: _textEditSlant(font),
+        decoration: underline ? TextDecoration.underline : null,
+        decorationColor: underline ? color : null,
       );
 
   PdfFreeTextRun toRun(String text) => PdfFreeTextRun(text,
-      font: font, fontSize: size, color: color.toARGB32() & 0xFFFFFF);
+      font: font,
+      fontSize: size,
+      color: color.toARGB32() & 0xFFFFFF,
+      underline: underline);
 }
 
 class _TextEditStyleRange {
@@ -106,7 +125,70 @@ class _RichTextEditingController extends TextEditingController {
   _TextEditStyle defaultStyle = const _TextEditStyle(
       font: PdfStandardFont.helvetica, size: 14, color: Color(0xFF000000));
   double scale = 1;
+
+  /// The box-level line-height multiplier and character spacing (already in
+  /// view pixels) the styled span previews, so the live text matches the
+  /// committed appearance's leading and Tc.
+  double previewLineHeight = 1.2;
+  double previewLetterSpacing = 0;
   final List<_TextEditStyleRange> _ranges = [];
+
+  /// The text the style ranges are indexed against. Every edit (typing,
+  /// backspace, paste) shifts the ranges so a run keeps following its own
+  /// characters instead of the absolute offsets sliding under it.
+  String _rangeText = '';
+
+  /// Suppresses range remapping while [seedRuns] assigns text and ranges
+  /// together (the ranges are already correct for the new text).
+  bool _remapRanges = true;
+
+  @override
+  set value(TextEditingValue newValue) {
+    if (_remapRanges && _ranges.isNotEmpty && newValue.text != _rangeText) {
+      _shiftRanges(_rangeText, newValue.text);
+    }
+    _rangeText = newValue.text;
+    super.value = newValue;
+  }
+
+  /// Re-maps every style range across the edit that turned [before] into
+  /// [after], so a run stays glued to its characters. The changed span is
+  /// the region between the common prefix and common suffix; text before it
+  /// is untouched, text after it shifts by the length delta, and text
+  /// inserted inside a run extends that run.
+  void _shiftRanges(String before, String after) {
+    var prefix = 0;
+    final minLen = math.min(before.length, after.length);
+    while (prefix < minLen && before[prefix] == after[prefix]) {
+      prefix++;
+    }
+    var suffix = 0;
+    while (suffix < minLen - prefix &&
+        before[before.length - 1 - suffix] ==
+            after[after.length - 1 - suffix]) {
+      suffix++;
+    }
+    final changeStart = prefix;
+    final oldChangeEnd = before.length - suffix;
+    final delta = after.length - before.length;
+    int mapOffset(int o) {
+      if (o <= changeStart) return o;
+      if (o >= oldChangeEnd) return o + delta;
+      return changeStart; // inside a replaced span - collapse to its start
+    }
+
+    final next = <_TextEditStyleRange>[];
+    for (final range in _ranges) {
+      final start = mapOffset(range.start);
+      final end = mapOffset(range.end);
+      if (start < end) {
+        next.add(_TextEditStyleRange(start, end, range.style));
+      }
+    }
+    _ranges
+      ..clear()
+      ..addAll(_mergeRanges(next));
+  }
 
   void resetStyles(_TextEditStyle style) {
     defaultStyle = style;
@@ -134,19 +216,35 @@ class _RichTextEditingController extends TextEditingController {
           _TextEditStyle(
               font: run.font,
               size: run.fontSize,
-              color: Color(0xFF000000 | (run.color & 0xFFFFFF)))));
+              color: Color(0xFF000000 | (run.color & 0xFFFFFF)),
+              underline: run.underline)));
     }
     _ranges
       ..clear()
       ..addAll(_mergeRanges(ranges));
-    // assigning text notifies listeners and rebuilds the styled span
+    // assigning text notifies listeners and rebuilds the styled span; the
+    // ranges are already correct for the new text, so skip the edit remap
+    _remapRanges = false;
     text = buffer.toString();
+    _remapRanges = true;
   }
 
   bool get hasRichStyles => _ranges.isNotEmpty;
 
+  /// The largest font size across the default style and every run - the
+  /// strut size the inline editor pins line height to, so line spacing
+  /// stays font-independent (matching the committed appearance's leading)
+  /// instead of jumping when a run's font changes.
+  double get maxStyleSize {
+    var largest = defaultStyle.size;
+    for (final range in _ranges) {
+      if (range.style.size > largest) largest = range.style.size;
+    }
+    return largest;
+  }
+
   void applyStyle(TextSelection selection,
-      {PdfTextFont? font, double? size, int? color}) {
+      {PdfTextFont? font, double? size, int? color, bool? underline}) {
     if (!selection.isValid || selection.isCollapsed) return;
     final start = math.max(0, math.min(selection.start, selection.end));
     final end = math.min(text.length, math.max(selection.start, selection.end));
@@ -164,13 +262,30 @@ class _RichTextEditingController extends TextEditingController {
         next.add(_TextEditStyleRange(end, range.end, range.style));
       }
     }
-    next.add(_TextEditStyleRange(start, end,
-        _styleAt(start).merge(font: font, size: size, color: color)));
+    // split the selection into runs of already-uniform style so underlining
+    // (or any per-char toggle) keeps each character's own font/size/colour
+    var cursor = start;
+    while (cursor < end) {
+      final runStyle = _styleAt(cursor);
+      var runEnd = cursor + 1;
+      while (runEnd < end && _sameStyle(_styleAt(runEnd), runStyle)) {
+        runEnd++;
+      }
+      next.add(_TextEditStyleRange(cursor, runEnd,
+          runStyle.merge(font: font, size: size, color: color, underline: underline)));
+      cursor = runEnd;
+    }
     _ranges
       ..clear()
       ..addAll(_mergeRanges(next));
     notifyListeners();
   }
+
+  static bool _sameStyle(_TextEditStyle a, _TextEditStyle b) =>
+      identical(a.font, b.font) &&
+      a.size == b.size &&
+      a.color == b.color &&
+      a.underline == b.underline;
 
   List<PdfFreeTextRun> toPdfRuns() {
     final value = text;
@@ -213,7 +328,8 @@ class _RichTextEditingController extends TextEditingController {
           out.last.end == range.start &&
           identical(out.last.style.font, range.style.font) &&
           out.last.style.size == range.style.size &&
-          out.last.style.color == range.style.color) {
+          out.last.style.color == range.style.color &&
+          out.last.style.underline == range.style.underline) {
         final last = out.removeLast();
         out.add(_TextEditStyleRange(last.start, range.end, last.style));
       } else {
@@ -243,7 +359,9 @@ class _RichTextEditingController extends TextEditingController {
       }
       children.add(TextSpan(
           text: value.substring(start, end),
-          style: range.style.toTextStyle(scale)));
+          style: range.style.toTextStyle(scale,
+              height: previewLineHeight,
+              letterSpacing: previewLetterSpacing)));
       offset = end;
     }
     if (offset < value.length) {
@@ -685,6 +803,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   double _textEditSize = 14; // pt
   Color _textEditColor = const Color(0xFF000000);
   Color? _textEditFill; // the box background the commit will paint
+  // box-level layout the inline editor previews so the live text matches
+  // what commits: alignment (/Q), line height, character spacing, and
+  // horizontal glyph scaling
+  // null means "follow the text direction" (left for LTR, right for RTL) -
+  // a box with no explicit /Q, matching TextField's TextAlign.start
+  PdfTextAlign? _textEditAlign;
+  double _textEditLineSpacing = kPdfFreeTextDefaultLineSpacing;
+  double _textEditCharSpacing = 0;
   bool _textEditStyleMenuOpen = false;
   // resting view-space rotation of the box being edited (radians,
   // clockwise positive): nonzero only when editing already-rotated text,
@@ -805,6 +931,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     Color? fill,
     bool washed,
     double rotation,
+    PdfTextAlign? align,
+    bool underline,
+    double lineSpacing,
   })? _afterText;
   // the lifted clean page (the page rendered without the resized text box)
   // kept alive past the drag so a transparent box's commit afterimage shows
@@ -1762,16 +1891,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// a constant font size - the editor's FreeText regenerate path:
   /// an /AP to replace and a /DA naming a standard font. Null means the
   /// commit stretches the appearance and the ghost previews faithfully.
-  ({String text, PdfStandardFont font, double size, Color color, Color? fill})?
-      get _textResizeStyle {
+  ({
+    String text,
+    PdfStandardFont font,
+    double size,
+    Color color,
+    Color? fill,
+    PdfTextAlign align,
+    bool underline,
+    double lineSpacing,
+  })? get _textResizeStyle {
     final annotation = _controller.selectedAnnotation;
     if (annotation == null ||
         annotation.behavior.resizeBehavior !=
             PdfAnnotationResizeBehavior.reflowText) {
       return null;
     }
+    // an embedded-font box reflows too, but the lightweight preview can only
+    // draw base-14 faces - fall back to the stretch ghost during the drag
+    // (the commit still re-wraps correctly)
+    final font = annotation.behavior.standardTextFont;
+    if (font == null) return null;
     final parsed = annotation.behavior.style.freeText!;
-    final font = annotation.behavior.standardTextFont!;
     return (
       text: annotation.contents ?? '',
       font: font,
@@ -1780,6 +1921,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       fill: parsed.fillColor != null
           ? Color(0xFF000000 | parsed.fillColor!)
           : null,
+      align: parsed.alignment,
+      underline: parsed.underline,
+      lineSpacing: parsed.lineSpacing,
     );
   }
 
@@ -2086,6 +2230,29 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
     }
     if (_textEditRect == null) return;
+    // a new box in flight follows the tune popup's box-level defaults live
+    // (alignment, spacing, underline) instead of only picking them up on open
+    if (!_textEditExisting && _textEditFieldName == null) {
+      final align = _controller.textAlign;
+      final ls = _controller.lineSpacing;
+      final cs = _controller.charSpacing;
+      final ul = _controller.textUnderline;
+      final defaultUnderline = _textEditText.defaultStyle.underline;
+      if (align != _textEditAlign ||
+          ls != _textEditLineSpacing ||
+          cs != _textEditCharSpacing ||
+          (ul != defaultUnderline && !_textEditText.hasRichStyles)) {
+        setState(() {
+          _textEditAlign = align;
+          _textEditLineSpacing = ls;
+          _textEditCharSpacing = cs;
+          if (ul != defaultUnderline && !_textEditText.hasRichStyles) {
+            _textEditText.resetStyles(
+                _textEditText.defaultStyle.merge(underline: ul));
+          }
+        });
+      }
+    }
     final revision = _controller.editingTextStyleRevision;
     if (revision == _textEditStyleRevision) return;
     _textEditStyleRevision = revision;
@@ -2098,7 +2265,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _ensureEmbeddedFontPreview(request.font as PdfEmbeddedFont);
     }
     _textEditText.applyStyle(_textEditText.selection,
-        font: request.font, size: request.size, color: request.color);
+        font: request.font,
+        size: request.size,
+        color: request.color,
+        underline: request.underline);
   }
 
   Offset _handleCenter(Rect rect, _Handle handle) => Offset(
@@ -2347,8 +2517,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final defaultColor = annotationColor != null
         ? Color(0xFF000000 | annotationColor)
         : _controller.color;
+    final defaultUnderline =
+        existing ? (parsed?.underline ?? false) : _controller.textUnderline;
     final fallbackStyle = _TextEditStyle(
-        font: defaultFont, size: defaultSize, color: defaultColor);
+        font: defaultFont,
+        size: defaultSize,
+        color: defaultColor,
+        underline: defaultUnderline);
     // a box saved with mixed styling carries /RC: reseed its per-run fonts
     // so reopening shows the bold/italic/colour, not a flattened style
     final richRuns = existing ? _controller.selectedRichRuns : null;
@@ -2368,6 +2543,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           defaultFont is PdfStandardFont ? defaultFont : _controller.fontFamily;
       _textEditSize = defaultSize;
       _textEditColor = defaultColor;
+      _textEditAlign = existing ? parsed?.alignment : _controller.textAlign;
+      _textEditLineSpacing = existing
+          ? (parsed?.lineSpacing ?? kPdfFreeTextDefaultLineSpacing)
+          : _controller.lineSpacing;
+      _textEditCharSpacing =
+          existing ? (parsed?.charSpacing ?? 0) : _controller.charSpacing;
       _textEditFill = existing
           ? (parsed?.fillColor != null
               ? Color(0xFF000000 | parsed!.fillColor!)
@@ -2520,6 +2701,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         fill: null,
         washed: true, // cover the old value until the raster lands
         rotation: 0,
+        align: PdfTextAlign.left,
+        underline: false,
+        lineSpacing: kPdfFreeTextDefaultLineSpacing,
       );
       _afterDocument = _controller.document;
       return;
@@ -2567,6 +2751,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       fill: fill,
       washed: existing,
       rotation: rotation,
+      align: _textEditAlign,
+      underline: _textEditText.defaultStyle.underline,
+      lineSpacing: _textEditLineSpacing,
     );
     _afterDocument = _controller.document;
   }
@@ -3204,6 +3391,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             // lift does it fall back to the opaque-paper wash
             washed: liftClean == null,
             rotation: resizeAngle,
+            align: wrapStyle.align,
+            underline: wrapStyle.underline,
+            lineSpacing: wrapStyle.lineSpacing,
           );
           _afterTextClean = liftClean;
           _afterTextHideRect = liftHideRect;
@@ -4116,7 +4306,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _textEditText._styleAt(offset.clamp(0, _textEditText.text.length));
   }
 
-  void _applyInlineTextStyle({PdfTextFont? font, double? size, Color? color}) {
+  void _applyInlineTextStyle(
+      {PdfTextFont? font, double? size, Color? color, bool? underline}) {
     if (!_canStyleInlineTextSelection) return;
     final rgb = color == null ? null : color.toARGB32() & 0xFFFFFF;
     if (font is PdfStandardFont) {
@@ -4126,8 +4317,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (size != null) _controller.fontSize = size;
     if (color != null) _controller.color = Color(0xFF000000 | rgb!);
+    if (underline != null) _controller.textUnderline = underline;
     _controller.setEditingTextSelection(_textEditText.selection);
-    _controller.restyleEditingTextSelection(font: font, size: size, color: rgb);
+    _controller.restyleEditingTextSelection(
+        font: font, size: size, color: rgb, underline: underline);
   }
 
   /// Registers an embedded font's outline bytes with the engine under a
@@ -4191,6 +4384,33 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _textEditText.selection =
         TextSelection(baseOffset: 0, extentOffset: length);
     _applyInlineTextStyle(font: next);
+  }
+
+  /// Toggles underline on the inline text editor - the desktop Cmd/Ctrl+U
+  /// shortcut and the style-chip button. Underline is a per-character format
+  /// (like bold), so with a selection it restyles that run; with none it
+  /// underlines the whole box (or just sets the default when the box is
+  /// still empty).
+  void _toggleInlineUnderline() {
+    if (_textEditRect == null || _textEditFieldName != null) return;
+    final on = !_currentInlineTextStyle().underline;
+    if (_canStyleInlineTextSelection) {
+      _applyInlineTextStyle(underline: on);
+      return;
+    }
+    final length = _textEditText.text.length;
+    if (length == 0) {
+      _controller.textUnderline = on;
+      setState(() => _textEditText.resetStyles(_TextEditStyle(
+          font: _textEditFont,
+          size: _textEditSize,
+          color: _textEditColor,
+          underline: on)));
+      return;
+    }
+    _textEditText.selection =
+        TextSelection(baseOffset: 0, extentOffset: length);
+    _applyInlineTextStyle(underline: on);
   }
 
   Future<void> _showInlineTextFontMenu(BuildContext context) async {
@@ -4276,6 +4496,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   onPressed: enabled
                       ? () => _applyInlineTextStyle(
                           size: (current.size + 1).clamp(8, 48).toDouble())
+                      : null,
+                ),
+                IconButton(
+                  key: const ValueKey('pdf-inline-text-underline'),
+                  icon: const Icon(Icons.format_underlined),
+                  tooltip: 'Underline',
+                  isSelected: current.underline,
+                  // underline works with or without a selection (whole box)
+                  onPressed: _textEditFieldName == null
+                      ? _toggleInlineUnderline
                       : null,
                 ),
                 Builder(builder: (buttonContext) {
@@ -4455,28 +4685,40 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     required Color color,
     required Color? background,
     required double rotation,
+    PdfTextAlign? align,
+    bool underline = false,
+    double lineSpacing = kPdfFreeTextDefaultLineSpacing,
   }) {
     final direction = _flutterTextDirection(text);
+    final columnAlign = switch (align) {
+      null => AlignmentDirectional.topStart.resolve(direction),
+      PdfTextAlign.left => Alignment.topLeft,
+      PdfTextAlign.center => Alignment.topCenter,
+      PdfTextAlign.right => Alignment.topRight,
+    };
     final box = Container(
       key: key,
       color: background,
       padding: EdgeInsets.all(3 * _geometry.scale),
-      alignment: AlignmentDirectional.topStart.resolve(direction),
+      alignment: columnAlign,
       child: Directionality(
         textDirection: direction,
         child: Text(
           text,
-          textAlign: TextAlign.start,
+          textAlign:
+              align == null ? TextAlign.start : _flutterTextAlign(align),
           textHeightBehavior: const TextHeightBehavior(
             applyHeightToFirstAscent: false,
           ),
           style: TextStyle(
             color: color,
             fontSize: size * _geometry.scale,
-            height: 1.2,
+            height: lineSpacing,
             fontFamily: _uiFamily(font),
             fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
             fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
+            decoration: underline ? TextDecoration.underline : null,
+            decorationColor: underline ? color : null,
           ),
         ),
       ),
@@ -4502,6 +4744,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Widget build(BuildContext context) {
     _scheduleRasterReady();
     _textEditText.scale = _geometry.scale;
+    _textEditText.previewLineHeight = _textEditLineSpacing;
+    _textEditText.previewLetterSpacing = _textEditCharSpacing * _geometry.scale;
     _ensureGhost();
     _ensureSourceClean();
     // the afterimage has served once the committed revision's raster is
@@ -4905,6 +5149,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   color: wrapResize.color,
                   background: wrapResize.fill,
                   rotation: _resizeAngle,
+                  align: wrapResize.align,
+                  underline: wrapResize.underline,
+                  lineSpacing: wrapResize.lineSpacing,
                 ),
               // a just-committed text edit, frozen until the page raster
               // catches up (same wash the inline editor painted over old
@@ -4921,6 +5168,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                           ? widget.pageColor.withValues(alpha: 0.92)
                           : null),
                   rotation: after.rotation,
+                  align: after.align,
+                  underline: after.underline,
+                  lineSpacing: after.lineSpacing,
                 ),
               if (preview != null)
                 Positioned(
@@ -4961,6 +5211,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             () => _toggleInlineTextStyle(
                                   italic: true,
                                 ),
+                        const SingleActivator(LogicalKeyboardKey.keyU, meta: true):
+                            _toggleInlineUnderline,
+                        const SingleActivator(LogicalKeyboardKey.keyU, control: true):
+                            _toggleInlineUnderline,
                       },
                       child: Container(
                         // the chrome border lives in the inflate(2) gutter
@@ -5007,11 +5261,30 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     _textEditMultiline,
                                 onSubmitted: (_) => _commitTextEdit(),
                                 textDirection: direction,
-                                textAlign: TextAlign.start,
+                                // free text follows the box's /Q alignment so
+                                // the live text sits where it commits; a box
+                                // with no explicit /Q (and form fields) stays
+                                // direction-aware start-aligned
+                                textAlign: _textEditFieldName == null &&
+                                        _textEditAlign != null
+                                    ? _flutterTextAlign(_textEditAlign!)
+                                    : TextAlign.start,
                                 textAlignVertical: _textEditFieldName == null ||
                                         _textEditMultiline
                                     ? TextAlignVertical.top
                                     : TextAlignVertical.center,
+                                // pin line height to the box's leading so the
+                                // preview spacing is font-independent, matching
+                                // the committed appearance - changing a run's
+                                // font no longer nudges the lines until commit
+                                strutStyle: _textEditFieldName == null
+                                    ? StrutStyle(
+                                        fontSize: _textEditText.maxStyleSize *
+                                            _geometry.scale,
+                                        height: _textEditLineSpacing,
+                                        forceStrutHeight: true,
+                                      )
+                                    : null,
                                 cursorColor: _textEditColor,
                                 cursorWidth: 2 * _chromeScale,
                                 selectionControls: _ScaledTextSelectionControls(
@@ -5030,12 +5303,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   );
                                 },
                                 // mirrors the committed appearance: same size
-                                // in view pixels, same 1.2 leading, matching
-                                // family and color
+                                // in view pixels, same leading/spacing,
+                                // matching family, color and underline
                                 style: TextStyle(
                                   color: _textEditColor,
                                   fontSize: _textEditSize * _geometry.scale,
-                                  height: 1.2,
+                                  height: _textEditLineSpacing,
+                                  letterSpacing:
+                                      _textEditCharSpacing * _geometry.scale,
                                   fontFamily: _uiFamily(_textEditFont),
                                   fontWeight: _textEditFont.isBold
                                       ? FontWeight.bold
@@ -5043,6 +5318,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   fontStyle: _textEditFont.isItalic
                                       ? FontStyle.italic
                                       : FontStyle.normal,
+                                  decoration:
+                                      _textEditText.defaultStyle.underline
+                                          ? TextDecoration.underline
+                                          : null,
                                 ),
                                 decoration: InputDecoration(
                                   isCollapsed: true,

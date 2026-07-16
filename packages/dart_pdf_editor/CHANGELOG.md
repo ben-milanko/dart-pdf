@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Free-text boxes: add line spacing, character spacing, font width
+  (horizontal scaling), and underline controls (tune popup + properties
+  panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.
+- Fix backspacing in an inline free-text editor sliding a bold (or otherwise
+  styled) run onto the following characters — style runs now follow their
+  own text across edits.
+- Resize an embedded/bundled-font free-text box by re-wrapping it (as with
+  base-14 boxes) instead of stretching the glyphs, and keep rich per-run
+  styling across the resize.
+- Keep a free-text box's alignment in the resize preview and post-commit
+  afterimage so it no longer appears to snap to the left while dragging.
+- Show a free-text box's actual (embedded/bundled) font name in the font
+  picker instead of collapsing it to "Sans".
+- Stop the inline editor's line spacing shifting when a run's font changes
+  in the tune popup (font-independent leading, matching the appearance).
+
 ## 1.4.6
 
 - Expose edit-and-style and markup actions when text is selected in an

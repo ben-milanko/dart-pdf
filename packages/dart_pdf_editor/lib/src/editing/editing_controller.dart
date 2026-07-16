@@ -1146,6 +1146,51 @@ class PdfEditingController extends ChangeNotifier {
 
   set textAlign(PdfTextAlign? value) => preferences.textAlign = value;
 
+  double _lineSpacing = kPdfFreeTextDefaultLineSpacing;
+  double _charSpacing = 0;
+  double _fontWidth = kPdfFreeTextDefaultHorizontalScale;
+  bool _textUnderline = false;
+
+  /// The line-height multiplier new free-text boxes are created with
+  /// (baseline-to-baseline distance is `fontSize * lineSpacing`). Session
+  /// state (not persisted).
+  double get lineSpacing => _lineSpacing;
+
+  set lineSpacing(double value) {
+    if (value == _lineSpacing) return;
+    _lineSpacing = value;
+    notifyListeners();
+  }
+
+  /// The character spacing (extra points after each glyph) new free-text
+  /// boxes are created with. Session state (not persisted).
+  double get charSpacing => _charSpacing;
+
+  set charSpacing(double value) {
+    if (value == _charSpacing) return;
+    _charSpacing = value;
+    notifyListeners();
+  }
+
+  /// The horizontal glyph scaling (per cent, 100 = natural width) new
+  /// free-text boxes are created with. Session state (not persisted).
+  double get fontWidth => _fontWidth;
+
+  set fontWidth(double value) {
+    if (value == _fontWidth) return;
+    _fontWidth = value;
+    notifyListeners();
+  }
+
+  /// Whether new free-text boxes are created underlined. Session state.
+  bool get textUnderline => _textUnderline;
+
+  set textUnderline(bool value) {
+    if (value == _textUnderline) return;
+    _textUnderline = value;
+    notifyListeners();
+  }
+
   PdfEmbeddedFont? _activeFont;
 
   /// An embedded TrueType/OpenType font selected for new free text, taking
@@ -1334,7 +1379,8 @@ class PdfEditingController extends ChangeNotifier {
   bool _editingText = false;
   TextSelection? _editingTextSelection;
   int _editingTextStyleRevision = 0;
-  ({PdfTextFont? font, double? size, int? color})? _editingTextStyleRequest;
+  ({PdfTextFont? font, double? size, int? color, bool? underline})?
+      _editingTextStyleRequest;
   int _editSelectedTextRevision = 0;
   int _editingTextFocusHoldCount = 0;
   int _editingTextFocusHoldRevision = 0;
@@ -1352,7 +1398,7 @@ class PdfEditingController extends ChangeNotifier {
 
   int get editingTextStyleRevision => _editingTextStyleRevision;
 
-  ({PdfTextFont? font, double? size, int? color})?
+  ({PdfTextFont? font, double? size, int? color, bool? underline})?
       get editingTextStyleRequest => _editingTextStyleRequest;
 
   int get editSelectedTextRevision => _editSelectedTextRevision;
@@ -1385,9 +1431,11 @@ class PdfEditingController extends ChangeNotifier {
     PdfTextFont? font,
     double? size,
     int? color,
+    bool? underline,
   }) {
     if (!hasEditingTextSelection) return false;
-    _editingTextStyleRequest = (font: font, size: size, color: color);
+    _editingTextStyleRequest =
+        (font: font, size: size, color: color, underline: underline);
     _editingTextStyleRevision++;
     notifyListeners();
     return true;
@@ -2134,6 +2182,10 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
+          lineSpacing: _lineSpacing,
+          charSpacing: _charSpacing,
+          horizontalScale: _fontWidth,
+          underline: _textUnderline,
           pageRotation: _page(pageIndex).rotation,
           author: author,
         ),
@@ -2182,6 +2234,9 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
+          lineSpacing: _lineSpacing,
+          charSpacing: _charSpacing,
+          horizontalScale: _fontWidth,
           pageRotation: _page(pageIndex).rotation,
           author: author,
         ),
@@ -4783,6 +4838,72 @@ class PdfEditingController extends ChangeNotifier {
     return selectedAnnotation?.freeTextStyle?.alignment ?? PdfTextAlign.left;
   }
 
+  /// The actual font of the selected free-text box - its embedded font
+  /// recovered from the appearance when present, else the base-14 face from
+  /// /DA. Unlike [selectedTextStyle] (which only parses a standard family)
+  /// this reports the real face, so the font picker shows a bundled/custom
+  /// font's own name instead of collapsing to "Sans".
+  PdfTextFont? get selectedTextFont {
+    final annotation = selectedAnnotation;
+    if (annotation == null || annotation.subtype != 'FreeText') return null;
+    return _freeTextFontOf(annotation).font;
+  }
+
+  /// The selected free-text box's full parsed style (spacing, underline,
+  /// alignment, colours), or null when the selection isn't a free-text box.
+  PdfFreeTextStyle? get selectedFreeTextStyle {
+    final annotation = selectedAnnotation;
+    if (annotation == null || annotation.subtype != 'FreeText') return null;
+    return annotation.freeTextStyle;
+  }
+
+  /// Sets box-level free-text styling (line spacing, character spacing,
+  /// horizontal glyph width, whole-box underline) on the selected box,
+  /// regenerating its appearance and preserving any per-run styling. Each
+  /// value also becomes the creation default. Omitted values are left as-is.
+  /// A no-op when the selection isn't a single free-text box.
+  void setSelectedTextBoxStyle({
+    double? lineSpacing,
+    double? charSpacing,
+    double? fontWidth,
+    bool? underline,
+  }) {
+    if (lineSpacing != null) this.lineSpacing = lineSpacing;
+    if (charSpacing != null) this.charSpacing = charSpacing;
+    if (fontWidth != null) this.fontWidth = fontWidth;
+    if (underline != null) textUnderline = underline;
+    // while the inline editor owns the box, rewriting the annotation would
+    // swap the document under it - the change rides the creation defaults
+    // and lands when the edit commits instead
+    if (isEditingText) return;
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canRestyleSelectedText) return;
+    final richRuns = selectedRichRuns;
+    if (richRuns != null && richRuns.isNotEmpty) {
+      final runs = underline == null
+          ? richRuns
+          : [
+              for (final r in richRuns)
+                PdfFreeTextRun(r.text,
+                    font: r.font,
+                    fontSize: r.fontSize,
+                    color: r.color,
+                    underline: underline)
+            ];
+      _rewriteSelectedRich(annotation, runs,
+          lineSpacing: lineSpacing, charSpacing: charSpacing, fontWidth: fontWidth);
+    } else {
+      _rewriteSelected(
+        annotation,
+        annotation.contents ?? '',
+        lineSpacing: lineSpacing,
+        charSpacing: charSpacing,
+        fontWidth: fontWidth,
+        underline: underline,
+      );
+    }
+  }
+
   PdfRect _autosizeTextRect(
     PdfAnnotation annotation,
     String text, {
@@ -5037,6 +5158,10 @@ class PdfEditingController extends ChangeNotifier {
     (int?,)? fill,
     (int?,)? border,
     double? borderWidth,
+    double? lineSpacing,
+    double? charSpacing,
+    double? fontWidth,
+    bool? underline,
   }) {
     if (_selected.isEmpty) return;
     final page = _selected.last.$1;
@@ -5073,6 +5198,15 @@ class PdfEditingController extends ChangeNotifier {
               borderColor: border != null ? border.$1 : parsed?.borderColor,
               borderWidth: borderWidth ??
                   ((parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1),
+              // keep the box's own spacing/decoration unless changed
+              lineSpacing: lineSpacing ??
+                  parsed?.lineSpacing ??
+                  kPdfFreeTextDefaultLineSpacing,
+              charSpacing: charSpacing ?? parsed?.charSpacing ?? 0,
+              horizontalScale: fontWidth ??
+                  parsed?.horizontalScale ??
+                  kPdfFreeTextDefaultHorizontalScale,
+              underline: underline ?? parsed?.underline ?? false,
               pageRotation: _page(page).rotation,
               author: by,
               name: nm,
@@ -5122,8 +5256,12 @@ class PdfEditingController extends ChangeNotifier {
 
   bool _rewriteSelectedRich(
     PdfAnnotation annotation,
-    List<PdfFreeTextRun> runs,
-  ) {
+    List<PdfFreeTextRun> runs, {
+    double? lineSpacing,
+    double? charSpacing,
+    double? fontWidth,
+    PdfTextAlign? align,
+  }) {
     if (_selected.isEmpty || annotation.subtype != 'FreeText') return false;
     final page = _selected.last.$1;
     final rotation = _appearanceRotationOf(annotation);
@@ -5139,10 +5277,17 @@ class PdfEditingController extends ChangeNotifier {
           page,
           rect,
           runs,
-          align: parsed?.alignment ?? PdfTextAlign.left,
+          align: align ?? parsed?.alignment ?? PdfTextAlign.left,
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: (parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1,
+          lineSpacing: lineSpacing ??
+              parsed?.lineSpacing ??
+              kPdfFreeTextDefaultLineSpacing,
+          charSpacing: charSpacing ?? parsed?.charSpacing ?? 0,
+          horizontalScale: fontWidth ??
+              parsed?.horizontalScale ??
+              kPdfFreeTextDefaultHorizontalScale,
           pageRotation: _page(page).rotation,
           author: by,
           name: nm,

@@ -155,6 +155,39 @@ class PdfAnnotationBehavior {
       ? null
       : PdfStandardFont.tryFromName(_freeTextStyle.fontName);
 
+  /// Whether the box's /DA font resolves to an embedded (Type0-with-program)
+  /// face in its appearance resources. Cheap COS inspection - enough to know
+  /// a resize can re-wrap the box without parsing the whole font program
+  /// (the editor recovers the actual font for that). Lets embedded/bundled
+  /// free-text boxes reflow on resize instead of stretching their glyphs.
+  late final bool hasEmbeddedTextFont = _hasEmbeddedTextFont();
+
+  bool _hasEmbeddedTextFont() {
+    if (subtype != 'FreeText') return false;
+    final cos = annotation.document.cos;
+    final form = annotation.normalAppearance;
+    if (form == null) return false;
+    final res = cos.resolve(form.dictionary['Resources']);
+    if (res is! CosDictionary) return false;
+    final fonts = cos.resolve(res['Font']);
+    if (fonts is! CosDictionary) return false;
+    final name = RegExp(r'/(\S+)\s+[\d.]+\s+Tf')
+        .firstMatch(annotation.defaultAppearance ?? '')
+        ?.group(1);
+    final dict = name != null ? cos.resolve(fonts[name]) : null;
+    if (dict is! CosDictionary) return false;
+    final sub = cos.resolve(dict['Subtype']);
+    if (sub is! CosName || sub.value != 'Type0') return false;
+    final desc = cos.resolve(dict['DescendantFonts']);
+    if (desc is! CosArray || desc.items.isEmpty) return false;
+    final cid = cos.resolve(desc.items.first);
+    if (cid is! CosDictionary) return false;
+    final fd = cos.resolve(cid['FontDescriptor']);
+    if (fd is! CosDictionary) return false;
+    return cos.resolve(fd['FontFile2']) is CosStream ||
+        cos.resolve(fd['FontFile3']) is CosStream;
+  }
+
   late final List<PdfRect>? markupQuads = _readAxisAlignedQuads();
 
   /// Whether the editor has enough well-formed source data to regenerate an
@@ -217,7 +250,7 @@ class PdfAnnotationBehavior {
         }
         return PdfAnnotationResizeBehavior.regenerateShape;
       case 'FreeText':
-        return standardTextFont == null
+        return standardTextFont == null && !hasEmbeddedTextFont
             ? PdfAnnotationResizeBehavior.stretch
             : PdfAnnotationResizeBehavior.reflowText;
       case 'Line':

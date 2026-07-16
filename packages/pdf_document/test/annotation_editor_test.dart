@@ -1399,6 +1399,91 @@ void main() {
     expect(double.parse(m!.group(1)!), greaterThan(150));
   });
 
+  test('free text line/character spacing and width round-trip and emit', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 660),
+          'Spaced out text',
+          lineSpacing: 2.0,
+          charSpacing: 3,
+          horizontalScale: 150,
+        ));
+    final box = doc.page(0).annotations.single;
+    final style = box.freeTextStyle!;
+    expect(style.lineSpacing, closeTo(2.0, 1e-9));
+    expect(style.charSpacing, closeTo(3, 1e-9));
+    expect(style.horizontalScale, closeTo(150, 1e-9));
+
+    final content = appearanceText(doc, box);
+    expect(content, contains('3 Tc'));
+    expect(content, contains('150 Tz'));
+    // leading is fontSize (12) * lineSpacing (2) = 24
+    expect(content, contains('24 TL'));
+
+    // the values survive a resize (which regenerates the appearance)
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 520, 660));
+    final reopened = PdfDocument.open(editor.save());
+    final resized = reopened.page(0).annotations.single.freeTextStyle!;
+    expect(resized.lineSpacing, closeTo(2.0, 1e-9));
+    expect(resized.charSpacing, closeTo(3, 1e-9));
+    expect(resized.horizontalScale, closeTo(150, 1e-9));
+    expect(appearanceText(reopened, reopened.page(0).annotations.single),
+        contains('150 Tz'));
+  });
+
+  test('a plain free text box writes no spacing keys', () {
+    final doc = roundTrip(
+        (e) => e.addFreeText(0, const PdfRect(100, 600, 400, 640), 'Plain'));
+    final dict = doc.page(0).annotations.single.dict;
+    expect(dict[kPdfFreeTextLineSpacingKey], isNull);
+    expect(dict[kPdfFreeTextCharSpacingKey], isNull);
+    expect(dict[kPdfFreeTextHScaleKey], isNull);
+    expect(dict[kPdfFreeTextUnderlineKey], isNull);
+  });
+
+  test('underlined free text draws a rule and round-trips the flag', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          'Underlined',
+          underline: true,
+        ));
+    final box = doc.page(0).annotations.single;
+    expect(box.freeTextStyle!.underline, isTrue);
+    // the underline is a filled rectangle drawn after the text object
+    final content = appearanceText(doc, box);
+    expect(content, contains('ET'));
+    expect(content.lastIndexOf(' re'), greaterThan(content.lastIndexOf('ET')));
+
+    // it survives a resize
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 500, 640));
+    final reopened = PdfDocument.open(editor.save());
+    expect(reopened.page(0).annotations.single.freeTextStyle!.underline,
+        isTrue);
+  });
+
+  test('rich free text carries per-run underline through /RC', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          const [
+            PdfFreeTextRun('plain '),
+            PdfFreeTextRun('under', underline: true),
+          ],
+        ));
+    final box = doc.page(0).annotations.single;
+    final rc = box.richContent!;
+    expect(rc, contains('text-decoration:underline'));
+    final runs = PdfAnnotationEditing.parseFreeTextRichContent(rc);
+    expect(runs.where((r) => r.underline).map((r) => r.text).join(),
+        contains('under'));
+    // the appearance draws one underline rule (a re after the text object)
+    final content = appearanceText(doc, box);
+    expect(content.lastIndexOf('ET'), lessThan(content.lastIndexOf(' re')));
+  });
+
   test('resizeAnnotation rejects degenerate rects', () {
     final first = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..addSquare(0, const PdfRect(100, 100, 200, 150));

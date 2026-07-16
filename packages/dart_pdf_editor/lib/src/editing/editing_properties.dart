@@ -120,6 +120,9 @@ class _PdfAnnotationPropertiesPanelState
   double? _draggingStroke;
   double? _draggingOpacity;
   double? _draggingFontSize;
+  double? _draggingLineSpacing;
+  double? _draggingCharSpacing;
+  double? _draggingFontWidth;
 
   PdfEditingController get _controller => widget.controller;
 
@@ -661,7 +664,8 @@ class _PdfAnnotationPropertiesPanelState
             buttonKey: const ValueKey('pdf-prop-font'),
             controller: _controller,
             fontPicker: widget.fontPicker,
-            currentFont: style.font,
+            // the box's real face (embedded/bundled shows its own name)
+            currentFont: _controller.selectedTextFont ?? style.font,
           ),
         ]),
       ),
@@ -699,12 +703,73 @@ class _PdfAnnotationPropertiesPanelState
           setState(() => _draggingFontSize = null);
         },
       ),
-      if (annotation.subtype == 'FreeText')
+      if (annotation.subtype == 'FreeText') ...[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            const Expanded(child: Text('Underline')),
+            IconButton(
+              key: const ValueKey('pdf-prop-text-underline'),
+              icon: const Icon(Icons.format_underlined, size: 18),
+              tooltip: 'Underline',
+              isSelected: _controller.selectedFreeTextStyle?.underline ?? false,
+              onPressed: () => _controller.setSelectedTextBoxStyle(
+                  underline:
+                      !(_controller.selectedFreeTextStyle?.underline ?? false)),
+            ),
+          ]),
+        ),
+        _sliderRow(
+          'Line spacing',
+          _draggingLineSpacing ??
+              _controller.selectedFreeTextStyle?.lineSpacing ??
+              kPdfFreeTextDefaultLineSpacing,
+          key: const ValueKey('pdf-prop-line-spacing'),
+          min: 0.8,
+          max: 3,
+          display: (v) => '${v.toStringAsFixed(1)}×',
+          onChanged: (v) => setState(() => _draggingLineSpacing = v),
+          onChangeEnd: (v) {
+            _controller.setSelectedTextBoxStyle(lineSpacing: v);
+            setState(() => _draggingLineSpacing = null);
+          },
+        ),
+        _sliderRow(
+          'Char spacing',
+          _draggingCharSpacing ??
+              _controller.selectedFreeTextStyle?.charSpacing ??
+              0,
+          key: const ValueKey('pdf-prop-char-spacing'),
+          min: -2,
+          max: 10,
+          display: (v) => '${v.toStringAsFixed(1)} pt',
+          onChanged: (v) => setState(() => _draggingCharSpacing = v),
+          onChangeEnd: (v) {
+            _controller.setSelectedTextBoxStyle(charSpacing: v);
+            setState(() => _draggingCharSpacing = null);
+          },
+        ),
+        _sliderRow(
+          'Font width',
+          _draggingFontWidth ??
+              _controller.selectedFreeTextStyle?.horizontalScale ??
+              kPdfFreeTextDefaultHorizontalScale,
+          key: const ValueKey('pdf-prop-font-width'),
+          min: 50,
+          max: 200,
+          display: (v) => '${v.round()}%',
+          onChanged: (v) => setState(() => _draggingFontWidth = v),
+          onChangeEnd: (v) {
+            _controller.setSelectedTextBoxStyle(fontWidth: v);
+            setState(() => _draggingFontWidth = null);
+          },
+        ),
         _swatchRow('Outline', borderColor,
             key: const ValueKey('pdf-prop-text-border'),
             onTap: () => _pickTextBorder(borderColor),
             onClear: () => _controller.restyleSelectedText(border: (null,)),
             clearTooltip: 'No outline'),
+      ],
     ];
   }
 

@@ -895,6 +895,133 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('backspace before a bold run keeps the run bold',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      // bold exactly "world" (offsets 6..11)
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+      expect(
+          editing.restyleEditingTextSelection(
+              font: PdfStandardFont.helveticaBold),
+          isTrue);
+      await tester.pump();
+
+      // delete the 'o' in "Hello" - the bold run must follow its own
+      // characters, not slide down by one (the reported regression)
+      field.controller!.value = const TextEditingValue(
+        text: 'Hell world',
+        selection: TextSelection.collapsed(offset: 4),
+      );
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final bold = span.children!
+          .whereType<TextSpan>()
+          .where((c) => c.style?.fontWeight == FontWeight.bold)
+          .map((c) => c.text)
+          .join();
+      expect(bold, 'world');
+
+      editing.fontFamily = PdfStandardFont.helvetica;
+      await settle(tester);
+    });
+
+    testWidgets('Ctrl+U underlines the selection and persists to /RC',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyU);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!
+          .whereType<TextSpan>()
+          .singleWhere((c) => c.text == 'world');
+      expect(styled.style?.decoration, TextDecoration.underline);
+
+      await tap(tester, view(450, 400)); // commit
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.richContent, contains('text-decoration:underline'));
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+      // an underline rule (a filled rectangle) is drawn after the text object
+      expect(content.lastIndexOf(' re'), greaterThan(content.lastIndexOf('ET')));
+      editing.textUnderline = false;
+      await settle(tester);
+    });
+
+    testWidgets('the font picker reports an embedded box font, not Sans',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      final embedded = editing.activeFont as PdfEmbeddedFont;
+
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello');
+      await tester.pump();
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      final font = editing.selectedTextFont;
+      expect(font, isA<PdfEmbeddedFont>());
+      expect((font as PdfEmbeddedFont).familyName, embedded.familyName);
+      editing.activeFont = null;
+      await settle(tester);
+    });
+
+    testWidgets('resizing an embedded-font box reflows instead of stretching',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      editing.addFreeText(
+          0, const PdfRect(100, 600, 400, 640), 'reflow me please');
+      await tester.pump();
+      final box = editing.document.page(0).annotations.single;
+      // embedded-font free text now re-wraps on resize (no stretched glyphs)
+      expect(box.behavior.resizeBehavior,
+          PdfAnnotationResizeBehavior.reflowText);
+      editing.activeFont = null;
+      await settle(tester);
+    });
+
     testWidgets('reopening a mixed-format box restores its per-run styling',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

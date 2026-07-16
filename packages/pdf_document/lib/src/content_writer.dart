@@ -255,6 +255,14 @@ class ContentWriter {
   void leading(double value) => op('TL', [value]);
   void textAt(double x, double y) => op('Td', [x, y]);
 
+  /// Sets the character spacing (`Tc`, §9.3.2): extra space added after each
+  /// glyph, in unscaled text-space units (points at the nominal size).
+  void charSpacing(double value) => op('Tc', [value]);
+
+  /// Sets the horizontal text scaling (`Tz`, §9.3.4) as a percentage - 100
+  /// is the font's natural width, 150 stretches glyphs to 1.5×.
+  void horizontalScale(double percent) => op('Tz', [percent]);
+
   void showText(String text) {
     _buffer.write('(');
     for (final code in text.codeUnits) {

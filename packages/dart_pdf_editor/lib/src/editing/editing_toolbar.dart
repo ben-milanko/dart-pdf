@@ -3243,6 +3243,9 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// selected annotation.
   double? _draggingStroke;
   double? _draggingOpacity;
+  double? _draggingLineSpacing;
+  double? _draggingCharSpacing;
+  double? _draggingFontWidth;
   bool _holdingTextEditFocus = false;
 
   @override
@@ -3646,7 +3649,9 @@ class _StyleMenuState extends State<_StyleMenu> {
                             child: PdfFontMenuButton(
                               controller: controller,
                               fontPicker: widget.fontPicker,
-                              currentFont: selectedStyle?.font ??
+                              // the box's real face (embedded/bundled shows its
+                              // own name, not "Sans")
+                              currentFont: controller.selectedTextFont ??
                                   captionStyle?.font ??
                                   controller.activeFont ??
                                   controller.fontFamily,
@@ -3677,8 +3682,76 @@ class _StyleMenuState extends State<_StyleMenu> {
                               PdfTextAlign.left,
                           onChanged: _setTextAlign,
                         ),
+                        const Spacer(),
+                        // whole-box underline (a per-run underline is set from
+                        // the inline editor's style chip)
+                        IconButton(
+                          key: const ValueKey('pdf-text-underline'),
+                          icon: const Icon(Icons.format_underlined, size: 18),
+                          tooltip: 'Underline',
+                          isSelected: controller.selectedFreeTextStyle
+                                  ?.underline ??
+                              controller.textUnderline,
+                          onPressed: () => controller.setSelectedTextBoxStyle(
+                              underline: !(controller.selectedFreeTextStyle
+                                      ?.underline ??
+                                  controller.textUnderline)),
+                        ),
                       ]),
                     ),
+                    if (captionStyle == null) ...[
+                      _slider(
+                        key: const ValueKey('pdf-text-line-spacing'),
+                        label: 'Line spacing',
+                        value: _draggingLineSpacing ??
+                            controller.selectedFreeTextStyle?.lineSpacing ??
+                            controller.lineSpacing,
+                        min: 0.8,
+                        max: 3,
+                        display: (v) => '${v.toStringAsFixed(1)}×',
+                        onChanged: (v) =>
+                            setState(() => _draggingLineSpacing = v),
+                        onChangeEnd: (v) {
+                          controller.setSelectedTextBoxStyle(lineSpacing: v);
+                          setState(() => _draggingLineSpacing = null);
+                        },
+                      ),
+                      _slider(
+                        key: const ValueKey('pdf-text-char-spacing'),
+                        label: 'Char spacing',
+                        value: _draggingCharSpacing ??
+                            controller.selectedFreeTextStyle?.charSpacing ??
+                            controller.charSpacing,
+                        min: -2,
+                        max: 10,
+                        display: (v) => '${v.toStringAsFixed(1)} pt',
+                        parse: _parsePoints,
+                        onChanged: (v) =>
+                            setState(() => _draggingCharSpacing = v),
+                        onChangeEnd: (v) {
+                          controller.setSelectedTextBoxStyle(charSpacing: v);
+                          setState(() => _draggingCharSpacing = null);
+                        },
+                      ),
+                      _slider(
+                        key: const ValueKey('pdf-text-font-width'),
+                        label: 'Font width',
+                        value: _draggingFontWidth ??
+                            controller
+                                .selectedFreeTextStyle?.horizontalScale ??
+                            controller.fontWidth,
+                        min: 50,
+                        max: 200,
+                        display: (v) => '${v.round()}%',
+                        parse: _parsePoints,
+                        onChanged: (v) =>
+                            setState(() => _draggingFontWidth = v),
+                        onChangeEnd: (v) {
+                          controller.setSelectedTextBoxStyle(fontWidth: v);
+                          setState(() => _draggingFontWidth = null);
+                        },
+                      ),
+                    ],
                   ],
                   if (fields.boxColors && widget.showColor) ...[
                     _boxColorRow(
