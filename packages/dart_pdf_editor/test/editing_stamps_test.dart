@@ -1381,6 +1381,60 @@ void main() {
       expect(text.height, greaterThan(36));
     });
 
+    testWidgets('stamp editor taps to reselect the component being sized',
+        (tester) async {
+      PdfCustomStamp? saved;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: FilledButton(
+              onPressed: () async {
+                saved = await showPdfStampEditor(context);
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final canvas = find.byKey(const ValueKey('pdf-stamp-template-canvas'));
+      final rect = tester.getRect(canvas);
+      final scale = rect.width / 240;
+      final origin = rect.topLeft;
+      // Tap the empty strip above the components to clear the initial text
+      // selection, then press-drag there: with nothing selected the canvas has
+      // no handles, so the gesture is a no-op instead of resizing.
+      await tester.tapAt(origin + Offset(2 * scale, 2 * scale));
+      await tester.pump();
+      final empty = await tester.startGesture(origin + Offset(2 * scale, 2 * scale),
+          kind: PointerDeviceKind.mouse);
+      await empty.moveBy(const Offset(6, 6));
+      await empty.up();
+      await tester.pump();
+
+      // Tap the border rectangle - below the caption - to select it, then drag
+      // its bottom-right corner outward to grow it.
+      await tester.tapAt(origin + Offset(120 * scale, 22 * scale));
+      await tester.pump();
+      final resize = await tester.startGesture(
+          origin + Offset(234 * scale, 80 * scale),
+          kind: PointerDeviceKind.mouse);
+      await resize.moveBy(const Offset(8, 6));
+      await resize.up();
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final border = saved!.template!.components
+          .firstWhere((c) => c.type == PdfStampTemplateComponentType.rectangle);
+      expect(border.width, greaterThan(228));
+      expect(border.height, greaterThan(64));
+    });
+
     testWidgets('the picker lists and deletes saved stamps', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
