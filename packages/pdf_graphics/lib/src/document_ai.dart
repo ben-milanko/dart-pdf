@@ -14,7 +14,7 @@ class PdfPageContext {
   final int pageIndex;
 
   /// The page's extracted text in reading order (empty for image-only
-  /// pages that have no text layer — run OCR first; see `PdfOcrEditing`).
+  /// pages that have no text layer - run OCR first; see `PdfOcrEditing`).
   final String text;
 
   /// Crop-box size in PDF points.
@@ -38,7 +38,7 @@ class PdfFieldContext {
     required this.pageIndex,
   });
 
-  /// Fully qualified field name — the stable handle for setting a value.
+  /// Fully qualified field name - the stable handle for setting a value.
   final String name;
 
   /// Field kind ('text', 'checkBox', 'comboBox', ...).
@@ -92,7 +92,7 @@ class PdfAnnotationContext {
 /// This is the *read* half of the Document-AI seam: a thin adapter over the
 /// library's existing extraction surface ([PdfTextExtractor], [PdfAcroForm],
 /// [PdfPage.annotations]) that produces something an LLM can reason over.
-/// The model and transport are host-supplied — dart-pdf does not embed an
+/// The model and transport are host-supplied - dart-pdf does not embed an
 /// agent. The *write* half (an agent driving edits) is the host-implemented
 /// [PdfDocumentActionSink], which maps onto the existing editing APIs
 /// (`PdfEditor`, the editing controller).
@@ -197,7 +197,7 @@ class PdfDocumentContext {
 /// **This is an interface stub, host-provided.** dart-pdf does not ship an
 /// agent. A host implements this over the existing editing surface (a
 /// `PdfEditor`, or the editing controller in dart_pdf_editor) and wires it
-/// to whatever model loop it runs — the model proposes actions against a
+/// to whatever model loop it runs - the model proposes actions against a
 /// [PdfDocumentContext], the host validates them and calls these methods.
 ///
 /// Implementations decide their own persistence (incremental save, undo

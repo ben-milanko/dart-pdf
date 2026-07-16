@@ -19,7 +19,7 @@ class PdfPageGeometry {
     required this.viewSize,
   });
 
-  /// The page's crop box — the region the view displays.
+  /// The page's crop box - the region the view displays.
   final PdfRect cropBox;
 
   /// The page's /Rotate value (0, 90, 180, or 270).

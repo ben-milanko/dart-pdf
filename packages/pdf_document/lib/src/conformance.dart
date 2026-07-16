@@ -69,7 +69,7 @@ class PdfConformanceReport {
           if (i.severity == PdfConformanceSeverity.warning) i
       ];
 
-  /// True when there are no error-level findings. Warnings do not fail —
+  /// True when there are no error-level findings. Warnings do not fail -
   /// they flag things a machine cannot fully judge.
   bool get isCompliant => errors.isEmpty;
 

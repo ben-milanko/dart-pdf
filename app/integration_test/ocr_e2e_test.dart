@@ -1,5 +1,5 @@
 // REAL end-to-end on-device OCR, exercising the native ONNX Runtime against
-// the published `ocr-models-v1` bundle — the one path the unit tests can't
+// the published `ocr-models-v1` bundle - the one path the unit tests can't
 // reach (they use a fake runner, and onnxruntime can't load in `flutter
 // test`). Run on a desktop/device:
 //
@@ -21,7 +21,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_ocr_ondevice/pdf_ocr_ondevice.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Paints [text] as black-on-white at a generous size and returns PNG bytes —
+/// Paints [text] as black-on-white at a generous size and returns PNG bytes -
 /// a stand-in for a scanned page (no embedded text, just pixels).
 Future<Uint8List> _scanPng(String text) async {
   const w = 1100, h = 220;

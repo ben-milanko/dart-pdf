@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'theme.dart';
 
 /// The viewer-style scrollbar: a light thumb with a dark outline over a
-/// faint track scrim — always visible while the content overflows,
+/// faint track scrim - always visible while the content overflows,
 /// widening on hover, draggable from the first pixel, and jumping (then
 /// dragging) on a track grab. [PdfViewer] paints it outside the zoom
 /// transform so it keeps its place and size at any zoom, and the
@@ -16,7 +16,7 @@ import 'theme.dart';
 ///
 /// Two modes:
 ///
-/// - Plain (the sidebars): pass [scroll] alone — the bar mirrors and
+/// - Plain (the sidebars): pass [scroll] alone - the bar mirrors and
 ///   drives the controller directly.
 /// - Transformed (the viewer): pass [transform] and [onScrollBy]; the
 ///   thumb tracks the combined scroll-plus-pan position and motion is
@@ -52,10 +52,10 @@ class PdfScrollbar extends StatefulWidget {
 
   /// Hide while the scrollable range is at most this (the viewer's list
   /// pads its bottom by the page spacing, so a fully visible document
-  /// still has that much nominal slack — no bar for just a margin).
+  /// still has that much nominal slack - no bar for just a margin).
   final double minOverflow;
 
-  /// Horizontal only: the viewer's full width — the laid-out content
+  /// Horizontal only: the viewer's full width - the laid-out content
   /// width in list space (the bar's own track is inset for the corner,
   /// so it can't measure this itself).
   final double? viewExtent;

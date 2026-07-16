@@ -10,12 +10,12 @@ import 'text_extraction.dart';
 /// Magic + version word at the head of an encoded [PdfPageText] blob.
 /// Bump the low byte when the layout below changes; mismatched blobs
 /// decode to null (a miss) rather than mis-parsing.
-const int _textBlobMagic = 0x50545831; // 'PTX1'
+const int _textBlobMagic = 0x50545832; // 'PTX2'
 
 /// Serializes [page] into a compact binary blob for the on-disk text
 /// cache. The format is little-endian and self-describing enough to
 /// reject foreign/old bytes ([pdfDecodePageText] returns null on any
-/// mismatch). No external dependency — just `dart:typed_data`.
+/// mismatch). No external dependency - just `dart:typed_data`.
 Uint8List pdfEncodePageText(PdfPageText page) {
   final out = _Writer();
   out.u32(_textBlobMagic);
@@ -25,6 +25,7 @@ Uint8List pdfEncodePageText(PdfPageText page) {
   for (final run in page.runs) {
     out.str(run.text);
     out.i32(run.startIndex);
+    out.u8(run.isRightToLeft ? 1 : 0);
     final t = run.transform;
     out
       ..f64(t.a)
@@ -45,7 +46,7 @@ Uint8List pdfEncodePageText(PdfPageText page) {
 }
 
 /// Reverses [pdfEncodePageText], or returns null when [bytes] are absent,
-/// truncated, corrupt, or from an incompatible format — every such case
+/// truncated, corrupt, or from an incompatible format - every such case
 /// is a cache miss the caller recomputes from.
 PdfPageText? pdfDecodePageText(Uint8List bytes) {
   try {
@@ -58,6 +59,7 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
     for (var i = 0; i < runCount; i++) {
       final runText = r.str();
       final startIndex = r.i32();
+      final isRightToLeft = r.u8() != 0;
       final transform =
           PdfMatrix(r.f64(), r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
       final width = r.f64();
@@ -68,6 +70,7 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
         transform: transform,
         width: width,
         bounds: bounds,
+        isRightToLeft: isRightToLeft,
       ));
     }
     return PdfPageText(pageIndex: pageIndex, text: text, runs: runs);
@@ -97,8 +100,8 @@ class PdfPageTextCache {
 
   /// Returns page [pageIndex]'s text for the document identified by
   /// [documentKey] (e.g. [pdfContentKey] of the bytes, or a file path),
-  /// reading it from disk on a hit and falling back to [compute] —
-  /// caching the result — on a miss.
+  /// reading it from disk on a hit and falling back to [compute] -
+  /// caching the result - on a miss.
   ///
   /// Best-effort: a store failure simply runs [compute].
   Future<PdfPageText> get(
@@ -119,7 +122,7 @@ class PdfPageTextCache {
 }
 
 class _Writer {
-  // copy: true — the scratch buffer is reused across calls, so the builder
+  // copy: true - the scratch buffer is reused across calls, so the builder
   // must take its own copy of each slice rather than retain a live view.
   final BytesBuilder _builder = BytesBuilder(copy: true);
   final ByteData _scratch = ByteData(8);
@@ -133,6 +136,8 @@ class _Writer {
     _scratch.setInt32(0, value, Endian.little);
     _builder.add(_scratch.buffer.asUint8List(0, 4));
   }
+
+  void u8(int value) => _builder.add([value & 0xff]);
 
   void f64(double value) {
     _scratch.setFloat64(0, value, Endian.little);
@@ -166,6 +171,8 @@ class _Reader {
     _offset += 4;
     return value;
   }
+
+  int u8() => _bytes[_offset++];
 
   double f64() {
     final value = _data.getFloat64(_offset, Endian.little);

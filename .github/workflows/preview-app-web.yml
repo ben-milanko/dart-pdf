@@ -15,22 +15,23 @@ concurrency:
   group: app-web-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  FIREBASE_TOOLS_VERSION: 15.22.4
+
 jobs:
-  preview:
-    # Skip forks: secrets aren't available to pull_request runs from forks.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
-      pull-requests: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.2
+          flutter-version: 3.44.4
           channel: stable
           cache: true
 
@@ -38,15 +39,85 @@ jobs:
 
       # Compile the off-thread render worker (app/lib/main.dart already points
       # pdfRenderWorkerScriptUrl at it), then build with the CanvasKit renderer
-      # (matches release-app.yml's web build). app/firebase.json keeps the
-      # COOP/COEP headers — harmless for CanvasKit, and the app's on-device OCR
-      # still benefits from cross-origin isolation.
+      # (matches release-app.yml's web build).
       - name: Build the render worker
         working-directory: app
-        run: dart run dart_pdf_editor:build_web_worker
+        run: >-
+          dart run dart_pdf_editor:build_web_worker
+          --out ../packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
 
       - run: flutter build web --release
         working-directory: app
+
+      - name: Cache-bust web build
+        run: bash tool/web_cache_bust.sh app/build/web
+
+      - name: Stage static preview artifact
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/app-preview/build"
+          cp -R app/build/web "$RUNNER_TEMP/app-preview/build/web"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-web-preview
+          path: ${{ runner.temp }}/app-preview
+          if-no-files-found: error
+
+  deploy:
+    # Fork and Dependabot PRs do not receive repository secrets. Other same-repo
+    # PRs deploy only the static build artifact from the build job; this job does
+    # not check out or execute repository code with Firebase credentials available.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: app-web-preview
+          path: preview
+
+      - name: Write trusted Firebase config
+        working-directory: preview
+        run: |
+          cat > firebase.json <<'JSON'
+          {
+            "hosting": {
+              "site": "dartpdf-app",
+              "public": "build/web",
+              "ignore": ["firebase.json", ".firebaserc", "**/.*"],
+              "rewrites": [{ "source": "**", "destination": "/index.html" }],
+              "headers": [
+                { "source": "**/*.@(eot|otf|ttf|ttc|woff|woff2|font.css)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/@(AssetManifest*|FontManifest.json)", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "**/*.@(jpg|jpeg|gif|png|svg|webp|ico)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/*.@(wasm|mjs)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "**/*.@(js|css)", "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }] },
+                { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/manifest.json", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter_bootstrap.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter_service_worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                { "source": "/flutter.js", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+                {
+                  "source": "**",
+                  "headers": [
+                    { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+                    { "key": "Cross-Origin-Embedder-Policy", "value": "credentialless" }
+                  ]
+                }
+              ]
+            }
+          }
+          JSON
 
       # Firebase Hosting caps preview channels per site, and auto-generated
       # per-PR channels accumulate until the next deploy hits
@@ -56,9 +127,7 @@ jobs:
       # real quota error.
       - name: Prune stale preview channels
         continue-on-error: true
-        # firebase-tools' hosting:channel commands must run from a directory
-        # containing firebase.json, even with --project/--site
-        working-directory: app
+        working-directory: preview
         env:
           FIREBASE_SITE: dartpdf-app
           FIREBASE_PROJECT: dart-pdf-demo
@@ -67,7 +136,7 @@ jobs:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
         run: |
           printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          if ! npx -y firebase-tools@latest hosting:channel:list \
+          if ! npx -y firebase-tools@$FIREBASE_TOOLS_VERSION hosting:channel:list \
                 --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
                 > channels.json 2> list-err.txt; then
             echo "::warning::channel list failed; skipping prune"
@@ -96,25 +165,15 @@ jobs:
           while IFS= read -r ch; do
             [ -z "$ch" ] && continue
             echo "Deleting stale preview channel: $ch"
-            npx -y firebase-tools@latest hosting:channel:delete "$ch" \
+            npx -y firebase-tools@$FIREBASE_TOOLS_VERSION hosting:channel:delete "$ch" \
               --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --force || true
           done < prune.txt
           rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json prune.txt list-err.txt
 
       # No channelId -> the action creates an ephemeral preview channel keyed
       # to this PR and comments the URL on it. The channel expires on its own.
-      # The target hosting site (dartpdf-app) comes from app/firebase.json.
-      #
-      # continue-on-error: the channel `releases` POST is the one
-      # non-idempotent Hosting call, and on GitHub runners the API
-      # intermittently drops the keep-alive socket ("premature close").
-      # firebase-tools retries, the first attempt already created the release,
-      # and the retry fails with FAILED_PRECONDITION "supplied version ... is
-      # the current active version" — so the deploy succeeded but the action
-      # exits 1. The recover step below confirms the freshly finalized release
-      # and reuses its URL; a genuine failure (no recent release) still fails.
       - id: deploy
-        uses: FirebaseExtended/action-hosting-deploy@v0
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
         continue-on-error: true
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -122,12 +181,12 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
           projectId: dart-pdf-demo
           expires: 7d
-          entryPoint: app
+          entryPoint: preview
 
       - id: recover
         name: Recover the preview URL after a transient release retry error
         if: steps.deploy.outcome == 'failure'
-        working-directory: app
+        working-directory: preview
         env:
           FIREBASE_SITE: dartpdf-app
           FIREBASE_PROJECT: dart-pdf-demo
@@ -136,7 +195,7 @@ jobs:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
         run: |
           printf '%s' "$FIREBASE_SA" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          npx -y firebase-tools@latest hosting:channel:list \
+          npx -y firebase-tools@$FIREBASE_TOOLS_VERSION hosting:channel:list \
             --site "$FIREBASE_SITE" --project "$FIREBASE_PROJECT" --json \
             > channels.json
           node -e '
@@ -150,8 +209,6 @@ jobs:
               console.error("No channel/release for PR " + process.env.PR_NUMBER + "; deploy genuinely failed.");
               process.exit(1);
             }
-            // Only treat the failure as benign if the release was finalized in
-            // this run; a stale release means the deploy really did fail.
             const age = Date.now() - (Date.parse(ch.updateTime || ch.release.releaseTime || 0) || 0);
             if (!(age >= 0 && age < 30 * 60 * 1000)) {
               console.error("Channel release is " + Math.round(age / 1000) + "s old; deploy genuinely failed.");
@@ -164,8 +221,52 @@ jobs:
           '
           rm -f "$GOOGLE_APPLICATION_CREDENTIALS" channels.json
 
+      - name: Repair recovered deploy check
+        if: steps.deploy.outcome == 'failure' && steps.recover.outcome == 'success'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          PREVIEW_URL: ${{ steps.recover.outputs.details_url }}
+        with:
+          script: |
+            const ref = context.payload.pull_request?.head?.sha || context.sha;
+            const runs = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref,
+              check_name: 'Deploy Preview',
+            });
+            const failed = runs
+              .filter((run) => run.conclusion === 'failure')
+              .sort((a, b) => Date.parse(b.completed_at || b.started_at || b.created_at || 0) -
+                              Date.parse(a.completed_at || a.started_at || a.created_at || 0));
+            if (!failed.length) {
+              core.info(`No failed Deploy Preview check-run found on ${ref}`);
+              return;
+            }
+            const run = failed[0];
+            const url = process.env.PREVIEW_URL;
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: run.id,
+              status: 'completed',
+              conclusion: 'success',
+              completed_at: new Date().toISOString(),
+              details_url: url || run.details_url,
+              output: {
+                title: 'Deploy preview recovered',
+                summary: [
+                  'Firebase Hosting deployed the preview, but the deploy action',
+                  'reported a transient retry failure after the release was already active.',
+                  '',
+                  url ? `Preview URL: ${url}` : '',
+                ].filter(Boolean).join('\n'),
+              },
+            });
+            core.info(`Marked recovered Deploy Preview check-run ${run.id} successful`);
+
       - name: Comment preview URL
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           PREVIEW_LABEL: DartPDF app preview
           PREVIEW_MARKER: dartpdf-app-preview
@@ -187,8 +288,6 @@ jobs:
               url,
               '',
               `(expires ${expires})`,
-              '',
-              '🔥 via Firebase Hosting GitHub Action 🌎',
             ].join('\n');
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,

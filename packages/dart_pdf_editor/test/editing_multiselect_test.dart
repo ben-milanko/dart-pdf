@@ -60,7 +60,7 @@ void main() {
     test(
         'select all takes every selectable annotation, skipping links '
         'and form fields', () {
-      // page 0 carries 5 links (one hidden) and a Widget — all unselectable
+      // page 0 carries 5 links (one hidden) and a Widget - all unselectable
       final editing = PdfEditingController(buildAnnotatedPdf())
         ..addRectangle(0, const PdfRect(100, 100, 200, 150))
         ..addEllipse(0, const PdfRect(250, 100, 350, 150));
@@ -286,7 +286,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(editing.hasAnnotationSelection, isFalse);
 
-      // a mouse click selects — selection is the mouse's default mode
+      // a mouse click selects - selection is the mouse's default mode
       await tester.tapAt(view(140, 675), kind: PointerDeviceKind.mouse);
       await tester.pump();
       expect(editing.selectedAnnotation?.subtype, 'Square');
@@ -321,8 +321,7 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets(
-        'a shift+drag rubber-bands a selection with no tool armed',
+    testWidgets('a shift+drag rubber-bands a selection with no tool armed',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
       await addShapes(tester, editing);
@@ -372,7 +371,7 @@ void main() {
       editing.tool = PdfEditTool.select;
       await tester.pump();
 
-      // focus the viewer first — the tap would clear a live selection
+      // focus the viewer first - the tap would clear a live selection
       await tester.tapAt(view(450, 400));
       await tester.pump(const Duration(milliseconds: 400));
       editing.selectAnnotationsIn(0, const PdfRect(90, 640, 340, 710));

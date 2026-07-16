@@ -1,5 +1,5 @@
 // The image-scan interpreter mode (`scanImagesOnly: true`) must discover
-// exactly the same image draw requests as a full interpretation — otherwise a
+// exactly the same image draw requests as a full interpretation - otherwise a
 // rendered page would be missing (or needlessly decode) an image. This walks
 // the checked-in corpora and, page by page, asserts the two passes collect the
 // identical set of image streams.
@@ -65,7 +65,7 @@ void main() {
             bytes = file.readAsBytesSync();
             doc = PdfDocument.open(bytes);
           } catch (_) {
-            return; // unopenable fixture — not this test's concern
+            return; // unopenable fixture - not this test's concern
           }
           final int pages;
           try {
@@ -83,7 +83,7 @@ void main() {
             }
             scan = _collect(doc, i, scan: true);
             // The scan must never MISS an image the full pass draws. (It may,
-            // in principle, over-collect; that only wastes a decode — so the
+            // in principle, over-collect; that only wastes a decode - so the
             // strong check is full ⊆ scan, and we also assert equality to catch
             // any divergence early.)
             expect(scan.containsAll(full), isTrue,

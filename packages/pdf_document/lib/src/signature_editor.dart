@@ -1,5 +1,77 @@
 part of 'editor.dart';
 
+/// The visible signature box drawn into a signature field's widget when
+/// signing - the two-column layout Acrobat and Bluebeam render once a
+/// field is signed: the signer's name (or a handwritten-signature image)
+/// set large in the left panel, and the signing details ("Digitally signed
+/// by …", date, reason, location) listed on the right.
+///
+/// Pass one to [PdfSigning.saveSigned] or [PdfPadesSigning.saveSignedPades]
+/// to place and render the box. When signing into a form field that already
+/// carries a visible /Rect, the box is drawn into that rectangle even
+/// without an explicit appearance (the defaults are used); [page] and
+/// [rect] only place a box on a freshly created field.
+class PdfSignatureAppearance {
+  const PdfSignatureAppearance({
+    this.page = 0,
+    this.rect,
+    this.graphic,
+    this.showName = true,
+    this.showDate = true,
+    this.showReason = true,
+    this.showLocation = true,
+    this.backgroundColor,
+    this.borderColor = 0x2E5E86,
+    this.textColor = 0x1A1A1A,
+  });
+
+  /// The 0-based page a newly created signature widget is placed on.
+  /// Ignored when signing into a field that already exists - that field
+  /// keeps the page its widget already sits on.
+  final int page;
+
+  /// The widget rectangle, in PDF user space, for a newly created field.
+  /// Required to put a visible box on a fresh field; ignored when signing
+  /// an existing field (which keeps its own /Rect).
+  final PdfRect? rect;
+
+  /// An optional handwritten-signature or logo image drawn in the left
+  /// panel in place of the large name text.
+  final PdfEmbeddableImage? graphic;
+
+  /// Draws the large signer name in the left panel and the
+  /// "Digitally signed by …" line on the right.
+  final bool showName;
+
+  /// Draws the signing date/time on the right.
+  final bool showDate;
+
+  /// Draws the /Reason on the right, when the signature carries one.
+  final bool showReason;
+
+  /// Draws the /Location on the right, when the signature carries one.
+  final bool showLocation;
+
+  /// Panel background fill (0xRRGGBB), or null for a transparent box.
+  final int? backgroundColor;
+
+  /// The border and column-divider color (0xRRGGBB).
+  final int borderColor;
+
+  /// The text color (0xRRGGBB).
+  final int textColor;
+}
+
+/// The signer details rendered into a visible signature box.
+class _SignatureText {
+  const _SignatureText({this.name, this.time, this.reason, this.location});
+
+  final String? name;
+  final DateTime? time;
+  final String? reason;
+  final String? location;
+}
+
 /// Signing: writes the pending edits plus a new signature as one
 /// incremental update, then fills in the byte range and CMS container.
 extension PdfSigning on PdfEditor {
@@ -11,8 +83,14 @@ extension PdfSigning on PdfEditor {
   /// subject becomes the visible signer unless [signerName] overrides it.
   /// An existing empty signature field called [fieldName] is used when
   /// present, otherwise an invisible signature field is created on the
-  /// first page. After this call the editor is spent — saving again
-  /// would invalidate the signature it just produced.
+  /// first page.
+  ///
+  /// Pass an [appearance] to draw a visible signature box (the Acrobat/
+  /// Bluebeam two-column layout). When signing into a field that already
+  /// has a visible /Rect the box is rendered into it even without an
+  /// [appearance]; [PdfSignatureAppearance.rect] places a box on a fresh
+  /// field. After this call the editor is spent - saving again would
+  /// invalidate the signature it just produced.
   Uint8List saveSigned({
     required RsaPrivateKey privateKey,
     required List<Uint8List> certificates,
@@ -22,6 +100,7 @@ extension PdfSigning on PdfEditor {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) {
     if (certificates.isEmpty) {
       throw ArgumentError('the signer certificate is required');
@@ -37,6 +116,7 @@ extension PdfSigning on PdfEditor {
       location: location,
       contactInfo: contactInfo,
       defaultSignerCert: certificates.first,
+      appearance: appearance,
     );
     final cms = cmsSignDetached(
       contentDigest: crypto.sha256.convert(revision.signedData).bytes,
@@ -76,6 +156,7 @@ extension PdfSigning on PdfEditor {
     Uint8List? defaultSignerCert,
     bool docTimeStamp = false,
     int? docMdpPermissions,
+    PdfSignatureAppearance? appearance,
   }) {
     if (document.cos.isEncrypted) {
       // the signature /Contents and /ByteRange must stay unencrypted and
@@ -128,7 +209,18 @@ extension PdfSigning on PdfEditor {
     if (docMdpPermissions != null) {
       _applyDocMdp(sigRef);
     }
-    _attachSignatureField(sigRef, fieldName, certify: docMdpPermissions != null);
+    _attachSignatureField(
+      sigRef,
+      fieldName,
+      certify: docMdpPermissions != null,
+      appearance: docTimeStamp ? null : appearance,
+      text: _SignatureText(
+        name: name,
+        time: signingTime,
+        reason: reason,
+        location: location,
+      ),
+    );
 
     final saved = _updater.save();
 
@@ -223,11 +315,19 @@ extension PdfSigning on PdfEditor {
     return -1;
   }
 
-  /// Points an existing empty signature field at [sigRef], or creates an
-  /// invisible one on the first page. [certify] marks an author signature
-  /// (the DocMDP /Perms wiring is applied separately by the caller).
-  void _attachSignatureField(CosReference sigRef, String? fieldName,
-      {bool certify = false}) {
+  /// Points an existing empty signature field at [sigRef], or creates a
+  /// field on the requested page. [certify] marks an author signature
+  /// (the DocMDP /Perms wiring is applied separately by the caller). When
+  /// the target widget has a visible /Rect a signature box is rendered
+  /// into it from [appearance] and [text]; a fresh field is invisible
+  /// unless [appearance] supplies a [PdfSignatureAppearance.rect].
+  void _attachSignatureField(
+    CosReference sigRef,
+    String? fieldName, {
+    bool certify = false,
+    PdfSignatureAppearance? appearance,
+    _SignatureText? text,
+  }) {
     final cos = document.cos;
     final form = PdfAcroForm.of(document);
 
@@ -241,44 +341,59 @@ extension PdfSigning on PdfEditor {
           throw StateError('field "$fieldName" is already signed');
         }
         existing.dict['V'] = sigRef;
+        // Fill the field's box with a signature appearance when it is
+        // visible, matching how Acrobat/Bluebeam render a signed field.
+        final widget = existing.widgets.first;
+        final rect = pdfRectFrom(cos, widget['Rect']);
+        if (rect != null && rect.width > 1 && rect.height > 1) {
+          _installSignatureAppearance(widget, rect,
+              appearance ?? const PdfSignatureAppearance(), text);
+          if (!identical(widget, existing.dict) &&
+              cos.referenceTo(widget) != null) {
+            _updater.markChanged(widget);
+          }
+        }
         _updater.markChanged(existing.dict);
         _ensureSigFlags();
         return;
       }
     }
 
-    final page = document.page(0);
+    final visible = appearance?.rect;
+    final pageIndex = visible != null
+        ? appearance!.page.clamp(0, document.pageCount - 1)
+        : 0;
+    final page = document.page(pageIndex);
     final pageRef = cos.referenceTo(page.dict);
     final name = fieldName ?? _freshFieldName(form);
+    final rect = visible == null
+        ? CosArray([
+            const CosInteger(0), const CosInteger(0), //
+            const CosInteger(0), const CosInteger(0),
+          ])
+        : CosArray([
+            CosReal(visible.left),
+            CosReal(visible.bottom),
+            CosReal(visible.right),
+            CosReal(visible.top),
+          ]);
     final fieldDict = CosDictionary({
       'FT': const CosName('Sig'),
       'T': CosString.fromText(name),
       'V': sigRef,
       'Type': const CosName('Annot'),
       'Subtype': const CosName('Widget'),
-      'Rect': CosArray([
-        const CosInteger(0), const CosInteger(0), //
-        const CosInteger(0), const CosInteger(0),
-      ]),
+      'Rect': rect,
       'F': const CosInteger(132), // print + locked
       if (pageRef != null) 'P': pageRef,
     });
+    if (visible != null) {
+      _installSignatureAppearance(fieldDict, visible, appearance!, text);
+    }
     final fieldRef = _updater.addObject(fieldDict);
 
     // page /Annots
-    final annots = cos.resolve(page.dict['Annots']);
-    if (annots is CosArray) {
-      annots.items.add(fieldRef);
-      final annotsRef = page.dict['Annots'];
-      if (annotsRef is CosReference) {
-        _updater.replaceObject(annotsRef.objectNumber, annots);
-      } else {
-        _updater.markChanged(page.dict);
-      }
-    } else {
-      page.dict['Annots'] = CosArray([fieldRef]);
-      _updater.markChanged(page.dict);
-    }
+    _PdfPageAnnotationList(this, pageIndex).append(fieldRef);
 
     // AcroForm /Fields
     final acroForm = cos.resolve(document.catalog['AcroForm']);
@@ -332,6 +447,233 @@ extension PdfSigning on PdfEditor {
       i++;
     }
     return 'Signature$i';
+  }
+
+  // ---------------------------------------------------------------------
+  // visible signature box (§12.7.4.5)
+
+  /// Renders the signature box into [widget]'s /AP /N: an optional
+  /// background and border, a left panel holding the signer's name (or a
+  /// handwritten-signature image), and a right panel listing the signing
+  /// details. Mirrors the two-column layout Acrobat and Bluebeam draw.
+  void _installSignatureAppearance(CosDictionary widget, PdfRect rect,
+      PdfSignatureAppearance config, _SignatureText? text) {
+    final w = rect.width, h = rect.height;
+    final info = text ?? const _SignatureText();
+    final writer = ContentWriter();
+    final fonts = CosDictionary({});
+    final xObjects = CosDictionary({});
+    const pad = 4.0;
+
+    if (config.backgroundColor != null) {
+      writer
+        ..fillColor(config.backgroundColor!)
+        ..rect(0, 0, w, h)
+        ..fill();
+    }
+    writer
+      ..strokeColor(config.borderColor)
+      ..lineWidth(1)
+      ..rect(0.5, 0.5, w - 1, h - 1)
+      ..stroke();
+
+    final name = info.name;
+    final showName = config.showName && name != null && name.isNotEmpty;
+    final hasGraphic = config.graphic != null;
+    final hasLeft = hasGraphic || showName;
+
+    final details = <String>[
+      if (config.showName && name != null && name.isNotEmpty)
+        'Digitally signed by $name',
+      if (config.showDate && info.time != null)
+        'Date: ${_displaySignDate(info.time!)}',
+      if (config.showReason &&
+          info.reason != null &&
+          info.reason!.isNotEmpty)
+        'Reason: ${info.reason}',
+      if (config.showLocation &&
+          info.location != null &&
+          info.location!.isNotEmpty)
+        'Location: ${info.location}',
+    ];
+
+    // Column split: a divider only when both panels carry content.
+    double divider;
+    if (hasLeft && details.isNotEmpty) {
+      divider = w * 0.42;
+      writer
+        ..strokeColor(config.borderColor)
+        ..lineWidth(0.5)
+        ..moveTo(divider, pad)
+        ..lineTo(divider, h - pad)
+        ..stroke();
+    } else if (hasLeft) {
+      divider = w; // left content only
+    } else {
+      divider = 0; // details only
+    }
+
+    if (hasGraphic) {
+      final image = config.graphic!;
+      final imageRef =
+          _updater.addObject(image.toXObject((s) => _updater.addObject(s)));
+      final panelW = divider - 2 * pad, panelH = h - 2 * pad;
+      if (panelW > 0 && panelH > 0 && image.width > 0 && image.height > 0) {
+        final scale = math.min(
+            panelW / image.width, panelH / image.height);
+        final dw = image.width * scale, dh = image.height * scale;
+        writer
+          ..save()
+          ..concatMatrix(dw, 0, 0, dh, pad + (panelW - dw) / 2,
+              pad + (panelH - dh) / 2)
+          ..drawXObject('SigImg')
+          ..restore();
+        xObjects['SigImg'] = imageRef;
+      }
+    } else if (showName) {
+      const boldFont = PdfStandardFont.helveticaBold;
+      fonts[boldFont.resourceName] = _signatureFont(boldFont);
+      _drawSignatureText(
+        writer,
+        [name],
+        boldFont,
+        config.textColor,
+        pad,
+        pad,
+        divider - pad,
+        h - pad,
+        maxSize: 22,
+        align: PdfTextAlign.center,
+        centerVertical: true,
+      );
+    }
+
+    if (details.isNotEmpty) {
+      const detailFont = PdfStandardFont.helvetica;
+      fonts[detailFont.resourceName] = _signatureFont(detailFont);
+      final left = divider > 0 ? divider + pad : pad;
+      _drawSignatureText(
+        writer,
+        details,
+        detailFont,
+        config.textColor,
+        left,
+        pad,
+        w - pad,
+        h - pad,
+        maxSize: 9,
+      );
+    }
+
+    final resources = CosDictionary({
+      if (fonts.entries.isNotEmpty) 'Font': fonts,
+      if (xObjects.entries.isNotEmpty) 'XObject': xObjects,
+    });
+    final form = _widgetForm(w, h, writer, resources: resources);
+    _setNormalAppearance(widget, form);
+  }
+
+  /// A base-14 font dict (with /Widths) for the appearance's /Font resource.
+  CosDictionary _signatureFont(PdfStandardFont font) => CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type1'),
+        'BaseFont': CosName(font.baseFont),
+        'Encoding': const CosName('WinAnsiEncoding'),
+        'FirstChar': const CosInteger(32),
+        'LastChar': const CosInteger(126),
+        'Widths': CosArray([for (final width in font.widths) CosInteger(width)]),
+      });
+
+  /// Lays [lines] out in the box `[left, bottom, right, top]`, shrinking the
+  /// font (from [maxSize]) and wrapping until the block fits, clipped to the
+  /// box. Top-anchored unless [centerVertical]; aligned per [align].
+  void _drawSignatureText(
+    ContentWriter writer,
+    List<String> lines,
+    PdfStandardFont font,
+    int color,
+    double left,
+    double bottom,
+    double right,
+    double top, {
+    required double maxSize,
+    PdfTextAlign align = PdfTextAlign.left,
+    bool centerVertical = false,
+  }) {
+    final boxW = right - left, boxH = top - bottom;
+    if (boxW <= 0 || boxH <= 0) return;
+
+    var size = maxSize;
+    List<String> wrapped;
+    while (true) {
+      wrapped = [
+        for (final line in lines) ..._wrapSignatureLine(line, font, size, boxW),
+      ];
+      if (wrapped.length * size * 1.3 <= boxH || size <= 4) break;
+      size -= 0.5;
+    }
+    if (wrapped.isEmpty) return;
+
+    final lineHeight = size * 1.3;
+    final ascent = size * font.ascent / 1000;
+    final blockHeight = wrapped.length * lineHeight;
+    final blockTop =
+        centerVertical ? bottom + (boxH + blockHeight) / 2 : top;
+
+    writer
+      ..save()
+      ..rect(left, bottom, boxW, boxH)
+      ..clip()
+      ..beginText()
+      ..fillColor(color)
+      ..font(font.resourceName, size);
+    var prevX = 0.0, prevY = 0.0;
+    for (var i = 0; i < wrapped.length; i++) {
+      final lineWidth = font.measure(wrapped[i], size);
+      final x = switch (align) {
+        PdfTextAlign.center => left + (boxW - lineWidth) / 2,
+        PdfTextAlign.right => right - lineWidth,
+        PdfTextAlign.left => left,
+      };
+      final y = blockTop - i * lineHeight - ascent;
+      writer
+        ..textAt(x - prevX, y - prevY)
+        ..showText(wrapped[i]);
+      prevX = x;
+      prevY = y;
+    }
+    writer
+      ..endText()
+      ..restore();
+  }
+
+  /// Greedy word-wrap of [text] to [maxWidth]; a single overlong word
+  /// overflows (and is clipped by the box).
+  List<String> _wrapSignatureLine(
+      String text, PdfStandardFont font, double size, double maxWidth) {
+    if (font.measure(text, size) <= maxWidth) return [text];
+    final out = <String>[];
+    var line = '';
+    for (final word in text.split(' ')) {
+      final candidate = line.isEmpty ? word : '$line $word';
+      if (line.isNotEmpty && font.measure(candidate, size) > maxWidth) {
+        out.add(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line.isNotEmpty) out.add(line);
+    return out.isEmpty ? [text] : out;
+  }
+
+  /// Acrobat-style display date: `2026.06.10 12:00:00 +00'00'`. Signing
+  /// times are normalized to UTC before display.
+  static String _displaySignDate(DateTime time) {
+    final utc = time.toUtc();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${utc.year}.${two(utc.month)}.${two(utc.day)} '
+        "${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)} +00'00'";
   }
 }
 

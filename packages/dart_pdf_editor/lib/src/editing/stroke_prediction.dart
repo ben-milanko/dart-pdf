@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 /// Forward-extrapolates a short speculative "lead" beyond the last sampled
 /// point of an in-progress ink stroke, to mask the input+render latency
-/// between the pen tip and the painted line — the pure-geometry analogue of
+/// between the pen tip and the painted line - the pure-geometry analogue of
 /// PencilKit's predicted touches (which read the OS's hardware predictor).
 /// Display only: the returned points are drawn ahead of the stroke but never
 /// enter the committed /InkList.
@@ -15,7 +15,7 @@ import 'dart:math' as math;
 /// each capped at [maxLeadFactor] times the last segment so a noisy
 /// acceleration estimate can't fling the line off the tip.
 ///
-/// Returns an empty list — no prediction — when extrapolation would be
+/// Returns an empty list - no prediction - when extrapolation would be
 /// unstable:
 ///   * fewer than two samples (no velocity to extend),
 ///   * a near-stationary pen (last segment shorter than [minSegment]), where
@@ -39,7 +39,7 @@ List<(double, double)> pdfPredictStrokeLead(
   final speed = math.sqrt(vx * vx + vy * vy);
   if (speed < minSegment) return const [];
 
-  // curvature from the last three samples — the change in velocity, so the
+  // curvature from the last three samples - the change in velocity, so the
   // lead follows an arc rather than flying off the last segment's tangent
   var ax = 0.0, ay = 0.0;
   if (points.length >= 3) {

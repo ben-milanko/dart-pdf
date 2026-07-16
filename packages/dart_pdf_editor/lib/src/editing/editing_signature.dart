@@ -141,7 +141,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
   bool get _isEmpty => _strokes.isEmpty && _active == null;
 
   /// 0–1 within the device's range; null when the device has none
-  /// (mouse, finger) — same convention as the ink overlay.
+  /// (mouse, finger) - same convention as the ink overlay.
   static double? _normalizedPressure(PointerEvent event) {
     if (event.pressureMax <= event.pressureMin) return null;
     return ((event.pressure - event.pressureMin) /
@@ -188,7 +188,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
             height: 180,
             decoration: BoxDecoration(
               // the pad is always paper-white, like the page the
-              // signature will land on — only its border follows the theme
+              // signature will land on - only its border follows the theme
               color: Colors.white,
               border: Border.all(color: Theme.of(context).colorScheme.outline),
               borderRadius: BorderRadius.circular(8),

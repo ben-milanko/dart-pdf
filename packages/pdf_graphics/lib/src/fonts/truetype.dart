@@ -8,7 +8,7 @@ import '../path.dart';
 ///
 /// CFF-flavored OpenType ('OTTO') parses to null here; the CFF charstring
 /// engine is separate. Returns null rather than throwing on anything
-/// malformed — callers fall back to font substitution.
+/// malformed - callers fall back to font substitution.
 class TrueTypeFont {
   TrueTypeFont._({
     required Uint8List bytes,
@@ -166,8 +166,8 @@ class TrueTypeFont {
       _cmapSubtables().any((c) => c.platform == 3 && c.encoding == 0);
 
   /// Maps a PostScript glyph name to a glyph id through the `post` (format
-  /// 2.0) table, or 0 when absent. Lets a cmap-less embedded subset font —
-  /// whose codes reach glyphs by name through the PDF /Encoding — select the
+  /// 2.0) table, or 0 when absent. Lets a cmap-less embedded subset font -
+  /// whose codes reach glyphs by name through the PDF /Encoding - select the
   /// right glyph instead of indexing by raw code (§9.6.6.4).
   int gidForName(String name) => (_postNames ??= _parsePostNames())[name] ?? 0;
 
@@ -566,7 +566,7 @@ class _Reader {
   double f2dot14() => s16() / 16384;
 }
 
-/// The 258 standard Macintosh glyph names, in order — the `post` format 2.0
+/// The 258 standard Macintosh glyph names, in order - the `post` format 2.0
 /// name index points into this list for indices < 258 (Apple TrueType
 /// Reference, the `post` table). Custom names follow as Pascal strings.
 const List<String> _macGlyphNames = [

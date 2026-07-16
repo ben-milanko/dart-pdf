@@ -130,10 +130,10 @@ Uint8List _hash2B(List<int> password, List<int> salt, List<int> extra) {
 /// /Title is the encrypted string "Secret Title").
 ///
 /// [revision] selects the scheme:
-/// - 2 — RC4 40-bit (V1)
-/// - 3 — RC4 128-bit (V2)
-/// - 4 — AES-128 via the /AESV2 crypt filter (V4)
-/// - 6 — AES-256 via /AESV3 (V5, ISO 32000-2)
+/// - 2 - RC4 40-bit (V1)
+/// - 3 - RC4 128-bit (V2)
+/// - 4 - AES-128 via the /AESV2 crypt filter (V4)
+/// - 6 - AES-256 via /AESV3 (V5, ISO 32000-2)
 Uint8List buildEncryptedPdf({
   int revision = 3,
   String userPassword = '',
@@ -161,7 +161,7 @@ Uint8List buildEncryptedPdf({
         [..._hash2B(opwd, ovSalt, u), ...ovSalt, ...okSalt]);
     final oe = Aes(_hash2B(opwd, okSalt, u)).cbcEncrypt(Uint8List(16), fileKey);
     // /Perms: P (little-endian), 0xFFFFFFFF, 'T' (metadata encrypted),
-    // 'adb', 4 filler bytes — one AES block, zero-IV CBC == ECB
+    // 'adb', 4 filler bytes - one AES block, zero-IV CBC == ECB
     final perms = Aes(fileKey).cbcEncrypt(
         Uint8List(16),
         Uint8List.fromList([

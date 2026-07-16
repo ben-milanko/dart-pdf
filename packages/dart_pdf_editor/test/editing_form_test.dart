@@ -109,14 +109,16 @@ void main() {
       expect(moved.bottom, closeTo(before.bottom - 10, 1e-6));
 
       // resize regenerates the appearance at the new size
-      final target =
-          PdfRect(moved.left, moved.bottom, moved.left + 240, moved.bottom + 40);
+      final target = PdfRect(
+          moved.left, moved.bottom, moved.left + 240, moved.bottom + 40);
       editing.resizeSelected(target);
       final resized = editing.acroForm!.fieldNamed('name')!.widgetRect(0)!;
       expect(resized.width, closeTo(240, 1e-6));
       expect(resized.height, closeTo(40, 1e-6));
       // the value is re-laid into the new box, not stretched
-      expect(widgetAppearance(editing.document, editing.acroForm!.fieldNamed('name')!),
+      expect(
+          widgetAppearance(
+              editing.document, editing.acroForm!.fieldNamed('name')!),
           contains('prefilled'));
 
       // delete drops the whole field, not just the /Annots entry
@@ -147,6 +149,15 @@ void main() {
       expect(widgetAppearance(editing.document, field), contains('/Img0 Do'));
       expect(editing.setFormButtonImage(name, buildClassicPdf()), isFalse,
           reason: 'not an image');
+    });
+
+    test('setFormButtonImageAsync fills a push button', () async {
+      final editing = controller();
+      final name = editing.addFormField(
+          PdfFormFieldKind.pushButton, 0, const PdfRect(400, 600, 500, 640))!;
+      expect(await editing.setFormButtonImageAsync(name, _png), isTrue);
+      final field = editing.acroForm!.fieldNamed(name)!;
+      expect(widgetAppearance(editing.document, field), contains('/Img0 Do'));
     });
 
     test('addFormField generates unique names and creates the form', () {
@@ -221,7 +232,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     }
 
-    /// Two quick taps — the form tool's fill gesture.
+    /// Two quick taps - the form tool's fill gesture.
     Future<void> doubleTap(WidgetTester tester, Offset position) async {
       await tester.tapAt(position);
       await tester.pump(const Duration(milliseconds: 60));
@@ -232,8 +243,25 @@ void main() {
     Future<void> settle(WidgetTester tester) =>
         tester.pumpAndSettle(const Duration(milliseconds: 300));
 
+    Future<void> waitForFieldImage(
+        WidgetTester tester, PdfEditingController editing, String name) async {
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50; i++) {
+          final field = editing.acroForm!.fieldNamed(name);
+          if (field != null &&
+              widgetAppearance(editing.document, field).contains('/Img0 Do')) {
+            return;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
+      await tester.pump();
+    }
+
     Future<PdfEditingController> pumpEditor(WidgetTester tester,
-        {PdfFormImagePicker? imagePicker, bool toolbar = false}) async {
+        {PdfFormImagePicker? imagePicker,
+        PdfTextPrompt? textPrompt,
+        bool toolbar = false}) async {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildAcroFormPdf());
       final viewer = PdfViewerController();
@@ -248,11 +276,17 @@ void main() {
               document: editing.document,
               controller: viewer,
               editing: editing,
+              editingTextPrompt: textPrompt,
               formImagePicker: imagePicker,
             ),
           ),
           bottomNavigationBar: toolbar
-              ? PdfEditingToolbar(controller: editing, viewerController: viewer)
+              ? PdfEditingToolbar(
+                  controller: editing,
+                  viewerController: viewer,
+                  textPrompt: textPrompt ?? showPdfTextPrompt,
+                  formImagePicker: imagePicker,
+                )
               : null,
         ),
       ));
@@ -404,30 +438,61 @@ void main() {
 
       await doubleTap(tester, view(430, 340));
       expect(picked?.name, 'Field 1');
-      await tester.pump();
+      await waitForFieldImage(tester, editing, 'Field 1');
       final field = editing.acroForm!.fieldNamed('Field 1')!;
       expect(widgetAppearance(editing.document, field), contains('/Img0 Do'));
       await settle(tester);
     });
 
-    testWidgets('right-clicking a field opens the form menu', (tester) async {
-      final editing = await pumpEditor(tester);
-      editing.tool = PdfEditTool.form;
+    testWidgets('right-clicking a field selects it for toolbar controls',
+        (tester) async {
+      final editing = await pumpEditor(tester, toolbar: true);
+      expect(editing.tool, isNull);
+
+      await tester.tapAt(view(186, 712),
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      expect(editing.selectedWidgetFieldName, 'name');
+      expect(find.byKey(const ValueKey('pdf-form-menu-rename')), findsNothing,
+          reason: 'right-click selects; it no longer opens a field menu');
+      expect(
+          find.byKey(const ValueKey('pdf-selected-form-edit')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-rename')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-field-type')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-delete')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-selected-form-flatten')),
+          findsOneWidget);
+      await settle(tester);
+    });
+
+    testWidgets('toolbar edit changes a right-clicked field in select mode',
+        (tester) async {
+      final editing = await pumpEditor(tester,
+          textPrompt: (context,
+                  {required String title,
+                  String initial = '',
+                  bool multiline = false}) async =>
+              'Edited',
+          toolbar: true);
+      editing.tool = PdfEditTool.select;
       await tester.pump();
 
       await tester.tapAt(view(186, 712),
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await tester.pumpAndSettle();
-      expect(
-          find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
-      // converting to its current kind is disabled
-      final toText = tester.widget<PopupMenuItem<dynamic>>(
-          find.byKey(const ValueKey('pdf-form-menu-text')));
-      expect(toText.enabled, isFalse);
+      expect(find.byKey(const ValueKey('pdf-form-menu-edit')), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('pdf-form-menu-delete')));
+      await tester.tap(find.byKey(const ValueKey('pdf-selected-form-edit')));
       await tester.pumpAndSettle();
-      expect(editing.acroForm!.fieldNamed('name'), isNull);
+      expect(editing.acroForm!.fieldNamed('name')!.value, 'Edited');
+
+      await tester.tap(find.byKey(const ValueKey('pdf-selected-form-delete')));
+      await tester.pumpAndSettle();
+      expect(editing.acroForm!.fieldNamed('name'), isNull,
+          reason: 'toolbar deletion removes the field, not only its widget');
       await settle(tester);
     });
 
@@ -456,7 +521,7 @@ void main() {
 
       // the form tool now lives in the group's strip
       final formButton = find.byTooltip(
-          'Form fields — tap to select, double-tap to fill, drag to add (F)');
+          'Form fields - tap to select, double-tap to fill, drag to add (F)');
       await tester.scrollUntilVisible(formButton, 80,
           scrollable: stripScrollable);
       await tester.tap(formButton);
@@ -473,9 +538,8 @@ void main() {
       expect(editing.newFormFieldKind, PdfFormFieldKind.checkBox);
 
       final flatten =
-          find.byTooltip('Flatten form — bake values into the pages');
-      await tester.scrollUntilVisible(flatten, 80,
-          scrollable: stripScrollable);
+          find.byTooltip('Flatten form - bake values into the pages');
+      await tester.scrollUntilVisible(flatten, 80, scrollable: stripScrollable);
       await tester.tap(flatten);
       await tester.pump();
       expect(editing.acroForm!.fields, isEmpty);

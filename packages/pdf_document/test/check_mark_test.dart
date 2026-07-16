@@ -21,7 +21,7 @@ void main() {
     expect(mark.subtype, 'Stamp');
     expect(mark.iconName, 'Check');
     expect(mark.isCheckMark, isTrue);
-    // no caption — it's a symbol, not a text stamp
+    // no caption - it's a symbol, not a text stamp
     expect(mark.contents, anyOf(isNull, isEmpty));
 
     final form = mark.normalAppearance!;

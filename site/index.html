@@ -4,28 +4,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DartPDF: edit PDFs locally</title>
+  <title>DartPDF: private, local PDF editor for every device</title>
   <meta name="description"
-    content="Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on iPhone, iPad, Mac, Android, Windows, Linux, and the web. Files stay local. No account. No uploads." />
+    content="Edit PDFs locally on desktop, mobile, or web. Annotate, run OCR, fill forms, add drawn or digital signatures, redact, compare, and edit text. No uploads." />
   <link rel="canonical" href="https://dart-pdf.com/" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="DartPDF" />
   <meta property="og:url" content="https://dart-pdf.com/" />
-  <meta property="og:title" content="DartPDF — private, local PDF editor for every device" />
+  <meta property="og:title" content="DartPDF: private, local PDF editor for every device" />
   <meta property="og:description"
-    content="Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on iPhone, iPad, Mac, Android, Windows, Linux, and the web. Files stay local. No account. No uploads." />
+    content="Annotate, run OCR, fill forms, add drawn or digital signatures, redact, compare, and edit text. Your files stay local." />
   <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="DartPDF — pure-Dart PDF renderer & editor for Flutter" />
+  <meta property="og:image:alt" content="DartPDF local PDF editor" />
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="DartPDF — private, local PDF editor for every device" />
+  <meta name="twitter:title" content="DartPDF: private, local PDF editor for every device" />
   <meta name="twitter:description"
-    content="Edit, annotate, OCR, fill, sign, redact, and compare PDFs on every platform. Files stay local. No account. No uploads." />
+    content="Edit, annotate, run OCR, fill forms, add drawn or digital signatures, redact, and compare PDFs without uploads." />
   <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
 
   <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -59,7 +59,7 @@
       --dark-2: #1a1b1d;
       --radius: 14px;
       --radius-lg: 22px;
-      --maxw: 1140px;
+      --maxw: 1260px;
       --grad: linear-gradient(135deg, #16bafd 0%, #0169b4 100%);
       --shadow-sm: 0 1px 2px rgba(32, 33, 36, .06), 0 1px 3px rgba(32, 33, 36, .05);
       --shadow-md: 0 6px 16px rgba(32, 33, 36, .08), 0 2px 6px rgba(32, 33, 36, .05);
@@ -343,8 +343,6 @@
       display: block;
       width: 100%;
       height: auto;
-      aspect-ratio: 1770 / 1728;
-      object-fit: cover;
       background: #000;
     }
 
@@ -535,8 +533,6 @@
     }
 
     .privacy-list {
-      display: grid;
-      gap: 14px;
     }
 
     .privacy-list li {
@@ -552,6 +548,8 @@
     .privacy-list ul {
       margin: 0;
       padding: 0;
+      display: grid;
+      gap: 16px;
     }
 
     .pcheck {
@@ -1110,7 +1108,7 @@
     "name": "DartPDF",
     "applicationCategory": "BusinessApplication",
     "operatingSystem": "iOS, iPadOS, macOS, Android, Windows, Linux, Web",
-    "description": "Edit, annotate, run OCR, fill forms, sign, redact, and compare PDFs on every device. Files stay local — no account, no uploads.",
+    "description": "A local PDF editor for desktop, mobile, and web. Annotate, run OCR on scanned pages, fill forms, add drawn or certificate-backed digital signatures, redact, compare, and edit text without uploading files.",
     "url": "https://dart-pdf.com/",
     "image": "https://dart-pdf.com/assets/og-image.png",
     "offers": {
@@ -1194,12 +1192,12 @@
   <section class="hero">
     <div class="wrap hero-inner">
       <div class="reveal">
-        <p class="eyebrow">PDF editor · files stay local</p>
-        <h1 style="margin-top:16px;">Edit PDFs anywhere.<br /><span class="hl">Keep your files on your device.</span>
+        <p class="eyebrow">DartPDF</p>
+        <h1 style="margin-top:16px;">Free, local PDF editor<br /><span class="hl">for every device.</span>
         </h1>
-        <p class="sub">Annotate, run OCR on scanned pages, fill forms, sign, redact, compare, and make small text or
-          image edits on iPhone, iPad, Mac, Android, Windows, Linux, or the web. You do not need an account, and DartPDF
-          does not upload your documents.</p>
+        <p class="sub">Open a PDF, mark it up, run OCR on scanned pages, fill forms, sign, redact, compare, and make
+          small text or image edits. DartPDF runs on desktop, mobile, and web, and your documents stay on your device
+          unless you choose to share them.</p>
         <div class="hero-cta">
           <a class="btn btn-primary" href="#download">Download</a>
           <a class="btn btn-ghost" href="https://app.dart-pdf.com" target="_blank" rel="noopener">
@@ -1210,11 +1208,11 @@
             </svg>
           </a>
         </div>
-        <p class="hero-note"><span class="dot"></span> Free, open source, and local</p>
+        <p class="hero-note"><span class="dot"></span> Free and open source. No account. No uploads.</p>
       </div>
       <div class="reveal" style="transition-delay:.08s;">
         <div class="device">
-          <img class="device-shot" src="assets/editor-screenshot.png" width="1770" height="1728"
+          <img class="device-shot" src="assets/editor-screenshot.png" width="2208" height="1552"
             alt="The DartPDF editor showing a PDF with annotation tools, page thumbnails, and a color palette."
             loading="eager" />
           <div class="device-tag">
@@ -1231,7 +1229,7 @@
     </div>
 
     <div class="wrap platforms-strip reveal">
-      <p class="label">One app across your devices</p>
+      <p class="label">One app for your PDFs</p>
       <div class="os-row">
         <span><svg viewBox="0 0 24 24" fill="currentColor">
             <path
@@ -1266,10 +1264,10 @@
   <section class="section" id="features">
     <div class="wrap">
       <div class="sec-head reveal">
-        <p class="eyebrow">Features</p>
-        <h2>More than a viewer.</h2>
-        <p>Mark up a file, run OCR on scanned pages, fill forms, move pages, compare versions, or make small edits
-          without sending the PDF to a server.</p>
+        <p class="eyebrow">Tools</p>
+        <h2>The PDF jobs you actually need.</h2>
+        <p>Mark up a file, run OCR, fill forms, move pages, compare versions, or fix a small mistake without sending the
+          PDF to a server.</p>
       </div>
       <div class="features">
         <!-- Annotate -->
@@ -1280,7 +1278,7 @@
               <path d="M13.5 6.5 17.5 10.5" />
             </svg></div>
           <h3>Annotate</h3>
-          <p>Highlight, ink, shapes, notes, and stamps.</p>
+          <p>Highlight text, draw with ink, add shapes, notes, and stamps.</p>
         </article>
         <!-- Forms -->
         <article class="feature reveal">
@@ -1290,7 +1288,7 @@
               <path d="M8 8h8M8 12h8M8 16h4" />
             </svg></div>
           <h3>Forms</h3>
-          <p>Fill existing fields or create your own.</p>
+          <p>Fill existing fields or add new text fields, checkboxes, and buttons.</p>
         </article>
         <!-- Sign -->
         <article class="feature reveal">
@@ -1300,7 +1298,7 @@
               <path d="M8 16c2.5 1 4-1 6-1s3 1.5 4 .5" />
             </svg></div>
           <h3>Sign</h3>
-          <p>Drawn signatures, placed anywhere.</p>
+          <p>Place a drawn signature, or add a certificate-backed digital signature.</p>
         </article>
         <!-- Redact -->
         <article class="feature reveal">
@@ -1311,7 +1309,7 @@
               <path d="M4 17h5" />
             </svg></div>
           <h3>Redact</h3>
-          <p>Permanently remove sensitive content.</p>
+          <p>Remove sensitive text and images from the file, not just from view.</p>
         </article>
         <!-- Edit text & images -->
         <article class="feature reveal">
@@ -1321,7 +1319,7 @@
               <rect x="14.5" y="12" width="6" height="6" rx="1.2" />
             </svg></div>
           <h3>Edit text &amp; images</h3>
-          <p>Change words and pictures in place.</p>
+          <p>Fix small text runs or drop in images without rebuilding the file.</p>
         </article>
         <!-- Pages -->
         <article class="feature reveal">
@@ -1331,7 +1329,7 @@
               <path d="M16.5 8.5h2.2A1.3 1.3 0 0 1 20 9.8V19a1.3 1.3 0 0 1-1.3 1.3H9.5A1.3 1.3 0 0 1 8.2 19v-1.5" />
             </svg></div>
           <h3>Pages</h3>
-          <p>Reorder, delete, export to a new file.</p>
+          <p>Reorder, delete, split, and export pages to a new file.</p>
         </article>
         <!-- Search & select -->
         <article class="feature reveal">
@@ -1341,7 +1339,7 @@
               <path d="m20 20-3.6-3.6" />
             </svg></div>
           <h3>Search &amp; select text</h3>
-          <p>Find and select real text, not images.</p>
+          <p>Search selectable text and copy it from the page.</p>
         </article>
         <!-- OCR -->
         <article class="feature reveal">
@@ -1353,7 +1351,7 @@
                 d="M3.5 7V5.5A2.5 2.5 0 0 1 6 3h1.5M20.5 7V5.5A2.5 2.5 0 0 0 18 3h-1.5M3.5 17v1.5A2.5 2.5 0 0 0 6 21h1.5M20.5 17v1.5A2.5 2.5 0 0 1 18 21h-1.5" />
             </svg></div>
           <h3>OCR scanned pages</h3>
-          <p>Add selectable, searchable text to image-only PDFs.</p>
+          <p>Turn scanned pages into searchable, selectable PDFs.</p>
         </article>
         <!-- Compare -->
         <article class="feature reveal">
@@ -1363,7 +1361,7 @@
               <rect x="13" y="5" width="7.5" height="14" rx="1.4" />
             </svg></div>
           <h3>Compare</h3>
-          <p>View two versions side by side.</p>
+          <p>Check two versions side by side.</p>
         </article>
         <!-- Password-protected -->
         <article class="feature reveal">
@@ -1405,7 +1403,7 @@
           <li><span class="pcheck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M20 6 9 17l-5-5" />
-              </svg></span> No servers, no sync</li>
+              </svg></span> Local OCR</li>
           <li><span class="pcheck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M20 6 9 17l-5-5" />
@@ -1437,6 +1435,14 @@
           </svg>
           <span><span class="s1">Download on the</span><span class="s2">App Store</span></span>
         </a>
+        <a class="store-badge" href="https://apps.apple.com/app/dartpdf/id6780083686"
+          aria-label="Download DartPDF on the Mac App Store">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+          </svg>
+          <span><span class="s1">Download on the</span><span class="s2">Mac App Store</span></span>
+        </a>
         <a class="store-badge" href="https://play.google.com/store/apps/details?id=dev.milanko.dartpdf"
           aria-label="Get DartPDF on Google Play">
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -1459,7 +1465,7 @@
           </div>
           <div>
             <div class="name">macOS</div>
-            <div class="meta">Universal &middot; signed &amp; notarized</div>
+            <div class="meta">Direct .dmg &middot; signed &amp; notarized</div>
           </div>
         </a>
         <a class="dl-card"
@@ -1528,8 +1534,10 @@
       <div class="reveal">
         <p class="eyebrow" style="color:#6fd0ff;">Developers</p>
         <h2 style="margin-top:14px;">A pure-Dart PDF engine you can use too.</h2>
-        <p>The engine uses Dart instead of PDFium or native bindings, so it runs on the Dart VM, desktop, and browser
-          targets. The packages are Apache-2.0 licensed and published on pub.dev.</p>
+        <p>The engine uses Dart instead of PDFium or native bindings, so it runs anywhere Dart and Flutter do. The
+          packages are Apache-2.0 licensed and published on pub.dev. Read the <a href="/sdk"
+            style="color:#6fd0ff;font-weight:700;">Flutter PDF SDK overview</a> for benchmarks and a comparison with
+          commercial SDKs.</p>
         <div class="dev-cta">
           <a class="btn btn-primary" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
@@ -1545,7 +1553,7 @@
       <div class="reveal" style="transition-delay:.08s;">
         <div class="bench">
           <div class="b-top">
-            <span class="b-title">The engine, in packages</span>
+            <span class="b-title">Open source packages</span>
             <span class="b-pill">Apache-2.0</span>
           </div>
           <div class="eng-list">
@@ -1589,7 +1597,7 @@
             </span>
             DartPDF
           </a>
-          <p>A local PDF editor for desktop, mobile, and web.</p>
+          <p>A private, local PDF editor for every device.</p>
         </div>
         <div class="foot-cols">
           <div class="foot-col">
@@ -1603,6 +1611,7 @@
             <h4>Open source</h4>
             <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
             <a href="https://pub.dev/packages/dart_pdf_editor" target="_blank" rel="noopener">pub.dev</a>
+            <a href="/sdk">Flutter PDF SDK</a>
             <a href="#developers">Engine</a>
           </div>
           <div class="foot-col">

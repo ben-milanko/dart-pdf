@@ -4,6 +4,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'annotation.dart';
 import 'document.dart';
+import 'measure.dart';
 import 'rect.dart';
 
 /// A single page, with inheritable attributes already resolved.
@@ -65,6 +66,23 @@ class PdfPage {
               PdfAnnotation.fromDict(document, d),
         ];
       }();
+
+  /// The page's measurement scale, read from its first /VP viewport's
+  /// /Measure dictionary (§12.9). This is the document-borne, portable
+  /// drawing scale - written by `PdfEditor.setPageMeasurementScale` - so a
+  /// reopened or shared file keeps its calibration without relying on an
+  /// app-side preference. Null when the page declares no viewport scale.
+  PdfMeasure? get measure {
+    final vp = document.cos.resolve(dict['VP']);
+    if (vp is! CosArray) return null;
+    for (final item in vp.items) {
+      final viewport = document.cos.resolve(item);
+      if (viewport is! CosDictionary) continue;
+      final m = PdfMeasure.fromDict(document, viewport['Measure']);
+      if (m != null) return m;
+    }
+    return null;
+  }
 
   /// The page's content streams, decoded and concatenated.
   Uint8List contentBytes() {

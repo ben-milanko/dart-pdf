@@ -100,7 +100,8 @@ void main() {
 
       editing.setSelectedTextAlign(PdfTextAlign.right);
 
-      expect(editing.document.page(0).annotations.single.freeTextStyle!.alignment,
+      expect(
+          editing.document.page(0).annotations.single.freeTextStyle!.alignment,
           PdfTextAlign.right);
       // the selection survives the rewrite
       expect(editing.selectedTextAlign, PdfTextAlign.right);
@@ -125,8 +126,8 @@ void main() {
     test('addFreeTextRich applies the alignment default', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..textAlign = PdfTextAlign.right;
-      editing.addFreeTextRich(0, const PdfRect(100, 600, 360, 650),
-          [const PdfFreeTextRun('Rich')]);
+      editing.addFreeTextRich(
+          0, const PdfRect(100, 600, 360, 650), [const PdfFreeTextRun('Rich')]);
 
       final style = editing.document.page(0).annotations.single.freeTextStyle!;
       expect(style.alignment, PdfTextAlign.right);
@@ -279,7 +280,7 @@ void main() {
 
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
         WidgetTester tester) async {
-      // the preference tests above seed the global mock store — these
+      // the preference tests above seed the global mock store - these
       // tests assert on default styles, so start from an empty one
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(2));
@@ -340,7 +341,7 @@ void main() {
 
       await drag(tester, view(100, 700), view(300, 640));
 
-      // the editor is open in place — nothing committed yet, no dialog
+      // the editor is open in place - nothing committed yet, no dialog
       expect(find.byKey(editorKey), findsOneWidget);
       expect(find.byType(AlertDialog), findsNothing);
       expect(editing.isEditingText, isTrue);
@@ -387,7 +388,7 @@ void main() {
       await tester.pump();
 
       // the drag's pointer-down put focus on the viewer's own node, so
-      // the field's autofocus alone is ignored — typing must still land
+      // the field's autofocus alone is ignored - typing must still land
       // in the editor without clicking into it first
       final field = tester.widget<TextField>(find.byKey(editorKey));
       expect(field.focusNode!.hasFocus, isTrue);
@@ -439,7 +440,7 @@ void main() {
 
       expect(find.byKey(editorKey), findsNothing);
       expect(editing.isEditingText, isFalse);
-      // Escape finishes the box rather than discarding it — losing the box
+      // Escape finishes the box rather than discarding it - losing the box
       // you just placed read as Escape "deleting" the annotation
       expect(editing.document.page(0).annotations, hasLength(1));
       expect(editing.document.page(0).annotations.single.contents, 'keep me');
@@ -608,8 +609,7 @@ void main() {
       expect(find.byKey(editorKey), findsNothing);
       expect(editing.document.page(0).annotations, hasLength(1),
           reason: 'Escape cancels the edit, it must not delete the box');
-      expect(
-          editing.document.page(0).annotations.single.contents, 'Original');
+      expect(editing.document.page(0).annotations.single.contents, 'Original');
       await settle(tester);
     });
 
@@ -779,19 +779,16 @@ void main() {
       await tap(tester, view(450, 400)); // outside: commit
       final annotation = editing.document.page(0).annotations.single;
       final res = editing.document.cos
-          .resolve(annotation.normalAppearance!.dictionary['Resources'])
+              .resolve(annotation.normalAppearance!.dictionary['Resources'])
           as CosDictionary;
       final fonts = editing.document.cos.resolve(res['Font']) as CosDictionary;
       // the committed appearance embeds the font (a Type0 face for the run)
-      expect(
-          fonts.entries.values.any((ref) {
-            final f = editing.document.cos.resolve(ref);
-            return f is CosDictionary &&
-                (editing.document.cos.resolve(f['Subtype']) as CosName?)
-                        ?.value ==
-                    'Type0';
-          }),
-          isTrue);
+      expect(fonts.entries.values.any((ref) {
+        final f = editing.document.cos.resolve(ref);
+        return f is CosDictionary &&
+            (editing.document.cos.resolve(f['Subtype']) as CosName?)?.value ==
+                'Type0';
+      }), isTrue);
       await settle(tester);
     });
 
@@ -819,11 +816,11 @@ void main() {
       await tester.pumpAndSettle();
 
       final serifRow = find.descendant(
-          of: find.byKey(const ValueKey('pdf-inline-font-std-serif')),
+          of: find.byKey(const ValueKey('pdf-font-std-serif')),
           matching: find.text('Serif (Times)'));
       expect(
           tester.widget<Text>(serifRow).style?.fontFamily, 'Times New Roman');
-      await tester.tap(find.byKey(const ValueKey('pdf-inline-font-std-serif')));
+      await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
       await tester.pump();
 
       final span = field.controller!.buildTextSpan(
@@ -842,6 +839,53 @@ void main() {
           editing.document.cos.decodeStreamData(annotation.normalAppearance!));
       expect(content, contains('/TiRo 14 Tf'));
       expect(content, contains('(world) Tj'));
+      await settle(tester);
+    });
+
+    testWidgets('the inline chip underline button keeps the box in edit mode',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // enter edit mode with a bare caret (no range selection, so no text
+      // selection toolbar floats over the chip): the underline button then
+      // styles the whole box and the box must stay in edit mode - tapping a
+      // chip button must never commit/deselect it (the mobile report)
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      final underline =
+          find.byKey(const ValueKey('pdf-inline-text-underline'));
+      expect(underline, findsOneWidget);
+      // invoke the button's handler directly: the chip sits inside scaled,
+      // translated chrome that makes a synthetic tap's hit-test unreliable,
+      // and the mobile focus-drop it guards against isn't reproducible in a
+      // widget test (a tap never blurs a non-focusable button here)
+      tester.widget<IconButton>(underline).onPressed!.call();
+      await tester.pump();
+
+      // still editing (not committed/deselected) and the box is now underlined
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.controller!.text, 'Hello world');
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final underlined = span.children!
+          .whereType<TextSpan>()
+          .where((c) => c.style?.decoration == TextDecoration.underline)
+          .map((c) => c.text)
+          .join();
+      expect(underlined, contains('Hello world'));
+
+      editing.textUnderline = false;
       await settle(tester);
     });
 
@@ -895,6 +939,133 @@ void main() {
       // later test that builds a controller without clearing prefs still
       // starts from plain Helvetica
       editing.fontFamily = PdfStandardFont.helvetica;
+      await settle(tester);
+    });
+
+    testWidgets('backspace before a bold run keeps the run bold',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      // bold exactly "world" (offsets 6..11)
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+      expect(
+          editing.restyleEditingTextSelection(
+              font: PdfStandardFont.helveticaBold),
+          isTrue);
+      await tester.pump();
+
+      // delete the 'o' in "Hello" - the bold run must follow its own
+      // characters, not slide down by one (the reported regression)
+      field.controller!.value = const TextEditingValue(
+        text: 'Hell world',
+        selection: TextSelection.collapsed(offset: 4),
+      );
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final bold = span.children!
+          .whereType<TextSpan>()
+          .where((c) => c.style?.fontWeight == FontWeight.bold)
+          .map((c) => c.text)
+          .join();
+      expect(bold, 'world');
+
+      editing.fontFamily = PdfStandardFont.helvetica;
+      await settle(tester);
+    });
+
+    testWidgets('Ctrl+U underlines the selection and persists to /RC',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 630));
+      await tap(tester, view(200, 630));
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Hello world',
+        selection: TextSelection(baseOffset: 6, extentOffset: 11),
+      );
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyU);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      final span = field.controller!.buildTextSpan(
+        context: tester.element(find.byKey(editorKey)),
+        style: const TextStyle(),
+        withComposing: false,
+      );
+      final styled = span.children!
+          .whereType<TextSpan>()
+          .singleWhere((c) => c.text == 'world');
+      expect(styled.style?.decoration, TextDecoration.underline);
+
+      await tap(tester, view(450, 400)); // commit
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.richContent, contains('text-decoration:underline'));
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+      // an underline rule (a filled rectangle) is drawn after the text object
+      expect(content.lastIndexOf(' re'), greaterThan(content.lastIndexOf('ET')));
+      editing.textUnderline = false;
+      await settle(tester);
+    });
+
+    testWidgets('the font picker reports an embedded box font, not Sans',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      final embedded = editing.activeFont as PdfEmbeddedFont;
+
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello');
+      await tester.pump();
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      final font = editing.selectedTextFont;
+      expect(font, isA<PdfEmbeddedFont>());
+      expect((font as PdfEmbeddedFont).familyName, embedded.familyName);
+      editing.activeFont = null;
+      await settle(tester);
+    });
+
+    testWidgets('resizing an embedded-font box reflows instead of stretching',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      editing.addFreeText(
+          0, const PdfRect(100, 600, 400, 640), 'reflow me please');
+      await tester.pump();
+      final box = editing.document.page(0).annotations.single;
+      // embedded-font free text now re-wraps on resize (no stretched glyphs)
+      expect(box.behavior.resizeBehavior,
+          PdfAnnotationResizeBehavior.reflowText);
+      editing.activeFont = null;
       await settle(tester);
     });
 
@@ -1043,7 +1214,7 @@ void main() {
       expect(editing.textAlign, PdfTextAlign.right);
     });
 
-    testWidgets('the style menu sets text fill and border defaults',
+    testWidgets('the style menu sets text colour, fill, and border defaults',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       final viewer = PdfViewerController();
@@ -1070,7 +1241,12 @@ void main() {
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
-      // marker yellow is palette slot 1, blue is slot 3
+      // foreground red is slot 0, marker yellow is slot 1, blue is slot 3
+      await tester.tap(find.byKey(const ValueKey('pdf-text-color-0')));
+      await tester.pump();
+      expect(editing.color, PdfEditingToolbar.defaultPalette[0]);
+      expect(find.byKey(const ValueKey('pdf-text-color-none')), findsNothing);
+
       await tester.tap(find.byKey(const ValueKey('pdf-text-fill-1')));
       await tester.pump();
       expect(editing.textFillColor, PdfEditingToolbar.defaultPalette[1]);
@@ -1117,8 +1293,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('pdf-text-border-0')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-text-color-3')));
+      await tester.pumpAndSettle();
 
       final style = editing.document.page(0).annotations.single.freeTextStyle!;
+      expect(style.color, 0x1E88E5);
       expect(style.fillColor, 0xFFD100);
       expect(style.borderColor, 0xE53935);
       expect(style.borderWidth, 2.5);
@@ -1158,7 +1337,7 @@ void main() {
       await tap(tester, view(200, 630)); // edit
 
       // the TextField's content area must sit exactly on the annotation
-      // box — the chrome border lives in the inflate(2) gutter outside.
+      // box - the chrome border lives in the inflate(2) gutter outside.
       // (It used to start 2px up-left, so the text jumped on open.)
       expect(tester.getTopLeft(find.byKey(editorKey)),
           offsetMoreOrLessEquals(view(100, 660), epsilon: 0.1));
@@ -1184,6 +1363,7 @@ void main() {
       await tester.pump();
 
       final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.cursorWidth, closeTo(1, 0.01));
       final scaled = field.selectionControls!;
       expect(scaled.getHandleSize(20).width, closeTo(18, 0.01));
       expect(field.contextMenuBuilder, isNotNull);
@@ -1211,7 +1391,7 @@ void main() {
       await tester.pump();
 
       // mid-drag: the wrapped-text preview rides the dragged box, with
-      // the glyphs at their committed size — not stretched
+      // the glyphs at their committed size - not stretched
       expect(find.byKey(previewKey), findsOneWidget);
       final text = tester.widget<Text>(find.descendant(
           of: find.byKey(previewKey), matching: find.byType(Text)));
@@ -1234,7 +1414,7 @@ void main() {
       expect(annotation.rect.right, closeTo(220, 0.5));
       expect(annotation.defaultAppearance, contains('16 Tf'));
       // the afterimage keeps the wrapped text painted until the raster
-      // lands — the live preview itself is gone with the drag
+      // lands - the live preview itself is gone with the drag
       expect(find.byKey(previewKey), findsNothing);
       expect(find.text('Wrap me please'), findsOneWidget);
       await settle(tester);
@@ -1257,7 +1437,7 @@ void main() {
       await gesture.moveTo(view(220, 600));
       await tester.pump();
 
-      // the preview itself carries only the box's own fill — it is
+      // the preview itself carries only the box's own fill - it is
       // otherwise transparent, so the page content behind shows through
       // (the original is hidden by the painter's lift layer, not a wash)
       final box = tester.widget<Container>(
@@ -1265,7 +1445,7 @@ void main() {
       expect(box.color, const Color(0xFFFFEB3B));
 
       // the lift fallback (until the async clean render lands) is OPAQUE
-      // blank paper, never translucent — the original must never flash
+      // blank paper, never translucent - the original must never flash
       final painter = overlayPainter(tester);
       expect((painter.resizeHideWash as Color).a, 1.0);
       expect(painter.resizeHideWash, const Color(0xFFFFFFFF));
@@ -1308,7 +1488,7 @@ void main() {
       // the commit happened, and the lift carried into the afterimage:
       // the painter still hides the old footprint with real page content
       // (resizeClean) instead of washing opaque paper over a transparent
-      // box — that wash was the white flash.
+      // box - that wash was the white flash.
       painter = overlayPainter(tester);
       expect(painter.resizeClean, isNotNull);
       expect(painter.resizeHideRect, isNotNull);

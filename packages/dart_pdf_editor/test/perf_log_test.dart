@@ -8,7 +8,7 @@ void main() {
   // (for frame JANK), so the binding must exist.
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // Captures everything printed during [body] — PdfPerfLog flushes through
+  // Captures everything printed during [body] - PdfPerfLog flushes through
   // the top-level print(), which honours the current Zone.
   List<String> capturePrints(void Function() body) {
     final lines = <String>[];
@@ -20,14 +20,14 @@ void main() {
 
   tearDown(() => PdfPerfLog.enabled = false);
 
-  test('disabled — log emits nothing', () {
+  test('disabled - log emits nothing', () {
     PdfPerfLog.enabled = false;
     expect(capturePrints(() => PdfPerfLog.log('nope')), isEmpty);
   });
 
-  test('enabled — each line prints immediately and synchronously', () {
+  test('enabled - each line prints immediately and synchronously', () {
     // No frame is pumped here, so a buffered, frame-flushed log would emit
-    // nothing — exactly the freeze blind spot this guards against. The lines
+    // nothing - exactly the freeze blind spot this guards against. The lines
     // must reach the console within the synchronous call.
     final lines = capturePrints(() {
       PdfPerfLog.enabled = true;

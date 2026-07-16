@@ -18,7 +18,7 @@ class PdfMatrix {
   final double e;
   final double f;
 
-  /// Returns the transform that applies `this` first, then [after] —
+  /// Returns the transform that applies `this` first, then [after] -
   /// the matrix product `this × after` in row-vector convention.
   PdfMatrix concat(PdfMatrix after) => PdfMatrix(
         a * after.a + b * after.c,

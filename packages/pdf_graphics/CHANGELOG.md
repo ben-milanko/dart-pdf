@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.4.6
+
+- Keep Arabic tashkil and other zero-advance marks with their base glyph when
+  reconstructing page text, so extraction and selection follow logical order
+  even when the content stream paints each mark as its own positioned run.
+- Ignore Unicode BiDi formatting controls in literal `PdfPageText.findAll`
+  queries, so right-to-left text copied out of a page can be pasted back into
+  search and still match.
+- Decode scaled and region CCITT and 1-bit gray images straight into the
+  display raster, skipping the native-size RGBA expansion that large scans
+  previously paid for.
+
+## 1.4.5
+
+- Preserve logical word order while reconstructing Arabic and other
+  right-to-left text, including multi-word lines and mixed-direction content.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No
+  graphics API changes since 1.4.3.
+
+## 1.4.3
+
+- Add geometry-free sparse-strip replay profiling so renderers can detect
+  painter-order fragmentation before path flattening and atlas generation.
+
+## 1.4.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No
+  graphics API changes since 1.4.1.
+
+## 1.4.1
+
+- Add retained raster scenes and sparse strip plans for fast deep-zoom replay
+  of dense vector, text, and image pages.
+- Re-sharpen all image types under deep zoom and stream dense content through
+  recording paths to reduce latency and memory pressure.
+- Add reusable raster geometry, strip binning, curve flattening, and stroke
+  contour primitives used by native-isolate and Web Worker rendering.
+
+## 1.4.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.0. Rendering
+  changes in this cycle support the editor's color-processing, cloud polygon,
+  and large-document interaction improvements.
+
+## 1.3.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.3.2. No
+  graphics API changes since 1.3.1.
+
+## 1.3.1
+
+- Interpreter color-space handling now uses a shared resolved color-space
+  path for fill and stroke colors, keeping calibrated, ICC, Indexed,
+  Separation, and single-colorant DeviceN `sc`/`SC` resolution consistent.
+
 ## 1.2.3
 
 - Version bump to keep the dart-pdf package suite aligned at 1.2.3. No
@@ -8,7 +66,7 @@
 ## 1.2.2
 
 - The interpreter now checks for cancellation while walking a page's content
-  so a render can be preempted mid-interpretation — used by the viewer's
+  so a render can be preempted mid-interpretation - used by the viewer's
   background render worker to drop superseded jobs on fast scrolls.
 
 ## 1.2.1

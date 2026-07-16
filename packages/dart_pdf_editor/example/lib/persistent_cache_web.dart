@@ -8,7 +8,7 @@ import 'package:web/web.dart' as web;
 /// Web backend for the on-disk caches: an IndexedDB-backed
 /// [PdfCacheStore], so page previews and extracted text persist across
 /// browser sessions on the web exactly as the filesystem store does on
-/// native — `localStorage` is too small (~5 MB) and synchronous, whereas
+/// native - `localStorage` is too small (~5 MB) and synchronous, whereas
 /// IndexedDB stores binary blobs and is the right home for raster bytes.
 ///
 /// One object store keyed by the cache key, values stored as binary
@@ -30,8 +30,8 @@ class _IndexedDbCacheStore implements PdfCacheStore {
   ///
   /// A brand-new database is created at version 1 and `onupgradeneeded`
   /// adds the store. But if the database already exists *without* our
-  /// store — e.g. something opened it with no upgrade handler (a stray
-  /// `indexedDB.open(name)` from the console, an interrupted first run) —
+  /// store - e.g. something opened it with no upgrade handler (a stray
+  /// `indexedDB.open(name)` from the console, an interrupted first run) -
   /// reopening at the same version would never fire `onupgradeneeded`, so
   /// every transaction would throw "object store not found". We detect
   /// that and reopen at the next version to add the store.

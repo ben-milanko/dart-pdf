@@ -5,11 +5,11 @@ import 'editing_controller.dart';
 
 /// The double-tap action the user selected in iOS Settings → Apple Pencil,
 /// reported by `UIPencilInteraction.preferredTapAction`. The native side
-/// forwards it with every gesture so the Dart policy — not the runner —
+/// forwards it with every gesture so the Dart policy - not the runner -
 /// decides what to do, honoring the user's choice (notably [ignore], when
 /// they turn the gesture off).
 enum PdfPencilTapAction {
-  /// The user turned the double-tap off — do nothing.
+  /// The user turned the double-tap off - do nothing.
   ignore,
 
   /// Switch between the current tool and the eraser.
@@ -27,7 +27,7 @@ enum PdfPencilTapAction {
   /// Run a system shortcut.
   runSystemShortcut,
 
-  /// No preference reported — an older iOS, the system default, or a
+  /// No preference reported - an older iOS, the system default, or a
   /// legacy call with no action attached. Treated as a tool switch so the
   /// gesture still works out of the box.
   unspecified;
@@ -44,7 +44,7 @@ enum PdfPencilTapAction {
         _ => unspecified,
       };
 
-  /// Whether the default binding toggles the eraser for this action — true
+  /// Whether the default binding toggles the eraser for this action - true
   /// for the tool-switch actions ([switchEraser], [switchPrevious]) and
   /// [unspecified], false for [ignore] and the palette/shortcut actions this
   /// editor doesn't implement. Not hijacking those into an eraser toggle is
@@ -58,14 +58,14 @@ enum PdfPencilTapAction {
 typedef PdfPencilTapHandler = void Function(PdfPencilTapAction action);
 
 /// Bridges the Apple Pencil's hardware double-tap gesture to an editing
-/// action — by default toggling the eraser on the attached controller, but
+/// action - by default toggling the eraser on the attached controller, but
 /// only when the user's iOS setting asks for a tool switch.
 ///
 /// Flutter exposes no framework event for the pencil's double-tap (or the
 /// Apple Pencil Pro squeeze); it is an iOS [UIPencilInteraction] that lives
 /// outside the engine. The host app registers that interaction natively and
-/// forwards each gesture — together with the user's
-/// `UIPencilInteraction.preferredTapAction` — over the shared [channel] (see
+/// forwards each gesture - together with the user's
+/// `UIPencilInteraction.preferredTapAction` - over the shared [channel] (see
 /// the iOS runner in the example/app). This listens on the Dart side and,
 /// unless an [onDoubleTap] override is given, routes a tool-switch action to
 /// [PdfEditingController.togglePencilEraser] while leaving the user's other
@@ -79,7 +79,7 @@ typedef PdfPencilTapHandler = void Function(PdfPencilTapAction action);
 class PdfPencilInteraction {
   /// Creates a binding. [onDoubleTap], when supplied, runs on every gesture
   /// (receiving the user's [PdfPencilTapAction]) instead of the default
-  /// policy — pass it to map the pencil's double-tap to a custom action.
+  /// policy - pass it to map the pencil's double-tap to a custom action.
   PdfPencilInteraction({this.onDoubleTap});
 
   /// The method channel the native side invokes. The host registers a

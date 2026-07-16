@@ -49,7 +49,7 @@ class PdfMeasurementScale {
   /// The distance unit label ('ft', 'm', ...).
   final String unitLabel;
 
-  /// The on-page reference unit the scale is quoted against — the
+  /// The on-page reference unit the scale is quoted against - the
   /// left-hand side of the `1 <pageUnit> = N <unit>` ratio ('in', 'cm',
   /// 'mm'). Defaults to inches, the traditional drawing-scale reference.
   final String pageUnitLabel;
@@ -60,6 +60,23 @@ class PdfMeasurementScale {
   /// The display precision passed to [PdfNumberFormat] (nearest
   /// `1 / precision`).
   final int precision;
+
+  /// Recovers a scale from a document-borne [PdfMeasure] (a page /VP
+  /// viewport's /Measure, or an annotation's), so the editor can adopt the
+  /// drawing scale a reopened or shared file already carries. The on-page
+  /// reference unit isn't stored in /Measure, so it defaults to inches.
+  static PdfMeasurementScale fromMeasure(PdfMeasure measure) =>
+      PdfMeasurementScale(
+        unitsPerPoint: measure.scaleFactor,
+        unitLabel: measure.distance.isNotEmpty
+            ? measure.distance.first.unit
+            : measure.x.first.unit,
+        areaUnitLabel:
+            measure.area.isNotEmpty ? measure.area.first.unit : null,
+        precision: measure.distance.isNotEmpty
+            ? measure.distance.first.precision
+            : 100,
+      );
 
   /// The /Measure dictionary model this scale stamps onto annotations.
   PdfMeasure toMeasure() => PdfMeasure.scale(
@@ -151,7 +168,7 @@ const _imperialCountries = {'US', 'LR', 'MM'};
 /// Whether [locale]'s region uses the imperial measurement system. The
 /// measurement system is a regional preference, so the country comes from
 /// [locale] when it carries one, otherwise from the device locale
-/// (`platformDispatcher.locale` — the browser language on the web).
+/// (`platformDispatcher.locale` - the browser language on the web).
 bool _isImperialRegion([Locale? locale]) {
   final country = (locale?.countryCode ??
           WidgetsBinding.instance.platformDispatcher.locale.countryCode)
@@ -192,7 +209,7 @@ Future<PdfMeasurementScale?> showPdfScaleDialog(
 
 /// The scale-calibration dialog shown by [showPdfScaleDialog]. The user
 /// expresses the drawing's scale as "1 inch on the page equals N real
-/// units" — the most common way drawing scales are quoted — or taps
+/// units" - the most common way drawing scales are quoted - or taps
 /// "Calibrate" (when [onCalibrate] is set) to measure a known length on
 /// the page instead.
 class PdfScaleDialog extends StatefulWidget {
@@ -338,6 +355,87 @@ Future<(double, String)?> showPdfCalibrationLengthDialog(
       context: context,
       builder: (context) => _PdfCalibrationLengthDialog(initialUnit: initialUnit),
     );
+
+/// Asks for the extrusion depth of a volume measurement, in the scale's
+/// distance unit ([unitLabel], shown as a suffix). Returns the depth, or
+/// null when dismissed. Used by the volume tool after the footprint polygon
+/// is drawn.
+Future<double?> showPdfDepthDialog(
+  BuildContext context, {
+  String? unitLabel,
+}) =>
+    showDialog<double>(
+      context: context,
+      builder: (context) => _PdfDepthDialog(unitLabel: unitLabel),
+    );
+
+class _PdfDepthDialog extends StatefulWidget {
+  const _PdfDepthDialog({this.unitLabel});
+
+  final String? unitLabel;
+
+  @override
+  State<_PdfDepthDialog> createState() => _PdfDepthDialogState();
+}
+
+class _PdfDepthDialogState extends State<_PdfDepthDialog> {
+  final _value = TextEditingController();
+
+  @override
+  void dispose() {
+    _value.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final depth = double.tryParse(_value.text.trim());
+    if (depth == null || depth <= 0) {
+      Navigator.of(context).pop();
+      return;
+    }
+    Navigator.of(context).pop(depth);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unit = widget.unitLabel;
+    return AlertDialog(
+      title: const Text('Volume depth'),
+      content: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Depth: '),
+          SizedBox(
+            width: 100,
+            child: TextField(
+              key: const ValueKey('pdf-depth-value'),
+              controller: _value,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              textAlign: TextAlign.end,
+              onSubmitted: (_) => _submit(),
+            ),
+          ),
+          if (unit != null && unit.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Text(unit),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('pdf-depth-apply'),
+          onPressed: _submit,
+          child: const Text('Measure'),
+        ),
+      ],
+    );
+  }
+}
 
 class _PdfCalibrationLengthDialog extends StatefulWidget {
   const _PdfCalibrationLengthDialog({this.initialUnit});

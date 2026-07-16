@@ -12,7 +12,7 @@ enum OcrPhase {
   finishing,
 }
 
-/// A snapshot of a running on-device OCR job — drives the app-bar progress
+/// A snapshot of a running on-device OCR job - drives the app-bar progress
 /// chip so OCR runs in the background while the user keeps using the PDF.
 /// A `null` status (see `OnDeviceOcr.status`) means no job is active.
 @immutable

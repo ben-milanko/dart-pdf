@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_viewer_example/main.dart';
@@ -17,11 +16,19 @@ void main() {
 
   Future<void> openRecentsSubmenu(WidgetTester tester) async {
     await openAppMenu(tester);
-    await tester.tap(find.text('Recent files'));
+    await tester.tap(find.text('Open Recent'));
     await tester.pumpAndSettle();
   }
 
-  testWidgets('recents live behind a submenu, not inline', (tester) async {
+  String shortcut(String key, {bool shift = false}) {
+    final apple = defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+    return apple
+        ? '${shift ? '⇧' : ''}⌘$key'
+        : 'Ctrl+${shift ? 'Shift+' : ''}$key';
+  }
+
+  testWidgets('open recent lives behind a submenu, not inline', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final backend = PdfMemoryCacheStore();
     final seed = RecentFilesStore(backend);
@@ -33,17 +40,42 @@ void main() {
     await tester.pump();
 
     await openAppMenu(tester);
-    // the parent menu only shows the "Recent files" row; the files
+    // the parent menu only shows the "Open Recent" row; the files
     // themselves stay hidden until the submenu is opened
-    expect(find.text('Recent files'), findsOneWidget);
+    expect(find.text('Open Recent'), findsOneWidget);
     expect(find.text('alpha.pdf'), findsNothing);
     expect(find.text('beta.pdf'), findsNothing);
 
-    await tester.tap(find.text('Recent files'));
+    await tester.tap(find.text('Open Recent'));
     await tester.pumpAndSettle();
     expect(find.text('alpha.pdf'), findsOneWidget);
     expect(find.text('beta.pdf'), findsOneWidget);
     expect(find.text('Clear recent files'), findsOneWidget);
+  });
+
+  testWidgets('app menu shows shortcut labels', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final backend = PdfMemoryCacheStore();
+    final seed = RecentFilesStore(backend);
+    await seed.record('alpha.pdf', doc(1));
+
+    await tester.pumpWidget(ViewerApp(cacheStore: backend));
+    await tester.pump();
+    await tester.pump();
+
+    await openAppMenu(tester);
+    expect(find.text(shortcut('S')), findsOneWidget);
+    expect(find.text(shortcut('O')), findsOneWidget);
+    expect(find.text(shortcut('O', shift: true)), findsOneWidget);
+  });
+
+  testWidgets('app menu includes a feedback link', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(ViewerApp(cacheStore: PdfMemoryCacheStore()));
+    await tester.pump();
+
+    await openAppMenu(tester);
+    expect(find.text('Supply feedback…'), findsOneWidget);
   });
 
   testWidgets('files already open in a tab are excluded from recents',
@@ -69,7 +101,8 @@ void main() {
     expect(find.text('Feature showcase'), findsOneWidget);
   });
 
-  testWidgets('clearing recents removes the submenu row', (tester) async {
+  testWidgets('clearing recents leaves an empty open recent row',
+      (tester) async {
     SharedPreferences.setMockInitialValues({});
     final backend = PdfMemoryCacheStore();
     final seed = RecentFilesStore(backend);
@@ -84,17 +117,19 @@ void main() {
     await tester.pumpAndSettle();
 
     await openAppMenu(tester);
-    expect(find.text('Recent files'), findsNothing);
+    expect(find.text('Open Recent'), findsOneWidget);
     expect(find.text('alpha.pdf'), findsNothing);
+    expect(find.text('Clear recent files'), findsNothing);
   });
 
-  testWidgets('with no recents there is no Recent files row', (tester) async {
+  testWidgets('with no recents the Open Recent row is still visible',
+      (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(ViewerApp(cacheStore: PdfMemoryCacheStore()));
     await tester.pump();
 
     await openAppMenu(tester);
-    expect(find.text('Recent files'), findsNothing);
+    expect(find.text('Open Recent'), findsOneWidget);
     expect(find.text('Clear recent files'), findsNothing);
   });
 }

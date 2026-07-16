@@ -7,7 +7,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 /// One page with 'Hello, world!' at 72,720 (24pt) and a URI link whose
-/// rectangle covers the text — the sidebar shows that text as the link's
+/// rectangle covers the text - the sidebar shows that text as the link's
 /// label.
 Uint8List buildLinkOverTextPdf() {
   const content = 'BT /F1 24 Tf 72 720 Td (Hello, world!) Tj ET';
@@ -76,7 +76,7 @@ void main() {
     expect(editing.document.page(0).annotations.single.author, 'Ben');
 
     await pumpSidebar(tester, editing, viewer);
-    expect(find.text('Ben — first note'), findsOneWidget);
+    expect(find.text('Ben - first note'), findsOneWidget);
   });
 
   testWidgets('long-press multi-select deletes the checked set as one undo',
@@ -112,6 +112,65 @@ void main() {
     editing.undo();
     await tester.pump();
     expect(editing.document.page(0).annotations, hasLength(2));
+  });
+
+  testWidgets('locked rows still navigate and flash but expose no edit actions',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(250, 350, 400, 450))
+      ..addEllipse(0, const PdfRect(100, 100, 200, 150));
+    final locked = editing.annotationAt(0, 0)!;
+    editing.apply(
+      (editor) => editor.setAnnotationFlags(0, locked, 128),
+    );
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await pumpSidebar(tester, editing, viewer);
+
+    expect(
+        find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsNothing);
+    expect(find.byKey(const ValueKey('pdf-annotation-delete-0-1')),
+        findsOneWidget);
+
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    expect(editing.hasAnnotationSelection, isFalse);
+    expect(editing.pendingFlash, isNotNull);
+    expect(editing.pendingFlash?.slot, 0);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Square'));
+    await tester.pump();
+    expect(find.text('1 selected'), findsNothing);
+
+    await tester.longPress(find.text('Circle'));
+    await tester.pump();
+    expect(find.text('1 selected'), findsOneWidget);
+
+    final squareTile = find.ancestor(
+      of: find.text('Square'),
+      matching: find.byType(ListTile),
+    );
+    final circleTile = find.ancestor(
+      of: find.text('Circle'),
+      matching: find.byType(ListTile),
+    );
+    final squareCheckbox = tester.widget<Checkbox>(find.descendant(
+      of: squareTile,
+      matching: find.byType(Checkbox),
+    ));
+    final circleCheckbox = tester.widget<Checkbox>(find.descendant(
+      of: circleTile,
+      matching: find.byType(Checkbox),
+    ));
+    expect(squareCheckbox.onChanged, isNull);
+    expect(circleCheckbox.onChanged, isNotNull);
+
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    expect(find.text('1 selected'), findsOneWidget);
+    await tester.pump(PdfEditingController.flashLifetime);
   });
 
   testWidgets('tapping a tile zooms the viewer to the annotation',
@@ -169,15 +228,15 @@ void main() {
     await pumpSidebarOnly(tester, editing);
 
     expect(find.text('Text field'), findsNWidgets(3)); // name/address/serial
-    expect(find.text('name — prefilled'), findsOneWidget);
+    expect(find.text('name - prefilled'), findsOneWidget);
     expect(find.text('address'), findsOneWidget); // no value yet
-    expect(find.text('serial — A-1000'), findsOneWidget);
+    expect(find.text('serial - A-1000'), findsOneWidget);
     expect(find.text('Button field'), findsNWidgets(3)); // agree + 2 radios
-    expect(find.text('agree — Off'), findsOneWidget);
+    expect(find.text('agree - Off'), findsOneWidget);
     // radio kids inherit name and value up the /Parent chain
-    expect(find.text('color — Off'), findsNWidgets(2));
+    expect(find.text('color - Off'), findsNWidgets(2));
     expect(find.text('Choice field'), findsOneWidget);
-    expect(find.text('size — Medium'), findsOneWidget);
+    expect(find.text('size - Medium'), findsOneWidget);
   });
 
   testWidgets('link tiles show where each link goes', (tester) async {
@@ -202,7 +261,7 @@ void main() {
     addTearDown(editing.dispose);
     await pumpSidebarOnly(tester, editing);
 
-    expect(find.text('Hello, world! — https://example.com'), findsOneWidget);
+    expect(find.text('Hello, world! - https://example.com'), findsOneWidget);
   });
 
   group('search', () {
@@ -236,7 +295,7 @@ void main() {
       expect(find.text('Square'), findsOneWidget);
       expect(find.text('Stamp'), findsNothing);
 
-      // by author (every tile carries 'Ben — …' except the bare square)
+      // by author (every tile carries 'Ben - …' except the bare square)
       await tester.enterText(
           find.byKey(const ValueKey('pdf-annotation-search')), 'review');
       await tester.pump();
@@ -276,7 +335,7 @@ void main() {
       await tester.pump();
       expect(find.text('Square'), findsNothing);
 
-      // a new revision rebuilds the list — still filtered
+      // a new revision rebuilds the list - still filtered
       editing.addEllipse(0, const PdfRect(300, 100, 400, 150));
       await tester.pump();
       expect(find.text('Note'), findsOneWidget);

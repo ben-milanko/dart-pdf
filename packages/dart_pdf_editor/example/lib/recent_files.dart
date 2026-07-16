@@ -17,7 +17,7 @@ class RecentFile {
     required this.openedAt,
   });
 
-  /// Stable identifier — the document's content key, which is also the
+  /// Stable identifier - the document's content key, which is also the
   /// cache key its bytes are stored under. Reopening the same document
   /// therefore folds into the existing entry instead of duplicating it.
   final String id;
@@ -67,7 +67,7 @@ class RecentFile {
 /// IndexedDB on the web).
 ///
 /// Each opened document's bytes are kept under its content key so a recent
-/// file reopens on every platform — including the web, where a picked file
+/// file reopens on every platform - including the web, where a picked file
 /// has no path to re-read from. A JSON manifest records the order
 /// (most-recently opened first) and the metadata the menu shows; the list
 /// is trimmed to [maxEntries] and a total [maxBytes] budget, evicting the
@@ -112,7 +112,7 @@ class RecentFilesStore extends ChangeNotifier {
   /// The recent files, most-recently opened first.
   List<RecentFile> get entries => _entries;
 
-  /// Records [bytes] — a freshly opened PDF named [title] — at the front of
+  /// Records [bytes] - a freshly opened PDF named [title] - at the front of
   /// the list, folding a re-open of the same content into one entry and
   /// evicting the oldest past the count or byte budget.
   Future<void> record(String title, Uint8List bytes) => _run(() async {
@@ -184,8 +184,8 @@ class RecentFilesStore extends ChangeNotifier {
   // --- internals -----------------------------------------------------
 
   /// Serializes [action] behind every earlier call, loading the manifest
-  /// on the first one. A throw inside never escapes — it degrades to the
-  /// empty/miss result — but the queue keeps running for the next caller.
+  /// on the first one. A throw inside never escapes - it degrades to the
+  /// empty/miss result - but the queue keeps running for the next caller.
   Future<T> _run<T>(Future<T> Function() action) {
     final result = _queue.then((_) async {
       if (!_loaded) {
@@ -213,7 +213,7 @@ class RecentFilesStore extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {
-      // corrupt manifest — start empty
+      // corrupt manifest - start empty
     }
   }
 

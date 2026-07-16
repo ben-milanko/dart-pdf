@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'render_worker.dart';
@@ -9,7 +10,7 @@ import 'render_worker.dart';
 /// locally exactly as it did before the worker existed.
 PdfRenderWorker startRenderWorker(Uint8List bytes) => const _NullRenderWorker();
 
-class _NullRenderWorker implements PdfRenderWorker {
+class _NullRenderWorker extends PdfRenderWorker {
   const _NullRenderWorker();
 
   @override
@@ -17,7 +18,12 @@ class _NullRenderWorker implements PdfRenderWorker {
 
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
-          {bool annotations = true, int priority = 0}) async =>
+          {bool annotations = true,
+          int priority = 0,
+          double? imagePixelRatio,
+          bool decodeImages = true,
+          int? commandLimit,
+          PdfRect? imageDecodeRegion}) async =>
       null;
 
   @override

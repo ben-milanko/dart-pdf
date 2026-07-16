@@ -24,10 +24,11 @@ void main() {
 
   // A bare overlay over a 306×396 view of the 612×792 page: 0.5 px/pt.
   Future<PdfEditingController> pumpOverlay(WidgetTester tester,
-      {required String shape}) async {
+      {required String shape, bool dashed = false}) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
       ..color = const Color(0xFFFF0000)
-      ..strokeWidth = 4;
+      ..strokeWidth = 4
+      ..dashedStroke = dashed;
     if (shape == 'Circle') {
       editing.addEllipse(0, const PdfRect(100, 550, 300, 650));
     } else {
@@ -71,7 +72,7 @@ void main() {
 
     final gesture =
         await tester.startGesture(corner, kind: PointerDeviceKind.mouse);
-    // widen and lengthen the box a long way — a stretched ghost would
+    // widen and lengthen the box a long way - a stretched ghost would
     // thicken the line in proportion
     await gesture.moveTo(origin + const Offset(280, 250));
     await tester.pump();
@@ -108,6 +109,28 @@ void main() {
 
     await gesture.up();
     await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('a dashed shape uses the committed dash in its resize preview',
+      (tester) async {
+    final editing = await pumpOverlay(tester, shape: 'Square', dashed: true);
+    final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+    final corner = origin + const Offset(150, 121);
+
+    final gesture =
+        await tester.startGesture(corner, kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(origin + const Offset(280, 250));
+    await tester.pump();
+
+    final shapeResize = overlayPainter(tester).shapeResize;
+    expect(shapeResize, isNotNull);
+    // the dash size is driven by the pattern scale (1×), not the pen: a
+    // dashed shape => [6, 4]pt /BS /D; the 0.5 px/pt view scales it once.
+    expect(shapeResize.dashPattern, [3.0, 2.0]);
+
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(editing.document.page(0).annotations.single.borderDash, [6.0, 4.0]);
   });
 
   testWidgets(

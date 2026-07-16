@@ -37,6 +37,7 @@ const VERBOSE = (process.env.PERF_VERBOSE ?? 'false') === 'true';
 const RESULTS = process.env.PERF_RESULTS ?? join(HERE, 'results.ndjson');
 const CHROME = process.env.PERF_CHROME ??
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const ISOLATED = (process.env.PERF_CROSS_ORIGIN_ISOLATED ?? 'true') !== 'false';
 // Negative control: serve a 404 for the worker script to force UI-thread
 // fallback, so we can confirm the loop actually catches a regression.
 const NO_WORKER = (process.env.PERF_NO_WORKER ?? 'false') === 'true';
@@ -62,6 +63,15 @@ const MIME = {
   '.pdf': 'application/pdf',
 };
 
+function headers(type, length) {
+  const h = { 'content-type': type, 'content-length': length };
+  if (ISOLATED) {
+    h['cross-origin-opener-policy'] = 'same-origin';
+    h['cross-origin-embedder-policy'] = 'credentialless';
+  }
+  return h;
+}
+
 function startServer() {
   return new Promise((resolve, reject) => {
     const server = createServer(async (req, res) => {
@@ -69,12 +79,12 @@ function startServer() {
         let path = decodeURIComponent(req.url.split('?')[0]);
         if (path === '/perf.pdf') {
           const buf = await readFile(PDF);
-          res.writeHead(200, { 'content-type': 'application/pdf', 'content-length': buf.length });
+          res.writeHead(200, headers('application/pdf', buf.length));
           res.end(buf);
           return;
         }
         // Negative control: 404 the worker script so the app degrades to
-        // UI-thread render — the loop must then flag the regression.
+        // UI-thread render - the loop must then flag the regression.
         if (NO_WORKER && path === '/pdf_render_worker.dart.js') {
           res.writeHead(404); res.end('worker disabled'); return;
         }
@@ -86,8 +96,7 @@ function startServer() {
         if (!info || !info.isFile()) { res.writeHead(404); res.end('not found'); return; }
         const buf = await readFile(file);
         const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
-        // The render worker is a same-origin classic worker; no COOP/COEP needed.
-        res.writeHead(200, { 'content-type': type, 'content-length': buf.length });
+        res.writeHead(200, headers(type, buf.length));
         res.end(buf);
       } catch (e) {
         res.writeHead(500);
@@ -115,17 +124,37 @@ function parse(lines, frames) {
     workerResultBytes: 0,
     workerResultMax: 0,
     workerWarmMax: 0,
+    prerender: { vector: 0, full: 0 },
+    target: {},
     jankCount: 0,
     errorLines: [],
     declines: 0,
     harness: {},
   };
   for (const line of lines) {
+    const stamp = line.match(/^\[perf ([\d.]+)\]/);
+    const atMs = stamp ? Number(stamp[1]) : null;
+    const targetStart = line.match(/HARNESS TARGET start page=(\d+)/);
+    if (targetStart && atMs != null) {
+      r.target.page = Number(targetStart[1]);
+      r.target.startMs = atMs;
+    }
+    const targetFirst = line.match(/HARNESS TARGET firstContent page=(\d+)/);
+    if (targetFirst && atMs != null && r.target.startMs != null) {
+      r.target.detectedMs = atMs - r.target.startMs;
+    }
     const m = line.match(/interpret page=(\d+) path=(\w+)/);
     if (m) {
       r.pages.add(Number(m[1]));
       const path = m[2];
       if (path in r.interpret) r.interpret[path]++; else r.interpret.other++;
+      if (atMs != null &&
+        r.target.startMs != null &&
+        r.target.firstContentMs == null &&
+        Number(m[1]) === r.target.page) {
+        r.target.firstContentMs = atMs - r.target.startMs;
+        r.target.kind = `interpret/${path}`;
+      }
     }
     const wr = line.match(/webworker result page=\d+ (\d+)B/);
     if (wr) {
@@ -135,6 +164,26 @@ function parse(lines, frames) {
     }
     const warm = line.match(/worker warm=([\d.]+)ms/);
     if (warm) r.workerWarmMax = Math.max(r.workerWarmMax, Number(warm[1]));
+    const pre = line.match(/prerender page=\d+ (?:worker )?(vector|full) /);
+    if (pre) r.prerender[pre[1]]++;
+    const vector = line.match(/vector-first page=(\d+)/);
+    if (vector &&
+      atMs != null &&
+      r.target.startMs != null &&
+      r.target.firstContentMs == null &&
+      Number(vector[1]) === r.target.page) {
+      r.target.firstContentMs = atMs - r.target.startMs;
+      r.target.kind = 'vector-first';
+    }
+    const preview = line.match(/preview-paint page=(\d+)/);
+    if (preview &&
+      atMs != null &&
+      r.target.startMs != null &&
+      r.target.firstContentMs == null &&
+      Number(preview[1]) === r.target.page) {
+      r.target.firstContentMs = atMs - r.target.startMs;
+      r.target.kind = 'preview';
+    }
     if (/JANK /.test(line)) r.jankCount++;
     if (/declin/i.test(line)) r.declines++;
     if (/error|exception|unsupported|cannot|failed/i.test(line) && /\[perf|webworker/.test(line)) {
@@ -160,9 +209,43 @@ function parse(lines, frames) {
 
 function fmt(n, d = 1) { return Number(n).toFixed(d); }
 
+// What the tab actually holds. performance.memory only sees the JS heap, and
+// decoded PDF images live in CanvasKit's wasm heap - so the number that matters
+// comes from measureUserAgentSpecificMemory(), which counts WASM and is why the
+// server sends COOP/COEP (it needs cross-origin isolation). Returns the agent
+// total plus the ceilings a tab is judged against.
+const MEMORY_PROBE = `(async () => {
+  const out = { deviceMemoryGb: navigator.deviceMemory ?? null };
+  // Chrome is launched with --expose-gc so the numbers below are retained
+  // memory, not whatever V8 had not got round to collecting.
+  if (window.gc) { window.gc(); await new Promise((r) => setTimeout(r, 500)); window.gc(); out.gc = true; }
+  const m = performance.memory;
+  if (m) {
+    out.jsHeapUsed = m.usedJSHeapSize;
+    out.jsHeapLimit = m.jsHeapSizeLimit;
+  }
+  if (window.__perfImageCacheBytes) out.imageCacheBytes = window.__perfImageCacheBytes();
+  if (performance.measureUserAgentSpecificMemory) {
+    try {
+      const r = await performance.measureUserAgentSpecificMemory();
+      out.agentBytes = r.bytes;
+      out.breakdown = r.breakdown
+        .filter((b) => b.bytes > 0)
+        .map((b) => ({ bytes: b.bytes, types: b.types }))
+        .sort((a, b) => b.bytes - a.bytes)
+        .slice(0, 6);
+    } catch (e) { out.measureError = String(e); }
+  } else {
+    out.measureError = 'measureUserAgentSpecificMemory unavailable (not cross-origin isolated?)';
+  }
+  return out;
+})()`;
+
+function mb(bytes) { return bytes == null ? '?' : `${(bytes / 1048576).toFixed(0)}MB`; }
+
 async function main() {
   if (!existsSync(WEB_DIR) || !existsSync(join(WEB_DIR, 'index.html'))) {
-    console.error(`✗ no harness build at ${WEB_DIR} — run tool/perf/build.sh first`);
+    console.error(`✗ no harness build at ${WEB_DIR} - run tool/perf/build.sh first`);
     process.exit(2);
   }
   if (!existsSync(PDF)) {
@@ -182,14 +265,17 @@ async function main() {
   if (process.env.PERF_DWELL_MS) qp.set('dwell', process.env.PERF_DWELL_MS);
   if (process.env.PERF_PASSES) qp.set('passes', process.env.PERF_PASSES);
   if (process.env.PERF_FAST_PASS) qp.set('fast', process.env.PERF_FAST_PASS);
+  if (process.env.PERF_TARGET_PAGE) qp.set('targetPage', process.env.PERF_TARGET_PAGE);
+  if (process.env.PERF_IMAGE_CACHE_MB) qp.set('imageCacheMb', process.env.PERF_IMAGE_CACHE_MB);
   const qs = qp.toString();
   const url = `http://127.0.0.1:${PORT}/${qs ? '?' + qs : ''}`;
-  console.log(`▶ serving ${WEB_DIR} + /perf.pdf at ${url} (headless=${HEADLESS})`);
+  console.log(`▶ serving ${WEB_DIR} + /perf.pdf at ${url} (headless=${HEADLESS}, isolated=${ISOLATED})`);
 
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: HEADLESS ? 'shell' : false,
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1400,1000'],
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1400,1000',
+      '--js-flags=--expose-gc'],
     defaultViewport: { width: 1400, height: 1000 },
   });
 
@@ -197,15 +283,20 @@ async function main() {
   let fatal = null;
   try {
     const pageErrors = [];
+    const consoleLines = [];
     const page = await browser.newPage();
-    page.on('console', (msg) => { if (VERBOSE) console.log('  ‹console›', msg.text()); });
+    page.on('console', (msg) => {
+      const text = msg.text();
+      consoleLines.push(text);
+      if (VERBOSE) console.log('  ‹console›', text);
+    });
     page.on('pageerror', (e) => { pageErrors.push(String(e)); console.error('  ‹pageerror›', String(e)); });
 
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
 
     // Poll for the harness to finish (or its own error path), up to the budget.
     // Bail fast on a startup crash: a pageerror with no harness output after a
-    // short grace means the app never came up — don't burn the whole budget.
+    // short grace means the app never came up - don't burn the whole budget.
     const deadline = t0 + TIMEOUT_S * 1000;
     let done = false;
     while (Date.now() < deadline) {
@@ -220,19 +311,24 @@ async function main() {
     if (!done && !fatal) fatal = `timeout after ${TIMEOUT_S}s waiting for __perfDone`;
     if (pageErrors.length) (result ??= {}).pageErrors = pageErrors;
 
+    // Sample memory before scraping the trace, while the run's peak is still
+    // resident (the wasm heap never shrinks, so this is a high-water mark).
+    const memory = await page.evaluate(MEMORY_PROBE).catch((e) => ({ measureError: String(e) }));
+
     const harnessError = await page.evaluate('window.__perfError ?? null').catch(() => null);
     const dump = await page.evaluate('window.__perfDump ? window.__perfDump() : ""').catch(() => '');
     const framesJson = await page.evaluate('window.__perfFrames ? window.__perfFrames() : "[]"').catch(() => '[]');
     const lines = dump ? dump.split('\n') : [];
+    lines.push(...consoleLines.filter((line) => line.startsWith('[perf ')));
     let frames = [];
     try { frames = JSON.parse(framesJson); } catch { /* ignore */ }
 
-    result = { ...(result ?? {}), harnessError, lines: lines.length, ...parse(lines, frames) };
-    result.rawLineSample = lines.filter((l) => /interpret|webworker|HARNESS|JANK|error/i.test(l)).slice(0, 40);
+    result = { ...(result ?? {}), harnessError, memory, lines: lines.length, ...parse(lines, frames) };
+    result.rawLineSample = lines.filter((l) => /interpret|webworker|vector-first|preview-paint|HARNESS|JANK|error/i.test(l)).slice(0, 60);
   } catch (e) {
     fatal = String(e?.stack ?? e);
   } finally {
-    await browser.close().catch(() => {});
+    await browser.close().catch(() => { });
     server.close();
   }
 
@@ -244,7 +340,7 @@ async function main() {
     fatal,
     ...(result ?? {}),
   };
-  // pages is a Set — make it serialisable / summarisable.
+  // pages is a Set - make it serialisable / summarisable.
   const pagesVisited = result?.pages ? result.pages.size : 0;
   if (record.pages) record.pages = pagesVisited;
 
@@ -258,6 +354,19 @@ async function main() {
     console.log(`  pages visited      ${pagesVisited}`);
     console.log(`  interpret paths    worker=${i.worker} recorded=${i.recorded} plain=${i.plain} other=${i.other} declines=${result.declines}`);
     console.log(`  worker decode      max=${(result.workerResultMax / 1e6).toFixed(2)}MB total=${(result.workerResultBytes / 1e6).toFixed(1)}MB warmMax=${fmt(result.workerWarmMax)}ms`);
+    console.log(`  prerender warms    vector=${result.prerender.vector} full=${result.prerender.full}`);
+    if (result.target?.firstContentMs != null) {
+      console.log(`  target first paint page=${result.target.page} ${fmt(result.target.firstContentMs)}ms via ${result.target.kind}`);
+    }
+    const mem = result.memory;
+    if (mem && !mem.measureError) {
+      console.log(`  tab memory         agent=${mb(mem.agentBytes)} imageCache=${mb(mem.imageCacheBytes)} jsHeap=${mb(mem.jsHeapUsed)}/${mb(mem.jsHeapLimit)} deviceMemory=${mem.deviceMemoryGb ?? '?'}GB`);
+      for (const b of mem.breakdown ?? []) {
+        console.log(`      ${mb(b.bytes).padStart(7)}  ${b.types.join(', ')}`);
+      }
+    } else if (mem?.measureError) {
+      console.log(`  tab memory         unavailable: ${mem.measureError}`);
+    }
     console.log(`  frames             ${f.count}  buildP50=${fmt(f.buildP50)}ms p95=${fmt(f.buildP95)}ms max=${fmt(f.buildMax)}ms`);
     console.log(`  build over budget  >16ms=${f.buildOver16}  >32ms=${f.buildOver32}  >50ms=${f.buildOver50}   (PdfPerfLog JANK lines=${result.jankCount})`);
     if (result.errorLines?.length) {
@@ -275,10 +384,10 @@ async function main() {
   const regressed = result && (result.interpret.plain > 0 || result.interpret.recorded > 0);
   record.ok = ok;
   record.regressed = !!regressed;
-  console.log(ok ? (regressed ? '◐ PASS (with UI-thread interpret — see plain/recorded)' : '✓ PASS') : '✗ FAIL');
+  console.log(ok ? (regressed ? '◐ PASS (with UI-thread interpret - see plain/recorded)' : '✓ PASS') : '✗ FAIL');
   console.log('──────────────────────────────────\n');
 
-  await appendFile(RESULTS, JSON.stringify(record) + '\n').catch(() => {});
+  await appendFile(RESULTS, JSON.stringify(record) + '\n').catch(() => { });
   process.exit(ok ? 0 : 1);
 }
 

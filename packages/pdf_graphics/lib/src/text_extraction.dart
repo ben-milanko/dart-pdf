@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:bidi/bidi.dart' as bidi;
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -10,6 +11,9 @@ import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
 
+final _bidiFormattingControls =
+    RegExp(r'[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]');
+
 /// One positioned run of text on a page, in page space.
 class PdfExtractedRun {
   const PdfExtractedRun({
@@ -18,6 +22,7 @@ class PdfExtractedRun {
     required this.transform,
     required this.width,
     required this.bounds,
+    this.isRightToLeft = false,
     this.mcid,
   });
 
@@ -28,7 +33,7 @@ class PdfExtractedRun {
 
   /// The marked-content id of the structure-tagged sequence this run belongs
   /// to (§14.7), or null when the run is not tagged. Joins runs to the
-  /// logical structure tree — see [PdfTaggedText].
+  /// logical structure tree - see [PdfTaggedText].
   final int? mcid;
 
   /// Em space → page space (see [PdfTextRun.transform]).
@@ -39,6 +44,11 @@ class PdfExtractedRun {
 
   /// Page-space bounding box.
   final PdfRect bounds;
+
+  /// Whether logical character order runs opposite this run's em-space
+  /// advance. Search and selection use this to map logical Arabic/Hebrew
+  /// offsets back onto the visual glyph positions in the PDF.
+  final bool isRightToLeft;
 }
 
 /// Four page-space corners of a text span's highlight box, in perimeter
@@ -50,11 +60,15 @@ class PdfExtractedRun {
 /// painted as a quad rotates with the text instead of ballooning out to
 /// an axis-aligned bounding box.
 class PdfTextQuad {
-  const PdfTextQuad(this.corners);
+  const PdfTextQuad(this.corners, {this.isRightToLeft = false});
 
   /// The four `(x, y)` page-space points in perimeter order (ll, lr, ur,
   /// ul). Always length 4.
   final List<(double x, double y)> corners;
+
+  /// Whether logical text advances from the quad's right edge toward its
+  /// left edge. Selection chrome uses this to anchor its logical endpoints.
+  final bool isRightToLeft;
 
   /// The axis-aligned page-space bounding box of the four corners.
   PdfRect get bounds {
@@ -113,6 +127,8 @@ class PdfPageText {
   /// throwing); matching is synchronous with no timeout, so a pathological
   /// (catastrophically backtracking) pattern over a large page can block
   /// the caller. [caseSensitive] applies to both literal and regex search.
+  /// Literal queries ignore Unicode BiDi formatting controls so text copied
+  /// with direction metadata can be pasted back into search.
   List<PdfTextMatch> findAll(
     String query, {
     bool caseSensitive = false,
@@ -126,7 +142,7 @@ class PdfPageText {
       try {
         pattern = RegExp(query, caseSensitive: caseSensitive, multiLine: true);
       } on FormatException {
-        return const []; // invalid pattern — surface no matches, don't throw
+        return const []; // invalid pattern - surface no matches, don't throw
       }
       for (final match in pattern.allMatches(text)) {
         if (match.start == match.end) continue; // skip zero-width hits
@@ -135,6 +151,8 @@ class PdfPageText {
       }
       return matches;
     }
+    query = query.replaceAll(_bidiFormattingControls, '');
+    if (query.isEmpty) return const [];
     final haystack = caseSensitive ? text : text.toLowerCase();
     final needle = caseSensitive ? query : query.toLowerCase();
     var from = 0;
@@ -162,7 +180,7 @@ class PdfPageText {
   }
 
   /// Whether [text]`[start..end)` is bounded by non-word characters on both
-  /// sides (or the string edge) — the "match whole word" test.
+  /// sides (or the string edge) - the "match whole word" test.
   bool _isWholeWord(int start, int end) =>
       !_isWordChar(start - 1) && !_isWordChar(end);
 
@@ -182,7 +200,7 @@ class PdfPageText {
       [for (final quad in quadsFor(start, end)) quad.bounds];
 
   /// Baseline-aligned page-space quads covering the characters
-  /// [start]..[end] of [text] — for selection and search highlights that
+  /// [start]..[end] of [text] - for selection and search highlights that
   /// rotate with rotated text.
   List<PdfTextQuad> quadsFor(int start, int end) {
     final quads = <PdfTextQuad>[];
@@ -194,28 +212,47 @@ class PdfPageText {
       if (overlapStart >= overlapEnd) continue;
       // approximate within-run positions by character fraction; per-glyph
       // geometry arrives with the font engine
-      final f0 = (overlapStart - run.startIndex) / run.text.length;
-      final f1 = (overlapEnd - run.startIndex) / run.text.length;
-      quads.add(_quadOf(run.transform, run.width * f0, run.width * f1));
+      final logicalStart = (overlapStart - run.startIndex) / run.text.length;
+      final logicalEnd = (overlapEnd - run.startIndex) / run.text.length;
+      final f0 = run.isRightToLeft ? 1 - logicalEnd : logicalStart;
+      final f1 = run.isRightToLeft ? 1 - logicalStart : logicalEnd;
+      quads.add(_quadOf(
+        run.transform,
+        run.width * f0,
+        run.width * f1,
+        isRightToLeft: run.isRightToLeft,
+      ));
     }
     return quads;
   }
 
   /// The page text inside [rect] (page space): runs whose bounds center
-  /// falls within the rect, in document order, joined with single
-  /// spaces. The text a /Link annotation's rectangle covers, for one.
+  /// falls within the rect, in document order, preserving whitespace between
+  /// adjacent runs. The text a /Link annotation's rectangle covers, for one.
   String textIn(PdfRect rect) {
-    final parts = <(int, String)>[];
+    final selected = <PdfExtractedRun>[];
     for (final run in runs) {
-      final piece = run.text.trim();
-      if (piece.isEmpty) continue;
+      if (run.text.trim().isEmpty) continue;
       final b = run.bounds;
       if (rect.contains((b.left + b.right) / 2, (b.bottom + b.top) / 2)) {
-        parts.add((run.startIndex, piece));
+        selected.add(run);
       }
     }
-    parts.sort((a, b) => a.$1.compareTo(b.$1));
-    return parts.map((part) => part.$2).join(' ');
+    selected.sort((a, b) => a.startIndex.compareTo(b.startIndex));
+    final buffer = StringBuffer();
+    PdfExtractedRun? previous;
+    for (final run in selected) {
+      if (previous != null) {
+        final from = previous.startIndex + previous.text.length;
+        if (run.startIndex > from) {
+          final between = text.substring(from, run.startIndex);
+          buffer.write(between.trim().isEmpty ? between : ' ');
+        }
+      }
+      buffer.write(run.text);
+      previous = run;
+    }
+    return buffer.toString();
   }
 
   /// Index into [text] nearest the page-space point ([x], [y]), for
@@ -242,8 +279,52 @@ class PdfPageText {
     final inverse = best.transform.inverted();
     final ex = inverse == null ? 0.0 : inverse.transformX(x, y);
     final fraction = best.width > 0 ? (ex / best.width).clamp(0.0, 1.0) : 0.0;
-    return best.startIndex + (fraction * best.text.length).round();
+    final logicalFraction = best.isRightToLeft ? 1 - fraction : fraction;
+    return best.startIndex + (logicalFraction * best.text.length).round();
   }
+}
+
+/// Adds Unicode direction metadata suitable for putting extracted [text] on
+/// a plain-text clipboard.
+///
+/// Searchable PDF text remains in clean logical order. Each paragraph that
+/// contains strong RTL text is instead wrapped at copy time in the isolate
+/// matching its first strong character (`RLI` or `LRI`), followed by `PDI`.
+/// Isolates are paragraph-scoped, so line endings are preserved outside the
+/// controls. A paragraph already wrapped in `LRI`/`RLI`/`FSI` and `PDI` is
+/// left alone.
+///
+/// This follows the W3C guidance for carrying bidirectional metadata in
+/// plain text when markup is unavailable:
+/// https://www.w3.org/International/questions/qa-bidi-unicode-controls.en.html
+String pdfBidiIsolateForCopy(String text) {
+  if (text.isEmpty) return text;
+  return text.splitMapJoin(
+    RegExp(r'\r\n|[\r\n]'),
+    onMatch: (match) => match.group(0)!,
+    onNonMatch: _isolateBidiParagraph,
+  );
+}
+
+String _isolateBidiParagraph(String text) {
+  if (text.isEmpty || _hasOuterBidiIsolate(text)) return text;
+  _BidiKind? firstStrong;
+  var hasRightToLeft = false;
+  for (final rune in text.runes) {
+    final direction = _strongBidiKind(rune);
+    if (direction == null) continue;
+    firstStrong ??= direction;
+    if (direction == _BidiKind.rtl) hasRightToLeft = true;
+  }
+  if (!hasRightToLeft) return text;
+  final opener = firstStrong == _BidiKind.rtl ? '\u2067' : '\u2066';
+  return '$opener$text\u2069';
+}
+
+bool _hasOuterBidiIsolate(String text) {
+  final first = text.codeUnitAt(0);
+  return (first == 0x2066 || first == 0x2067 || first == 0x2068) &&
+      text.codeUnitAt(text.length - 1) == 0x2069;
 }
 
 /// A line of text inferred from positioned page text.
@@ -305,7 +386,7 @@ class PdfReflowImage extends PdfReflowItem {
     required this.bounds,
   });
 
-  /// The interpreter's draw request — carries the image stream and the
+  /// The interpreter's draw request - carries the image stream and the
   /// unit-square → page-space transform.
   final PdfImageRequest request;
 
@@ -340,7 +421,7 @@ class PdfReflowPage {
   List<PdfReflowImage> get images =>
       [for (final item in items) if (item is PdfReflowImage) item];
 
-  /// The reading-order text — blocks joined with blank lines (images skipped).
+  /// The reading-order text - blocks joined with blank lines (images skipped).
   String get text => blocks.map((block) => block.text).join('\n\n');
 }
 
@@ -354,7 +435,7 @@ class PdfReflowDocument {
 }
 
 /// Extracts positioned text by running the interpreter with a collecting
-/// device — the same code path rendering uses, so what you search is what
+/// device - the same code path rendering uses, so what you search is what
 /// you see.
 class PdfTextExtractor {
   PdfTextExtractor._();
@@ -372,25 +453,306 @@ class PdfTextExtractor {
   static PdfPageText _pageTextFrom(int pageIndex, List<PdfTextRun> deviceRuns) {
     final buffer = StringBuffer();
     final runs = <PdfExtractedRun>[];
+    final line = <_SourceRun>[];
     PdfTextRun? previous;
-    for (final run in deviceRuns) {
-      if (previous != null) {
-        buffer.write(_separator(previous, run));
+
+    void flushLine() {
+      if (line.isEmpty) return;
+      final bidiLine = _bidiLine(line);
+      if (bidiLine == null) {
+        for (final item in line) {
+          buffer.write(item.separator);
+          _appendExtractedRun(
+              buffer, runs, item.run, item.run.text, 0, item.run.text.length);
+        }
+      } else {
+        final groups =
+            bidiLine.rightToLeft ? bidiLine.groups.reversed : bidiLine.groups;
+        for (final group in groups) {
+          final pieces = group.kind == _BidiKind.rtl
+              ? group.pieces.reversed
+              : group.pieces;
+          for (final piece in pieces) {
+            final text = group.kind == _BidiKind.rtl && !piece.preserveText
+                ? _reverseRunes(piece.text)
+                : piece.text;
+            final source = piece.source;
+            if (source == null) {
+              buffer.write(text);
+            } else {
+              _appendExtractedRun(
+                buffer,
+                runs,
+                source,
+                text,
+                piece.sourceStart,
+                piece.sourceEnd,
+                rightToLeft: group.kind == _BidiKind.rtl,
+                sourceX0: piece.sourceX0,
+                sourceX1: piece.sourceX1,
+              );
+            }
+          }
+        }
       }
-      final start = buffer.length;
-      buffer.write(run.text);
-      runs.add(PdfExtractedRun(
-        text: run.text,
-        startIndex: start,
-        transform: run.transform,
-        width: run.width,
-        bounds: _boundsOf(run.transform, 0, run.width),
-        mcid: run.mcid,
-      ));
+      line.clear();
+    }
+
+    for (final run in deviceRuns) {
+      final separator = previous == null ? '' : _separator(previous, run);
+      if (separator == '\n') {
+        flushLine();
+        buffer.write('\n');
+        line.add(_SourceRun('', run));
+      } else {
+        line.add(_SourceRun(separator, run));
+      }
       previous = run;
     }
+    flushLine();
     return PdfPageText(
         pageIndex: pageIndex, text: buffer.toString(), runs: runs);
+  }
+
+  /// PDF text-showing operators advance in glyph order, so embedded RTL fonts
+  /// normally expose visual-order Unicode through /ToUnicode. Convert one
+  /// visual line back to logical order. Runs without outlines are excluded:
+  /// those are rendered by a BiDi-aware substitute and may already contain
+  /// logical Unicode (including appearances authored by this package).
+  static _BidiLine? _bidiLine(List<_SourceRun> line) {
+    final pieces = <_BidiPiece>[];
+    _BidiKind? previousKind;
+    var hasRtl = false;
+    var hasUnpositionedRtl = false;
+    var runeCount = 0;
+    var rtlCount = 0;
+
+    void add(
+      String text,
+      PdfTextRun? source, {
+      int sourceOffset = 0,
+      bool preserveText = false,
+      double? sourceX0,
+      double? sourceX1,
+    }) {
+      var segmentStart = 0;
+      var offset = 0;
+      _BidiKind? segmentKind;
+
+      void flush() {
+        if (segmentKind == null || segmentStart == offset) return;
+        pieces.add(_BidiPiece(
+          text.substring(segmentStart, offset),
+          segmentKind,
+          source,
+          sourceOffset + segmentStart,
+          sourceOffset + offset,
+          preserveText,
+          sourceX0,
+          sourceX1,
+        ));
+      }
+
+      for (final rune in text.runes) {
+        runeCount++;
+        final char = String.fromCharCode(rune);
+        final kind = _bidiKind(rune, previousKind);
+        if (kind != segmentKind) {
+          flush();
+          segmentStart = offset;
+          segmentKind = kind;
+        }
+        offset += char.length;
+        previousKind = kind;
+        if (kind == _BidiKind.rtl) {
+          hasRtl = true;
+          rtlCount++;
+          if (source != null && source.glyphs == null) {
+            hasUnpositionedRtl = true;
+          }
+        }
+      }
+      flush();
+    }
+
+    final visualLine = _visualSourceClusters(line);
+    PdfTextRun? visualPrevious;
+    for (final cluster in visualLine) {
+      add(
+        visualPrevious == null
+            ? ''
+            : _separatorWithinVisualLine(visualPrevious, cluster.anchor),
+        null,
+      );
+      if (_isZeroAdvanceMark(cluster.sources.first.run)) {
+        previousKind = _firstStrongKind(cluster.anchor.text) ?? previousKind;
+      }
+      for (final item in cluster.sources) {
+        final glyphs = item.run.glyphs;
+        final hasGlyphText = glyphs != null &&
+            glyphs.every((glyph) => glyph.text != null) &&
+            glyphs.map((glyph) => glyph.text!).join() == item.run.text;
+        if (!hasGlyphText) {
+          add(item.run.text, item.run);
+          continue;
+        }
+        var sourceOffset = 0;
+        for (var i = 0; i < glyphs.length; i++) {
+          final glyph = glyphs[i];
+          final text = glyph.text!;
+          final end = i + 1 < glyphs.length
+              ? math.max(glyph.offset, glyphs[i + 1].offset)
+              : item.run.width;
+          add(
+            text,
+            item.run,
+            sourceOffset: sourceOffset,
+            preserveText: true,
+            sourceX0: glyph.offset,
+            sourceX1: end,
+          );
+          sourceOffset += text.length;
+        }
+      }
+      visualPrevious = cluster.anchor;
+    }
+    if (!hasRtl || hasUnpositionedRtl) return null;
+
+    final groups = <_BidiGroup>[];
+    for (final piece in pieces) {
+      if (groups.isEmpty || groups.last.kind != piece.kind) {
+        groups.add(_BidiGroup(piece.kind, [piece]));
+      } else {
+        groups.last.pieces.add(piece);
+      }
+    }
+    // Match the base-direction inference used by PDF.js: a line whose strong
+    // RTL content exceeds roughly 30% is an RTL paragraph. Otherwise only the
+    // embedded RTL spans reverse, so `English + العربية + English` keeps its
+    // surrounding LTR reading order.
+    return _BidiLine(groups, rightToLeft: rtlCount > runeCount * 0.3);
+  }
+
+  static void _appendExtractedRun(
+    StringBuffer buffer,
+    List<PdfExtractedRun> runs,
+    PdfTextRun source,
+    String text,
+    int sourceStart,
+    int sourceEnd, {
+    bool rightToLeft = false,
+    double? sourceX0,
+    double? sourceX1,
+  }) {
+    final sourceLength = source.text.length;
+    final f0 = sourceLength == 0 ? 0.0 : sourceStart / sourceLength;
+    final f1 = sourceLength == 0 ? 1.0 : sourceEnd / sourceLength;
+    final x0 = sourceX0 ?? source.width * f0;
+    final width = (sourceX1 ?? source.width * f1) - x0;
+    final transform = x0 == 0
+        ? source.transform
+        : PdfMatrix.translation(x0, 0).concat(source.transform);
+    final start = buffer.length;
+    buffer.write(text);
+    runs.add(PdfExtractedRun(
+      text: text,
+      startIndex: start,
+      transform: transform,
+      width: width,
+      bounds: _boundsOf(transform, 0, width),
+      isRightToLeft: rightToLeft,
+      mcid: source.mcid,
+    ));
+  }
+
+  /// Groups zero-advance marks with their following base run, then orders the
+  /// clusters by their location along the line's visual baseline.
+  ///
+  /// Skia emits Arabic marks as separate text-showing operators immediately
+  /// before their base glyph. Sorting those marks independently moves them
+  /// across the base and makes the gap heuristic insert spaces inside words.
+  /// Keeping the source-order cluster intact lets the RTL reversal restore
+  /// base-then-mark logical order while separately positioned words can still
+  /// move into visual order before the reversal.
+  static List<_SourceCluster> _visualSourceClusters(List<_SourceRun> line) {
+    final clusters = <_SourceCluster>[];
+    final pendingMarks = <_SourceRun>[];
+    for (final source in line) {
+      if (_isZeroAdvanceMark(source.run)) {
+        pendingMarks.add(source);
+        continue;
+      }
+      clusters.add(_SourceCluster(
+        [...pendingMarks, source],
+        source.run,
+      ));
+      pendingMarks.clear();
+    }
+    if (pendingMarks.isNotEmpty) {
+      if (clusters.isEmpty) {
+        clusters.add(_SourceCluster([...pendingMarks], pendingMarks.last.run));
+      } else {
+        final last = clusters.removeLast();
+        clusters.add(_SourceCluster(
+          [...last.sources, ...pendingMarks],
+          last.anchor,
+        ));
+      }
+    }
+    if (clusters.length < 2) return clusters;
+
+    final baseline = line.first.run.transform;
+    final length = math.sqrt(baseline.a * baseline.a + baseline.b * baseline.b);
+    if (length <= 1e-9) return clusters;
+    final ux = baseline.a / length;
+    final uy = baseline.b / length;
+    final positioned = <({int index, double offset, _SourceCluster cluster})>[
+      for (var i = 0; i < clusters.length; i++)
+        (
+          index: i,
+          offset: clusters[i].anchor.transform.e * ux +
+              clusters[i].anchor.transform.f * uy,
+          cluster: clusters[i],
+        ),
+    ];
+    positioned.sort((a, b) {
+      final order = a.offset.compareTo(b.offset);
+      return order != 0 ? order : a.index.compareTo(b.index);
+    });
+    return [for (final item in positioned) item.cluster];
+  }
+
+  static bool _isZeroAdvanceMark(PdfTextRun run) =>
+      run.width.abs() <= 1e-9 && run.text.trim().isNotEmpty;
+
+  static _BidiKind? _firstStrongKind(String text) {
+    for (final rune in text.runes) {
+      final kind = _strongBidiKind(rune);
+      if (kind != null) return kind;
+    }
+    return null;
+  }
+
+  /// Reconstructs an inferred separator after source runs have been reordered
+  /// visually. The gap is measured along the preceding run's baseline so the
+  /// same logic works for rotated text.
+  static String _separatorWithinVisualLine(
+      PdfTextRun previous, PdfTextRun next) {
+    if (previous.text.trim().isEmpty || next.text.trim().isEmpty) return '';
+    final em = previous.transform.scaleFactor;
+    final axisLength = math.sqrt(previous.transform.a * previous.transform.a +
+        previous.transform.b * previous.transform.b);
+    if (em <= 0 || axisLength <= 1e-9) return ' ';
+    final endX = previous.transform.transformX(previous.width, 0);
+    final endY = previous.transform.transformY(previous.width, 0);
+    final dx = next.transform.e - endX;
+    final dy = next.transform.f - endY;
+    final ux = previous.transform.a / axisLength;
+    final uy = previous.transform.b / axisLength;
+    final along = dx * ux + dy * uy;
+    final across = (dx * -uy + dy * ux).abs();
+    if (across > 0.5 * em || along > 0.15 * em) return ' ';
+    return '';
   }
 
   /// Extracts every page and infers paragraph blocks in reading order.
@@ -594,13 +956,23 @@ class PdfTextReflower {
   }
 
   static PdfReflowLine _lineFrom(List<_LinePiece> pieces) {
+    final logicalOrder = pieces.any((piece) => piece.isRightToLeft);
+    final ordered = logicalOrder
+        ? ([...pieces]..sort((a, b) => a.startIndex.compareTo(b.startIndex)))
+        : pieces;
     final buffer = StringBuffer();
     _LinePiece? previous;
-    for (final piece in pieces) {
+    for (final piece in ordered) {
       if (previous != null) {
-        final gap = piece.bounds.left - previous.bounds.right;
-        final font = (piece.fontSize + previous.fontSize) / 2;
-        if (gap > math.max(1.0, font * 0.18)) buffer.write(' ');
+        if (logicalOrder) {
+          final gap =
+              piece.startIndex - (previous.startIndex + previous.text.length);
+          if (gap > 0) buffer.write(' ');
+        } else {
+          final gap = piece.bounds.left - previous.bounds.right;
+          final font = (piece.fontSize + previous.fontSize) / 2;
+          if (gap > math.max(1.0, font * 0.18)) buffer.write(' ');
+        }
       }
       buffer.write(piece.text.trim());
       previous = piece;
@@ -706,9 +1078,9 @@ class PdfTextReflower {
   }
 
   /// A line that opens with a bullet glyph or an enumerator (`1.`, `a)`,
-  /// `(iv)`) followed by whitespace — the start of a list item.
+  /// `(iv)`) followed by whitespace - the start of a list item.
   static final RegExp _listMarker = RegExp(
-      r'^\s*([•‣◦⁃∙·▪●❖*\-–—]'
+      r'^\s*([•‣◦⁃∙·▪●❖*\-–-]'
       r'|\(?([0-9]{1,3}|[A-Za-z]|[ivxlcdmIVXLCDM]{1,5})[.)])\s+\S');
 
   static bool _startsListItem(String text) => _listMarker.hasMatch(text);
@@ -757,20 +1129,125 @@ class _LinePiece {
     required this.text,
     required this.bounds,
     required this.fontSize,
+    required this.startIndex,
+    required this.isRightToLeft,
   });
 
   factory _LinePiece.fromRun(PdfExtractedRun run) => _LinePiece(
         text: run.text,
         bounds: run.bounds,
         fontSize: math.max(1.0, run.transform.scaleFactor),
+        startIndex: run.startIndex,
+        isRightToLeft: run.isRightToLeft,
       );
 
   final String text;
   final PdfRect bounds;
   final double fontSize;
+  final int startIndex;
+  final bool isRightToLeft;
 
   double get centerY => (bounds.bottom + bounds.top) / 2;
 }
+
+class _SourceRun {
+  const _SourceRun(this.separator, this.run);
+
+  final String separator;
+  final PdfTextRun run;
+}
+
+class _SourceCluster {
+  const _SourceCluster(this.sources, this.anchor);
+
+  final List<_SourceRun> sources;
+  final PdfTextRun anchor;
+}
+
+enum _BidiKind { ltr, rtl, neutral }
+
+class _BidiPiece {
+  const _BidiPiece(
+    this.text,
+    this.kind,
+    this.source,
+    this.sourceStart,
+    this.sourceEnd,
+    this.preserveText,
+    this.sourceX0,
+    this.sourceX1,
+  );
+
+  final String text;
+  final _BidiKind kind;
+  final PdfTextRun? source;
+  final int sourceStart;
+  final int sourceEnd;
+  final bool preserveText;
+  final double? sourceX0;
+  final double? sourceX1;
+}
+
+class _BidiGroup {
+  const _BidiGroup(this.kind, this.pieces);
+
+  final _BidiKind kind;
+  final List<_BidiPiece> pieces;
+}
+
+class _BidiLine {
+  const _BidiLine(this.groups, {required this.rightToLeft});
+
+  final List<_BidiGroup> groups;
+  final bool rightToLeft;
+}
+
+/// Directional class used by the visual-to-logical PDF text pass. Numbers
+/// stay left-to-right inside an RTL line; non-spacing marks inherit the
+/// preceding visual character per UAX #9 rule W1, so reversing the RTL run
+/// restores them after their logical base character.
+_BidiKind _bidiKind(int rune, _BidiKind? previous) {
+  // The bidi package's compact table covers the BMP. Preserve the strong RTL
+  // class for supplementary-plane RTL scripts that otherwise default to LTR.
+  if ((rune >= 0x10800 && rune <= 0x10FFF) ||
+      (rune >= 0x1E800 && rune <= 0x1EDFF)) {
+    return _BidiKind.rtl;
+  }
+  return switch (bidi.getCharacterType(rune)) {
+    bidi.CharacterType.rtl ||
+    bidi.CharacterType.al ||
+    bidi.CharacterType.rle ||
+    bidi.CharacterType.rlo ||
+    bidi.CharacterType.rli =>
+      _BidiKind.rtl,
+    bidi.CharacterType.ltr ||
+    bidi.CharacterType.lre ||
+    bidi.CharacterType.lro ||
+    bidi.CharacterType.lri ||
+    bidi.CharacterType.en ||
+    bidi.CharacterType.an =>
+      _BidiKind.ltr,
+    bidi.CharacterType.nonspacingMark => previous ?? _BidiKind.rtl,
+    _ => _BidiKind.neutral,
+  };
+}
+
+/// Strong direction only, for choosing a plain-text paragraph isolate.
+/// Numbers and neutral/formatting characters deliberately return null.
+_BidiKind? _strongBidiKind(int rune) {
+  if ((rune >= 0x10800 && rune <= 0x10FFF) ||
+      (rune >= 0x1E800 && rune <= 0x1EDFF)) {
+    return _BidiKind.rtl;
+  }
+  return switch (bidi.getCharacterType(rune)) {
+    bidi.CharacterType.rtl || bidi.CharacterType.al => _BidiKind.rtl,
+    bidi.CharacterType.ltr => _BidiKind.ltr,
+    _ => null,
+  };
+}
+
+String _reverseRunes(String text) =>
+    String.fromCharCodes(text.runes.toList().reversed);
 
 class _Column {
   _Column(PdfReflowLine line)
@@ -789,18 +1266,26 @@ class _Column {
 /// Quad of the em-space span [x0]..[x1] (with conventional 0.25 em descent
 /// and 0.75 em ascent) mapped through [transform], in perimeter order
 /// (ll, lr, ur, ul). Rotated text yields a rotated parallelogram.
-PdfTextQuad _quadOf(PdfMatrix transform, double x0, double x1) {
+PdfTextQuad _quadOf(
+  PdfMatrix transform,
+  double x0,
+  double x1, {
+  bool isRightToLeft = false,
+}) {
   const descent = -0.25;
   const ascent = 0.75;
-  return PdfTextQuad([
-    for (final (x, y) in [
-      (x0, descent),
-      (x1, descent),
-      (x1, ascent),
-      (x0, ascent),
-    ])
-      (transform.transformX(x, y), transform.transformY(x, y)),
-  ]);
+  return PdfTextQuad(
+    [
+      for (final (x, y) in [
+        (x0, descent),
+        (x1, descent),
+        (x1, ascent),
+        (x0, ascent),
+      ])
+        (transform.transformX(x, y), transform.transformY(x, y)),
+    ],
+    isRightToLeft: isRightToLeft,
+  );
 }
 
 /// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped

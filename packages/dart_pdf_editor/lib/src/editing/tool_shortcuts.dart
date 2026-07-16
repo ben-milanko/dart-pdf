@@ -2,7 +2,11 @@ import 'package:flutter/services.dart';
 
 import 'editing_controller.dart';
 
-/// Single-key keyboard shortcuts for arming the common editing tools.
+/// Default single-key keyboard shortcuts for arming the common editing tools.
+///
+/// Pass a replacement map to [PdfViewer.toolShortcuts] (and to
+/// [PdfEditingToolbar.toolShortcuts] when using the stock toolbar) to rebind
+/// or disable individual tool shortcuts.
 ///
 /// These are bound by [PdfViewer] while an editing session is active and
 /// no in-place text editor is open (typing into a free-text box or form
@@ -15,7 +19,7 @@ import 'editing_controller.dart';
 /// undo/redo shortcuts.
 ///
 /// The less-common multi-segment variants (polyline, polygon, perimeter,
-/// area measurement) deliberately have no key — they live one tap away in
+/// area measurement) deliberately have no key - they live one tap away in
 /// their group's strip and would only need obscure bindings here.
 const Map<PdfEditTool, LogicalKeyboardKey> pdfEditToolShortcuts = {
   PdfEditTool.select: LogicalKeyboardKey.keyV,
@@ -26,17 +30,22 @@ const Map<PdfEditTool, LogicalKeyboardKey> pdfEditToolShortcuts = {
   PdfEditTool.line: LogicalKeyboardKey.keyL,
   PdfEditTool.arrow: LogicalKeyboardKey.keyA,
   PdfEditTool.freeText: LogicalKeyboardKey.keyT,
+  PdfEditTool.callout: LogicalKeyboardKey.keyQ,
   PdfEditTool.note: LogicalKeyboardKey.keyN,
   PdfEditTool.stamp: LogicalKeyboardKey.keyS,
   PdfEditTool.image: LogicalKeyboardKey.keyI,
-  PdfEditTool.signature: LogicalKeyboardKey.keyG,
+  PdfEditTool.signature: LogicalKeyboardKey.keyH,
   PdfEditTool.measureDistance: LogicalKeyboardKey.keyM,
   PdfEditTool.form: LogicalKeyboardKey.keyF,
   PdfEditTool.content: LogicalKeyboardKey.keyC,
   PdfEditTool.redact: LogicalKeyboardKey.keyK,
+  PdfEditTool.snapshot: LogicalKeyboardKey.keyG,
 };
 
 /// The display label for [tool]'s shortcut key (e.g. `'V'`), or null when
 /// the tool has no bound key.
-String? pdfEditToolShortcutLabel(PdfEditTool tool) =>
-    pdfEditToolShortcuts[tool]?.keyLabel;
+String? pdfEditToolShortcutLabel(
+  PdfEditTool tool, {
+  Map<PdfEditTool, LogicalKeyboardKey> shortcuts = pdfEditToolShortcuts,
+}) =>
+    shortcuts[tool]?.keyLabel;

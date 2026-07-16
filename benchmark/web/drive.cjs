@@ -93,7 +93,7 @@ const headed = has('headed');
         last = p;
         console.log(`  [${tool}] ${p}`);
       }
-    } catch (_) {}
+    } catch (_) { }
   }, 3000);
 
   await page.waitForFunction(
@@ -115,8 +115,8 @@ const headed = has('headed');
   const renderer = sawSkwasm
     ? 'skwasm'
     : sawCanvaskit
-    ? 'canvaskit'
-    : 'unknown';
+      ? 'canvaskit'
+      : 'unknown';
   const engine = sawSkwasm
     ? `Flutter Wasm/skwasm renderer${sawWasmApp ? ' (dart2wasm app)' : ''}`
     : 'Flutter CanvasKit renderer (dart2js app)';
@@ -141,8 +141,8 @@ const headed = has('headed');
   const ms = ok.reduce((a, r) => a + (r.renderMs || 0), 0);
   console.log(
     `  [${tool}] renderer=${renderer} app≈${(appBytes / 1e6).toFixed(1)}MB ` +
-      `boot=${loadMs}ms — ${pages} pages in ${ms.toFixed(0)}ms ` +
-      `(${pages && ms ? (1000 * pages / ms).toFixed(1) : '0'} pages/s)`);
+    `boot=${loadMs}ms - ${pages} pages in ${ms.toFixed(0)}ms ` +
+    `(${pages && ms ? (1000 * pages / ms).toFixed(1) : '0'} pages/s)`);
   console.log(`  wrote ${out}`);
 })().catch((e) => {
   console.error(e);

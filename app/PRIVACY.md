@@ -32,6 +32,11 @@ DartPDF requests access to files only so it can open the PDFs you choose and
 save your changes back. This access is used solely to perform the action you
 requested and for no other purpose.
 
+When you digitally sign a PDF, the private-key and certificate files you
+choose are read into memory only. The private key is not saved in preferences,
+embedded in the PDF, uploaded, or sent to a server; only the public certificate
+chain and cryptographic signature are written to the signed document.
+
 ## App preferences
 
 Settings such as your theme, recent-file list, and tool styles are stored

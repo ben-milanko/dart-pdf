@@ -30,6 +30,22 @@ void main() {
       expect(editing.pageRenderStamp(2), before[2]);
     });
 
+    test('annotation edits leave the base page content stamp stable', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      final renderBefore = editing.pageRenderStamp(0);
+      final contentBefore = editing.pageContentRenderStamp(0);
+      final otherContentBefore = editing.pageContentRenderStamp(1);
+
+      editing.placeTextStamp(0, 200, 300, 'APPROVED');
+
+      expect(editing.pageRenderStamp(0), isNot(renderBefore),
+          reason: 'thumbnails and annotation overlays still refresh');
+      expect(editing.pageContentRenderStamp(0), contentBefore,
+          reason: 'deep-zoom page images should not rerender for /Annots');
+      expect(editing.pageContentRenderStamp(1), otherContentBefore);
+    });
+
     test('undo and redo bump exactly the reverted revision\'s pages', () {
       final editing = PdfEditingController(buildMultiPagePdf(3))
         ..addRectangle(1, const PdfRect(100, 100, 200, 150));
@@ -48,7 +64,7 @@ void main() {
       expect(editing.pageRenderStamp(2), after[2]);
     });
 
-    test('structural and unattributed edits bump every page', () {
+    test('structural edits bump all; editor-attributed edits stay narrow', () {
       final editing = PdfEditingController(buildMultiPagePdf(3));
       addTearDown(editing.dispose);
       final before = [for (var i = 0; i < 3; i++) editing.pageRenderStamp(i)];
@@ -59,11 +75,12 @@ void main() {
         expect(moved[i], isNot(before[i]));
       }
 
-      // a host edit through the public apply, with no pages named
+      // A host edit through public apply gets its impact from PdfEditor;
+      // callers no longer need to name the affected page themselves.
       editing.apply((e) => e.rotatePage(0, 90));
-      for (var i = 0; i < 3; i++) {
-        expect(editing.pageRenderStamp(i), isNot(moved[i]));
-      }
+      expect(editing.pageRenderStamp(0), isNot(moved[0]));
+      expect(editing.pageRenderStamp(1), moved[1]);
+      expect(editing.pageRenderStamp(2), moved[2]);
     });
 
     test('pageAt caches within a revision', () {
@@ -112,7 +129,7 @@ void main() {
       await tester.pump();
       expect(PdfThumbnailSidebar.debugRasterizations, 4);
 
-      // undoing it re-renders page 0 again — and only page 0
+      // undoing it re-renders page 0 again - and only page 0
       editing.undo();
       await waitForRasters(tester, 5);
       await tester.runAsync(
@@ -121,7 +138,7 @@ void main() {
       expect(PdfThumbnailSidebar.debugRasterizations, 5);
     });
 
-    testWidgets('a new edit session re-renders — stamps restart at zero',
+    testWidgets('a new edit session re-renders - stamps restart at zero',
         (tester) async {
       final first = PdfEditingController(buildMultiPagePdf(2));
       final second = PdfEditingController(buildMultiPagePdf(2));
@@ -193,7 +210,7 @@ void main() {
 
     testWidgets('reads on white paper under a dark theme', (tester) async {
       final color = await indicatorColor(tester, ThemeData.dark());
-      // a dark theme's primary is light — near-invisible on white paper
+      // a dark theme's primary is light - near-invisible on white paper
       expect(contrast(color, const Color(0xFFFFFFFF)), greaterThan(3));
     });
 
@@ -350,7 +367,7 @@ void main() {
       );
     }
 
-    /// Whether the captured frame holds the flash's amber anywhere —
+    /// Whether the captured frame holds the flash's amber anywhere -
     /// the 0.9-alpha stroke stays close to (255, 179, 0) over any paper.
     bool hasAmber(ByteData pixels, int width, int height) {
       for (var y = 0; y < height; y += 2) {
@@ -495,7 +512,7 @@ void main() {
       await tester.pump();
 
       // left-docked strip: 14px bar stepped off the 8px grip, tiles
-      // already pad 12 — the list adds the missing 10
+      // already pad 12 - the list adds the missing 10
       final strip =
           tester.widget<ReorderableListView>(find.byType(ReorderableListView));
       expect(strip.padding, const EdgeInsets.fromLTRB(0, 8, 10, 8));

@@ -45,6 +45,14 @@
                 <data android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
+        <!-- Lets the Snapshot tool hand PNG data to other apps through the
+             Android clipboard. Text-only clipboard writes work without it;
+             images need a content URI. -->
+        <provider
+            android:name=".ImageClipboardProvider"
+            android:authorities="${applicationId}.image_clipboard"
+            android:exported="true"
+            android:grantUriPermissions="true" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

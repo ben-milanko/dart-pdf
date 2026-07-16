@@ -1,6 +1,6 @@
 /// A self-contained RFC 3161 timestamp authority for tests: it answers a
 /// [buildTimeStampRequest] blob with a real, verifiable TimeStampToken signed
-/// by the test signer identity. Test-only — never use outside this repo.
+/// by the test signer identity. Test-only - never use outside this repo.
 library;
 
 import 'dart:typed_data';
@@ -9,7 +9,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'signer_identity.dart';
 
-/// Mints a TimeStampToken (the bare ContentInfo) for [timeStampRequest] — the
+/// Mints a TimeStampToken (the bare ContentInfo) for [timeStampRequest] - the
 /// DER `TimeStampReq` produced by [buildTimeStampRequest]. The token copies
 /// the request's MessageImprint and nonce, stamps it with [genTime] (default
 /// a fixed test instant), and signs it with [key]/[certificateChain]

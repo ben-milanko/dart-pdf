@@ -53,7 +53,7 @@ void main() {
 
     test('post 2.0 names resolve glyph ids without a cmap', () {
       // A cmap-less subset reaches its glyphs only by name through the post
-      // table (TrueType_without_cmap.pdf — codes index empty/.notdef glyphs
+      // table (TrueType_without_cmap.pdf - codes index empty/.notdef glyphs
       // directly, but "greater"/"i"/... name the real subset gids).
       final font = TrueTypeFont.parse(
           buildTestTrueTypeFont(includeCmap: false, includePost: true))!;

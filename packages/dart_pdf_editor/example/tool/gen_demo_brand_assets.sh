@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Regenerates lib/demo_brand_assets.dart — the base64-embedded brand artwork
+# Regenerates lib/demo_brand_assets.dart - the base64-embedded brand artwork
 # the feature-showcase demo stamps onto its title page. The mark is rasterized
 # from the repo's master SVG; the banner is a light-mode variant of the README
 # banner so it reads naturally on the demo PDF's white title page.

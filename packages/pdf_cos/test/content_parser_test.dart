@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -60,7 +61,7 @@ void main() {
 
   test('an unterminated array operand keeps what parsed', () {
     final ops = ContentStreamParser.parse(ascii('[(a) 1 2'));
-    expect(ops, isEmpty); // no operator ever arrived — nothing to run
+    expect(ops, isEmpty); // no operator ever arrived - nothing to run
   });
 
   test('inline image becomes one BI operation', () {
@@ -76,6 +77,45 @@ void main() {
     expect(data.bytes, [0x00, 0xFF]);
   });
 
+  test('junk operands before an inline image do not leak past it', () {
+    final ops = ContentStreamParser.parse(
+        ascii('123 BI /W 1 /H 1 /CS /G /BPC 8 ID \x7f EI Q'));
+    expect(ops.map((op) => op.operator), ['BI', 'Q']);
+    expect(ops.last.operands, isEmpty);
+  });
+
+  test('operationLimit returns a prefix on operation boundaries', () {
+    final ops = ContentStreamParser.parse(
+        ascii('q 1 0 0 1 50 50 cm BI /W 1 /H 1 /CS /G /BPC 8 ID \x7f EI Q'),
+        operationLimit: 3);
+
+    expect(ops.map((op) => op.operator), ['q', 'cm', 'BI']);
+    final data = ops[2].operands[1] as CosString;
+    expect(data.bytes, [0x7F]);
+  });
+
+  test('incremental cursor emits one operation at a time and honors its limit',
+      () {
+    final cursor = ContentStreamParser.cursor(
+      ascii('q 1 0 0 1 50 50 cm (Hello) Tj Q'),
+      operationLimit: 3,
+    );
+
+    expect(cursor.operationCount, 0);
+    expect(cursor.isFinished, isFalse);
+    expect(cursor.nextOperation()!.operator, 'q');
+    expect(cursor.operationCount, 1);
+    final matrix = cursor.nextOperation()!;
+    expect(matrix.operator, 'cm');
+    expect(matrix.operands, hasLength(6));
+    final text = cursor.nextOperation()!;
+    expect(text.operator, 'Tj');
+    expect((text.operands.single as CosString).text, 'Hello');
+    expect(cursor.isFinished, isTrue);
+    expect(cursor.nextOperation(), isNull);
+    expect(cursor.operationCount, 3);
+  });
+
   test('DCT inline image ignores EI-like bytes before JPEG EOI', () {
     final bytes = BytesBuilder()
       ..add(ascii('q BI /W 1 /H 1 /CS /RGB /BPC 8 /F /DCT ID\r\n'))
@@ -86,5 +126,41 @@ void main() {
 
     final data = ops[1].operands[1] as CosString;
     expect(data.bytes, [0xFF, 0xD8, 0x20, 0x45, 0x49, 0x20, 0x00, 0xFF, 0xD9]);
+  });
+
+  test('serializes regular content operations', () {
+    final bytes = ContentStreamSerializer.serialize([
+      ContentOperation('q', const []),
+      ContentOperation('cm', const [
+        CosInteger(1),
+        CosInteger(0),
+        CosInteger(0),
+        CosInteger(1),
+        CosInteger(50),
+        CosInteger(50),
+      ]),
+      ContentOperation('Tf', const [CosName('F1'), CosInteger(12)]),
+      ContentOperation('Tj', [CosString.fromText('Hi')]),
+      ContentOperation('Q', const []),
+    ]);
+
+    expect(
+        latin1.decode(bytes), 'q\n1 0 0 1 50 50 cm\n/F1 12 Tf\n(Hi) Tj\nQ\n');
+  });
+
+  test('serializes inline image operations', () {
+    final bytes = ContentStreamSerializer.serialize([
+      ContentOperation('BI', [
+        CosDictionary({
+          'W': const CosInteger(2),
+          'H': const CosInteger(1),
+          'CS': const CosName('G'),
+          'BPC': const CosInteger(8),
+        }),
+        CosString(Uint8List.fromList([0x00, 0xFF])),
+      ]),
+    ]);
+
+    expect(bytes, ascii('BI /W 2 /H 1 /CS /G /BPC 8 ID\n\x00\xff\nEI\n'));
   });
 }

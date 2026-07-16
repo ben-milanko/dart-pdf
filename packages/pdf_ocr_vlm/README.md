@@ -62,8 +62,8 @@ can point the same engine at any of the others (see
 
 ```yaml
 dependencies:
-  dart_pdf_editor: ^1.2.0
-  pdf_ocr_vlm: ^1.2.0
+  dart_pdf_editor: ^1.3.2
+  pdf_ocr_vlm: ^1.3.2
 ```
 
 `pdf_ocr_vlm` works wherever Flutter runs: mobile, desktop, and **web**. It

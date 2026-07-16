@@ -1,6 +1,6 @@
 // Survey harness for the pdf.js corpus: opens every file, interprets every
 // page, and buckets the outcomes so the corpus test expectations can be
-// pinned from reality. Throwaway diagnostics — not part of the test suite.
+// pinned from reality. Throwaway diagnostics - not part of the test suite.
 //
 // Usage: fvm dart tool/pdfjs_survey.dart
 import 'dart:convert';

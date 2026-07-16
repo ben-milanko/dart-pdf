@@ -1,6 +1,6 @@
 // The shared font cache must (a) load each font dictionary at most once and
-// reuse it across interpreter instances — the two passes of one render and
-// every re-render — and (b) hand back stable glyph-outline identities so the
+// reuse it across interpreter instances - the two passes of one render and
+// every re-render - and (b) hand back stable glyph-outline identities so the
 // device's glyph-path cache hits across renders, all without changing what the
 // interpreter emits.
 import 'package:pdf_document/pdf_document.dart';

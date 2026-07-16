@@ -1,7 +1,7 @@
 # Append-only files: both sides almost always add new entries at the end,
 # so a normal 3-way merge conflicts on every concurrent PR. The built-in
 # `union` driver resolves these by keeping both sides' lines instead of
-# emitting conflict markers — no manual resolution, just both entries
+# emitting conflict markers - no manual resolution, just both entries
 # present (review the ordering when it matters; these files are narrative,
 # not code).
 doc/dev-log.md     merge=union

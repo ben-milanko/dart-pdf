@@ -9,10 +9,11 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Touch long-press opens the context menu mice reach by right-clicking:
-// on an annotation (select mode or reader mode), on empty page area when
-// the clipboard has something to paste, and on a form field with the
-// form tool armed. The recognizer only claims when the press point has a
-// menu to offer, so text selection keeps its long press everywhere else.
+// on an annotation (select mode or reader mode), or on empty page area when
+// the clipboard has something to paste. Form fields deliberately do not
+// claim this gesture: their actions live in the contextual toolbar. The
+// recognizer only claims when the press point has an annotation menu to
+// offer, so text selection keeps its long press everywhere else.
 
 // 800×600 viewport, fit-width: 612pt page → view scale
 const scale = 800 / 612;
@@ -140,7 +141,7 @@ void main() {
 
     testWidgets('long-press on page text still selects the word',
         (tester) async {
-      // the controller must ride the viewer from the first build — it
+      // the controller must ride the viewer from the first build - it
       // attaches in initState
       final controller = PdfViewerController();
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -160,7 +161,7 @@ void main() {
       ));
       await tester.pump();
 
-      // 'Page 1' baseline at (72, 720), 24pt — press mid-word
+      // 'Page 1' baseline at (72, 720), 24pt - press mid-word
       await longPressAt(tester, viewPoint(100, 726));
       expect(controller.selectedText, 'Page');
       expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
@@ -169,18 +170,15 @@ void main() {
   });
 
   group('form tool', () {
-    testWidgets('long-press on a field opens the field menu', (tester) async {
+    testWidgets('long-press on a field does not open a field menu',
+        (tester) async {
       final editing = await pumpViewer(tester, bytes: buildAcroFormPdf());
       editing.tool = PdfEditTool.form;
       await tester.pump();
 
       // the 'name' text field at [72 700 300 724]
       await longPressAt(tester, viewPoint(180, 712));
-      expect(
-          find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
-      // dismiss without acting
-      await tester.tapAt(const Offset(780, 580));
-      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-form-menu-rename')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
   });

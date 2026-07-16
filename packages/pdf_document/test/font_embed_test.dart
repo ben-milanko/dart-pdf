@@ -49,7 +49,7 @@ void main() {
       expect(font.glyphForRune(0xE000), 0);
     });
 
-    test('measures proportionally — W is wider than i', () {
+    test('measures proportionally - W is wider than i', () {
       final font = PdfEmbeddedFont.parse(fontBytes);
       expect(font.measure('W', 100), greaterThan(font.measure('i', 100)));
       expect(font.measure('', 100), 0);
@@ -62,7 +62,7 @@ void main() {
     });
 
     test('rejects a valid sfnt header missing the required tables', () {
-      // sfnt version 1.0, zero tables — no head/hhea/maxp/hmtx/cmap.
+      // sfnt version 1.0, zero tables - no head/hhea/maxp/hmtx/cmap.
       final bytes = Uint8List(12);
       ByteData.sublistView(bytes).setUint32(0, 0x00010000);
       expect(() => PdfEmbeddedFont.parse(bytes), throwsArgumentError);
@@ -185,7 +185,7 @@ void main() {
     });
 
     test('non-Latin text round-trips through Identity-H', () {
-      // U+00E9 (é) and U+03A9 (Ω) — beyond WinAnsi's reach for some, and
+      // U+00E9 (é) and U+03A9 (Ω) - beyond WinAnsi's reach for some, and
       // exactly what embedding buys over the base-14 path.
       final font = PdfEmbeddedFont.parse(fontBytes);
       final doc = roundTrip((e) => e.addFreeText(

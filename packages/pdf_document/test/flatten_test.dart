@@ -60,7 +60,7 @@ void main() {
     final doc = PdfDocument.open(buildAppearanceAnnotationsPdf());
     final editor = PdfEditor(doc)..flattenAnnotations(0);
     final flat = PdfDocument.open(editor.save());
-    // the checkbox /AS /On state fills 0.5 gray — its stream must now be
+    // the checkbox /AS /On state fills 0.5 gray - its stream must now be
     // among the page's flattened XObjects
     final resources =
         flat.cos.resolve(flat.page(0).dict['Resources']) as CosDictionary;

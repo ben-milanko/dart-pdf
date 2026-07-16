@@ -1,5 +1,5 @@
 // Benchmarks dart-pdf's parse + content-stream interpretation, the pure-Dart
-// half of rendering (no rasterization — that needs Flutter; see
+// half of rendering (no rasterization - that needs Flutter; see
 // dart_pdf_editor/test/benchmark_render_test.dart). Runs on the Dart VM:
 //
 //   cd packages/pdf_graphics
@@ -16,7 +16,7 @@ import 'dart:io';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
-/// Swallows every device call — the interpreter still does all the parsing,
+/// Swallows every device call - the interpreter still does all the parsing,
 /// font shaping, and geometry work; only the paint sink is a no-op.
 class NullDevice implements PdfDevice {
   @override

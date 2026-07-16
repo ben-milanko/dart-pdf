@@ -1,6 +1,6 @@
 /// RFC 3161 Time-Stamp Protocol: building the TimeStampReq blob to POST to
 /// a TSA, and parsing/verifying the TimeStampToken (a CMS SignedData over a
-/// TSTInfo) that comes back. The HTTP transport is the caller's — this layer
+/// TSTInfo) that comes back. The HTTP transport is the caller's - this layer
 /// is bytes-in, bytes-out, so it stays `dart:io`-free and runs on the web.
 library;
 
@@ -12,18 +12,18 @@ import 'asn1.dart';
 import 'cms.dart';
 
 abstract final class TspOid {
-  /// id-ct-TSTInfo — the eContentType of a timestamp token.
+  /// id-ct-TSTInfo - the eContentType of a timestamp token.
   static const tstInfo = '1.2.840.113549.1.9.16.1.4';
 }
 
 /// Builds the DER `TimeStampReq` (RFC 3161 §2.4.1) that asks a TSA to stamp
-/// [messageImprint] — the digest, computed with [hash], of the bytes to be
+/// [messageImprint] - the digest, computed with [hash], of the bytes to be
 /// timestamped (for a signature timestamp this is the hash of the signer's
 /// signature value; for a document timestamp it is the hash of the signed
 /// byte ranges).
 ///
 /// [requestCertificate] asks the TSA to embed its signing certificate in the
-/// token (needed so the token verifies offline — required for LTV). A
+/// token (needed so the token verifies offline - required for LTV). A
 /// [nonce], when supplied, is echoed in the response and lets the caller
 /// detect replay.
 Uint8List buildTimeStampRequest({
@@ -46,7 +46,7 @@ Uint8List buildTimeStampRequest({
     imprint,
     if (reqPolicy != null) derOid(reqPolicy),
     if (nonce != null) derInteger(nonce),
-    // certReq DEFAULT FALSE — only emitted when true
+    // certReq DEFAULT FALSE - only emitted when true
     if (requestCertificate) derBoolean(true),
   ]);
 }
@@ -88,7 +88,7 @@ Uint8List timeStampTokenFromResponse(Uint8List responseDer) {
   return resp[1].encoded;
 }
 
-/// The MessageImprint of a TSTInfo — the digest the token attests to.
+/// The MessageImprint of a TSTInfo - the digest the token attests to.
 class TstMessageImprint {
   TstMessageImprint(this.hashAlgorithmOid, this.hashedMessage);
   final String hashAlgorithmOid;
@@ -172,7 +172,7 @@ class TimeStampVerification {
   bool get valid => imprintMatches && signatureValid;
 }
 
-/// Verifies [token] against [stampedData] — the exact bytes whose digest the
+/// Verifies [token] against [stampedData] - the exact bytes whose digest the
 /// token should attest to (the signature value for a signature timestamp,
 /// the signed byte ranges for a document timestamp). Confirms the embedded
 /// MessageImprint matches and the TSA's CMS signature is cryptographically

@@ -10,7 +10,7 @@ import 'cache_store.dart';
 /// Hashes the byte length plus a scattering of sampled bytes with FNV-1a,
 /// so it stays cheap on large CAD/scan files while still telling different
 /// documents apart. Hosts that already have a stable identifier (a file
-/// path, a URL, a database id) should prefer that — it survives trivial
+/// path, a URL, a database id) should prefer that - it survives trivial
 /// re-saves that change the bytes but not the logical document.
 String pdfContentKey(Uint8List bytes) {
   var hash = 0x811c9dc5;
@@ -41,7 +41,7 @@ String pdfContentKey(Uint8List bytes) {
 /// A size-bounded, persistent LRU on top of a [PdfCacheStore].
 ///
 /// This is the shared machinery every on-disk cache in the library sits
-/// on — page rasters in `dart_pdf_editor`, extracted text in
+/// on - page rasters in `dart_pdf_editor`, extracted text in
 /// `pdf_graphics`. It adds three things the bare store lacks:
 ///
 ///  * **Versioning.** A [version] tag is stored alongside the data; when
@@ -50,7 +50,7 @@ String pdfContentKey(Uint8List bytes) {
 ///    is purged on first use. Bump it whenever cached bytes could be
 ///    interpreted wrongly by new code.
 ///  * **A byte budget.** Total stored bytes are kept under [maxBytes] by
-///    evicting least-recently-used entries — so a long-lived cache can't
+///    evicting least-recently-used entries - so a long-lived cache can't
 ///    grow without bound.
 ///  * **A persisted manifest.** The key → size table and LRU order live
 ///    in the store too (under a reserved key), so eviction decisions
@@ -92,7 +92,7 @@ class PdfDiskCache {
   Future<void> _queue = Future<void>.value();
 
   // Manifest-flush coalescing. The manifest is O(entries), so rewriting it
-  // on every write is O(n) per write and O(n^2) over a whole document — a
+  // on every write is O(n) per write and O(n^2) over a whole document - a
   // measurable cost on large CAD/scan files. Instead a burst of writes
   // flushes the manifest once, when the queue drains (`_pendingWrites`
   // hits 0), with a hard cap (`_flushBatchMax`) so a never-ending stream
@@ -110,7 +110,7 @@ class PdfDiskCache {
   String get _manifestKey => '$namespace/__manifest__';
   String _dataKey(String key) => '$namespace/d/$key';
 
-  /// Resolves once the manifest has loaded (or failed to). Optional —
+  /// Resolves once the manifest has loaded (or failed to). Optional -
   /// every public method awaits it internally; exposed for tests and for
   /// hosts that want to front-load the read.
   Future<void> get ready => _run(() async {});
@@ -136,8 +136,8 @@ class PdfDiskCache {
   /// least-recently-used entries until the total fits [maxBytes].
   ///
   /// The manifest write is coalesced (see the `_pendingWrites` note): an
-  /// isolated `await`ed write still persists immediately, but a burst —
-  /// the viewer caching a whole document's previews at once — flushes the
+  /// isolated `await`ed write still persists immediately, but a burst -
+  /// the viewer caching a whole document's previews at once - flushes the
   /// manifest just once when the burst drains.
   Future<void> write(String key, Uint8List bytes) {
     _pendingWrites++;
@@ -145,7 +145,7 @@ class PdfDiskCache {
       var changed = false;
       try {
         // An entry larger than the whole budget would force-evict
-        // everything and still not fit — skip it rather than thrash.
+        // everything and still not fit - skip it rather than thrash.
         if (bytes.length > maxBytes) return;
         await _safeWrite(_dataKey(key), bytes);
         final previous = _sizes.remove(key);
@@ -206,8 +206,8 @@ class PdfDiskCache {
   // --- internals -----------------------------------------------------
 
   /// Serializes [action] behind every earlier call and loads the manifest
-  /// on the first one. A throw inside the cache never escapes — it logs
-  /// nothing and falls back to the empty/miss result — but the queue keeps
+  /// on the first one. A throw inside the cache never escapes - it logs
+  /// nothing and falls back to the empty/miss result - but the queue keeps
   /// running for the next caller.
   Future<T> _run<T>(Future<T> Function() action) {
     final result = _queue.then((_) async {

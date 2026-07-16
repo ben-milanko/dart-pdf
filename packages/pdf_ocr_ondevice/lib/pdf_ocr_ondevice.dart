@@ -1,7 +1,7 @@
 /// On-device, downloadable OCR for [`dart_pdf_editor`](https://pub.dev/packages/dart_pdf_editor).
 ///
 /// Implements `PdfOcrEngine` so `PdfEditor.applyOcr` can add a selectable,
-/// searchable, invisible text layer over scanned PDF pages — running entirely
+/// searchable, invisible text layer over scanned PDF pages - running entirely
 /// on the device, with no per-page network call. The (small, ~21 MB) PP-OCR
 /// model is downloaded once via [PdfOcrModelManager] and then runs locally on
 /// ONNX Runtime.
@@ -24,6 +24,7 @@ library;
 
 export 'src/ctc_decode.dart';
 export 'src/db_postprocess.dart' show DetectedBox, extractDetectionBoxes;
+export 'src/isolate_ocr_model_runner.dart';
 export 'src/model_manager.dart';
 export 'src/ocr_image.dart';
 export 'src/ocr_model.dart';

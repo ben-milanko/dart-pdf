@@ -17,7 +17,7 @@ void main(List<String> args) {
           'page 1 ${page.mediaBox.width.round()}x'
           '${page.mediaBox.height.round()}'
           '${fields == 0 ? '' : ', $fields field(s)'}'
-          '${title == null || title.isEmpty ? '' : ', "$title"'} — $path');
+          '${title == null || title.isEmpty ? '' : ', "$title"'} - $path');
       for (final signature in PdfSignature.of(doc)) {
         final result = signature.validate();
         stdout.writeln('     signature "${signature.field.name}" '

@@ -7,7 +7,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 /// standard font directories and returns them as embeddable
 /// [PdfPlatformFont]s for the editor's font menu.
 ///
-/// Only filenames are read here — the font *program* loads lazily, the first
+/// Only filenames are read here - the font *program* loads lazily, the first
 /// time a font is actually picked, so scanning hundreds of installed fonts at
 /// startup never reads their (sometimes large) bytes. One entry is kept per
 /// family (the regular face is preferred), so the menu shows "DejaVu Sans"
@@ -83,7 +83,7 @@ void _scanDirectory(Directory dir, Map<String, _FamilyCandidate> out) {
   try {
     entries = dir.listSync(recursive: true, followLinks: false);
   } catch (_) {
-    return; // unreadable tree — skip it
+    return; // unreadable tree - skip it
   }
   for (final entry in entries) {
     if (entry is! File) continue;

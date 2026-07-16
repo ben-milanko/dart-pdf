@@ -9,10 +9,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.2
+          flutter-version: 3.44.4
           channel: stable
           cache: true
       - run: flutter pub get
@@ -26,12 +26,18 @@ jobs:
         run: dart run tool/check_lockstep_constraints.dart
       # Compile the web render worker. `dart analyze` does NOT catch
       # `.toJS`-conversion errors (e.g. an async/Future-returning message
-      # handler), which only surface at `dart compile js` — the step the deploy
-      # workflows run. Gate it here so a broken worker can't merge green and
-      # silently ship a non-functional off-thread renderer.
-      - name: Compile web render worker
-        working-directory: packages/dart_pdf_editor/example
-        run: dart run dart_pdf_editor:build_web_worker
+      # handler), which only surface at `dart compile js` - the step the deploy
+      # workflows run. Also require the checked-in package asset to match the
+      # current source so pub.dev cannot ship a stale worker.
+      - name: Verify bundled web render worker
+        run: |
+          dart run dart_pdf_editor:build_web_worker \
+            --out /tmp/pdf_render_worker.dart.js
+          cmp -s /tmp/pdf_render_worker.dart.js \
+            packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js || {
+              echo "::error::Bundled web worker is stale; run app/tool/build_web.sh."
+              exit 1
+            }
       - name: Activate coverage tool
         run: dart pub global activate coverage
 

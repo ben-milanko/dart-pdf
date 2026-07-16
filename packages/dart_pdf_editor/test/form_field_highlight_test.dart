@@ -13,11 +13,13 @@ void main() {
     bool highlightFormFields = true,
     bool showAnnotations = true,
     PdfViewerThemeData? theme,
+    PdfViewerController? controller,
   }) async {
     final document = PdfDocument.open(buildAcroFormPdf());
     final viewer = PdfViewer(
       initialFit: PdfViewerFit.width,
       document: document,
+      controller: controller,
       highlightFormFields: highlightFormFields,
       showAnnotations: showAnnotations,
     );
@@ -71,6 +73,19 @@ void main() {
     final painter = fieldPainter(tester);
     expect(painter, isNotNull);
     expect(painter.theme.formFieldHighlightColor, tint);
+  });
+
+  testWidgets('the highlight border counter-scales while zoomed',
+      (tester) async {
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await pumpViewer(tester, controller: controller);
+    controller.setZoom(2 * 800 / 612);
+    await tester.pump();
+
+    final painter = fieldPainter(tester);
+    expect(painter, isNotNull);
+    expect(painter.chromeScale, closeTo(0.5, 0.01));
   });
 
   testWidgets('a page without fields paints no wash', (tester) async {

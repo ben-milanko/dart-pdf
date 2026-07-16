@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -30,6 +32,33 @@ void main() {
       expect(lex('.5').realValue, 0.5);
       expect(lex('-.5').realValue, -0.5);
       expect(lex('4.').realValue, 4.0);
+    });
+
+    test('fast real path is bit-exact with double.parse', () {
+      // The byte-level real parser (≤15 digits, one dot, no exponent) must
+      // produce the identical double to the string path it replaces.
+      final rng = math.Random(42);
+      for (var i = 0; i < 20000; i++) {
+        final intDigits = rng.nextInt(8);
+        final fracDigits = rng.nextInt(15 - intDigits);
+        final sign = ['', '-', '+'][rng.nextInt(3)];
+        final intPart =
+            List.generate(intDigits, (_) => rng.nextInt(10)).join();
+        final fracPart =
+            List.generate(fracDigits, (_) => rng.nextInt(10)).join();
+        final s = '$sign$intPart.$fracPart';
+        if (intPart.isEmpty && fracPart.isEmpty) continue;
+        final normalized = [
+          if (sign == '-') '-',
+          if (intPart.isEmpty) '0' else intPart,
+          '.',
+          if (fracPart.isEmpty) '0' else fracPart,
+        ].join();
+        expect(lex(s).realValue, double.parse(normalized), reason: s);
+      }
+      // >15 digits falls back to the string path - still exact
+      expect(lex('123456789.0123456789').realValue,
+          double.parse('123456789.0123456789'));
     });
 
     test('large integers parse exactly, matching int.tryParse', () {

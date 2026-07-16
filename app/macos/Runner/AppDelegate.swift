@@ -9,7 +9,12 @@ class AppDelegate: FlutterAppDelegate {
 
   /// Files opened before the engine was ready (cold start). Drained by the
   /// Dart side's `getInitialFile` call.
-  var pendingFiles: [String] = []
+  var pendingFiles: [[String: Any]] = []
+
+  /// True once Dart has installed its `openFile` handler and called
+  /// `getInitialFile`. A FlutterMethodChannel can exist before that point
+  /// during cold start; sending then drops the file on the floor.
+  var dartIncomingReady = false
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return true
@@ -19,13 +24,34 @@ class AppDelegate: FlutterAppDelegate {
     return true
   }
 
+  /// "Open With" / double-click / drag-onto-icon, delivered as URLs. This is
+  /// the method AppKit actually calls on macOS 10.13+: because our superclass
+  /// `FlutterAppDelegate` implements `application(_:open:)` (for deep links),
+  /// AppKit routes document opens here and never calls the deprecated
+  /// `openFile:`/`openFiles:` below. File URLs are ours; anything else (custom
+  /// URL schemes, universal links) belongs to Flutter's deep-link handling.
+  override func application(_ application: NSApplication, open urls: [URL]) {
+    var forwarded: [URL] = []
+    for url in urls {
+      if url.isFileURL {
+        deliver(path: url.path)
+      } else {
+        forwarded.append(url)
+      }
+    }
+    if !forwarded.isEmpty {
+      super.application(application, open: forwarded)
+    }
+  }
+
+  /// Fallback for macOS < 10.13, which predates `application(_:open:)`.
   /// "Open With" / double-click / drag-onto-icon for a single file.
   override func application(_ sender: NSApplication, openFile filename: String) -> Bool {
     deliver(path: filename)
     return true
   }
 
-  /// Multiple files at once.
+  /// Fallback for macOS < 10.13. Multiple files at once.
   override func application(_ sender: NSApplication, openFiles filenames: [String]) {
     for filename in filenames { deliver(path: filename) }
     sender.reply(toOpenOrPrint: .success)
@@ -33,14 +59,54 @@ class AppDelegate: FlutterAppDelegate {
 
   /// Sends a freshly opened file to Dart, or buffers it until the engine is up.
   private func deliver(path: String) {
-    guard let channel = incomingChannel else {
-      pendingFiles.append(path)
+    let payload = payload(for: path)
+    guard dartIncomingReady, let channel = incomingChannel else {
+      pendingFiles.append(payload)
       return
     }
-    channel.invokeMethod("openFile", arguments: payload(for: path))
+    channel.invokeMethod("openFile", arguments: payload)
+  }
+
+  /// Marks Dart ready for warm file-open pushes and returns the first queued
+  /// cold-start file for the `getInitialFile` response, if any.
+  func takeInitialFile() -> [String: Any]? {
+    dartIncomingReady = true
+    guard !pendingFiles.isEmpty else { return nil }
+    return pendingFiles.removeFirst()
+  }
+
+  /// Sends any extra files queued before Dart was ready. The first queued file
+  /// travels as the `getInitialFile` response; the rest use the warm stream.
+  func flushPendingFiles() {
+    guard dartIncomingReady, let channel = incomingChannel else { return }
+    let files = pendingFiles
+    pendingFiles.removeAll()
+    for payload in files {
+      channel.invokeMethod("openFile", arguments: payload)
+    }
   }
 
   func payload(for path: String) -> [String: Any] {
-    return ["name": (path as NSString).lastPathComponent, "path": path]
+    let url = URL(fileURLWithPath: path)
+    var payload: [String: Any] = [
+      "name": url.lastPathComponent,
+      "path": path,
+    ]
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    if let data = try? Data(contentsOf: url) {
+      payload["bytes"] = FlutterStandardTypedData(bytes: data)
+    }
+    if let bookmark = securityBookmark(for: url) {
+      payload["bookmark"] = bookmark.base64EncodedString()
+    }
+    return payload
+  }
+
+  func securityBookmark(for url: URL) -> Data? {
+    try? url.bookmarkData(
+      options: [.withSecurityScope],
+      includingResourceValuesForKeys: nil,
+      relativeTo: nil)
   }
 }

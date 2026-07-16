@@ -1,4 +1,4 @@
-// GENERATED — do not edit by hand.
+// GENERATED - do not edit by hand.
 //
 // Big5 (the `B5*` / `ETen-B5` / `HKscs-B5` Adobe-CNS1 CMaps) two-byte code → Unicode scalar table, used to decode non-embedded
 // CID text that declares the matching predefined CMap. Generated from Python's

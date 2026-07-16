@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'editing/editing_color_picker.dart';
+import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
+import 'editing/tool_shortcuts.dart';
 import 'pdf_viewer.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
@@ -12,7 +15,7 @@ import 'pdf_viewer.dart';
 const double pdfShellCompactWidth = 700;
 
 /// Whether the shell is narrow enough that side panels should give way to
-/// bottom sheets — a phone, or a small window. Below [pdfShellCompactWidth]
+/// bottom sheets - a phone, or a small window. Below [pdfShellCompactWidth]
 /// a docked 280px panel would crowd the page out, so the shells float the
 /// panels (and the thumbnail strip) up from the bottom instead.
 bool pdfShellUseBottomSheets(BoxConstraints constraints) =>
@@ -30,10 +33,76 @@ const double _pdfShellSheetMaxFactor = 0.9;
 /// another and anchored to the bottom of the content area. The space above
 /// the topmost sheet stays clear, so the page underneath keeps scrolling
 /// and taking taps. The whole stack is resizable by dragging a sheet's
-/// handle (up to 90% of the area). Returns a [Positioned] — drop it
+/// handle (up to 90% of the area). Returns a [Positioned] - drop it
 /// straight into the content [Stack] (only when [sheets] is non-empty).
 Widget pdfShellBottomSheets(List<Widget> sheets) =>
     _PdfShellBottomSheetArea(sheets: sheets);
+
+/// Shared shell topology: side panels dock around a stable viewer element on
+/// wide layouts, while compact layouts pass panel widgets as [bottomSheets].
+class PdfShellPanelLayout extends StatelessWidget {
+  const PdfShellPanelLayout({
+    super.key,
+    required this.viewer,
+    this.leadingPanels = const [],
+    this.trailingPanels = const [],
+    this.bottomSheets = const [],
+    this.overlays = const [],
+    this.floatingToolbar,
+    this.dockedToolbar,
+  });
+
+  /// The page viewer, reflow view, or other primary document surface.
+  final Widget viewer;
+
+  /// Docked panels before the viewer in the horizontal row.
+  final List<Widget> leadingPanels;
+
+  /// Docked panels after the viewer in the horizontal row.
+  final List<Widget> trailingPanels;
+
+  /// Compact panels presented through [pdfShellBottomSheets].
+  final List<Widget> bottomSheets;
+
+  /// Full-area overlays above the viewer row, such as the page grid.
+  final List<Widget> overlays;
+
+  /// A toolbar that floats over the content area.
+  final Widget? floatingToolbar;
+
+  /// A toolbar that consumes layout space below the content area.
+  final Widget? dockedToolbar;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Stack(children: [
+      Positioned.fill(
+        child: Row(children: [
+          ...leadingPanels,
+          Expanded(
+            key: const ValueKey('pdf-shell-viewer'),
+            child: viewer,
+          ),
+          ...trailingPanels,
+        ]),
+      ),
+      ...overlays,
+      if (floatingToolbar != null)
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: floatingToolbar!,
+        ),
+      if (bottomSheets.isNotEmpty) pdfShellBottomSheets(bottomSheets),
+    ]);
+
+    return Column(children: [
+      Expanded(child: content),
+      if (dockedToolbar != null) dockedToolbar!,
+    ]);
+  }
+}
 
 /// Owns the resizable height of the bottom-sheet stack and exposes the
 /// resize callback to the sheets' drag handles via [_BottomSheetResizeScope].
@@ -123,7 +192,7 @@ class PdfPanelBottomSheet extends StatelessWidget {
   /// The panel's name, shown in the header.
   final String title;
 
-  /// Dismisses the sheet — the shells turn the panel's visibility
+  /// Dismisses the sheet - the shells turn the panel's visibility
   /// preference off.
   final VoidCallback onClose;
 
@@ -149,7 +218,7 @@ class PdfPanelBottomSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           // the handle resizes the sheet (drag up to grow, down to shrink)
-          // and dismisses on a fast downward flick — the Material
+          // and dismisses on a fast downward flick - the Material
           // bottom-sheet idiom. With no resize scope (standalone use) it
           // only dismisses, on a gentler flick.
           GestureDetector(
@@ -209,7 +278,7 @@ class PdfPanelBottomSheet extends StatelessWidget {
 ///
 /// It tracks the latest viewport as the user scrolls/zooms (cheaply, in
 /// memory) and writes it to [PdfEditingPreferences] on a debounce; [flush]
-/// forces a write (on dispose), and [rekey] switches documents — saving
+/// forces a write (on dispose), and [rekey] switches documents - saving
 /// the outgoing one and restoring the incoming one. Used package-private
 /// by both shells.
 class PdfViewportMemory {
@@ -220,8 +289,8 @@ class PdfViewportMemory {
   }) : _documentKey = documentKey {
     viewer.viewportChanges.addListener(_onViewportChanged);
     // the debounced write can lose the last position when the app goes
-    // away before it fires — on the web a closed/hidden tab never disposes
-    // this — so flush on every "going away" lifecycle transition too
+    // away before it fires - on the web a closed/hidden tab never disposes
+    // this - so flush on every "going away" lifecycle transition too
     _lifecycle = AppLifecycleListener(
       onHide: flush,
       onPause: flush,
@@ -242,7 +311,7 @@ class PdfViewportMemory {
   static const _debounce = Duration(milliseconds: 400);
 
   void _onViewportChanged() {
-    // capture now (the viewer is live), debounce only the disk write — so
+    // capture now (the viewer is live), debounce only the disk write - so
     // [flush] has a fresh position even after the viewer detaches
     final viewport = viewer.captureViewport();
     if (viewport != null) _last = viewport;
@@ -271,7 +340,7 @@ class PdfViewportMemory {
     _restore(documentKey);
   }
 
-  /// Writes the latest known position immediately — call before disposing.
+  /// Writes the latest known position immediately - call before disposing.
   void flush() {
     _saveTimer?.cancel();
     _saveTimer = null;
@@ -684,7 +753,8 @@ enum _ViewOption {
   reflow,
   pageGrid,
   pageColor,
-  author
+  author,
+  shortcuts
 }
 
 Future<void> _selectViewOption(
@@ -693,6 +763,9 @@ Future<void> _selectViewOption(
   required PdfEditingPreferences preferences,
   required bool pageColor,
   required VoidCallback? onAuthorPressed,
+  Map<PdfEditTool, LogicalKeyboardKey>? toolShortcuts,
+  ValueChanged<Map<PdfEditTool, LogicalKeyboardKey>>? onToolShortcutsChanged,
+  Set<PdfEditTool>? tools,
 }) async {
   switch (option) {
     case _ViewOption.annotations:
@@ -700,7 +773,7 @@ Future<void> _selectViewOption(
     case _ViewOption.formHighlight:
       preferences.highlightFormFields = !preferences.highlightFormFields;
     case _ViewOption.reflow:
-      // reflow and the page grid both replace the page viewer — only one
+      // reflow and the page grid both replace the page viewer - only one
       // can claim the area, so each clears the other
       preferences.showThumbnailView = false;
       preferences.showReflowView = !preferences.showReflowView;
@@ -718,7 +791,167 @@ Future<void> _selectViewOption(
       if (color != null) preferences.pageColor = color;
     case _ViewOption.author:
       onAuthorPressed?.call();
+    case _ViewOption.shortcuts:
+      final changed = onToolShortcutsChanged;
+      if (toolShortcuts == null || changed == null) return;
+      final next = await showPdfShellShortcutsSheet(
+        context,
+        shortcuts: toolShortcuts,
+        tools: tools,
+      );
+      if (next != null) changed(next);
   }
+}
+
+Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
+  BuildContext context, {
+  required Map<PdfEditTool, LogicalKeyboardKey> shortcuts,
+  Set<PdfEditTool>? tools,
+}) {
+  final visibleTools = [
+    for (final entry in pdfEditToolShortcuts.entries)
+      if (tools == null || tools.contains(entry.key)) entry.key,
+  ];
+  var draft = Map<PdfEditTool, LogicalKeyboardKey>.of(shortcuts);
+
+  Future<LogicalKeyboardKey?> captureKey(BuildContext context) {
+    return showDialog<LogicalKeyboardKey>(
+      context: context,
+      builder: (context) {
+        final focusNode = FocusNode(debugLabel: 'PdfShortcutCapture');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (focusNode.canRequestFocus) focusNode.requestFocus();
+        });
+        return AlertDialog(
+          title: const Text('Press a key'),
+          content: KeyboardListener(
+            focusNode: focusNode,
+            autofocus: true,
+            onKeyEvent: (event) {
+              if (event is! KeyDownEvent) return;
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.escape) {
+                Navigator.of(context).maybePop();
+                return;
+              }
+              if (key == LogicalKeyboardKey.delete ||
+                  key == LogicalKeyboardKey.backspace) {
+                Navigator.of(context).pop(const LogicalKeyboardKey(0));
+                return;
+              }
+              if (key.keyLabel.isNotEmpty && key.keyLabel.length == 1) {
+                Navigator.of(context).pop(key);
+              }
+            },
+            child: const Text('Press a letter key, or Delete to clear.'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  return showModalBottomSheet<Map<PdfEditTool, LogicalKeyboardKey>>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setSheetState) => SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text('Keyboard shortcuts',
+                          style: Theme.of(context).textTheme.titleMedium),
+                    ),
+                    TextButton(
+                      key: const ValueKey('pdf-shell-shortcuts-reset'),
+                      onPressed: () => setSheetState(() => draft =
+                          Map<PdfEditTool, LogicalKeyboardKey>.of(
+                              pdfEditToolShortcuts)),
+                      child: const Text('Reset'),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final tool in visibleTools)
+                      ListTile(
+                        key: ValueKey('pdf-shell-shortcut-${tool.name}'),
+                        leading: const Icon(Icons.keyboard_outlined),
+                        title: Text(_toolName(tool)),
+                        trailing: Text(
+                            pdfEditToolShortcutLabel(tool, shortcuts: draft) ??
+                                'Unbound'),
+                        onTap: () async {
+                          final key = await captureKey(context);
+                          if (key == null) return;
+                          setSheetState(() {
+                            draft.removeWhere((_, value) => value == key);
+                            if (key.keyId == 0) {
+                              draft.remove(tool);
+                            } else {
+                              draft[tool] = key;
+                            }
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      key: const ValueKey('pdf-shell-shortcuts-done'),
+                      onPressed: () => Navigator.of(context).pop(draft),
+                      child: const Text('Done'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+String _toolName(PdfEditTool tool) {
+  final words = tool.name.replaceAllMapped(
+      RegExp(r'([A-Z])'), (match) => ' ${match.group(1)!.toLowerCase()}');
+  return words[0].toUpperCase() + words.substring(1);
 }
 
 Future<void> showPdfShellViewOptionsSheet(
@@ -730,6 +963,9 @@ Future<void> showPdfShellViewOptionsSheet(
   bool author = false,
   String? authorName,
   VoidCallback? onAuthorPressed,
+  Map<PdfEditTool, LogicalKeyboardKey>? toolShortcuts,
+  ValueChanged<Map<PdfEditTool, LogicalKeyboardKey>>? onToolShortcutsChanged,
+  Set<PdfEditTool>? tools,
 }) {
   String hex(Color color) {
     final value = color.toARGB32() & 0x00ffffff;
@@ -751,7 +987,7 @@ Future<void> showPdfShellViewOptionsSheet(
               Row(
                 children: [
                   Expanded(
-                    child: Text('View options',
+                    child: Text('Settings',
                         style: Theme.of(context).textTheme.titleMedium),
                   ),
                   IconButton(
@@ -773,6 +1009,9 @@ Future<void> showPdfShellViewOptionsSheet(
                     preferences: preferences,
                     pageColor: pageColor,
                     onAuthorPressed: onAuthorPressed,
+                    toolShortcuts: toolShortcuts,
+                    onToolShortcutsChanged: onToolShortcutsChanged,
+                    tools: tools,
                   );
                   setSheetState(() {});
                 },
@@ -789,6 +1028,9 @@ Future<void> showPdfShellViewOptionsSheet(
                     preferences: preferences,
                     pageColor: pageColor,
                     onAuthorPressed: onAuthorPressed,
+                    toolShortcuts: toolShortcuts,
+                    onToolShortcutsChanged: onToolShortcutsChanged,
+                    tools: tools,
                   );
                   setSheetState(() {});
                 },
@@ -865,6 +1107,22 @@ Future<void> showPdfShellViewOptionsSheet(
                   ),
                   onTap: onAuthorPressed,
                 ),
+              if (toolShortcuts != null && onToolShortcutsChanged != null)
+                ListTile(
+                  key: const ValueKey('pdf-shell-shortcuts'),
+                  leading: const Icon(Icons.keyboard_outlined),
+                  title: const Text('Keyboard shortcuts…'),
+                  onTap: () => _selectViewOption(
+                    context,
+                    _ViewOption.shortcuts,
+                    preferences: preferences,
+                    pageColor: pageColor,
+                    onAuthorPressed: onAuthorPressed,
+                    toolShortcuts: toolShortcuts,
+                    onToolShortcutsChanged: onToolShortcutsChanged,
+                    tools: tools,
+                  ),
+                ),
             ],
           ),
         ),
@@ -886,17 +1144,20 @@ class PdfShellViewOptionsButton extends StatelessWidget {
     this.author = false,
     this.authorName,
     this.onAuthorPressed,
+    this.toolShortcuts,
+    this.onToolShortcutsChanged,
+    this.tools,
   });
 
   final PdfEditingPreferences preferences;
   final bool reflow;
 
-  /// Whether the menu offers "Page grid" — the full-area page thumbnail
+  /// Whether the menu offers "Page grid" - the full-area page thumbnail
   /// view (`PdfThumbnailView`) that replaces the page viewer.
   final bool pageGrid;
 
   /// Whether the "Page color…" item is offered. With it false the paper
-  /// color can't be changed here — for hosts that set [pageColor] from
+  /// color can't be changed here - for hosts that set [pageColor] from
   /// the document programmatically and lock it.
   final bool pageColor;
 
@@ -911,6 +1172,11 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   /// Opens the host prompt for editing the default annotation author.
   final VoidCallback? onAuthorPressed;
 
+  final Map<PdfEditTool, LogicalKeyboardKey>? toolShortcuts;
+  final ValueChanged<Map<PdfEditTool, LogicalKeyboardKey>>?
+      onToolShortcutsChanged;
+  final Set<PdfEditTool>? tools;
+
   String _hex(Color color) {
     final value = color.toARGB32() & 0x00ffffff;
     return '#${value.toRadixString(16).padLeft(6, '0').toUpperCase()}';
@@ -920,7 +1186,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<_ViewOption>(
       key: const ValueKey('pdf-shell-view-options'),
-      tooltip: 'View options',
+      tooltip: 'Settings',
       icon: const Icon(Icons.display_settings_outlined),
       // match the bar's IconButtons; a PopupMenuButton icon otherwise
       // defaults to black87 instead of onSurfaceVariant
@@ -933,6 +1199,9 @@ class PdfShellViewOptionsButton extends StatelessWidget {
           preferences: preferences,
           pageColor: pageColor,
           onAuthorPressed: onAuthorPressed,
+          toolShortcuts: toolShortcuts,
+          onToolShortcutsChanged: onToolShortcutsChanged,
+          tools: tools,
         );
       },
       itemBuilder: (context) => [
@@ -994,6 +1263,16 @@ class PdfShellViewOptionsButton extends StatelessWidget {
                     ? 'Not set'
                     : authorName!,
               ),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        if (toolShortcuts != null && onToolShortcutsChanged != null)
+          const PopupMenuItem(
+            key: ValueKey('pdf-shell-shortcuts'),
+            value: _ViewOption.shortcuts,
+            child: ListTile(
+              leading: Icon(Icons.keyboard_outlined),
+              title: Text('Keyboard shortcuts…'),
               contentPadding: EdgeInsets.zero,
             ),
           ),

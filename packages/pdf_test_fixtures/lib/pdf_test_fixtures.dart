@@ -3,6 +3,7 @@ import 'dart:typed_data';
 export 'src/encrypted.dart';
 export 'src/icc_profiles.dart';
 export 'src/pkix_ltv.dart';
+export 'src/rtl_text.dart';
 export 'src/signer_identity.dart';
 export 'src/test_tsa.dart';
 
@@ -292,14 +293,14 @@ Uint8List buildAnnotatedPdf() {
 /// Builds a one-page PDF whose annotations carry appearance streams:
 ///
 /// - a Square at /Rect [100 100 200 150], /AP BBox [0 0 10 10] filling
-///   itself green — exercises the BBox → Rect scaling (×10, ×5)
+///   itself green - exercises the BBox → Rect scaling (×10, ×5)
 /// - a Stamp at /Rect [300 100 350 200] whose /AP has a 90°-rotation
 ///   /Matrix and fills its BBox red
 /// - a Widget checkbox "agree" at /Rect [400 100 420 120] with /AS /On
 ///   selecting between /On (fills 0.5 gray) and /Off (empty) states
-/// - a hidden (/F 2) Square at [100 300 200 350] whose /AP fills magenta —
+/// - a hidden (/F 2) Square at [100 300 200 350] whose /AP fills magenta -
 ///   must not be drawn
-/// - a Popup at [300 300 400 400] whose /AP fills yellow — must not be
+/// - a Popup at [300 300 400 400] whose /AP fills yellow - must not be
 ///   drawn during page rendering
 ///
 /// The page content itself fills a blue square at (10,10)-(60,60).
@@ -446,12 +447,12 @@ Uint8List buildAcroFormPdf() {
 /// what the page shows; reconciliation must adopt the page widgets.
 Uint8List buildOrphanedAcroFormPdf() {
   final objects = <String>[
-    // 1: catalog — /Fields holds only the off-page copies (6, 7)
+    // 1: catalog - /Fields holds only the off-page copies (6, 7)
     '<< /Type /Catalog /Pages 2 0 R /AcroForm << '
         '/Fields [6 0 R 7 0 R] '
         '/DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >> >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    // 3: page — /Annots lists only the orphan page widgets (8, 9, 10)
+    // 3: page - /Annots lists only the orphan page widgets (8, 9, 10)
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
         '/Annots [8 0 R 9 0 R 10 0 R] >>',
     '<< /Length 0 >>\nstream\n\nendstream',
@@ -463,13 +464,13 @@ Uint8List buildOrphanedAcroFormPdf() {
     // 7: off-page /Fields copy of `town`, empty
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (town) '
         '/Rect [72 660 300 684] /DA (/Helv 12 Tf 0 g) >>',
-    // 8: on-page orphan `name` — not in /Fields, the value the user sees
+    // 8: on-page orphan `name` - not in /Fields, the value the user sees
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) '
         '/Rect [72 700 300 724] /DA (/Helv 12 Tf 0 g) /V (Jane) >>',
-    // 9: on-page orphan `town` — not in /Fields, empty
+    // 9: on-page orphan `town` - not in /Fields, empty
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (town) '
         '/Rect [72 660 300 684] /DA (/Helv 12 Tf 0 g) >>',
-    // 10: on-page orphan `extra` — no /Fields entry at all
+    // 10: on-page orphan `extra` - no /Fields entry at all
     '<< /Type /Annot /Subtype /Widget /FT /Tx /T (extra) '
         '/Rect [72 620 300 644] /DA (/Helv 12 Tf 0 g) /V (Solo) >>',
   ];
@@ -499,7 +500,7 @@ Uint8List buildOrphanedAcroFormPdf() {
 ///
 /// Set [includeCmap] false to omit the cmap (a cmap-less embedded subset),
 /// and [includePost] true to add a `post` format 2.0 table naming gid 1 'A'
-/// and gid 2 'B' — together they exercise name-based glyph selection.
+/// and gid 2 'B' - together they exercise name-based glyph selection.
 Uint8List buildTestTrueTypeFont(
     {bool includeCmap = true, bool includePost = false}) {
   final out = BytesBuilder();
@@ -605,7 +606,7 @@ Uint8List buildTestTrueTypeFont(
   ]);
 
   // post format 2.0: gid 0 = .notdef (mac index 0), gid 1 = 'A' (index 36),
-  // gid 2 = 'B' (index 37) — all standard Mac names, no Pascal strings.
+  // gid 2 = 'B' (index 37) - all standard Mac names, no Pascal strings.
   final post = join([
     u32(0x00020000), u32(0), // version, italicAngle
     s16(0), s16(0), u32(0), // underline pos/thick, isFixedPitch
@@ -672,6 +673,57 @@ Uint8List buildEmbeddedFontPdf() {
         '/Descent -200 /CapHeight 800 /StemV 80 /FontFile2 6 0 R >>'),
   ];
 
+  final out = BytesBuilder()..add(ascii('%PDF-1.4\n'));
+  final offsets = <int>[];
+  for (var i = 0; i < bodies.length; i++) {
+    offsets.add(out.length);
+    out.add(ascii('${i + 1} 0 obj\n'));
+    out.add(bodies[i]);
+    out.add(ascii('\nendobj\n'));
+  }
+  final xrefOffset = out.length;
+  final buffer = StringBuffer()
+    ..write('xref\n0 ${bodies.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  out.add(ascii(buffer.toString()));
+  return out.takeBytes();
+}
+
+/// Embedded-font page with an inline RGB image behind the text and a solid
+/// vector rectangle painted after it. Exercises mixed image/Slug painter
+/// order: neither the image nor the later occluder may be lifted around text.
+Uint8List buildEmbeddedFontImagePdf() {
+  final font = buildTestTrueTypeFont();
+  const content = 'q 300 0 0 120 50 620 cm '
+      'BI /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 '
+      '/Filter /ASCIIHexDecode ID E0E8FF> EI Q '
+      'BT /F1 24 Tf 72 700 Td 0 0 0 rg (AB) Tj ET '
+      '0.9 0.2 0.2 rg 88 700 14 24 re f';
+  final bodies = <Uint8List>[
+    ascii('<< /Type /Catalog /Pages 2 0 R >>'),
+    ascii('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+    ascii('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>'),
+    ascii('<< /Length ${content.length} >>\nstream\n$content\nendstream'),
+    ascii('<< /Type /Font /Subtype /TrueType /BaseFont /TestFont '
+        '/FirstChar 65 /LastChar 66 /Widths [600 1000] '
+        '/Encoding /WinAnsiEncoding /FontDescriptor 7 0 R >>'),
+    (BytesBuilder()
+          ..add(ascii('<< /Length ${font.length} /Length1 ${font.length} >>'
+              '\nstream\n'))
+          ..add(font)
+          ..add(ascii('\nendstream')))
+        .takeBytes(),
+    ascii('<< /Type /FontDescriptor /FontName /TestFont /Flags 32 '
+        '/FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 '
+        '/Descent -200 /CapHeight 800 /StemV 80 /FontFile2 6 0 R >>'),
+  ];
   final out = BytesBuilder()..add(ascii('%PDF-1.4\n'));
   final offsets = <int>[];
   for (var i = 0; i < bodies.length; i++) {

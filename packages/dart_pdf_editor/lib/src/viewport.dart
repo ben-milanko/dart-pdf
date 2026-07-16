@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 /// A resolution-independent snapshot of a [PdfViewer]'s scroll position
-/// and zoom — enough to reopen the same document where the user left it.
+/// and zoom - enough to reopen the same document where the user left it.
 ///
 /// The position is stored as the page at the top-left of the viewport
 /// plus fractional offsets into that page (0–1, y-down), not as raw

@@ -1,7 +1,7 @@
 // The Document-AI read seam (PdfDocumentContext): a thin adapter that
 // gathers a document's text, form fields, and annotations into a clean
 // shape for a host-supplied model. (The write seam, PdfDocumentActionSink,
-// is an abstract host-provided interface — nothing to test here.)
+// is an abstract host-provided interface - nothing to test here.)
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';

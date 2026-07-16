@@ -21,7 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 }
 
 /// Whether any pixel in the ±[radius] patch around ([x], [y]) satisfies
-/// [test] — antialiased 1–3 px strokes don't land on exact coordinates.
+/// [test] - antialiased 1–3 px strokes don't land on exact coordinates.
 bool patchHas(ByteData data, int width, int height, double x, double y,
     int radius, bool Function(int r, int g, int b, int a) test) {
   for (var dy = -radius; dy <= radius; dy++) {
@@ -272,7 +272,7 @@ void main() {
           isTrue,
           reason: 'the chrome stroke should pass the rotated top edge');
       // the axis-aligned bounds box (the old chrome) had its top edge
-      // ~117px above center — nothing should be drawn there now
+      // ~117px above center - nothing should be drawn there now
       expect(
           patchHas(data, 800, 600, c.dx, c.dy - 117.5, 3, strongBlue), isFalse,
           reason: 'no chrome along the axis-aligned bounds');
@@ -327,11 +327,11 @@ void main() {
       await tester.pump();
 
       // the move committed, but the new revision's raster can't land in
-      // a widget test — the afterimage must keep the square visible at
+      // a widget test - the afterimage must keep the square visible at
       // its new place (its red left border, shifted by the drag delta)
       expect(editing.document.page(0).annotations.single.rect.left,
           closeTo(210, 1));
-      // sample the square's left border off the edge midpoint — the
+      // sample the square's left border off the edge midpoint - the
       // white resize-handle knob sits exactly there
       final delta = view(285, 420) - view(125, 720);
       final edge = view(50, 720) + delta - const Offset(0, 33);
@@ -382,7 +382,7 @@ void main() {
           reason: 'committed ink should stay painted until the raster lands');
 
       // undo: the committing revision is gone, and so is the afterimage
-      // source (pixels can't prove it — the page view deliberately keeps
+      // source (pixels can't prove it - the page view deliberately keeps
       // the previous raster up until the re-render lands)
       editing.undo();
       expect(editing.committedInkOn(0), isNull);
@@ -408,7 +408,7 @@ void main() {
       await mouse.moveTo(view(300, 500));
       await tester.pump();
 
-      // the preview rides the hover — nothing committed yet
+      // the preview rides the hover - nothing committed yet
       expect(editing.document.page(0).annotations, isEmpty);
       final data = await capture(tester, boundary);
       final p = view(300, 500);

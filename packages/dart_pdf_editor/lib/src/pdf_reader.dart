@@ -1,18 +1,21 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'editing/editing_bookmarks.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_thumbnails.dart';
 import 'page_number_field.dart';
+import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'raster_cache.dart';
-import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
+import 'shell_session.dart';
 import 'theme.dart';
 
 /// Which pieces of chrome a [PdfReader] shows. Everything defaults on;
@@ -23,6 +26,7 @@ class PdfReaderFeatures {
     this.search = true,
     this.pageNumber = true,
     this.thumbnails = true,
+    this.bookmarks = true,
     this.viewOptions = true,
     this.pageColorEditable = true,
     this.fillForms = true,
@@ -35,11 +39,12 @@ class PdfReaderFeatures {
           search: false,
           pageNumber: false,
           thumbnails: false,
+          bookmarks: false,
           viewOptions: false,
         );
 
   /// The slim bar above the viewer. With it off the remaining features
-  /// lose their buttons, so most are moot — panels still follow the
+  /// lose their buttons, so most are moot - panels still follow the
   /// persisted preferences.
   final bool headerBar;
 
@@ -54,17 +59,21 @@ class PdfReaderFeatures {
   /// tiles navigate, but pages can't be reordered or deleted.
   final bool thumbnails;
 
+  /// The PDF bookmarks/outline sidebar and its header toggle. Read-only
+  /// here: items navigate but cannot be authored.
+  final bool bookmarks;
+
   /// The view-options menu: annotation visibility, form-field
-  /// highlight, and page (paper) color — display settings only.
+  /// highlight, and page (paper) color - display settings only.
   final bool viewOptions;
 
   /// Whether the view-options menu offers "Page color…". With it false
-  /// the paper color can't be changed from the UI — for hosts that set
+  /// the paper color can't be changed from the UI - for hosts that set
   /// the page color from the document programmatically and lock it.
   final bool pageColorEditable;
 
   /// Whether form fields can be filled in (text entry, check boxes,
-  /// radio buttons, drop-downs) — the only document mutation the reader
+  /// radio buttons, drop-downs) - the only document mutation the reader
   /// allows, since forms are made to be filled. Filled values live in
   /// the reader's session for the life of the widget; surfacing them as
   /// bytes (to save) needs the full [PdfEditorView]. Off makes the
@@ -74,7 +83,7 @@ class PdfReaderFeatures {
 
 /// A drop-in, view-only PDF widget: the [PdfViewer] plus a slim header
 /// with search, a page-number field, view options, and a navigational
-/// thumbnail sidebar. No editing — for the full editor, use
+/// thumbnail sidebar. No editing - for the full editor, use
 /// [PdfEditorView].
 ///
 /// ```dart
@@ -85,7 +94,7 @@ class PdfReaderFeatures {
 /// colors can be tuned with [viewerTheme] (or an inherited
 /// [PdfViewerTheme]). Features toggle off via [features]. Display
 /// preferences (panel visibility and widths, page color) persist on the
-/// device through [PdfEditingPreferences] — pass [preferences] to share
+/// device through [PdfEditingPreferences] - pass [preferences] to share
 /// one instance across widgets, or leave null for a self-contained one.
 ///
 /// The widget is a plain body: give it bounded space (a [Scaffold]
@@ -98,8 +107,11 @@ class PdfReader extends StatefulWidget {
     this.documentId,
     this.controller,
     this.preferences,
+    this.performance,
     this.features = const PdfReaderFeatures(),
     this.onAction,
+    this.onAnnotationTap,
+    this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -137,10 +149,21 @@ class PdfReader extends StatefulWidget {
   /// The persisted display preferences. Defaults to a private instance.
   final PdfEditingPreferences? preferences;
 
+  /// Optional adaptive/fixed performance controller. Null creates an owned
+  /// Auto controller. Pass one to select fixed worker settings at runtime or
+  /// expose [PdfPerformanceController.diagnostics] in host UI.
+  final PdfPerformanceController? performance;
+
   final PdfReaderFeatures features;
 
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
+
+  /// See [PdfViewer.onAnnotationTap].
+  final PdfAnnotationTapHandler? onAnnotationTap;
+
+  /// See [PdfViewer.onLaunchUrl].
+  final PdfUrlLauncher? onLaunchUrl;
 
   /// See [PdfViewer.pageOverlayBuilder].
   final PdfPageOverlayBuilder? pageOverlayBuilder;
@@ -164,96 +187,46 @@ class PdfReader extends StatefulWidget {
 }
 
 class _PdfReaderState extends State<PdfReader> {
-  // the session wraps the bytes for the viewer and the thumbnail
-  // strip's caches; the reader makes no structural edits, so the
-  // document stays byte-identical to the input — except form fills
-  // (PdfReaderFeatures.fillForms), the one mutation a reader allows
-  late PdfEditingController _session;
-  PdfEditingPreferences? _ownedPrefs;
-  PdfViewerController? _ownedViewer;
-  PdfViewportMemory? _viewportMemory;
+  late PdfShellSessionLifecycle _shell;
 
-  // Offloads page interpretation to a background isolate (native; a no-op
-  // fallback on web). Keyed to the session's current document: pure reading
-  // spawns one worker for the life of the document, and the rare form-fill
-  // revision respawns it over the new bytes so it never serves a stale page.
-  PdfRenderWorker? _worker;
-  PdfDocument? _workerDoc;
-
-  final _searchField = TextEditingController();
-  final _searchFocus = FocusNode();
-
-  PdfViewerController get _viewer =>
-      widget.controller ?? (_ownedViewer ??= PdfViewerController());
-
-  PdfEditingPreferences get _prefs => _session.preferences;
-
-  String get _documentKey => widget.documentId ?? pdfDocumentKey(widget.bytes);
+  PdfEditingController get _session => _shell.session;
+  PdfViewerController get _viewer => _shell.viewer;
+  PdfEditingPreferences get _prefs => _shell.preferences;
+  PdfPerformanceController get _performance => _shell.performance;
+  String get _documentKey => _shell.documentKey!;
+  TextEditingController get _searchField => _shell.searchController;
+  FocusNode get _searchFocus => _shell.searchFocus;
 
   @override
   void initState() {
     super.initState();
-    _openSession();
-    // remember and restore where the user left this document
-    _viewportMemory = PdfViewportMemory(
-      viewer: _viewer,
-      preferences: _prefs,
-      documentKey: _documentKey,
+    _shell = PdfShellSessionLifecycle(
+      bytes: widget.bytes,
+      controller: null,
+      preferences: widget.preferences,
+      viewerController: widget.controller,
+      performance: widget.performance,
+      documentId: widget.documentId,
     );
-  }
-
-  void _openSession() {
-    final prefs =
-        widget.preferences ?? (_ownedPrefs ??= PdfEditingPreferences());
-    _session = PdfEditingController(widget.bytes, preferences: prefs);
-    _session.addListener(_syncWorker);
-    _syncWorker();
-  }
-
-  /// Keeps [_worker] tied to the session's current document. Reading never
-  /// changes it (one spawn for the document's life); a form fill produces a
-  /// new revision, so the old worker — which holds the pre-fill bytes — is
-  /// disposed and a fresh one started over the new bytes. Disposing first
-  /// means pages render locally (correctly) during the brief respawn rather
-  /// than from a stale isolate.
-  void _syncWorker() {
-    if (identical(_session.document, _workerDoc)) return;
-    _worker?.dispose();
-    _worker = PdfRenderWorker.start(_session.bytes);
-    _workerDoc = _session.document;
   }
 
   @override
   void didUpdateWidget(PdfReader oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(widget.bytes, oldWidget.bytes) ||
-        widget.documentId != oldWidget.documentId) {
-      final previous = _session;
-      previous.removeListener(_syncWorker);
-      _searchField.clear();
-      _openSession();
-      _viewportMemory?.rekey(_documentKey);
-      previous.dispose();
-    }
+    _shell.update(
+      bytes: widget.bytes,
+      controller: null,
+      preferences: widget.preferences,
+      viewerController: widget.controller,
+      performanceController: widget.performance,
+      documentId: widget.documentId,
+    );
   }
 
   @override
   void dispose() {
-    _viewportMemory?.dispose();
-    _worker?.dispose();
-    _session.removeListener(_syncWorker);
-    _session.dispose();
-    _ownedPrefs?.dispose();
-    _ownedViewer?.dispose();
-    _searchField.dispose();
-    _searchFocus.dispose();
+    _shell.dispose();
     super.dispose();
-  }
-
-  void _focusSearch() {
-    _searchFocus.requestFocus();
-    _searchField.selection =
-        TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
   @override
@@ -272,9 +245,12 @@ class _PdfReaderState extends State<PdfReader> {
           final useSheets = pdfShellUseBottomSheets(constraints);
           final showThumbnailsPanel =
               features.thumbnails && showThumbnails && !prefs.showReflowView;
+          final showBookmarksPanel = features.bookmarks &&
+              prefs.showBookmarkSidebar &&
+              !prefs.showReflowView;
 
           // Distinct keys for docked vs sheet so the strip is remounted, not
-          // reparented, when the breakpoint flips — reparenting reactivates
+          // reparented, when the breakpoint flips - reparenting reactivates
           // the tiles' Tooltip overlays mid-layout (a RenderObject mutation
           // assertion). See the matching note in pdf_editor_view.dart.
           PdfThumbnailSidebar thumbnails({required bool bottomSheet}) =>
@@ -287,7 +263,23 @@ class _PdfReaderState extends State<PdfReader> {
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: false,
                 bottomSheet: bottomSheet,
-                renderWorker: _worker,
+                // the sheet chrome carries its own close button
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showThumbnailSidebar = false,
+                renderWorker: _shell.worker,
+              );
+          PdfBookmarkSidebar bookmarks({required bool bottomSheet}) =>
+              PdfBookmarkSidebar(
+                key: ValueKey(
+                    'pdf-shell-bookmarks-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: _session,
+                viewerController: _viewer,
+                editable: false,
+                bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showBookmarkSidebar = false,
               );
           return Column(children: [
             if (features.headerBar)
@@ -338,6 +330,15 @@ class _PdfReaderState extends State<PdfReader> {
                         onPressed: () =>
                             prefs.showThumbnailSidebar = !showThumbnails,
                       ),
+                    if (features.bookmarks)
+                      PdfShellPanelItem(
+                        key: const ValueKey('pdf-shell-bookmarks-toggle'),
+                        icon: Icons.bookmarks_outlined,
+                        tooltip: 'Bookmarks',
+                        selected: prefs.showBookmarkSidebar,
+                        onPressed: () => prefs.showBookmarkSidebar =
+                            !prefs.showBookmarkSidebar,
+                      ),
                   ]),
                 ],
                 compactSheetChildren: [
@@ -349,7 +350,7 @@ class _PdfReaderState extends State<PdfReader> {
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-view-options'),
                       icon: Icons.display_settings_outlined,
-                      label: 'View',
+                      label: 'Settings',
                       onPressed: () {
                         showPdfShellViewOptionsSheet(
                           context,
@@ -368,51 +369,57 @@ class _PdfReaderState extends State<PdfReader> {
                       onPressed: () =>
                           prefs.showThumbnailSidebar = !showThumbnails,
                     ),
+                  if (features.bookmarks)
+                    PdfShellControlItem(
+                      key: const ValueKey('pdf-shell-bookmarks-toggle'),
+                      icon: Icons.bookmarks_outlined,
+                      label: 'Bookmarks',
+                      selected: prefs.showBookmarkSidebar,
+                      onPressed: () => prefs.showBookmarkSidebar =
+                          !prefs.showBookmarkSidebar,
+                    ),
                 ],
               ),
             Expanded(
-              // keyed so a panel appearing never recreates the viewer
-              // element (which would reset the reading position)
-              child: Stack(children: [
-                Positioned.fill(
-                  child: Row(children: [
-                    if (showThumbnailsPanel && !useSheets)
-                      thumbnails(bottomSheet: false),
-                    Expanded(
-                      key: const ValueKey('pdf-shell-viewer'),
-                      // rebuilds on session changes too: filling a form
-                      // produces a revision, so the viewer must track
-                      // _session.document, not the build-time snapshot
-                      child: ListenableBuilder(
-                        listenable: _session,
-                        builder: (context, _) => prefs.showReflowView
-                            ? PdfReflowView(
-                                document: _session.document,
-                                backgroundColor: widget.backgroundColor,
-                              )
-                            : PdfViewer(
-                                document: _session.document,
-                                controller: _viewer,
-                                formController:
-                                    features.fillForms ? _session : null,
-                                onAction: widget.onAction,
-                                pageOverlayBuilder: widget.pageOverlayBuilder,
-                                initialFit: widget.initialFit,
-                                backgroundColor: widget.backgroundColor,
-                                pageColor: pageColor,
-                                showAnnotations: prefs.showAnnotations,
-                                highlightFormFields: prefs.highlightFormFields,
-                                renderWorker: _worker,
-                                rasterCache: widget.rasterCache,
-                                textCache: widget.textCache,
-                                documentId: _documentKey,
-                              ),
-                      ),
-                    ),
-                  ]),
+              child: PdfShellPanelLayout(
+                leadingPanels: [
+                  if (showThumbnailsPanel && !useSheets)
+                    thumbnails(bottomSheet: false),
+                  if (showBookmarksPanel && !useSheets)
+                    bookmarks(bottomSheet: false),
+                ],
+                // rebuilds on session changes too: filling a form produces a
+                // revision, so the viewer must track _session.document, not
+                // the build-time snapshot
+                viewer: ListenableBuilder(
+                  listenable: _session,
+                  builder: (context, _) => prefs.showReflowView
+                      ? PdfReflowView(
+                          document: _session.document,
+                          backgroundColor: widget.backgroundColor,
+                        )
+                      : PdfViewer(
+                          document: _session.document,
+                          controller: _viewer,
+                          formController: features.fillForms ? _session : null,
+                          onAction: widget.onAction,
+                          onAnnotationTap: widget.onAnnotationTap,
+                          onLaunchUrl: widget.onLaunchUrl,
+                          pageOverlayBuilder: widget.pageOverlayBuilder,
+                          initialFit: widget.initialFit,
+                          backgroundColor: widget.backgroundColor,
+                          pageColor: pageColor,
+                          showAnnotations: prefs.showAnnotations,
+                          highlightFormFields: prefs.highlightFormFields,
+                          renderWorker: _shell.worker,
+                          performance: _performance,
+                          rasterCache: widget.rasterCache,
+                          textCache: widget.textCache,
+                          documentId: _documentKey,
+                        ),
                 ),
-                if (useSheets && showThumbnailsPanel)
-                  pdfShellBottomSheets([
+                bottomSheets: [
+                  if (useSheets && showThumbnailsPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-thumbnails-sheet'),
                       title: 'Pages',
@@ -421,8 +428,17 @@ class _PdfReaderState extends State<PdfReader> {
                       onClose: () => prefs.showThumbnailSidebar = false,
                       child: thumbnails(bottomSheet: true),
                     ),
-                  ]),
-              ]),
+                  if (useSheets && showBookmarksPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-bookmarks-sheet'),
+                      title: 'Bookmarks',
+                      closeKey:
+                          const ValueKey('pdf-shell-bookmarks-sheet-close'),
+                      onClose: () => prefs.showBookmarkSidebar = false,
+                      child: bookmarks(bottomSheet: true),
+                    ),
+                ],
+              ),
             ),
           ]);
         },
@@ -433,12 +449,7 @@ class _PdfReaderState extends State<PdfReader> {
     }
     if (features.headerBar && features.search) {
       body = CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
-              _focusSearch,
-          const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-              _focusSearch,
-        },
+        bindings: _shell.searchShortcuts(enabled: true),
         child: body,
       );
     }

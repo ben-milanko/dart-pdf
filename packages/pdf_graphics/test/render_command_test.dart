@@ -1,4 +1,4 @@
-// Record/replay equivalence — the foundation of the background-isolate render
+// Record/replay equivalence - the foundation of the background-isolate render
 // split. A page interpreted straight into a device must produce the EXACT same
 // sequence of device callbacks as the same page recorded into a
 // [RecordingPdfDevice] and then replayed via [replayCommands]. This is the

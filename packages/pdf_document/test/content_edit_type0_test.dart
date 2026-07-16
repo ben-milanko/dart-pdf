@@ -187,7 +187,7 @@ void main() {
 
     test('content elements decode Type0 text via /ToUnicode', () {
       // the content-edit UI reads PdfContentElement.text as both the prompt
-      // value and the replaceText `find` — for Type0 it must be the real
+      // value and the replaceText `find` - for Type0 it must be the real
       // string, not the 2-byte codes Latin-1-decoded.
       final doc = PdfDocument.open(buildType0Pdf('Hello world', fontBytes));
       final texts = PdfPageElements.of(doc, 0)

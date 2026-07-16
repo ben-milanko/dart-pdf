@@ -31,7 +31,7 @@ import time
 try:
     import pypdfium2 as pdfium
 except ImportError:
-    sys.exit("pypdfium2 not installed — run: pip install pypdfium2")
+    sys.exit("pypdfium2 not installed - run: pip install pypdfium2")
 
 
 def find_pdfs(root):
@@ -56,7 +56,7 @@ def bench_file(path, scale, max_pages):
         # autoclose=False: we hold `data` for the doc's lifetime.
         doc = pdfium.PdfDocument(data)
         n = len(doc)
-    except Exception as exc:  # noqa: BLE001 — record, don't crash the sweep
+    except Exception as exc:  # noqa: BLE001 - record, don't crash the sweep
         return (0, 0, (time.perf_counter() - t0) * 1000, 0.0, repr(exc))
     open_ms = (time.perf_counter() - t0) * 1000
 
@@ -88,7 +88,7 @@ def _bench_child(path, scale, max_pages, q):
 def bench_with_timeout(path, scale, max_pages, timeout, ctx):
     """bench_file, but render in a killable fork child so a single malformed
     PDF can't stall the sweep. A long native PDFium render ignores signals, so
-    nothing short of killing the process works — hence a child, not SIGALRM.
+    nothing short of killing the process works - hence a child, not SIGALRM.
 
     The child is forked AFTER pypdfium2 is imported in the parent, so it
     inherits the loaded native lib (no per-file re-import cost) and the timing
@@ -105,7 +105,7 @@ def bench_with_timeout(path, scale, max_pages, timeout, ctx):
         return (0, 0, 0.0, 0.0, f"timeout>{timeout}s")
     try:
         return q.get_nowait()
-    except Exception:  # noqa: BLE001 — child crashed (e.g. native abort)
+    except Exception:  # noqa: BLE001 - child crashed (e.g. native abort)
         return (0, 0, 0.0, 0.0, "child died (native crash?)")
 
 
@@ -131,7 +131,7 @@ def main():
         sys.exit(f"no PDFs under {args.corpus}")
 
     # fork (not the macOS default 'spawn') so the child inherits the imported
-    # pypdfium2 — no per-file re-import, and no re-running this script's argv.
+    # pypdfium2 - no per-file re-import, and no re-running this script's argv.
     ctx = mp.get_context("fork") if args.timeout > 0 else None
 
     # Per file, keep the fastest render time across repeats (warm-cache best).

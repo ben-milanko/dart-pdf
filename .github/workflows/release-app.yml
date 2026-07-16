@@ -2,7 +2,7 @@ name: Release app
 
 # Builds installable artifacts for the standalone DartPDF app on every
 # `app-v*` tag (and on demand) and attaches them to a draft GitHub Release.
-# Store upload and code signing stay manual — see app/RELEASING.md.
+# Store upload and code signing stay manual - see app/RELEASING.md.
 
 on:
   push:
@@ -14,10 +14,11 @@ on:
         required: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  FLUTTER_VERSION: '3.44.2'
+  FLUTTER_VERSION: '3.44.4'
+  APPIMAGETOOL_SHA256: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
 
 jobs:
   setup:
@@ -39,7 +40,9 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -50,12 +53,67 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: Patch onnxruntime Android compile SDK
+      - name: Patch hosted Android plugin compatibility
         run: |
           set -euo pipefail
-          gradle_file="$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
-          test -n "$gradle_file"
-          sed -i 's/compileSdkVersion 33/compileSdkVersion 36/' "$gradle_file"
+
+          patch_gradle() {
+            local gradle_file="$1"
+            local namespace="${2:-}"
+            if [[ -z "$gradle_file" ]]; then
+              echo "No matching hosted Android Gradle file found; skipping patch."
+              return 0
+            fi
+
+            python3 - "$gradle_file" "$namespace" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          namespace = sys.argv[2]
+          text = path.read_text()
+          text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
+          if namespace and 'namespace ' not in text:
+              text = text.replace('android {\n', f'android {{\n    namespace "{namespace}"\n', 1)
+          path.write_text(text)
+          PY
+          }
+
+          patch_gradle "$(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle' -print -quit)"
+          patch_gradle "$(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle' -print -quit)" dev.irondash.engine_context
+          super_native_gradle="$(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle' -print -quit)"
+          patch_gradle "$super_native_gradle" com.superlist.super_native_extensions
+
+          if [[ -n "$super_native_gradle" ]]; then
+            cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
+          else
+            cargokit_gradle=""
+          fi
+
+          if [[ -n "$cargokit_gradle" && -f "$cargokit_gradle" ]]; then
+            python3 - "$cargokit_gradle" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          text = text.replace('for (project in projects) {', 'for (project in projects.values()) {')
+          text = text.replace('project.value.getPlugins()', 'project.getPlugins()')
+          text = text.replace(
+              'return _findFlutterPlugin(project.value.childProjects);',
+              '''def found = _findFlutterPlugin(project.childProjects);
+                      if (found != null) {
+                          return found;
+                      }''',
+          )
+          if 'projects.values()' not in text or 'project.value.getPlugins()' in text:
+              raise SystemExit("CargoKit plugin patch target not found")
+          path.write_text(text)
+          PY
+          else
+            echo "No CargoKit Gradle plugin found; skipping patch."
+          fi
       - name: Build APK + AAB
         working-directory: app
         run: |
@@ -74,7 +132,9 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -83,7 +143,13 @@ jobs:
       - run: flutter pub get
       - name: Build web
         working-directory: app
-        run: flutter build web --release
+        run: |
+          dart run dart_pdf_editor:build_web_worker \
+            --out ../packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+          flutter build web --release
+      - name: Cache-bust web build
+        working-directory: app
+        run: bash ../tool/web_cache_bust.sh build/web
       - name: Zip
         working-directory: app
         run: (cd build/web && zip -r ../../dartpdf-web.zip .)
@@ -96,7 +162,9 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
       - uses: subosito/flutter-action@v2
         with:
@@ -135,7 +203,9 @@ jobs:
           exec "$HERE/usr/bin/dart_pdf_editor_app" "$@"
           EOF
           chmod +x "$APPDIR/AppRun"
-          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          curl -fsSL -o appimagetool-x86_64.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
       - uses: actions/upload-artifact@v7
@@ -149,7 +219,9 @@ jobs:
     needs: setup
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -196,18 +268,107 @@ jobs:
           & $makensis portable.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
           if (-not (Test-Path dartpdf-windows-portable.exe)) { throw "portable exe not produced" }
+      - name: Build Windows installer (NSIS)
+        working-directory: app
+        shell: pwsh
+        run: |
+          $rel = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $version = "${{ needs.setup.outputs.version }}"
+          $versionDigits = $version -replace '[^0-9.].*$', ''
+          $versionParts = @($versionDigits.Split('.') | Where-Object { $_ -match '^\d+$' })
+          while ($versionParts.Count -lt 4) { $versionParts += '0' }
+          $fileVersion = ($versionParts[0..3] -join '.')
+          $nsi = @"
+          Unicode true
+          !include "MUI2.nsh"
+          !define MUI_ABORTWARNING
+
+          Name "DartPDF"
+          OutFile "dartpdf-windows-installer.exe"
+          InstallDir "`$LOCALAPPDATA\Programs\DartPDF"
+          InstallDirRegKey HKCU "Software\DartPDF" "InstallDir"
+          RequestExecutionLevel user
+
+          VIProductVersion "$fileVersion"
+          VIAddVersionKey "ProductName" "DartPDF"
+          VIAddVersionKey "CompanyName" "DartPDF"
+          VIAddVersionKey "FileDescription" "DartPDF installer"
+          VIAddVersionKey "ProductVersion" "$version"
+          VIAddVersionKey "FileVersion" "$version"
+
+          !insertmacro MUI_PAGE_WELCOME
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+          !insertmacro MUI_UNPAGE_CONFIRM
+          !insertmacro MUI_UNPAGE_INSTFILES
+          !insertmacro MUI_LANGUAGE "English"
+
+          Section "DartPDF" SecInstall
+            SetShellVarContext current
+            SetOutPath "`$INSTDIR"
+            File /r "$rel\*.*"
+
+            CreateDirectory "`$SMPROGRAMS\DartPDF"
+            CreateShortcut "`$SMPROGRAMS\DartPDF\DartPDF.lnk" "`$INSTDIR\dart_pdf_editor_app.exe"
+            CreateShortcut "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk" "`$INSTDIR\Uninstall.exe"
+
+            WriteUninstaller "`$INSTDIR\Uninstall.exe"
+
+            WriteRegStr HKCU "Software\DartPDF" "InstallDir" "`$INSTDIR"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayName" "DartPDF"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayVersion" "$version"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "Publisher" "DartPDF"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "InstallLocation" "`$INSTDIR"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayIcon" "`$INSTDIR\dart_pdf_editor_app.exe"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "UninstallString" '"`$INSTDIR\Uninstall.exe"'
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "QuietUninstallString" '"`$INSTDIR\Uninstall.exe" /S'
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "NoModify" 1
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "NoRepair" 1
+
+            WriteRegStr HKCU "Software\Classes\DartPDF.pdf" "" "PDF document"
+            WriteRegStr HKCU "Software\Classes\DartPDF.pdf\DefaultIcon" "" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
+            WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" "%1"'
+            WriteRegStr HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf" ""
+            System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+          SectionEnd
+
+          Section "Uninstall"
+            SetShellVarContext current
+            Delete "`$SMPROGRAMS\DartPDF\DartPDF.lnk"
+            Delete "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk"
+            RMDir "`$SMPROGRAMS\DartPDF"
+
+            DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF"
+            DeleteRegKey HKCU "Software\DartPDF"
+            DeleteRegKey HKCU "Software\Classes\DartPDF.pdf"
+            DeleteRegValue HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf"
+
+            RMDir /r "`$INSTDIR"
+            System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+          SectionEnd
+          "@
+          Set-Content -Path installer.nsi -Value $nsi -Encoding UTF8
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { choco install nsis -y --no-progress | Out-Null }
+          & $makensis installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
+          if (-not (Test-Path dartpdf-windows-installer.exe)) { throw "installer exe not produced" }
       - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
             app/dartpdf-windows-x64.zip
             app/dartpdf-windows-portable.exe
+            app/dartpdf-windows-installer.exe
 
   macos:
     needs: setup
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -217,6 +378,9 @@ jobs:
       - name: Build macOS
         working-directory: app
         run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - name: Normalize macOS code signatures
+        working-directory: app
+        run: bash macos/resign_embedded_code.sh build/macos/Build/Products/Release/DartPDF.app
       - name: Package DMG (unsigned)
         working-directory: app
         run: |
@@ -236,7 +400,9 @@ jobs:
     needs: setup
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -258,11 +424,13 @@ jobs:
     needs: [setup, android, web, linux, windows, macos, ios]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/app-v')
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
           name: DartPDF ${{ needs.setup.outputs.version }}
           draft: true
@@ -271,5 +439,5 @@ jobs:
             Standalone DartPDF ${{ needs.setup.outputs.version }}.
 
             Artifacts are built by CI and are **unsigned** (macOS .dmg, iOS .app,
-            Windows .zip) or **debug-signed** (Android, unless a release keystore
+            Windows installer/.zip) or **debug-signed** (Android, unless a release keystore
             is configured). See `app/RELEASING.md` for signing and store upload.

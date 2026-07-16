@@ -39,7 +39,7 @@ late final String macAppHint;
 /// PID of the app instance *we* launched, parsed from the macOS embedder's
 /// startup log line (`AppName[pid:tid] Running with merged UI…`). This is
 /// unambiguous even when an installed copy of the same-named app is already
-/// running — the bug that made every macOS shot a full-display grab, because
+/// running - the bug that made every macOS shot a full-display grab, because
 /// the name fallback resolved to the installed app, which had no window.
 int? launchedPid;
 
@@ -55,7 +55,8 @@ Future<void> main() async {
   outRoot = Platform.environment['SHOT_OUT'] ?? 'screenshots';
   macProcess = _env('SHOT_MAC_PROCESS');
   macAppHint = _env('SHOT_MAC_APP_HINT');
-  final entry = Platform.environment['SHOT_ENTRY'] ?? 'lib/screenshots_main.dart';
+  final entry =
+      Platform.environment['SHOT_ENTRY'] ?? 'lib/screenshots_main.dart';
   if (platform.isEmpty || flutterDevice.isEmpty) {
     stderr.writeln('SHOT_PLATFORM and FLUTTER_DEVICE are required.');
     exit(2);
@@ -65,6 +66,7 @@ Future<void> main() async {
 
   // Build the window-capture helper up front so the first scene can use it.
   if (platform == 'macos') macWinHelper = await _buildMacWinHelper();
+  if (platform == 'android') await _prepareAndroidDevice();
 
   final launcher = (Platform.environment['FLUTTER'] ??
           (await _has('fvm') ? 'fvm flutter' : 'flutter'))
@@ -72,8 +74,10 @@ Future<void> main() async {
   final args = [
     ...launcher.skip(1),
     'run',
-    '-d', flutterDevice,
-    '-t', entry,
+    '-d',
+    flutterDevice,
+    '-t',
+    entry,
     '--no-dds',
   ];
 
@@ -90,7 +94,7 @@ Future<void> main() async {
     // Surface the app/flutter logs so a failed run is debuggable.
     stdout.writeln(line);
     // Grab our launched app's pid from the macOS embedder's first log line
-    // (`AppName[pid:tid] …`). First match wins — that's the main process.
+    // (`AppName[pid:tid] …`). First match wins - that's the main process.
     if (platform == 'macos' && launchedPid == null && macProcess.isNotEmpty) {
       final m = RegExp('${RegExp.escape(macProcess)}' r'\[(\d+):\d+\]')
           .firstMatch(line);
@@ -113,8 +117,14 @@ Future<void> main() async {
     }
   }
 
-  proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(handle);
-  proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(stderr.writeln);
+  proc.stdout
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .listen(handle);
+  proc.stderr
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .listen(stderr.writeln);
 
   // Bail if the run wedges (build failure, device never settles).
   final timeout = Future<void>.delayed(const Duration(minutes: 8), () {
@@ -147,6 +157,7 @@ Future<void> _capture(String name) async {
   final path = '$outRoot/$platform/$name.png';
   // Let the compositor present the held frame before reading the screen.
   await Future<void>.delayed(const Duration(milliseconds: 700));
+  if (platform == 'android') await _prepareAndroidDevice();
 
   ProcessResult result;
   switch (platform) {
@@ -175,10 +186,36 @@ Future<void> _capture(String name) async {
   }
 }
 
+Future<void> _prepareAndroidDevice() async {
+  // Fresh emulator boots can surface Google/system heads-up notifications
+  // during the first settled scene. Clear them before every capture so the raw
+  // screenshot is only the app UI.
+  await _androidShell([
+    'settings',
+    'put',
+    'global',
+    'heads_up_notifications_enabled',
+    '0',
+  ]);
+  await _androidShell(['cmd', 'notification', 'cancel-all'], logFailure: false);
+  await _androidShell(
+      ['am', 'broadcast', '-a', 'android.intent.action.CLOSE_SYSTEM_DIALOGS']);
+  await _androidShell(['cmd', 'statusbar', 'collapse']);
+  await Future<void>.delayed(const Duration(milliseconds: 250));
+}
+
+Future<void> _androidShell(List<String> args, {bool logFailure = true}) async {
+  final r = await Process.run('adb', ['-s', shotDevice, 'shell', ...args]);
+  if (r.exitCode != 0 && logFailure) {
+    stderr.writeln('[capture] android prep "${args.join(' ')}" failed: '
+        '${r.stderr.toString().trim()}');
+  }
+}
+
 /// Captures just the app's window on macOS, by pid.
 ///
 /// The pid is the one we *launched* (parsed from the embedder's log line), so
-/// it can never resolve to an installed copy of the same-named app — the bug
+/// it can never resolve to an installed copy of the same-named app - the bug
 /// that turned every shot into a full-display grab. It falls back to the
 /// SHOT_MAC_APP_HINT path match (for hand runs) and finally the process name.
 ///
@@ -221,7 +258,7 @@ Future<ProcessResult> _captureMacWindow(String path) async {
           ? 'process "$macProcess"'
           : 'first process whose frontmost is true';
 
-  // Raise the app so no other window overlaps the cropped region —
+  // Raise the app so no other window overlaps the cropped region -
   // `screencapture -R` grabs the screen, not the window's backing store,
   // so anything on top (a terminal, the IDE) would bleed in otherwise.
   if (pid != null || macProcess.isNotEmpty) {
@@ -259,9 +296,11 @@ end tell''';
       final region = '${nums[0]},${nums[1]},${nums[2]},${nums[3]}';
       return Process.run('screencapture', ['-x', '-R', region, path]);
     }
-    stderr.writeln('[capture] no window for ${macProcess.isEmpty ? 'frontmost app' : '"$macProcess"'}; full display.');
+    stderr.writeln(
+        '[capture] no window for ${macProcess.isEmpty ? 'frontmost app' : '"$macProcess"'}; full display.');
   } else {
-    stderr.writeln('[capture] osascript failed (${bounds.stderr}); full display.');
+    stderr.writeln(
+        '[capture] osascript failed (${bounds.stderr}); full display.');
   }
   return Process.run('screencapture', ['-x', path]);
 }
@@ -275,10 +314,10 @@ bool _macWindowPrepared = false;
 ///
 /// The window is moved onto the main display's top-left and sized to the macOS
 /// store aspect (SHOT_MAC_WINDOW, default 1440×900). On a 2× (Retina) main
-/// display that captures as exactly 2880×1800 — a valid Mac App Store size with
+/// display that captures as exactly 2880×1800 - a valid Mac App Store size with
 /// no upscaling; on a 1× display it's 1440×900, still ample for the marketing
 /// canvas. Needs Automation access; if that's unavailable (e.g. a CI runner)
-/// the default-sized window is captured instead — smaller, but never broken.
+/// the default-sized window is captured instead - smaller, but never broken.
 Future<void> _prepareMacWindow(int pid) async {
   if (_macWindowPrepared) return;
   _macWindowPrepared = true;
@@ -294,7 +333,7 @@ Future<void> _prepareMacWindow(int pid) async {
   // No `set frontmost` here: the `-l` capture grabs the window's own backing
   // store even when it's behind other windows, so we never steal the user's
   // focus. (Apps that run Flutter's merged UI/platform thread expose no windows
-  // to AX at all — `count of windows` is 0 — so this is a no-op there and the
+  // to AX at all - `count of windows` is 0 - so this is a no-op there and the
   // window is captured at its default size.)
   final script = '''
 tell application "System Events"
@@ -306,7 +345,8 @@ tell application "System Events"
 end tell''';
   final r = await Process.run('osascript', ['-e', script]);
   if (r.exitCode != 0) {
-    stderr.writeln('[capture] could not resize window (${r.stderr.toString().trim()}); '
+    stderr.writeln(
+        '[capture] could not resize window (${r.stderr.toString().trim()}); '
         'capturing it at its default size.');
   }
   // Let the resize/move animation and the relayout settle before the grab.
@@ -333,7 +373,7 @@ Future<int?> _macAppPid() async {
 /// Compiles the tiny CGWindowList helper to a temp binary once, returning its
 /// path (or null if the Swift toolchain isn't available). The helper prints
 /// `windowID x y w h` for the largest on-screen, normal-layer window
-/// owned by a pid — enough to feed `screencapture -l`. Reading window geometry
+/// owned by a pid - enough to feed `screencapture -l`. Reading window geometry
 /// needs neither Automation nor Screen Recording permission.
 Future<String?> _buildMacWinHelper() async {
   try {

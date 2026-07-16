@@ -1,4 +1,4 @@
-// GENERATED — do not edit by hand.
+// GENERATED - do not edit by hand.
 //
 // GBK / GB2312 (the `GB*-EUC` / `GBK*` Adobe-GB1 CMaps) two-byte code → Unicode scalar table, used to decode non-embedded
 // CID text that declares the matching predefined CMap. Generated from Python's

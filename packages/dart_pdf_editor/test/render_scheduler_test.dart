@@ -1,12 +1,13 @@
 // The render scheduler paces every page's first (UI-thread) interpret so
-// a settling fast scroll can't fire them all in one event-loop turn — the
+// a settling fast scroll can't fire them all in one event-loop turn - the
 // burst that froze fast scrolling on iPad. These tests pin the pacing,
 // the priority order, and the hold gate.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 void main() {
-  testWidgets('requests drain paced — never a synchronous burst', (tester) async {
+  testWidgets('requests drain paced - never a synchronous burst',
+      (tester) async {
     final scheduler = PdfPageRenderScheduler();
     addTearDown(scheduler.dispose);
     final order = <int>[];

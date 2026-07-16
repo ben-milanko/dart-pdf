@@ -94,7 +94,7 @@ class PdfOcrDownloadProgress {
 ///
 /// **Platform support.** On-device OCR runs on the native platforms only
 /// (Android, iOS, macOS, Windows, Linux). On the web [isSupported] is false
-/// and the download/cache methods throw — host an HTTP OCR service and use
+/// and the download/cache methods throw - host an HTTP OCR service and use
 /// `pdf_ocr_vlm` there instead.
 class PdfOcrModelManager {
   PdfOcrModelManager({
@@ -157,7 +157,7 @@ class PdfOcrModelManager {
   Future<Map<String, File>> localFiles(PdfOcrModel model) async {
     if (!await isDownloaded(model)) {
       throw PdfOcrModelException(
-          'model "${model.id}" is not downloaded — call download() first');
+          'model "${model.id}" is not downloaded - call download() first');
     }
     return {
       for (final f in model.files) f.name: await fileFor(model, f),
@@ -327,7 +327,7 @@ class PdfOcrModelManager {
     try {
       if (f.existsSync()) await f.delete();
     } catch (_) {
-      // Best effort — a leftover temp file is harmless.
+      // Best effort - a leftover temp file is harmless.
     }
   }
 

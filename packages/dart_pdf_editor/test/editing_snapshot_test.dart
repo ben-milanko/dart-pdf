@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,8 +31,8 @@ void main() {
       expect(stamp.rect.height, closeTo(40, 1e-6));
       expect((stamp.rect.left + stamp.rect.right) / 2, closeTo(300, 1e-6));
       // pasting it back is vector: the appearance draws the captured form
-      final ap =
-          latin1.decode(editing.document.cos.decodeStreamData(stamp.normalAppearance!));
+      final ap = latin1.decode(
+          editing.document.cos.decodeStreamData(stamp.normalAppearance!));
       expect(ap, contains('/Cap Do'));
       // the pasted stamp is selected for immediate move/resize
       expect(editing.hasAnnotationSelection, isTrue);
@@ -85,6 +86,39 @@ void main() {
       addTearDown(editing.dispose);
       expect(editing.pasteSnapshot(0), isFalse);
       expect(editing.isModified, isFalse);
+    });
+
+    test('recolorSnapshotSelected retints the pasted vector snapshot', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (100, 100)), isTrue);
+      // the paste leaves the new stamp selected, ready to recolour
+      expect(editing.canRecolorSnapshotSelected, isTrue);
+      expect(editing.recolorSnapshotSelected(const Color(0xFFFF0000)), isTrue);
+
+      final stamp = editing.document.page(0).annotations.single;
+      final cos = editing.document.cos;
+      final res =
+          cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
+      final xobj = cos.resolve(res['XObject']) as CosDictionary;
+      final cap = cos.resolve(xobj['Cap']) as CosStream;
+      // the captured graphics now paint in the chosen ink
+      expect(latin1.decode(cos.decodeStreamData(cap)), contains('1 0 0 rg'));
+    });
+
+    test('a non-snapshot selection is not recolourable as a snapshot', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(10, 10, 60, 60));
+      editing.selectAnnotationAt(0, 35, 35);
+      expect(editing.hasAnnotationSelection, isTrue);
+      expect(editing.canRecolorSnapshotSelected, isFalse);
+      expect(
+          editing.recolorSnapshotSelected(const Color(0xFF00FF00)), isFalse);
     });
 
     test('the snapshot clipboard clamps an oversized region into the page', () {
@@ -162,7 +196,7 @@ void main() {
         await gesture.moveTo(view(150, 720));
         await gesture.moveTo(view(220, 700));
         await gesture.up();
-        // captureSnapshot renders + encodes a PNG (toImage) — let it finish
+        // captureSnapshot renders + encodes a PNG (toImage) - let it finish
         for (var i = 0; i < 50 && captured == null; i++) {
           await tester.pump(const Duration(milliseconds: 20));
           await Future<void>.delayed(const Duration(milliseconds: 10));

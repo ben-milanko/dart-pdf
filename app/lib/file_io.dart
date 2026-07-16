@@ -1,11 +1,18 @@
+import 'dart:convert';
+
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+const _macosFileAccessChannel =
+    MethodChannel('dev.milanko.dartpdf/file_access');
+
 /// One filter, every platform: desktop and web match on the extension,
-/// Android on the MIME type, iOS/macOS on the uniform type identifier —
+/// Android on the MIME type, iOS/macOS on the uniform type identifier -
 /// a type group missing the field a platform filters by throws there.
 const pdfTypeGroup = XTypeGroup(
   label: 'PDF documents',
@@ -22,9 +29,19 @@ const imageTypeGroup = XTypeGroup(
   uniformTypeIdentifiers: ['public.png', 'public.jpeg'],
 );
 
+/// Custom stamp bundles exported from the Manage Stamps dialog.
+const stampBundleTypeGroup = XTypeGroup(
+  label: 'DartPDF stamps',
+  extensions: ['json'],
+  mimeTypes: ['application/json'],
+  uniformTypeIdentifiers: ['public.json'],
+);
+
+const _stampBundleFormat = 'dev.milanko.dartpdf.custom-stamps';
+
 /// A PDF the user picked to open, or null when the dialog was cancelled.
 class PickedPdf {
-  const PickedPdf(this.name, this.bytes, {this.path});
+  const PickedPdf(this.name, this.bytes, {this.path, this.bookmark});
 
   final String name;
   final Uint8List bytes;
@@ -32,19 +49,30 @@ class PickedPdf {
   /// The on-disk path on desktop platforms (null on web/mobile, where the
   /// picker hands back a sandboxed copy). The origin for in-place save.
   final String? path;
+
+  /// macOS security-scoped bookmark for [path], when available. Stored with
+  /// recents/session entries so sandboxed folders can be reopened later.
+  final String? bookmark;
 }
 
 /// Opens the system file picker for a PDF. Returns null when the user cancels.
 Future<XFile?> pickPdfFile() =>
     openFile(acceptedTypeGroups: const [pdfTypeGroup]);
 
+/// Opens the system file picker for one or more PDFs. Returns an empty list
+/// when the user cancels.
+Future<List<XFile>> pickPdfFiles() =>
+    openFiles(acceptedTypeGroups: const [pdfTypeGroup]);
+
 /// Opens the system file picker and reads the chosen PDF. Returns null when
-/// the user cancels. Throws if the file can't be read — callers surface that.
+/// the user cancels. Throws if the file can't be read - callers surface that.
 Future<PickedPdf?> pickPdf() async {
   final file = await pickPdfFile();
   if (file == null) return null;
+  final path = originPathForPickedFile(file);
   final bytes = await file.readAsBytes();
-  return PickedPdf(file.name, bytes, path: originPathForPickedFile(file));
+  final bookmark = await securityBookmarkForPath(path);
+  return PickedPdf(file.name, bytes, path: path, bookmark: bookmark);
 }
 
 /// The picked file's writable origin on desktop, or null on web/mobile where
@@ -56,18 +84,87 @@ String? originPathForPickedFile(XFile file) => (!kIsWeb &&
     ? file.path
     : null;
 
-/// Picks a PDF and returns just its bytes (null when cancelled) — the source
+bool get _isMacOSDesktop =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+
+/// Creates a security-scoped bookmark for [path] on macOS.
+///
+/// Returns null on other platforms, when [path] is absent, or when the native
+/// side cannot create a bookmark. Callers still keep the path and fall back to
+/// normal `XFile` I/O, preserving the old behavior.
+Future<String?> securityBookmarkForPath(String? path) async {
+  if (!_isMacOSDesktop || path == null || path.isEmpty) return null;
+  try {
+    final data = await _macosFileAccessChannel.invokeMethod<Uint8List>(
+      'bookmarkForPath',
+      {'path': path},
+    );
+    return data == null || data.isEmpty ? null : base64Encode(data);
+  } on MissingPluginException {
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Picks a PDF and returns just its bytes (null when cancelled) - the source
 /// for "Insert PDF…" and document comparison.
 Future<Uint8List?> pickPdfBytes() async {
   final file = await openFile(acceptedTypeGroups: const [pdfTypeGroup]);
   return file?.readAsBytes();
 }
 
-/// Picks an image and returns its bytes — used by the form image picker and
+/// Picks an image and returns its bytes - used by the form image picker and
 /// the insert-image tool.
 Future<Uint8List?> pickImageBytes() async {
   final file = await openFile(acceptedTypeGroups: const [imageTypeGroup]);
   return file?.readAsBytes();
+}
+
+/// Encodes custom stamps as a portable JSON bundle.
+String encodeCustomStampBundle(List<PdfCustomStamp> stamps) {
+  const encoder = JsonEncoder.withIndent('  ');
+  return encoder.convert({
+    'format': _stampBundleFormat,
+    'version': 1,
+    'stamps': [
+      for (final stamp in stamps) jsonDecode(stamp.encode()),
+    ],
+  });
+}
+
+/// Decodes a custom stamp JSON bundle.
+///
+/// Accepts the current `{stamps: [...]}` bundle shape and a plain JSON list
+/// for easier recovery from manually-edited exports.
+List<PdfCustomStamp> decodeCustomStampBundle(String source) {
+  final decoded = jsonDecode(source);
+  final rawStamps = switch (decoded) {
+    {'stamps': final List stamps} => stamps,
+    final List stamps => stamps,
+    _ => throw const FormatException('Stamp bundle has no stamps list'),
+  };
+  return List.unmodifiable([
+    for (final raw in rawStamps) _decodeCustomStampEntry(raw),
+  ]);
+}
+
+PdfCustomStamp _decodeCustomStampEntry(Object? raw) {
+  final stamp = switch (raw) {
+    String json => PdfCustomStamp.decode(json),
+    Map<String, dynamic> map => PdfCustomStamp.decode(jsonEncode(map)),
+    Map map => PdfCustomStamp.decode(jsonEncode(map)),
+    _ => null,
+  };
+  if (stamp == null) throw const FormatException('Invalid stamp entry');
+  return stamp;
+}
+
+/// Opens a JSON stamp bundle and returns the stamps inside it.
+Future<List<PdfCustomStamp>?> importCustomStamps() async {
+  final file = await openFile(acceptedTypeGroups: const [stampBundleTypeGroup]);
+  if (file == null) return null;
+  return decodeCustomStampBundle(utf8.decode(await file.readAsBytes()));
 }
 
 /// Ensures [name] ends in `.pdf`, falling back to a default stem.
@@ -79,10 +176,15 @@ String ensurePdfName(String name) {
 
 /// Appends `.pdf` to [path] unless it already ends with it (case-insensitive).
 /// The desktop save dialog lets the user clear or change the extension, so the
-/// path it hands back can lack one — exported and saved files must still open
+/// path it hands back can lack one - exported and saved files must still open
 /// as PDFs.
 String ensurePdfExtension(String path) =>
     path.toLowerCase().endsWith('.pdf') ? path : '$path.pdf';
+
+/// Appends `.json` to [path] unless it already ends with it
+/// (case-insensitive).
+String ensureJsonExtension(String path) =>
+    path.toLowerCase().endsWith('.json') ? path : '$path.json';
 
 /// The outcome of a save, with a message suitable for a toast (null = the
 /// user cancelled, so say nothing).
@@ -96,7 +198,7 @@ class SaveResult {
   /// save dialog). Null for downloads / share-sheet / cancellation.
   final String? path;
 
-  /// True when the document was actually written somewhere — the caller uses
+  /// True when the document was actually written somewhere - the caller uses
   /// this to clear the dirty state and record a recent file.
   final bool succeeded;
 
@@ -110,9 +212,26 @@ class SaveResult {
       SaveResult._('Save failed: $error');
 }
 
-/// Reads a PDF straight from a known on-disk [path] — used to reopen a recent
+/// Reads a PDF straight from a known on-disk [path] - used to reopen a recent
 /// file. Throws if it can't be read (caller drops the stale recent entry).
-Future<Uint8List> readPdfAtPath(String path) => XFile(path).readAsBytes();
+///
+/// On macOS, [bookmark] reactivates the user's original security-scoped access
+/// before reading. This is required for sandboxed locations such as OneDrive's
+/// CloudStorage folder after an app restart.
+Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
+  if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
+    try {
+      final bytes = await _macosFileAccessChannel.invokeMethod<Uint8List>(
+        'readFile',
+        {'path': path, 'bookmark': bookmark},
+      );
+      if (bytes != null) return bytes;
+    } catch (_) {
+      // Fall through to the generic path read below.
+    }
+  }
+  return XFile(path).readAsBytes();
+}
 
 /// Whether the current platform can open a local file's containing folder in
 /// the system file manager. Desktop only: mobile/web origins are either absent
@@ -170,11 +289,29 @@ bool get supportsInPlaceSave =>
         defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.linux);
 
-/// Overwrites the file at [path] with [bytes] (in-place save). Uses
-/// [XFile.saveTo] rather than dart:io so this file still compiles for web,
-/// where [supportsInPlaceSave] is false and this is never called.
-Future<SaveResult> saveBytesToPath(Uint8List bytes, String path) async {
+/// Overwrites the file at [path] with [bytes] (in-place save).
+///
+/// On macOS, [bookmark] reactivates the security-scoped origin before writing.
+/// Other platforms use [XFile.saveTo] rather than dart:io so this file still
+/// compiles for web, where [supportsInPlaceSave] is false and this is never
+/// called.
+Future<SaveResult> saveBytesToPath(
+  Uint8List bytes,
+  String path, {
+  String? bookmark,
+}) async {
   try {
+    if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
+      try {
+        final ok = await _macosFileAccessChannel.invokeMethod<bool>(
+          'writeFile',
+          {'path': path, 'bookmark': bookmark, 'bytes': bytes},
+        );
+        if (ok == true) return SaveResult.saved(path);
+      } catch (_) {
+        // Fall through to the generic path write below.
+      }
+    }
     await XFile.fromData(bytes, mimeType: 'application/pdf').saveTo(path);
     return SaveResult.saved(path);
   } catch (e) {
@@ -184,8 +321,7 @@ Future<SaveResult> saveBytesToPath(Uint8List bytes, String path) async {
 
 /// Save-as with whatever the platform offers: a save dialog on desktop, a
 /// browser download on the web, the share sheet on phones and tablets (where
-/// apps can't write outside their sandbox directly). The origin-aware
-/// "Save in place" path is added in a later phase.
+/// apps can't write outside their sandbox directly).
 Future<SaveResult> saveBytesAs(
   BuildContext context,
   Uint8List bytes,
@@ -217,12 +353,101 @@ Future<SaveResult> saveBytesAs(
         acceptedTypeGroups: const [pdfTypeGroup],
       );
       if (location == null) return SaveResult.cancelled;
-      // The dialog returns the path verbatim — if the user cleared or changed
+      // The dialog returns the path verbatim - if the user cleared or changed
       // the extension, force `.pdf` so the file still opens as a PDF.
       final path = ensurePdfExtension(location.path);
       try {
         await file.saveTo(path);
         return SaveResult.saved(path);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}
+
+/// Exports user-managed custom stamps as a portable JSON bundle.
+Future<SaveResult> exportCustomStampsAs(
+  BuildContext context,
+  List<PdfCustomStamp> stamps,
+) async {
+  final name = 'dartpdf-stamps.json';
+  final bytes =
+      Uint8List.fromList(utf8.encode(encodeCustomStampBundle(stamps)));
+  final file = XFile.fromData(
+    bytes,
+    mimeType: 'application/json',
+    name: name,
+  );
+
+  if (kIsWeb) {
+    await file.saveTo(name);
+    return SaveResult.downloaded(name);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        fileNameOverrides: [name],
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: const [stampBundleTypeGroup],
+      );
+      if (location == null) return SaveResult.cancelled;
+      final path = ensureJsonExtension(location.path);
+      try {
+        await file.saveTo(path);
+        return SaveResult.saved(path);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}
+
+/// Save-as for a rasterized page image ([bytes], PNG or JPEG per [mimeType]),
+/// using the same platform behaviour as [saveBytesAs]: a save dialog on
+/// desktop, a browser download on the web, the share sheet on phones. [name]
+/// is the suggested filename (with extension).
+Future<SaveResult> saveImageBytesAs(
+  BuildContext context,
+  Uint8List bytes,
+  String name,
+  String mimeType,
+) async {
+  final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
+
+  if (kIsWeb) {
+    await file.saveTo(name);
+    return SaveResult.downloaded(name);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        fileNameOverrides: [name],
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: const [imageTypeGroup],
+      );
+      if (location == null) return SaveResult.cancelled;
+      try {
+        await file.saveTo(location.path);
+        return SaveResult.saved(location.path);
       } catch (e) {
         return SaveResult.failed(e);
       }

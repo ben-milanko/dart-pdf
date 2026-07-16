@@ -7,11 +7,11 @@ import 'dart:typed_data';
 /// below the Flutter layer (so the COS, document, and graphics packages
 /// keep running on the web and the Dart VM alike), and there is no single
 /// persistent blob store that works on every platform without pulling in
-/// a dependency. So persistence is a seam — exactly like [PdfOcrEngine],
+/// a dependency. So persistence is a seam - exactly like [PdfOcrEngine],
 /// [PdfImportSource], and the other host-provided interfaces. The host
 /// supplies a backend (a `dart:io` directory on native, IndexedDB on the
-/// web, a temp folder on a server) and the cache logic — keying,
-/// versioning, byte-budget LRU eviction — lives on top in pure Dart.
+/// web, a temp folder on a server) and the cache logic - keying,
+/// versioning, byte-budget LRU eviction - lives on top in pure Dart.
 ///
 /// Implementations may be slow (a real disk), so every method is async,
 /// and callers treat the whole store as best-effort: a failed read or
@@ -37,7 +37,7 @@ abstract class PdfCacheStore {
   Future<void> clear();
 }
 
-/// An in-memory [PdfCacheStore] — the zero-dependency default that works
+/// An in-memory [PdfCacheStore] - the zero-dependency default that works
 /// on every platform.
 ///
 /// It is not persistent (it lives and dies with the process), so on its

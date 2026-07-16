@@ -1,8 +1,8 @@
 import Flutter
 import UIKit
 
-/// Receives PDFs opened in the app — "Open in…", the share sheet, the Files
-/// browser — and forwards them to the Dart `IncomingFileService`. The iOS
+/// Receives PDFs opened in the app - "Open in…", the share sheet, the Files
+/// browser - and forwards them to the Dart `IncomingFileService`. The iOS
 /// template is scene-based, so file URLs arrive here rather than in the
 /// AppDelegate.
 class SceneDelegate: FlutterSceneDelegate {
@@ -14,6 +14,7 @@ class SceneDelegate: FlutterSceneDelegate {
 
   private var pencilChannel: FlutterMethodChannel?
   private var pencilInteraction: AnyObject?
+  private var imageClipboardChannel: FlutterMethodChannel?
 
   override func scene(
     _ scene: UIScene,
@@ -22,6 +23,7 @@ class SceneDelegate: FlutterSceneDelegate {
   ) {
     super.scene(scene, willConnectTo: session, options: connectionOptions)
     setupChannel()
+    setupImageClipboardChannel()
     setupPencilInteraction()
     handle(connectionOptions.urlContexts)
   }
@@ -52,12 +54,37 @@ class SceneDelegate: FlutterSceneDelegate {
     channel = ch
   }
 
+  private func setupImageClipboardChannel() {
+    guard imageClipboardChannel == nil,
+      let controller = window?.rootViewController as? FlutterViewController
+    else { return }
+    let ch = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/image_clipboard",
+      binaryMessenger: controller.binaryMessenger)
+    ch.setMethodCallHandler { (call, result) in
+      guard call.method == "copyPng" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let typed = call.arguments as? FlutterStandardTypedData else {
+        result(FlutterError(
+          code: "bad_args",
+          message: "copyPng expects PNG bytes",
+          details: nil))
+        return
+      }
+      UIPasteboard.general.setData(typed.data, forPasteboardType: "public.png")
+      result(true)
+    }
+    imageClipboardChannel = ch
+  }
+
   /// Wires the Apple Pencil's hardware double-tap to the Dart side. Flutter
   /// exposes no event for it, so we register a `UIPencilInteraction` on the
   /// Flutter view and forward each gesture over the shared method channel;
   /// the editor toggles its eraser (see `PdfPencilInteraction` in
-  /// dart_pdf_editor). This template is scene-based, so — like the file
-  /// channel above — the gesture is installed here, not in the AppDelegate
+  /// dart_pdf_editor). This template is scene-based, so - like the file
+  /// channel above - the gesture is installed here, not in the AppDelegate
   /// (whose `applicationDidBecomeActive` is never called under the scene
   /// lifecycle).
   private func setupPencilInteraction() {

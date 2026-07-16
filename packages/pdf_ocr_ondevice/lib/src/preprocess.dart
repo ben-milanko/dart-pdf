@@ -55,7 +55,7 @@ DetectionResize detectionResize(
 
 /// Normalizes [image] into an NCHW float32 tensor (`[1, 3, height, width]`,
 /// channel order R, G, B) using per-channel [mean] and [std] on the 0..1
-/// range — the standard ImageNet-style detection input.
+/// range - the standard ImageNet-style detection input.
 ///
 /// [image] must already be at the network's input size.
 Float32List toNchwFloat32(

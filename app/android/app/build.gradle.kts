@@ -64,10 +64,10 @@ android {
             // segments are 4 KB-aligned, which Google Play now rejects ("does
             // not support 16 KB memory page sizes"). We vendor a 16 KB-aligned
             // arm64-v8a build (extracted from the official ORT 1.20.0 Android
-            // AAR — its C API is forward-compatible with the plugin's FFI
+            // AAR - its C API is forward-compatible with the plugin's FFI
             // bindings) into this module's jniLibs. The app source set outranks
             // the dependency, so pickFirst keeps our aligned copy. The plugin's
-            // 32-bit armeabi-v7a lib is left untouched — the 16 KB requirement
+            // 32-bit armeabi-v7a lib is left untouched - the 16 KB requirement
             // applies to 64-bit ABIs only.
             pickFirsts += "**/libonnxruntime.so"
         }

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../annotation_tap.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
@@ -11,7 +14,7 @@ TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
 
 /// While the form-authoring tool is armed, outlines every form-field
-/// widget on a page and tags it with its field name — so empty fields
+/// widget on a page and tags it with its field name - so empty fields
 /// (which render nothing) are discoverable and you can see what each one
 /// is named before selecting it.
 ///
@@ -25,45 +28,56 @@ class FormFieldLabelLayer extends StatelessWidget {
     required this.controller,
     required this.pageIndex,
     required this.geometry,
+    this.zoom = 1,
   });
 
   final PdfEditingController controller;
   final int pageIndex;
   final PdfPageGeometry geometry;
+  final double zoom;
+
+  double get _chromeScale => zoom.isFinite && zoom > 0 ? 1 / zoom : 1.0;
 
   @override
   Widget build(BuildContext context) {
     final chrome = PdfViewerTheme.of(context).annotationChromeColor ??
         const Color(0xFF1E88E5);
     final fields = controller.formWidgetsOn(pageIndex);
+    final chromeScale = _chromeScale;
     return IgnorePointer(
       child: Stack(children: [
         for (final (field, _, annotation) in fields)
-          _label(geometry.toViewRect(annotation.rect), field.name, chrome),
+          _label(geometry.toViewRect(annotation.rect), field.name, chrome,
+              chromeScale),
       ]),
     );
   }
 
-  Widget _label(Rect rect, String name, Color chrome) {
+  Widget _label(Rect rect, String name, Color chrome, double chromeScale) {
     return Positioned.fromRect(
       rect: rect,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: chrome.withValues(alpha: 0.05),
-          border: Border.all(color: chrome.withValues(alpha: 0.5)),
+          border: Border.all(
+              color: chrome.withValues(alpha: 0.5), width: chromeScale),
         ),
         child: Align(
           alignment: Alignment.topLeft,
-          child: Container(
-            constraints: BoxConstraints(maxWidth: rect.width),
-            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-            color: chrome.withValues(alpha: 0.85),
-            child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: Color(0xFFFFFFFF), fontSize: 10, height: 1.1),
+          child: Transform.scale(
+            scale: chromeScale,
+            alignment: Alignment.topLeft,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: rect.width),
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+              color: chrome.withValues(alpha: 0.85),
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: Color(0xFFFFFFFF), fontSize: 10, height: 1.1),
+              ),
             ),
           ),
         ),
@@ -73,13 +87,13 @@ class FormFieldLabelLayer extends StatelessWidget {
 }
 
 /// One page's interactive form layer: places a tap target over every
-/// visible form-field widget so a reader can fill the form directly —
+/// visible form-field widget so a reader can fill the form directly -
 /// click a text field and type, tap a check box or radio button, pick
-/// from a drop-down — without ever arming the form authoring tool.
+/// from a drop-down - without ever arming the form authoring tool.
 ///
 /// [PdfViewer] mounts it over each page whenever an editing controller is
 /// present, [PdfViewer.interactiveForms] is on, annotations are shown,
-/// and no editing tool (or only the select tool) is armed — so it
+/// and no editing tool (or only the select tool) is armed - so it
 /// coexists with plain reading and annotation selection but yields the
 /// whole page to the drawing/authoring tools. Tap targets cover only the
 /// field rects, leaving the rest of the page transparent so scrolling,
@@ -92,13 +106,16 @@ class FormInteractionLayer extends StatefulWidget {
     required this.geometry,
     required this.pageColor,
     required this.rasterCurrent,
+    this.zoom = 1,
     this.formImagePicker,
+    this.onAnnotationTap,
   });
 
   final PdfEditingController controller;
   final int pageIndex;
   final PdfPageGeometry geometry;
   final Color pageColor;
+  final double zoom;
 
   /// Whether the page's raster reflects the controller's current
   /// revision. While false just after a text commit, the entered value
@@ -109,6 +126,9 @@ class FormInteractionLayer extends StatefulWidget {
   /// Supplies the image bytes for a push-button (signature / logo) field
   /// tap. When null, push buttons take no taps.
   final PdfFormImagePicker? formImagePicker;
+
+  /// See [PdfViewer.onAnnotationTap].
+  final PdfAnnotationTapHandler? onAnnotationTap;
 
   @override
   State<FormInteractionLayer> createState() => _FormInteractionLayerState();
@@ -125,7 +145,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Rect? _editRect; // view space; derived from _editPageRect per build
   // page space is the source of truth: a zoom that re-lays-out the page
   // (the _layoutZoom regime changes geometry.scale) would leave a cached
-  // view rect stale, drifting the editor across the field — build
+  // view rect stale, drifting the editor across the field - build
   // refreshes _editRect from this through the live geometry
   PdfRect? _editPageRect;
   PdfStandardFont _editFont = PdfStandardFont.helvetica;
@@ -154,7 +174,10 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   PdfEditingController get _controller => widget.controller;
 
-  /// The flutter font family visually matching a base-14 [font] — the
+  double get _chromeScale =>
+      widget.zoom.isFinite && widget.zoom > 0 ? 1 / widget.zoom : 1.0;
+
+  /// The flutter font family visually matching a base-14 [font] - the
   /// same substitution the renderer and the inline editor use.
   static String _uiFamily(PdfStandardFont font) => switch (font.family) {
         PdfStandardFontFamily.sans => 'Helvetica',
@@ -188,7 +211,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     });
     _controller.setEditingText(true);
     // autofocus only fires into an unfocused scope and the tapping
-    // gesture left focus on the viewer — claim it for the fresh field
+    // gesture left focus on the viewer - claim it for the fresh field
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _editingField != null) _focus.requestFocus();
     });
@@ -254,7 +277,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         if (picker == null) return;
         final name = field.name;
         final bytes = await picker(context, field);
-        if (bytes != null) _controller.setFormButtonImage(name, bytes);
+        if (bytes != null) {
+          await _controller.setFormButtonImageAsync(name, bytes);
+        }
       case PdfFieldType.signature || PdfFieldType.unknown:
         break;
     }
@@ -279,7 +304,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           PopupMenuItem(
             key: ValueKey('pdf-form-option-$export'),
             value: export,
-            child: Text(display),
+            height: 34,
+            child: Text(display,
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(height: 1.1)),
           ),
       ],
     );
@@ -343,21 +373,34 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     return Stack(children: [
       for (final (field, widgetIndex, annotation) in fields)
         if (_interactive(field) && field.name != _editingField)
-          _tapTarget(field, widgetIndex, geometry.toViewRect(annotation.rect)),
+          _tapTarget(field, widgetIndex, annotation,
+              geometry.toViewRect(annotation.rect)),
       if (_afterValue != null && _afterRect != null)
         _afterimage(_afterRect!, _afterValue!, _afterFont, _afterSize),
       if (_editingField != null && _editRect != null) _inlineEditor(),
     ]);
   }
 
-  Widget _tapTarget(PdfFormField field, int widgetIndex, Rect rect) {
+  Widget _tapTarget(PdfFormField field, int widgetIndex,
+      PdfAnnotation annotation, Rect rect) {
     return Positioned.fromRect(
       rect: rect,
       child: MouseRegion(
         cursor: _cursorFor(field),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => _onFieldTap(field, widgetIndex, rect),
+          onTapUp: (details) {
+            final pageViewPosition = rect.topLeft + details.localPosition;
+            final (x, y) = widget.geometry.toPagePoint(pageViewPosition);
+            widget.onAnnotationTap?.call(PdfAnnotationTapDetails(
+              annotation: annotation,
+              pageIndex: widget.pageIndex,
+              pagePoint: Offset(x, y),
+              pageViewPosition: pageViewPosition,
+              globalPosition: details.globalPosition,
+            ));
+            unawaited(_onFieldTap(field, widgetIndex, rect));
+          },
         ),
       ),
     );
@@ -366,6 +409,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Widget _inlineEditor() {
     final rect = _editRect!;
     final scale = widget.geometry.scale;
+    final chromeScale = _chromeScale;
     final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
         const Color(0xFF1E88E5);
     return Positioned.fromRect(
@@ -374,7 +418,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         // cover the old rendered value so it doesn't ghost under the field
         color: widget.pageColor.withValues(alpha: 0.92),
         foregroundDecoration: BoxDecoration(
-          border: Border.all(color: chromeColor, width: 1.5),
+          border: Border.all(color: chromeColor, width: 1.5 * chromeScale),
         ),
         // Escape cancels here, nearer to the field's focus than the
         // viewer's shortcuts, so it wins and closes the editor
@@ -391,7 +435,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
             maxLines: _editMultiline ? null : 1,
             expands: _editMultiline,
             onSubmitted: (_) => _commitText(),
-            // tapping off the field commits it — the viewer suppresses its
+            // tapping off the field commits it - the viewer suppresses its
             // own focus steal while editing, so the field keeps focus
             // until this fires
             onTapOutside: (_) => _commitText(),
@@ -403,6 +447,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
                 ? TextAlignVertical.top
                 : TextAlignVertical.center,
             cursorColor: const Color(0xFF000000),
+            cursorWidth: 2 * chromeScale,
             style: TextStyle(
               color: const Color(0xFF000000),
               fontSize: _editSize * scale,

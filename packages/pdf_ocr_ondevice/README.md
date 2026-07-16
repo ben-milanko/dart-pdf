@@ -180,7 +180,11 @@ final model = PdfOcrModel(
 
 `OnDeviceOcrEngine` reads the page raster into an `OcrImage`, runs an
 `OcrModelRunner`, and maps each recognized line's pixel box to PDF user space
-via `PdfOcrPageImage.userSpaceRect`. The default `OnnxOcrModelRunner`:
+via `PdfOcrPageImage.userSpaceRect`. Downloaded models use an
+`IsolateOcrModelRunner` by default. It transfers the RGBA page buffer to a
+long-lived worker isolate that owns and reuses the ONNX sessions, keeping
+resize, normalization, detection, recognition, and post-processing off the UI
+isolate. The wrapped `OnnxOcrModelRunner`:
 
 1. resizes the page for detection (longest side ≤ limit, multiples of 32) and
    normalizes it (`toNchwFloat32`);
@@ -192,6 +196,11 @@ via `PdfOcrPageImage.userSpaceRect`. The default `OnnxOcrModelRunner`:
    against the model's dictionary.
 
 Everything except the two `OrtSession.run` calls is plain Dart and unit tested.
+
+Pass `useWorkerIsolate: false` to `fromDownloadedModel` only when debugging the
+inference pipeline on the calling isolate. Custom `OcrModelRunner`
+implementations can opt into the same worker transport by wrapping an unloaded,
+isolate-sendable runner in `IsolateOcrModelRunner`.
 
 ### Custom backend
 

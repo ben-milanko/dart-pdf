@@ -267,7 +267,7 @@ class _PostScriptFunction extends PdfFunction {
   final List<Object> program;
   final List<double> range;
 
-  /// The full /Domain, pairs per input — multi-input shading functions
+  /// The full /Domain, pairs per input - multi-input shading functions
   /// clamp each input against its own pair.
   final List<double> domain;
 

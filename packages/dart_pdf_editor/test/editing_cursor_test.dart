@@ -33,7 +33,7 @@ dynamic activeStrokePainter(WidgetTester tester) => tester
     );
 
 /// The overlay's own MouseRegion cursor (the one wrapping the preview
-/// painter) — what the system shows while hovering.
+/// painter) - what the system shows while hovering.
 MouseCursor regionCursor(WidgetTester tester) {
   final paint = find
       .descendant(

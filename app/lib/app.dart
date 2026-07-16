@@ -27,14 +27,16 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   void initState() {
     super.initState();
-    // On web, point the render worker at its compiled script so page
-    // interpretation runs in a dedicated Web Worker (built by tool/build_web.sh;
-    // see doc/render_worker_web.md). Ignored on native, where the background
-    // isolate needs no script. With no compiled script present the worker simply
-    // degrades to local rendering, so this is safe even before a worker build.
-    if (kIsWeb) {
-      pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
-    }
+    // A small pool gives heavy CAD/image pages real overlap without multiplying
+    // document memory too far. Mobile-class targets get a lower default; the
+    // perf harness is allowed to be more aggressive.
+    pdfRenderWorkerPoolSize = switch (defaultTargetPlatform) {
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.fuchsia =>
+        2,
+      _ => 3,
+    };
     // Offer the host's installed fonts in the editor's font menu by default.
     // Fire-and-forget: the registry is read when a font menu opens, and an
     // empty result (web, or a locked-down platform) just leaves the base-14,

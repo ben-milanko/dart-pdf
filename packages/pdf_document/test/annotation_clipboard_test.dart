@@ -52,7 +52,7 @@ void main() {
     expect(pasted.color, 0xE53935);
     expect(pasted.borderWidth, 4);
     expect(pasted.appearanceOpacity, closeTo(0.5, 1e-6));
-    // identity-bound entries don't travel — a pasted copy is a new
+    // identity-bound entries don't travel - a pasted copy is a new
     // annotation and mints its own fresh /NM
     expect(pasted.name, isNotNull);
     expect(pasted.name, isNot(original.name));

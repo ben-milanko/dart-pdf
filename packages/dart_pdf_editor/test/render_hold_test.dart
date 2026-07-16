@@ -1,6 +1,6 @@
 // Fast-scroll render hold: pages flying past during a fast scroll defer
-// their (UI-thread) first interpretation so the frame rate — and the
-// scrollbar — stay smooth; held pages render once the scroll settles.
+// their (UI-thread) first interpretation so the frame rate - and the
+// scrollbar - stay smooth; held pages render once the scroll settles.
 import 'dart:async';
 
 import 'package:flutter/gestures.dart';
@@ -54,7 +54,7 @@ void main() {
     await waitFor(tester, find.byType(RawImage));
   });
 
-  testWidgets('a fast jump holds page rendering until the scroll settles',
+  testWidgets('a long jump lands directly and renders the target',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(8));
     final controller = PdfViewerController();
@@ -72,21 +72,13 @@ void main() {
     // an idle viewer renders normally
     await waitFor(tester, fullRaster);
 
-    // a long jump animates 250ms at far past the velocity threshold
+    // Long programmatic jumps no longer animate through the intermediate
+    // pages. They land directly on the target so the destination can render
+    // immediately instead of staying blank while the old fast-scroll hold
+    // waits for settle.
     unawaited(controller.jumpToPage(6));
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(milliseconds: 60));
-      // give an unheld render every chance to (wrongly) complete
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)));
-    }
-    // mid-flight and just arrived (settle pending): no page got a FULL
-    // render — page 0's raster is long unmounted, the destination is
-    // held. (Low-res previews are allowed: that's the fast-scroll
-    // preview feature, covered in page_preview_test.dart.)
-    expect(fullRaster, findsNothing);
-
-    // the scroll-settle timer releases the hold and the target renders
+    await tester.pump();
+    expect(controller.currentPage, 6);
     await tester.pump(const Duration(milliseconds: 300));
     await waitFor(tester, fullRaster);
   });
@@ -97,7 +89,7 @@ void main() {
     // estimate velocity, so the hold used to stay down for that frame and
     // a heavy page entering the build window interpreted synchronously
     // before the next sample could raise it. The first sample now holds
-    // (cheap — held pages paint a preview, not blank).
+    // (cheap - held pages paint a preview, not blank).
     final document = PdfDocument.open(buildMultiPagePdf(8));
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
@@ -116,7 +108,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(controller.debugRenderHold, isFalse);
 
-    // a single scroll event — one sample, no span — must already hold
+    // a single scroll event - one sample, no span - must already hold
     await tester.drag(find.byType(PdfViewer), const Offset(0, -400));
     await tester.pump();
     expect(controller.debugRenderHold, isTrue,
@@ -179,7 +171,7 @@ void main() {
       'a settle that does not change the zoom skips the full-page readback',
       (tester) async {
     // Rapid zoom in/out used to fire a fresh full-resolution toImage per
-    // settle even when the resolution was unchanged — uncancellable GPU
+    // settle even when the resolution was unchanged - uncancellable GPU
     // readbacks that pile up and freeze the UI on web. A settle now only
     // re-rasters the page when the effective resolution actually moved.
     final document = PdfDocument.open(buildClassicPdf());

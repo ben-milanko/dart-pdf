@@ -76,7 +76,7 @@ void main() {
 
   group('PdfPencilInteraction', () {
     // Delivers a native call to the channel's registered handler, the way the
-    // iOS UIPencilInteraction does at runtime — optionally carrying the user's
+    // iOS UIPencilInteraction does at runtime - optionally carrying the user's
     // preferred-action choice.
     Future<void> sendDoubleTap([String? preferredAction]) {
       final messenger =

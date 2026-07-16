@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="240" viewBox="0 0 1280 240" role="img"
-     aria-label="DartPDF — the official PDF editor app. Get it at dart-pdf.com">
+     aria-label="DartPDF - the official PDF editor app. Get it at dart-pdf.com">
   <!-- Promotion banner for the official DartPDF app (app/). Filter-free so
        GitHub's SVG sanitizer renders it inline; text uses a generic sans
        fallback. Render a PNG on macOS if a pixel-perfect copy is needed
@@ -39,7 +39,7 @@
   <text x="250" y="134" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
         font-size="26" fill="#9AA0A6">The official PDF editor app, built on this SDK</text>
   <text x="250" y="176" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="22" fill="#5F6368">Edit, annotate, sign &amp; fill PDFs — entirely on your device</text>
+        font-size="22" fill="#5F6368">Edit, annotate, sign &amp; fill PDFs - entirely on your device</text>
 
   <!-- call to action -->
   <rect x="980" y="86" width="236" height="68" rx="34" fill="url(#ab-cta)"/>

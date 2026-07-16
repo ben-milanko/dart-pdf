@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,6 +54,28 @@ void main() {
   }
 
   group('slicing commits', () {
+    test('one swipe can remove one ink annotation and slice another', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing
+        ..addInkStroke(0, [(195, 520), (205, 520)])
+        ..finishInk()
+        ..addInkStroke(0, [(150, 450), (250, 450)])
+        ..finishInk();
+      editing.eraserRadius = 30;
+
+      expect(
+        editing.sliceErase(0, const [(200, 550), (200, 420)]),
+        isTrue,
+      );
+
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.inkList, hasLength(2));
+      expect(annotations.single.inkList![0].last.$1, closeTo(170, 0.5));
+      expect(annotations.single.inkList![1].first.$1, closeTo(230, 0.5));
+    });
+
     testWidgets('an eraser swipe across one stroke leaves two', (tester) async {
       final (editing, _) = await pumpViewer(tester);
       editing
@@ -68,7 +91,7 @@ void main() {
         await tester.pump();
       }
       await g.up();
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       final ink = editing.document.page(0).annotations.single;
       expect(ink.inkList, hasLength(2));
@@ -77,6 +100,154 @@ void main() {
       // one apply: a single undo restores the unbroken stroke
       editing.undo();
       expect(editing.document.page(0).annotations.single.inkList, hasLength(1));
+    });
+
+    testWidgets('a drag can remove one ink annotation and slice another',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester);
+      editing
+        ..addInkStroke(0, [(195, 520), (205, 520)])
+        ..finishInk()
+        ..addInkStroke(0, [(150, 450), (250, 450)])
+        ..finishInk();
+      editing
+        ..tool = PdfEditTool.eraser
+        ..eraserRadius = 30;
+      await tester.pump();
+
+      final g = await tester.startGesture(view(200, 550),
+          kind: PointerDeviceKind.mouse);
+      for (var i = 0; i < 13; i++) {
+        await g.moveBy(Offset(0, 10 * scale));
+        await tester.pump();
+      }
+      await g.up();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.inkList, hasLength(2));
+      expect(annotations.single.inkList![0].last.$1, closeTo(170, 0.5));
+      expect(annotations.single.inkList![1].first.$1, closeTo(230, 0.5));
+    });
+
+    testWidgets('a stylus drag can remove one ink annotation and slice another',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester);
+      editing
+        ..addInkStroke(0, [(195, 520), (205, 520)])
+        ..finishInk()
+        ..addInkStroke(0, [(150, 450), (250, 450)])
+        ..finishInk();
+      editing
+        ..tool = PdfEditTool.eraser
+        ..eraserRadius = 30;
+      await tester.pump();
+
+      final g = await tester.startGesture(view(200, 550),
+          kind: PointerDeviceKind.stylus);
+      for (var i = 0; i < 13; i++) {
+        await g.moveBy(Offset(0, 10 * scale));
+        await tester.pump();
+      }
+      await g.up();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.inkList, hasLength(2));
+      expect(annotations.single.inkList![0].last.$1, closeTo(170, 0.5));
+      expect(annotations.single.inkList![1].first.$1, closeTo(230, 0.5));
+    });
+
+    testWidgets('a raw eraser swipe includes the pointer-up position',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester);
+      editing
+        ..addInkStroke(0, [(195, 520), (205, 520)])
+        ..finishInk()
+        ..addInkStroke(0, [(150, 450), (250, 450)])
+        ..finishInk();
+      editing
+        ..tool = PdfEditTool.eraser
+        ..eraserRadius = 30;
+      await tester.pump();
+
+      const pointer = 17;
+      final down = view(200, 520);
+      final move = view(200, 485);
+      final up = view(200, 450);
+      tester.binding.handlePointerEvent(PointerDownEvent(
+        pointer: pointer,
+        position: down,
+        kind: PointerDeviceKind.stylus,
+      ));
+      await tester.pump();
+      tester.binding.handlePointerEvent(PointerMoveEvent(
+        pointer: pointer,
+        position: move,
+        delta: move - down,
+        kind: PointerDeviceKind.stylus,
+      ));
+      await tester.pump();
+      tester.binding.handlePointerEvent(PointerUpEvent(
+        pointer: pointer,
+        position: up,
+        kind: PointerDeviceKind.stylus,
+      ));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.inkList, hasLength(2));
+      expect(annotations.single.inkList![0].last.$1, closeTo(170, 0.5));
+      expect(annotations.single.inkList![1].first.$1, closeTo(230, 0.5));
+    });
+
+    testWidgets('a mouse eraser drag includes the pointer-up position',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester);
+      editing
+        ..addInkStroke(0, [(195, 520), (205, 520)])
+        ..finishInk()
+        ..addInkStroke(0, [(150, 450), (250, 450)])
+        ..finishInk();
+      editing
+        ..tool = PdfEditTool.eraser
+        ..eraserRadius = 30;
+      await tester.pump();
+
+      const pointer = 18;
+      final down = view(200, 520);
+      final move = view(200, 485);
+      final up = view(200, 450);
+      tester.binding.handlePointerEvent(PointerDownEvent(
+        pointer: pointer,
+        position: down,
+        kind: PointerDeviceKind.mouse,
+        buttons: kPrimaryMouseButton,
+      ));
+      await tester.pump();
+      tester.binding.handlePointerEvent(PointerMoveEvent(
+        pointer: pointer,
+        position: move,
+        delta: move - down,
+        kind: PointerDeviceKind.mouse,
+        buttons: kPrimaryMouseButton,
+      ));
+      await tester.pump();
+      tester.binding.handlePointerEvent(PointerUpEvent(
+        pointer: pointer,
+        position: up,
+        kind: PointerDeviceKind.mouse,
+      ));
+      await tester.pump();
+
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.inkList, hasLength(2));
+      expect(annotations.single.inkList![0].last.$1, closeTo(170, 0.5));
+      expect(annotations.single.inkList![1].first.$1, closeTo(230, 0.5));
     });
 
     testWidgets('covering a whole annotation removes it', (tester) async {
@@ -123,6 +294,38 @@ void main() {
   });
 
   group('live preview', () {
+    testWidgets('locked ink is excluded from the live preview and commit',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester);
+      editing
+        ..addInkStroke(0, [(150, 500), (250, 500)])
+        ..finishInk();
+      final ink = editing.annotationAt(0, 0)!;
+      editing.apply(
+        (editor) => editor.setAnnotationFlags(0, ink, 128),
+      );
+      editing.tool = PdfEditTool.eraser;
+      await tester.pump();
+
+      final g = await tester.startGesture(view(200, 520),
+          kind: PointerDeviceKind.mouse);
+      for (var i = 0; i < 4; i++) {
+        await g.moveBy(Offset(0, 10 * scale));
+        await tester.pump();
+      }
+
+      final painter = overlayPainter(tester);
+      expect((painter.fadeInk as List), isEmpty);
+      expect((painter.extraInk as List), isEmpty);
+
+      await g.up();
+      await tester.pump();
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.isLocked, isTrue);
+      expect(annotation.inkList, hasLength(1));
+      expect(annotation.inkList!.single, [(150.0, 500.0), (250.0, 500.0)]);
+    });
+
     testWidgets('mid-swipe the original fades and the remainder paints',
         (tester) async {
       final (editing, _) = await pumpViewer(tester);
@@ -261,7 +464,7 @@ void main() {
           scrollable: find.byType(Scrollable).first);
       await tester.tap(find.byTooltip('Eraser size'));
       await tester.pumpAndSettle();
-      // only the eraser slider shows — the paint-only controls are gone
+      // only the eraser slider shows - the paint-only controls are gone
       expect(find.byKey(const ValueKey('pdf-eraser-size')), findsOneWidget);
       expect(find.byType(Slider), findsOneWidget);
       expect(find.text('Stroke width'), findsNothing);

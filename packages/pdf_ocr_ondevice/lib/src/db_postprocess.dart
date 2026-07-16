@@ -88,7 +88,7 @@ List<DetectedBox> extractDetectionBoxes(
     boxes.add(DetectedBox(rect: rect, score: score));
   }
 
-  // Top-to-bottom, then left-to-right — a reasonable reading order for the
+  // Top-to-bottom, then left-to-right - a reasonable reading order for the
   // (independent) runs an OCR text layer holds.
   boxes.sort((a, b) {
     final dy = a.rect.top.compareTo(b.rect.top);

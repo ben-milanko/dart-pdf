@@ -4,7 +4,7 @@
 //   fvm dart run tool/interp_timing.dart ../../corpus/*.pdf
 //
 // One walk is roughly half of what PdfPageRenderer.renderPicture costs
-// on the UI thread (it walks twice: image collection, then painting) —
+// on the UI thread (it walks twice: image collection, then painting) -
 // the stall the viewer's fast-scroll render hold exists to avoid.
 import 'dart:io';
 

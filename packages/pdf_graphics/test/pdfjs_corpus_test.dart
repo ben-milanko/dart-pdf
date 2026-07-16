@@ -1,4 +1,4 @@
-// pdf.js test corpus — pure-Dart pass.
+// pdf.js test corpus - pure-Dart pass.
 //
 // The suite lives in test_corpora/pdfjs (checked in): ~170 real-world
 // edge-case PDFs curated from mozilla/pdf.js test/pdfs (see the README
@@ -13,7 +13,7 @@
 //  - files in [requiresPassword] must throw CosPasswordException when
 //    opened without one;
 //  - everything else must open, report a page count, and interpret every
-//    page without throwing — painting at least one op unless the file is
+//    page without throwing - painting at least one op unless the file is
 //    listed in [mayBeBlank] (legitimately empty pages, or known gaps,
 //    each annotated below).
 import 'dart:io';
@@ -33,13 +33,13 @@ const passwords = {
   'encrypted-attachment.pdf': '000000',
 };
 
-/// Password-protected without a known-empty password — pdf.js shows the
+/// Password-protected without a known-empty password - pdf.js shows the
 /// password dialog for these too.
 const requiresPassword = {'print_protection.pdf'};
 
 /// Fuzzed beyond recovery (no catalog / no page tree reachable at all).
-/// The pin here is the *failure mode*: a controlled CosParseException —
-/// possibly deferred to the lazy pageCount — or zero reachable pages.
+/// The pin here is the *failure mode*: a controlled CosParseException -
+/// possibly deferred to the lazy pageCount - or zero reachable pages.
 /// Never a StackOverflowError, RangeError, or hang.
 const unopenable = {
   'GHOSTSCRIPT-698804-1-fuzzed.pdf',
@@ -57,7 +57,7 @@ const mayBeBlank = {
   'empty.pdf', // empty page by design
   'empty_protected.pdf', // ditto, encrypted
   'extractPages_null_in_array.pdf', // empty page by design
-  'freetext_no_appearance.pdf', // no /AP — we render appearances only
+  'freetext_no_appearance.pdf', // no /AP - we render appearances only
   'issue4461.pdf', // /Length 0 content stream
   'issue4684.pdf', // invisible (Tr 3) text only
   'labelled_pages.pdf', // pages are empty by design

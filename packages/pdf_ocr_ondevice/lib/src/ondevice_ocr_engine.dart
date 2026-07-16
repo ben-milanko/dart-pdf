@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfOcrSpan;
 
+import 'isolate_ocr_model_runner.dart';
 import 'model_manager.dart';
 import 'ocr_image.dart';
 import 'ocr_model.dart';
@@ -10,7 +11,7 @@ import 'ocr_model_runner.dart';
 import 'onnx_ocr_model_runner.dart';
 
 /// A [PdfOcrEngine] that recognizes pages **on device**, with no network call
-/// at recognition time — the model is downloaded once (see
+/// at recognition time - the model is downloaded once (see
 /// [PdfOcrModelManager]) and then runs locally.
 ///
 /// The actual inference is delegated to an [OcrModelRunner]; the engine reads
@@ -35,14 +36,16 @@ class OnDeviceOcrEngine implements PdfOcrEngine {
 
   /// Builds an engine that runs [model] from files already downloaded by
   /// [manager] on ONNX Runtime. Throws [PdfOcrModelException] if the model is
-  /// not downloaded.
+  /// not downloaded. Inference runs on a long-lived worker isolate by default;
+  /// set [useWorkerIsolate] false only to debug it on the calling isolate.
   static Future<OnDeviceOcrEngine> fromDownloadedModel(
     PdfOcrModelManager manager,
     PdfOcrModel model, {
     double minConfidence = 0,
+    bool useWorkerIsolate = true,
   }) async {
     final files = await manager.localFiles(model);
-    final runner = OnnxOcrModelRunner(
+    final onnxRunner = OnnxOcrModelRunner(
       detectionModelPath: files[model.detection.name]!.path,
       recognitionModelPath: files[model.recognition.name]!.path,
       dictionaryPath: files[model.dictionary.name]!.path,
@@ -51,6 +54,9 @@ class OnDeviceOcrEngine implements PdfOcrEngine {
       detectionStd: model.detectionStd,
       recognitionImageHeight: model.recognitionImageHeight,
     );
+    final OcrModelRunner runner = useWorkerIsolate
+        ? IsolateOcrModelRunner(onnxRunner, debugName: 'pdf-ocr-${model.id}')
+        : onnxRunner;
     return OnDeviceOcrEngine(runner, minConfidence: minConfidence);
   }
 

@@ -1,6 +1,6 @@
 // Benchmarks dart-pdf's full page rasterization (interpret + paint + toImage),
 // the apples-to-apples comparison with PDFium. Rasterization needs Flutter, so
-// this rides `flutter test`'s headless engine — it is NOT a CI test and skips
+// this rides `flutter test`'s headless engine - it is NOT a CI test and skips
 // unless PDF_BENCHMARK_DIR is set:
 //
 //   cd packages/dart_pdf_editor

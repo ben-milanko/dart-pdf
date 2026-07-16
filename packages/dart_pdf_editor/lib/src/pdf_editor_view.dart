@@ -1,26 +1,44 @@
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'editing/editing_bookmarks.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_pencil.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_properties.dart';
 import 'editing/editing_sidebar.dart';
+import 'editing/editing_stamps.dart';
 import 'editing/editing_thumbnails.dart';
 import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
+import 'editing/text_style_prompt.dart';
+import 'editing/tool_shortcuts.dart';
 import 'page_number_field.dart';
+import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'raster_cache.dart';
-import 'render_worker.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
+import 'shell_session.dart';
 import 'theme.dart';
+
+/// Builds the editing toolbar for [PdfEditorView].
+///
+/// Hosts can return [PdfEditingToolbar] with their own configuration, wrap it,
+/// or replace it entirely with custom Material chrome that drives the supplied
+/// [PdfEditingController] and [PdfViewerController]. Returning null hides the
+/// toolbar for this build while leaving editing gestures and keyboard shortcuts
+/// active.
+typedef PdfEditorToolbarBuilder = Widget? Function(
+  BuildContext context,
+  PdfEditingController controller,
+  PdfViewerController viewerController,
+);
 
 /// Which pieces of chrome a [PdfEditorView] shows. Everything defaults
 /// on; turn features off rather than rebuilding the layout by hand.
@@ -36,6 +54,7 @@ class PdfEditorFeatures {
     this.reflowView = true,
     this.pageColorEditable = true,
     this.thumbnails = true,
+    this.bookmarks = true,
     this.pageEditing = true,
     this.annotationSidebar = true,
     this.propertiesPanel = true,
@@ -45,6 +64,7 @@ class PdfEditorFeatures {
     this.colorControls = true,
     this.styleControls = true,
     this.flatten = true,
+    this.colorProcessing = true,
     this.pencilEraserToggle = true,
     this.tools,
     this.toolGroups,
@@ -52,7 +72,7 @@ class PdfEditorFeatures {
 
   /// The slim bar above the viewer (search, page number, panel
   /// toggles). With it off, panels still follow the persisted
-  /// preferences — they just lose their toggles.
+  /// preferences - they just lose their toggles.
   final bool headerBar;
 
   /// The search field, the ⌘F/Ctrl+F shortcut, and (with
@@ -75,7 +95,7 @@ class PdfEditorFeatures {
   final bool authorEditable;
 
   /// The view-options menu: annotation visibility, form-field
-  /// highlight, text reflow, and page (paper) color — display settings only.
+  /// highlight, text reflow, and page (paper) color - display settings only.
   final bool viewOptions;
 
   /// Whether the view-options menu offers "Reflow text". Reflow is a
@@ -85,12 +105,15 @@ class PdfEditorFeatures {
   final bool reflowView;
 
   /// Whether the view-options menu offers "Page color…". With it false
-  /// the paper color can't be changed from the UI — for hosts that set
+  /// the paper color can't be changed from the UI - for hosts that set
   /// the page color from the document programmatically and lock it.
   final bool pageColorEditable;
 
   /// The page-thumbnail sidebar and its toggle.
   final bool thumbnails;
+
+  /// The PDF bookmarks/outline sidebar and its toggle.
+  final bool bookmarks;
 
   /// Whether the thumbnail strip can reorder (drag) and delete pages.
   final bool pageEditing;
@@ -114,7 +137,7 @@ class PdfEditorFeatures {
   /// colors…" picker, the eyedropper, and the text-box fill/border color
   /// rows in the style popup. Split from [styleControls] so a
   /// color-locked session can hide the color changer while keeping
-  /// stroke/opacity/font editable — pass `colorControls: false,
+  /// stroke/opacity/font editable - pass `colorControls: false,
   /// styleControls: true`.
   final bool colorControls;
 
@@ -124,6 +147,10 @@ class PdfEditorFeatures {
 
   /// The toolbar's flatten-annotations button.
   final bool flatten;
+
+  /// The toolbar's "Color processing" action: find and replace page-content
+  /// drawing colors across selected pages or the whole document.
+  final bool colorProcessing;
 
   /// Whether the Apple Pencil's hardware double-tap toggles the eraser
   /// (iOS only; a no-op elsewhere, where the gesture doesn't exist). The
@@ -135,7 +162,7 @@ class PdfEditorFeatures {
   /// [PdfEditingToolbar.tools].
   final Set<PdfEditTool>? tools;
 
-  /// The tool *types* (dock groups — Select, Markup, Draw, Shapes,
+  /// The tool *types* (dock groups - Select, Markup, Draw, Shapes,
   /// Insert, Measure, Edit) to offer, null meaning all of them. This is
   /// the way to disable a whole tool type at once. See
   /// [PdfEditingToolbar.groups].
@@ -143,7 +170,7 @@ class PdfEditorFeatures {
 }
 
 /// A drop-in PDF editor: the [PdfViewer] with every editing tool wired
-/// up — header with search and panel toggles, thumbnail/annotation/
+/// up - header with search and panel toggles, thumbnail/annotation/
 /// properties panels, and the bottom editing toolbar. For a view-only
 /// widget, use [PdfReader].
 ///
@@ -158,13 +185,13 @@ class PdfEditorFeatures {
 /// colors can be tuned with [viewerTheme] (or an inherited
 /// [PdfViewerTheme]). Features and tools toggle off via [features].
 /// Tool styles, panel visibility/widths, and display settings persist
-/// on the device through [PdfEditingPreferences] — pass [preferences]
+/// on the device through [PdfEditingPreferences] - pass [preferences]
 /// to share one instance across widgets, or leave null for a
 /// self-contained one.
 ///
 /// The widget owns the edit session (undo/redo, revisions). Hosts that
 /// need programmatic access pass their own [controller] instead of
-/// [bytes] — exactly one of the two must be given. [onSave] receives
+/// [bytes] - exactly one of the two must be given. [onSave] receives
 /// the current revision's bytes from the toolbar's save button or the
 /// ⌘S / Ctrl+S shortcut. [onSaveAs] receives the same bytes from
 /// ⌘⇧S / Ctrl+Shift+S; [onDocumentChanged] fires after every revision
@@ -181,24 +208,35 @@ class PdfEditorView extends StatefulWidget {
     this.controller,
     this.viewerController,
     this.preferences,
+    this.performance,
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onSaveAs,
     this.showSaveButton = true,
+    this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
     this.onAction,
+    this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.formImagePicker,
     this.imagePicker,
+    this.systemImagePasteProvider,
+    this.onExportSelectedContentImage,
+    this.onExportCustomStamps,
+    this.onImportCustomStamps,
+    this.customStamps = const [],
     this.fontPicker,
     this.onSnapshot,
     this.textPrompt,
+    this.styledTextPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
+    this.toolShortcuts = pdfEditToolShortcuts,
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
+    this.toolbarBuilder,
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
     this.pageColor,
@@ -221,7 +259,7 @@ class PdfEditorView extends StatefulWidget {
   final PdfRasterCache? rasterCache;
 
   /// Optional persistent on-disk text cache (see [PdfPageTextCache]).
-  /// Threaded to the viewer, but only consulted in read-only mode — an
+  /// Threaded to the viewer, but only consulted in read-only mode - an
   /// active edit session mutates page content, so its text is never served
   /// from the content-keyed persistent cache (in-memory only).
   final PdfPageTextCache? textCache;
@@ -230,7 +268,7 @@ class PdfEditorView extends StatefulWidget {
   /// position and zoom across sessions (persisted in the preferences).
   /// With [bytes] a key is derived from the content when this is null;
   /// with an external [controller] (no bytes) pass one explicitly to
-  /// enable the memory — a file path or URL is ideal.
+  /// enable the memory - a file path or URL is ideal.
   final String? documentId;
 
   /// An external edit session, for hosts that drive edits
@@ -245,6 +283,11 @@ class PdfEditorView extends StatefulWidget {
   /// The persisted preferences backing tool styles and panel state.
   /// Only with [bytes]; an external [controller] brings its own.
   final PdfEditingPreferences? preferences;
+
+  /// Optional adaptive/fixed performance controller. Null creates an owned
+  /// Auto controller. Worker-count recommendations apply only when this shell
+  /// naturally restarts its revision-bound worker.
+  final PdfPerformanceController? performance;
 
   final PdfEditorFeatures features;
 
@@ -264,7 +307,14 @@ class PdfEditorView extends StatefulWidget {
   /// shortcut active.
   final bool showSaveButton;
 
-  /// Called after every revision — edits, undo, redo — with the new
+  /// Keeps Save (the button and ⌘S / Ctrl+S) enabled even when the
+  /// document has no unsaved edits. Hosts set this for a document that has
+  /// never been written to disk - a new untitled file - so the first Save
+  /// can create the file before any edit is made. Defaults to false, where
+  /// Save is gated on [PdfEditingController.isModified] as usual.
+  final bool alwaysAllowSave;
+
+  /// Called after every revision - edits, undo, redo - with the new
   /// current bytes. For autosaving hosts.
   final void Function(Uint8List bytes)? onDocumentChanged;
 
@@ -282,6 +332,9 @@ class PdfEditorView extends StatefulWidget {
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
 
+  /// See [PdfViewer.onAnnotationTap].
+  final PdfAnnotationTapHandler? onAnnotationTap;
+
   /// See [PdfViewer.pageOverlayBuilder].
   final PdfPageOverlayBuilder? pageOverlayBuilder;
 
@@ -293,6 +346,24 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
+
+  /// See [PdfViewer.systemImagePasteProvider].
+  final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// See [PdfEditingToolbar.onExportSelectedContentImage].
+  final PdfSelectedContentImageHandler? onExportSelectedContentImage;
+
+  /// Host-provided export for user-saved custom stamps in the stock Manage
+  /// Stamps dialog. When null, the Export button is hidden.
+  final PdfStampExportCallback? onExportCustomStamps;
+
+  /// Host-provided import for user-saved custom stamps in the stock Manage
+  /// Stamps dialog. When null, the Import button is hidden.
+  final PdfStampImportCallback? onImportCustomStamps;
+
+  /// Stamps supplied by the host app. These appear in the stock stamp picker
+  /// alongside user-saved stamps but are not persisted or deletable there.
+  final List<PdfCustomStamp> customStamps;
 
   /// How the font menu's "Load font…" entry loads a custom `.ttf`/`.otf`
   /// font to embed for new text. When null, only the standard families
@@ -308,8 +379,17 @@ class PdfEditorView extends StatefulWidget {
   /// [showPdfTextPrompt], a Material dialog.
   final PdfTextPrompt? textPrompt;
 
+  /// How selected page-content text is edited together with its rich style.
+  /// Defaults to [showPdfStyledTextPrompt].
+  final PdfStyledTextPrompt? styledTextPrompt;
+
   /// The toolbar's color palette.
   final List<Color> palette;
+
+  /// Single-key shortcuts for arming editing tools. Threaded to both the
+  /// embedded [PdfViewer] bindings and [PdfEditingToolbar] tooltip labels.
+  /// Pass an empty map to disable tool shortcuts.
+  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
 
   /// Custom widgets shown before the stock editing toolbar controls.
   ///
@@ -320,6 +400,20 @@ class PdfEditorView extends StatefulWidget {
 
   /// Custom widgets shown after the stock editing toolbar controls.
   final List<PdfEditingToolbarWidgetBuilder> toolbarTrailing;
+
+  /// Builds or replaces the bottom editing toolbar.
+  ///
+  /// This is the escape hatch for apps that need fully custom editor
+  /// components. The stock toolbar already supports hiding tool groups,
+  /// filtering individual tools, and adding [toolbarLeading] /
+  /// [toolbarTrailing] actions; use [toolbarBuilder] when the whole toolbar
+  /// should be host-owned instead. The builder receives the active edit session
+  /// and viewer controller, including internally owned instances when [bytes]
+  /// is used.
+  ///
+  /// [PdfEditorFeatures.toolbar] still gates this builder. Set that feature to
+  /// false to disable all toolbar chrome regardless of this value.
+  final PdfEditorToolbarBuilder? toolbarBuilder;
 
   /// See [PdfViewer.initialFit].
   final PdfViewerFit initialFit;
@@ -340,90 +434,59 @@ class PdfEditorView extends StatefulWidget {
 }
 
 class _PdfEditorViewState extends State<PdfEditorView> {
-  PdfEditingController? _ownedSession;
-  PdfEditingPreferences? _ownedPrefs;
-  PdfViewerController? _ownedViewer;
-  PdfViewportMemory? _viewportMemory;
+  late PdfShellSessionLifecycle _shell;
 
   // Routes the Apple Pencil's native double-tap to the session's eraser
   // toggle. Created only on iOS (the only platform with the gesture) so the
   // method-channel handler isn't claimed needlessly elsewhere.
   PdfPencilInteraction? _pencil;
 
-  // Offloads page interpretation to a background isolate (native; a no-op
-  // fallback on web), keyed to the session's current document. Pure scrolling
-  // spawns one worker; every edit revision produces a new document, so the
-  // stale worker is dropped (pages render locally = correct) and a fresh one
-  // is started over the new bytes. Edits commit at most about once a second
-  // (stroke auto-commit, blur, fill), so respawning per revision is cheap
-  // enough without debouncing.
-  PdfRenderWorker? _worker;
-  PdfDocument? _workerDoc;
+  late Map<PdfEditTool, LogicalKeyboardKey> _toolShortcuts;
 
-  final _searchField = TextEditingController();
-  final _searchFocus = FocusNode();
-
-  /// The revision length last reported through onDocumentChanged —
+  /// The revision length last reported through onDocumentChanged -
   /// revisions are byte prefixes of one buffer, so equal length means
   /// the same revision.
   late int _reportedLength;
 
-  PdfEditingController get _session => widget.controller ?? _ownedSession!;
-
-  PdfViewerController get _viewer =>
-      widget.viewerController ?? (_ownedViewer ??= PdfViewerController());
-
-  PdfEditingPreferences get _prefs => _session.preferences;
+  PdfEditingController get _session => _shell.session;
+  PdfViewerController get _viewer => _shell.viewer;
+  PdfEditingPreferences get _prefs => _shell.preferences;
+  PdfPerformanceController get _performance => _shell.performance;
+  TextEditingController get _searchField => _shell.searchController;
+  FocusNode get _searchFocus => _shell.searchFocus;
 
   /// A stable key for the open document, or null when there is nothing to
-  /// key a remembered position on — an external controller with no
+  /// key a remembered position on - an external controller with no
   /// [documentId]. With [bytes] one is derived from the content.
-  String? get _documentKey {
-    if (widget.documentId != null) return widget.documentId;
-    final bytes = widget.bytes;
-    return bytes == null ? null : pdfDocumentKey(bytes);
-  }
+  String? get _documentKey => _shell.documentKey;
 
   @override
   void initState() {
     super.initState();
-    _openSession();
-    // remember and restore where the user left this document
-    final key = _documentKey;
-    if (key != null) {
-      _viewportMemory = PdfViewportMemory(
-        viewer: _viewer,
-        preferences: _prefs,
-        documentKey: key,
-      );
-    }
-  }
-
-  void _openSession() {
-    if (widget.bytes != null) {
-      final prefs =
-          widget.preferences ?? (_ownedPrefs ??= PdfEditingPreferences());
-      _ownedSession = PdfEditingController(widget.bytes!, preferences: prefs);
-    }
+    _toolShortcuts =
+        Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
+    _shell = PdfShellSessionLifecycle(
+      bytes: widget.bytes,
+      controller: widget.controller,
+      preferences: widget.preferences,
+      viewerController: widget.viewerController,
+      performance: widget.performance,
+      documentId: widget.documentId,
+      prepareSession: _prepareSession,
+      onSessionChanged: _onSessionChanged,
+    );
     _reportedLength = _session.bytes.length;
-    _session.addListener(_onSessionChanged);
     _attachPencil();
-    _syncWorker();
   }
 
-  void _closeSession() {
-    _pencil?.dispose();
-    _pencil = null;
-    _worker?.dispose();
-    _worker = null;
-    _workerDoc = null;
-    _session.removeListener(_onSessionChanged);
-    _ownedSession?.dispose();
-    _ownedSession = null;
+  void _prepareSession(PdfEditingController session) {
+    session
+      ..providedCustomStamps = widget.customStamps
+      ..colorLocked = !widget.features.colorControls;
   }
 
   /// Binds the Apple Pencil double-tap to the session's eraser toggle on
-  /// iOS, where the gesture exists. The shell stays plugin-free — the host's
+  /// iOS, where the gesture exists. The shell stays plugin-free - the host's
   /// iOS runner registers the `UIPencilInteraction` and forwards it over
   /// [PdfPencilInteraction.channel]; this is the Dart end.
   void _attachPencil() {
@@ -432,63 +495,57 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     (_pencil ??= PdfPencilInteraction()).attach(_session);
   }
 
-  /// Keeps [_worker] tied to the session's current document — see the field
-  /// doc. A revision (edit, undo, redo) changes the document identity, so
-  /// the old worker is disposed and a new one started over the current bytes;
-  /// disposing first means the just-edited page renders locally (correctly)
-  /// until the new worker is ready.
-  void _syncWorker() {
-    if (identical(_session.document, _workerDoc)) return;
-    _worker?.dispose();
-    _worker = PdfRenderWorker.start(_session.bytes);
-    _workerDoc = _session.document;
-  }
-
-  void _onSessionChanged() {
-    // the merged ListenableBuilder rebuilds the viewer on this same notify,
-    // so swapping the worker here is enough — no setState needed
-    _syncWorker();
-    final length = _session.bytes.length;
+  void _onSessionChanged(PdfEditingController session) {
+    final length = session.bytes.length;
     if (length == _reportedLength) return;
     _reportedLength = length;
-    widget.onDocumentChanged?.call(_session.bytes);
+    widget.onDocumentChanged?.call(session.bytes);
   }
 
   @override
   void didUpdateWidget(PdfEditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.controller != oldWidget.controller ||
+    if (!mapEquals(widget.toolShortcuts, oldWidget.toolShortcuts)) {
+      _toolShortcuts =
+          Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
+    }
+    final sourceChanging = widget.controller != oldWidget.controller ||
         !identical(widget.bytes, oldWidget.bytes) ||
-        widget.documentId != oldWidget.documentId) {
-      _closeSession();
-      _searchField.clear();
-      _openSession();
-      final key = _documentKey;
-      if (key != null) _viewportMemory?.rekey(key);
+        (widget.controller == null &&
+            !identical(widget.preferences, oldWidget.preferences));
+    if (sourceChanging) {
+      _pencil?.dispose();
+      _pencil = null;
+    }
+    final update = _shell.update(
+      bytes: widget.bytes,
+      controller: widget.controller,
+      preferences: widget.preferences,
+      viewerController: widget.viewerController,
+      performanceController: widget.performance,
+      documentId: widget.documentId,
+      prepareSession: _prepareSession,
+      onSessionChanged: _onSessionChanged,
+    );
+    if (update.sessionChanged) {
+      _reportedLength = _session.bytes.length;
+      _attachPencil();
     }
   }
 
   @override
   void dispose() {
-    _viewportMemory?.dispose();
-    _closeSession();
-    _ownedPrefs?.dispose();
-    _ownedViewer?.dispose();
-    _searchField.dispose();
-    _searchFocus.dispose();
+    _pencil?.dispose();
+    _shell.dispose();
     super.dispose();
-  }
-
-  void _focusSearch() {
-    _searchFocus.requestFocus();
-    _searchField.selection =
-        TextSelection(baseOffset: 0, extentOffset: _searchField.text.length);
   }
 
   /// Whether there's anything to save: false while the document still
   /// matches what was opened, which disables the Save button (and makes
-  /// the ⌘S / Ctrl+S shortcut a no-op).
-  bool get _canSave => _session.isModified;
+  /// the ⌘S / Ctrl+S shortcut a no-op). A host that flags the document as
+  /// never-saved ([PdfEditorView.alwaysAllowSave]) keeps Save enabled so a
+  /// brand-new file can be written before its first edit.
+  bool get _canSave => _session.isModified || widget.alwaysAllowSave;
 
   void _save() {
     if (!_canSave) return;
@@ -517,6 +574,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final session = _session;
           final prefs = _prefs;
           final pageColor = widget.pageColor ?? prefs.pageColor;
+          // the persistent thumbnail cache, bound to this document, so the
+          // page grid/strip persist their rasters and reopen onto them
+          final key = _documentKey;
+          final thumbnailDisk = (widget.rasterCache != null && key != null)
+              ? widget.rasterCache!.forDocument(key)
+              : null;
           final showThumbnails =
               pdfShellShowThumbnailSidebar(prefs, constraints);
           // on a narrow screen the panels float up from the bottom as
@@ -540,12 +603,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: features.pageEditing,
                 bottomSheet: bottomSheet,
+                // the sheet chrome carries its own close button
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showThumbnailSidebar = false,
                 // page-level file actions live in the strip's footer; insert
                 // needs page editing on, export stands on its own
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
-                renderWorker: _worker,
+                renderWorker: _shell.worker,
+                rasterCache: thumbnailDisk,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
               PdfSearchResultsPanel(
@@ -554,6 +622,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: _viewer,
                 preferences: prefs,
                 bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showSearchResultsPanel = false,
+              );
+          PdfBookmarkSidebar bookmarks({required bool bottomSheet}) =>
+              PdfBookmarkSidebar(
+                key: ValueKey(
+                    'pdf-shell-bookmarks-${bottomSheet ? 'sheet' : 'docked'}'),
+                controller: session,
+                viewerController: _viewer,
+                editable: true,
+                bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showBookmarkSidebar = false,
               );
           PdfAnnotationSidebar annotations({required bool bottomSheet}) =>
               PdfAnnotationSidebar(
@@ -562,6 +645,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 viewerController: _viewer,
                 bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showAnnotationSidebar = false,
               );
           PdfAnnotationPropertiesPanel properties(
                   {required bool bottomSheet}) =>
@@ -571,6 +657,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 showAuthor: features.authorEditable,
                 bottomSheet: bottomSheet,
+                onClose: bottomSheet
+                    ? null
+                    : () => prefs.showPropertiesPanel = false,
                 fontPicker: widget.fontPicker,
               );
           // the dedicated full-area page grid, overlaid on the (still
@@ -587,12 +676,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
                 onOpenPage: (_) => prefs.showThumbnailView = false,
-                renderWorker: _worker,
+                renderWorker: _shell.worker,
+                rasterCache: thumbnailDisk,
               );
 
           // the full-area page grid replaces the page viewer; it wins over
           // reflow if both prefs are somehow on (the toggle below also
-          // clears reflow). [altView] is "the viewer is hidden" — it
+          // clears reflow). [altView] is "the viewer is hidden" - it
           // suppresses the docked panels, the editing toolbar, and the
           // viewer-only header controls, just as reflow does.
           final gridActive = features.thumbnails && prefs.showThumbnailView;
@@ -605,6 +695,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               features.searchResultsPanel &&
               prefs.showSearchResultsPanel &&
               !altView;
+          final showBookmarksPanel =
+              features.bookmarks && prefs.showBookmarkSidebar && !altView;
           final showAnnotationsPanel = features.annotationSidebar &&
               prefs.showAnnotationSidebar &&
               !altView;
@@ -630,6 +722,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                       closeKey: const ValueKey('pdf-shell-search-sheet-close'),
                       onClose: () => prefs.showSearchResultsPanel = false,
                       child: searchResults(bottomSheet: true),
+                    ),
+                  if (showBookmarksPanel)
+                    PdfPanelBottomSheet(
+                      key: const ValueKey('pdf-shell-bookmarks-sheet'),
+                      title: 'Bookmarks',
+                      closeKey:
+                          const ValueKey('pdf-shell-bookmarks-sheet-close'),
+                      onClose: () => prefs.showBookmarkSidebar = false,
+                      child: bookmarks(bottomSheet: true),
                     ),
                   if (showAnnotationsPanel)
                     PdfPanelBottomSheet(
@@ -661,27 +762,38 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint;
           final toolbar = !showToolbar
               ? null
-              : PdfEditingToolbar(
-                  controller: session,
-                  viewerController: _viewer,
-                  // save lives in the header now, not the dock
-                  textPrompt: widget.textPrompt ?? showPdfTextPrompt,
-                  fontPicker: widget.fontPicker,
-                  palette: widget.palette,
-                  tools: features.tools,
-                  groups: features.toolGroups,
-                  showMarkup: features.markup,
-                  showUndoRedo: features.undoRedo,
-                  showColor: features.colorControls,
-                  showStyle: features.styleControls,
-                  showFlatten: features.flatten,
-                  leading: widget.toolbarLeading,
-                  trailing: widget.toolbarTrailing,
-                );
+              : widget.toolbarBuilder?.call(context, session, _viewer) ??
+                  PdfEditingToolbar(
+                    controller: session,
+                    viewerController: _viewer,
+                    // save lives in the header now, not the dock
+                    textPrompt: widget.textPrompt ?? showPdfTextPrompt,
+                    styledTextPrompt:
+                        widget.styledTextPrompt ?? showPdfStyledTextPrompt,
+                    imagePicker: widget.imagePicker,
+                    formImagePicker: widget.formImagePicker,
+                    onExportSelectedContentImage:
+                        widget.onExportSelectedContentImage,
+                    fontPicker: widget.fontPicker,
+                    onExportCustomStamps: widget.onExportCustomStamps,
+                    onImportCustomStamps: widget.onImportCustomStamps,
+                    palette: widget.palette,
+                    tools: features.tools,
+                    groups: features.toolGroups,
+                    toolShortcuts: _toolShortcuts,
+                    showMarkup: features.markup,
+                    showUndoRedo: features.undoRedo,
+                    showColor: features.colorControls,
+                    showStyle: features.styleControls,
+                    showFlatten: features.flatten,
+                    showColorProcessing: features.colorProcessing,
+                    leading: widget.toolbarLeading,
+                    trailing: widget.toolbarTrailing,
+                  );
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
             icon: Icons.display_settings_outlined,
-            label: 'View',
+            label: 'Settings',
             onPressed: () {
               showPdfShellViewOptionsSheet(
                 context,
@@ -692,6 +804,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 author: features.author,
                 authorName: session.author,
                 onAuthorPressed: _promptAuthor,
+                toolShortcuts: _toolShortcuts,
+                onToolShortcutsChanged: (value) =>
+                    setState(() => _toolShortcuts = value),
+                tools: features.tools,
               );
             },
           );
@@ -712,6 +828,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 tooltip: 'Pages',
                 selected: showThumbnails,
                 onPressed: () => prefs.showThumbnailSidebar = !showThumbnails,
+              ),
+            if (features.bookmarks)
+              PdfShellPanelItem(
+                key: const ValueKey('pdf-shell-bookmarks-toggle'),
+                icon: Icons.bookmarks_outlined,
+                tooltip: 'Bookmarks',
+                selected: prefs.showBookmarkSidebar,
+                onPressed: () =>
+                    prefs.showBookmarkSidebar = !prefs.showBookmarkSidebar,
               ),
             if (features.annotationSidebar)
               PdfShellPanelItem(
@@ -778,12 +903,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageColor: features.pageColorEditable,
                         author: features.author,
                         authorName: session.author,
-                        onAuthorPressed: _promptAuthor),
+                        onAuthorPressed: _promptAuthor,
+                        toolShortcuts: _toolShortcuts,
+                        onToolShortcutsChanged: (value) =>
+                            setState(() => _toolShortcuts = value),
+                        tools: features.tools),
                   PdfShellPanelSwitch(
                     key: const ValueKey('pdf-shell-panels'),
                     items: panelItems,
                   ),
-                  // Save sits in the header, not in the floating toolbar —
+                  // Save sits in the header, not in the floating toolbar -
                   // ⌘S/Ctrl+S takes the same path.
                   if (widget.onSave != null && widget.showSaveButton)
                     FilledButton.icon(
@@ -821,72 +950,87 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 ],
               ),
             Expanded(
-              // on wide screens the toolbar floats over the bottom of the
-              // content, Acrobat/Bluebeam-style; on phones it docks below
-              // (see dockToolbar) so its solid bar never hides the page
-              child: Stack(children: [
-                Positioned.fill(
-                  // keyed so a panel appearing never recreates the viewer
-                  // element (which would reset the reading position)
-                  child: Row(children: [
-                    if (showThumbnailsPanel && !useSheets)
-                      thumbnails(bottomSheet: false),
-                    if (showSearchPanel && !useSheets)
-                      searchResults(bottomSheet: false),
-                    Expanded(
-                      key: const ValueKey('pdf-shell-viewer'),
-                      child: reflowActive
-                          ? PdfReflowView(
-                              document: session.document,
-                              backgroundColor: widget.backgroundColor,
-                            )
-                          : PdfViewer(
-                              document: session.document,
-                              controller: _viewer,
-                              editing: session,
-                              onAction: widget.onAction,
-                              pageOverlayBuilder: widget.pageOverlayBuilder,
-                              annotationMenuBuilder:
-                                  widget.annotationMenuBuilder,
-                              formImagePicker: widget.formImagePicker,
-                              imagePicker: widget.imagePicker,
-                              onSnapshot: widget.onSnapshot,
-                              editingTextPrompt: widget.textPrompt,
-                              initialFit: widget.initialFit,
-                              backgroundColor: widget.backgroundColor,
-                              pageColor: pageColor,
-                              showAnnotations: prefs.showAnnotations,
-                              highlightFormFields: prefs.highlightFormFields,
-                              renderWorker: _worker,
-                              rasterCache: widget.rasterCache,
-                              textCache: widget.textCache,
-                              documentId: _documentKey,
-                            ),
-                    ),
-                    if (showAnnotationsPanel && !useSheets)
-                      annotations(bottomSheet: false),
-                    if (showPropertiesPanel && !useSheets)
-                      properties(bottomSheet: false),
-                  ]),
-                ),
-                // the page grid covers the (still-mounted) viewer: a tap can
-                // scroll the live viewer underneath, then the grid closes to
-                // reveal the chosen page. Opaque, so the viewer takes no taps
-                // while it shows.
-                if (gridActive) Positioned.fill(child: pageGrid()),
-                if (toolbar != null && !dockToolbar)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: toolbar,
-                  ),
-                if (sheets.isNotEmpty) pdfShellBottomSheets(sheets),
-              ]),
+              child: PdfShellPanelLayout(
+                leadingPanels: [
+                  if (showThumbnailsPanel && !useSheets)
+                    thumbnails(bottomSheet: false),
+                  if (showSearchPanel && !useSheets)
+                    searchResults(bottomSheet: false),
+                  if (showBookmarksPanel && !useSheets)
+                    bookmarks(bottomSheet: false),
+                ],
+                viewer: reflowActive
+                    ? PdfReflowView(
+                        document: session.document,
+                        backgroundColor: widget.backgroundColor,
+                      )
+                    : PdfViewer(
+                        document: session.document,
+                        controller: _viewer,
+                        editing: session,
+                        onAction: widget.onAction,
+                        onAnnotationTap: widget.onAnnotationTap,
+                        pageOverlayBuilder: widget.pageOverlayBuilder,
+                        annotationMenuBuilder: widget.annotationMenuBuilder,
+                        formImagePicker: widget.formImagePicker,
+                        imagePicker: widget.imagePicker,
+                        systemImagePasteProvider:
+                            widget.systemImagePasteProvider,
+                        onSnapshot: widget.onSnapshot,
+                        editingTextPrompt: widget.textPrompt,
+                        editingStyledTextPrompt: widget.styledTextPrompt,
+                        editingPalette: widget.palette,
+                        textSelectionEditing: (features.tools == null ||
+                                features.tools!
+                                    .contains(PdfEditTool.content)) &&
+                            (features.toolGroups == null ||
+                                features.toolGroups!
+                                    .contains(PdfEditToolGroup.edit)),
+                        textSelectionMarkup: features.markup &&
+                            (features.toolGroups == null ||
+                                features.toolGroups!
+                                    .contains(PdfEditToolGroup.markup)),
+                        initialFit: widget.initialFit,
+                        toolShortcuts: _toolShortcuts,
+                        backgroundColor: widget.backgroundColor,
+                        pageColor: pageColor,
+                        showAnnotations: prefs.showAnnotations,
+                        highlightFormFields: prefs.highlightFormFields,
+                        renderWorker: _shell.worker,
+                        performance: _performance,
+                        rasterCache: widget.rasterCache,
+                        textCache: widget.textCache,
+                        documentId: _documentKey,
+                        // while the full-area page grid overlays the viewer,
+                        // pause the viewer entirely: its (invisible) page
+                        // renders and preview prerender both compete for the
+                        // single render worker and would starve the grid's own
+                        // thumbnails. It stays laid out, so tapping a grid
+                        // page still scrolls it before the grid closes.
+                        active: !gridActive,
+                      ),
+                trailingPanels: [
+                  if (showAnnotationsPanel && !useSheets)
+                    annotations(bottomSheet: false),
+                  if (showPropertiesPanel && !useSheets)
+                    properties(bottomSheet: false),
+                ],
+                bottomSheets: sheets,
+                overlays: [
+                  // the page grid covers the (still-mounted) viewer: a tap can
+                  // scroll the live viewer underneath, then the grid closes to
+                  // reveal the chosen page. Opaque, so the viewer takes no
+                  // taps while it shows.
+                  if (gridActive) Positioned.fill(child: pageGrid()),
+                ],
+                // on wide screens the toolbar floats over the bottom of the
+                // content, Acrobat/Bluebeam-style; on phones it docks below
+                // (see dockToolbar) so its solid bar never hides the page
+                floatingToolbar:
+                    toolbar != null && !dockToolbar ? toolbar : null,
+                dockedToolbar: toolbar != null && dockToolbar ? toolbar : null,
+              ),
             ),
-            // the mobile (solid-bar) toolbar docks below the content so it
-            // never covers the page; the floating variant stays in the Stack
-            if (toolbar != null && dockToolbar) toolbar,
           ]);
         },
       );
@@ -895,12 +1039,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       body = PdfViewerTheme(data: widget.viewerTheme!, child: body);
     }
     final bindings = <ShortcutActivator, VoidCallback>{
-      if (features.headerBar && features.search) ...{
-        const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
-            _focusSearch,
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-            _focusSearch,
-      },
+      ..._shell.searchShortcuts(enabled: features.headerBar && features.search),
       // ⌘S / Ctrl+S saves through the host's [onSave], the same path the
       // toolbar's save button takes. ⌘⇧S / Ctrl+Shift+S invokes the
       // host's Save As path when one is provided.

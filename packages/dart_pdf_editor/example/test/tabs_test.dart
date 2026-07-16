@@ -72,7 +72,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    // no tabs, no strip, no viewer — just the empty-state buttons
+    // no tabs, no strip, no viewer - just the empty-state buttons
     expect(closeButtons(), findsNothing);
     expect(find.byType(PdfViewer), findsNothing);
     expect(find.text('Open a PDF'), findsOneWidget);
@@ -85,5 +85,31 @@ void main() {
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
     expect(find.text('Compare with another PDF…'), findsOneWidget);
+  });
+
+  testWidgets('performance menu switches between Auto and fixed workers',
+      (tester) async {
+    await openDemo(tester);
+    final menu = find.byKey(const ValueKey('dartpdf-worker-pool-menu'));
+    expect(menu, findsOneWidget);
+    expect(find.byTooltip('Performance: Auto'), findsOneWidget);
+
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('dartpdf-worker-pool-off')));
+    await tester.pump();
+    expect(find.byTooltip('Performance: single worker'), findsOneWidget);
+
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('dartpdf-worker-pool-4')));
+    await tester.pump();
+    expect(find.byTooltip('Performance: 4 workers'), findsOneWidget);
+
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('dartpdf-worker-pool-auto')));
+    await tester.pump();
+    expect(find.byTooltip('Performance: Auto'), findsOneWidget);
   });
 }

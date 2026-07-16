@@ -1,12 +1,89 @@
 # Changelog
 
+## Unreleased
+
+- Free-text appearances support line spacing, character spacing (Tc),
+  horizontal glyph scaling (Tz), and underline (per box and per rich run),
+  round-tripping through the annotation dictionary and `/RC`.
+- Regenerate embedded-font and rich free-text boxes on resize (re-wrapping
+  in the recovered face and preserving per-run styling) instead of falling
+  back to the appearance stretch.
+
+## 1.4.6
+
+- Add operation-scoped page-content text replacement and expose the active
+  font resource on text element snapshots for selection-driven editing.
+
+## 1.4.5
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.5. No
+  document API changes since 1.4.4.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No
+  document API changes since 1.4.3.
+
+## 1.4.3
+
+- Add `PdfBlankDocument.create` for building standalone PDFs with one or more
+  empty pages in a chosen standard or custom page size.
+- Keep AcroForm text, button, and image appearances upright when fields are
+  authored, filled, resized, or regenerated on rotated pages.
+
+## 1.4.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No
+  document API changes since 1.4.1.
+
+## 1.4.1
+
+- Add callout annotation authoring and editing, and correct cloudy polygon
+  geometry and appearance generation.
+- Add rich-text styling for in-place content text edits while preserving the
+  surrounding PDF content structure.
+- Centralize annotation capability policy and mutation impact tracking so
+  editing operations invalidate only the document surfaces they change.
+- Improve annotation, form, outline, page, redaction, reflow, and content
+  editing robustness through the shared transaction path.
+
+## 1.4.0
+
+- Add document color-processing APIs that discover paint colors, replace
+  multiple source colors in one pass, support page ranges, tolerance, and
+  transparent replacements.
+- Add cloudy polygon annotation appearance generation and resizing support for
+  cloud-style shape markups.
+- Improve annotation/page editing support used by the editor UI, including
+  page-range extraction and more robust annotation duplication workflows.
+
+## 1.3.2
+
+- Add vector stamp templates (`PdfStampTemplate` and
+  `PdfStampTemplateComponent`) with text, shapes, images, and saved-signature
+  components. `PdfEditor.addTemplateStamp` writes them as normal stamp
+  annotations with generated appearance streams.
+- Stamp annotations can carry metadata (`stampType` and `stampTags`) and
+  resolve dynamic `{{field}}` placeholders at placement time.
+- Note and stamp appearances now account for page rotation when authored, so
+  oriented pages receive counter-rotated annotation appearances.
+
+## 1.3.1
+
+- Annotation editing now handles malformed or indirect page `/Annots` entries
+  consistently when adding, removing, reordering, flattening, signing, form
+  editing, redacting, and pasting annotations. Invalid indirect `/Annots`
+  values are left untouched and replaced by a valid page-owned array.
+- Content rewriting, redaction, and structure-tagging paths now share the COS
+  content-stream serializer, including inline-image round-tripping.
+
 ## 1.2.3
 
 - Free-text annotations carry a horizontal alignment (left/center/right)
   through the `/Q` quadding: `addFreeText` and `addFreeTextRich` take an
   `align` argument, `PdfFreeTextStyle.alignment` reads it back, and resizing
   or re-editing a box preserves it. Omitting `align` keeps the previous
-  behaviour — left for LTR text, right for RTL.
+  behaviour - left for LTR text, right for RTL.
 - Fix a free-text box auto-sized to its contents wrapping the last word onto
   a new line: the wrapper's strict width test now tolerates the sub-point
   floating-point round-off in `(lineWidth + 2*pad) - 2*pad`.
@@ -16,7 +93,7 @@
 - Embeddable fonts: `PdfEmbeddedFont.parse` reads a TrueType (`.ttf`) or
   OpenType (`.otf`) file and `addFreeText` can now author text in it,
   embedding the font as a full-Unicode Type0/CIDFontType2 (Identity-H)
-  composite with a `/ToUnicode` CMap — so authored text can use any font,
+  composite with a `/ToUnicode` CMap - so authored text can use any font,
   not just the base-14 faces, and stays selectable, searchable, and
   portable. `PdfEmbeddedFont.fromFreeText` recovers the font from a box's
   own appearance for lossless re-editing.

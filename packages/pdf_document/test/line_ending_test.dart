@@ -53,7 +53,7 @@ void main() {
       () {
     final c = content(lineWith(PdfLineEnding.closedArrow),
         lineWith(PdfLineEnding.closedArrow).page(0).annotations.single);
-    // barb, apex, barb — then close + fill
+    // barb, apex, barb - then close + fill
     expect(c, contains('90 -3.8 m'));
     expect(c, contains('100 0 l'));
     expect(c, contains('90 3.8 l'));
@@ -70,7 +70,7 @@ void main() {
     expect('S\n'.allMatches(c).length, greaterThanOrEqualTo(2));
   });
 
-  test('rClosedArrow: reversed — apex into the line, barbs on the endpoint',
+  test('rClosedArrow: reversed - apex into the line, barbs on the endpoint',
       () {
     final doc = lineWith(PdfLineEnding.rClosedArrow);
     final c = content(doc, doc.page(0).annotations.single);
@@ -173,11 +173,11 @@ void main() {
     expect(leNames(out, after), ('Circle', 'ClosedArrow'));
     expect(after.author, 'Ben'); // identity survives the in-place edit
     expect(after.line, ((0.0, 0.0), (100.0, 0.0))); // geometry unchanged
-    // the appearance now paints both endings — the circle sits at the
+    // the appearance now paints both endings - the circle sits at the
     // start vertex (0,0), radius 4, so its Bézier starts at (4,0)
     expect(content(out, after), contains('4 0 m')); // start circle
     expect(content(out, after), contains('90 3.8 l')); // end arrow
-    // replaced, not re-added — the form keeps its object number
+    // replaced, not re-added - the form keeps its object number
     expect(out.cos.referenceTo(after.normalAppearance!)!.objectNumber,
         formRef.objectNumber);
   });

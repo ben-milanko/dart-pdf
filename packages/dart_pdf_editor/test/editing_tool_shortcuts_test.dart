@@ -24,15 +24,39 @@ void main() {
       expect(pdfEditToolShortcuts.keys, contains(PdfEditTool.ink));
       expect(pdfEditToolShortcuts.keys, contains(PdfEditTool.rectangle));
       expect(pdfEditToolShortcuts.keys, contains(PdfEditTool.freeText));
+      expect(
+          pdfEditToolShortcuts[PdfEditTool.snapshot], LogicalKeyboardKey.keyG);
+      expect(
+          pdfEditToolShortcuts[PdfEditTool.signature], LogicalKeyboardKey.keyH);
       // the multi-segment / extra measure variants live one tap away
       expect(pdfEditToolShortcuts.keys, isNot(contains(PdfEditTool.polyline)));
       expect(pdfEditToolShortcuts.keys, isNot(contains(PdfEditTool.polygon)));
-      expect(pdfEditToolShortcuts.keys,
-          isNot(contains(PdfEditTool.measureArea)));
+      expect(
+          pdfEditToolShortcuts.keys, isNot(contains(PdfEditTool.cloudPolygon)));
+      expect(
+          pdfEditToolShortcuts.keys, isNot(contains(PdfEditTool.measureArea)));
     });
 
     test('tools with no shortcut report a null label', () {
       expect(pdfEditToolShortcutLabel(PdfEditTool.polyline), isNull);
+      expect(pdfEditToolShortcutLabel(PdfEditTool.cloudPolygon), isNull);
+    });
+
+    test('labels can be read from a custom shortcut map', () {
+      expect(
+        pdfEditToolShortcutLabel(
+          PdfEditTool.rectangle,
+          shortcuts: const {PdfEditTool.rectangle: LogicalKeyboardKey.keyB},
+        ),
+        'B',
+      );
+      expect(
+        pdfEditToolShortcutLabel(
+          PdfEditTool.ink,
+          shortcuts: const {PdfEditTool.rectangle: LogicalKeyboardKey.keyB},
+        ),
+        isNull,
+      );
     });
   });
 
@@ -41,7 +65,10 @@ void main() {
     // an empty patch mid-page to focus the viewer without selecting anything
     final empty = const Offset(450 * scale, (792 - 400) * scale);
 
-    Future<PdfEditingController> pumpEditor(WidgetTester tester) async {
+    Future<PdfEditingController> pumpEditor(
+      WidgetTester tester, {
+      Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts = pdfEditToolShortcuts,
+    }) async {
       final editing = PdfEditingController(buildMultiPagePdf(2));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
@@ -55,6 +82,7 @@ void main() {
               document: editing.document,
               controller: viewer,
               editing: editing,
+              toolShortcuts: toolShortcuts,
             ),
           ),
         ),
@@ -85,6 +113,10 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
       await tester.pump();
       expect(editing.tool, PdfEditTool.ink);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyG);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.snapshot);
     });
 
     testWidgets('pressing a tool key again drops back to Select',
@@ -111,6 +143,22 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
+    });
+
+    testWidgets('custom tool shortcuts replace the defaults', (tester) async {
+      final editing = await pumpEditor(
+        tester,
+        toolShortcuts: const {PdfEditTool.rectangle: LogicalKeyboardKey.keyB},
+      );
+      await focusViewer(tester);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.pump();
+      expect(editing.tool, isNull);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.rectangle);
     });
 
     testWidgets('tool shortcuts are ignored while editing text',

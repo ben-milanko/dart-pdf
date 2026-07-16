@@ -20,7 +20,7 @@ void main() {
       expect(byType['Title']!.text, 'Heading One');
       expect(byType['Title']!.standardType, 'H1');
       expect(byType['P']!.text, 'Body paragraph text.');
-      // The figure tags a rectangle (no text) — accessibleText falls back to
+      // The figure tags a rectangle (no text) - accessibleText falls back to
       // /ActualText then /Alt.
       expect(byType['Figure']!.text, isEmpty);
       expect(byType['Figure']!.accessibleText, 'Figure 1');

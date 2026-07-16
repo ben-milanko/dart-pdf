@@ -13,7 +13,7 @@ class PdfMeshVertex {
   final PdfColor color;
 }
 
-/// A triangle mesh with per-vertex colors — the decoded form of mesh
+/// A triangle mesh with per-vertex colors - the decoded form of mesh
 /// shadings (types 4–7). Patch meshes arrive pre-subdivided; devices only
 /// ever see Gouraud triangles.
 class PdfMesh {

@@ -2,7 +2,7 @@
 /// (§14.7), reading order, and the mapping from structure elements to the
 /// marked content they tag (via /MCID) and to page objects (via /OBJR).
 ///
-/// This is the read path. It is pure COS — it walks dictionaries and the
+/// This is the read path. It is pure COS - it walks dictionaries and the
 /// content-stream marked-content operators, and knows nothing about
 /// rendering. Mapping structure elements to extracted *text runs* lives one
 /// layer up, in pdf_graphics, which can join a [PdfStructElement]'s
@@ -64,7 +64,7 @@ class PdfStructTree {
   List<PdfStructElement> get children =>
       _childElements(dict['K'], parent: null, inheritedPage: null);
 
-  /// Every structure element in document (reading) order — a depth-first
+  /// Every structure element in document (reading) order - a depth-first
   /// pre-order walk of the tree. The order of /K within each element is the
   /// authored reading order (§14.7.2).
   List<PdfStructElement> elementsInReadingOrder() {
@@ -144,8 +144,8 @@ class PdfMarkedContentRef {
   }
 }
 
-/// A reference from a structure element to a whole object — typically an
-/// annotation or form field — rather than a marked-content sequence (/OBJR,
+/// A reference from a structure element to a whole object - typically an
+/// annotation or form field - rather than a marked-content sequence (/OBJR,
 /// §14.7.4.3).
 class PdfObjectRef {
   PdfObjectRef._(this.element, this.object, this.page);
@@ -188,7 +188,7 @@ class PdfStructElement {
   /// The element title (/T), a human-readable label, or null.
   String? get title => _text(dict['T']);
 
-  /// Alternate description (/Alt) — required on figures and other
+  /// Alternate description (/Alt) - required on figures and other
   /// non-text content for accessibility (§14.9.3). Null when absent.
   String? get alt => _text(dict['Alt']);
 
@@ -318,7 +318,7 @@ bool pdfIsMarkedTagged(PdfDocument document) {
 }
 
 /// The /ParentTree (a number tree, §14.7.4.4) mapping each page's
-/// /StructParents key — and each object's /StructParent key — back to the
+/// /StructParents key - and each object's /StructParent key - back to the
 /// structure element(s) that tag it. Built lazily; lets a reader go from a
 /// marked-content id on a page to its owning structure element.
 class PdfStructParentTree {
@@ -392,7 +392,7 @@ int? pageStructParentsKey(PdfPage page) {
   return v is CosInteger ? v.value : null;
 }
 
-/// Author-side description of one structure element to write — the input to
+/// Author-side description of one structure element to write - the input to
 /// `PdfEditor.writeStructTree`. Build a tree of these, attach the
 /// marked-content ids ([mcids], on page [pageIndex]) and object references
 /// ([objects]) each element tags, then hand the roots to the editor.
@@ -416,7 +416,7 @@ class PdfStructSpec {
   /// Structure type (/S), without the leading slash.
   final String type;
 
-  /// Alternate description (/Alt) — required on figures for PDF/UA.
+  /// Alternate description (/Alt) - required on figures for PDF/UA.
   String? alt;
 
   /// Replacement text (/ActualText).

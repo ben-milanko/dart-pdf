@@ -86,7 +86,7 @@ void main() {
     await tester.runAsync(() async {
       final overlap = (await sample(false)).$3;
       // blue@0.5 over (red@0.5 over white) ~= (128,64,192): less blue, less
-      // green than the knockout result — the control that proves /K matters.
+      // green than the knockout result - the control that proves /K matters.
       expect(overlap[2], lessThan(220), reason: 'overlap blue: $overlap');
       expect(overlap[1], lessThan(100), reason: 'overlap green: $overlap');
     });

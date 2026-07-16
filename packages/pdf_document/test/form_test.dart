@@ -30,7 +30,7 @@ void main() {
         ['name', 'address', 'agree', 'color', 'size', 'serial']);
     final name = infos[0];
     expect(name.type, PdfFieldType.text);
-    // the fixture's widgets carry no /P — the page resolves through the
+    // the fixture's widgets carry no /P - the page resolves through the
     // /Annots fallback
     expect(name.pageIndex, 0);
     expect(name.rect, const PdfRect(72, 700, 300, 724));
@@ -53,7 +53,7 @@ void main() {
 
   test('a widget no page claims reports index -1', () {
     // strip the widget from the page /Annots so it only exists in the
-    // AcroForm tree — no /P and no page lists it
+    // AcroForm tree - no /P and no page lists it
     final doc = PdfDocument.open(buildAcroFormPdf());
     final field = PdfAcroForm.of(doc)!.fieldNamed('name')!;
     final page = doc.page(0);

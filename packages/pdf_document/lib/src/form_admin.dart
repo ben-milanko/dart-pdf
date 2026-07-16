@@ -3,14 +3,18 @@ part of 'editor.dart';
 /// AcroForm structure editing: creating, renaming, retyping, and removing
 /// fields, plus flattening the whole form into page content.
 ///
-/// Everything here is lenient toward broken field trees — orphaned
+/// Everything here is lenient toward broken field trees - orphaned
 /// widgets, missing pages, and unresolvable references are skipped, not
-/// fatal — because template PDFs in the wild are routinely hand-mangled.
+/// fatal - because template PDFs in the wild are routinely hand-mangled.
 extension PdfFormAdmin on PdfEditor {
   /// Adds a single-widget text field named [name] on [pageIndex].
   /// The document gains an /AcroForm dictionary if it has none.
-  PdfFormField addTextField(int pageIndex, String name, PdfRect rect,
-      {bool multiline = false}) {
+  PdfFormField addTextField(
+    int pageIndex,
+    String name,
+    PdfRect rect, {
+    bool multiline = false,
+  }) {
     final dict = _newFieldDict('Tx', name, rect);
     if (multiline) dict['Ff'] = const CosInteger(PdfFormField.multilineFlag);
     return _installField(pageIndex, name, dict);
@@ -28,7 +32,7 @@ extension PdfFormAdmin on PdfEditor {
     return field;
   }
 
-  /// Adds a push-button field — the conventional carrier for images
+  /// Adds a push-button field - the conventional carrier for images
   /// (see [PdfFormFilling.setButtonImage]). The button renders blank
   /// until an image or appearance is set.
   PdfFormField addPushButtonField(int pageIndex, String name, PdfRect rect) {
@@ -39,8 +43,9 @@ extension PdfFormAdmin on PdfEditor {
     // empty button as drawable rather than missing
     final rectangle = field.widgetRect(0)!;
     _setNormalAppearance(
-        field.dict, _widgetForm(rectangle.width, rectangle.height,
-            ContentWriter()));
+      field.dict,
+      _widgetForm(rectangle.width, rectangle.height, ContentWriter()),
+    );
     _stageFormDict(field, field.dict);
     return field;
   }
@@ -66,11 +71,15 @@ extension PdfFormAdmin on PdfEditor {
     for (final other in field.form.fields) {
       if (!identical(other.dict, field.dict) && other.name == full) {
         throw ArgumentError.value(
-            newName, 'newName', 'another field is already named "$full"');
+          newName,
+          'newName',
+          'another field is already named "$full"',
+        );
       }
     }
     field.dict['T'] = CosString.fromText(newName);
     _stageFormDict(field, field.dict);
+    _markMetadata();
   }
 
   /// Removes [field] from the form and detaches its widgets from their
@@ -79,25 +88,23 @@ extension PdfFormAdmin on PdfEditor {
   void removeField(PdfFormField field) {
     final cos = document.cos;
     final widgets = field.widgets;
-
-    // detach widgets from every page that lists them. The filtered
-    // array is reassigned directly into the page dict (never mutated in
-    // place) so it persists even when /Annots was an indirect array.
-    for (var i = 0; i < document.pageCount; i++) {
-      final page = document.page(i);
-      final annots = cos.resolve(page.dict['Annots']);
-      if (annots is! CosArray) continue;
-      final remaining = [
-        for (final item in annots.items)
-          if (!_isFieldWidget(cos.resolve(item), field, widgets)) item,
-      ];
-      if (remaining.length == annots.items.length) continue;
-      if (remaining.isEmpty) {
-        page.dict.entries.remove('Annots');
+    final pages = <int>{};
+    var unknownPage = false;
+    for (var i = 0; i < widgets.length; i++) {
+      final page = field.widgetPageIndex(i);
+      if (page < 0) {
+        unknownPage = true;
       } else {
-        page.dict['Annots'] = CosArray(remaining);
+        pages.add(page);
       }
-      _updater.markChanged(page.dict);
+    }
+
+    // detach widgets from every page that lists them.
+    for (var i = 0; i < document.pageCount; i++) {
+      _PdfPageAnnotationList(this, i).removeWhere(
+        (_, resolved) => _isFieldWidget(resolved, field, widgets),
+        removeIfEmpty: true,
+      );
     }
 
     // pull the field node out of its parent /Kids or the form /Fields
@@ -123,10 +130,14 @@ extension PdfFormAdmin on PdfEditor {
         }
       }
     }
+    _markVisual(unknownPage ? null : pages);
   }
 
   static bool _isFieldWidget(
-      CosObject? annot, PdfFormField field, List<CosDictionary> widgets) {
+    CosObject? annot,
+    PdfFormField field,
+    List<CosDictionary> widgets,
+  ) {
     if (identical(annot, field.dict)) return true;
     for (final widget in widgets) {
       if (identical(widget, annot)) return true;
@@ -135,7 +146,7 @@ extension PdfFormAdmin on PdfEditor {
   }
 
   /// Rebuilds [field] as [newType] (text, check box, or push button) at
-  /// its first widget's page and rectangle, keeping the name — so
+  /// its first widget's page and rectangle, keeping the name - so
   /// pipelines that resolve fields by name keep working after an
   /// operator fixes a mis-typed template field.
   ///
@@ -149,16 +160,20 @@ extension PdfFormAdmin on PdfEditor {
       PdfFieldType.pushButton,
     };
     if (!supported.contains(newType)) {
-      throw ArgumentError.value(newType, 'newType',
-          'only ${supported.map((t) => t.name).join('/')} are supported');
+      throw ArgumentError.value(
+        newType,
+        'newType',
+        'only ${supported.map((t) => t.name).join('/')} are supported',
+      );
     }
     if (field.type == newType) return field;
     final pageIndex = field.widgetPageIndex(0);
     final rect = field.widgetRect(0);
     if (pageIndex < 0 || rect == null) {
       throw StateError(
-          'field "${field.name}" has no widget bound to a page — '
-          'cannot rebuild');
+        'field "${field.name}" has no widget bound to a page - '
+        'cannot rebuild',
+      );
     }
     final name = field.name;
     removeField(field);
@@ -172,14 +187,18 @@ extension PdfFormAdmin on PdfEditor {
   /// Flattens the interactive form: paints every widget's current
   /// appearance into its page's content, then removes all fields and
   /// their widgets. Fields without a paintable appearance simply
-  /// disappear. Broken structures — widgets without pages, unparseable
-  /// rectangles, corrupt appearance streams — are skipped, never fatal.
+  /// disappear. Broken structures - widgets without pages, unparseable
+  /// rectangles, corrupt appearance streams - are skipped, never fatal.
   void flattenForm() {
     final form = acroForm;
     if (form == null) return;
     for (var i = 0; i < document.pageCount; i++) {
       try {
-        _flattenAnnotations(i, (annot) => annot.subtype == 'Widget');
+        _flattenAnnotations(
+          i,
+          (annot) => annot.subtype == 'Widget',
+          syncAnnotations: false,
+        );
       } catch (_) {
         // a malformed page must not stop the rest of the form
       }
@@ -216,9 +235,15 @@ extension PdfFormAdmin on PdfEditor {
     final existing = acroForm?.fieldNamed(name);
     if (existing != null) {
       throw ArgumentError.value(
-          name, 'name', 'another field is already named "$name"');
+        name,
+        'name',
+        'another field is already named "$name"',
+      );
     }
     final page = document.page(pageIndex);
+    if (page.rotation != 0) {
+      dict['MK'] = CosDictionary({'R': CosInteger(page.rotation)});
+    }
 
     var formDict = cos.resolve(document.catalog['AcroForm']);
     if (formDict is! CosDictionary) {
@@ -227,12 +252,14 @@ extension PdfFormAdmin on PdfEditor {
         'DA': CosString.fromText('/Helv 0 Tf 0 g'),
         'DR': CosDictionary({
           'Font': CosDictionary({
-            'Helv': _updater.addObject(CosDictionary({
-              'Type': const CosName('Font'),
-              'Subtype': const CosName('Type1'),
-              'BaseFont': const CosName('Helvetica'),
-              'Encoding': const CosName('WinAnsiEncoding'),
-            })),
+            'Helv': _updater.addObject(
+              CosDictionary({
+                'Type': const CosName('Font'),
+                'Subtype': const CosName('Type1'),
+                'BaseFont': const CosName('Helvetica'),
+                'Encoding': const CosName('WinAnsiEncoding'),
+              }),
+            ),
           }),
         }),
       });
@@ -243,15 +270,14 @@ extension PdfFormAdmin on PdfEditor {
     final ref = _updater.addObject(dict);
     // reassign rather than mutate, in case the arrays were indirect
     final fields = cos.resolve(formDict['Fields']);
-    formDict['Fields'] =
-        CosArray([if (fields is CosArray) ...fields.items, ref]);
+    formDict['Fields'] = CosArray([
+      if (fields is CosArray) ...fields.items,
+      ref,
+    ]);
 
     final pageRef = cos.referenceTo(page.dict);
     if (pageRef != null) dict['P'] = pageRef;
-    final annots = cos.resolve(page.dict['Annots']);
-    page.dict['Annots'] =
-        CosArray([if (annots is CosArray) ...annots.items, ref]);
-    _updater.markChanged(page.dict);
+    _PdfPageAnnotationList(this, pageIndex).append(ref);
 
     final formRef = cos.referenceTo(formDict);
     if (formRef != null) {
@@ -264,6 +290,7 @@ extension PdfFormAdmin on PdfEditor {
     if (field == null) {
       throw StateError('field "$name" failed to register');
     }
+    _markVisual([pageIndex]);
     return field;
   }
 }

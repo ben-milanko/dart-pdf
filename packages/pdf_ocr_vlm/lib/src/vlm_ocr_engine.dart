@@ -37,7 +37,7 @@ class VlmOcrInput {
   /// The page raster as base64-encoded PNG bytes.
   final String imageBase64;
 
-  /// The same PNG as a `data:image/png;base64,...` URL — what an
+  /// The same PNG as a `data:image/png;base64,...` URL - what an
   /// OpenAI-compatible chat vision API wants under `image_url`.
   final String imageDataUrl;
 
@@ -59,7 +59,7 @@ class VlmOcrInput {
 }
 
 /// A single recognized fragment, positioned in **raster pixels**
-/// (top-left origin, y down — the natural output of an OCR model run on the
+/// (top-left origin, y down - the natural output of an OCR model run on the
 /// PNG the engine sent). [VlmOcrEngine] converts these to PDF user space via
 /// `PdfOcrPageImage.userSpaceRect`.
 class VlmOcrWord {
@@ -92,13 +92,13 @@ typedef VlmOcrResponseParser = List<VlmOcrWord> Function(
 ///
 ///  * the default constructor speaks a small, documented JSON contract
 ///    (POST `{image, width, height, ...}` → `{spans: [{text, bbox,
-///    confidence}]}`) — point it at the reference adapter in the README, or
+///    confidence}]}`) - point it at the reference adapter in the README, or
 ///    any server you wrap to that shape;
 ///  * [VlmOcrEngine.dotsOcr] speaks the OpenAI-compatible chat API exposed by
 ///    a vLLM server running `rednote-hilab/dots.ocr` (a current
 ///    state-of-the-art open-source document-OCR VLM) with no adapter at all.
 ///
-/// For anything else — a cloud VLM, PaddleOCR, Tesseract, a gRPC gateway —
+/// For anything else - a cloud VLM, PaddleOCR, Tesseract, a gRPC gateway -
 /// pass a custom [requestBody]/[responseParser], or implement [PdfOcrEngine]
 /// directly. The page geometry math (crop box, /Rotate, pixel→user) is done
 /// for you by `PdfOcrPageImage.userSpaceRect`.

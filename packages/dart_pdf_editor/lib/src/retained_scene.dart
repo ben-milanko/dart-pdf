@@ -1,0 +1,467 @@
+/// Record a page once, replay it at any scale without re-interpreting the
+/// content stream or re-decoding its images.
+///
+/// The classic zoom path caches a [ui.Picture] and re-rasterizes it on every
+/// settle ([PdfPageRenderer.rasterize] - a `drawPicture` + `toImage`). A
+/// nested `drawPicture` re-raster is measurably slower under Impeller than
+/// rasterizing a freshly recorded flat picture of the same draws (~4-6x on
+/// image-heavy pages), and the cached picture is a black box that cannot be
+/// re-fed through a painting device. [PdfRetainedScene] keeps the page one
+/// level higher - as the interpreter's own [PdfRenderCommand] transcript plus
+/// the decoded [ui.Image]s it needs - so a zoom rebuilds a flat picture at
+/// the new scale from retained data alone. Nothing is parsed and no codec
+/// runs after [record] returns.
+library;
+
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flutter/painting.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
+
+import 'canvas_device.dart';
+import 'image_decoder.dart';
+import 'renderer.dart';
+import 'render_worker.dart';
+import 'region_replay_index.dart';
+import 'strips/strip_device.dart';
+
+/// A page retained as a replayable scene: the recorded interpreter command
+/// buffer plus its decoded images, both produced exactly once in [record].
+///
+/// [replay] is synchronous - it only re-issues canvas calls - which is the
+/// point: the interpret (content-stream parse + walk) and the image decodes,
+/// the two costs a zoom must never pay again, happened up front. The scene
+/// owns its decoded images; dispose it with [dispose] when the page leaves
+/// the cache window (outstanding pictures keep painting - `ui.Image.dispose`
+/// on a picture-referenced image is safe, the picture holds its own ref).
+class PdfRetainedScene {
+  PdfRetainedScene._(this.page, this.plan, this.commands, this._images);
+
+  /// The page this scene replays. Must stay open (the scene borrows nothing
+  /// from it after [record], but callers naturally keep both together).
+  final PdfPage page;
+
+  /// The display inputs the scene was recorded under (paper color,
+  /// annotations, rotation). A different plan needs a new recording -
+  /// annotations are baked into [commands].
+  final PdfPageRenderPlan plan;
+
+  /// The interpreter's transcript of the page, in paint order.
+  final List<PdfRenderCommand> commands;
+
+  /// Painter-order fragmentation of [commands] under the strip router.
+  /// Computed lazily because ordinary pages below the dense-command ceiling
+  /// never need it.
+  late final int stripReplayEstimatedBatchCount =
+      StripReplayProfile.of(commands).estimatedBatchCount;
+
+  /// Enables the bounded selective path for ordinary retained region replay.
+  /// Unsupported command groups conservatively use the full transcript.
+  static bool spatialRegionReplay = true;
+
+  /// Hard construction bound for the spatial index. Larger transcripts keep
+  /// the historical full replay rather than retaining unbounded metadata.
+  static int spatialRegionReplayMaxCommands = 250000;
+
+  PdfRegionReplayIndex? _regionIndex;
+
+  /// Test/diagnostic counters for the most recent [replayRegion].
+  bool debugLastRegionReplayWasSelective = false;
+  int debugLastRegionReplayCommandCount = 0;
+
+  int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
+  int get debugRegionReplayEstimatedBytes =>
+      _ensureRegionIndex().estimatedBytes;
+  bool get debugRegionReplaySupported => _ensureRegionIndex().supported;
+  bool get debugHasRegionReplayIndex => _regionIndex != null;
+
+  /// Whether the transcript contains embedded-outline text that can benefit
+  /// from the web Slug picture. Base-14/substituted text has no glyph
+  /// outlines and stays on the cheaper normal raster path.
+  bool get hasSlugTextCandidates => _hasSlugText(commands);
+
+  static bool _hasSlugText(List<PdfRenderCommand> commands) {
+    for (final command in commands) {
+      switch (command) {
+        case PdfDrawTextCommand(:final run):
+          if (!run.invisible &&
+              run.glyphs != null &&
+              run.fill &&
+              run.strokeColor == null &&
+              run.gradient == null) {
+            return true;
+          }
+        case PdfEndSoftMaskedCommand(:final maskCommands):
+          if (_hasSlugText(maskCommands)) return true;
+        default:
+          break;
+      }
+    }
+    return false;
+  }
+
+  /// Decoded images keyed by [pdfImageKey], owned by this scene.
+  final Map<Object, ui.Image> _images;
+
+  bool _disposed = false;
+
+  /// Page size in points after the plan's rotation - the raster size at
+  /// pixelRatio 1.
+  Size get pageSize => plan.pageSize(page);
+
+  /// Interprets [page] once into a retained scene: one recording walk (which
+  /// also discovers every image the page draws, including inside soft-mask
+  /// groups) followed by one decode pass. This is the only step that touches
+  /// the content stream or an image codec.
+  ///
+  /// Decodes share [PdfImageCache.instance] like every other render path, so
+  /// recording a page the viewer already showed is decode-free.
+  static Future<PdfRetainedScene> record(
+    PdfPage page, {
+    PdfPageRenderPlan plan = const PdfPageRenderPlan(),
+    bool Function(PdfAnnotation)? skipAnnotation,
+  }) async {
+    final cos = page.document.cos;
+    final recorder = RecordingPdfDevice();
+    final recording = PdfInterpreter(cos: cos, device: recorder)
+      ..drawPageContent(page, page.contentBytes());
+    if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    final images = await decodeImages(cos, recorder.imageRequests,
+        cache: PdfImageCache.instance);
+    return PdfRetainedScene._(page, plan, recorder.commands, images);
+  }
+
+  /// Builds a scene from an already-recorded [commands] buffer (e.g. one a
+  /// [PdfRenderWorker] shipped back), decoding its images once. The buffer
+  /// must have been recorded for [page] under [plan]. Set [includeImages] to
+  /// false for a deliberate vector-only progressive buffer; image draws then
+  /// stay transparent until a complete scene replaces it.
+  static Future<PdfRetainedScene> fromCommands(
+    PdfPage page,
+    List<PdfRenderCommand> commands, {
+    PdfPageRenderPlan plan = const PdfPageRenderPlan(),
+    bool includeImages = true,
+  }) async {
+    final images = <Object, ui.Image>{};
+    if (includeImages) {
+      final requests = <PdfImageRequest>[];
+      PdfPageRenderer.collectImageRequests(commands, requests);
+      images.addAll(await decodeImages(page.document.cos, requests,
+          cache: PdfImageCache.instance));
+    }
+    return PdfRetainedScene._(page, plan, commands, images);
+  }
+
+  /// Replays the retained commands into a fresh picture with [pixelRatio]
+  /// baked into the canvas transform, so `picture.toImage(width * ratio,
+  /// height * ratio)` rasterizes it 1:1. Synchronous: no interpretation, no
+  /// decoding - only canvas calls.
+  ///
+  /// Unlike re-rasterizing a cached picture, the replay re-issues every draw
+  /// into a flat picture at the new transform - which Impeller rasterizes
+  /// significantly faster than a nested `drawPicture` at a new scale. The
+  /// output is pixel-identical to the cached-picture path (asserted
+  /// byte-for-byte in retained_scene_test.dart).
+  ui.Picture replay({required double pixelRatio}) {
+    assert(!_disposed, 'replay after dispose');
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(pixelRatio);
+    _replayOnto(canvas);
+    return recorder.endRecording();
+  }
+
+  /// Region variant of [replay]: only [region] (page points, y-down raster
+  /// space - the same space [PdfPageRenderer.rasterizeRegion] takes) lands at
+  /// the picture origin, at [pixelRatio]. The deep-zoom detail patch replays
+  /// through this without re-interpreting.
+  ui.Picture replayRegion(Rect region, {required double pixelRatio}) {
+    assert(!_disposed, 'replay after dispose');
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)
+      ..scale(pixelRatio)
+      ..translate(-region.left, -region.top);
+    _replayOnto(canvas, rasterRegion: region);
+    return recorder.endRecording();
+  }
+
+  /// Convenience: [replay] + `toImage` at the exact raster size, clamped to
+  /// the engine's texture limit like [PdfPageRenderer.rasterize].
+  Future<ui.Image> rasterize({required double pixelRatio}) async {
+    final picture = replay(pixelRatio: pixelRatio);
+    try {
+      final size = pageSize;
+      return await picture.toImage(
+        (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  /// Convenience: [replayRegion] + `toImage`, mirror of
+  /// [PdfPageRenderer.rasterizeRegion].
+  Future<ui.Image> rasterizeRegion(Rect region,
+      {required double pixelRatio}) async {
+    final picture = replayRegion(region, pixelRatio: pixelRatio);
+    try {
+      return await picture.toImage(
+        (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  void _replayOnto(Canvas canvas, {Rect? rasterRegion}) {
+    PdfPageRenderer.preparePageCanvas(canvas, page, plan);
+    final device = CanvasPdfDevice(canvas, images: _images);
+    if (rasterRegion != null && spatialRegionReplay) {
+      final index = _ensureRegionIndex();
+      final pageRegion = _pageSpaceRegion(rasterRegion);
+      if (index.supported && pageRegion != null) {
+        debugLastRegionReplayWasSelective = true;
+        debugLastRegionReplayCommandCount =
+            index.replay(pageRegion, commands, device, canvas);
+        return;
+      }
+    }
+    debugLastRegionReplayWasSelective = false;
+    debugLastRegionReplayCommandCount = commands.length;
+    replayCommands(commands, device);
+  }
+
+  PdfRegionReplayIndex _ensureRegionIndex() =>
+      _regionIndex ??= PdfRegionReplayIndex.build(
+        commands,
+        maxCommands: spatialRegionReplayMaxCommands,
+      );
+
+  PdfRect? _pageSpaceRegion(Rect region) {
+    final inverse = PdfPageRenderer.pageToDeviceMatrix(
+      page,
+      pageSize,
+      page.cropBox,
+      rotation: plan.rotation,
+      pixelRatio: 1,
+    ).inverted();
+    if (inverse == null) return null;
+    final points = <(double, double)>[
+      (
+        inverse.transformX(region.left, region.top),
+        inverse.transformY(region.left, region.top)
+      ),
+      (
+        inverse.transformX(region.right, region.top),
+        inverse.transformY(region.right, region.top)
+      ),
+      (
+        inverse.transformX(region.right, region.bottom),
+        inverse.transformY(region.right, region.bottom)
+      ),
+      (
+        inverse.transformX(region.left, region.bottom),
+        inverse.transformY(region.left, region.bottom)
+      ),
+    ];
+    var left = points.first.$1;
+    var right = left;
+    var bottom = points.first.$2;
+    var top = bottom;
+    for (final point in points.skip(1)) {
+      left = math.min(left, point.$1);
+      right = math.max(right, point.$1);
+      bottom = math.min(bottom, point.$2);
+      top = math.max(top, point.$2);
+    }
+    return PdfRect(left, bottom, right, top);
+  }
+
+  /// The strip device geometry a full-page strip replay at [pixelRatio]
+  /// uses: the page->device-pixel matrix and the viewport in pixels. Public
+  /// so [PdfPageView] can send the EXACT same six coefficients to
+  /// [PdfRenderWorker.binStrips] that [replayStrips] will construct its
+  /// device with - the plan's stale-geometry guard compares them with `==`.
+  ({PdfMatrix pageToDevice, int width, int height}) stripGeometry(
+      {required double pixelRatio}) {
+    final size = pageSize;
+    return (
+      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(page, size, page.cropBox,
+          rotation: plan.rotation, pixelRatio: pixelRatio),
+      width: (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
+      height: (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
+    );
+  }
+
+  /// [stripGeometry]'s region variant - mirrors [replayRegionStrips]'s
+  /// device construction (the page matrix concatenated with the region
+  /// translation, viewport = the region raster).
+  ({PdfMatrix pageToDevice, int width, int height}) stripRegionGeometry(
+      Rect region,
+      {required double pixelRatio}) {
+    return (
+      pageToDevice: PdfPageRenderer.pageToDeviceMatrix(
+              page, pageSize, page.cropBox,
+              rotation: plan.rotation, pixelRatio: pixelRatio)
+          .concat(PdfMatrix.translation(
+              -region.left * pixelRatio, -region.top * pixelRatio)),
+      width: (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
+      height: (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
+    );
+  }
+
+  /// Replays the retained commands through a [StripPdfDevice] instead of
+  /// [CanvasPdfDevice]: fills/strokes/outline glyphs are re-binned into
+  /// sparse strips at [pixelRatio] and drawn as shader-carrying
+  /// `drawVertices` batches; everything the strip device can't express
+  /// delegates to the canvas in painter's order. Async because the device's
+  /// alpha-atlas upload awaits `decodeImageFromPixels` inside `finish()`.
+  ///
+  /// The resulting picture is only valid at the recorded [pixelRatio]
+  /// (strip quads are device-pixel-aligned) - every zoom step is a fresh
+  /// re-bin. Still zero re-interpretation and zero image re-decoding: the
+  /// walk is a command replay and the image map is the scene's own.
+  ///
+  /// [stripPlan] skips even the re-bin: a worker-binned [StripPlan] for
+  /// this exact geometry (see [stripGeometry] and
+  /// [PdfRenderWorker.binStrips]) is consumed batch-by-batch, so the UI
+  /// thread only creates engine objects and replays the tape. A stale or
+  /// desynced plan transparently falls back to a local re-bin (counted in
+  /// [StripPdfDevice.totalPlanMismatches]).
+  ///
+  /// Batching telemetry accumulates on [StripPdfDevice.totalFlushes] /
+  /// `totalStripQuads` / `totalAtlasTexels`; call
+  /// [StripPdfDevice.resetStats] around a step to read per-step deltas.
+  Future<ui.Picture> replayStrips(
+      {required double pixelRatio,
+      StripPlan? stripPlan,
+      bool slugGlyphs = false,
+      void Function(({int quads, int fallbackOutlineRuns}))?
+          onSlugStats}) async {
+    assert(!_disposed, 'replay after dispose');
+    try {
+      return await _stripPicture(stripGeometry(pixelRatio: pixelRatio), null,
+          pixelRatio, stripPlan, slugGlyphs, onSlugStats);
+    } on StripPlanMismatchError {
+      // The plan desynced mid-walk (only detectable at finish, before any
+      // painting committed): discard and re-bin locally.
+      return _stripPicture(stripGeometry(pixelRatio: pixelRatio), null,
+          pixelRatio, null, slugGlyphs, onSlugStats);
+    }
+  }
+
+  /// Region variant of [replayStrips]: only [region] (page points, y-down
+  /// raster space, like [replayRegion]) lands at the picture origin, at
+  /// [pixelRatio]. The strip viewport is the region raster, so offscreen
+  /// geometry is clipped during binning rather than drawn. A [stripPlan]
+  /// must have been binned for [stripRegionGeometry] of the same region.
+  Future<ui.Picture> replayRegionStrips(Rect region,
+      {required double pixelRatio,
+      StripPlan? stripPlan,
+      bool slugGlyphs = false,
+      void Function(({int quads, int fallbackOutlineRuns}))?
+          onSlugStats}) async {
+    assert(!_disposed, 'replay after dispose');
+    final geometry = stripRegionGeometry(region, pixelRatio: pixelRatio);
+    try {
+      return await _stripPicture(
+          geometry, region, pixelRatio, stripPlan, slugGlyphs, onSlugStats);
+    } on StripPlanMismatchError {
+      return _stripPicture(
+          geometry, region, pixelRatio, null, slugGlyphs, onSlugStats);
+    }
+  }
+
+  /// Shared device construction + replay for the strip paths. [region] null
+  /// is the full page. Throws [StripPlanMismatchError] (recording discarded,
+  /// nothing painted) when [stripPlan] desyncs.
+  Future<ui.Picture> _stripPicture(
+      ({PdfMatrix pageToDevice, int width, int height}) geometry,
+      Rect? region,
+      double pixelRatio,
+      StripPlan? stripPlan,
+      bool slugGlyphs,
+      void Function(({int quads, int fallbackOutlineRuns}))?
+          onSlugStats) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(pixelRatio);
+    if (region != null) canvas.translate(-region.left, -region.top);
+    PdfPageRenderer.preparePageCanvas(canvas, page, plan);
+    final device = StripPdfDevice(
+      canvas,
+      pageToDevice: geometry.pageToDevice,
+      deviceWidth: geometry.width,
+      deviceHeight: geometry.height,
+      pixelRatio: pixelRatio,
+      images: _images,
+      precomputed: stripPlan,
+      enableSlugGlyphs: slugGlyphs,
+    );
+    final ui.Picture picture;
+    try {
+      final sw = Stopwatch()..start();
+      replayCommands(commands, device);
+      StripPdfDevice.totalRouteMicros += sw.elapsedMicroseconds;
+      await device.finish(); // must precede endRecording
+      onSlugStats?.call((
+        quads: device.slugQuadCount,
+        fallbackOutlineRuns: device.slugFallbackOutlineRuns,
+      ));
+      picture = recorder.endRecording();
+    } catch (_) {
+      recorder.endRecording().dispose();
+      device.dispose();
+      rethrow;
+    }
+    device.dispose();
+    return picture;
+  }
+
+  /// Convenience: [replayStrips] + `toImage`, the strip-router counterpart
+  /// of [rasterize].
+  Future<ui.Image> rasterizeStrips(
+      {required double pixelRatio, StripPlan? stripPlan}) async {
+    final picture =
+        await replayStrips(pixelRatio: pixelRatio, stripPlan: stripPlan);
+    try {
+      final size = pageSize;
+      return await picture.toImage(
+        (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  /// Convenience: [replayRegionStrips] + `toImage`, the strip-router
+  /// counterpart of [rasterizeRegion].
+  Future<ui.Image> rasterizeRegionStrips(Rect region,
+      {required double pixelRatio, StripPlan? stripPlan}) async {
+    final picture = await replayRegionStrips(region,
+        pixelRatio: pixelRatio, stripPlan: stripPlan);
+    try {
+      return await picture.toImage(
+        (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  /// Releases the scene's decoded images. Pictures already returned by
+  /// [replay] keep painting (they hold their own image refs); further
+  /// replays are an error.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _regionIndex = null;
+    for (final image in _images.values) {
+      image.dispose();
+    }
+  }
+}

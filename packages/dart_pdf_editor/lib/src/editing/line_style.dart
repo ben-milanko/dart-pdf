@@ -17,11 +17,17 @@ enum PdfLineStyle {
         PdfLineStyle.dashDot => 'Dash-dot',
       };
 
-  /// The `/BS /D` dash array for this style at [strokeWidth], or null for
-  /// [solid]. Lengths scale with the pen width, with a 2pt floor so thin
-  /// lines still read as dashed.
-  List<double>? dashArray(double strokeWidth) {
-    double u(double m) => math.max(2, strokeWidth * m);
+  /// The `/BS /D` dash array for this style, or null for [solid].
+  ///
+  /// The pattern size is driven by [scale] (a multiplier, 1 = the default
+  /// look) *independently* of the pen [strokeWidth] - so a thin line can
+  /// carry big dashes, or a heavy line tight ones. [strokeWidth] still sets
+  /// a floor on each segment so the gaps stay visible under a heavy pen
+  /// (round/projecting caps would otherwise swallow them). At `scale: 1`
+  /// and the default 2pt pen the arrays match the historical
+  /// width-proportional values.
+  List<double>? dashArray(double strokeWidth, {double scale = 1}) {
+    double u(double m) => math.max(strokeWidth, math.max(2, 2 * scale * m));
     return switch (this) {
       PdfLineStyle.solid => null,
       PdfLineStyle.dashed => [u(3), u(2)],
@@ -31,7 +37,7 @@ enum PdfLineStyle {
   }
 
   /// Classifies a stored dash array (from `PdfAnnotation.borderDash`) back
-  /// to the closest style — so a style control can show the current value.
+  /// to the closest style - so a style control can show the current value.
   /// Null/empty → [solid]; otherwise by segment count and dash:gap ratio.
   static PdfLineStyle ofDashArray(List<double>? dash) {
     if (dash == null || dash.isEmpty) return PdfLineStyle.solid;

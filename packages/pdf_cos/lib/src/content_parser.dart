@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -14,6 +15,60 @@ class ContentOperation {
       operands.isEmpty ? operator : '${operands.join(' ')} $operator';
 }
 
+/// Serializes parsed content-stream operations back to PDF content syntax.
+///
+/// This is intentionally narrower than [CosSerializer]: a content stream is a
+/// flat sequence of operands followed by an operator, with inline images
+/// encoded by the special `BI ... ID ... EI` form instead of ordinary COS
+/// object syntax.
+class ContentStreamSerializer {
+  ContentStreamSerializer._();
+
+  /// Serializes [operations], one operation per line.
+  static Uint8List serialize(Iterable<ContentOperation> operations) {
+    final out = BytesBuilder();
+    for (final operation in operations) {
+      writeOperation(operation, out);
+    }
+    return out.takeBytes();
+  }
+
+  /// Serializes one [operation] into [out].
+  static void writeOperation(ContentOperation operation, BytesBuilder out) {
+    if (operation.operator == 'BI') {
+      _writeInlineImage(operation, out);
+      return;
+    }
+
+    for (final operand in operation.operands) {
+      out
+        ..add(CosSerializer.serialize(operand))
+        ..addByte(0x20);
+    }
+    out.add(latin1.encode('${operation.operator}\n'));
+  }
+
+  static void _writeInlineImage(ContentOperation operation, BytesBuilder out) {
+    if (operation.operands.length < 2 ||
+        operation.operands[0] is! CosDictionary ||
+        operation.operands[1] is! CosString) {
+      throw ArgumentError.value(operation, 'operation',
+          'BI operation must contain a dictionary and raw image data');
+    }
+
+    out.add(latin1.encode('BI'));
+    final dict = operation.operands[0] as CosDictionary;
+    dict.entries.forEach((key, value) {
+      out
+        ..add(latin1.encode(' /$key '))
+        ..add(CosSerializer.serialize(value));
+    });
+    out.add(latin1.encode(' ID\n'));
+    out.add((operation.operands[1] as CosString).bytes);
+    out.add(latin1.encode('\nEI\n'));
+  }
+}
+
 /// Parses a page content stream into a flat list of operations.
 ///
 /// An inline image (`BI ... ID ... EI`) is surfaced as a single `BI`
@@ -23,7 +78,7 @@ class ContentStreamParser {
   ContentStreamParser._();
 
   /// Shared immutable [CosInteger]s for the small values that saturate a
-  /// content stream — text/graphics-state modes, glyph indices, colour
+  /// content stream - text/graphics-state modes, glyph indices, colour
   /// components, small coordinates. Content streams are integer-dense, and
   /// a [CosInteger] is an immutable value object, so handing out one shared
   /// instance per small value spares millions of allocations on heavy (CAD)
@@ -34,7 +89,18 @@ class ContentStreamParser {
   static CosObject _intObject(int value) =>
       (value >= -1 && value <= 256) ? _smallInts[value + 1] : CosInteger(value);
 
-  static List<ContentOperation> parse(Uint8List content) {
+  /// Opens [content] as an incremental operation cursor.
+  ///
+  /// Unlike [parse], the cursor does not retain operations after the caller
+  /// consumes them. This is useful for one-pass interpreters of very dense
+  /// streams, while callers that need replay or editing should keep using the
+  /// materialized list returned by [parse].
+  static ContentOperationCursor cursor(Uint8List content,
+          {int? operationLimit}) =>
+      ContentOperationCursor._(content, operationLimit: operationLimit);
+
+  static List<ContentOperation> parse(Uint8List content,
+      {int? operationLimit}) {
     // Drive the lexer directly rather than through [CosParser]: a content
     // stream is a flat token stream (no indirect references, so none of
     // parseObject's `N G R` lookahead applies), and on a 10 MB CAD page the
@@ -43,48 +109,17 @@ class ContentStreamParser {
     // finished operation its own operand list (no copy, no clear) roughly
     // halves the parse.
     final operations = <ContentOperation>[];
-    final lexer = CosLexer(content);
-    var operands = <CosObject>[];
-    while (true) {
-      final t = lexer.nextToken();
-      switch (t.type) {
-        case CosTokenType.eof:
-          return operations;
-        // Numbers are by far the most common operand (every coordinate,
-        // colour, index); build them inline on the hot path.
-        case CosTokenType.integer:
-          operands.add(_intObject(t.intValue));
-        case CosTokenType.real:
-          operands.add(CosReal(t.realValue));
-        case CosTokenType.keyword:
-          final keyword = t.textValue;
-          // true/false/null are operands, not operators.
-          switch (keyword) {
-            case 'true':
-              operands.add(const CosBoolean(true));
-            case 'false':
-              operands.add(const CosBoolean(false));
-            case 'null':
-              operands.add(CosNull.instance);
-            case 'BI':
-              operations.add(_parseInlineImage(lexer));
-              operands = <CosObject>[];
-            default:
-              // Hand the operation ownership of the operand list and start a
-              // fresh one — equivalent to `List.of(operands)` then clear,
-              // minus the element copy.
-              operations.add(ContentOperation(keyword, operands));
-              operands = <CosObject>[];
-          }
-        default:
-          operands.add(_parseObject(lexer, t));
-      }
+    final reader = cursor(content, operationLimit: operationLimit);
+    ContentOperation? operation;
+    while ((operation = reader.nextOperation()) != null) {
+      operations.add(operation!);
     }
+    return operations;
   }
 
   /// Parses one operand object from [first] (already consumed). Mirrors
   /// [CosParser.parseObject] for the object kinds that appear in content
-  /// streams — no indirect references, no streams.
+  /// streams - no indirect references, no streams.
   static CosObject _parseObject(CosLexer lexer, CosToken first) {
     switch (first.type) {
       case CosTokenType.integer:
@@ -132,7 +167,7 @@ class ContentStreamParser {
         case CosTokenType.arrayClose:
           return CosArray(items);
         case CosTokenType.eof:
-          return CosArray(items); // unterminated — keep what parsed
+          return CosArray(items); // unterminated - keep what parsed
         case CosTokenType.integer:
           items.add(_intObject(t.intValue));
         case CosTokenType.real:
@@ -143,7 +178,7 @@ class ContentStreamParser {
               t.textValue == 'null') {
             items.add(_parseObject(lexer, t));
           }
-          // else: stray operator — drop it
+        // else: stray operator - drop it
         default:
           items.add(_parseObject(lexer, t));
       }
@@ -273,5 +308,81 @@ class ContentStreamParser {
     final afterOk =
         afterPos >= bytes.length || CosLexer.isWhitespace(bytes[afterPos]);
     return beforeOk && afterOk ? p : null;
+  }
+}
+
+/// Incremental reader for a flat PDF content stream.
+///
+/// Each call to [nextOperation] returns ownership of that operation's operand
+/// list. Once the caller drops the returned operation, no page-sized parsed
+/// representation remains live. Obtain a cursor with
+/// [ContentStreamParser.cursor].
+class ContentOperationCursor {
+  ContentOperationCursor._(Uint8List content, {this.operationLimit})
+      : _lexer = CosLexer(content),
+        _finished = operationLimit != null && operationLimit <= 0;
+
+  /// Maximum operations this cursor will emit, or null for the whole stream.
+  final int? operationLimit;
+
+  final CosLexer _lexer;
+  var _operands = <CosObject>[];
+  var _operationCount = 0;
+  bool _finished;
+
+  /// Number of operations emitted so far.
+  int get operationCount => _operationCount;
+
+  /// Whether EOF or [operationLimit] has been reached.
+  bool get isFinished => _finished;
+
+  /// Parses and returns the next operation, or null at the end of the stream.
+  ContentOperation? nextOperation() {
+    if (_finished) return null;
+    while (true) {
+      final token = _lexer.nextToken();
+      switch (token.type) {
+        case CosTokenType.eof:
+          _finished = true;
+          return null;
+        case CosTokenType.integer:
+          _operands.add(ContentStreamParser._intObject(token.intValue));
+        case CosTokenType.real:
+          _operands.add(CosReal(token.realValue));
+        case CosTokenType.keyword:
+          final keyword = token.textValue;
+          switch (keyword) {
+            case 'true':
+              _operands.add(const CosBoolean(true));
+              continue;
+            case 'false':
+              _operands.add(const CosBoolean(false));
+              continue;
+            case 'null':
+              _operands.add(CosNull.instance);
+              continue;
+            case 'BI':
+              final operation = ContentStreamParser._parseInlineImage(_lexer);
+              // Match the materialized parser's lenient boundary behavior:
+              // junk operands before BI do not leak into the following op.
+              _operands = <CosObject>[];
+              return _emit(operation);
+            default:
+              final operation = ContentOperation(keyword, _operands);
+              _operands = <CosObject>[];
+              return _emit(operation);
+          }
+        default:
+          _operands.add(ContentStreamParser._parseObject(_lexer, token));
+      }
+    }
+  }
+
+  ContentOperation _emit(ContentOperation operation) {
+    _operationCount++;
+    if (operationLimit != null && _operationCount >= operationLimit!) {
+      _finished = true;
+    }
+    return operation;
   }
 }

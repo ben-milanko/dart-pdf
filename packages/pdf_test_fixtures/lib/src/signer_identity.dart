@@ -1,6 +1,6 @@
 /// Test signing identity: a fixed 2048-bit RSA key and its
 /// self-signed certificate (CN=Dart PDF Test Signer, valid 20 years).
-/// Test-only material — never use outside this repository.
+/// Test-only material - never use outside this repository.
 library;
 
 const testSignerKeyPem = '''
@@ -55,7 +55,7 @@ ttip0e0uOIHeFsQW0ghSWn/hnhw=
 -----END CERTIFICATE-----
 ''';
 
-/// Test-only CA for chain-validation tests — never use outside this
+/// Test-only CA for chain-validation tests - never use outside this
 /// repository. Self-signed, CN=Dart PDF Test CA, 20 years, sha256.
 const testCaCertPem = '''
 -----BEGIN CERTIFICATE-----

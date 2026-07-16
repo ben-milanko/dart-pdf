@@ -1,5 +1,53 @@
 # Changelog
 
+## 1.4.6
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.6. No COS API
+  changes since 1.4.5.
+
+## 1.4.5
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.5. No COS API
+  changes since 1.4.4.
+
+## 1.4.4
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.4. No COS API
+  changes since 1.4.3.
+
+## 1.4.3
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.3. No COS API
+  changes since 1.4.2.
+
+## 1.4.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.2. No COS API
+  changes since 1.4.1.
+
+## 1.4.1
+
+- Speed up dense content parsing with byte-level real-number parsing, operator
+  interning, and streaming content-token handling.
+- Keep the low-level parser and writer compatible with the rendering and
+  editing improvements in the 1.4.1 package suite.
+
+## 1.4.0
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.0. Low-level
+  parser, writer, filter, and crypto maintenance supports the higher-level
+  editor and document features in this release.
+
+## 1.3.2
+
+- Version bump to keep the dart-pdf package suite aligned at 1.3.2. No COS
+  API changes since 1.3.1.
+
+## 1.3.1
+
+- Add `ContentStreamSerializer` for writing parsed content-stream operations
+  back to PDF syntax, including inline-image (`BI`/`ID`/`EI`) operations.
+
 ## 1.2.3
 
 - Version bump to keep the dart-pdf package suite aligned at 1.2.3. No COS
