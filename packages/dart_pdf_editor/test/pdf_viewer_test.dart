@@ -752,6 +752,37 @@ void main() {
         reason: 'the over-pan is bounded to a reasonable margin');
   });
 
+  testWidgets('trackpad pan reaches the pasteboard at fit zoom', (tester) async {
+    // Off-page pasteboard (bleed, crop marks, or a margin to draw in) must be
+    // reachable without zooming in first: at the default fit zoom a sideways
+    // trackpad pan slides the page a bounded distance onto the pasteboard and
+    // rests there, instead of being pinned to the page edge.
+    final controller = await pumpViewer(tester);
+    // fit zoom: the page fills the width and the transform is at unit scale
+    expect(controller.captureViewport()!.left, moreOrLessEquals(0, epsilon: 0.01));
+
+    final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.trackpad, pointer: 42);
+    await gesture.panZoomStart(const Offset(400, 300));
+    for (var i = 1; i <= 10; i++) {
+      await gesture.panZoomUpdate(const Offset(400, 300),
+          pan: Offset(60.0 * i, 0), timeStamp: Duration(milliseconds: 16 * i));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await gesture.panZoomEnd(timeStamp: const Duration(milliseconds: 176));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+    // the page has slid right onto the pasteboard and stays there (no
+    // spring-back to the edge), bounded to a reasonable margin
+    final vp = controller.captureViewport()!;
+    expect(vp.left, lessThan(-0.05),
+        reason: 'a fit-zoom pan reaches the off-page pasteboard');
+    expect(vp.left, greaterThan(-0.25),
+        reason: 'the pasteboard pan is bounded, not a runaway void');
+    // horizontal only: vertical stays pinned (the list owns vertical scroll)
+    expect(vp.top, moreOrLessEquals(0, epsilon: 0.01));
+  });
+
   testWidgets('search lands on the match in a long mixed-size document',
       (tester) async {
     final bytes = buildVariedHeightPdf(48);

@@ -4159,10 +4159,6 @@ class _PdfViewerState extends State<PdfViewer>
   void _onPanFlingTick() {
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
-    if (scale <= 1.01) {
-      _panFlinger.stop();
-      return;
-    }
     final (min, max) = _panBoundsX(scale);
     final value = _panFlinger.value;
     matrix.storage[12] = value.clamp(min, max);
@@ -4171,14 +4167,23 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   /// Keeps the zoom window over the content: snaps near-1 scales back to
-  /// identity (sub-1 zoom is layout zoom, not a transform) and clamps the
+  /// unit scale (sub-1 zoom is layout zoom, not a transform) and clamps the
   /// translation - the horizontal axis to the allowed range (cover range
   /// widened by the over-pan margin, [_panBoundsX], so a reasonable amount
-  /// of off-page content stays reachable), the vertical axis tightly so no
-  /// blank edge shows.
+  /// of off-page pasteboard stays reachable), the vertical axis tightly so
+  /// no blank edge shows.
+  ///
+  /// At fit zoom the scale is unit but a bounded *horizontal* pan onto the
+  /// pasteboard margin is still allowed - `_panBoundsX(1)` is `(-margin,
+  /// margin)` - so the off-page pasteboard is reachable without zooming in
+  /// first. Vertical stays pinned there: the list owns vertical scrolling.
   Matrix4 _clampedTransform(Matrix4 matrix) {
     final scale = matrix.getMaxScaleOnAxis();
-    if (scale <= 1.01) return Matrix4.identity();
+    if (scale <= 1.01) {
+      final (minX, maxX) = _panBoundsX(1);
+      return Matrix4.identity()
+        ..storage[12] = matrix.storage[12].clamp(minX, maxX);
+    }
     final s = matrix.storage;
     final (minX, maxX) = _panBoundsX(scale);
     s[12] = s[12].clamp(minX, maxX);
@@ -4188,9 +4193,13 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Like [_clampedTransform] but only clamps the vertical axis, leaving
   /// the horizontal translation untouched (for rubber-band over-scroll).
+  /// At fit zoom the scale is normalized to unit and vertical pinned, but
+  /// the horizontal pan is preserved so the rubber-band can overshoot.
   Matrix4 _clampedTransformVerticalOnly(Matrix4 matrix) {
     final scale = matrix.getMaxScaleOnAxis();
-    if (scale <= 1.01) return Matrix4.identity();
+    if (scale <= 1.01) {
+      return Matrix4.identity()..storage[12] = matrix.storage[12];
+    }
     final s = matrix.storage;
     s[13] = s[13].clamp(_viewHeight * (1 - scale), 0.0);
     return matrix;
@@ -4218,7 +4227,6 @@ class _PdfViewerState extends State<PdfViewer>
   double _horizontalOverscroll() {
     final matrix = _transform.value;
     final scale = matrix.getMaxScaleOnAxis();
-    if (scale <= 1.01) return 0;
     final tx = matrix.storage[12];
     final (min, max) = _panBoundsX(scale);
     if (tx > max) return tx - max;
@@ -4255,11 +4263,6 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _onHorizontalBounceTick() {
     final matrix = _transform.value.clone();
-    final scale = matrix.getMaxScaleOnAxis();
-    if (scale <= 1.01) {
-      _hBounceController.stop();
-      return;
-    }
     matrix.storage[12] = _hBounceController.value;
     _transform.value = _clampedTransformVerticalOnly(matrix);
   }
