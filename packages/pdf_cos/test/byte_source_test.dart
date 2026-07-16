@@ -60,6 +60,26 @@ class RecordingSource implements PdfByteSource {
   Future<void> close() async => closes++;
 }
 
+/// A source that ignores the requested end and always returns bytes through
+/// end-of-file - i.e. it hands back more than asked for. Models a server that
+/// answers a Range request with a 200-style full body.
+class _OverReadSource implements PdfByteSource {
+  _OverReadSource(this._bytes);
+  final Uint8List _bytes;
+
+  @override
+  Future<int?> get length async => _bytes.length;
+
+  @override
+  Future<Uint8List> readRange(int start, int endExclusive) async {
+    final s = start < 0 ? 0 : (start > _bytes.length ? _bytes.length : start);
+    return Uint8List.sublistView(_bytes, s); // to EOF, ignoring endExclusive
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
 void main() {
   group('progressive load over a range-capable source', () {
     test('opens a classic xref-table document', () async {
@@ -83,6 +103,36 @@ void main() {
       expect(pages.typeName, 'Pages');
       final page = doc.resolve((pages['Kids'] as CosArray)[0]) as CosDictionary;
       expect(page.typeName, 'Page');
+    });
+
+    test('walks a cross-reference-stream /Prev chain with an /Index', () async {
+      // An incremental update of an xref-stream file appends a second xref
+      // stream that carries an /Index for just the changed object and a /Prev
+      // back to the original - exercising the stream path twice, the /Index
+      // branch, and /Prev following through streams.
+      final base = CosDocument.open(buildXrefStreamPdf());
+      final updated = (CosIncrementalUpdater(base)
+            ..replaceObject(1,
+                CosDictionary({'Type': const CosName('Catalog'), 'Pages': const CosReference(2, 0)})))
+          .save();
+      final doc = await CosDocument.openSource(RecordingSource(updated));
+      expect(doc.catalog.typeName, 'Catalog');
+      final pages = doc.resolve(doc.catalog['Pages']) as CosDictionary;
+      expect(pages.typeName, 'Pages');
+    });
+
+    test('grows the window to fit a cross-reference stream body', () async {
+      // A tiny xref window forces the loader to widen it until the xref
+      // stream (and its /Prev chain) fits, covering the retry path.
+      final base = CosDocument.open(buildXrefStreamPdf());
+      final updated = (CosIncrementalUpdater(base)
+            ..replaceObject(1,
+                CosDictionary({'Type': const CosName('Catalog'), 'Pages': const CosReference(2, 0)})))
+          .save();
+      final doc = await CosDocument.openSource(RecordingSource(updated),
+          options: const PdfSourceLoadOptions(
+              headWindow: 32, tailWindow: 32, xrefWindow: 16));
+      expect(doc.catalog.typeName, 'Catalog');
     });
 
     test('opens a larger multi-page document', () async {
@@ -259,6 +309,16 @@ void main() {
     });
   });
 
+  group('misbehaving sources', () {
+    test('a source that over-returns bytes does not crash the load', () async {
+      // Some servers answer a ranged read with more bytes than requested
+      // (a 206 carrying the whole file). The loader must clamp, not throw a
+      // RangeError past the buffer end.
+      final doc = await CosDocument.openSource(_OverReadSource(buildClassicPdf()));
+      expect(doc.catalog.typeName, 'Catalog');
+    });
+  });
+
   group('encrypted documents', () {
     test('decrypts through the source path with the owner password',
         () async {
@@ -286,6 +346,7 @@ void main() {
       expect(await source.readRange(3, 100), [4, 5]);
       expect(await source.readRange(10, 20), isEmpty);
       expect(await source.readRange(-5, 2), [1, 2]);
+      await source.close(); // no-op, must not throw
     });
 
     test('opens a document through the in-memory source', () async {

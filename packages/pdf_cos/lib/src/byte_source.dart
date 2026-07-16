@@ -59,18 +59,6 @@ class PdfBytesByteSource implements PdfByteSource {
   Future<void> close() async {}
 }
 
-/// Thrown when a byte source cannot satisfy a request the loader needs. The
-/// progressive loader catches its own recoverable failures and falls back to
-/// a full download; this surfaces only genuinely unrecoverable conditions.
-class PdfByteSourceException implements Exception {
-  PdfByteSourceException(this.message);
-
-  final String message;
-
-  @override
-  String toString() => 'PdfByteSourceException: $message';
-}
-
 /// Reports progressive-load progress. [fetched] is the running total of bytes
 /// pulled from the source; [total] is the document length when known.
 typedef PdfSourceProgress = void Function(int fetched, int? total);
@@ -437,9 +425,15 @@ class _ProgressiveLoader {
     for (final gap in _missing(start, end)) {
       final data = await source.readRange(gap.start, gap.end);
       if (data.isEmpty) continue;
-      _buffer.setRange(gap.start, gap.start + data.length, data);
-      _addPresent(gap.start, gap.start + data.length);
-      _fetched += data.length;
+      // Never trust a source to honour the requested length: a misbehaving
+      // server can answer a ranged read with more bytes than asked for
+      // (a 206 carrying the whole file, a padding CDN). Clamp so setRange
+      // can't run past the gap - and the buffer's end - which would abort
+      // the whole open instead of letting it fall back.
+      final count = math.min(data.length, gap.end - gap.start);
+      _buffer.setRange(gap.start, gap.start + count, data);
+      _addPresent(gap.start, gap.start + count);
+      _fetched += count;
       options.onProgress?.call(_fetched, _length);
     }
   }

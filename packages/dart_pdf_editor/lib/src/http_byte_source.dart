@@ -140,7 +140,6 @@ class PdfHttpByteSource implements PdfByteSource {
   /// Probes range support and length with a single one-byte ranged GET.
   Future<void> _probe() async {
     if (_probed) return;
-    _probed = true;
     cancelToken?.throwIfCancelled();
     final response = await _get(rangeStart: 0, rangeEndInclusive: 0);
     cancelToken?.throwIfCancelled();
@@ -159,6 +158,9 @@ class PdfHttpByteSource implements PdfByteSource {
         throw PdfHttpException('unexpected status ${response.statusCode} for $uri',
             statusCode: response.statusCode);
     }
+    // Mark probed only after a usable response: a failed or cancelled probe
+    // must not permanently skip range/length detection on a retry.
+    _probed = true;
   }
 
   Future<http.Response> _get({
