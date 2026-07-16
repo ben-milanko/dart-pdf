@@ -4358,6 +4358,44 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------
+  // vector snapshot recolour
+
+  /// Whether every selected annotation is a pasted vector snapshot, so
+  /// [recolorSnapshotSelected] can retint them as vectors. Vector snapshots
+  /// keep the captured page's own colours, which the generic restyle path
+  /// ([canRestyleSelected]) can't rewrite, so they get their own recolour.
+  bool get canRecolorSnapshotSelected {
+    if (_selected.isEmpty) return false;
+    final editor = PdfEditor(_document);
+    return _selected.every((slot) {
+      final annotation = _annotationAt(slot);
+      return annotation != null && editor.isVectorSnapshotStamp(annotation);
+    });
+  }
+
+  /// Recolours every selected vector snapshot to [color] in one revision
+  /// (one undo), keeping the selection. The captured graphics are rewritten
+  /// to a single ink - see [PdfVectorSnapshotEditing.recolorVectorSnapshot].
+  /// Returns whether anything changed.
+  bool recolorSnapshotSelected(Color color) {
+    if (!canRecolorSnapshotSelected) return false;
+    final rgb = _rgbOf(color);
+    if (rgb == null) return false;
+    final targets = <(int, PdfAnnotation)>[
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final annotation?) (slot.$1, annotation),
+    ];
+    if (targets.isEmpty) return false;
+    return apply(
+      (e) {
+        for (final (page, annotation) in targets) {
+          e.recolorVectorSnapshot(page, annotation, rgb);
+        }
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------
   // attention flash
 
   ({PdfDocument document, int page, int slot})? _flash;

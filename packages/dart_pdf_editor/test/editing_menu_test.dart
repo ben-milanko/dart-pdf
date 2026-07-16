@@ -156,6 +156,45 @@ void main() {
       expect(editing.hasAnnotationSelection, isFalse);
     });
 
+    testWidgets('Recolour… shows only for a vector snapshot selection',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      // paste a vector snapshot; it lands selected, on top, below the rects
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(110, 500)); // the snapshot stamp
+      expect(find.byKey(const ValueKey('pdf-annot-menu-recolor-snapshot')),
+          findsOneWidget);
+      await tester.tapAt(const Offset(5, 5)); // dismiss
+      await tester.pumpAndSettle();
+
+      await rightClick(tester, viewPoint(110, 725)); // plain rectangle A
+      expect(find.byKey(const ValueKey('pdf-annot-menu-recolor-snapshot')),
+          findsNothing);
+    });
+
+    testWidgets('Recolour… opens the picker and retints the snapshot',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      await tester.pump();
+      final before = editing.document;
+
+      await rightClick(tester, viewPoint(110, 500));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-recolor-snapshot')));
+      await tester.pumpAndSettle();
+      // the colour dialog is up; accept the default ink
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // a new revision landed - the snapshot was recoloured
+      expect(identical(editing.document, before), isFalse);
+    });
+
     testWidgets('right-click keeps an existing multi-selection',
         (tester) async {
       final editing = await pumpViewer(tester);
