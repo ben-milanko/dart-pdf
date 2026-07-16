@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Bound the render worker's page-record cache by entry count, not only by
+  decoded-image bytes: image-free and vector-first records weigh zero, so on a
+  long scroll they used to accumulate one (or more) per page for the life of
+  the worker with no limit (issue #283). The cache now caps retained records
+  (`pdfRenderWorkerCacheMaxEntries`, default 64), so a long document's memory
+  no longer grows unbounded in the page count.
 - Free-text boxes: add line spacing, character spacing, font width
   (horizontal scaling), and underline controls (tune popup + properties
   panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.
