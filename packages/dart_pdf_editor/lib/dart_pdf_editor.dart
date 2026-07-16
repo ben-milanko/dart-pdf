@@ -42,6 +42,7 @@ export 'src/editing/tool_shortcuts.dart';
 export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';
 export 'src/page_export.dart';
+export 'src/print_rasterize.dart';
 export 'src/page_geometry.dart';
 export 'src/page_number_field.dart';
 export 'src/page_render_session.dart';

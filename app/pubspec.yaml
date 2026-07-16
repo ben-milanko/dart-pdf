@@ -29,8 +29,9 @@ dependencies:
   share_plus: ^13.2.0
   url_launcher: ^6.3.0
   # Hands a finished PDF to the OS print dialog (iOS, Android, macOS, Windows,
-  # Linux, and the web). The engine here only renders pages, so the document
-  # bytes are printed verbatim - no re-layout.
+  # Linux, and the web). Documents print verbatim except on Windows, where the
+  # plugin's PDFium backend can crash on our broken-but-renderable inputs, so
+  # we print a self-rendered raster copy instead (see lib/printing.dart).
   printing: ^5.13.0
   shared_preferences: ^2.3.0
   # Snapshots mobile picks into the app's private store so Recent entries and
