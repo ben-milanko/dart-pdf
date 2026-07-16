@@ -145,6 +145,49 @@ void main() {
       expect(pageText(out), isNot(contains('(first line) Tj')));
     });
 
+    test('a region flush to a glyph edge does not swallow the neighbour', () {
+      // "first line" starts at x=72, size 12. Drag a box whose right edge lands
+      // exactly on the "first "/"l" boundary and whose left edge lands exactly
+      // on the " line" gap: only the covered glyphs go, not the ones the box is
+      // merely flush against (a boundary the "any overlap" test got wrong).
+      final left = 72.0;
+      final firstSpace = left + measureHelvetica('first ', 12);
+      final firstLi = left + measureHelvetica('first li', 12);
+
+      final doc = PdfDocument.open(buildContentPdf(richContent));
+      final elements = PdfPageElements.of(doc, 0);
+      final editor = PdfEditor(doc);
+      // box flush to the left of "l": erases "first ", keeps "line".
+      expect(
+          editor.deleteElementsInRect(
+              elements, PdfRect(left, 700, firstSpace, 712)),
+          1);
+      var out = PdfDocument.open(editor.save());
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['line', 'second line']);
+
+      // box flush to the right of "i" (start of "ne"): erases "ne", keeps
+      // "first li" — the left edge must not pull the preceding "i" in.
+      final doc2 = PdfDocument.open(buildContentPdf(richContent));
+      final elements2 = PdfPageElements.of(doc2, 0);
+      final editor2 = PdfEditor(doc2);
+      expect(
+          editor2.deleteElementsInRect(
+              elements2, PdfRect(firstLi, 700, 200, 712)),
+          1);
+      out = PdfDocument.open(editor2.save());
+      expect(
+          PdfPageElements.of(out, 0)
+              .elements
+              .where((e) => e.kind == PdfElementKind.text)
+              .map((e) => e.text),
+          ['first li', 'second line']);
+    });
+
     test('erasing a region clips partial hits instead of dropping them', () {
       final doc = PdfDocument.open(buildContentPdf(richContent));
       final elements = PdfPageElements.of(doc, 0);

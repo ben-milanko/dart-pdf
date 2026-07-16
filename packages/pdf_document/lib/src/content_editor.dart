@@ -279,12 +279,18 @@ extension PdfContentEditing on PdfEditor {
     final eraseUnits0 = (eraseStart - axisStart) / axisLength * totalWidth;
     final eraseUnits1 = (eraseEnd - axisStart) / axisLength * totalWidth;
 
+    // Erase a glyph when its centre falls inside the drag box, so the slice
+    // boundary lands where the box crosses each glyph rather than swallowing a
+    // neighbour that the box only grazes (a box drawn flush to a glyph edge
+    // would otherwise pull in the next glyph on a floating-point tie). Centres
+    // are monotonic, so the erased indices stay contiguous.
     var first = -1;
     var last = -1;
     var cursor = 0.0;
     for (var i = 0; i < text.length; i++) {
       final next = cursor + measureHelvetica(text[i], 1);
-      if (next > eraseUnits0 && cursor < eraseUnits1) {
+      final center = (cursor + next) / 2;
+      if (center > eraseUnits0 && center < eraseUnits1) {
         first = first < 0 ? i : first;
         last = i + 1;
       }
