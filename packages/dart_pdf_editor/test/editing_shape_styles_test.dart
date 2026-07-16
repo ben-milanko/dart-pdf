@@ -77,6 +77,51 @@ void main() {
     });
   });
 
+  group('cloud outline colour from the tune menu', () {
+    testWidgets('the tune menu changes a selected cloud\'s outline colour',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing
+        ..addCloudPolygon(0, const PdfRect(100, 500, 300, 640))
+        ..selectAnnotation(0, 0);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      // the cloud is a restylable /Polygon with a cloudy border
+      final before = editing.document.page(0).annotations.single;
+      expect(before.subtype, 'Polygon');
+      expect(before.hasCloudyBorder, isTrue);
+
+      // open the tune popup from the selection strip
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+
+      // blue is palette slot 3; picking it restyles the cloud outline
+      await tester.tap(find.byKey(const ValueKey('pdf-shape-outline-3')));
+      await tester.pumpAndSettle();
+
+      final after = editing.document.page(0).annotations.single;
+      expect(after.color, 0x1E88E5);
+      // the outline row offers no "none" - a cloud always has a stroke
+      expect(find.byKey(const ValueKey('pdf-shape-outline-none')), findsNothing);
+      // and the restyle keeps the revision-cloud border
+      expect(after.hasCloudyBorder, isTrue);
+    });
+  });
+
   group('cross-page annotation move', () {
     test('moveSelectedToPage re-homes the annotation onto the target page',
         () {

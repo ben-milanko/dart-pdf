@@ -1991,6 +1991,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'shapes':
         return _StyleFields(
           stroke: true,
+          strokeColor: true,
           opacity: true,
           lineType: true,
           lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
@@ -2041,6 +2042,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'Polygon':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            // the outline colour of shapes and revision clouds
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
@@ -2050,6 +2053,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'PolyLine':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
             // a measurement (/Line distance, /PolyLine perimeter) carries one
             font: controller.canRestyleMeasurementCaption,
@@ -2058,6 +2062,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case 'Ink':
         return _StyleFields(
             stroke: canStroke && behavior.supportsStrokeWidth,
+            strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity);
       default:
         // Markup and stamps expose opacity; notes and foreign subtypes do not.
@@ -3145,6 +3150,7 @@ double? _parsePercent(String s) {
 class _StyleFields {
   const _StyleFields({
     this.stroke = false,
+    this.strokeColor = false,
     this.opacity = false,
     this.lineType = false,
     this.lineEndings = false,
@@ -3156,6 +3162,11 @@ class _StyleFields {
   });
 
   final bool stroke;
+
+  /// The stroke/outline colour row - shapes (including revision clouds) and
+  /// the line family. Distinct from [shapeFill], the interior fill.
+  final bool strokeColor;
+
   final bool opacity;
 
   /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
@@ -3181,6 +3192,7 @@ class _StyleFields {
 
   bool get isEmpty =>
       !stroke &&
+      !strokeColor &&
       !opacity &&
       !lineType &&
       !lineEndings &&
@@ -3302,6 +3314,16 @@ class _StyleMenuState extends State<_StyleMenu> {
     controller.shapeFillColor = color; // the new default either way
     if (controller.canFillSelected) {
       controller.restyleSelected(fill: (color,));
+    }
+  }
+
+  /// The shape/cloud/line outline colour. Sets the creation default and
+  /// restyles the selected shapes in place, mirroring the toolbar swatches.
+  void _setStrokeColor(Color? color) {
+    if (color == null) return;
+    controller.color = color; // the new default either way
+    if (controller.canRestyleSelected) {
+      controller.restyleSelected(color: color);
     }
   }
 
@@ -3466,6 +3488,11 @@ class _StyleMenuState extends State<_StyleMenu> {
             final shapeFillValue = controller.canFillSelected
                 ? controller.selectedShapeFill
                 : controller.shapeFillColor;
+            // shape/cloud/line outline: a selected shape shows its own /C,
+            // else the creation default
+            final strokeColorValue = restylingAnnotation
+                ? (annotationStyle?.color ?? controller.color)
+                : controller.color;
             return Container(
               width: 300,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -3592,6 +3619,15 @@ class _StyleMenuState extends State<_StyleMenu> {
                       },
                     ),
                   ],
+                  if (fields.strokeColor && widget.showColor)
+                    _boxColorRow(
+                      context: context,
+                      label: 'Outline',
+                      keyPrefix: 'pdf-shape-outline',
+                      value: strokeColorValue,
+                      onChanged: _setStrokeColor,
+                      allowNone: false,
+                    ),
                   if (fields.shapeFill && widget.showColor)
                     _boxColorRow(
                       context: context,

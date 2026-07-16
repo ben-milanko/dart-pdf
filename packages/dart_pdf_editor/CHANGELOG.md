@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Shapes and revision clouds: add an "Outline" colour row to the tune popup,
+  next to "Fill", so a cloud's stroke colour can be picked from the tune menu
+  (not just the toolbar swatches) — armed or with the shape selected.
 - Free-text boxes: add line spacing, character spacing, font width
   (horizontal scaling), and underline controls (tune popup + properties
   panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.
