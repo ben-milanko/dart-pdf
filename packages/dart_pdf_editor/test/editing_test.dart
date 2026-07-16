@@ -1298,12 +1298,13 @@ void main() {
       // scope to the popup's sliders - the strip also has an inline opacity
       final menuSliders = find.descendant(
           of: find.byType(MenuAnchor), matching: find.byType(Slider));
-      // the shapes popup carries stroke width + corner radius + opacity
-      // (font is irrelevant to a rectangle, so it's not shown; corner radius
-      // is rectangle-only)
-      expect(menuSliders, findsNWidgets(3));
+      // the shapes popup carries stroke width, corner radius, opacity, and
+      // the pattern scale (font is irrelevant to a rectangle, so it's not
+      // shown; corner radius is rectangle-only)
+      expect(menuSliders, findsNWidgets(4));
 
-      // sliders are laid out stroke width, corner radius, opacity
+      // sliders are laid out stroke width, corner radius, opacity,
+      // pattern scale
       await tester.drag(menuSliders.at(0), const Offset(200, 0));
       await tester.pump();
       expect(editing.strokeWidth, greaterThan(2));
@@ -1315,6 +1316,13 @@ void main() {
       await tester.drag(menuSliders.at(2), const Offset(-200, 0));
       await tester.pump();
       expect(editing.opacity, lessThan(1));
+
+      // the pattern scale is independent of the pen width
+      final beforeStroke = editing.strokeWidth;
+      await tester.drag(menuSliders.at(3), const Offset(200, 0));
+      await tester.pump();
+      expect(editing.lineScale, greaterThan(1));
+      expect(editing.strokeWidth, beforeStroke);
       await tester.pumpAndSettle();
     });
 

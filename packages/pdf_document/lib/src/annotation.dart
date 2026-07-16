@@ -290,6 +290,17 @@ class PdfAnnotation {
     return style is CosName && style.value == 'Cloudy';
   }
 
+  /// The cloud scallop scale carried on `/BE /I` (§12.5.4) - the border
+  /// effect intensity, which the editor also uses as a puff-size multiplier
+  /// so a cloud's scallop size survives a restyle or reshape independently
+  /// of its stroke width. Defaults to 1 when absent or not cloudy.
+  double get cloudBorderScale {
+    final be = document.cos.resolve(dict['BE']);
+    if (be is! CosDictionary) return 1;
+    final intensity = _number(document.cos.resolve(be['I']));
+    return intensity == null || intensity <= 0 ? 1 : intensity;
+  }
+
   /// The endpoints of a /Line annotation, page space.
   ((double, double), (double, double))? get line {
     if (subtype != 'Line') return null;
@@ -611,8 +622,8 @@ class PdfAnnotation {
       lineSpacing:
           number(kPdfFreeTextLineSpacingKey) ?? kPdfFreeTextDefaultLineSpacing,
       charSpacing: number(kPdfFreeTextCharSpacingKey) ?? 0,
-      horizontalScale: number(kPdfFreeTextHScaleKey) ??
-          kPdfFreeTextDefaultHorizontalScale,
+      horizontalScale:
+          number(kPdfFreeTextHScaleKey) ?? kPdfFreeTextDefaultHorizontalScale,
       underline: underlineFlag is CosBoolean && underlineFlag.value,
     );
   }

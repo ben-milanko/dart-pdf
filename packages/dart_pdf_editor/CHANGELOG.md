@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Shapes and revision clouds: add an "Outline" colour row to the tune popup,
+  next to "Fill", so a cloud's stroke colour can be picked from the tune menu
+  (not just the toolbar swatches) — armed or with the shape selected.
 - Bound the render worker's page-record cache by entry count, not only by
   decoded-image bytes: image-free and vector-first records weigh zero, so on a
   long scroll they used to accumulate one (or more) per page for the life of

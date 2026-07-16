@@ -213,6 +213,7 @@ class PdfEditorView extends StatefulWidget {
     this.onSave,
     this.onSaveAs,
     this.showSaveButton = true,
+    this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
@@ -305,6 +306,13 @@ class PdfEditorView extends StatefulWidget {
   /// save affordance while still keeping [onSave] and the keyboard
   /// shortcut active.
   final bool showSaveButton;
+
+  /// Keeps Save (the button and ⌘S / Ctrl+S) enabled even when the
+  /// document has no unsaved edits. Hosts set this for a document that has
+  /// never been written to disk - a new untitled file - so the first Save
+  /// can create the file before any edit is made. Defaults to false, where
+  /// Save is gated on [PdfEditingController.isModified] as usual.
+  final bool alwaysAllowSave;
 
   /// Called after every revision - edits, undo, redo - with the new
   /// current bytes. For autosaving hosts.
@@ -534,8 +542,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   /// Whether there's anything to save: false while the document still
   /// matches what was opened, which disables the Save button (and makes
-  /// the ⌘S / Ctrl+S shortcut a no-op).
-  bool get _canSave => _session.isModified;
+  /// the ⌘S / Ctrl+S shortcut a no-op). A host that flags the document as
+  /// never-saved ([PdfEditorView.alwaysAllowSave]) keeps Save enabled so a
+  /// brand-new file can be written before its first edit.
+  bool get _canSave => _session.isModified || widget.alwaysAllowSave;
 
   void _save() {
     if (!_canSave) return;

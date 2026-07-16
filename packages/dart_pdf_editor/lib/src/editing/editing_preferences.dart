@@ -58,6 +58,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfTextAlign? _textAlign;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
+  double _lineScale = 1;
   PdfLineEnding _lineStartEnding = PdfLineEnding.none;
   PdfLineEnding _lineEndEnding = PdfLineEnding.none;
   bool _fingerDrawsInk = true;
@@ -150,6 +151,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
+      _lineScale = store.getDouble('${_prefix}lineScale') ?? _lineScale;
       final lineStyle = store.getString('${_prefix}lineStyle');
       if (lineStyle != null) {
         _lineStyle = PdfLineStyle.values.asNameMap()[lineStyle] ?? _lineStyle;
@@ -431,6 +433,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         final style = PdfLineStyle.values.asNameMap()[v];
         if (style != null) lineStyle = style;
       }
+      if (slot['lineScale'] case final num v) lineScale = v.toDouble();
       if (slot['lineStartEnding'] case final String v) {
         final ending = PdfLineEnding.values.asNameMap()[v];
         if (ending != null) lineStartEnding = ending;
@@ -485,6 +488,7 @@ class PdfEditingPreferences extends ChangeNotifier {
     put('fontFamily', _fontFamily.name);
     put('textAlign', _textAlign?.name);
     put('lineStyle', _lineStyle.name);
+    put('lineScale', _lineScale);
     put('lineStartEnding', _lineStartEnding.name);
     put('lineEndEnding', _lineEndEnding.name);
     put('textFillColor', _textFillColor?.toARGB32());
@@ -610,6 +614,20 @@ class PdfEditingPreferences extends ChangeNotifier {
     _lineStyle = value;
     _write((s) => s.setString('${_prefix}lineStyle', value.name));
     _recordScoped('lineStyle', value.name);
+    notifyListeners();
+  }
+
+  /// The pattern scale new shape and line annotations are created with - a
+  /// multiplier (1 = default) driving the size of dash patterns and cloudy
+  /// scallops *independently* of [strokeWidth], so the line thickness and
+  /// the pattern size change separately. Persisted.
+  double get lineScale => _lineScale;
+
+  set lineScale(double value) {
+    if (value == _lineScale) return;
+    _lineScale = value;
+    _write((s) => s.setDouble('${_prefix}lineScale', value));
+    _recordScoped('lineScale', value);
     notifyListeners();
   }
 
