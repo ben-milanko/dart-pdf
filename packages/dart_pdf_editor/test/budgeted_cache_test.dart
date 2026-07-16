@@ -211,6 +211,34 @@ void main() {
       expect(identical(cache.put(0, r), r), isTrue);
       expect(cache.length, 0);
     });
+
+    test('putAndClone and getOrAdd after dispose return the value uncached', () {
+      final cache = PdfBudgetedCache<int, _Res>(
+        maxEntries: 2,
+        cloner: (r) => r.clone(),
+      );
+      cache.dispose();
+      final a = _Res(1);
+      expect(identical(cache.putAndClone(1, a), a), isTrue,
+          reason: 'no master to stay independent from once disposed');
+      final b = _Res(2);
+      expect(identical(cache.getOrAdd(2, () => b), b), isTrue);
+      expect(cache.length, 0);
+    });
+  });
+
+  group('accessors', () {
+    test('report the configured cap and the live contents', () {
+      final cache = PdfBudgetedCache<int, _Res>(maxEntries: 3);
+      cache.put(1, _Res(1));
+      cache.put(2, _Res(2));
+      expect(cache.maxEntries, 3);
+      expect(cache.keys, [1, 2]);
+      expect(cache.values.map((r) => r.id), [1, 2]);
+      expect(cache.weightOf(1), 0, reason: 'no weigher → weight 0');
+      expect(cache.weightOf(99), isNull, reason: 'a miss peeks null');
+      expect(cache.peek(1)!.id, 1);
+    });
   });
 
   group('counters', () {
