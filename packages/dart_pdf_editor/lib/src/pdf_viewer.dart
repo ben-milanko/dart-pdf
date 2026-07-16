@@ -151,7 +151,10 @@ class PdfViewSync {
 /// The normalized [position] and [extent] behave the same as the built-in
 /// scrollbar's thumb (they account for zoom and mixed page sizes): a thumb
 /// of height `extent` sitting at `position` along the track mirrors the
-/// stock bar. The pixel fields are in the viewer's internal list space
+/// stock bar. (The stock bar additionally floors its thumb at a minimum
+/// pixel height for grabbability, so on a very long document a thumb sized
+/// strictly by `extent` can come out shorter than the stock one.) The pixel
+/// fields are in the viewer's internal list space
 /// (logical pixels at the current layout zoom, before the zoom-window
 /// transform) - useful for precise math, but most indicators only need the
 /// normalized pair.
@@ -176,12 +179,16 @@ class PdfScrollMetrics {
   final int currentPage;
 
   /// Normalized scroll position along the vertical axis: 0 at the top, 1
-  /// fully scrolled to the bottom. 0 when the whole document fits and there
-  /// is nothing to scroll ([hasOverflow] is false).
+  /// fully scrolled to the bottom. 0 when there is no scrollable range at all
+  /// (the content is not taller than the viewport). When only the trailing
+  /// page margin overflows ([hasOverflow] is false) the range is tiny but
+  /// still nonzero, so scrolling into that margin can move this off 0.
   final double position;
 
   /// The visible fraction of the scrollable content (0–1) - a page scrubber
-  /// sizes its thumb by this. 1 when the whole document fits.
+  /// sizes its thumb by this. Approaches 1 when the whole document fits,
+  /// staying a hair below it because the list pads its bottom by the page
+  /// spacing (the same trailing margin that keeps [hasOverflow] false there).
   final double extent;
 
   /// Leading (top) edge of the viewport in list-space pixels: the scroll
