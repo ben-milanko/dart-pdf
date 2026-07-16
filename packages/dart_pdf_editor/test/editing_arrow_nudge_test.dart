@@ -108,30 +108,46 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('an arrow nudges the selection by a point', (tester) async {
+    Future<void> arrow(WidgetTester tester, LogicalKeyboardKey key,
+        {bool shift = false}) async {
+      if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(key);
+      if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+    }
+
+    testWidgets('each arrow nudges the selection by a point', (tester) async {
       final editing = await pumpEditor(tester);
       await focusViewer(tester);
       editing.selectAnnotationAt(0, 140, 675);
       await tester.pump();
+      PdfRect rect() => editing.document.page(0).annotations.single.rect;
 
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
-      await tester.pump();
-      expect(editing.document.page(0).annotations.single.rect.top,
-          closeTo(701, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowUp);
+      expect(rect().top, closeTo(701, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowDown);
+      expect(rect().top, closeTo(700, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowRight);
+      expect(rect().left, closeTo(101, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowLeft);
+      expect(rect().left, closeTo(100, 0.01));
     });
 
-    testWidgets('Shift+arrow nudges by the coarse step', (tester) async {
+    testWidgets('each Shift+arrow nudges by the coarse step', (tester) async {
       final editing = await pumpEditor(tester);
       await focusViewer(tester);
       editing.selectAnnotationAt(0, 140, 675);
       await tester.pump();
+      PdfRect rect() => editing.document.page(0).annotations.single.rect;
 
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
-      await tester.pump();
-      expect(editing.document.page(0).annotations.single.rect.left,
-          closeTo(110, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowRight, shift: true);
+      expect(rect().left, closeTo(110, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowLeft, shift: true);
+      expect(rect().left, closeTo(100, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowUp, shift: true);
+      expect(rect().top, closeTo(710, 0.01));
+      await arrow(tester, LogicalKeyboardKey.arrowDown, shift: true);
+      expect(rect().top, closeTo(700, 0.01));
     });
 
     testWidgets('with nothing selected the arrow keys leave annotations alone',
