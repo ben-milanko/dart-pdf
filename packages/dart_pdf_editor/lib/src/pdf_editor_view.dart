@@ -237,6 +237,7 @@ class PdfEditorView extends StatefulWidget {
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
     this.toolbarBuilder,
+    this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
     this.pageColor,
@@ -414,6 +415,9 @@ class PdfEditorView extends StatefulWidget {
   /// [PdfEditorFeatures.toolbar] still gates this builder. Set that feature to
   /// false to disable all toolbar chrome regardless of this value.
   final PdfEditorToolbarBuilder? toolbarBuilder;
+
+  /// See [PdfViewer.pageLayout].
+  final PdfPageLayout pageLayout;
 
   /// See [PdfViewer.initialFit].
   final PdfViewerFit initialFit;
@@ -990,6 +994,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.markup)),
+                        pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
                         toolShortcuts: _toolShortcuts,
                         backgroundColor: widget.backgroundColor,

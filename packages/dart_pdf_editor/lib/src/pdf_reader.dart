@@ -113,6 +113,7 @@ class PdfReader extends StatefulWidget {
     this.onAnnotationTap,
     this.onLaunchUrl,
     this.pageOverlayBuilder,
+    this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
     this.pageColor,
@@ -167,6 +168,9 @@ class PdfReader extends StatefulWidget {
 
   /// See [PdfViewer.pageOverlayBuilder].
   final PdfPageOverlayBuilder? pageOverlayBuilder;
+
+  /// See [PdfViewer.pageLayout].
+  final PdfPageLayout pageLayout;
 
   /// See [PdfViewer.initialFit].
   final PdfViewerFit initialFit;
@@ -406,6 +410,7 @@ class _PdfReaderState extends State<PdfReader> {
                           onAnnotationTap: widget.onAnnotationTap,
                           onLaunchUrl: widget.onLaunchUrl,
                           pageOverlayBuilder: widget.pageOverlayBuilder,
+                          pageLayout: widget.pageLayout,
                           initialFit: widget.initialFit,
                           backgroundColor: widget.backgroundColor,
                           pageColor: pageColor,
