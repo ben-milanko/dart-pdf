@@ -26,6 +26,7 @@ import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'image_decoder.dart';
 import 'page_geometry.dart';
+import 'page_object_cache.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
 import 'pdf_page_view.dart';
@@ -929,10 +930,17 @@ class _PdfViewerState extends State<PdfViewer>
   /// layout zoom 1 this page exactly fills the viewport; narrower pages lay
   /// out proportionally narrower and centered.
   double _maxPointWidth = 0;
-  final Map<int, PdfPageText> _textCache = {};
-  final Map<int, List<PdfAnnotation>> _annotCache = {};
-  final Map<int, List<PdfAnnotation>> _visibleAnnotCache = {};
-  final Map<int, List<PdfRect>> _fieldRectCache = {};
+  // Per-page derived objects, bounded LRU so a long scroll cannot pin one
+  // entry per visited page for the life of the viewer (issue #283). They are
+  // warm only near the viewport (derived on hit-test/selection/search), so a
+  // cap well above the working set never evicts an on-screen page.
+  final PdfPageObjectCache<PdfPageText> _textCache = PdfPageObjectCache();
+  final PdfPageObjectCache<List<PdfAnnotation>> _annotCache =
+      PdfPageObjectCache();
+  final PdfPageObjectCache<List<PdfAnnotation>> _visibleAnnotCache =
+      PdfPageObjectCache();
+  final PdfPageObjectCache<List<PdfRect>> _fieldRectCache =
+      PdfPageObjectCache();
   double _viewWidth = 0;
   double _viewHeight = 0;
 
@@ -2313,10 +2321,10 @@ class _PdfViewerState extends State<PdfViewer>
     if (textCache != null && key != null && widget.editing == null) {
       final text = await textCache.get(
           key, index, () => PdfTextExtractor.extract(widget.document, index));
-      return _textCache[index] ??= text;
+      return _textCache.putIfAbsent(index, () => text);
     }
-    return _textCache[index] ??=
-        PdfTextExtractor.extract(widget.document, index);
+    return _textCache.putIfAbsent(
+        index, () => PdfTextExtractor.extract(widget.document, index));
   }
 
   Future<List<PdfSearchResult>> _searchAllPages(
@@ -2373,8 +2381,8 @@ class _PdfViewerState extends State<PdfViewer>
     );
   }
 
-  PdfPageText _pageText(int index) =>
-      _textCache[index] ??= PdfTextExtractor.extract(widget.document, index);
+  PdfPageText _pageText(int index) => _textCache.putIfAbsent(
+      index, () => PdfTextExtractor.extract(widget.document, index));
 
   /// The visible part of page [index]'s laid-out area, as fractions of
   /// the page (0–1, y-down), or null while the page is off-screen.
@@ -2551,26 +2559,28 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   /// Visible annotations with an action on a page, cached.
-  List<PdfAnnotation> _interactiveAnnots(int index) => _annotCache[index] ??= [
-        for (final a in _pages[index].annotations)
-          if (!a.isHidden && !a.isNoView && a.action != null) a,
-      ];
+  List<PdfAnnotation> _interactiveAnnots(int index) =>
+      _annotCache.putIfAbsent(index, () => [
+            for (final a in _pages[index].annotations)
+              if (!a.isHidden && !a.isNoView && a.action != null) a,
+          ]);
 
   /// All visible annotations on a page, cached for hit-testing host tap
   /// callbacks.
   List<PdfAnnotation> _visibleAnnots(int index) =>
-      _visibleAnnotCache[index] ??= [
-        for (final a in _pages[index].annotations)
-          if (!a.isHidden && !a.isNoView) a,
-      ];
+      _visibleAnnotCache.putIfAbsent(index, () => [
+            for (final a in _pages[index].annotations)
+              if (!a.isHidden && !a.isNoView) a,
+          ]);
 
   /// Visible form-field widget rects on a page, for the field highlight.
   /// Cached beside the annotation caches (same lifecycle: pages are reloaded
   /// on every document swap).
-  List<PdfRect> _formFieldRects(int index) => _fieldRectCache[index] ??= [
-        for (final a in _pages[index].annotations)
-          if (a is PdfWidgetAnnotation && !a.isHidden && !a.isNoView) a.rect,
-      ];
+  List<PdfRect> _formFieldRects(int index) =>
+      _fieldRectCache.putIfAbsent(index, () => [
+            for (final a in _pages[index].annotations)
+              if (a is PdfWidgetAnnotation && !a.isHidden && !a.isNoView) a.rect,
+          ]);
 
   ({
     int pageIndex,
