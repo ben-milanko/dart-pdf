@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
@@ -262,6 +263,14 @@ void main() {
     // more pages fit across the viewport once shrunk
     expect(controller.visiblePageRegion(0), isNotNull);
     expect(controller.visiblePageRegion(2), isNotNull);
+
+    // framing a rect from the zoomed-out layout re-fits to layout zoom 1
+    // first (with no focal point), then zooms in on the rect. Fire-and-pump
+    // (not awaited): showRect awaits endOfFrame internally, so awaiting it
+    // here would deadlock the pump loop.
+    unawaited(controller.showRect(1, const PdfRect(72, 692, 172, 742)));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+    expect(controller.zoom, greaterThanOrEqualTo(1.0));
   });
 
   testWidgets('touch cross-axis pan rubber-bands and springs back',
@@ -303,7 +312,7 @@ void main() {
     final gesture = await tester.startGesture(const Offset(400, 300),
         kind: PointerDeviceKind.touch);
     var stamp = Duration.zero;
-    for (var i = 0; i < 12; i++) {
+    for (var i = 0; i < 15; i++) {
       stamp += const Duration(milliseconds: 16);
       await gesture.moveBy(const Offset(0, 60), timeStamp: stamp);
       await tester.pump(const Duration(milliseconds: 16));
@@ -312,10 +321,19 @@ void main() {
     expect(regionMidDrag.top, lessThan(regionBefore.top),
         reason: 'the content should have shifted down');
 
+    // hold still so lift-off carries ~no velocity, then release
+    for (var i = 0; i < 6; i++) {
+      stamp += const Duration(milliseconds: 16);
+      await gesture.moveBy(Offset.zero, timeStamp: stamp);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
     await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
-    await tester.pump();
-    // the spring-back animation brings the page back to the edge
-    await tester.pumpAndSettle(const Duration(milliseconds: 500));
+    // advance the spring-back with bounded pumps (pumpAndSettle would wait on
+    // the double-tap timer)
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    // the cross-axis over-scroll relaxes back to the page edge
     final regionAfter = controller.visiblePageRegion(0)!;
     expect(regionAfter.top, moreOrLessEquals(0, epsilon: 0.02));
 
