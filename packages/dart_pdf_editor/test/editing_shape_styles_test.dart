@@ -13,8 +13,7 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('line style (dash) on the controller', () {
-    test('a non-solid line style stores a /BS /D dash array on new shapes',
-        () {
+    test('a non-solid line style stores a /BS /D dash array on new shapes', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..lineStyle = PdfLineStyle.dashed;
       addTearDown(editing.dispose);
@@ -51,6 +50,60 @@ void main() {
         expect(PdfLineStyle.ofDashArray(style.dashArray(3)), style);
       }
     });
+
+    test('the pattern scale sizes the dash array apart from the pen width', () {
+      // Same style, same pen width: a bigger scale means bigger dashes.
+      final small = PdfLineStyle.dashed.dashArray(1, scale: 1)!;
+      final big = PdfLineStyle.dashed.dashArray(1, scale: 2)!;
+      expect(big.first, greaterThan(small.first));
+      // Changing only the pen width leaves the pattern alone.
+      final thin = PdfLineStyle.dashed.dashArray(1, scale: 1.5)!;
+      final thick = PdfLineStyle.dashed.dashArray(1, scale: 1.5)!;
+      expect(thick, thin);
+    });
+
+    test('the pattern scale drives new shapes and is independent of stroke',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..lineStyle = PdfLineStyle.dashed
+        ..strokeWidth = 1
+        ..lineScale = 1;
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
+      final narrow =
+          editing.document.page(0).annotations.single.borderDash!.first;
+
+      editing
+        ..lineScale = 3
+        ..addRectangle(0, const PdfRect(100, 300, 300, 400));
+      final wide = editing.document.page(0).annotations.last.borderDash!.first;
+      expect(wide, greaterThan(narrow));
+    });
+  });
+
+  group('pattern scale on clouds', () {
+    test('a cloud drawn at a bigger scale stores it on /BE /I', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..lineScale = 2.5;
+      addTearDown(editing.dispose);
+      editing.addCloudPolygon(0, const PdfRect(100, 100, 300, 200));
+      final cloud = editing.document.page(0).annotations.single;
+      expect(cloud.hasCloudyBorder, isTrue);
+      expect(cloud.cloudBorderScale, closeTo(2.5, 1e-9));
+    });
+
+    test('restyleSelected(scale:) rescales a selected cloud', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing
+        ..addCloudPolygon(0, const PdfRect(100, 100, 300, 200))
+        ..selectAnnotation(0, 0);
+      expect(editing.selectedLineScale, closeTo(1, 1e-9));
+      expect(editing.restyleSelected(scale: 3), isTrue);
+      expect(editing.document.page(0).annotations.single.cloudBorderScale,
+          closeTo(3, 1e-9));
+      expect(editing.selectedLineScale, closeTo(3, 1e-9));
+    });
   });
 
   group('polygon fill', () {
@@ -59,8 +112,8 @@ void main() {
         ..shapeFillColor = const Color(0xFF80C0FF);
       addTearDown(editing.dispose);
       editing.addPolygon(0, const [(100, 100), (200, 180), (160, 100)]);
-      expect(editing.document.page(0).annotations.single.interiorColor,
-          0x80C0FF);
+      expect(
+          editing.document.page(0).annotations.single.interiorColor, 0x80C0FF);
     });
 
     test('canFillSelected and restyleSelected fill cover polygons', () {
@@ -70,16 +123,59 @@ void main() {
         ..addPolygon(0, const [(100, 100), (200, 180), (160, 100)])
         ..selectAnnotation(0, 0);
       expect(editing.canFillSelected, isTrue);
+      expect(editing.restyleSelected(fill: (const Color(0xFF112233),)), isTrue);
       expect(
-          editing.restyleSelected(fill: (const Color(0xFF112233),)), isTrue);
-      expect(editing.document.page(0).annotations.single.interiorColor,
-          0x112233);
+          editing.document.page(0).annotations.single.interiorColor, 0x112233);
+    });
+  });
+
+  group('cloud outline colour from the tune menu', () {
+    testWidgets('the tune menu changes a selected cloud\'s outline colour',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing
+        ..addCloudPolygon(0, const PdfRect(100, 500, 300, 640))
+        ..selectAnnotation(0, 0);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      // the cloud is a restylable /Polygon with a cloudy border
+      final before = editing.document.page(0).annotations.single;
+      expect(before.subtype, 'Polygon');
+      expect(before.hasCloudyBorder, isTrue);
+
+      // open the tune popup from the selection strip
+      await tester.scrollUntilVisible(
+          find.byTooltip('Stroke, opacity, font'), 100,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byTooltip('Stroke, opacity, font'));
+      await tester.pumpAndSettle();
+
+      // blue is palette slot 3; picking it restyles the cloud outline
+      await tester.tap(find.byKey(const ValueKey('pdf-shape-outline-3')));
+      await tester.pumpAndSettle();
+
+      final after = editing.document.page(0).annotations.single;
+      expect(after.color, 0x1E88E5);
+      // the outline row offers no "none" - a cloud always has a stroke
+      expect(find.byKey(const ValueKey('pdf-shape-outline-none')), findsNothing);
+      // and the restyle keeps the revision-cloud border
+      expect(after.hasCloudyBorder, isTrue);
     });
   });
 
   group('cross-page annotation move', () {
-    test('moveSelectedToPage re-homes the annotation onto the target page',
-        () {
+    test('moveSelectedToPage re-homes the annotation onto the target page', () {
       final editing = PdfEditingController(buildMultiPagePdf(2));
       addTearDown(editing.dispose);
       editing

@@ -163,7 +163,10 @@ extension PdfVectorSnapshotEditing on PdfEditor {
       ..restore();
     _addAnnotation(
       pageIndex,
-      _markupDict('Stamp', targetRect, 0x000000, null, author),
+      // mark the stamp so the editor can tell a pasted vector snapshot apart
+      // from an ordinary stamp - only these recolour as vectors
+      _markupDict('Stamp', targetRect, 0x000000, null, author)
+        ..[_vectorSnapshotMarker] = const CosBoolean(true),
       _form(targetRect, w,
           resources: _resources(
               extGState: gs, xObject: CosDictionary({'Cap': capRef}))),
@@ -171,7 +174,141 @@ extension PdfVectorSnapshotEditing on PdfEditor {
     );
     return capObject;
   }
+
+  /// Whether [annotation] is a vector snapshot this editor pasted - a /Stamp
+  /// carrying the [_vectorSnapshotMarker] whose appearance draws a captured
+  /// /Cap form. Only these can be recoloured in place by
+  /// [recolorVectorSnapshot].
+  bool isVectorSnapshotStamp(PdfAnnotation annotation) {
+    if (annotation.subtype != 'Stamp') return false;
+    final marker = document.cos.resolve(annotation.dict[_vectorSnapshotMarker]);
+    return marker is CosBoolean && marker.value;
+  }
+
+  /// Recolours a pasted vector snapshot to a single ink [color] (`0xRRGGBB`),
+  /// keeping it sharp vector graphics.
+  ///
+  /// Every fill/stroke colour the captured graphics set is rewritten to
+  /// [color] - the snapshot becomes a monochrome silhouette, the standard
+  /// "recolour a snapshot" behaviour - and colour-less (default-black) paths
+  /// are covered too. Embedded raster images, inline images, and shadings
+  /// keep their own colours (they are not vector fills). Nested Form XObjects
+  /// the capture draws are recoloured as well.
+  ///
+  /// The recolour is isolated to [annotation]: it gets its own recoloured
+  /// copy of the captured form, so other pastes of the same snapshot keep
+  /// their colours. Idempotent - recolouring again just retints. Returns
+  /// false when [annotation] is not a recolourable vector snapshot.
+  bool recolorVectorSnapshot(
+    int pageIndex,
+    PdfAnnotation annotation,
+    int color,
+  ) {
+    if (!isVectorSnapshotStamp(annotation)) return false;
+    final cos = document.cos;
+    final appearance = annotation.normalAppearance;
+    if (appearance == null) return false;
+    final resources = cos.resolve(appearance.dictionary['Resources']);
+    if (resources is! CosDictionary) return false;
+    final xObjects = cos.resolve(resources['XObject']);
+    if (xObjects is! CosDictionary) return false;
+    final captured = cos.resolve(xObjects['Cap']);
+    if (captured is! CosStream) return false;
+    final recolored = _recoloredForm(captured, color & 0xFFFFFF, {}, {});
+    // point THIS appearance at the recoloured copy; other pastes that share
+    // the original captured form are untouched
+    xObjects['Cap'] = _updater.addObject(recolored);
+    _updater.markChanged(appearance);
+    _markAnnotationChanged(pageIndex, annotation.dict);
+    return true;
+  }
+
+  /// A recoloured deep copy of a captured Form XObject: its content stream
+  /// with every colour operator forced to [rgb], recursing into the nested
+  /// Form XObjects it draws (copied once each through [done], guarded against
+  /// cyclic references by [visiting]).
+  CosStream _recoloredForm(
+    CosStream form,
+    int rgb,
+    Map<CosStream, CosReference> done,
+    Set<CosStream> visiting,
+  ) {
+    final cos = document.cos;
+    final recoloredContent =
+        _recolorContentBytes(cos.decodeStreamData(form), rgb);
+    final dict = CosDictionary({...form.dictionary.entries});
+    visiting.add(form);
+    final resources = cos.resolve(form.dictionary['Resources']);
+    if (resources is CosDictionary) {
+      final xObjects = cos.resolve(resources['XObject']);
+      if (xObjects is CosDictionary) {
+        CosDictionary? recoloredXObjects;
+        for (final entry in xObjects.entries.entries) {
+          final nested = cos.resolve(entry.value);
+          if (nested is! CosStream) continue;
+          final subtype = cos.resolve(nested.dictionary['Subtype']);
+          if (subtype is! CosName || subtype.value != 'Form') continue;
+          if (visiting.contains(nested)) continue; // guard cyclic forms
+          final ref = done[nested] ??=
+              _updater.addObject(_recoloredForm(nested, rgb, done, visiting));
+          (recoloredXObjects ??= CosDictionary({...xObjects.entries}))[
+              entry.key] = ref;
+        }
+        if (recoloredXObjects != null) {
+          dict['Resources'] = CosDictionary({...resources.entries})
+            ..['XObject'] = recoloredXObjects;
+        }
+      }
+    }
+    visiting.remove(form);
+    // the copy carries decoded (plaintext) content
+    dict.entries
+      ..remove('Filter')
+      ..remove('DecodeParms')
+      ..remove('DP');
+    dict['Length'] = CosInteger(recoloredContent.length);
+    return CosStream(dict, recoloredContent);
+  }
+
+  /// [content] with every fill/stroke colour operator rewritten to [rgb], so
+  /// the graphics paint in a single ink. An initial colour is forced up front
+  /// so paths that rely on the default black recolour too; colour-space
+  /// selectors (`cs`/`CS`) are dropped since every colour is DeviceRGB now.
+  /// Images, inline images, and shadings are left untouched.
+  Uint8List _recolorContentBytes(Uint8List content, int rgb) {
+    CosObject component(int value) => value <= 0
+        ? CosInteger(0)
+        : value >= 255
+            ? CosInteger(1)
+            : CosReal(value / 255);
+    final operands = [
+      component((rgb >> 16) & 0xFF),
+      component((rgb >> 8) & 0xFF),
+      component(rgb & 0xFF),
+    ];
+    ContentOperation fill() => ContentOperation('rg', operands);
+    ContentOperation stroke() => ContentOperation('RG', operands);
+    final out = <ContentOperation>[fill(), stroke()];
+    for (final op in ContentStreamParser.parse(content)) {
+      switch (op.operator) {
+        case 'g' || 'rg' || 'k' || 'sc' || 'scn':
+          out.add(fill());
+        case 'G' || 'RG' || 'K' || 'SC' || 'SCN':
+          out.add(stroke());
+        case 'cs' || 'CS':
+          break; // drop: colour space is moot once every colour is DeviceRGB
+        default:
+          out.add(op);
+      }
+    }
+    return ContentStreamSerializer.serialize(out);
+  }
 }
+
+/// The annotation-dictionary key [PdfVectorSnapshotEditing.pasteVectorSnapshot]
+/// stamps onto its /Stamp so a pasted vector snapshot is distinguishable from
+/// an ordinary stamp (see [PdfVectorSnapshotEditing.isVectorSnapshotStamp]).
+const _vectorSnapshotMarker = 'DartPdfVectorSnapshot';
 
 /// Formats a matrix component for a content stream - integers without a
 /// trailing `.0`.

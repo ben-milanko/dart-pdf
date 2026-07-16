@@ -70,6 +70,47 @@ void main() {
     }
   });
 
+  testWidgets('Ctrl+S saves a brand-new untitled document before any edit',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      var saveAsCalls = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          saveDocumentAs: (context, bytes, suggestedName) async {
+            saveAsCalls++;
+            expect(suggestedName, 'Untitled.pdf');
+            return SaveResult.cancelled;
+          },
+        ),
+      ));
+      await tester.pump();
+
+      // Create a new, unedited document from the app menu.
+      await tester.tap(find.byTooltip('DartPDF menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('menu-new-document')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('new-document-create')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Plain Ctrl+S with no edits yet must still reach the Save flow: a
+      // never-saved document has no on-disk origin to overwrite.
+      await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(saveAsCalls, 1);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('Save As continues the current tab at the new path',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
