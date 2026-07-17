@@ -91,8 +91,17 @@ shared CA and validate via `PdfTrustStore.trusting([caDer])`. Flutter key
 storage + the "Create signing identity" UI are in dart_pdf_editor
 (`PdfIdentityStore`/`InMemoryIdentityStore`/`SecureIdentityStore` on
 flutter_secure_storage; `CreateSigningIdentityForm` /
-`showCreateSigningIdentityDialog`). Fulcio keyless (Tier 3) + Actalis
-import docs (Tier 4) remain the #322 follow-ups.
+`showCreateSigningIdentityDialog`). Sigstore/Fulcio keyless (Tier 3) is in
+`fulcio.dart` (pdf_document): `fulcioSigningIdentity({oidcToken, transport})`
+mints an ephemeral P-256 key, proves possession (`fulcioProofOfPossession` =
+ECDSA over `sha256(subject)`), POSTs the Fulcio v2 `signingCert` request
+(`buildFulcioSigningRequest` + `parseFulcioCertificateChain`, transport
+injected like the TSA - `PdfFulcioTransport`/`PdfFulcioAuthority`) and wraps
+the short-lived chain in a `PdfSigningIdentity` to sign B-T. `pdf_cos` gained
+`ecSubjectPublicKeyInfo` + `pemEncode`; in-process fake Fulcio in
+`pdf_test_fixtures` (`test_fulcio.dart`, verifies the proof, issues from a test
+CA). The tiers (self-signed, org CA, timestamps, keyless, Actalis import) are
+written up in `doc/signing-identities.md`. #322 is complete.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and

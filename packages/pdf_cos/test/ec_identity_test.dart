@@ -180,6 +180,19 @@ void main() {
       expect(parsed.x, key.publicKey.x);
       expect(parsed.y, key.publicKey.y);
     });
+
+    test('ecSubjectPublicKeyInfo encodes a parseable SPKI', () {
+      final spki = ecSubjectPublicKeyInfo(key.publicKey);
+      // A cert built for the same key carries a byte-identical SPKI.
+      final cert = X509Certificate.parse(build());
+      expect(cert.subjectPublicKeyInfoDer, spki);
+      // and the SPKI parses back to the same point.
+      final seq = DerObject.parse(spki).children;
+      final parsed = EcPublicKey.fromPoint(
+          EcCurve.byOid(seq[0].children[1].asOid)!, seq[1].asBitString);
+      expect(parsed.x, key.publicKey.x);
+      expect(parsed.y, key.publicKey.y);
+    });
   });
 
   group('org CA: issued certificates chain to the CA', () {
