@@ -27,7 +27,7 @@ void main() {
       {required String shape, bool dashed = false}) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
       ..color = const Color(0xFFFF0000)
-      ..strokeWidth = 4
+      ..preferences.strokeWidth = 4
       ..dashedStroke = dashed;
     if (shape == 'Circle') {
       editing.addEllipse(0, const PdfRect(100, 550, 300, 650));

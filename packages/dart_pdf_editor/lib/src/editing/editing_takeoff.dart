@@ -32,7 +32,7 @@ class PdfTakeoffPanel extends StatelessWidget {
         final groups = summary.groups;
         // format running totals through the active scale so they match the
         // on-page captions (200 ft² not 200.00 ft²).
-        final measure = controller.measurementScale?.toMeasure();
+        final measure = controller.preferences.measurementScale?.toMeasure();
         final theme = Theme.of(context);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

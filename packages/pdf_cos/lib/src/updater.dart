@@ -4,6 +4,7 @@ import 'document.dart';
 import 'objects.dart';
 import 'serializer.dart';
 import 'xref.dart';
+import 'xref_writer.dart';
 
 /// Writes changes to a document as an incremental update: the original bytes
 /// are preserved verbatim and changed objects plus a new cross-reference
@@ -99,12 +100,15 @@ class CosIncrementalUpdater {
     // a file whose newest xref is a stream must be updated with a stream;
     // a classic-table file is updated with a classic table (§7.5.8.4)
     final xrefOffset = out.length - shift;
+    final tail = CosXrefTableWriter(out);
     if (document.trailer.typeName == 'XRef') {
       _writeXrefStream(serializer, offsets, xrefOffset);
     } else {
-      _writeXrefTable(out, offsets);
+      tail
+        ..writeTable(offsets, _generationOf)
+        ..writeTrailer(_buildTrailer());
     }
-    _writeText(out, 'startxref\n$xrefOffset\n%%EOF\n');
+    tail.writeEpilogue(xrefOffset);
     return out.takeBytes();
   }
 
@@ -127,34 +131,6 @@ class CosIncrementalUpdater {
     return trailer;
   }
 
-  /// Groups sorted object numbers into runs of consecutive numbers.
-  static List<List<int>> _runsOf(List<int> sorted) {
-    final runs = <List<int>>[];
-    for (final number in sorted) {
-      if (runs.isEmpty || runs.last.last != number - 1) {
-        runs.add([number]);
-      } else {
-        runs.last.add(number);
-      }
-    }
-    return runs;
-  }
-
-  void _writeXrefTable(BytesBuilder out, Map<int, int> offsets) {
-    _writeText(out, 'xref\n');
-    for (final run in _runsOf(offsets.keys.toList()..sort())) {
-      _writeText(out, '${run.first} ${run.length}\n');
-      for (final number in run) {
-        final offset = offsets[number]!.toString().padLeft(10, '0');
-        final generation = _generationOf(number).toString().padLeft(5, '0');
-        _writeText(out, '$offset $generation n \n');
-      }
-    }
-    _writeText(out, 'trailer\n');
-    CosSerializer(out).writeObject(_buildTrailer());
-    _writeText(out, '\n');
-  }
-
   void _writeXrefStream(
       CosSerializer serializer, Map<int, int> offsets, int xrefOffset) {
     // the cross-reference stream is itself an object and lists itself
@@ -162,7 +138,7 @@ class CosIncrementalUpdater {
     offsets[streamNumber] = xrefOffset;
 
     final sorted = offsets.keys.toList()..sort();
-    final runs = _runsOf(sorted);
+    final runs = CosXrefTableWriter.runsOf(sorted);
     final data = BytesBuilder();
     for (final number in sorted) {
       final offset = offsets[number]!;
@@ -192,7 +168,4 @@ class CosIncrementalUpdater {
     serializer.writeIndirectObject(
         CosIndirectObject(streamNumber, 0, CosStream(dict, payload)));
   }
-
-  static void _writeText(BytesBuilder out, String text) =>
-      out.add(text.codeUnits);
 }

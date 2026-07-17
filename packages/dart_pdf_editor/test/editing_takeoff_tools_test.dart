@@ -14,7 +14,7 @@ void main() {
   Future<PdfEditingController> pumpEditor(WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..measurementScale = PdfMeasurementScale(
+      ..preferences.measurementScale = PdfMeasurementScale(
           unitsPerPoint: 20 / 72, unitLabel: 'ft', precision: 1);
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
@@ -86,7 +86,7 @@ void main() {
   testWidgets('arc tool measures the swept length after three clicks',
       (tester) async {
     final editing = await pumpEditor(tester);
-    editing.measurementScale = PdfMeasurementScale(
+    editing.preferences.measurementScale = PdfMeasurementScale(
         unitsPerPoint: 1 / 72, unitLabel: 'ft', precision: 100);
     editing.tool = PdfEditTool.measureArc;
     await tester.pump();

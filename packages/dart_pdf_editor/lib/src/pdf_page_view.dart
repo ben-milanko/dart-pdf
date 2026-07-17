@@ -22,6 +22,8 @@ import 'render_worker.dart';
 import 'renderer.dart';
 import 'retained_scene.dart';
 import 'strips/strip_device.dart';
+import 'tile_layer.dart';
+import 'tile_store.dart';
 
 /// Displays a single PDF page, rendered natively in Dart.
 ///
@@ -299,6 +301,24 @@ class PdfPageView extends StatefulWidget {
   /// thread turns the returned detail commands into the sharp on-screen patch.
   static bool deferFullRenderUntilDetailPaint = true;
 
+  /// Opt-in: composite deep-zoom detail from the [PdfTileStore] zoom-bucket
+  /// pyramid instead of the single unbudgeted detail patch. When true (and the
+  /// page retains a region-cullable scene), the visible slice is tiled: panning
+  /// at deep zoom draws cached tiles with zero re-raster and a settle only
+  /// rasterizes the missing tiles, all under one shared byte budget that evicts
+  /// by least-recently used and drops under memory pressure.
+  ///
+  /// Additive to the existing pipeline: the tile layer sits ABOVE the base
+  /// raster, so a gap not yet tiled shows the (capped) base image through it,
+  /// and pages the region index cannot cull (soft-mask/group spans) keep the
+  /// legacy single-patch path. Default false while the pyramid is measured
+  /// against the shipping detail patch (issue #314).
+  static bool tileStoreDetail = false;
+
+  /// Test seam: the store the tile layer draws from. Null uses the shared
+  /// [PdfTileStore.instance].
+  static PdfTileStore? debugTileStoreOverride;
+
   /// Test hook for [webSlugGlyphLayer]. Null uses [kIsWeb].
   static bool? debugWebSlugGlyphLayerBackendOverride;
 
@@ -369,6 +389,14 @@ class _PdfPageViewState extends State<PdfPageView> {
   ui.Image? _detailImage;
   Rect? _detailFraction; // patch placement as fractions of the page
   Future<bool>? _progressiveDetailFuture;
+
+  /// Visible slice (fraction of the page) and desired ratio for the
+  /// [PdfPageView.tileStoreDetail] tile layer, recomputed on each settle in
+  /// [_refreshTileGeometry] - post-render, never during layout - so `build`
+  /// reads a stored value instead of probing the render tree. Null when the
+  /// tile path is inactive.
+  Rect? _tileFraction;
+  double? _tileDesiredRatio;
 
   /// Clone of this page's cached low-res preview; painted while no full
   /// raster exists, dropped (to free the buffer) the moment one lands.
@@ -670,7 +698,18 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// page's command list on every pan.
   bool _sceneHasImageDraws = false;
 
+  /// Drops this page's retained tiles when its content is replaced (edit,
+  /// redaction, display change), the tile analogue of [_dropDetail]. Content
+  /// stamps already key stale tiles out; this frees them eagerly and discards
+  /// any in-flight raster from the superseded scene (issue #308's model).
+  void _invalidateTiles() {
+    if (!PdfPageView.tileStoreDetail) return;
+    (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
+        .invalidate(pages: {widget.previewIndex});
+  }
+
   void _dropDetail() {
+    _invalidateTiles();
     _renderSession.invalidateDetail();
     if (_detailImage != null) {
       _detailImage?.dispose();
@@ -1411,6 +1450,13 @@ class _PdfPageViewState extends State<PdfPageView> {
     final generation = _renderSession.beginDetail();
     if (_renderPaused) return false;
 
+    // The tile pyramid supplies deep-zoom detail instead of the single patch:
+    // just refresh the visible slice and let the tile layer schedule/composite.
+    if (_useTilePath) {
+      _refreshTileGeometry();
+      return true;
+    }
+
     // A Slug page picture is already transform-sharp for text and vector
     // content. Image-free pages therefore gain nothing from a deep-zoom
     // raster patch: it only re-records the whole page in the worker, performs
@@ -1750,6 +1796,69 @@ class _PdfPageViewState extends State<PdfPageView> {
       _maxDimension / math.max(region.width, region.height),
     );
     return _DetailGeometry(fraction, region, ratio);
+  }
+
+  /// Whether the [PdfPageView.tileStoreDetail] tile path drives deep-zoom
+  /// detail for this page: the flag is on and the retained scene is
+  /// region-cullable (soft-mask/group spans and the vector-first progressive
+  /// scene keep the legacy single-patch path).
+  bool get _useTilePath {
+    if (!PdfPageView.tileStoreDetail) return false;
+    final scene = PdfPageView.retainedZoomReplay ? _scene : null;
+    return scene != null && !_sceneIsVectorOnly && scene.supportsRegionRaster;
+  }
+
+  /// Recomputes the tile layer's visible slice + desired ratio on a settle.
+  /// Runs post-render (never during layout), so reading the render tree in
+  /// [_detailGeometryAt] is safe; `build` reads the stored fields.
+  void _refreshTileGeometry() {
+    if (!mounted) return;
+    Rect? fraction;
+    double? desired;
+    if (_useTilePath) {
+      // _detailGeometryAt returns null when the base raster is already sharp
+      // enough (desired <= effective) - exactly when tiles add nothing.
+      fraction = _detailGeometryAt(widget.scale)?.fraction;
+      if (fraction != null) desired = _desiredRatioAt(widget.scale);
+    }
+    if (fraction != _tileFraction || desired != _tileDesiredRatio) {
+      setState(() {
+        _tileFraction = fraction;
+        _tileDesiredRatio = desired;
+      });
+    }
+  }
+
+  /// The [PdfTileStore] deep-zoom composite for this page, or null when the
+  /// tile path is inactive or the page is not zoomed past the base raster.
+  ///
+  /// [size] is the page-point size (the tile grid space). Placed above the base
+  /// raster so uncovered gaps show it through; it replaces the single detail
+  /// patch when active.
+  Widget? _tileLayerWidget(Size size) {
+    if (!_useTilePath) return null;
+    final scene = _scene;
+    final fraction = _tileFraction;
+    final desired = _tileDesiredRatio;
+    if (scene == null || fraction == null || desired == null) return null;
+    final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    return Positioned.fill(
+      child: PdfTileLayer(
+        store: store,
+        identity: PdfTilePageIdentity(
+          pageIndex: widget.previewIndex,
+          pageEpoch: widget.pageEpoch,
+          contentStamp: widget.contentStamp,
+          destructiveStamp: widget.destructiveStamp,
+          plan: _renderPlan,
+        ),
+        pageSize: size,
+        desiredRatio: desired,
+        visibleFraction: fraction,
+        rasterize: (region, ratio) =>
+            scene.rasterizeRegion(region, pixelRatio: ratio),
+      ),
+    );
   }
 
   /// Whether worker strip binning may be asked for at all - shared by
@@ -2120,6 +2229,7 @@ class _PdfPageViewState extends State<PdfPageView> {
               final detail = _detailImage;
               final fraction = _detailFraction;
               final slugPicture = _slugPicture;
+              final tileLayer = _tileLayerWidget(size);
               return Stack(
                 alignment: Alignment.topLeft,
                 fit: StackFit.expand,
@@ -2153,7 +2263,9 @@ class _PdfPageViewState extends State<PdfPageView> {
                       fit: BoxFit.contain,
                       filterQuality: FilterQuality.medium,
                     ),
-                  if (detail != null && fraction != null && w.isFinite)
+                  if (tileLayer != null)
+                    tileLayer
+                  else if (detail != null && fraction != null && w.isFinite)
                     Positioned(
                       left: fraction.left * w,
                       top: fraction.top * h,

@@ -181,23 +181,21 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 // Just the viewer
 PdfViewer(document: PdfDocument.open(bytes));
 
-// Your own editor layout
+// Your own editor layout. The controller owns the document revisions, and
+// the viewer reads the current one from it and follows its edits itself -
+// no need to pass `document` or rebuild the viewer as revisions land.
 final editing = PdfEditingController(bytes);
 final viewer = PdfViewerController();
 
-ListenableBuilder(
-  listenable: editing,
-  builder: (context, _) => Column(children: [
-    Expanded(
-      child: PdfViewer(
-        document: editing.document, // rebuild with each revision
-        controller: viewer,
-        editing: editing,
-      ),
+Column(children: [
+  Expanded(
+    child: PdfViewer(
+      controller: viewer,
+      editing: editing,
     ),
-    PdfEditingToolbar(controller: editing, viewerController: viewer),
-  ]),
-);
+  ),
+  PdfEditingToolbar(controller: editing, viewerController: viewer),
+]);
 
 // Saving
 final Uint8List saved = editing.bytes;
