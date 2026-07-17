@@ -401,12 +401,17 @@ abstract class PdfRenderWorker {
 /// the same pair reuse its worker; [cancel] routes through that lease table so
 /// it still reaches the worker holding the queued request.
 ///
-/// Each worker opens its own copy of the document. The bytes are copied per
-/// worker ([Uint8List.fromList]) because a platform worker may transfer (and so
-/// detach) the buffer it is handed - sharing one buffer would leave later
-/// workers with an empty document. The cost is N copies of the bytes plus N
-/// decode working sets; size the pool to the platform via
-/// [pdfRenderWorkerPoolSize].
+/// Each worker opens its own copy of the document, but the pool does NOT hand
+/// each one a private snapshot: it makes ONE read-only copy of the source bytes
+/// and seeds every worker (and the lazy urgent one-off lane) from that single
+/// instance. Both platform backends copy the buffer internally before handing
+/// it to their isolate/worker - native `TransferableTypedData.fromList` copies into
+/// external memory, web copies into a `SharedArrayBuffer` or a transferred
+/// `ArrayBuffer` - and neither detaches the view it was given, so one shared
+/// snapshot is safe. That drops the pool's own source-byte footprint from N+1
+/// copies (a private per-worker copy plus the urgent copy) to exactly one; each
+/// worker's materialized copy inside its own isolate is unavoidable and
+/// unchanged. Size the pool to the platform via [pdfRenderWorkerPoolSize].
 ///
 /// Normally wrapped in a [PdfCachingRenderWorker] (see [PdfRenderWorker.start]),
 /// which dedups concurrent requests for one page - so the cache, not the pool,
@@ -417,13 +422,41 @@ abstract class PdfRenderWorker {
 /// jump should not wait behind several already-started background records that
 /// cannot receive cancellation until their synchronous parse step yields.
 class PdfPooledRenderWorker extends PdfRenderWorker {
-  /// Starts [size] platform workers over copies of [bytes]. [size] is clamped to
-  /// at least 1; a pool of 1 is just a single worker with this routing wrapper.
-  PdfPooledRenderWorker(Uint8List bytes, int size)
-      : _urgentBytes = Uint8List.fromList(bytes),
+  /// Starts [size] platform workers, all seeded from ONE read-only snapshot of
+  /// [bytes] (see the class doc - the backends copy internally, so the pool
+  /// keeps just this single source-byte copy instead of one per worker). [size]
+  /// is clamped to at least 1; a pool of 1 is just a single worker with this
+  /// routing wrapper.
+  factory PdfPooledRenderWorker(Uint8List bytes, int size) =>
+      PdfPooledRenderWorker._shared(
+        Uint8List.fromList(bytes),
+        size,
+        startRenderWorker,
+      );
+
+  /// Test seam: a pool that spawns its workers through [spawn] instead of the
+  /// platform [startRenderWorker], so the byte-sharing contract - every worker
+  /// (and the urgent lane) seeded from the SAME snapshot instance, no private
+  /// per-worker copy - can be asserted with fakes that capture the bytes they
+  /// are handed.
+  factory PdfPooledRenderWorker.withSpawner(
+    Uint8List bytes,
+    int size,
+    PdfRenderWorker Function(Uint8List) spawn,
+  ) =>
+      PdfPooledRenderWorker._shared(Uint8List.fromList(bytes), size, spawn);
+
+  /// Seeds every worker and the urgent lane from the already-owned [shared]
+  /// snapshot (the factories above copy the caller's bytes once into it).
+  PdfPooledRenderWorker._shared(
+    Uint8List shared,
+    int size,
+    PdfRenderWorker Function(Uint8List) spawn,
+  )   : _spawnWorker = spawn,
+        _urgentBytes = shared,
         _workers = List.generate(
           size < 1 ? 1 : size,
-          (_) => startRenderWorker(Uint8List.fromList(bytes)),
+          (_) => spawn(shared),
           growable: false,
         ) {
     _loads = List.filled(_workers.length, 0);
@@ -433,6 +466,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   /// teardown can be exercised with fakes instead of real platform workers.
   PdfPooledRenderWorker.fromWorkers(List<PdfRenderWorker> workers)
       : assert(workers.isNotEmpty),
+        _spawnWorker = startRenderWorker,
         _urgentBytes = null,
         _workers = List.of(workers, growable: false) {
     _loads = List.filled(_workers.length, 0);
@@ -440,9 +474,15 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   static const int _urgentPriority = -2000;
 
-  // The bytes a lazily-created one-off urgent worker opens. Kept at the current
-  // revision by [updateRevision] so a long-jump preview after an edit opens the
-  // edited document, not the stale spawn snapshot. Null in the test seam.
+  // Spawns one platform worker over a byte view. The real [startRenderWorker]
+  // in production; a fake in [PdfPooledRenderWorker.withSpawner] tests. Used for
+  // the lazy urgent lane too, so it also shares the pool's one snapshot.
+  final PdfRenderWorker Function(Uint8List) _spawnWorker;
+
+  // The bytes a lazily-created one-off urgent worker opens - the same snapshot
+  // instance the pool workers were seeded from. Kept at the current revision by
+  // [updateRevision] so a long-jump preview after an edit opens the edited
+  // document, not the stale spawn snapshot. Null in the test seam.
   Uint8List? _urgentBytes;
   final List<PdfRenderWorker> _workers;
   late final List<int> _loads;
@@ -696,7 +736,10 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     }
     final bytes = _urgentBytes;
     if (!start || bytes == null) return null;
-    return _urgentWorker = startRenderWorker(Uint8List.fromList(bytes));
+    // No defensive copy: the backend copies internally, and _urgentBytes is only
+    // ever replaced (never mutated in place), so the urgent worker can share the
+    // pool's snapshot like the ordinary workers do.
+    return _urgentWorker = _spawnWorker(bytes);
   }
 }
 
