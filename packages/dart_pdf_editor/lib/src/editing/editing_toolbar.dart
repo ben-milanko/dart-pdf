@@ -27,6 +27,7 @@ import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
+import 'editing_tool_behavior.dart';
 import 'text_prompt.dart';
 import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
@@ -538,7 +539,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final scale = await showPdfScaleDialog(
       context,
-      initial: controller.measurementScale,
+      initial: controller.preferences.measurementScale,
       onCalibrate: () {
         controller.tool = PdfEditTool.calibrate;
         messenger?.showSnackBar(const SnackBar(
@@ -546,7 +547,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ));
       },
     );
-    if (scale != null) controller.measurementScale = scale;
+    if (scale != null) controller.preferences.measurementScale = scale;
   }
 
   Future<void> _armMeasureTool(BuildContext context, PdfEditTool tool) async {
@@ -566,7 +567,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       controller.tool = PdfEditTool.select;
       return;
     }
-    if (controller.signature == null && !await _drawSignature(context)) {
+    if (controller.preferences.signature == null && !await _drawSignature(context)) {
       return;
     }
     _toggleTool(PdfEditTool.signature);
@@ -575,7 +576,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Future<bool> _drawSignature(BuildContext context) async {
     final signature = await showPdfSignatureDialog(context);
     if (signature == null) return false;
-    controller.signature = signature;
+    controller.preferences.signature = signature;
     // the signature follows the selected colour, so seed it with the ink
     // the user just drew in - they can recolour it from the toolbar after
     controller.color = Color(0xFF000000 | signature.color);
@@ -1453,12 +1454,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           controller.hasTouchInput)
         IconButton(
           icon: const Icon(Icons.touch_app),
-          tooltip: controller.fingerDrawsInk
+          tooltip: controller.preferences.fingerDrawsInk
               ? 'Finger draws - tap so it scrolls instead'
               : 'Finger scrolls (pen draws) - tap so it draws',
-          isSelected: controller.fingerDrawsInk,
+          isSelected: controller.preferences.fingerDrawsInk,
           onPressed: () =>
-              controller.fingerDrawsInk = !controller.fingerDrawsInk,
+              controller.preferences.fingerDrawsInk = !controller.preferences.fingerDrawsInk,
         ),
       if (controller.hasPendingInk && !controller.inkAutoCommits) ...[
         IconButton(
@@ -1827,10 +1828,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final restyling = controller.canRestyleSelected;
     final current = restyling
         ? (controller.selectedAnnotationStyle?.strokeWidth ??
-            controller.strokeWidth)
-        : controller.strokeWidth;
+            controller.preferences.strokeWidth)
+        : controller.preferences.strokeWidth;
     void set(double w) {
-      controller.strokeWidth = w;
+      controller.preferences.strokeWidth = w;
       if (restyling) controller.restyleSelected(strokeWidth: w);
     }
 
@@ -1875,7 +1876,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final restyling = controller.canRestyleSelected;
     final value = _dragOpacity ??
         (restyling ? controller.selectedAnnotationStyle?.opacity : null) ??
-        controller.opacity;
+        controller.preferences.opacity;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       const Padding(
         padding: EdgeInsets.only(right: 2),
@@ -1894,10 +1895,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             max: 1,
             onChanged: (v) {
               setState(() => _dragOpacity = v);
-              if (!restyling) controller.opacity = v;
+              if (!restyling) controller.preferences.opacity = v;
             },
             onChangeEnd: (v) {
-              controller.opacity = v;
+              controller.preferences.opacity = v;
               if (restyling) controller.restyleSelected(opacity: v);
               setState(() => _dragOpacity = null);
             },
@@ -1915,7 +1916,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         display: (v) => '${(v * 100).round()}%',
         parse: _parsePercent,
         onSubmit: (v) {
-          controller.opacity = v;
+          controller.preferences.opacity = v;
           if (restyling) controller.restyleSelected(opacity: v);
           setState(() => _dragOpacity = null);
         },
@@ -1929,7 +1930,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return _SettingChip(
       key: const ValueKey('pdf-measure-scale'),
       leading: 'Scale',
-      value: controller.measurementScale?.ratioLabel ?? 'Set…',
+      value: controller.preferences.measurementScale?.ratioLabel ?? 'Set…',
       onTap: () => _setScale(context),
     );
   }
@@ -1981,42 +1982,32 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// font picker, ink never offers line endings, and so on.
   _StyleFields _groupStyleFields(_ToolGroup group) {
     final tool = controller.tool;
+    // An armed tool owns exactly which controls it exposes - the per-tool
+    // capability booleans that used to live here now live in the tool's
+    // [PdfEditToolBehavior].
+    if (tool != null && _groupForTool(tool)?.id == group.id) {
+      return PdfEditToolBehavior.of(tool).styleFields;
+    }
+    // No in-group armed tool: the strip is open on its own (Select or Markup,
+    // a Draw strip over a selection, or a group opened before its default
+    // tool armed). Fall back to the group's resting controls.
     switch (group.id) {
       case 'draw':
-        if (tool == null && viewerController.hasSelection) {
-          return const _StyleFields(opacity: true);
-        }
-        if (tool == PdfEditTool.eraser) return const _StyleFields(eraser: true);
-        return const _StyleFields(stroke: true, opacity: true);
+        return viewerController.hasSelection
+            ? const _StyleFields(opacity: true)
+            : const _StyleFields(stroke: true, opacity: true);
       case 'shapes':
-        return _StyleFields(
+        return const _StyleFields(
           stroke: true,
           strokeColor: true,
           opacity: true,
           lineType: true,
           lineScale: true,
-          lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
-          shapeFill: tool == PdfEditTool.rectangle ||
-              tool == PdfEditTool.ellipse ||
-              tool == PdfEditTool.polygon ||
-              tool == PdfEditTool.cloudPolygon,
-          cornerRadius: tool == PdfEditTool.rectangle,
         );
       case 'insert':
         return const _StyleFields(opacity: true, font: true, boxColors: true);
       case 'measure':
-        return _StyleFields(
-          stroke: true,
-          opacity: true,
-          font: true,
-          // open measurements (distance/slope lines, perimeter/angle/arc
-          // polylines) carry endings; closed area/volume polygons don't
-          lineEndings: tool == PdfEditTool.measureDistance ||
-              tool == PdfEditTool.measureSlope ||
-              tool == PdfEditTool.measurePerimeter ||
-              tool == PdfEditTool.measureAngle ||
-              tool == PdfEditTool.measureArc,
-        );
+        return const _StyleFields(stroke: true, opacity: true, font: true);
       case 'markup':
         return const _StyleFields(opacity: true);
       default:
@@ -3153,72 +3144,10 @@ double? _parsePercent(String s) {
   return n == null ? null : n / 100;
 }
 
-class _StyleFields {
-  const _StyleFields({
-    this.stroke = false,
-    this.strokeColor = false,
-    this.opacity = false,
-    this.lineType = false,
-    this.lineScale = false,
-    this.lineEndings = false,
-    this.font = false,
-    this.boxColors = false,
-    this.shapeFill = false,
-    this.cornerRadius = false,
-    this.eraser = false,
-    this.formField = false,
-  });
-
-  final bool stroke;
-
-  /// The stroke/outline colour row - shapes (including revision clouds) and
-  /// the line family. Distinct from [shapeFill], the interior fill.
-  final bool strokeColor;
-
-  final bool opacity;
-
-  /// The rectangle corner-radius slider (rectangle shape only).
-  final bool cornerRadius;
-
-  /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
-  /// and the line family.
-  final bool lineType;
-
-  /// The pattern-scale slider - sizes dash patterns and cloudy scallops
-  /// apart from the pen width. Shown alongside [lineType].
-  final bool lineScale;
-  final bool lineEndings;
-
-  /// Font size + family (free text).
-  final bool font;
-
-  /// The text-box fill + border colour rows (free text).
-  final bool boxColors;
-
-  /// The shape interior-fill colour row (rectangle / ellipse).
-  final bool shapeFill;
-
-  /// Eraser radius - replaces every other control while the eraser is armed.
-  final bool eraser;
-
-  /// The form text field style block (font, alignment, auto-size, size,
-  /// multiline, colour) - a single text-field widget is selected.
-  final bool formField;
-
-  bool get isEmpty =>
-      !stroke &&
-      !strokeColor &&
-      !opacity &&
-      !lineType &&
-      !lineScale &&
-      !lineEndings &&
-      !font &&
-      !boxColors &&
-      !shapeFill &&
-      !cornerRadius &&
-      !eraser &&
-      !formField;
-}
+/// The tune popup's control set. The tool-armed case is owned by
+/// [PdfEditToolBehavior.styleFields]; the toolbar still builds one directly
+/// from a selected annotation's subtype (see [_selectionStyleFields]).
+typedef _StyleFields = PdfToolStyleFields;
 
 /// The style popup: sliders for stroke width, opacity, and font size,
 /// the font family for free text, and the text box's fill and border
@@ -3314,7 +3243,7 @@ class _StyleMenuState extends State<_StyleMenu> {
       color == null ? null : color.toARGB32() & 0xFFFFFF;
 
   void _setTextFill(Color? color) {
-    controller.textFillColor = color; // the new default either way
+    controller.preferences.textFillColor = color; // the new default either way
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(fill: (_rgb(color),));
     }
@@ -3330,7 +3259,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   }
 
   void _setShapeFill(Color? color) {
-    controller.shapeFillColor = color; // the new default either way
+    controller.preferences.shapeFillColor = color; // the new default either way
     if (controller.canFillSelected) {
       controller.restyleSelected(fill: (color,));
     }
@@ -3347,13 +3276,13 @@ class _StyleMenuState extends State<_StyleMenu> {
   }
 
   void _setTextBorder(Color? color) {
-    controller.textBorderColor = color;
+    controller.preferences.textBorderColor = color;
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(
           border: (_rgb(color),),
           // setting a border gives it the current stroke width; clearing
           // one leaves the width field alone
-          borderWidth: color == null ? null : controller.strokeWidth);
+          borderWidth: color == null ? null : controller.preferences.strokeWidth);
     }
   }
 
@@ -3472,10 +3401,10 @@ class _StyleMenuState extends State<_StyleMenu> {
                 restylingAnnotation ? controller.selectedAnnotationStyle : null;
             final strokeValue = _draggingStroke ??
                 annotationStyle?.strokeWidth ??
-                controller.strokeWidth;
+                controller.preferences.strokeWidth;
             final opacityValue = _draggingOpacity ??
                 annotationStyle?.opacity ??
-                controller.opacity;
+                controller.preferences.opacity;
             // with a free text selected the rows show its own box style;
             // otherwise the creation defaults
             // line endings: edit a selected /Line or /PolyLine in place,
@@ -3483,7 +3412,7 @@ class _StyleMenuState extends State<_StyleMenu> {
             final lineEndingTarget = controller.canSetLineEndings;
             final lineEndings = lineEndingTarget
                 ? controller.selectedLineEndings!
-                : (controller.lineStartEnding, controller.lineEndEnding);
+                : (controller.preferences.lineStartEnding, controller.preferences.lineEndEnding);
             final restyling = controller.canRestyleSelectedText;
             final boxStyle =
                 restyling ? controller.selectedAnnotation?.freeTextStyle : null;
@@ -3497,18 +3426,18 @@ class _StyleMenuState extends State<_StyleMenu> {
                 ? (boxStyle?.fillColor != null
                     ? Color(0xFF000000 | boxStyle!.fillColor!)
                     : null)
-                : controller.textFillColor;
+                : controller.preferences.textFillColor;
             final borderValue = restyling
                 ? (boxStyle?.borderColor != null &&
                         (boxStyle?.borderWidth ?? 0) > 0
                     ? Color(0xFF000000 | boxStyle!.borderColor!)
                     : null)
-                : controller.textBorderColor;
+                : controller.preferences.textBorderColor;
             // shape interior fill: a selected shape shows its own /IC,
             // else the creation default
             final shapeFillValue = controller.canFillSelected
                 ? controller.selectedShapeFill
-                : controller.shapeFillColor;
+                : controller.preferences.shapeFillColor;
             // shape/cloud/line outline: a selected shape shows its own /C,
             // else the creation default
             final strokeColorValue = restylingAnnotation
@@ -3530,7 +3459,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                     _slider(
                       key: const ValueKey('pdf-eraser-size'),
                       label: 'Eraser size',
-                      value: controller.eraserRadius,
+                      value: controller.preferences.eraserRadius,
                       min: 2,
                       max: 40,
                       fieldMin: 1,
@@ -3538,7 +3467,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       display: (v) => '${v.round()} pt',
                       parse: _parsePoints,
                       onChanged: (v) =>
-                          controller.eraserRadius = v.roundToDouble(),
+                          controller.preferences.eraserRadius = v.roundToDouble(),
                     ),
                   if (fields.stroke)
                     _slider(
@@ -3552,10 +3481,10 @@ class _StyleMenuState extends State<_StyleMenu> {
                       parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingStroke = v);
-                        if (!restylingAnnotation) controller.strokeWidth = v;
+                        if (!restylingAnnotation) controller.preferences.strokeWidth = v;
                       },
                       onChangeEnd: (v) {
-                        controller.strokeWidth = v;
+                        controller.preferences.strokeWidth = v;
                         if (restylingAnnotation) {
                           controller.restyleSelected(strokeWidth: v);
                         }
@@ -3572,7 +3501,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                           (restylingAnnotation
                               ? controller.selectedCornerRadius
                               : null) ??
-                          controller.cornerRadius,
+                          controller.preferences.cornerRadius,
                       min: 0,
                       max: 40,
                       display: (v) => '${v.round()} pt',
@@ -3580,11 +3509,11 @@ class _StyleMenuState extends State<_StyleMenu> {
                       onChanged: (v) {
                         setState(() => _draggingCornerRadius = v);
                         if (!restylingAnnotation) {
-                          controller.cornerRadius = v.roundToDouble();
+                          controller.preferences.cornerRadius = v.roundToDouble();
                         }
                       },
                       onChangeEnd: (v) {
-                        controller.cornerRadius = v.roundToDouble();
+                        controller.preferences.cornerRadius = v.roundToDouble();
                         if (restylingAnnotation) {
                           controller.restyleSelected(
                               cornerRadius: v.roundToDouble());
@@ -3606,10 +3535,10 @@ class _StyleMenuState extends State<_StyleMenu> {
                       parse: _parsePercent,
                       onChanged: (v) {
                         setState(() => _draggingOpacity = v);
-                        if (!restylingAnnotation) controller.opacity = v;
+                        if (!restylingAnnotation) controller.preferences.opacity = v;
                       },
                       onChangeEnd: (v) {
-                        controller.opacity = v;
+                        controller.preferences.opacity = v;
                         if (restylingAnnotation) {
                           controller.restyleSelected(opacity: v);
                         }
@@ -3627,8 +3556,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                             isDense: true,
                             value: restylingAnnotation
                                 ? (controller.selectedLineStyle ??
-                                    controller.lineStyle)
-                                : controller.lineStyle,
+                                    controller.preferences.lineStyle)
+                                : controller.preferences.lineStyle,
                             underline: const SizedBox.shrink(),
                             items: [
                               for (final style in PdfLineStyle.values)
@@ -3640,7 +3569,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                             ],
                             onChanged: (value) {
                               if (value == null) return;
-                              controller.lineStyle = value;
+                              controller.preferences.lineStyle = value;
                               if (restylingAnnotation &&
                                   controller.canSetLineStyleSelected) {
                                 controller.restyleSelected(lineStyle: value);
@@ -3657,17 +3586,17 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: _draggingScale ??
                           (restylingAnnotation
                               ? (controller.selectedLineScale ??
-                                  controller.lineScale)
-                              : controller.lineScale),
+                                  controller.preferences.lineScale)
+                              : controller.preferences.lineScale),
                       min: 0.5,
                       max: 4,
                       display: (v) => '${v.toStringAsFixed(1)}×',
                       onChanged: (v) {
                         setState(() => _draggingScale = v);
-                        if (!restylingAnnotation) controller.lineScale = v;
+                        if (!restylingAnnotation) controller.preferences.lineScale = v;
                       },
                       onChangeEnd: (v) {
-                        controller.lineScale = v;
+                        controller.preferences.lineScale = v;
                         if (restylingAnnotation &&
                             controller.canSetLineStyleSelected) {
                           controller.restyleSelected(scale: v);
@@ -3683,7 +3612,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       atEnd: false,
                       value: lineEndings.$1,
                       onChanged: (ending) {
-                        controller.lineStartEnding = ending;
+                        controller.preferences.lineStartEnding = ending;
                         if (controller.canSetLineEndings) {
                           controller.setSelectedLineEndings(start: ending);
                         }
@@ -3696,7 +3625,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       atEnd: true,
                       value: lineEndings.$2,
                       onChanged: (ending) {
-                        controller.lineEndEnding = ending;
+                        controller.preferences.lineEndEnding = ending;
                         if (controller.canSetLineEndings) {
                           controller.setSelectedLineEndings(end: ending);
                         }
@@ -3726,7 +3655,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                       value: _draggingFontSize ??
                           selectedStyle?.size ??
                           captionStyle?.size ??
-                          controller.fontSize,
+                          controller.preferences.fontSize,
                       min: 8,
                       max: 48,
                       fieldMin: 1,
@@ -3736,26 +3665,26 @@ class _StyleMenuState extends State<_StyleMenu> {
                       onChanged: (v) {
                         setState(() => _draggingFontSize = v.roundToDouble());
                         if (selectedStyle == null && captionStyle == null) {
-                          controller.fontSize = v.roundToDouble();
+                          controller.preferences.fontSize = v.roundToDouble();
                         }
                       },
                       onChangeEnd: (v) {
                         final size = v.roundToDouble();
                         if (controller.restyleEditingTextSelection(
                             size: size)) {
-                          controller.fontSize = size;
+                          controller.preferences.fontSize = size;
                           setState(() => _draggingFontSize = null);
                           return;
                         }
                         if (controller.canRestyleSelectedText) {
-                          controller.fontSize = size;
+                          controller.preferences.fontSize = size;
                           controller.restyleSelectedText(size: size);
                         } else if (controller.canRestyleMeasurementCaption) {
                           // a selected measurement keeps its own caption size;
                           // don't disturb the creation default
                           controller.setSelectedMeasurementCaption(size: size);
                         } else {
-                          controller.fontSize = size;
+                          controller.preferences.fontSize = size;
                         }
                         setState(() => _draggingFontSize = null);
                       },
@@ -3800,7 +3729,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                         const SizedBox(width: 86, child: Text('Align')),
                         TextAlignToggles(
                           align: controller.selectedTextAlign ??
-                              controller.textAlign ??
+                              controller.preferences.textAlign ??
                               PdfTextAlign.left,
                           onChanged: _setTextAlign,
                         ),
@@ -4027,7 +3956,7 @@ class _FontChip extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final style = controller.selectedTextStyle;
     final font = style?.font ?? controller.fontFamily;
-    final size = (style?.size ?? controller.fontSize).round();
+    final size = (style?.size ?? controller.preferences.fontSize).round();
     return Tooltip(
       message: tooltip,
       child: Material(

@@ -561,9 +561,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   Future<void> _promptAuthor() async {
     final session = _session;
     final name = await showPdfTextPrompt(context,
-        title: 'Author name', initial: session.author ?? '');
+        title: 'Author name', initial: session.preferences.author ?? '');
     if (name == null) return;
-    session.author = name.trim().isEmpty ? null : name.trim();
+    session.preferences.author = name.trim().isEmpty ? null : name.trim();
   }
 
   @override
@@ -806,7 +806,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 pageGrid: features.thumbnails,
                 pageColor: features.pageColorEditable,
                 author: features.author,
-                authorName: session.author,
+                authorName: session.preferences.author,
                 onAuthorPressed: _promptAuthor,
                 toolShortcuts: _toolShortcuts,
                 onToolShortcutsChanged: (value) =>
@@ -906,7 +906,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageGrid: features.thumbnails,
                         pageColor: features.pageColorEditable,
                         author: features.author,
-                        authorName: session.author,
+                        authorName: session.preferences.author,
                         onAuthorPressed: _promptAuthor,
                         toolShortcuts: _toolShortcuts,
                         onToolShortcutsChanged: (value) =>

@@ -74,4 +74,6 @@ export 'src/retained_scene.dart';
 export 'src/search_panel.dart';
 export 'src/scrollbar.dart';
 export 'src/theme.dart';
+export 'src/tile_layer.dart';
+export 'src/tile_store.dart';
 export 'src/toast.dart';

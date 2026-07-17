@@ -132,7 +132,7 @@ void main() {
 
   test('editing a rotated free text keeps it rotated', () {
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..fontSize = 18
+      ..preferences.fontSize = 18
       ..addFreeText(0, const PdfRect(100, 650, 300, 700), 'before')
       ..selectAnnotation(0, 0)
       ..rotateSelected(30);
@@ -244,7 +244,7 @@ void main() {
 
       editing
         ..color = const Color(0xFFFF0000)
-        ..strokeWidth = 4
+        ..preferences.strokeWidth = 4
         ..addRectangle(0, const PdfRect(100, 650, 250, 750))
         ..tool = PdfEditTool.select
         ..selectAnnotation(0, 0)

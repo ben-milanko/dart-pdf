@@ -92,9 +92,9 @@ void main() {
     test('gates selection by author', () {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
-      editing.author = 'Alice';
+      editing.preferences.author = 'Alice';
       editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
-      editing.author = 'Bob';
+      editing.preferences.author = 'Bob';
       editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
 
       editing.canEditAnnotation = (a) => a.author == 'Bob';
@@ -112,9 +112,9 @@ void main() {
     test('setting the predicate drops newly ineligible selections', () {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
-      editing.author = 'Alice';
+      editing.preferences.author = 'Alice';
       editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
-      editing.author = 'Bob';
+      editing.preferences.author = 'Bob';
       editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
       expect(editing.selectAllAnnotationsOn(0), 2);
 
@@ -132,7 +132,7 @@ void main() {
     test('remote applies bypass the gate - sync is not user editing', () {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
-      editing.author = 'Alice';
+      editing.preferences.author = 'Alice';
       editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
       editing.canEditAnnotation = (_) => false;
 

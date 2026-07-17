@@ -973,7 +973,73 @@ void main() {
       expect(only.calls.single.$1, 5);
       expect(only.cancels.single, (5, 0));
     });
+
+    test('every worker is seeded from one shared byte snapshot, not a '
+        'per-worker copy', () {
+      final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));
+      final seeds = <Uint8List>[];
+      final pool = PdfPooledRenderWorker.withSpawner(source, 3, (bytes) {
+        seeds.add(bytes);
+        return _SeedWorker(bytes);
+      });
+      addTearDown(pool.dispose);
+
+      expect(seeds, hasLength(3), reason: 'three workers were spawned');
+      // All three got the very same instance - no private per-worker copy.
+      expect(identical(seeds[0], seeds[1]), isTrue);
+      expect(identical(seeds[1], seeds[2]), isTrue);
+      // And it is the pool's own snapshot, decoupled from the caller's bytes.
+      expect(identical(seeds[0], source), isFalse);
+      expect(seeds[0], equals(source));
+    });
+
+    test('the urgent one-off lane shares the same snapshot as the workers',
+        () async {
+      final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));
+      final seeds = <Uint8List>[];
+      final pool = PdfPooledRenderWorker.withSpawner(source, 2, (bytes) {
+        seeds.add(bytes);
+        return _SeedWorker(bytes);
+      });
+      addTearDown(pool.dispose);
+
+      final workerSeed = seeds.first;
+      // Priority -2000 routes past the pool into the lazily-spawned urgent
+      // worker, which must reuse the snapshot rather than copy again.
+      await pool.record(0, priority: -2000);
+      expect(seeds, hasLength(3), reason: 'the urgent worker was spawned');
+      expect(identical(seeds.last, workerSeed), isTrue);
+    });
   });
+}
+
+/// A [PdfRenderWorker] that records the byte view it was constructed with, for
+/// asserting the pool seeds every worker from one shared snapshot. Declines
+/// every record (null → local), which is all the sharing tests need.
+class _SeedWorker extends PdfRenderWorker {
+  _SeedWorker(this.seed);
+
+  final Uint8List seed;
+  bool disposed = false;
+
+  @override
+  bool get isActive => !disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+          {bool annotations = true,
+          int priority = 0,
+          double? imagePixelRatio,
+          bool decodeImages = true,
+          int? commandLimit,
+          PdfRect? imageDecodeRegion}) async =>
+      null;
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => disposed = true;
 }
 
 /// A [PdfRenderWorker] that records each [record] call and returns a synthetic

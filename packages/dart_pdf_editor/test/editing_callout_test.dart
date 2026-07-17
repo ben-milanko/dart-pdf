@@ -11,7 +11,7 @@ void main() {
   group('callout through the controller', () {
     test('addCallout builds a FreeText callout pointing at the target', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..author = 'Ben'
+        ..preferences.author = 'Ben'
         ..addCallout(
             0, const PdfRect(300, 600, 460, 660), 'Look here', (120, 500));
 
@@ -50,7 +50,7 @@ void main() {
 
     test('autosize fits the box and leaves the arrow tip alone', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..fontSize = 14
+        ..preferences.fontSize = 14
         ..addCallout(0, const PdfRect(300, 600, 700, 700), 'Hi', (120, 500));
       expect(editing.selectAnnotation(0, 0), isTrue);
       final tip0 =
