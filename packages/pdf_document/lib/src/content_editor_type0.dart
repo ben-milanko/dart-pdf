@@ -90,14 +90,22 @@ class _Type0RunEditor {
     final fallback = _font.pickFallback(runes, _fallbacks);
     if (fallback == null) return (run, 0); // nobody can draw it
 
-    final fbName = _fallbackName(fallback);
-    final fbBytes = _hexToBytes(fallback.encodeHex(replace));
-    var fbWidth = 0.0;
-    for (final rune in replace.runes) {
-      fbWidth += fallback.advanceForGlyph(fallback.glyphForRune(rune));
+    // Allocate the fallback page /Font resource and encode the replacement
+    // lazily, on the first match: a run where [find] does not occur (or which
+    // is skipped for an odd-length string) must reserve no resource, record no
+    // glyphs, and leave the page unchanged.
+    _FallbackDraw resolve() {
+      final fbName = _fallbackName(fallback);
+      final fbBytes = _hexToBytes(fallback.encodeHex(replace));
+      var fbWidth = 0.0;
+      for (final rune in replace.runes) {
+        fbWidth += fallback.advanceForGlyph(fallback.glyphForRune(rune));
+      }
+      return _FallbackDraw(fbName, fbBytes, fbWidth);
     }
-    final codec = _Type0FallbackCodec(
-        _font, resourceName, fbName, fbBytes, fbWidth, fontSize);
+
+    final codec =
+        _Type0FallbackCodec(_font, resourceName, fontSize, resolve);
     return TextRunRewriter(codec).rewrite(run, find, replace);
   }
 
@@ -199,15 +207,17 @@ class _Type0RunCodec extends RunCodec {
 /// fallback face between `Tf` switches, with the unchanged surrounding text
 /// staying in the document's own font.
 class _Type0FallbackCodec extends RunCodec {
-  _Type0FallbackCodec(this._font, this._resourceName, this._fbName,
-      this._fbBytes, this._fbWidth, this._fontSize);
+  _Type0FallbackCodec(
+      this._font, this._resourceName, this._fontSize, this._resolve);
 
   final Type0Font _font;
   final String _resourceName; // base font, restored after a fallback segment
-  final String _fbName; // the fallback font's page resource name
-  final Uint8List _fbBytes; // the pre-encoded replacement (hex show bytes)
-  final double _fbWidth; // the replacement's advance (thousandths of an em)
   final double _fontSize;
+
+  /// Allocates the fallback resource + encodes the replacement, run once on
+  /// the first match so a non-matching run reserves nothing.
+  final _FallbackDraw Function() _resolve;
+  _FallbackDraw? _draw;
 
   bool _inFallback = false;
   double? _pendingKern;
@@ -240,14 +250,15 @@ class _Type0FallbackCodec extends RunCodec {
   @override
   void emitReplacement(
       List<Emit> out, String replace, double oldWidth, bool hasTrailing) {
+    final draw = _draw ??= _resolve();
     _restoreBase(out);
     out
-      ..add(OpEmit(PdfContentEditing._tfOp(_fbName, _fontSize)))
+      ..add(OpEmit(PdfContentEditing._tfOp(draw.name, _fontSize)))
       ..add(OpEmit(
-          ContentOperation('Tj', [CosString(_fbBytes, isHex: true)])));
+          ContentOperation('Tj', [CosString(draw.bytes, isHex: true)])));
     _inFallback = true;
-    if (hasTrailing && (_fbWidth - oldWidth).abs() >= 0.001) {
-      _pendingKern = _fbWidth - oldWidth;
+    if (hasTrailing && (draw.width - oldWidth).abs() >= 0.001) {
+      _pendingKern = draw.width - oldWidth;
     }
   }
 
@@ -262,6 +273,16 @@ class _Type0FallbackCodec extends RunCodec {
           List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
           putGlyph: _putType0Glyph, makeString: _hexShowString);
+}
+
+/// The resolved fallback draw for a [_Type0FallbackCodec]: the page /Font
+/// resource name to draw the replacement in, the pre-encoded (hex) show bytes,
+/// and the replacement's advance (thousandths of an em).
+class _FallbackDraw {
+  _FallbackDraw(this.name, this.bytes, this.width);
+  final String name;
+  final Uint8List bytes;
+  final double width;
 }
 
 void _putType0Glyph(int glyph, List<int> buffer) => buffer
