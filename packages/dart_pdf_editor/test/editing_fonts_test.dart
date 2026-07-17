@@ -248,5 +248,69 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.activeFont, isNull);
     });
+
+    testWidgets('the search field is focused when the menu opens',
+        (tester) async {
+      final c = PdfEditingController(buildMultiPagePdf(1));
+      await pumpButton(tester, c);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      final editable = tester.widget<EditableText>(find.descendant(
+        of: find.byKey(const ValueKey('pdf-font-search')),
+        matching: find.byType(EditableText),
+      ));
+      expect(editable.focusNode.hasFocus, isTrue);
+    });
+
+    testWidgets('fonts embedded in the document are offered and embed on pick',
+        (tester) async {
+      // Author some free text in an embedded font so the document carries it,
+      // then reopen: the font now appears under "In this document".
+      final c = PdfEditingController(buildMultiPagePdf(1))
+        ..setCustomFont(_fontBytes);
+      c.addFreeText(0, const PdfRect(72, 600, 300, 660), 'Embedded');
+      // Back to a standard family - the embedded face is only in the document.
+      c.fontFamily = PdfStandardFont.helvetica;
+      expect(c.activeFont, isNull);
+      expect(c.documentFonts, isNotEmpty);
+
+      await pumpButton(tester, c);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-font-search')), 'dejavu');
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-font-document-0')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-font-document-0')));
+      await tester.pumpAndSettle();
+      expect(c.activeFont, isNotNull);
+      expect(c.activeFontLabel, contains('DejaVu'));
+    });
+
+    testWidgets('a picked font shows up under "Recently used" next time',
+        (tester) async {
+      final c = PdfEditingController(buildMultiPagePdf(1));
+      await c.preferences.ready;
+      await pumpButton(tester, c);
+
+      // No recents yet on first open.
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('RECENTLY USED'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
+      await tester.pumpAndSettle();
+      expect(c.preferences.recentFonts, contains('std:serif'));
+
+      // Reopen: Serif now heads the list in the recents group.
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('RECENTLY USED'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-font-recent-0')), findsOneWidget);
+      // Picking the recent entry applies the same choice.
+      await tester.tap(find.byKey(const ValueKey('pdf-font-recent-0')));
+      await tester.pumpAndSettle();
+      expect(c.fontFamily.family, PdfStandardFontFamily.serif);
+    });
   });
 }

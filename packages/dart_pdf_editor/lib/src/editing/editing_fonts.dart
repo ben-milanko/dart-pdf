@@ -221,6 +221,14 @@ class _PlatformChoice extends _FontChoice {
   final PdfPlatformFont font;
 }
 
+class _DocumentChoice extends _FontChoice {
+  const _DocumentChoice(this.font);
+
+  /// A font already embedded in the open document, reparsed into a
+  /// re-embeddable [PdfEmbeddedFont] - picking it needs no byte loading.
+  final PdfEmbeddedFont font;
+}
+
 class _LoadChoice extends _FontChoice {
   const _LoadChoice();
 }
@@ -241,6 +249,7 @@ class _FontEntry {
     this.subtitle,
     this.fontFamily,
     this.package,
+    this.recentKey,
   });
 
   final Key key;
@@ -250,12 +259,23 @@ class _FontEntry {
   final _FontChoice choice;
   final String? fontFamily;
   final String? package;
+
+  /// The opaque key this entry is remembered under in the "Recently used"
+  /// group (see [PdfEditingPreferences.recentFonts]); null for entries that
+  /// aren't tracked as recents (the "Load font…" action).
+  final String? recentKey;
 }
 
 class _PdfFontPickerDialog extends StatefulWidget {
-  const _PdfFontPickerDialog({required this.entries});
+  const _PdfFontPickerDialog({required this.entries, this.recent = const []});
 
+  /// The full font catalogue (standard, document, bundled, platform, load).
   final List<_FontEntry> entries;
+
+  /// The "Recently used" group, newest first, shown above the catalogue
+  /// while the search box is empty. Distinct keys from their catalogue
+  /// twins so both can appear at once.
+  final List<_FontEntry> recent;
 
   @override
   State<_PdfFontPickerDialog> createState() => _PdfFontPickerDialogState();
@@ -274,11 +294,22 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
   @override
   Widget build(BuildContext context) {
     final query = _search.text.trim().toLowerCase();
-    final entries = query.isEmpty
-        ? widget.entries
-        : widget.entries
-            .where((entry) => entry.searchText.contains(query))
-            .toList();
+    // A flat list of rows: a String is a section header, a _FontEntry a
+    // tappable font. Recents (and their headers) show only for an empty
+    // query - searching filters the whole catalogue instead.
+    final rows = <Object>[];
+    if (query.isEmpty) {
+      if (widget.recent.isNotEmpty) {
+        rows.add('Recently used');
+        rows.addAll(widget.recent);
+        rows.add('All fonts');
+      }
+      rows.addAll(widget.entries);
+    } else {
+      rows.addAll(
+          widget.entries.where((entry) => entry.searchText.contains(query)));
+    }
+    final hasEntries = rows.any((row) => row is _FontEntry);
     return Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 380, maxHeight: 500),
@@ -293,6 +324,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
               TextField(
                 key: const ValueKey('pdf-font-search'),
                 controller: _search,
+                autofocus: true,
                 decoration: const InputDecoration(
                   isDense: true,
                   prefixIcon: Icon(Icons.search),
@@ -302,7 +334,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
               ),
               const SizedBox(height: 8),
               Flexible(
-                child: entries.isEmpty
+                child: !hasEntries
                     ? const Center(
                         child: Padding(
                           padding: EdgeInsets.all(24),
@@ -312,9 +344,11 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                       )
                     : ListView.builder(
                         shrinkWrap: true,
-                        itemCount: entries.length,
+                        itemCount: rows.length,
                         itemBuilder: (context, index) {
-                          final entry = entries[index];
+                          final row = rows[index];
+                          if (row is String) return _sectionHeader(context, row);
+                          final entry = row as _FontEntry;
                           return ListTile(
                             key: entry.key,
                             dense: true,
@@ -342,24 +376,44 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
       ),
     );
   }
+
+  Widget _sectionHeader(BuildContext context, String label) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+      child: Text(
+        label.toUpperCase(),
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
 }
 
 /// Pops a font menu anchored at [context]'s widget and applies the pick:
-/// the standard families, the [bundled] fonts, the platform fonts
-/// ([platformFonts], defaulting to the host-populated [pdfPlatformFonts]
-/// registry), then "Load font…" (when a [fontPicker] is given). The menu
-/// is searchable. Bundled, platform and custom fonts embed into the
-/// document so the text renders everywhere.
+/// the standard families, the fonts already embedded in the open document
+/// ([documentFonts], defaulting to [PdfEditingController.documentFonts]),
+/// the [bundled] fonts, the platform fonts ([platformFonts], defaulting to
+/// the host-populated [pdfPlatformFonts] registry), then "Load font…" (when
+/// a [fontPicker] is given). Recently-picked fonts head the list in a
+/// "Recently used" group. The search field is focused on open and the menu
+/// is searchable. Bundled, platform, document and custom fonts embed into
+/// the document so the text renders everywhere.
 Future<void> showPdfFontMenu({
   required BuildContext context,
   required PdfEditingController controller,
   PdfFontPicker? fontPicker,
   List<PdfBundledFont> bundled = pdfBundledFonts,
   List<PdfPlatformFont>? platformFonts,
+  List<PdfEmbeddedFont>? documentFonts,
   PdfTextFont? currentFont,
   void Function(PdfTextFont font)? onSelected,
 }) async {
   final platform = platformFonts ?? pdfPlatformFonts;
+  final inDocument = documentFonts ?? controller.documentFonts;
   final entries = <_FontEntry>[
     const _FontEntry(
       key: ValueKey('pdf-font-std-sans'),
@@ -368,6 +422,7 @@ Future<void> showPdfFontMenu({
       searchText: 'sans helvetica standard pdf font',
       choice: _StandardChoice(PdfStandardFontFamily.sans),
       fontFamily: 'Helvetica',
+      recentKey: 'std:sans',
     ),
     const _FontEntry(
       key: ValueKey('pdf-font-std-serif'),
@@ -376,6 +431,7 @@ Future<void> showPdfFontMenu({
       searchText: 'serif times times-roman standard pdf font',
       choice: _StandardChoice(PdfStandardFontFamily.serif),
       fontFamily: 'Times New Roman',
+      recentKey: 'std:serif',
     ),
     const _FontEntry(
       key: ValueKey('pdf-font-std-mono'),
@@ -384,7 +440,19 @@ Future<void> showPdfFontMenu({
       searchText: 'mono monospace courier standard pdf font',
       choice: _StandardChoice(PdfStandardFontFamily.mono),
       fontFamily: 'Courier',
+      recentKey: 'std:mono',
     ),
+    for (var i = 0; i < inDocument.length; i++)
+      _FontEntry(
+        key: ValueKey('pdf-font-document-$i'),
+        label: inDocument[i].familyName,
+        subtitle: 'In this document',
+        searchText: '${inDocument[i].familyName} '
+                '${inDocument[i].postScriptName} document embedded font'
+            .toLowerCase(),
+        choice: _DocumentChoice(inDocument[i]),
+        recentKey: 'doc:${inDocument[i].postScriptName}',
+      ),
     for (var i = 0; i < bundled.length; i++)
       _FontEntry(
         key: ValueKey('pdf-font-bundled-$i'),
@@ -394,6 +462,7 @@ Future<void> showPdfFontMenu({
         choice: _BundledChoice(bundled[i]),
         fontFamily: bundled[i].label,
         package: 'dart_pdf_editor',
+        recentKey: 'bundled:${bundled[i].label}',
       ),
     for (var i = 0; i < platform.length; i++)
       _FontEntry(
@@ -405,6 +474,7 @@ Future<void> showPdfFontMenu({
             .toLowerCase(),
         choice: _PlatformChoice(platform[i]),
         fontFamily: platform[i].family,
+        recentKey: 'platform:${platform[i].label}',
       ),
     if (fontPicker != null)
       const _FontEntry(
@@ -416,9 +486,32 @@ Future<void> showPdfFontMenu({
       ),
   ];
 
+  // Resolve the persisted recent keys back to live catalogue entries, newest
+  // first, giving each a distinct key so it can sit above its twin. Keys with
+  // no current match (e.g. a document font from a since-closed file) drop out.
+  final byRecentKey = <String, _FontEntry>{};
+  for (final entry in entries) {
+    if (entry.recentKey case final key?) byRecentKey.putIfAbsent(key, () => entry);
+  }
+  final recent = <_FontEntry>[];
+  for (final key in controller.preferences.recentFonts) {
+    final match = byRecentKey[key];
+    if (match == null) continue;
+    recent.add(_FontEntry(
+      key: ValueKey('pdf-font-recent-${recent.length}'),
+      label: match.label,
+      subtitle: match.subtitle,
+      searchText: match.searchText,
+      choice: match.choice,
+      fontFamily: match.fontFamily,
+      package: match.package,
+      recentKey: match.recentKey,
+    ));
+  }
+
   final choice = await showDialog<_FontChoice>(
     context: context,
-    builder: (_) => _PdfFontPickerDialog(entries: entries),
+    builder: (_) => _PdfFontPickerDialog(entries: entries, recent: recent),
   );
   if (choice == null) return;
 
@@ -430,6 +523,11 @@ Future<void> showPdfFontMenu({
     }
   }
 
+  // Records the pick as the newest recent, so the next open floats it up.
+  void noteRecent(String? key) {
+    if (key != null) controller.preferences.noteRecentFont(key);
+  }
+
   switch (choice) {
     case _StandardChoice(:final family):
       final current = currentFont ??
@@ -439,10 +537,15 @@ Future<void> showPdfFontMenu({
       apply(PdfStandardFont.styled(family,
           bold: current is PdfStandardFont && current.isBold,
           italic: current is PdfStandardFont && current.isItalic));
+      noteRecent('std:${family.name}');
+    case _DocumentChoice(:final font):
+      apply(font);
+      noteRecent('doc:${font.postScriptName}');
     case _BundledChoice(:final font):
       try {
         final bytes = await loadBundledFont(font);
         apply(PdfEmbeddedFont.parse(bytes));
+        noteRecent('bundled:${font.label}');
       } catch (_) {
         // A missing/corrupt bundled asset just leaves the font unchanged.
       }
@@ -451,6 +554,7 @@ Future<void> showPdfFontMenu({
         final bytes = await font.loadBytes();
         if (bytes != null) {
           apply(PdfEmbeddedFont.parse(bytes));
+          noteRecent('platform:${font.label}');
         }
       } catch (_) {
         // An unreadable/unsupported platform font (e.g. .ttc, WOFF, or one

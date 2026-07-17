@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'annotation.dart';
 import 'content_writer.dart';
+import 'document.dart';
 
 /// A TrueType/OpenType font program, parsed and ready to embed in a PDF as
 /// a full-Unicode composite (Type0) font.
@@ -266,6 +267,97 @@ class PdfEmbeddedFont implements PdfTextFont {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Reparses the embedded program of any [fontDict] already in a document -
+  /// a simple font (/TrueType or /Type1 carrying a /FontDescriptor with a
+  /// /FontFile2 or /FontFile3 program) or a composite /Type0 font (whose
+  /// descriptor lives on its descendant CIDFont) - into a re-embeddable
+  /// [PdfEmbeddedFont]. Unlike [fromFontDict] it isn't limited to /Type0.
+  ///
+  /// Returns null when the dict carries no reparsable sfnt (TrueType /
+  /// OpenType) program: a bare-CFF /FontFile3, a Type1 /FontFile, or a
+  /// subset stripped of its cmap all disqualify it - which conveniently
+  /// leaves only fonts whose glyphs new text can actually be mapped onto.
+  static PdfEmbeddedFont? fromEmbeddedProgram(
+      CosDocument cos, CosDictionary fontDict,
+      {String resourceName = 'F0'}) {
+    try {
+      var descriptorHost = fontDict;
+      final sub = cos.resolve(fontDict['Subtype']);
+      if (sub is CosName && sub.value == 'Type0') {
+        final desc = cos.resolve(fontDict['DescendantFonts']);
+        if (desc is! CosArray || desc.items.isEmpty) return null;
+        final cid = cos.resolve(desc.items.first);
+        if (cid is! CosDictionary) return null;
+        descriptorHost = cid;
+      }
+      final fd = cos.resolve(descriptorHost['FontDescriptor']);
+      if (fd is! CosDictionary) return null;
+      var file = cos.resolve(fd['FontFile2']);
+      if (file is! CosStream) file = cos.resolve(fd['FontFile3']);
+      if (file is! CosStream) return null;
+      final bytes = cos.decodeStreamData(file);
+      return PdfEmbeddedFont.parse(Uint8List.fromList(bytes),
+          resourceName: resourceName);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The distinct embeddable fonts [document] already uses - the faces its
+  /// page /Font resources (and the AcroForm's /DR) reference, each reparsed
+  /// via [fromEmbeddedProgram] into a re-embeddable [PdfEmbeddedFont] so
+  /// authored text can reuse a font the file already carries without
+  /// bundling a new one.
+  ///
+  /// Deduplicated by PostScript name (so the same face subset onto several
+  /// pages appears once); fonts with no reparsable sfnt program are skipped.
+  /// Order is first appearance walking the pages (their content fonts, then
+  /// their annotations' appearance fonts) then the AcroForm. Reads page,
+  /// annotation-appearance and form resources, not fonts nested deeper
+  /// inside Form XObjects.
+  static List<PdfEmbeddedFont> usedIn(PdfDocument document) {
+    final cos = document.cos;
+    final dicts = <CosDictionary>[];
+    void collect(CosObject? fontsRef) {
+      final fonts = cos.resolve(fontsRef);
+      if (fonts is! CosDictionary) return;
+      for (final value in fonts.entries.values) {
+        final dict = cos.resolve(value);
+        if (dict is CosDictionary && !dicts.any((d) => identical(d, dict))) {
+          dicts.add(dict);
+        }
+      }
+    }
+
+    void collectResources(CosObject? resourcesRef) {
+      final res = cos.resolve(resourcesRef);
+      if (res is CosDictionary) collect(res['Font']);
+    }
+
+    for (var i = 0; i < document.pageCount; i++) {
+      final page = document.page(i);
+      collect(page.resources['Font']);
+      for (final annotation in page.annotations) {
+        collectResources(annotation.normalAppearance?.dictionary['Resources']);
+      }
+    }
+    final acroForm = cos.resolve(document.catalog['AcroForm']);
+    if (acroForm is CosDictionary) {
+      final dr = cos.resolve(acroForm['DR']);
+      if (dr is CosDictionary) collect(dr['Font']);
+    }
+
+    final result = <PdfEmbeddedFont>[];
+    final seen = <String>{};
+    for (final dict in dicts) {
+      final font = fromEmbeddedProgram(cos, dict);
+      if (font == null) continue;
+      if (!seen.add(font.postScriptName)) continue;
+      result.add(font);
+    }
+    return result;
   }
 
   /// The glyph id for [rune], or 0 (.notdef) when the font lacks it.

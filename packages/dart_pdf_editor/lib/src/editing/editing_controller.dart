@@ -1205,6 +1205,22 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
+  PdfDocument? _documentFontsFor;
+  List<PdfEmbeddedFont>? _documentFontsCache;
+
+  /// The embeddable fonts the current document already uses (see
+  /// [PdfEmbeddedFont.usedIn]) - offered in the font menu so new free text
+  /// can reuse a face the file already carries. Parsed once per revision
+  /// and cached; the list is empty when nothing embeddable is found.
+  List<PdfEmbeddedFont> get documentFonts {
+    if (!identical(_documentFontsFor, _document) ||
+        _documentFontsCache == null) {
+      _documentFontsFor = _document;
+      _documentFontsCache = PdfEmbeddedFont.usedIn(_document);
+    }
+    return _documentFontsCache!;
+  }
+
   /// Whether new annotations are non-solid - the legacy boolean view of
   /// [preferences.lineStyle] (kept for the drag previews that only show
   /// dashed/solid).
