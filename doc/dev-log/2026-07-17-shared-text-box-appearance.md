@@ -51,9 +51,21 @@ New standalone library `lib/src/text_box_appearance.dart` (exported from
   fonts already are one (`PdfEmbeddedFont`); the base-14/`CosDictionary` path
   gets `_DaFieldFont`, a thin adapter reporting the `/DA` resource name + the
   mapped standard-font ascent while delegating measurement to the field's own
-  `/Widths`. One behaviour change falls out: embedded-font form fields now place
-  the baseline from the real font ascent instead of the hardcoded `0.718`
-  (Helvetica is unchanged at 718/1000).
+  `/Widths`. One behaviour change falls out: form fields now place the baseline
+  from the font's real ascent instead of the hardcoded `0.718`. This touches
+  **every non-Helvetica field** - embedded faces *and* base-14 `/DA` fonts that
+  map to Times (683) or Courier (629). Helvetica is unchanged at 718/1000, so
+  the common case is byte-identical; the others shift a fraction of a point,
+  which is the correctness fix the issue implies. (Measurement is unaffected -
+  it stays on the field's `/Widths` via `measureLine` - so wrapping and the
+  shown `Tj` text are identical; only the vertical baseline moves. The adapter's
+  own `measure` is there to make it a complete `PdfTextFont`; the builder never
+  calls it because the form always passes `measureLine`.)
+- **Signature newlines.** The old `_wrapSignatureLine` split only on spaces;
+  `pdfWrapText` splits on `\n` first (form/annotation need that). So a signature
+  `reason`/`location`/`name` carrying an embedded newline now wraps into
+  separate lines instead of one line with an escaped `\n` - a small improvement,
+  but a divergence worth noting.
 - **Not folded in:** `_wrapRich` (the char-by-char, multi-style rich free-text
   wrapper) is a genuinely different shape and stays put; it does reuse the
   shared `pdfTextBoxLineX` / underline helpers.
