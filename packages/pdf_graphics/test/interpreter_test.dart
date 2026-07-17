@@ -441,6 +441,59 @@ void main() {
           reason: 'the nested show must not overwrite the outer buffer');
     });
 
+    test('a Type3 glyph draws through its /FontMatrix at the pen position', () {
+      // A CharProc that fills a 100x100 glyph-space box. With FontMatrix
+      // 0.001 and Tf size 10, glyph space scales to page by 0.001*10 = 0.01,
+      // so the box is 1x1 page units, dropped at the text origin. This
+      // exercises the renderGlyph seam: the font supplies the glyph-space
+      // matrix and CharProc, the interpreter re-enters its run loop.
+      final doc = CosDocument.open(buildClassicPdf());
+      final charProc = CosStream(
+        CosDictionary({'Length': const CosInteger(0)}),
+        Uint8List.fromList('1000 0 d0 0 0 100 100 re f'.codeUnits),
+      );
+      final type3 = CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type3'),
+        'FontBBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(100),
+          const CosInteger(100),
+        ]),
+        'FontMatrix': CosArray([
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+        ]),
+        'FirstChar': const CosInteger(0x58),
+        'LastChar': const CosInteger(0x58),
+        'Widths': CosArray([const CosInteger(1000)]),
+        'Encoding': CosDictionary({
+          'Differences': CosArray([const CosInteger(0x58), const CosName('X')]),
+        }),
+        'CharProcs': CosDictionary({'X': charProc}),
+      });
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /T3 10 Tf 100 200 Td (X) Tj ET'.codeUnits)),
+        CosDictionary({
+          'Font': CosDictionary({'T3': type3}),
+        }),
+      );
+      final (path, _, _, _) = device.fills.single;
+      final move = path.segments.first as PdfMoveTo;
+      expect(move.x, closeTo(100, 1e-9)); // glyph (0,0) at the pen origin
+      expect(move.y, closeTo(200, 1e-9));
+      final corner = path.segments[2] as PdfLineTo;
+      expect(corner.x, closeTo(101, 1e-9)); // 100*0.001*10 = 1 page unit wide
+      expect(corner.y, closeTo(201, 1e-9));
+    });
+
     test('TJ adjustments shift subsequent runs', () {
       final doc = PdfDocument.open(buildClassicPdf());
       final device = RecordingDevice();
