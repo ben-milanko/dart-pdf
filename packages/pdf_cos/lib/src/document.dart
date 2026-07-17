@@ -7,7 +7,6 @@ import 'filters/filters.dart';
 import 'lexer.dart';
 import 'objects.dart';
 import 'parser.dart';
-import 'token.dart';
 import 'xref.dart';
 
 /// A parsed PDF file at the COS level: header, cross-reference machinery, and
@@ -119,38 +118,28 @@ class CosDocument {
     if (newBytes.length <= bytes.length) {
       throw CosParseException('incremental update is not an append');
     }
-    final newStartXref = _findStartXref(newBytes);
-    final oldStartOffset = startXref + _offsetShift;
-    final changed = <int>{};
-    CosDictionary? newestTrailer;
-    final pending = <int>[newStartXref + _offsetShift];
-    final visited = <int>{};
-    while (pending.isNotEmpty) {
-      final offset = pending.removeAt(0);
-      // Everything at or below the previous newest section is already loaded.
-      if (offset == oldStartOffset) continue;
-      if (!visited.add(offset)) continue;
-      final section = _parseXrefSection(newBytes, offset);
-      newestTrailer ??= section.trailer;
-      for (final entry in section.entries.entries) {
-        // First occurrence among the appended sections wins, and it overrides
-        // whatever the old chain held for that object.
-        if (changed.add(entry.key)) _xref[entry.key] = entry.value;
-      }
-      final hybrid = section.trailer['XRefStm'];
-      if (hybrid is CosInteger) pending.add(hybrid.value + _offsetShift);
-      final prev = section.trailer['Prev'];
-      if (prev is CosInteger) pending.add(prev.value + _offsetShift);
-    }
+    // Walk only the sections appended past the previous newest one; the
+    // reader stops descending at the old startxref (everything below it is
+    // already loaded). First occurrence among the appended sections wins and
+    // overrides whatever the old chain held for that object.
+    final reader = CosXrefReader(newBytes, shift: _offsetShift);
+    final newStartXref = reader.findStartXref();
+    final appended = reader.walkFrom(newStartXref, stopAt: startXref);
+    final changed = appended.entries.keys.toSet();
+    appended.entries.forEach((number, entry) => _xref[number] = entry);
 
+    // A parsed newest section iff the append moved startxref; only then does
+    // its trailer refresh the doc-level one.
+    final parsedNewestSection = newStartXref != startXref;
     bytes = newBytes;
     startXref = newStartXref;
-    if (newestTrailer != null) {
+    if (parsedNewestSection) {
       // The newest trailer wins, but an incremental trailer may omit doc-level
       // keys (/Root, /Encrypt, /ID) that still carry over from the base.
       final merged = CosDictionary();
       trailer.entries.forEach((key, value) => merged.entries[key] = value);
-      newestTrailer.entries.forEach((key, value) => merged.entries[key] = value);
+      appended.trailer.entries
+          .forEach((key, value) => merged.entries[key] = value);
       trailer = merged;
     }
 
@@ -178,32 +167,9 @@ class CosDocument {
       openCosDocumentFromSource(source, password: password, options: options);
 
   static CosDocument _openFromXref(Uint8List bytes, int shift) {
-    final startXref = _findStartXref(bytes);
-    final entries = <int, CosXrefEntry>{};
-    CosDictionary trailer = CosDictionary();
-    var isNewest = true;
-
-    // Walk the xref chain newest-to-oldest; the first entry seen for an
-    // object number wins. Hybrid files queue /XRefStm before /Prev.
-    final pending = <int>[startXref + shift];
-    final visited = <int>{};
-    while (pending.isNotEmpty) {
-      final offset = pending.removeAt(0);
-      if (!visited.add(offset)) continue;
-      final section = _parseXrefSection(bytes, offset);
-      for (final entry in section.entries.entries) {
-        entries.putIfAbsent(entry.key, () => entry.value);
-      }
-      if (isNewest) {
-        trailer = section.trailer;
-        isNewest = false;
-      }
-      final hybrid = section.trailer['XRefStm'];
-      if (hybrid is CosInteger) pending.add(hybrid.value + shift);
-      final prev = section.trailer['Prev'];
-      if (prev is CosInteger) pending.add(prev.value + shift);
-    }
-    return CosDocument._(bytes, shift, entries, trailer, startXref);
+    final xref = CosXrefReader(bytes, shift: shift).read();
+    return CosDocument._(
+        bytes, shift, xref.entries, xref.trailer, xref.startXref);
   }
 
   /// Last-resort open for files whose cross-reference machinery is broken:
@@ -665,121 +631,6 @@ class CosDocument {
     return index;
   }
 
-  static int _findStartXref(Uint8List bytes) {
-    final from = bytes.length > 2048 ? bytes.length - 2048 : 0;
-    final index = _lastIndexOf(bytes, 'startxref', from);
-    if (index < 0) {
-      // open() catches this and falls back to scan recovery
-      throw CosParseException('missing startxref');
-    }
-    return CosParser(bytes, offset: index + 'startxref'.length)
-        .expectInteger();
-  }
-
-  static CosXrefSection _parseXrefSection(Uint8List bytes, int offset) {
-    if (offset < 0 || offset >= bytes.length) {
-      throw CosParseException('cross-reference offset out of range', offset);
-    }
-    final parser = CosParser(bytes, offset: offset);
-    if (parser.peekToken().isKeyword('xref')) {
-      return _parseXrefTable(parser);
-    }
-    return _parseXrefStream(parser);
-  }
-
-  static CosXrefSection _parseXrefTable(CosParser parser) {
-    parser.expectKeyword('xref');
-    final entries = <int, CosXrefEntry>{};
-    while (parser.peekToken().type == CosTokenType.integer) {
-      final start = parser.expectInteger();
-      final count = parser.expectInteger();
-      for (var i = 0; i < count; i++) {
-        final first = parser.expectInteger();
-        final second = parser.expectInteger();
-        final kind = parser.nextToken();
-        final objectNumber = start + i;
-        if (kind.isKeyword('n')) {
-          entries.putIfAbsent(
-              objectNumber, () => CosXrefEntry.inUse(first, second));
-        } else if (kind.isKeyword('f')) {
-          entries.putIfAbsent(objectNumber, () => const CosXrefEntry.free());
-        } else {
-          throw CosParseException('invalid xref entry type', kind.offset);
-        }
-      }
-    }
-    parser.expectKeyword('trailer');
-    final trailer = parser.parseObject();
-    if (trailer is! CosDictionary) {
-      throw CosParseException('trailer is not a dictionary');
-    }
-    return CosXrefSection(entries, trailer);
-  }
-
-  static CosXrefSection _parseXrefStream(CosParser parser) {
-    final indirect = parser.parseIndirectObject();
-    final object = indirect.object;
-    if (object is! CosStream) {
-      throw CosParseException('expected a cross-reference stream');
-    }
-    final dict = object.dictionary;
-    // xref stream dictionary entries must be direct (no resolver available
-    // before the xref itself is loaded)
-    final data = decodeStream(object);
-
-    final w = dict['W'];
-    final size = dict['Size'];
-    if (w is! CosArray || w.length < 3 || size is! CosInteger) {
-      throw CosParseException('invalid /W or /Size in cross-reference stream');
-    }
-    final widths = [
-      for (final field in w.items)
-        field is CosInteger
-            ? field.value
-            : throw CosParseException('invalid /W entry'),
-    ];
-    final index = dict['Index'];
-    final ranges = index is CosArray
-        ? [
-            for (final v in index.items)
-              v is CosInteger
-                  ? v.value
-                  : throw CosParseException('invalid /Index entry'),
-          ]
-        : [0, size.value];
-
-    final entries = <int, CosXrefEntry>{};
-    final rowLength = widths.fold(0, (a, b) => a + b);
-    var pos = 0;
-    for (var r = 0; r + 1 < ranges.length; r += 2) {
-      final start = ranges[r];
-      final count = ranges[r + 1];
-      for (var i = 0; i < count && pos + rowLength <= data.length; i++) {
-        final fields = <int>[];
-        for (final width in widths) {
-          var value = 0;
-          for (var k = 0; k < width; k++) {
-            value = (value << 8) | data[pos++];
-          }
-          fields.add(value);
-        }
-        // a zero-width type field defaults to "in use" (§7.5.8.3)
-        final type = widths[0] == 0 ? 1 : fields[0];
-        final objectNumber = start + i;
-        switch (type) {
-          case 0:
-            entries.putIfAbsent(objectNumber, () => const CosXrefEntry.free());
-          case 1:
-            entries.putIfAbsent(objectNumber,
-                () => CosXrefEntry.inUse(fields[1], fields[2]));
-          case 2:
-            entries.putIfAbsent(objectNumber,
-                () => CosXrefEntry.compressed(fields[1], fields[2]));
-        }
-      }
-    }
-    return CosXrefSection(entries, dict);
-  }
 }
 
 /// A decoded /Type /ObjStm: many small objects packed into one stream.
@@ -825,20 +676,6 @@ class _ObjectStream {
 int _indexOf(Uint8List bytes, String pattern, int from, [int? limit]) {
   final end = (limit ?? bytes.length) - pattern.length;
   for (var p = from; p <= end; p++) {
-    var match = true;
-    for (var i = 0; i < pattern.length; i++) {
-      if (bytes[p + i] != pattern.codeUnitAt(i)) {
-        match = false;
-        break;
-      }
-    }
-    if (match) return p;
-  }
-  return -1;
-}
-
-int _lastIndexOf(Uint8List bytes, String pattern, int from) {
-  for (var p = bytes.length - pattern.length; p >= from; p--) {
     var match = true;
     for (var i = 0; i < pattern.length; i++) {
       if (bytes[p + i] != pattern.codeUnitAt(i)) {
