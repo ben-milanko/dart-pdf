@@ -9,6 +9,17 @@
   `jumpToNormalized` and `animateToPage` alongside the existing
   `jumpToPage`, and a `PdfViewer.scrollIndicatorBuilder` that replaces the
   built-in vertical scrollbar with a host widget (#326).
+- Add configurable page layouts to `PdfViewer`: the new `pageLayout`
+  parameter takes a `PdfPageLayout` - `verticalContinuous()` (the default,
+  top-to-bottom) or `horizontalContinuous()` (left-to-right, book-like
+  reading and wide documents). The horizontal layout keeps every viewer
+  behaviour along the new axis - virtualization, zoom/pan, current-page
+  tracking, search and destination navigation, text selection, overlays,
+  links, forms/annotation hit-testing, keyboard navigation, and mixed page
+  sizes (pages fit the viewport height and centre on the cross axis).
+  `PdfPageLayout` is a value type with named constructors so further layouts
+  (facing/two-page) can be added without changing the viewer's API.
+  `PdfReader` and `PdfEditorView` forward the option (#324).
 
 ## 1.4.7
 

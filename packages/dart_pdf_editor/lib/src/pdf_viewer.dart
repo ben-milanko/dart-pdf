@@ -600,6 +600,59 @@ enum PdfViewerFit {
   page,
 }
 
+/// How [PdfViewer] arranges the document's pages.
+///
+/// Passed to [PdfViewer.pageLayout]. The default,
+/// [PdfPageLayout.verticalContinuous], stacks pages top-to-bottom and
+/// scrolls vertically - the classic reading layout.
+/// [PdfPageLayout.horizontalContinuous] lays them left-to-right and scrolls
+/// horizontally, for book-like reading, wide documents, and apps that offer
+/// a horizontal reading mode.
+///
+/// Both continuous modes keep every viewer behaviour - virtualization,
+/// zoom/pan, current-page tracking, search and destination navigation, text
+/// selection, page overlays, links, form and annotation hit-testing, and
+/// mixed page sizes - along the chosen axis. Pages keep their true relative
+/// sizes and are centred on the cross axis.
+///
+/// The type is a value object rather than a bare enum so that further
+/// layouts (a facing/two-page mode, single-page paging) can be added as new
+/// constructors without changing [PdfViewer]'s constructor signature.
+@immutable
+class PdfPageLayout {
+  /// Pages stacked top-to-bottom, scrolling vertically (the default, and
+  /// what every earlier version of the viewer did).
+  const PdfPageLayout.verticalContinuous()
+      : _kind = _PdfPageLayoutKind.verticalContinuous;
+
+  /// Pages laid left-to-right, scrolling horizontally. The first page fills
+  /// the viewport height (rather than its width); narrower/shorter pages lay
+  /// out proportionally and are centred vertically.
+  const PdfPageLayout.horizontalContinuous()
+      : _kind = _PdfPageLayoutKind.horizontalContinuous;
+
+  final _PdfPageLayoutKind _kind;
+
+  /// The axis pages scroll along: [Axis.vertical] for
+  /// [PdfPageLayout.verticalContinuous], [Axis.horizontal] for
+  /// [PdfPageLayout.horizontalContinuous].
+  Axis get scrollAxis => _kind == _PdfPageLayoutKind.horizontalContinuous
+      ? Axis.horizontal
+      : Axis.vertical;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageLayout && other._kind == _kind;
+
+  @override
+  int get hashCode => _kind.hashCode;
+
+  @override
+  String toString() => 'PdfPageLayout.${_kind.name}';
+}
+
+enum _PdfPageLayoutKind { verticalContinuous, horizontalContinuous }
+
 /// Signature for [PdfViewer.onAction]: the user activated [annotation]
 /// (tapped a link or form button) and the viewer doesn't handle its
 /// [action] itself.
@@ -667,6 +720,7 @@ class PdfViewer extends StatefulWidget {
     this.systemImagePasteProvider,
     this.onSnapshot,
     this.pageSpacing = 12,
+    this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
     this.minZoom = 0.25,
@@ -870,6 +924,12 @@ class PdfViewer extends StatefulWidget {
   final PdfSnapshotHandler? onSnapshot;
 
   final double pageSpacing;
+
+  /// How the pages are arranged: vertical continuous (the default,
+  /// top-to-bottom) or horizontal continuous (left-to-right). See
+  /// [PdfPageLayout]. Switching it at runtime keeps the current page in
+  /// view and re-applies [initialFit] against the new axis.
+  final PdfPageLayout pageLayout;
 
   /// The zoom the document opens at: the whole first page visible
   /// (default, like desktop browser viewers) or filling the viewport
@@ -1077,7 +1137,7 @@ class _PdfViewerState extends State<PdfViewer>
   late List<double> _aspects; // height / width, after /Rotate
 
   /// Displayed width of each page in PDF points (after /Rotate + view
-  /// rotation). Pages lay out at this width times [_fitWidthScale] (and the
+  /// rotation). Pages lay out at this width times [_fitScale] (and the
   /// layout zoom), so they keep their true sizes relative to one another
   /// instead of every page filling the viewport.
   late List<double> _pointWidths;
@@ -1086,6 +1146,11 @@ class _PdfViewerState extends State<PdfViewer>
   /// layout zoom 1 this page exactly fills the viewport; narrower pages lay
   /// out proportionally narrower and centered.
   double _maxPointWidth = 0;
+
+  /// The tallest page's displayed point height - the fit-height reference
+  /// used by [PdfPageLayout.horizontalContinuous], the horizontal analogue
+  /// of [_maxPointWidth].
+  double _maxPointHeight = 0;
   // Per-page derived objects, bounded LRU so a long scroll cannot pin one
   // entry per visited page for the life of the viewer (issue #283). They are
   // warm only near the viewport (derived on hit-test/selection/search), so a
@@ -1197,7 +1262,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// gesture overshoots the content edge (rubber-band release).
   late final AnimationController _hBounceController =
       AnimationController.unbounded(vsync: this)
-        ..addListener(_onHorizontalBounceTick);
+        ..addListener(_onCrossBounceTick);
 
   /// True while a touch-originated gesture is driving horizontal pan
   /// (overlay viewport pan, touch fling, pinch). Enables rubber-band
@@ -1456,7 +1521,10 @@ class _PdfViewerState extends State<PdfViewer>
         dx = dy;
         dy = 0;
       }
-      if (zoomed) matrix.storage[12] -= dx;
+      // the primary wheel (dy) scrolls the list along its own axis - down
+      // the page vertically, across it horizontally; the secondary (dx)
+      // pans the zoom window on the cross axis
+      if (zoomed) matrix.storage[_crossTranslate] -= dx;
       if (_scroll.hasClients && dy != 0) {
         final position = _scroll.position;
         // deltas are screen pixels; the list lives under the zoom transform
@@ -1464,7 +1532,9 @@ class _PdfViewerState extends State<PdfViewer>
         final clamped =
             target.clamp(position.minScrollExtent, position.maxScrollExtent);
         if (clamped != position.pixels) position.jumpTo(clamped);
-        if (zoomed) matrix.storage[13] -= (target - clamped) * scale;
+        if (zoomed) {
+          matrix.storage[_mainTranslate] -= (target - clamped) * scale;
+        }
       }
       if (zoomed) _transform.value = _clampedTransform(matrix);
     });
@@ -1485,7 +1555,7 @@ class _PdfViewerState extends State<PdfViewer>
   void _setZoomFromController(double scale) {
     // the public zoom is logical px per point (1 = actual size); the
     // internal layout/transform machinery works in fit-width multiples
-    final target = _fitWidthScale <= 0 ? scale : scale / _fitWidthScale;
+    final target = _fitScale <= 0 ? scale : scale / _fitScale;
     _zoomTo(target, Offset(_viewWidth / 2, _viewHeight / 2));
   }
 
@@ -1495,9 +1565,9 @@ class _PdfViewerState extends State<PdfViewer>
       if (_transform.value.getMaxScaleOnAxis() > 1) {
         _transform.value = Matrix4.identity();
       }
-      _setLayoutZoom(zoom, focalY: focal.dy);
+      _setLayoutZoom(zoom, focalMain: _mainOf(focal));
     } else {
-      if (_layoutZoom < 1) _setLayoutZoom(1, focalY: focal.dy);
+      if (_layoutZoom < 1) _setLayoutZoom(1, focalMain: _mainOf(focal));
       final matrix = _transform.value.clone();
       final factor = zoom / matrix.getMaxScaleOnAxis();
       matrix
@@ -1505,18 +1575,18 @@ class _PdfViewerState extends State<PdfViewer>
         ..scaleByDouble(factor, factor, factor, 1)
         ..translateByDouble(-focal.dx, -focal.dy, 0, 1);
       _transform.value = _touchPanning
-          ? _clampedTransformVerticalOnly(matrix)
+          ? _clampedTransformMainOnly(matrix)
           : _clampedTransform(matrix);
     }
   }
 
-  /// Lays the pages out at [zoom] × fit-width (≤ 1), keeping the content
-  /// at [focalY] (viewport coordinates) as stationary as the new scroll
-  /// extents allow.
-  void _setLayoutZoom(double zoom, {double? focalY}) {
+  /// Lays the pages out at [zoom] × fit (≤ 1), keeping the content at
+  /// [focalMain] (viewport coordinates along the scroll axis) as stationary
+  /// as the new scroll extents allow.
+  void _setLayoutZoom(double zoom, {double? focalMain}) {
     final z = zoom.clamp(widget.minZoom, 1.0);
     if (z == _layoutZoom) return;
-    final anchor = focalY ?? _viewHeight / 2;
+    final anchor = focalMain ?? _mainView / 2;
     final pixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
     final target = (pixels + anchor) * (z / _layoutZoom) - anchor;
     setState(() => _layoutZoom = z);
@@ -1920,6 +1990,24 @@ class _PdfViewerState extends State<PdfViewer>
       // index-keyed disk backing, leaving it must restore (and re-prime) it
       _bindRasterCache();
     }
+    // A document swap in the same rebuild already reset the fit and scroll
+    // (above), so only re-anchor for a pure layout flip - otherwise the two
+    // branches would schedule competing post-frame scrolls.
+    if (oldWidget.pageLayout != widget.pageLayout &&
+        identical(oldWidget.document, widget.document)) {
+      // the scroll axis flipped: the fit dimension and every scroll extent
+      // change, so drop the zoom window, re-fit, and re-anchor on the page
+      // the reader was on once the new layout's extents exist.
+      final anchor = _controller.currentPage;
+      _transform.value = Matrix4.identity();
+      _layoutZoom = 1;
+      _appliedInitialFit = false;
+      _zoomed = false;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scroll.hasClients) _jumpToPage(anchor);
+      });
+      setState(() {});
+    }
     // the viewer was paused (e.g. the full-area page grid overlaid it) and is
     // foreground again - release the render hold and resume the prerender
     if (oldWidget.active != widget.active) {
@@ -2035,6 +2123,12 @@ class _PdfViewerState extends State<PdfViewer>
             : math.max(1e-6, _pages[i].cropBox.width),
     ];
     _maxPointWidth = _pointWidths.isEmpty ? 0 : _pointWidths.reduce(math.max);
+    _maxPointHeight = _pages.isEmpty
+        ? 0
+        : [
+            for (var i = 0; i < _pages.length; i++)
+              _aspects[i] * _pointWidths[i]
+          ].reduce(math.max);
   }
 
   void _onViewRotationChanged() {
@@ -2128,62 +2222,126 @@ class _PdfViewerState extends State<PdfViewer>
     super.dispose();
   }
 
-  /// Logical pixels per PDF point at the fit-width baseline ([_layoutZoom]
-  /// == 1, transform identity): the widest page exactly fills the viewport.
-  /// The public zoom is expressed against actual size (1 px/pt), so it is
-  /// this scale times the fit-width multiplier ([_currentZoom]).
-  double get _fitWidthScale => (_maxPointWidth <= 0 || _viewWidth <= 0)
-      ? 1
-      : _viewWidth / _maxPointWidth;
+  // --- layout axis ---
+  //
+  // The viewer supports two continuous layouts (see [PdfPageLayout]). Rather
+  // than duplicate every geometry/gesture path, the code is written in terms
+  // of a "main" axis (the scroll direction) and a "cross" axis (the fixed
+  // one the pages fit to and are centred on). Vertical layout is the identity
+  // case: main = Y, cross = X. Horizontal layout swaps them: main = X,
+  // cross = Y. The transform's translation storage index and the viewport
+  // extent follow the axis the same way.
 
-  /// Gesture/controller zoom clamps are expressed as fit-width multiples.
-  /// On phone-width viewports fit-width is less than actual size, so the
-  /// stock 24x fit-width cap used to top out below 2400% actual size. Keep
-  /// the default generous there without changing explicit host caps.
+  bool get _horizontal => widget.pageLayout.scrollAxis == Axis.horizontal;
+
+  /// Matrix4 translation storage index for the main (scroll) axis, and for
+  /// the cross (free-pan) axis. Column-major: index 12 is x, 13 is y.
+  int get _mainTranslate => _horizontal ? 12 : 13;
+  int get _crossTranslate => _horizontal ? 13 : 12;
+
+  /// Viewport extent along the main (scroll) and cross axes.
+  double get _mainView => _horizontal ? _viewWidth : _viewHeight;
+  double get _crossView => _horizontal ? _viewHeight : _viewWidth;
+
+  /// The main/cross components of a screen-space offset.
+  double _mainOf(Offset o) => _horizontal ? o.dx : o.dy;
+  double _crossOf(Offset o) => _horizontal ? o.dy : o.dx;
+
+  /// Builds a screen-space offset from main + cross components.
+  Offset _axisOffset(double main, double cross) =>
+      _horizontal ? Offset(main, cross) : Offset(cross, main);
+
+  /// A page's displayed size in PDF points along the cross (fit) axis and
+  /// the main (scroll) axis, after /Rotate and view rotation. Vertical:
+  /// cross = width, main = height. Horizontal swaps them.
+  double _crossPointOf(int index) =>
+      _horizontal ? _aspects[index] * _pointWidths[index] : _pointWidths[index];
+  double _mainPointOf(int index) =>
+      _horizontal ? _pointWidths[index] : _aspects[index] * _pointWidths[index];
+
+  /// The largest cross-axis point size - the fit reference (widest page for
+  /// vertical, tallest for horizontal).
+  double get _maxCrossPoint => _horizontal ? _maxPointHeight : _maxPointWidth;
+
+  /// Logical pixels per PDF point at the fit baseline ([_layoutZoom] == 1,
+  /// transform identity): the reference page exactly fills the viewport's
+  /// cross axis (its width for vertical, its height for horizontal). The
+  /// public zoom is expressed against actual size (1 px/pt), so it is this
+  /// scale times the fit multiplier ([_currentZoom]).
+  double get _fitScale => (_maxCrossPoint <= 0 || _crossView <= 0)
+      ? 1
+      : _crossView / _maxCrossPoint;
+
+  /// Gesture/controller zoom clamps are expressed as fit multiples. On small
+  /// viewports the fit scale is less than actual size, so the stock 24x cap
+  /// used to top out below 2400% actual size. Keep the default generous
+  /// there without changing explicit host caps.
   double get _effectiveMaxZoom {
     if (widget.maxZoom != _defaultMaxZoom) return widget.maxZoom;
-    final fitWidth = _fitWidthScale;
-    if (!fitWidth.isFinite || fitWidth <= 0 || fitWidth >= 1) {
+    final fit = _fitScale;
+    if (!fit.isFinite || fit <= 0 || fit >= 1) {
       return widget.maxZoom;
     }
-    return math.max(widget.maxZoom, _defaultMaxZoom / fitWidth);
+    return math.max(widget.maxZoom, _defaultMaxZoom / fit);
   }
 
   /// The on-screen scale the user sees, in logical pixels per PDF point,
   /// where 1.0 is actual size (100%) - independent of the viewport. This is
   /// what [PdfViewerController.zoom] reports.
-  double get _displayScale => _currentZoom * _fitWidthScale;
+  double get _displayScale => _currentZoom * _fitScale;
 
-  /// The on-screen width of page [index] in the scroll list (logical
-  /// pixels), sized by its real point width so pages keep their true sizes
-  /// relative to one another rather than all stretching to the viewport.
-  double _pageWidth(int index) =>
-      _pointWidths[index] * _fitWidthScale * _layoutZoom;
+  /// A page's on-screen size (logical pixels) along the cross (fit) and main
+  /// (scroll) axes. Pages keep their true sizes relative to one another
+  /// rather than all stretching to the viewport.
+  double _pageCross(int index) =>
+      _crossPointOf(index) * _fitScale * _layoutZoom;
+  double _pageMain(int index) => _mainPointOf(index) * _fitScale * _layoutZoom;
 
-  /// Page rows fill the viewport width and center the page; this is the
-  /// page's left inset inside its row (0 for the widest page at fit-width).
-  double _pageLeft(int index) => (_viewWidth - _pageWidth(index)) / 2;
+  /// The page's inset along the cross axis: pages are centred on it (0 for
+  /// the reference page at fit).
+  double _crossInsetOf(int index) => (_crossView - _pageCross(index)) / 2;
 
-  /// The fraction of the viewport width page [index] occupies at the
-  /// current layout zoom - its real width relative to the widest page.
-  double _widthFactor(int index) =>
-      (_maxPointWidth <= 0 ? 1.0 : _pointWidths[index] / _maxPointWidth) *
-      _layoutZoom;
-
-  double _pageHeight(int index) => _aspects[index] * _pageWidth(index);
-
-  double _pageOffset(int index) {
+  /// The cumulative main-axis (scroll) offset at which page [index] begins.
+  double _mainOffsetOf(int index) {
     var offset = 0.0;
     for (var i = 0; i < index; i++) {
-      offset += _pageHeight(i) + widget.pageSpacing;
+      offset += _pageMain(i) + widget.pageSpacing;
     }
     return offset;
   }
 
+  /// The on-screen width of page [index] (logical pixels). Horizontal =
+  /// main size, vertical = cross size.
+  double _pageWidth(int index) =>
+      _horizontal ? _pageMain(index) : _pageCross(index);
+
+  /// The on-screen height of page [index] (logical pixels). Horizontal =
+  /// cross size, vertical = main size.
+  double _pageHeight(int index) =>
+      _horizontal ? _pageCross(index) : _pageMain(index);
+
+  /// The page's top-left corner in list (pre-transform) space: the cross
+  /// centring inset on one axis, the cumulative scroll offset on the other.
+  double _pageContentX(int index) =>
+      _horizontal ? _mainOffsetOf(index) : _crossInsetOf(index);
+  double _pageContentY(int index) =>
+      _horizontal ? _crossInsetOf(index) : _mainOffsetOf(index);
+
+  /// The list-space rect page [index] occupies.
+  Rect _pageContentRect(int index) => Rect.fromLTWH(_pageContentX(index),
+      _pageContentY(index), _pageWidth(index), _pageHeight(index));
+
+  /// The cross-axis size fraction page [index] fills at the current layout
+  /// zoom (its real cross size relative to the reference page) - the factor
+  /// for the [FractionallySizedBox] that centres it.
+  double _crossFactor(int index) =>
+      (_maxCrossPoint <= 0 ? 1.0 : _crossPointOf(index) / _maxCrossPoint) *
+      _layoutZoom;
+
   /// A page's slot extent in the scroll list, mirroring [itemExtentBuilder]:
   /// the leading [PdfViewer.pageSpacing] belongs to every page but the first.
   double _scrollExtentOf(int index) =>
-      _pageHeight(index) + (index == 0 ? 0 : widget.pageSpacing);
+      _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing);
 
   /// The list-space offset at which page [index]'s slot begins.
   double _slotStart(int index) {
@@ -2264,15 +2422,15 @@ class _PdfViewerState extends State<PdfViewer>
     }
     final matrix = _transform.value;
     final scale = matrix.getMaxScaleOnAxis();
-    // Unproject the screen centre through the zoom window. The old
-    // scroll+viewport/2 calculation was only valid while the transform's
-    // vertical translation sat at its focal-centred default.
+    // Unproject the screen centre (along the scroll axis) through the zoom
+    // window. The old scroll+viewport/2 calculation was only valid while the
+    // transform's main-axis translation sat at its focal-centred default.
     final center = _scroll.offset +
-        (_viewHeight / 2 - matrix.storage[13]) /
+        (_mainView / 2 - matrix.storage[_mainTranslate]) /
             (scale.isFinite && scale > 0 ? scale : 1.0);
     var offset = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      offset += _pageHeight(i) + widget.pageSpacing;
+      offset += _pageMain(i) + widget.pageSpacing;
       if (center < offset) {
         _controller._setCurrentPage(i);
         return;
@@ -2288,11 +2446,11 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   /// While zoomed in, the screen viewport sees list space starting at
-  /// (pixels − t_y)/s (see _visibleFractionOf) - scroll targets must
-  /// shift by t_y/s, or every jump lands above where the user looks.
-  double get _zoomWindowDy {
+  /// (pixels − t_main)/s (see _visibleFractionOf) - scroll targets must
+  /// shift by t_main/s, or every jump lands off where the user looks.
+  double get _zoomWindowMain {
     final m = _transform.value;
-    return m.storage[13] / m.getMaxScaleOnAxis();
+    return m.storage[_mainTranslate] / m.getMaxScaleOnAxis();
   }
 
   Future<void> _jumpToPage(
@@ -2304,10 +2462,10 @@ class _PdfViewerState extends State<PdfViewer>
     final targetIndex = index.clamp(0, _pages.length - 1);
     _jumpFocusPage = targetIndex;
     _renderScheduler.focus = targetIndex;
-    final target = _pageOffset(targetIndex) + _zoomWindowDy;
+    final target = _mainOffsetOf(targetIndex) + _zoomWindowMain;
     final clamped = target.clamp(0.0, _scroll.position.maxScrollExtent);
     final distance = (clamped - _scroll.position.pixels).abs();
-    if (distance > math.max(_viewHeight * 2, 2400.0)) {
+    if (distance > math.max(_mainView * 2, 2400.0)) {
       _warmJumpTargetPreview(targetIndex);
       _scroll.jumpTo(clamped);
       return;
@@ -2375,28 +2533,31 @@ class _PdfViewerState extends State<PdfViewer>
   PdfViewport? _captureViewport() {
     if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return null;
     // the InteractiveViewer transform is scale + translation only, so the
-    // viewport's top-left unprojects to list space as (p - t) / s (see
-    // _visibleFractionOf)
+    // viewport's leading corner unprojects to list space as (p - t) / s (see
+    // _visibleFractionOf). PdfViewport.top holds the fraction along the
+    // scroll (main) axis, .left the fraction along the cross axis.
     final m = _transform.value;
     final scale = m.getMaxScaleOnAxis();
-    final viewTop = -m.storage[13] / scale + _scroll.position.pixels;
-    final viewLeft = -m.storage[12] / scale;
-    var top = 0.0;
+    final viewMain =
+        -m.storage[_mainTranslate] / scale + _scroll.position.pixels;
+    final viewCross = -m.storage[_crossTranslate] / scale;
+    var mainStart = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      final height = _pageHeight(i);
-      if (viewTop < top + height + widget.pageSpacing ||
+      final pageMain = _pageMain(i);
+      if (viewMain < mainStart + pageMain + widget.pageSpacing ||
           i == _pages.length - 1) {
-        final pageWidth = _pageWidth(i);
+        final pageCross = _pageCross(i);
         // fractions are layout-zoom independent: numerator and page size
         // scale together
         return PdfViewport(
           page: i,
-          top: height <= 0 ? 0 : (viewTop - top) / height,
-          left: pageWidth <= 0 ? 0 : (viewLeft - _pageLeft(i)) / pageWidth,
+          top: pageMain <= 0 ? 0 : (viewMain - mainStart) / pageMain,
+          left:
+              pageCross <= 0 ? 0 : (viewCross - _crossInsetOf(i)) / pageCross,
           zoom: _currentZoom,
         );
       }
-      top += height + widget.pageSpacing;
+      mainStart += pageMain + widget.pageSpacing;
     }
     return null;
   }
@@ -2436,26 +2597,28 @@ class _PdfViewerState extends State<PdfViewer>
   /// extents.
   void _placeViewport(PdfViewport viewport, int page) {
     if (_viewWidth <= 0 || _pages.isEmpty) return;
-    final listTop = _pageOffset(page) + viewport.top * _pageHeight(page);
+    final listMain = _mainOffsetOf(page) + viewport.top * _pageMain(page);
     final maxScroll = _scroll.position.maxScrollExtent;
     if (viewport.zoom <= 1) {
       _transform.value = Matrix4.identity();
-      _scroll.jumpTo(listTop.clamp(0.0, maxScroll));
+      _scroll.jumpTo(listMain.clamp(0.0, maxScroll));
     } else {
-      // zoom above fit-width rides the transform over fit-width pages, so
-      // the page is the full viewport width here (see _zoomTo)
+      // zoom above fit rides the transform over fit-laid-out pages (see
+      // _zoomTo). Solve (p - t) / s = target for each translation, matching
+      // the unprojection in _captureViewport / _visibleFractionOf; the page
+      // is centred on the cross axis, so its leading cross edge sits at
+      // _crossInsetOf and the stored fraction is into the page's own size.
       final scale = viewport.zoom.clamp(1.0, _effectiveMaxZoom);
-      final scroll = listTop.clamp(0.0, maxScroll);
-      // solve (p - t) / s = target for the translation, matching the
-      // unprojection in _captureViewport / _visibleFractionOf; the page is
-      // centered in the viewport-wide list, so its left edge sits at
-      // _pageLeft and the stored fraction is into the page's own width
-      final pageView = _pageLeft(page) + viewport.left * _pageWidth(page);
-      final tx = (-scale * pageView).clamp(_viewWidth * (1 - scale), 0.0);
-      final ty =
-          (scale * (scroll - listTop)).clamp(_viewHeight * (1 - scale), 0.0);
+      final scroll = listMain.clamp(0.0, maxScroll);
+      final crossView = _crossInsetOf(page) + viewport.left * _pageCross(page);
+      final tCross =
+          (-scale * crossView).clamp(_crossView * (1 - scale), 0.0);
+      final tMain =
+          (scale * (scroll - listMain)).clamp(_mainView * (1 - scale), 0.0);
+      final translate =
+          _axisOffset(tMain, tCross); // (main,cross) -> (x,y) storage
       _transform.value = Matrix4.identity()
-        ..translateByDouble(tx, ty, 0, 1)
+        ..translateByDouble(translate.dx, translate.dy, 0, 1)
         ..scaleByDouble(scale, scale, scale, 1);
       _scroll.jumpTo(scroll);
       setState(() => _zoomed = scale > 1.01);
@@ -2487,13 +2650,15 @@ class _PdfViewerState extends State<PdfViewer>
       viewSize: Size(pageWidth, _pageHeight(index)),
     );
     final target = geometry.toViewRect(rect);
-    // list space: pages are centered horizontally and stacked vertically
-    final center = target.center + Offset(_pageLeft(index), _pageOffset(index));
+    // list space: pages are centred on the cross axis and laid out along the
+    // main (scroll) axis
+    final center = target.center +
+        Offset(_pageContentX(index), _pageContentY(index));
     final fit = 0.4 *
         math.min(_viewWidth / math.max(target.width, 8),
             _viewHeight / math.max(target.height, 8));
     final scale = fit.clamp(1.0, _effectiveMaxZoom);
-    final scroll = (center.dy - _viewHeight / 2)
+    final scroll = (_mainOf(center) - _mainView / 2)
         .clamp(0.0, _scroll.position.maxScrollExtent);
     final Matrix4 end;
     if (scale <= 1.01) {
@@ -2502,12 +2667,13 @@ class _PdfViewerState extends State<PdfViewer>
       // the viewport unprojects to list space as (p - t) / s (see
       // _visibleFractionOf); solve its center = `center` for t, with the
       // scroll offset the list actually reaches
-      final tx = (_viewWidth / 2 - scale * center.dx)
-          .clamp(_viewWidth * (1 - scale), 0.0);
-      final ty = (scale * (scroll - center.dy) + _viewHeight / 2)
-          .clamp(_viewHeight * (1 - scale), 0.0);
+      final tCross = (_crossView / 2 - scale * _crossOf(center))
+          .clamp(_crossView * (1 - scale), 0.0);
+      final tMain = (scale * (scroll - _mainOf(center)) + _mainView / 2)
+          .clamp(_mainView * (1 - scale), 0.0);
+      final translate = _axisOffset(tMain, tCross);
       end = Matrix4.identity()
-        ..translateByDouble(tx, ty, 0, 1)
+        ..translateByDouble(translate.dx, translate.dy, 0, 1)
         ..scaleByDouble(scale, scale, scale, 1);
     }
     _zoomAnimation = Matrix4Tween(begin: _transform.value, end: end).animate(
@@ -2605,17 +2771,18 @@ class _PdfViewerState extends State<PdfViewer>
       return null;
     }
     // the InteractiveViewer transform is scale + translation only, so the
-    // viewport unprojects to list space as (p - t) / s
+    // viewport unprojects to list space as (p - t) / s; the scroll offset
+    // adds along the main (scroll) axis only
     final m = _transform.value;
     final scale = m.getMaxScaleOnAxis();
+    final base = _scroll.position.pixels;
     final view = Rect.fromLTWH(
-      -m.storage[12] / scale,
-      -m.storage[13] / scale + _scroll.position.pixels,
+      -m.storage[12] / scale + (_horizontal ? base : 0),
+      -m.storage[13] / scale + (_horizontal ? 0 : base),
       _viewWidth / scale,
       _viewHeight / scale,
     );
-    final pageRect = Rect.fromLTWH(_pageLeft(index), _pageOffset(index),
-        _pageWidth(index), _pageHeight(index));
+    final pageRect = _pageContentRect(index);
     if (pageRect.isEmpty) return null;
     final overlap = view.intersect(pageRect);
     if (overlap.width <= 0 || overlap.height <= 0) return null;
@@ -2632,24 +2799,25 @@ class _PdfViewerState extends State<PdfViewer>
   /// user space.
   (int, double, double)? _pagePointAt(Offset local) {
     if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return null;
-    final contentY = _scroll.offset + local.dy;
-    var top = 0.0;
+    // list space: the scroll offset is only along the main axis
+    final contentMain = _scroll.offset + _mainOf(local);
+    final point = _axisOffset(contentMain, _crossOf(local));
+    var mainStart = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      final height = _pageHeight(i);
-      if (contentY <= top + height || i == _pages.length - 1) {
+      final pageMain = _pageMain(i);
+      if (contentMain <= mainStart + pageMain || i == _pages.length - 1) {
         final box = _pages[i].cropBox;
         if (box.width <= 0 || box.height <= 0) return null;
-        final pageWidth = _pageWidth(i);
         final geometry = PdfPageGeometry(
           cropBox: box,
           rotation: _pages[i].rotation,
-          viewSize: Size(pageWidth, height),
+          viewSize: Size(_pageWidth(i), _pageHeight(i)),
         );
-        final (x, y) = geometry
-            .toPagePoint(Offset(local.dx - _pageLeft(i), contentY - top));
+        final (x, y) = geometry.toPagePoint(
+            point - Offset(_pageContentX(i), _pageContentY(i)));
         return (i, x, y);
       }
-      top += height + widget.pageSpacing;
+      mainStart += pageMain + widget.pageSpacing;
     }
     return null;
   }
@@ -2663,16 +2831,18 @@ class _PdfViewerState extends State<PdfViewer>
   /// claim those canvas drags while leaving page gestures to the editor.
   bool _pageContainsListPoint(Offset local) {
     if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return false;
-    final contentY = _scroll.offset + local.dy;
-    var top = 0.0;
+    final contentMain = _scroll.offset + _mainOf(local);
+    final contentCross = _crossOf(local);
+    var mainStart = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      final height = _pageHeight(i);
-      if (contentY < top) return false; // the spacing before this page
-      if (contentY <= top + height) {
-        final left = _pageLeft(i);
-        return local.dx >= left && local.dx <= left + _pageWidth(i);
+      final pageMain = _pageMain(i);
+      if (contentMain < mainStart) return false; // the spacing before it
+      if (contentMain <= mainStart + pageMain) {
+        final crossStart = _crossInsetOf(i);
+        return contentCross >= crossStart &&
+            contentCross <= crossStart + _pageCross(i);
       }
-      top += height + widget.pageSpacing;
+      mainStart += pageMain + widget.pageSpacing;
     }
     return false;
   }
@@ -2713,11 +2883,12 @@ class _PdfViewerState extends State<PdfViewer>
     // [from] is the picture's source anchor and must stay in source view
     // space (paintAnnotationDragPreview places the picture relative to it);
     // only [to] moves into this page's view space. Pages of different sizes
-    // sit at different left insets in the centered row, so shift x as well
-    // as y when mapping between their view spaces.
-    final dy = _pageTop(preview.pageIndex) - _pageTop(index);
-    final dx = _pageLeft(preview.pageIndex) - _pageLeft(index);
-    final to = preview.to.shift(Offset(dx, dy));
+    // sit at different insets in the centred row/column, so shift by the
+    // difference of their content-space top-left corners.
+    final to = preview.to.shift(Offset(
+      _pageContentX(preview.pageIndex) - _pageContentX(index),
+      _pageContentY(preview.pageIndex) - _pageContentY(index),
+    ));
     final pageBox = Offset.zero & Size(_pageWidth(index), _pageHeight(index));
     if (!to.overlaps(pageBox)) return null;
     return PdfMoveDragPreview(
@@ -2727,15 +2898,6 @@ class _PdfViewerState extends State<PdfViewer>
       to: to,
       scale: preview.scale,
     );
-  }
-
-  /// The cumulative top offset (list coordinates) of page [index].
-  double _pageTop(int index) {
-    var top = 0.0;
-    for (var i = 0; i < index; i++) {
-      top += _pageHeight(i) + widget.pageSpacing;
-    }
-    return top;
   }
 
   /// The laid-out geometry of page [index], or null when it isn't
@@ -2756,10 +2918,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// marquee dragged past the page edge still maps to sensible (possibly
   /// out-of-page) user-space coordinates.
   Offset _toPageView(int index, Offset local) {
-    return Offset(
-      local.dx - _pageLeft(index),
-      _scroll.offset + local.dy - _pageTop(index),
-    );
+    final content =
+        _axisOffset(_scroll.offset + _mainOf(local), _crossOf(local));
+    return content - Offset(_pageContentX(index), _pageContentY(index));
   }
 
   /// Maps a pointer position to a text position. [tolerance] is in page
@@ -3239,12 +3400,24 @@ class _PdfViewerState extends State<PdfViewer>
   void _scrollToDestination(PdfDestination destination) {
     if (!_scroll.hasClients) return;
     final index = destination.pageIndex.clamp(0, _pages.length - 1);
-    var target = _pageOffset(index) + _zoomWindowDy;
+    var target = _mainOffsetOf(index) + _zoomWindowMain;
     final box = _pages[index].cropBox;
-    final top = destination.top;
-    if (top != null && box.height > 0) {
-      final fractionDown = ((box.top - top) / box.height).clamp(0.0, 1.0);
-      target += fractionDown * _pageHeight(index);
+    // The destination's main-axis offset into the page: a /FitH-style top
+    // (vertical) drives a vertical layout's scroll; a horizontal layout
+    // scrolls to the destination's left (horizontal) instead. The other
+    // axis is fully in view at fit, so it is left to the zoom window.
+    if (_horizontal) {
+      final left = destination.left;
+      if (left != null && box.width > 0) {
+        final fraction = ((left - box.left) / box.width).clamp(0.0, 1.0);
+        target += fraction * _pageMain(index);
+      }
+    } else {
+      final top = destination.top;
+      if (top != null && box.height > 0) {
+        final fraction = ((box.top - top) / box.height).clamp(0.0, 1.0);
+        target += fraction * _pageMain(index);
+      }
     }
     _scroll.animateTo(
       target.clamp(0.0, _scroll.position.maxScrollExtent),
@@ -3885,18 +4058,18 @@ class _PdfViewerState extends State<PdfViewer>
   /// transform); the scroll extents absorb what they can and the rest
   /// pans the zoom window, like the scrollbars.
   void _grabPanBy(Offset delta) {
-    _scrollbarScrollBy(-delta.dy);
-    _scrollbarPanBy(-delta.dx);
+    _scrollbarScrollBy(-_mainOf(delta));
+    _scrollbarPanBy(-_crossOf(delta));
   }
 
   /// Grab panning from a touch gesture - allows rubber-band over-scroll
-  /// on the horizontal axis so the edge doesn't snap.
+  /// on the cross axis so the edge doesn't snap.
   void _touchGrabPanBy(Offset delta) {
     _touchPanning = true;
     _beginMotionRenderHold();
     _hBounceController.stop();
-    _scrollbarScrollBy(-delta.dy);
-    _scrollbarPanBy(-delta.dx);
+    _scrollbarScrollBy(-_mainOf(delta));
+    _scrollbarPanBy(-_crossOf(delta));
   }
 
   /// How thick the viewport's auto-scroll edge band is (logical px) and how
@@ -3954,7 +4127,7 @@ class _PdfViewerState extends State<PdfViewer>
     _hBounceController.stop();
     final v = velocity.pixelsPerSecond;
     if (v.distance < kMinFlingVelocity) {
-      _springBackHorizontal();
+      _springBackCross();
       return;
     }
     _flingSimX =
@@ -3992,7 +4165,7 @@ class _PdfViewerState extends State<PdfViewer>
   void _onTouchFlingStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed ||
         status == AnimationStatus.dismissed) {
-      _springBackHorizontal();
+      _springBackCross();
     }
   }
 
@@ -4053,13 +4226,21 @@ class _PdfViewerState extends State<PdfViewer>
     if (!_scroll.hasClients || _viewWidth <= 0) return;
     final page = _pages[match.pageIndex];
     final box = page.cropBox;
-    var target = _pageOffset(match.pageIndex) + _zoomWindowDy;
-    if (match.rects.isNotEmpty && box.height > 0) {
-      // place the match a third of the way down the screen viewport -
-      // which, zoomed in, covers 1/s of the list's space
+    var target = _mainOffsetOf(match.pageIndex) + _zoomWindowMain;
+    if (match.rects.isNotEmpty) {
+      // place the match a third of the way into the screen viewport along
+      // the scroll axis - which, zoomed in, covers 1/s of the list's space
       final scale = _transform.value.getMaxScaleOnAxis();
-      final fractionDown = (box.top - match.rects.first.top) / box.height;
-      target += fractionDown * _pageHeight(match.pageIndex) -
+      final rect = match.rects.first;
+      // fraction along the main (scroll) axis: down the page for a vertical
+      // layout, across it for a horizontal one
+      final double fraction;
+      if (_horizontal) {
+        fraction = box.width > 0 ? (rect.left - box.left) / box.width : 0;
+      } else {
+        fraction = box.height > 0 ? (box.top - rect.top) / box.height : 0;
+      }
+      target += fraction * _pageMain(match.pageIndex) -
           _scroll.position.viewportDimension / (3 * scale);
     }
     _scroll.animateTo(
@@ -4122,7 +4303,7 @@ class _PdfViewerState extends State<PdfViewer>
     if ((current - 1).abs() > 0.01) {
       // from any zoom - in or out - back to 100%
       if (_layoutZoom < 1) {
-        _setLayoutZoom(1, focalY: details.localPosition.dy);
+        _setLayoutZoom(1, focalMain: _mainOf(details.localPosition));
       }
       end = Matrix4.identity();
       zoomedAfter = false;
@@ -4178,7 +4359,7 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _onPinchEnd(ScaleEndDetails details) {
     _settleZoomGesture();
-    _springBackHorizontal();
+    _springBackCross();
   }
 
   /// A one-finger touch pan after zoom must drive both the list scroll extent
@@ -4202,7 +4383,7 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _onZoomedTouchPanCancel() {
-    _springBackHorizontal();
+    _springBackCross();
   }
 
   bool _zoomedTouchPanEnabledAt(Offset localPosition) {
@@ -4226,9 +4407,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// Settles a finished zoom gesture into the layout/transform regime
   /// split: total zoom at or below 1 lives in the page layout, above 1
   /// in the InteractiveViewer transform. Shared by touch pinches and
-  /// InteractiveViewer's own gesture end. Vertical translation is always
-  /// hard-clamped; horizontal is left untouched so [_springBackHorizontal]
-  /// can animate it back smoothly.
+  /// InteractiveViewer's own gesture end. The main (scroll) translation is
+  /// always hard-clamped; the cross axis is left untouched so
+  /// [_springBackCross] can animate it back smoothly.
   void _settleZoomGesture() {
     final total = _transform.value.getMaxScaleOnAxis() * _layoutZoom;
     if (total <= 1) {
@@ -4242,10 +4423,10 @@ class _PdfViewerState extends State<PdfViewer>
         ..translateByDouble(_viewWidth / 2, _viewHeight / 2, 0, 1)
         ..scaleByDouble(fold, fold, fold, 1)
         ..translateByDouble(-_viewWidth / 2, -_viewHeight / 2, 0, 1);
-      _transform.value = _clampedTransformVerticalOnly(matrix);
+      _transform.value = _clampedTransformMainOnly(matrix);
     } else {
       _transform.value =
-          _clampedTransformVerticalOnly(_transform.value.clone());
+          _clampedTransformMainOnly(_transform.value.clone());
     }
     final zoomed = _transform.value.getMaxScaleOnAxis() > 1.01;
     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
@@ -4254,11 +4435,11 @@ class _PdfViewerState extends State<PdfViewer>
   // --- trackpad gestures ---
   //
   // A dedicated recognizer owns every trackpad pan-zoom gesture (see
-  // _TrackpadPanRecognizer): vertical deltas scroll the list 1:1 with the
+  // _TrackpadPanRecognizer): main-axis deltas scroll the list 1:1 with the
   // fingers on screen (spilling into the zoom window's translation at the
   // scroll extents, so the document's ends stay reachable while zoomed),
-  // horizontal deltas pan the zoom window, and pinch zooms around the
-  // gesture's focal point. Lifting off feeds vertical velocity back through
+  // cross-axis deltas pan the zoom window, and pinch zooms around the
+  // gesture's focal point. Lifting off feeds main-axis velocity back through
   // the same direct pan path as live scrolling; the list's ScrollPhysics may
   // be disabled while editing, but trackpad momentum should still continue.
 
@@ -4314,19 +4495,21 @@ class _PdfViewerState extends State<PdfViewer>
 
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
-    matrix.storage[12] += delta.dx;
+    // cross axis: pan the zoom window directly
+    matrix.storage[_crossTranslate] += _crossOf(delta);
 
-    // vertical: scroll the list (deltas are screen pixels; the list lives
+    // main axis: scroll the list (deltas are screen pixels; the list lives
     // under the zoom transform). Whatever the extents can't absorb pans
-    // the zoom window instead, so the very top and bottom of the document
-    // are reachable at any zoom.
-    if (_scroll.hasClients && delta.dy != 0) {
+    // the zoom window instead, so the very ends of the document are
+    // reachable at any zoom.
+    final mainDelta = _mainOf(delta);
+    if (_scroll.hasClients && mainDelta != 0) {
       final position = _scroll.position;
-      final target = position.pixels - delta.dy / scale;
+      final target = position.pixels - mainDelta / scale;
       final clamped =
           target.clamp(position.minScrollExtent, position.maxScrollExtent);
       if (clamped != position.pixels) position.jumpTo(clamped);
-      matrix.storage[13] += (clamped - target) * scale;
+      matrix.storage[_mainTranslate] += (clamped - target) * scale;
     }
     _transform.value = _clampedTransform(matrix);
   }
@@ -4344,25 +4527,28 @@ class _PdfViewerState extends State<PdfViewer>
       _scheduleMotionRenderHoldRelease();
       return;
     }
-    // Continue vertical momentum through the same direct path used during
+    // Continue main-axis momentum through the same direct path used during
     // the gesture. `goBallistic` is tempting here, but it goes through the
     // list's ScrollPhysics; with an edit tool armed those physics are
     // deliberately NeverScrollable, so a real trackpad fling stops as if it
     // had hit an edge.
-    if (_scroll.hasClients && velocity.dy.abs() > kMinFlingVelocity) {
-      _flingViewport(Velocity(pixelsPerSecond: Offset(0, velocity.dy / scale)));
+    final mainVel = _mainOf(velocity);
+    final crossVel = _crossOf(velocity);
+    if (_scroll.hasClients && mainVel.abs() > kMinFlingVelocity) {
+      _flingViewport(
+          Velocity(pixelsPerSecond: _axisOffset(mainVel / scale, 0)));
     }
-    // horizontal momentum continues in the zoom window's translation,
-    // with the same friction InteractiveViewer uses for its flings
-    if (zoomed && velocity.dx.abs() > kMinFlingVelocity) {
+    // cross-axis momentum continues in the zoom window's translation, with
+    // the same friction InteractiveViewer uses for its flings
+    if (zoomed && crossVel.abs() > kMinFlingVelocity) {
       _panFlinger.animateWith(FrictionSimulation(
-          0.0000135, _transform.value.storage[12], velocity.dx));
+          0.0000135, _transform.value.storage[_crossTranslate], crossVel));
     }
     _scheduleMotionRenderHoldRelease();
   }
 
-  /// One frame of the horizontal fling: moves the zoom window's
-  /// x-translation along the friction simulation, stopping at the edges.
+  /// One frame of the cross-axis fling: moves the zoom window's free
+  /// translation along the friction simulation, stopping at the edges.
   void _onPanFlingTick() {
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
@@ -4370,9 +4556,9 @@ class _PdfViewerState extends State<PdfViewer>
       _panFlinger.stop();
       return;
     }
-    final min = _viewWidth * (1 - scale);
+    final min = _crossView * (1 - scale);
     final value = _panFlinger.value;
-    matrix.storage[12] = value.clamp(min, 0.0);
+    matrix.storage[_crossTranslate] = value.clamp(min, 0.0);
     _transform.value = matrix;
     if (value <= min || value >= 0) _panFlinger.stop();
   }
@@ -4389,50 +4575,51 @@ class _PdfViewerState extends State<PdfViewer>
     return matrix;
   }
 
-  /// Like [_clampedTransform] but only clamps the vertical axis, leaving
-  /// the horizontal translation untouched (for rubber-band over-scroll).
-  Matrix4 _clampedTransformVerticalOnly(Matrix4 matrix) {
+  /// Like [_clampedTransform] but only clamps the main (scroll) axis,
+  /// leaving the cross translation untouched (for rubber-band over-scroll).
+  Matrix4 _clampedTransformMainOnly(Matrix4 matrix) {
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return Matrix4.identity();
     final s = matrix.storage;
-    s[13] = s[13].clamp(_viewHeight * (1 - scale), 0.0);
+    s[_mainTranslate] =
+        s[_mainTranslate].clamp(_mainView * (1 - scale), 0.0);
     return matrix;
   }
 
-  /// Rubber-band damping for the horizontal translation: within bounds
-  /// returns [tx] unchanged; past the edge, excess motion is dampened
+  /// Rubber-band damping for the cross-axis translation: within bounds
+  /// returns [t] unchanged; past the edge, excess motion is dampened
   /// logarithmically (the further past the edge, the harder it resists).
   /// Matches the iOS UIScrollView rubber-band feel.
-  double _rubberBandClamp(double tx, double scale) {
-    final min = _viewWidth * (1 - scale);
-    if (tx >= min && tx <= 0) return tx;
-    final limit = _viewWidth * 0.5;
-    if (tx > 0) {
-      return limit * (1 - math.exp(-tx / limit));
+  double _rubberBandClamp(double t, double scale) {
+    final min = _crossView * (1 - scale);
+    if (t >= min && t <= 0) return t;
+    final limit = _crossView * 0.5;
+    if (t > 0) {
+      return limit * (1 - math.exp(-t / limit));
     } else {
-      final overshoot = min - tx;
+      final overshoot = min - t;
       return min - limit * (1 - math.exp(-overshoot / limit));
     }
   }
 
-  /// How far the horizontal translation is past the content bounds (> 0
+  /// How far the cross-axis translation is past the content bounds (> 0
   /// means overshot), or 0 when within bounds.
-  double _horizontalOverscroll() {
+  double _crossOverscroll() {
     final matrix = _transform.value;
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return 0;
-    final tx = matrix.storage[12];
-    final min = _viewWidth * (1 - scale);
-    if (tx > 0) return tx;
-    if (tx < min) return tx - min;
+    final t = matrix.storage[_crossTranslate];
+    final min = _crossView * (1 - scale);
+    if (t > 0) return t;
+    if (t < min) return t - min;
     return 0;
   }
 
-  /// If the horizontal translation is past the content edge, animates it
+  /// If the cross-axis translation is past the content edge, animates it
   /// back with a spring. Called when a touch gesture ends.
-  void _springBackHorizontal() {
+  void _springBackCross() {
     _touchPanning = false;
-    final overscroll = _horizontalOverscroll();
+    final overscroll = _crossOverscroll();
     if (overscroll.abs() < 0.5) {
       // close enough - just clamp
       if (overscroll != 0) {
@@ -4441,27 +4628,27 @@ class _PdfViewerState extends State<PdfViewer>
       _scheduleMotionRenderHoldRelease();
       return;
     }
-    final tx = _transform.value.storage[12];
+    final t = _transform.value.storage[_crossTranslate];
     final scale = _transform.value.getMaxScaleOnAxis();
-    final min = _viewWidth * (1 - scale);
-    final target = tx > 0 ? 0.0 : min;
+    final min = _crossView * (1 - scale);
+    final target = t > 0 ? 0.0 : min;
     _hBounceController
-        .animateWith(SpringSimulation(_hBounceSpring, tx, target, 0));
+        .animateWith(SpringSimulation(_hBounceSpring, t, target, 0));
     _scheduleMotionRenderHoldRelease();
   }
 
   static const SpringDescription _hBounceSpring =
       SpringDescription(mass: 1, stiffness: 400, damping: 30);
 
-  void _onHorizontalBounceTick() {
+  void _onCrossBounceTick() {
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) {
       _hBounceController.stop();
       return;
     }
-    matrix.storage[12] = _hBounceController.value;
-    _transform.value = _clampedTransformVerticalOnly(matrix);
+    matrix.storage[_crossTranslate] = _hBounceController.value;
+    _transform.value = _clampedTransformMainOnly(matrix);
   }
 
   /// Scrollbar motion, in list-space pixels: the scroll extents absorb
@@ -4478,27 +4665,27 @@ class _PdfViewerState extends State<PdfViewer>
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
     if (scale > 1.01) {
-      matrix.storage[13] += (clamped - target) * scale;
+      matrix.storage[_mainTranslate] += (clamped - target) * scale;
       _transform.value = _touchPanning
-          ? _clampedTransformVerticalOnly(matrix)
+          ? _clampedTransformMainOnly(matrix)
           : _clampedTransform(matrix);
     }
   }
 
-  /// Horizontal scrollbar motion, in list-space pixels. Sideways overflow
-  /// exists only inside the zoom window, so this pans the transform.
-  /// During a touch gesture ([_touchPanning]) the clamp is replaced by
-  /// rubber-band resistance so the edge doesn't snap.
+  /// Cross-axis (zoom-window) pan, in list-space pixels. Cross-axis overflow
+  /// exists only inside the zoom window, so this pans the transform. During
+  /// a touch gesture ([_touchPanning]) the clamp is replaced by rubber-band
+  /// resistance so the edge doesn't snap.
   void _scrollbarPanBy(double delta) {
     final matrix = _transform.value.clone();
     final scale = matrix.getMaxScaleOnAxis();
     if (scale <= 1.01) return;
-    final tx = matrix.storage[12] - delta * scale;
+    final t = matrix.storage[_crossTranslate] - delta * scale;
     if (_touchPanning) {
-      matrix.storage[12] = _rubberBandClamp(tx, scale);
-      _transform.value = _clampedTransformVerticalOnly(matrix);
+      matrix.storage[_crossTranslate] = _rubberBandClamp(t, scale);
+      _transform.value = _clampedTransformMainOnly(matrix);
     } else {
-      matrix.storage[12] = tx;
+      matrix.storage[_crossTranslate] = t;
       _transform.value = _clampedTransform(matrix);
     }
   }
@@ -4522,6 +4709,14 @@ class _PdfViewerState extends State<PdfViewer>
     );
   }
 
+  /// Anchors a [PdfScrollbar] to the viewer edge for its orientation: a
+  /// vertical bar to the right (full height), a horizontal bar to the bottom
+  /// (inset so the bottom-right corner belongs to the vertical bar).
+  Widget _positionedScrollbar(PdfScrollbar bar) => bar.axis == Axis.vertical
+      ? Positioned(top: 0, bottom: 0, right: 0, child: bar)
+      : Positioned(
+          left: 0, right: PdfScrollbar.hitExtent, bottom: 0, child: bar);
+
   @override
   Widget build(BuildContext context) {
     assert(
@@ -4541,11 +4736,16 @@ class _PdfViewerState extends State<PdfViewer>
     final marqueeColor = PdfViewerTheme.of(context).annotationChromeColor ??
         const Color(0xFF1E88E5);
     return LayoutBuilder(builder: (context, constraints) {
-      // _viewWidth still holds the previous layout's width here; a change
-      // rescales every page, so pin the reading position before adopting it
-      // (skips the very first layout, where there is nothing to preserve).
+      // _viewWidth/_viewHeight still hold the previous layout's size here; a
+      // change to the cross (fit) dimension rescales every page, so pin the
+      // reading position before adopting it (skips the very first layout,
+      // where there is nothing to preserve).
+      final newCross =
+          _horizontal ? constraints.maxHeight : constraints.maxWidth;
+      final oldCross = _horizontal ? _viewHeight : _viewWidth;
       if (_viewWidth > 0 &&
-          constraints.maxWidth != _viewWidth &&
+          _viewHeight > 0 &&
+          newCross != oldCross &&
           _scroll.hasClients &&
           _pages.isNotEmpty) {
         _preserveReadingAnchor();
@@ -4569,17 +4769,17 @@ class _PdfViewerState extends State<PdfViewer>
           });
         } else if (!_appliedInitialFit) {
           _appliedInitialFit = true;
-          // PdfViewerFit.width fills the viewport with the widest page
-          // (layout zoom 1); PdfViewerFit.page shrinks until the whole
-          // first page fits in height as well. Either way pages keep their
-          // real relative sizes - a narrower page lays out narrower.
-          final firstHeightAtFullWidth = _aspects.isNotEmpty
-              ? _aspects.first * _pointWidths.first * _fitWidthScale
-              : 0.0;
+          // PdfViewerFit.width fills the viewport's cross axis with the
+          // reference page (layout zoom 1); PdfViewerFit.page shrinks until
+          // the whole first page fits along the main axis too. Either way
+          // pages keep their real relative sizes - a narrower page lays out
+          // narrower. (For a horizontal layout "width"/"page" read as the
+          // cross/both axes respectively.)
+          final firstMainAtFit =
+              _pages.isNotEmpty ? _mainPointOf(0) * _fitScale : 0.0;
           _layoutZoom = widget.initialFit == PdfViewerFit.page &&
-                  firstHeightAtFullWidth > 0
-              ? (_viewHeight / firstHeightAtFullWidth)
-                  .clamp(widget.minZoom, 1.0)
+                  firstMainAtFit > 0
+              ? (_mainView / firstMainAtFit).clamp(widget.minZoom, 1.0)
               : 1.0;
         }
       }
@@ -4589,6 +4789,7 @@ class _PdfViewerState extends State<PdfViewer>
       // transform instead (_PdfScrollbar below).
       final list = ExactExtentListView.builder(
         controller: _scroll,
+        scrollDirection: widget.pageLayout.scrollAxis,
         // with a tool armed, touch drags belong to the editing overlay -
         // the list's drag recognizer would win vertical-ish strokes in
         // the arena otherwise. Desktop trackpad gestures are unaffected
@@ -4608,17 +4809,22 @@ class _PdfViewerState extends State<PdfViewer>
         // jump (AMT-SP-101: 93k↔162k px between frames).
         itemExtentBuilder: (index, dimensions) => index >= _pages.length
             ? null
-            : _pageHeight(index) + (index == 0 ? 0 : widget.pageSpacing),
+            : _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing),
         itemCount: _pages.length,
-        padding: EdgeInsets.only(bottom: widget.pageSpacing),
+        padding: _horizontal
+            ? EdgeInsets.only(right: widget.pageSpacing)
+            : EdgeInsets.only(bottom: widget.pageSpacing),
         itemBuilder: (context, index) => Padding(
-          padding: EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
-          // each page lays out at its real width relative to the widest
-          // page (times the layout zoom), centered - so pages keep their
-          // true sizes instead of all stretching to the viewport width
+          padding: _horizontal
+              ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)
+              : EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
+          // each page lays out at its real size relative to the reference
+          // page (times the layout zoom), centred on the cross axis - so
+          // pages keep their true sizes instead of stretching to the viewport
           child: Center(
             child: FractionallySizedBox(
-              widthFactor: _widthFactor(index),
+              widthFactor: _horizontal ? null : _crossFactor(index),
+              heightFactor: _horizontal ? _crossFactor(index) : null,
               child: _PdfViewerPage(
                 page: _pages[index],
                 effectiveRotation: _effectiveRotation(index),
@@ -4818,7 +5024,7 @@ class _PdfViewerState extends State<PdfViewer>
                   // the eager pinch recognizer's
                   onInteractionEnd: (_) {
                     _settleZoomGesture();
-                    _springBackHorizontal();
+                    _springBackCross();
                   },
                   // all trackpad pan-zoom gestures are handled here, never by
                   // the list's drag recognizer (whose iOS-style velocity
@@ -5001,38 +5207,39 @@ class _PdfViewerState extends State<PdfViewer>
                     ),
                   ),
                 ),
-                // outside the zoom transform, so they keep their place
-                // and size at any zoom
-                if (widget.scrollIndicatorBuilder == null)
-                  Positioned(
-                    top: 0,
-                    bottom: 0,
-                    right: 0,
-                    child: PdfScrollbar(
-                      axis: Axis.vertical,
-                      scroll: _scroll,
-                      transform: _transform,
-                      minOverflow: widget.pageSpacing,
-                      onScrollBy: _scrollbarScrollBy,
-                      thumbKey: const ValueKey('pdf-scrollbar-thumb'),
-                    ),
-                  )
+                // outside the zoom transform, so they keep their place and
+                // size at any zoom. The main bar rides the scroll axis (the
+                // layout axis); the cross bar appears only while zoomed in
+                // (the only overflow across the fit axis). A bar is placed by
+                // its own orientation - a vertical bar hugs the right edge, a
+                // horizontal one the bottom (inset so the corner is the
+                // vertical bar's) - so the two never collide whichever axis
+                // is which.
+                //
+                // A host scrollIndicatorBuilder replaces the main bar, but
+                // only in a vertical layout: PdfScrollMetrics measures the
+                // vertical scroll axis, so the indicator is meaningful there
+                // (the standard right-edge scrollbar). In a horizontal layout
+                // the main bar runs along the bottom and the stock bar stands.
+                if (widget.scrollIndicatorBuilder != null &&
+                    widget.pageLayout.scrollAxis == Axis.vertical)
+                  Positioned.fill(child: _buildScrollIndicator())
                 else
-                  Positioned.fill(child: _buildScrollIndicator()),
-                // appears only while zoomed in (the only sideways
-                // overflow); inset so the corner stays the vertical bar's
-                Positioned(
-                  left: 0,
-                  right: PdfScrollbar.hitExtent,
-                  bottom: 0,
-                  child: PdfScrollbar(
-                    axis: Axis.horizontal,
+                  _positionedScrollbar(PdfScrollbar(
+                    axis: widget.pageLayout.scrollAxis,
+                    scroll: _scroll,
                     transform: _transform,
-                    viewExtent: _viewWidth,
-                    onScrollBy: _scrollbarPanBy,
-                    thumbKey: const ValueKey('pdf-hscrollbar-thumb'),
-                  ),
-                ),
+                    minOverflow: widget.pageSpacing,
+                    onScrollBy: _scrollbarScrollBy,
+                    thumbKey: const ValueKey('pdf-scrollbar-thumb'),
+                  )),
+                _positionedScrollbar(PdfScrollbar(
+                  axis: _horizontal ? Axis.vertical : Axis.horizontal,
+                  transform: _transform,
+                  viewExtent: _crossView,
+                  onScrollBy: _scrollbarPanBy,
+                  thumbKey: const ValueKey('pdf-hscrollbar-thumb'),
+                )),
               ]),
             ),
           ),
