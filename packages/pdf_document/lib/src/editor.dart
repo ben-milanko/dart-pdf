@@ -14,6 +14,7 @@ import 'document.dart';
 import 'font_embedder.dart';
 import 'form.dart';
 import 'image.dart';
+import 'matrix_geometry.dart';
 import 'measure.dart';
 import 'outline.dart';
 import 'pades.dart';

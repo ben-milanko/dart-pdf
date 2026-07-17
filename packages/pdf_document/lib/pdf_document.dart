@@ -27,6 +27,7 @@ export 'src/page.dart';
 export 'src/page_labels.dart';
 export 'src/pdf_a.dart';
 export 'src/pdf_ua.dart';
+export 'src/matrix_geometry.dart';
 export 'src/rect.dart';
 export 'src/signature.dart';
 export 'src/signing_identity.dart';

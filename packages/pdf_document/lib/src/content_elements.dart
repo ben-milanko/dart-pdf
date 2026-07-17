@@ -5,6 +5,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'content_writer.dart';
 import 'document.dart';
+import 'matrix_geometry.dart';
 import 'rect.dart';
 import 'type0_font.dart';
 
@@ -108,8 +109,8 @@ class PdfPageElements {
     final resources = page.resources;
 
     final elements = <PdfContentElement>[];
-    var ctm = _identity;
-    final stack = <_Matrix>[];
+    var ctm = PdfMatrix.identity;
+    final stack = <PdfMatrix>[];
     var text = _TextState();
     var pathStart = -1;
     var pathPoints = <(double, double)>[];
@@ -176,14 +177,14 @@ class PdfPageElements {
           if (stack.isNotEmpty) ctm = stack.removeLast();
         case 'cm':
           if (operands.length >= 6) {
-            ctm = _multiply((
+            ctm = PdfMatrix(
               number(operands[0]),
               number(operands[1]),
               number(operands[2]),
               number(operands[3]),
               number(operands[4]),
               number(operands[5]),
-            ), ctm);
+            ).concat(ctm);
           }
 
         // path construction
@@ -219,8 +220,8 @@ class PdfPageElements {
         case 'S' || 's' || 'f' || 'F' || 'f*' || 'B' || 'B*' || 'b' || 'b*':
           if (pathStart >= 0) {
             addElement(PdfElementKind.path, pathStart, i + 1,
-                bounds: _hull([
-                  for (final (x, y) in pathPoints) _apply(ctm, x, y),
+                bounds: boundsOfPoints([
+                  for (final (x, y) in pathPoints) ctm.apply(x, y),
                 ]));
           }
           pathStart = -1;
@@ -253,7 +254,7 @@ class PdfPageElements {
           }
         case 'Tm':
           if (operands.length >= 6) {
-            text.setMatrix((
+            text.setMatrix(PdfMatrix(
               number(operands[0]),
               number(operands[1]),
               number(operands[2]),
@@ -305,15 +306,15 @@ class PdfPageElements {
           final width = decoder != null
               ? advanceEm / 1000 * text.size
               : measureHelvetica(string, text.size);
-          final m = _multiply(text.matrix, ctm);
+          final m = text.matrix.concat(ctm);
           addElement(PdfElementKind.text, i, i + 1,
               shown: string,
               resource: text.fontName,
-              bounds: _hull([
-                _apply(m, 0, -0.2 * text.size),
-                _apply(m, width, -0.2 * text.size),
-                _apply(m, 0, text.size),
-                _apply(m, width, text.size),
+              bounds: boundsOfPoints([
+                m.apply(0, -0.2 * text.size),
+                m.apply(width, -0.2 * text.size),
+                m.apply(0, text.size),
+                m.apply(width, text.size),
               ]));
           text.advance(width);
 
@@ -336,12 +337,7 @@ class PdfPageElements {
                 ? pdfRectFrom(cos, xobject.dictionary['BBox'])
                 : null;
             if (bbox != null) {
-              bounds = _hull([
-                _apply(ctm, bbox.left, bbox.bottom),
-                _apply(ctm, bbox.right, bbox.bottom),
-                _apply(ctm, bbox.left, bbox.top),
-                _apply(ctm, bbox.right, bbox.top),
-              ]);
+              bounds = boundsUnderMatrix(ctm, bbox);
             }
             addElement(PdfElementKind.form, i, i + 1,
                 resource: name, bounds: bounds);
@@ -399,59 +395,30 @@ class PdfPageElements {
 }
 
 class _TextState {
-  _Matrix matrix = _identity;
-  _Matrix lineMatrix = _identity;
+  PdfMatrix matrix = PdfMatrix.identity;
+  PdfMatrix lineMatrix = PdfMatrix.identity;
   double size = 0;
   double leading = 0;
   String? fontName;
 
-  void setMatrix(_Matrix m) {
+  void setMatrix(PdfMatrix m) {
     matrix = m;
     lineMatrix = m;
   }
 
   void newline(double tx, double ty) {
-    lineMatrix = _multiply((1, 0, 0, 1, tx, ty), lineMatrix);
+    lineMatrix = PdfMatrix.translation(tx, ty).concat(lineMatrix);
     matrix = lineMatrix;
   }
 
   void advance(double width) {
-    matrix = _multiply((1, 0, 0, 1, width, 0), matrix);
+    matrix = PdfMatrix.translation(width, 0).concat(matrix);
   }
 }
 
-typedef _Matrix = (double, double, double, double, double, double);
-
-const _Matrix _identity = (1, 0, 0, 1, 0, 0);
-
-_Matrix _multiply(_Matrix m, _Matrix n) => (
-      m.$1 * n.$1 + m.$2 * n.$3,
-      m.$1 * n.$2 + m.$2 * n.$4,
-      m.$3 * n.$1 + m.$4 * n.$3,
-      m.$3 * n.$2 + m.$4 * n.$4,
-      m.$5 * n.$1 + m.$6 * n.$3 + n.$5,
-      m.$5 * n.$2 + m.$6 * n.$4 + n.$6,
-    );
-
-(double, double) _apply(_Matrix m, double x, double y) =>
-    (m.$1 * x + m.$3 * y + m.$5, m.$2 * x + m.$4 * y + m.$6);
-
-PdfRect? _hull(List<(double, double)> points) {
-  if (points.isEmpty) return null;
-  var minX = points.first.$1, maxX = points.first.$1;
-  var minY = points.first.$2, maxY = points.first.$2;
-  for (final (x, y) in points) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
-  return PdfRect(minX, minY, maxX, maxY);
-}
-
-PdfRect? _unitSquare(_Matrix ctm) => _hull([
-      _apply(ctm, 0, 0),
-      _apply(ctm, 1, 0),
-      _apply(ctm, 0, 1),
-      _apply(ctm, 1, 1),
+PdfRect? _unitSquare(PdfMatrix ctm) => boundsOfPoints([
+      ctm.apply(0, 0),
+      ctm.apply(1, 0),
+      ctm.apply(0, 1),
+      ctm.apply(1, 1),
     ]);

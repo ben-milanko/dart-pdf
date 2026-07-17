@@ -43,7 +43,6 @@ import 'color.dart';
 import 'device.dart';
 import 'image_pixels.dart';
 import 'interpreter.dart';
-import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
 import 'recording_device.dart';

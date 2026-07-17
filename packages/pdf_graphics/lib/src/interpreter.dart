@@ -12,7 +12,6 @@ import 'device.dart';
 import 'font_info.dart';
 import 'function.dart';
 import 'icc.dart';
-import 'matrix.dart';
 import 'path.dart';
 import 'shading.dart';
 
