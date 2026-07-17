@@ -27,6 +27,7 @@ import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
+import 'editing_tool_behavior.dart';
 import 'text_prompt.dart';
 import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
@@ -1981,42 +1982,32 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// font picker, ink never offers line endings, and so on.
   _StyleFields _groupStyleFields(_ToolGroup group) {
     final tool = controller.tool;
+    // An armed tool owns exactly which controls it exposes - the per-tool
+    // capability booleans that used to live here now live in the tool's
+    // [PdfEditToolBehavior].
+    if (tool != null && _groupForTool(tool)?.id == group.id) {
+      return PdfEditToolBehavior.of(tool).styleFields;
+    }
+    // No in-group armed tool: the strip is open on its own (Select or Markup,
+    // a Draw strip over a selection, or a group opened before its default
+    // tool armed). Fall back to the group's resting controls.
     switch (group.id) {
       case 'draw':
-        if (tool == null && viewerController.hasSelection) {
-          return const _StyleFields(opacity: true);
-        }
-        if (tool == PdfEditTool.eraser) return const _StyleFields(eraser: true);
-        return const _StyleFields(stroke: true, opacity: true);
+        return viewerController.hasSelection
+            ? const _StyleFields(opacity: true)
+            : const _StyleFields(stroke: true, opacity: true);
       case 'shapes':
-        return _StyleFields(
+        return const _StyleFields(
           stroke: true,
           strokeColor: true,
           opacity: true,
           lineType: true,
           lineScale: true,
-          lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
-          shapeFill: tool == PdfEditTool.rectangle ||
-              tool == PdfEditTool.ellipse ||
-              tool == PdfEditTool.polygon ||
-              tool == PdfEditTool.cloudPolygon,
-          cornerRadius: tool == PdfEditTool.rectangle,
         );
       case 'insert':
         return const _StyleFields(opacity: true, font: true, boxColors: true);
       case 'measure':
-        return _StyleFields(
-          stroke: true,
-          opacity: true,
-          font: true,
-          // open measurements (distance/slope lines, perimeter/angle/arc
-          // polylines) carry endings; closed area/volume polygons don't
-          lineEndings: tool == PdfEditTool.measureDistance ||
-              tool == PdfEditTool.measureSlope ||
-              tool == PdfEditTool.measurePerimeter ||
-              tool == PdfEditTool.measureAngle ||
-              tool == PdfEditTool.measureArc,
-        );
+        return const _StyleFields(stroke: true, opacity: true, font: true);
       case 'markup':
         return const _StyleFields(opacity: true);
       default:
@@ -3153,72 +3144,10 @@ double? _parsePercent(String s) {
   return n == null ? null : n / 100;
 }
 
-class _StyleFields {
-  const _StyleFields({
-    this.stroke = false,
-    this.strokeColor = false,
-    this.opacity = false,
-    this.lineType = false,
-    this.lineScale = false,
-    this.lineEndings = false,
-    this.font = false,
-    this.boxColors = false,
-    this.shapeFill = false,
-    this.cornerRadius = false,
-    this.eraser = false,
-    this.formField = false,
-  });
-
-  final bool stroke;
-
-  /// The stroke/outline colour row - shapes (including revision clouds) and
-  /// the line family. Distinct from [shapeFill], the interior fill.
-  final bool strokeColor;
-
-  final bool opacity;
-
-  /// The rectangle corner-radius slider (rectangle shape only).
-  final bool cornerRadius;
-
-  /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
-  /// and the line family.
-  final bool lineType;
-
-  /// The pattern-scale slider - sizes dash patterns and cloudy scallops
-  /// apart from the pen width. Shown alongside [lineType].
-  final bool lineScale;
-  final bool lineEndings;
-
-  /// Font size + family (free text).
-  final bool font;
-
-  /// The text-box fill + border colour rows (free text).
-  final bool boxColors;
-
-  /// The shape interior-fill colour row (rectangle / ellipse).
-  final bool shapeFill;
-
-  /// Eraser radius - replaces every other control while the eraser is armed.
-  final bool eraser;
-
-  /// The form text field style block (font, alignment, auto-size, size,
-  /// multiline, colour) - a single text-field widget is selected.
-  final bool formField;
-
-  bool get isEmpty =>
-      !stroke &&
-      !strokeColor &&
-      !opacity &&
-      !lineType &&
-      !lineScale &&
-      !lineEndings &&
-      !font &&
-      !boxColors &&
-      !shapeFill &&
-      !cornerRadius &&
-      !eraser &&
-      !formField;
-}
+/// The tune popup's control set. The tool-armed case is owned by
+/// [PdfEditToolBehavior.styleFields]; the toolbar still builds one directly
+/// from a selected annotation's subtype (see [_selectionStyleFields]).
+typedef _StyleFields = PdfToolStyleFields;
 
 /// The style popup: sliders for stroke width, opacity, and font size,
 /// the font family for free text, and the text box's fill and border

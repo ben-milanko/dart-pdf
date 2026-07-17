@@ -18,6 +18,7 @@ import 'editing_controller.dart';
 import 'editing_fonts.dart';
 import 'editing_interaction.dart';
 import 'editing_measure.dart';
+import 'editing_tool_behavior.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
@@ -1069,9 +1070,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               .clamp(0.0, 1.0)
           : null;
 
-  bool get _inkTool =>
-      _tool == PdfEditTool.ink || _tool == PdfEditTool.highlight;
-  bool get _drawTool => _inkTool || _tool == PdfEditTool.eraser;
+  /// The armed tool's behaviour - the single source of tool identity the
+  /// gesture phases dispatch on - or null when nothing is armed.
+  PdfEditToolBehavior? get _behavior => PdfEditToolBehavior.maybeOf(_tool);
+
+  bool get _inkTool => _behavior?.isInk ?? false;
+  bool get _drawTool => _behavior?.isDraw ?? false;
 
   /// A finger should pan the viewer (not draw): the draw tool is armed
   /// but finger-drawing is off, so touch is reserved for scrolling.
@@ -1079,14 +1083,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _drawTool &&
       !_controller.fingerDrawsInk &&
       _host.panViewport != null;
-  bool get _polyTool =>
-      _tool == PdfEditTool.polyline ||
-      _tool == PdfEditTool.polygon ||
-      _tool == PdfEditTool.measurePerimeter ||
-      _tool == PdfEditTool.measureArea ||
-      _tool == PdfEditTool.measureAngle ||
-      _tool == PdfEditTool.measureArc ||
-      _tool == PdfEditTool.measureVolume;
+  bool get _polyTool => _behavior?.isPoly ?? false;
 
   /// The cloud tool is a hybrid: a drag rubber-bands a rectangle, but a
   /// tap starts (and each further tap extends) a free-form vertex list -
@@ -1098,32 +1095,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// The number of clicks a fixed-arity poly tool takes before it
   /// auto-finishes - three for the angle and arc takeoffs - or null for an
   /// open-ended poly tool (finished by a double-tap).
-  int? get _fixedPolyCount => switch (_tool) {
-        PdfEditTool.measureAngle || PdfEditTool.measureArc => 3,
-        _ => null,
-      };
+  int? get _fixedPolyCount => _behavior?.fixedPolyCount;
 
   /// A tool placed by dragging a single straight segment (a /Line or a
   /// distance/slope measurement).
-  bool get _lineDragTool =>
-      _tool == PdfEditTool.line ||
-      _tool == PdfEditTool.arrow ||
-      _tool == PdfEditTool.measureDistance ||
-      _tool == PdfEditTool.measureSlope ||
-      _tool == PdfEditTool.calibrate;
+  bool get _lineDragTool => _behavior?.isLineDrag ?? false;
 
   /// The measurement kind the armed tool creates, or null for a
   /// non-measurement tool.
-  PdfMeasurementKind? get _measureKind => switch (_tool) {
-        PdfEditTool.measureDistance => PdfMeasurementKind.distance,
-        PdfEditTool.measurePerimeter => PdfMeasurementKind.perimeter,
-        PdfEditTool.measureArea => PdfMeasurementKind.area,
-        PdfEditTool.measureSlope => PdfMeasurementKind.slope,
-        PdfEditTool.measureAngle => PdfMeasurementKind.angle,
-        PdfEditTool.measureArc => PdfMeasurementKind.arc,
-        PdfEditTool.measureVolume => PdfMeasurementKind.volume,
-        _ => null,
-      };
+  PdfMeasurementKind? get _measureKind => _behavior?.measureKind;
 
   /// Whether a pointer of [kind] draws (or erases) through the raw
   /// event stream instead of the gesture arena. Pan recognizers only
@@ -3549,15 +3529,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     final before = _controller.document;
-    final lineKind = _measureKind; // distance or slope for a measure tool
-    if (lineKind != null) {
-      _controller.addMeasurement(widget.pageIndex, lineKind,
-          [_geometry.toPagePoint(start), _geometry.toPagePoint(end)]);
-    } else {
-      _controller.addLine(widget.pageIndex, _geometry.toPagePoint(start),
-          _geometry.toPagePoint(end),
-          arrow: _tool == PdfEditTool.arrow);
-    }
+    _behavior!.commitLineDrag(_controller, widget.pageIndex,
+        _geometry.toPagePoint(start), _geometry.toPagePoint(end));
     if (identical(before, _controller.document)) return;
     _clearAfterimage();
     _afterPath = (
@@ -3710,38 +3683,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (simplified.length < minPoints) return;
     final pagePoints = [for (final p in simplified) _geometry.toPagePoint(p)];
     final before = _controller.document;
-    switch (_measureKind) {
-      case PdfMeasurementKind.perimeter:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.perimeter, pagePoints);
-      case PdfMeasurementKind.area:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.area, pagePoints);
-      case PdfMeasurementKind.angle:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.angle, pagePoints);
-      case PdfMeasurementKind.arc:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.arc, pagePoints);
-      case PdfMeasurementKind.volume:
-        // volume needs a depth: prompt for it, then commit asynchronously.
-        unawaited(_commitVolume(pagePoints));
-        _clearAfterimage();
-        setState(() {
-          _polyPoints = null;
-          _polyHover = null;
-        });
-        return;
-      default:
-        // distance/slope are drag tools (handled elsewhere); a poly gesture
-        // with no measure kind active is a plain poly annotation.
-        if (_tool == PdfEditTool.cloudPolygon) {
-          _controller.addCloudPolygonPoints(widget.pageIndex, pagePoints);
-        } else if (_tool == PdfEditTool.polygon) {
-          _controller.addPolygon(widget.pageIndex, pagePoints);
-        } else {
-          _controller.addPolyLine(widget.pageIndex, pagePoints);
-        }
+    // Volume needs a depth: its behaviour declines the synchronous commit,
+    // so prompt for the depth and commit asynchronously here.
+    if (_measureKind == PdfMeasurementKind.volume) {
+      unawaited(_commitVolume(pagePoints));
+      _clearAfterimage();
+      setState(() {
+        _polyPoints = null;
+        _polyHover = null;
+      });
+      return;
+    }
+    // The cloud tool's click path builds a free-form footprint (its drag
+    // path rubber-bands a rectangle instead), so it isn't a poly behaviour;
+    // every other poly/measure-poly tool commits through its behaviour.
+    if (_tool == PdfEditTool.cloudPolygon) {
+      _controller.addCloudPolygonPoints(widget.pageIndex, pagePoints);
+    } else {
+      _behavior!.commitPoly(_controller, widget.pageIndex, pagePoints);
     }
     if (identical(before, _controller.document)) return;
     _clearAfterimage();
@@ -3777,13 +3736,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.cloudPolygon:
         final tool = _tool!;
         final before = _controller.document;
-        if (tool == PdfEditTool.rectangle) {
-          _controller.addRectangle(widget.pageIndex, rect);
-        } else if (tool == PdfEditTool.cloudPolygon) {
-          _controller.addCloudPolygon(widget.pageIndex, rect);
-        } else {
-          _controller.addEllipse(widget.pageIndex, rect);
-        }
+        _behavior!.commitShapeRect(_controller, widget.pageIndex, rect);
         if (identical(before, _controller.document)) return;
         // the drag preview, frozen until the new revision renders
         _clearAfterimage();

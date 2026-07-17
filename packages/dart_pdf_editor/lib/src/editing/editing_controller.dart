@@ -13,6 +13,7 @@ import 'digital_signature.dart';
 import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
+import 'editing_tool_behavior.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
@@ -1056,116 +1057,24 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   static bool _buffersInk(PdfEditTool? tool) =>
-      tool == PdfEditTool.ink || tool == PdfEditTool.highlight;
+      PdfEditToolBehavior.maybeOf(tool)?.buffersInk ?? false;
 
-  /// The persisted-style scope key for [tool] - its [PdfEditTool] name for
-  /// the tools that create styled annotations, null for the others (select,
-  /// content, form, redact, signature, eraser-when-radius-only handled by
-  /// its own slot). See [preferences].
-  static String? _styleScopeKey(PdfEditTool? tool) => switch (tool) {
-        PdfEditTool.ink => 'ink',
-        PdfEditTool.highlight => 'freehandHighlight',
-        PdfEditTool.eraser => 'eraser',
-        PdfEditTool.rectangle => 'rectangle',
-        PdfEditTool.ellipse => 'ellipse',
-        PdfEditTool.line => 'line',
-        PdfEditTool.arrow => 'arrow',
-        PdfEditTool.polyline => 'polyline',
-        PdfEditTool.polygon => 'polygon',
-        PdfEditTool.cloudPolygon => 'cloudPolygon',
-        PdfEditTool.measureDistance => 'measureDistance',
-        PdfEditTool.measurePerimeter => 'measurePerimeter',
-        PdfEditTool.measureArea => 'measureArea',
-        PdfEditTool.measureSlope => 'measureSlope',
-        PdfEditTool.measureAngle => 'measureAngle',
-        PdfEditTool.measureArc => 'measureArc',
-        PdfEditTool.measureVolume => 'measureVolume',
-        PdfEditTool.freeText => 'freeText',
-        PdfEditTool.callout => 'callout',
-        PdfEditTool.note => 'note',
-        PdfEditTool.stamp => 'stamp',
-        PdfEditTool.count => 'count',
-        _ => null,
-      };
+  /// The persisted-style scope key for [tool] - a stable slot name for the
+  /// tools that create styled annotations, null for the others (select,
+  /// content, form, redact, signature, image, snapshot, calibrate). Owned by
+  /// [PdfEditToolBehavior]. See [preferences].
+  static String? _styleScopeKey(PdfEditTool? tool) =>
+      PdfEditToolBehavior.maybeOf(tool)?.styleScopeKey;
 
   /// The style fields [tool] remembers - mirrors the controls its toolbar
   /// strip exposes, so a rectangle keeps its fill but not a font, ink keeps
-  /// its stroke but not line endings, and so on.
-  static Set<String> _styleScopeFields(PdfEditTool? tool) => switch (tool) {
-        PdfEditTool.ink || PdfEditTool.highlight => const {
-            'color',
-            'strokeWidth',
-            'opacity'
-          },
-        PdfEditTool.eraser => const {'eraserRadius'},
-        PdfEditTool.rectangle => const {
-            'color',
-            'strokeWidth',
-            'opacity',
-            'lineStyle',
-            'shapeFillColor',
-            'cornerRadius',
-          },
-        PdfEditTool.ellipse ||
-        PdfEditTool.polygon ||
-        PdfEditTool.cloudPolygon =>
-          const {
-            'color',
-            'strokeWidth',
-            'opacity',
-            'lineStyle',
-            'lineScale',
-            'shapeFillColor',
-          },
-        PdfEditTool.line || PdfEditTool.polyline => const {
-            'color',
-            'strokeWidth',
-            'opacity',
-            'lineStyle',
-            'lineScale',
-            'lineStartEnding',
-            'lineEndEnding',
-          },
-        PdfEditTool.arrow => const {
-            'color',
-            'strokeWidth',
-            'opacity',
-            'lineStyle',
-            'lineScale',
-          },
-        PdfEditTool.measureDistance ||
-        PdfEditTool.measurePerimeter ||
-        PdfEditTool.measureArea ||
-        PdfEditTool.measureSlope ||
-        PdfEditTool.measureAngle ||
-        PdfEditTool.measureArc ||
-        PdfEditTool.measureVolume =>
-          const {'color', 'strokeWidth', 'opacity'},
-        PdfEditTool.freeText || PdfEditTool.callout => const {
-            'color',
-            'fontSize',
-            'fontFamily',
-            'textAlign',
-            'opacity',
-            'textFillColor',
-            'textBorderColor',
-            'strokeWidth',
-          },
-        PdfEditTool.note => const {'color'},
-        PdfEditTool.stamp => const {'color', 'opacity'},
-        PdfEditTool.count => const {'color', 'opacity'},
-        _ => const {},
-      };
+  /// its stroke but not line endings, and so on. Owned by
+  /// [PdfEditToolBehavior].
+  static Set<String> _styleScopeFields(PdfEditTool? tool) =>
+      PdfEditToolBehavior.maybeOf(tool)?.styleScopeFields ?? const {};
 
   static Map<String, Object?> _styleScopeDefaults(PdfEditTool? tool) =>
-      switch (tool) {
-        PdfEditTool.highlight => const {
-            'color': 0xFFFFD100,
-            'strokeWidth': 12.0,
-            'opacity': 0.45,
-          },
-        _ => const {},
-      };
+      PdfEditToolBehavior.maybeOf(tool)?.styleScopeDefaults ?? const {};
 
   /// Activates the text-markup style scope (highlight / underline / strike
   /// out / squiggly) - they act on the text selection rather than arming a
