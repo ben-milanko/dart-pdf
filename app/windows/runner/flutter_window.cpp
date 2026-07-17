@@ -171,10 +171,14 @@ bool FlutterWindow::OnCreate() {
             }
           }
           native_printer_.Begin(Utf16FromUtf8(name));
-          // Render at 300 dpi: a good print resolution, and the printer's real
-          // dpi is not known until the dialog at endJob.
+          // Report that this runner can replay the vector op stream, so the
+          // Dart side sends `printPageVector` instead of rasterising. The dpi
+          // is only used by the raster fallback (the printer's real dpi is not
+          // known until the dialog at endJob), so 300 stays a sane default.
           result->Success(flutter::EncodableValue(flutter::EncodableMap{
               {flutter::EncodableValue("dpi"), flutter::EncodableValue(300)},
+              {flutter::EncodableValue("vector"),
+               flutter::EncodableValue(true)},
           }));
         } else if (call.method_name() == "printPage") {
           const flutter::EncodableValue* image_value =
@@ -189,6 +193,19 @@ bool FlutterWindow::OnCreate() {
           }
           result->Success(
               flutter::EncodableValue(native_printer_.AddPage(*image)));
+        } else if (call.method_name() == "printPageVector") {
+          const flutter::EncodableValue* page_value =
+              args == nullptr ? nullptr : Lookup(*args, "page");
+          const auto* page =
+              page_value == nullptr
+                  ? nullptr
+                  : std::get_if<std::vector<uint8_t>>(page_value);
+          if (page == nullptr) {
+            result->Error("bad_args", "printPageVector expects a byte stream");
+            return;
+          }
+          result->Success(
+              flutter::EncodableValue(native_printer_.AddVectorPage(*page)));
         } else if (call.method_name() == "endJob") {
           result->Success(
               flutter::EncodableValue(native_printer_.End(GetHandle())));

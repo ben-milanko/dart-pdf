@@ -17,16 +17,26 @@ const MethodChannel _channel = MethodChannel('dev.milanko.dartpdf/native_print')
 ///     print framework on Android, the browser on web. No rasterising here, so
 ///     text stays selectable and the output is crisp and small. This is the
 ///     path on iOS, macOS, Android, and web.
-///  2. **Raster** (`beginJob`/`printPage`/`endJob`): Windows and Linux have no
-///     native PDF-print API - that is exactly why the old `printing` plugin
-///     bundled PDFium, which crashed on our broken-but-renderable inputs. There
-///     we render each page with our own engine and stream it as a JPEG. The
-///     runner reports `printPdf` unimplemented (a [MissingPluginException]),
-///     which drops us onto this path.
+///  2. **Vector page** (`beginJob` reporting `vector: true`, then
+///     `printPageVector` per page): Windows and Linux have no native PDF-print
+///     API - that is exactly why the old `printing` plugin bundled PDFium,
+///     which crashed on our broken-but-renderable inputs. Instead of handing
+///     the OS a whole PDF it can't print, we lower each page with our own
+///     engine to a compact vector op stream ([encodePageForVectorPrinting])
+///     that the runner replays onto its printer DC (GDI) / Cairo context.
+///     Text stays selectable (substituted fonts) or crisply outlined (embedded
+///     fonts) and graphics stay vector - no full-page bitmaps.
+///  3. **Raster** (`beginJob`/`printPage`/`endJob`): the fallback for a runner
+///     that has no vector support (an older build that omits `vector: true`).
+///     Each page is rendered by our engine and streamed as a JPEG.
 ///
-/// [onProgress] is called `(rendered, total)` after each page in the raster
-/// path (the vector path has nothing to render, so it never reports progress).
-/// [channel] is a test seam.
+/// The Windows/Linux path chooses vector vs raster from what `beginJob`
+/// reports, so one print-dialog / job covers both and an old runner that never
+/// sets `vector` keeps rasterising unchanged.
+///
+/// [onProgress] is called `(rendered, total)` after each page on both the
+/// vector-page and raster desktop paths (the whole-PDF `printPdf` path has
+/// nothing to render, so it never reports progress). [channel] is a test seam.
 Future<void> printDocumentPages(
   Uint8List pdfBytes, {
   required String name,
@@ -34,7 +44,7 @@ Future<void> printDocumentPages(
   void Function(int rendered, int total)? onProgress,
 }) async {
   // 1. Native vector printing. A MissingPluginException means this platform
-  //    has no `printPdf` (Windows/Linux) - fall through to rasterising.
+  //    has no `printPdf` (Windows/Linux) - fall through to the desktop path.
   try {
     await channel.invokeMethod<bool>('printPdf', <String, dynamic>{
       'name': name,
@@ -42,34 +52,46 @@ Future<void> printDocumentPages(
     });
     return; // printed as vector (or the user cancelled) - done
   } on MissingPluginException {
-    // no native PDF printing here; rasterise below
+    // no native PDF printing here; drive the OS print system per page below
   }
 
-  // 2. Raster fallback. A MissingPluginException from beginJob means there is
-  //    no native printer at all, and propagates to the caller.
+  // 2/3. Desktop path. A MissingPluginException from beginJob means there is
+  //      no native printer at all, and propagates to the caller. The runner
+  //      reports whether it can replay our vector op stream; when it can we
+  //      print vector, otherwise we rasterise. One job either way.
   final document = PdfDocument.open(pdfBytes);
   final info = await channel.invokeMapMethod<String, dynamic>(
     'beginJob',
     <String, dynamic>{'name': name},
   );
+  final vector = info?['vector'] == true;
   final dpi = _resolveDpi(info);
   try {
     for (var i = 0; i < document.pageCount; i++) {
-      // Rendering and JPEG-encoding a page is heavy CPU on the UI isolate (the
-      // encode is synchronous). Yield first so the engine can service input and
-      // paint a frame between pages - otherwise a large document's print holds
-      // the isolate long enough to make the app unresponsive.
+      // Lowering (or JPEG-encoding) a page is heavy CPU on the UI isolate.
+      // Yield first so the engine can service input and paint a frame between
+      // pages - otherwise a large document's print holds the isolate long
+      // enough to make the app unresponsive.
       await Future<void>.delayed(Duration.zero);
-      final jpeg = await PdfPageExport.exportPage(
-        document.page(i),
-        format: PdfRasterFormat.jpeg,
-        dpi: dpi.toDouble(),
-        jpegQuality: 85,
-      );
-      final ok = await channel.invokeMethod<bool>(
-        'printPage',
-        <String, dynamic>{'image': jpeg},
-      );
+      final bool? ok;
+      if (vector) {
+        final stream = await encodePageForVectorPrinting(document.page(i));
+        ok = await channel.invokeMethod<bool>(
+          'printPageVector',
+          <String, dynamic>{'page': stream},
+        );
+      } else {
+        final jpeg = await PdfPageExport.exportPage(
+          document.page(i),
+          format: PdfRasterFormat.jpeg,
+          dpi: dpi.toDouble(),
+          jpegQuality: 85,
+        );
+        ok = await channel.invokeMethod<bool>(
+          'printPage',
+          <String, dynamic>{'image': jpeg},
+        );
+      }
       if (ok == false) {
         throw StateError('the printer rejected page ${i + 1}');
       }

@@ -25,3 +25,5 @@ export 'src/render_command_codec.dart';
 export 'src/text_cache.dart';
 export 'src/text_diff.dart';
 export 'src/text_extraction.dart';
+export 'src/vector_print.dart';
+export 'src/vector_print_reader.dart';

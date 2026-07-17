@@ -59,6 +59,43 @@ void main() {
     expect(beginJobs, 0);
   });
 
+  testWidgets('prints vector op streams when the runner reports vector support',
+      (tester) async {
+    await tester.runAsync(() async {
+      var ends = 0;
+      final streams = <Uint8List>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'printPdf':
+            throw MissingPluginException('no printPdf on this platform');
+          case 'beginJob':
+            return {'dpi': 300, 'vector': true};
+          case 'printPageVector':
+            streams.add((call.arguments as Map)['page'] as Uint8List);
+            return true;
+          case 'printPage':
+            fail('must not rasterise when the runner supports vector');
+          case 'endJob':
+            ends += 1;
+            return true;
+        }
+        return null;
+      });
+
+      final progress = <(int, int)>[];
+      await printDocumentPages(buildMultiPagePdf(2), name: 'Report',
+          onProgress: (rendered, total) => progress.add((rendered, total)));
+
+      expect(streams, hasLength(2));
+      for (final stream in streams) {
+        // The vector-print magic header: 'V' 'P' 'R' 1.
+        expect(stream.sublist(0, 4), [0x56, 0x50, 0x52, 0x01]);
+      }
+      expect(ends, 1);
+      expect(progress, [(1, 2), (2, 2)]);
+    });
+  });
+
   testWidgets('falls back to rasterising when printPdf is unimplemented',
       (tester) async {
     await tester.runAsync(() async {
