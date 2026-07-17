@@ -83,5 +83,20 @@ void main() {
     test('scaleFactor is the sqrt of the absolute determinant', () {
       expect(PdfMatrix.scaled(2, 8).scaleFactor, closeTo(4, 1e-12));
     });
+
+    test('equality and hashCode are structural', () {
+      const a = PdfMatrix(1, 2, 3, 4, 5, 6);
+      const same = PdfMatrix(1, 2, 3, 4, 5, 6);
+      const differs = PdfMatrix(1, 2, 3, 4, 5, 7); // only f differs
+      expect(a, same);
+      expect(a.hashCode, same.hashCode);
+      expect(a == differs, isFalse);
+      expect(a == Object(), isFalse); // not a PdfMatrix
+    });
+
+    test('toString lists the six components', () {
+      expect(const PdfMatrix(1, 2, 3, 4, 5, 6).toString(),
+          'PdfMatrix(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)');
+    });
   });
 }
