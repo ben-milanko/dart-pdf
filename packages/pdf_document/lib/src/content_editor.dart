@@ -158,7 +158,7 @@ extension PdfContentEditing on PdfEditor {
   /// font's own `cmap` (so any character the embedded program carries a
   /// glyph for can be typed), and the new glyphs' widths and Unicode values
   /// are merged into the descendant `/W` and `/ToUnicode` (see
-  /// [_Type0Editing]). A Type0 run is left untouched when it can't be safely
+  /// [_Type0RunEditor]). A Type0 run is left untouched when it can't be safely
   /// round-tripped (CFF descendant, stream /CIDToGIDMap, non-Identity-H
   /// encoding, missing program/ToUnicode, or a character the font lacks).
   ///
@@ -250,11 +250,11 @@ extension PdfContentEditing on PdfEditor {
 
     // composite (/Type0) fonts are rewritten by a separate path that decodes
     // 2-byte glyph codes - built lazily and cached per font resource name.
-    final type0Cache = <String, _Type0Editing?>{};
-    _Type0Editing? type0For(String name, CosDictionary f) =>
+    final type0Cache = <String, _Type0RunEditor?>{};
+    _Type0RunEditor? type0For(String name, CosDictionary f) =>
         type0Cache.putIfAbsent(
           name,
-          () => _Type0Editing.tryCreate(this, page, name, f, fallbackFonts),
+          () => _Type0RunEditor.tryCreate(this, page, name, f, fallbackFonts),
         );
 
     final styled = style != null && !style.isEmpty;
@@ -327,7 +327,7 @@ extension PdfContentEditing on PdfEditor {
                     font,
                     fontName,
                     fontSize,
-                    findBytes,
+                    find,
                     replaceBytes,
                     replace,
                     style,
@@ -335,7 +335,7 @@ extension PdfContentEditing on PdfEditor {
                     styledEmbed,
                   )
                 : (replaceBytes != null
-                    ? _rewriteTextRun(run, font, findBytes, replaceBytes)
+                    ? _rewriteTextRun(run, font, find, replace)
                     : (run, 0)));
         final (ops_, n) = _isType0(cos, font) && fontName != null
             ? (type0For(
@@ -434,7 +434,7 @@ extension PdfContentEditing on PdfEditor {
     CosDictionary? font,
     String? fontName,
     double fontSize,
-    List<int> findBytes,
+    String find,
     List<int>? replaceBytes,
     String replace,
     PdfTextStyle style,
@@ -443,169 +443,67 @@ extension PdfContentEditing on PdfEditor {
   ) {
     if (_isType0(document.cos, font)) return (run, 0);
 
-    final cells = _runCells(run);
-    final charCell = <int>[];
-    final logical = <int>[];
-    for (var c = 0; c < cells.length; c++) {
-      if (cells[c].byte case final int b) {
-        charCell.add(c);
-        logical.add(b);
-      }
-    }
-    final matches = _findAll(logical, findBytes);
-    if (matches.isEmpty) return (run, 0);
-
     final origWidthOf = _widthsFor(font);
-    final totalChars = logical.length;
 
-    // resolve the styled face and the show op that draws the replacement in
-    // it: the given embedded font (as Identity-H glyph ids) when it can render
-    // the whole replacement, else a base-14 variant for a family/weight/slant
-    // change, else the run's own font (only colour/size may change). The show
-    // op and its width are constant across matches, so build them once.
+    // The styled face is resolved lazily, on the first match, by [resolve]:
+    // the given embedded font (as Identity-H glyph ids) when it can render the
+    // whole replacement, else a base-14 variant for a family/weight/slant
+    // change, else the run's own font (only colour/size may change). Deferring
+    // it means a non-matching run allocates no page /Font resource and records
+    // no embedded glyphs. Drawability, which needs no side effects, is decided
+    // now so an undrawable replacement leaves the run untouched.
     final runes = replace.runes.toList();
     final useEmbed =
         embed != null && runes.every((r) => embed.font.glyphForRune(r) != 0);
-    final String? styledFontName;
-    final double newWidthEm;
-    final CosString replShow;
-    if (useEmbed) {
-      styledFontName = _embeddedFontResource(page, embed);
-      replShow = CosString(
-        _hexBytes(embed.font.encodeHex(replace)),
-        isHex: true,
-      );
-      var w = 0.0;
-      for (final r in runes) {
-        w += embed.font.advanceForGlyph(embed.font.glyphForRune(r));
-      }
-      newWidthEm = w;
-    } else if (replaceBytes == null) {
+    if (!useEmbed && replaceBytes == null) {
       // a non-Latin-1 replacement can only be drawn by an embedded font that
       // carries its glyphs; without one there is nothing safe to emit.
       return (run, 0);
-    } else {
+    }
+
+    _StyledFace resolve() {
+      if (useEmbed) {
+        // allocate the resource name (which resets the font's glyph usage)
+        // before encoding, so the replacement's glyphs are the ones recorded.
+        final name = _embeddedFontResource(page, embed);
+        final replShow =
+            CosString(_hexBytes(embed.font.encodeHex(replace)), isHex: true);
+        var w = 0.0;
+        for (final r in runes) {
+          w += embed.font.advanceForGlyph(embed.font.glyphForRune(r));
+        }
+        return _StyledFace(name, replShow, w);
+      }
       final variant = _styledVariant(font, style);
+      final String? name;
       final double Function(int) styledWidthOf;
       if (variant != null) {
         final own = _fontStandard(font);
-        styledFontName = own == variant && fontName != null
+        name = own == variant && fontName != null
             ? fontName // the run is already this exact face
             : _standardFontResource(page, variant);
         styledWidthOf = (code) => variant.widthOf(code).toDouble();
       } else {
-        styledFontName = fontName;
+        name = fontName;
         styledWidthOf = origWidthOf;
       }
       var w = 0.0;
-      for (final b in replaceBytes) {
+      for (final b in replaceBytes!) {
         w += styledWidthOf(b);
       }
-      newWidthEm = w;
-      replShow = CosString(Uint8List.fromList(replaceBytes));
-    }
-    final styledSize = style.fontSize ?? fontSize;
-    final fontChanged = styledFontName != fontName || styledSize != fontSize;
-
-    final out = <ContentOperation>[];
-    final pending = <({int? byte, double? kern})>[];
-    void flushPending() {
-      if (pending.isEmpty) return;
-      out.addAll(_emitSimpleCells(pending));
-      pending.clear();
+      return _StyledFace(name, CosString(Uint8List.fromList(replaceBytes)), w);
     }
 
-    var count = 0;
-    var cell = 0;
-    var m = 0;
-    while (cell < cells.length) {
-      if (m < matches.length && cell == charCell[matches[m].$1]) {
-        final (_, end) = matches[m];
-        final last = charCell[end - 1];
-        var oldWidth = 0.0;
-        for (var k = cell; k <= last; k++) {
-          oldWidth += cells[k].byte != null
-              ? origWidthOf(cells[k].byte!)
-              : -cells[k].kern!;
-        }
-        flushPending();
-        // open the style
-        if (style.color != null) out.add(_colorOp(style.color!));
-        if (fontChanged && styledFontName != null) {
-          out.add(_tfOp(styledFontName, styledSize));
-        }
-        out.add(ContentOperation('Tj', [replShow]));
-        // close it: restore font, then colour, for whatever follows
-        if (fontChanged && fontName != null) {
-          out.add(_tfOp(fontName, fontSize));
-        }
-        if (style.color != null) {
-          out.addAll(restoreColorOps.map(_cloneOp));
-        }
-        // keep the rest of the line put; the compensation is applied in the
-        // restored (original size) context, so convert the new width back.
-        if (end < totalChars && fontSize != 0) {
-          final kern = newWidthEm * styledSize / fontSize - oldWidth;
-          if (kern.abs() >= 0.001) {
-            out.add(
-              ContentOperation('TJ', [
-                CosArray([_numberObject(kern)]),
-              ]),
-            );
-          }
-        }
-        count++;
-        cell = last + 1;
-        m++;
-      } else {
-        pending.add(cells[cell]);
-        cell++;
-      }
-    }
-    flushPending();
-    return (out, count);
-  }
-
-  /// Coalesces flattened cells back into one show op (a `Tj` for a single
-  /// plain string, else a `TJ` array with adjacent kerns merged).
-  static List<ContentOperation> _emitSimpleCells(
-    List<({int? byte, double? kern})> cells,
-  ) {
-    final items = <CosObject>[];
-    final buffer = <int>[];
-    var kern = 0.0;
-    void flushString() {
-      if (buffer.isNotEmpty) {
-        items.add(CosString(Uint8List.fromList(buffer)));
-        buffer.clear();
-      }
-    }
-
-    void flushKern() {
-      if (kern.abs() >= 0.001) items.add(_numberObject(kern));
-      kern = 0;
-    }
-
-    for (final c in cells) {
-      if (c.byte case final int b) {
-        flushKern();
-        buffer.add(b);
-      } else {
-        flushString();
-        kern += c.kern!;
-      }
-    }
-    flushString();
-    flushKern();
-    if (items.isEmpty) return const [];
-    if (items.length == 1 && items[0] is CosString) {
-      return [
-        ContentOperation('Tj', [items[0]]),
-      ];
-    }
-    return [
-      ContentOperation('TJ', [CosArray(items)]),
-    ];
+    final codec = _StyledRunCodec(
+      origWidthOf: origWidthOf,
+      resolveFace: resolve,
+      styledSize: style.fontSize ?? fontSize,
+      fontSize: fontSize,
+      fontName: fontName,
+      colorOp: style.color == null ? null : _colorOp(style.color!),
+      restoreColorOps: restoreColorOps,
+    );
+    return TextRunRewriter(codec).rewrite(run, find, replace);
   }
 
   /// The base-14 [PdfStandardFont] the /BaseFont of [font] maps to, or null
@@ -726,144 +624,19 @@ extension PdfContentEditing on PdfEditor {
     return subtype is CosName && subtype.value == 'Type0';
   }
 
-  /// One position in a flattened run: a shown byte, or a `TJ` kern number
-  /// (advance of `-kern/1000` em). Exactly one field is set.
-  static List<({int? byte, double? kern})> _runCells(
-    List<ContentOperation> run,
-  ) {
-    final cells = <({int? byte, double? kern})>[];
-    for (final op in run) {
-      if (op.operator == 'TJ' &&
-          op.operands.isNotEmpty &&
-          op.operands[0] is CosArray) {
-        for (final item in (op.operands[0] as CosArray).items) {
-          switch (item) {
-            case CosString(:final bytes):
-              for (final b in bytes) {
-                cells.add((byte: b, kern: null));
-              }
-            case CosInteger(:final value):
-              cells.add((byte: null, kern: value.toDouble()));
-            case CosReal(:final value):
-              cells.add((byte: null, kern: value));
-            default:
-              break; // names, dicts, etc. carry no advance in a TJ array
-          }
-        }
-      } else if (op.operands.isNotEmpty && op.operands[0] is CosString) {
-        for (final b in (op.operands[0] as CosString).bytes) {
-          cells.add((byte: b, kern: null));
-        }
-      }
-    }
-    return cells;
-  }
-
-  /// Rewrites one run of show operators, replacing [findBytes] with
-  /// [replaceBytes] across its strings. Returns the operations to emit in
-  /// the run's place (the originals untouched when nothing matched) and the
-  /// number of replacements.
+  /// Rewrites one run of show operators, replacing [find] with [replace]
+  /// across its strings (both Latin-1). Returns the operations to emit in the
+  /// run's place (the originals untouched when nothing matched) and the number
+  /// of replacements.
   (List<ContentOperation>, int) _rewriteTextRun(
     List<ContentOperation> run,
     CosDictionary? font,
-    List<int> findBytes,
-    List<int> replaceBytes,
+    String find,
+    String replace,
   ) {
     if (_isType0(document.cos, font)) return (run, 0);
-
-    final cells = _runCells(run);
-    final charCell = <int>[]; // logical char index -> cell index
-    final logical = <int>[];
-    for (var c = 0; c < cells.length; c++) {
-      if (cells[c].byte case final int b) {
-        charCell.add(c);
-        logical.add(b);
-      }
-    }
-    final matches = _findAll(logical, findBytes);
-    if (matches.isEmpty) return (run, 0);
-
-    final widthOf = _widthsFor(font);
-    final totalChars = logical.length;
-    final out = <({int? byte, double? kern})>[];
-    var count = 0;
-    var cell = 0;
-    var m = 0;
-    while (cell < cells.length) {
-      if (m < matches.length && cell == charCell[matches[m].$1]) {
-        final (start, end) = matches[m];
-        final last = charCell[end - 1];
-        // advance the matched span covers, kern numbers inside it included
-        var oldWidth = 0.0;
-        for (var k = cell; k <= last; k++) {
-          oldWidth +=
-              cells[k].byte != null ? widthOf(cells[k].byte!) : -cells[k].kern!;
-        }
-        var newWidth = 0.0;
-        for (final b in replaceBytes) {
-          out.add((byte: b, kern: null));
-          newWidth += widthOf(b);
-        }
-        // keep the rest of the line put when text still follows the match
-        if (end < totalChars && (newWidth - oldWidth).abs() >= 0.001) {
-          out.add((byte: null, kern: newWidth - oldWidth));
-        }
-        count++;
-        cell = last + 1;
-        m++;
-      } else {
-        out.add(cells[cell]);
-        cell++;
-      }
-    }
-
-    // coalesce cells back into TJ array items, merging adjacent kerns
-    final items = <CosObject>[];
-    final buffer = <int>[];
-    var kern = 0.0;
-    void flushString() {
-      if (buffer.isNotEmpty) {
-        items.add(CosString(Uint8List.fromList(buffer)));
-        buffer.clear();
-      }
-    }
-
-    void flushKern() {
-      if (kern.abs() >= 0.001) items.add(_numberObject(kern));
-      kern = 0;
-    }
-
-    for (final c in out) {
-      if (c.byte case final int b) {
-        flushKern();
-        buffer.add(b);
-      } else {
-        flushString();
-        kern += c.kern!;
-      }
-    }
-    flushString();
-    flushKern();
-
-    // a single Tj whose result is one plain string stays a Tj, so simple
-    // corrections still serialize as `(text) Tj`
-    if (run.length == 1 &&
-        run[0].operator == 'Tj' &&
-        items.length == 1 &&
-        items[0] is CosString) {
-      final original = run[0].operands[0];
-      run[0].operands[0] = CosString(
-        (items[0] as CosString).bytes,
-        isHex: original is CosString && original.isHex,
-      );
-      return (run, count);
-    }
-    return (
-      [
-        ContentOperation('TJ', [CosArray(items)]),
-      ],
-      count,
-    );
+    return TextRunRewriter(_SimpleRunCodec(_widthsFor(font)))
+        .rewrite(run, find, replace);
   }
 
   /// An advance-width lookup (thousandths of an em) for [font]: its own
@@ -1025,6 +798,136 @@ extension PdfContentEditing on PdfEditor {
       bytes,
     );
   }
+}
+
+/// The simple (one-byte-per-character) font codec for [TextRunRewriter]:
+/// each shown byte is a glyph, replacements are drawn as Latin-1 bytes in the
+/// run's own font, and cells serialize back into plain (non-hex) show strings.
+class _SimpleRunCodec extends RunCodec {
+  _SimpleRunCodec(this._widthOf);
+  final double Function(int code) _widthOf;
+
+  @override
+  List<RunCell> flatten(List<ContentOperation> run) => simpleRunCells(run);
+
+  @override
+  String glyphText(int glyph) => String.fromCharCode(glyph);
+
+  @override
+  double glyphWidth(int glyph) => _widthOf(glyph);
+
+  @override
+  void emitReplacement(
+      List<Emit> out, String replace, double oldWidth, bool hasTrailing) {
+    var newWidth = 0.0;
+    for (final unit in replace.codeUnits) {
+      out.add(CellEmit((glyph: unit, kern: null)));
+      newWidth += _widthOf(unit);
+    }
+    if (hasTrailing && (newWidth - oldWidth).abs() >= 0.001) {
+      out.add(CellEmit((glyph: null, kern: newWidth - oldWidth)));
+    }
+  }
+
+  @override
+  List<ContentOperation> assemble(
+          List<ContentOperation> run, List<Emit> out) =>
+      RunCodec.coalesce(run, out,
+          putGlyph: (g, buffer) => buffer.add(g),
+          makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
+}
+
+/// The styled-simple codec: the simple codec plus a decorator that brackets
+/// each replacement with its own colour / `Tf` operators and restores the
+/// run's prior colour and font afterwards, so text following a styled
+/// correction keeps its appearance and stays put. The replacement is
+/// re-measured against the styled font/size, and a compensating kern (in the
+/// restored, original-size context) holds the rest of the line in place.
+class _StyledRunCodec extends RunCodec {
+  _StyledRunCodec({
+    required double Function(int code) origWidthOf,
+    required _StyledFace Function() resolveFace,
+    required this.styledSize,
+    required this.fontSize,
+    required this.fontName,
+    required this.colorOp,
+    required this.restoreColorOps,
+  })  : _origWidthOf = origWidthOf,
+        _resolveFace = resolveFace;
+
+  final double Function(int) _origWidthOf;
+  final _StyledFace Function() _resolveFace;
+  final double styledSize;
+  final double fontSize;
+  final String? fontName;
+
+  /// The nonstroking-colour operator for the replacement, or null to keep the
+  /// run's colour.
+  final ContentOperation? colorOp;
+
+  /// The operators that restore the run's colour after a styled replacement.
+  final List<ContentOperation> restoreColorOps;
+
+  _StyledFace? _face; // resolved once, on the first match
+
+  @override
+  List<RunCell> flatten(List<ContentOperation> run) => simpleRunCells(run);
+
+  @override
+  String glyphText(int glyph) => String.fromCharCode(glyph);
+
+  @override
+  double glyphWidth(int glyph) => _origWidthOf(glyph);
+
+  @override
+  void emitReplacement(
+      List<Emit> out, String replace, double oldWidth, bool hasTrailing) {
+    // face resolution (which may allocate a page /Font and record embedded
+    // glyphs) happens on the first match only, so a non-matching run reserves
+    // nothing.
+    final face = _face ??= _resolveFace();
+    final fontChanged = face.fontName != fontName || styledSize != fontSize;
+    // open the style
+    if (colorOp != null) out.add(OpEmit(colorOp!));
+    if (fontChanged && face.fontName != null) {
+      out.add(OpEmit(PdfContentEditing._tfOp(face.fontName!, styledSize)));
+    }
+    out.add(OpEmit(ContentOperation('Tj', [face.replShow])));
+    // close it: restore font, then colour, for whatever follows
+    if (fontChanged && fontName != null) {
+      out.add(OpEmit(PdfContentEditing._tfOp(fontName!, fontSize)));
+    }
+    if (colorOp != null) {
+      for (final op in restoreColorOps) {
+        out.add(OpEmit(PdfContentEditing._cloneOp(op)));
+      }
+    }
+    // keep the rest of the line put; the compensation is applied in the
+    // restored (original size) context, so convert the new width back.
+    if (hasTrailing && fontSize != 0) {
+      final kern = face.newWidthEm * styledSize / fontSize - oldWidth;
+      if (kern.abs() >= 0.001) {
+        out.add(CellEmit((glyph: null, kern: kern)));
+      }
+    }
+  }
+
+  @override
+  List<ContentOperation> assemble(
+          List<ContentOperation> run, List<Emit> out) =>
+      RunCodec.coalesce(run, out,
+          putGlyph: (g, buffer) => buffer.add(g),
+          makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
+}
+
+/// The resolved styled face for a [_StyledRunCodec]: the page /Font resource
+/// name to draw the replacement in (null keeps the run's font), the show
+/// string for the replacement, and its advance (thousandths of an em).
+class _StyledFace {
+  _StyledFace(this.fontName, this.replShow, this.newWidthEm);
+  final String? fontName;
+  final CosString replShow;
+  final double newWidthEm;
 }
 
 /// Drawing surface handed to [PdfContentEditing.stampPage]: high-level

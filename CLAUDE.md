@@ -81,21 +81,29 @@ enumeration with approximate bounds, stream rewriting), and
 strings and consecutive Tj/TJ runs, with width-compensated re-measurement
 from the font's /Widths so following text holds position; composite
 /Type0 runs are handled too for the Identity-H/CIDFontType2/Identity-
-CIDToGIDMap shape - `content_editor_type0.dart`'s `_Type0Editing` reads
-existing text from /ToUnicode, re-encodes replacements through the
-embedded font's own cmap so any glyph the program carries can be typed,
-and merges new glyphs' advances + Unicode into the descendant /W and
-/ToUnicode; when the document font can't draw a character - a subsetted
+CIDToGIDMap shape - the composite font model is `Type0Font`
+(`type0_font.dart`): `Type0Font.decode` (lenient, for extraction) and
+`Type0Font.forEditing` (strict eligibility gate as its construction
+contract) both read text from /ToUnicode + widths from /W in one place;
+editing re-encodes replacements through the embedded font's own cmap so
+any glyph the program carries can be typed, and merges new glyphs'
+advances + Unicode into the descendant /W and /ToUnicode via
+`commitFontDict`. `content_editor_type0.dart`'s `_Type0RunEditor` is the
+thin editor-side wiring (fallback page-resource allocation, updater
+marking). When the document font can't draw a character - a subsetted
 font dropped it - `replaceText(fallbackFonts:)` embeds a style-matched
 bundled fallback as a new page /Font resource and emits that replacement
 between Tf switches (the editor passes the DejaVu trio via
 `loadFallbackFonts()`); within-line only - CFF/non-Identity Type0 still
-out) - all
-in `content_editor.dart`/`content_elements.dart`; shared Type0 metric
-parsing (/ToUnicode + /W) is in `type0_metrics.dart`, and
-`PdfPageElements` decodes Type0 runs through it so `element.text` is real
-Unicode (what the content-edit UI shows and passes as `find`). The
-content-stream tokenizer (`ContentStreamParser`) now lives in pdf_cos.
+out) - all in `content_editor.dart`/`content_elements.dart`. The
+flatten→match→splice→kern→coalesce run-rewrite engine is shared:
+`TextRunRewriter` + `RunCodec` (`content_run_rewriter.dart`, a
+document-free standalone lib so the kern/coalescing math is unit-testable
+against a fake codec), with simple / styled / Type0 / Type0-fallback
+codecs. `PdfPageElements` decodes Type0 runs through `Type0Font` so
+`element.text` is real Unicode (what the content-edit UI shows and passes
+as `find`). The content-stream tokenizer (`ContentStreamParser`) now
+lives in pdf_cos.
 Paragraph-level reflow is in: `PdfEditor.reflowText` (`content_reflow.dart`)
 re-wraps a whole detected paragraph when the replacement changes its line
 count and cascades the following lines through the content stream's own
