@@ -3764,6 +3764,57 @@ class PdfEditingController extends ChangeNotifier {
     return true;
   }
 
+  /// Adds or removes the annotation in slot [index] of [pageIndex]'s
+  /// /Annots from the selection - the annotation sidebar's ⌘/Ctrl-click.
+  /// Arms the select tool and keeps any other selected annotations. An
+  /// already-selected slot is deselected; a slot that can't be selected
+  /// (invalid, unselectable subtype, or locked) is ignored when it isn't
+  /// already in the selection. Returns whether the annotation is selected
+  /// afterwards.
+  bool toggleAnnotationSelection(int pageIndex, int index) {
+    final slot = (pageIndex, index);
+    if (_selected.contains(slot)) {
+      _selected.remove(slot);
+      notifyListeners();
+      return false;
+    }
+    final annotation = _annotationAt(slot);
+    if (annotation == null ||
+        !annotation.behavior.selectable ||
+        !isAnnotationEditable(annotation)) {
+      return false;
+    }
+    tool = PdfEditTool.select;
+    _selected.add(slot);
+    notifyListeners();
+    return true;
+  }
+
+  /// Replaces the annotation selection with [slots] (in the given order,
+  /// dropping duplicates and any that are invalid, unselectable, or
+  /// locked) and arms the select tool - the annotation sidebar's
+  /// shift-click range select. Returns how many are selected afterwards.
+  int selectAnnotationSlots(Iterable<(int page, int index)> slots) {
+    final next = <(int, int)>[];
+    for (final slot in slots) {
+      if (next.contains(slot)) continue;
+      final annotation = _annotationAt(slot);
+      if (annotation != null &&
+          annotation.behavior.selectable &&
+          isAnnotationEditable(annotation)) {
+        next.add(slot);
+      }
+    }
+    tool = PdfEditTool.select;
+    if (!listEquals(next, _selected)) {
+      _selected
+        ..clear()
+        ..addAll(next);
+      notifyListeners();
+    }
+    return next.length;
+  }
+
   /// Removes the annotation in slot [index] of [pageIndex]'s /Annots
   /// without going through the selection.
   void deleteAnnotation(int pageIndex, int index) {
