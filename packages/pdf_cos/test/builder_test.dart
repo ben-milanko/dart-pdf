@@ -37,7 +37,7 @@ void main() {
       final reopened = CosDocument.open(bytes);
       expect(reopened.catalog.typeName, 'Catalog');
       expect((reopened.getObject(2, 0) as CosDictionary).typeName, 'Page');
-      // four objects registered plus the object-0 free head
+      // three objects registered plus the object-0 free head
       expect(reopened.declaredSize, 4);
       expect(reopened.trailer['Prev'], isNull);
     });
