@@ -20,6 +20,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Keychain/Keystore-backed persistence for signing identities
+  # (SecureIdentityStore); the private key never touches shared_preferences.
+  flutter_secure_storage: ^10.3.1
   # Cross-platform HTTP client (VM + web via fetch) for the progressive remote
   # PDF byte source (PdfHttpByteSource); uses Range requests, no dart:io in our
   # code. See src/http_byte_source.dart.

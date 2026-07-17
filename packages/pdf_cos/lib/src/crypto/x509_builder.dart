@@ -24,6 +24,7 @@ abstract final class _CertOid {
   static const extBasicConstraints = '2.5.29.19';
   static const extKeyUsage = '2.5.29.15';
   static const extSubjectKeyId = '2.5.29.14';
+  static const extAuthorityKeyId = '2.5.29.35';
   static const extSubjectAltName = '2.5.29.17';
 }
 
@@ -60,43 +61,169 @@ Uint8List buildSelfSignedCertificate({
   crypto.Hash hash = crypto.sha256,
 }) {
   final publicKey = key.publicKey;
-  final signatureAlgorithm = ecdsaSignatureAlgorithm(hash);
   final name = _name(commonName, organization);
-  final serial = serialNumber ?? _randomSerial(random ?? Random.secure());
+  return _assembleCertificate(
+    signingKey: key,
+    issuerName: name,
+    subjectName: name, // self-signed: subject == issuer
+    subjectPublicKey: publicKey,
+    notBefore: notBefore,
+    notAfter: notAfter,
+    serial: serialNumber ?? _randomSerial(random ?? Random.secure()),
+    hash: hash,
+    extensions: _endEntityExtensions(publicKey, email: email),
+  );
+}
 
+/// Builds a self-signed X.509 v3 **CA** certificate for [key] - the root of
+/// an "org CA" a deployment issues member signing certs from (see
+/// [issueCertificate]). Carries basicConstraints cA=TRUE (with an optional
+/// [pathLength]) and a keyUsage of keyCertSign + cRLSign. Share its DER as a
+/// trust anchor; member certificates then chain to it and validate.
+Uint8List buildCaCertificate({
+  required EcPrivateKey key,
+  required String commonName,
+  String? organization,
+  required DateTime notBefore,
+  required DateTime notAfter,
+  int? pathLength,
+  BigInt? serialNumber,
+  Random? random,
+  crypto.Hash hash = crypto.sha256,
+}) {
+  final publicKey = key.publicKey;
+  final name = _name(commonName, organization);
+  return _assembleCertificate(
+    signingKey: key,
+    issuerName: name,
+    subjectName: name,
+    subjectPublicKey: publicKey,
+    notBefore: notBefore,
+    notAfter: notAfter,
+    serial: serialNumber ?? _randomSerial(random ?? Random.secure()),
+    hash: hash,
+    extensions: [
+      // basicConstraints cA=TRUE, optional pathLenConstraint.
+      _extension(_CertOid.extBasicConstraints,
+          critical: true,
+          value: derSequence([
+            derBoolean(true),
+            if (pathLength != null) derInteger(BigInt.from(pathLength)),
+          ])),
+      // keyUsage: keyCertSign (bit 5) + cRLSign (bit 6) -> 0x06, 1 unused bit.
+      _extension(_CertOid.extKeyUsage,
+          critical: true, value: derEncode(DerTag.bitString, const [1, 0x06])),
+      _extension(_CertOid.extSubjectKeyId,
+          value: derOctetString(crypto.sha1.convert(publicKey.sec1).bytes)),
+    ],
+  );
+}
+
+/// Issues an end-entity signing certificate for [subjectPublicKey], signed by
+/// [issuerKey] and chaining to [issuerCertificate] (a CA built with
+/// [buildCaCertificate]). The issuer Name is copied from the CA certificate's
+/// subject, and an authorityKeyIdentifier links the two. Pair the returned
+/// leaf with the CA certificate as the chain of a signing identity.
+Uint8List issueCertificate({
+  required EcPrivateKey issuerKey,
+  required Uint8List issuerCertificate,
+  required EcPublicKey subjectPublicKey,
+  required String commonName,
+  String? organization,
+  String? email,
+  required DateTime notBefore,
+  required DateTime notAfter,
+  BigInt? serialNumber,
+  Random? random,
+  crypto.Hash hash = crypto.sha256,
+}) {
+  return _assembleCertificate(
+    signingKey: issuerKey,
+    issuerName: _subjectNameOf(issuerCertificate),
+    subjectName: _name(commonName, organization),
+    subjectPublicKey: subjectPublicKey,
+    notBefore: notBefore,
+    notAfter: notAfter,
+    serial: serialNumber ?? _randomSerial(random ?? Random.secure()),
+    hash: hash,
+    extensions: _endEntityExtensions(
+      subjectPublicKey,
+      email: email,
+      authorityKey: issuerKey.publicKey,
+    ),
+  );
+}
+
+/// The end-entity extension set: basicConstraints CA:FALSE, a document
+/// signer's keyUsage (digitalSignature + contentCommitment), a
+/// subjectKeyIdentifier, an optional authorityKeyIdentifier (when issued by a
+/// CA), and an optional subjectAltName rfc822Name.
+List<Uint8List> _endEntityExtensions(
+  EcPublicKey subjectPublicKey, {
+  String? email,
+  EcPublicKey? authorityKey,
+}) =>
+    [
+      // basicConstraints: cA defaults to FALSE, so an empty SEQUENCE suffices.
+      _extension(_CertOid.extBasicConstraints,
+          critical: true, value: derSequence(const [])),
+      // keyUsage: digitalSignature (bit 0) + contentCommitment (bit 1).
+      _extension(_CertOid.extKeyUsage,
+          critical: true, value: derEncode(DerTag.bitString, const [6, 0xC0])),
+      _extension(_CertOid.extSubjectKeyId,
+          value:
+              derOctetString(crypto.sha1.convert(subjectPublicKey.sec1).bytes)),
+      if (authorityKey != null)
+        _extension(_CertOid.extAuthorityKeyId,
+            value: derSequence([
+              // AuthorityKeyIdentifier keyIdentifier [0] IMPLICIT OCTET STRING
+              derContextPrimitive(
+                  0, crypto.sha1.convert(authorityKey.sec1).bytes),
+            ])),
+      if (email != null && email.isNotEmpty)
+        _extension(_CertOid.extSubjectAltName,
+            value: derSequence([derContextPrimitive(1, ascii.encode(email))])),
+    ];
+
+/// Assembles and signs a certificate. [extensions] are the already-encoded
+/// Extension SEQUENCEs to place in the v3 extensions [3] field.
+Uint8List _assembleCertificate({
+  required EcPrivateKey signingKey,
+  required Uint8List issuerName,
+  required Uint8List subjectName,
+  required EcPublicKey subjectPublicKey,
+  required DateTime notBefore,
+  required DateTime notAfter,
+  required BigInt serial,
+  required List<Uint8List> extensions,
+  required crypto.Hash hash,
+}) {
+  final signatureAlgorithm = ecdsaSignatureAlgorithm(hash);
   final spki = derSequence([
-    derSequence([derOid(_CertOid.ecPublicKey), derOid(key.curve.oid)]),
-    derBitString(publicKey.sec1),
+    derSequence([derOid(_CertOid.ecPublicKey), derOid(subjectPublicKey.curve.oid)]),
+    derBitString(subjectPublicKey.sec1),
   ]);
-
-  final extensions = derContext(3, derSequence([
-    // basicConstraints: cA defaults to FALSE, so an empty SEQUENCE suffices.
-    _extension(_CertOid.extBasicConstraints,
-        critical: true, value: derSequence(const [])),
-    // keyUsage: digitalSignature (bit 0) + contentCommitment (bit 1).
-    _extension(_CertOid.extKeyUsage,
-        critical: true,
-        value: derEncode(DerTag.bitString, const [6, 0xC0])),
-    _extension(_CertOid.extSubjectKeyId,
-        value: derOctetString(crypto.sha1.convert(publicKey.sec1).bytes)),
-    if (email != null && email.isNotEmpty)
-      _extension(_CertOid.extSubjectAltName,
-          value: derSequence([derContextPrimitive(1, ascii.encode(email))])),
-  ]));
-
   final tbs = derSequence([
     derContext(0, derInteger(BigInt.two)), // version v3
     derInteger(serial),
     signatureAlgorithm,
-    name, // issuer
+    issuerName,
     derSequence([_time(notBefore), _time(notAfter)]),
-    name, // subject == issuer (self-signed)
+    subjectName,
     spki,
-    extensions,
+    derContext(3, derSequence(extensions)),
   ]);
-
-  final signature = ecdsaSign(key, hash.convert(tbs).bytes, hash: hash);
+  final signature = ecdsaSign(signingKey, hash.convert(tbs).bytes, hash: hash);
   return derSequence([tbs, signatureAlgorithm, derBitString(signature)]);
+}
+
+/// The DER of a certificate's subject Name - the issuer field a certificate
+/// this CA issues must carry. Mirrors X509Certificate.parse's TBS indexing.
+Uint8List _subjectNameOf(Uint8List certificateDer) {
+  final tbs = DerObject.parse(certificateDer).children[0].children;
+  // TBSCertificate: [0]version?, serial, sigAlg, issuer, validity, subject...
+  final base = tbs[0].tag == DerTag.context(0) ? 1 : 0;
+  return tbs[base + 4].encoded;
 }
 
 /// A Name of `CN=[commonName]` and, when supplied, `O=[organization]`.

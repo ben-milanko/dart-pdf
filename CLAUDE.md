@@ -84,8 +84,15 @@ X.509 v3 builder, KAT'd against RFC 6979 vectors) feed
 `saveSignedEcdsa` / `saveSelfSignedPades` (ECDSA CMS via
 `cmsSignDetachedEcdsa`). A self-signed cert reads as "signed, validity
 unknown" outside our own `PdfTrustStore`; pair with a default TSA
-(`PdfDefaultTimestampAuthority`) B-T for trusted time. Flutter secure
-storage + "Create signing identity" UI is the follow-up (#322).
+(`PdfDefaultTimestampAuthority`) B-T for trusted time. Org-CA mode is in:
+`buildCaCertificate` + `issueCertificate` (pdf_cos) feed
+`PdfSigningIdentity.generateCa` + `ca.issue(...)` - members chain to a
+shared CA and validate via `PdfTrustStore.trusting([caDer])`. Flutter key
+storage + the "Create signing identity" UI are in dart_pdf_editor
+(`PdfIdentityStore`/`InMemoryIdentityStore`/`SecureIdentityStore` on
+flutter_secure_storage; `CreateSigningIdentityForm` /
+`showCreateSigningIdentityDialog`). Fulcio keyless (Tier 3) + Actalis
+import docs (Tier 4) remain the #322 follow-ups.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and

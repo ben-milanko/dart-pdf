@@ -182,6 +182,82 @@ void main() {
     });
   });
 
+  group('org CA: issued certificates chain to the CA', () {
+    final caKey = EcPrivateKey.generate(EcCurve.p256, random: _SeededRandom(21));
+    final caDer = buildCaCertificate(
+      key: caKey,
+      commonName: 'Acme Org CA',
+      organization: 'Acme',
+      notBefore: DateTime.utc(2026),
+      notAfter: DateTime.utc(2046),
+      random: _SeededRandom(22),
+    );
+    final ca = X509Certificate.parse(caDer);
+
+    test('the CA certificate is a self-signed anchor', () {
+      expect(ca.subjectCommonName, 'Acme Org CA');
+      expect(ca.isSignedBy(ca), isTrue);
+      expect(ca.subjectDer, ca.issuerDer);
+    });
+
+    test('an issued leaf verifies against the CA and chains to it', () {
+      final memberKey =
+          EcPrivateKey.generate(EcCurve.p256, random: _SeededRandom(23));
+      final leafDer = issueCertificate(
+        issuerKey: caKey,
+        issuerCertificate: caDer,
+        subjectPublicKey: memberKey.publicKey,
+        commonName: 'Bob Member',
+        email: 'bob@acme.example',
+        notBefore: DateTime.utc(2026, 6),
+        notAfter: DateTime.utc(2028, 6),
+        random: _SeededRandom(24),
+      );
+      final leaf = X509Certificate.parse(leafDer);
+
+      expect(leaf.subjectCommonName, 'Bob Member');
+      // issuer of the leaf equals the CA's subject, and the CA signed it
+      expect(leaf.issuerDer, ca.subjectDer);
+      expect(leaf.isSignedBy(ca), isTrue);
+      expect(leaf.isSignedBy(leaf), isFalse); // not self-signed
+
+      final result = verifyCertificateChain(
+        leaf: leaf,
+        intermediates: [ca],
+        trustAnchors: [ca],
+        at: DateTime.utc(2027),
+      );
+      expect(result.trusted, isTrue, reason: result.problems.join('; '));
+      expect(result.chain, hasLength(2));
+    });
+
+    test('a leaf issued by a different CA does not chain', () {
+      final otherCaKey =
+          EcPrivateKey.generate(EcCurve.p256, random: _SeededRandom(25));
+      final otherCaDer = buildCaCertificate(
+        key: otherCaKey,
+        commonName: 'Other CA',
+        notBefore: DateTime.utc(2026),
+        notAfter: DateTime.utc(2046),
+        random: _SeededRandom(26),
+      );
+      final memberKey =
+          EcPrivateKey.generate(EcCurve.p256, random: _SeededRandom(27));
+      final leaf = X509Certificate.parse(issueCertificate(
+        issuerKey: otherCaKey,
+        issuerCertificate: otherCaDer,
+        subjectPublicKey: memberKey.publicKey,
+        commonName: 'Mallory',
+        notBefore: DateTime.utc(2026),
+        notAfter: DateTime.utc(2028),
+        random: _SeededRandom(28),
+      ));
+      final result =
+          verifyCertificateChain(leaf: leaf, trustAnchors: [ca]);
+      expect(result.trusted, isFalse);
+    });
+  });
+
   group('CMS detached signing with ECDSA', () {
     final key = EcPrivateKey.generate(EcCurve.p256, random: _SeededRandom(11));
     final certDer = buildSelfSignedCertificate(

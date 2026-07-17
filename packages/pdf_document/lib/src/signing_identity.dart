@@ -58,6 +58,72 @@ class PdfSigningIdentity {
     );
   }
 
+  /// Creates a self-signed **CA** identity offline - the root of an "org CA".
+  /// Generate it once, share [certificate] as a trust anchor across the
+  /// deployment, and mint member identities with [issue]; their signatures
+  /// then chain to this CA and validate for real (not just "validity
+  /// unknown"). [validity] defaults to ten years.
+  factory PdfSigningIdentity.generateCa({
+    required String name,
+    String? organization,
+    DateTime? notBefore,
+    Duration validity = const Duration(days: 365 * 10),
+    int? pathLength,
+    Random? random,
+  }) {
+    final rng = random ?? Random.secure();
+    final key = EcPrivateKey.generate(EcCurve.p256, random: rng);
+    final start = (notBefore ?? DateTime.now()).toUtc();
+    final certificate = buildCaCertificate(
+      key: key,
+      commonName: name,
+      organization: organization,
+      notBefore: start.subtract(const Duration(minutes: 5)),
+      notAfter: start.add(validity),
+      pathLength: pathLength,
+      random: rng,
+    );
+    return PdfSigningIdentity(
+      privateKey: key,
+      certificates: [certificate],
+      name: name,
+    );
+  }
+
+  /// Issues a member signing identity from this CA identity (which must have
+  /// been made with [PdfSigningIdentity.generateCa]). The member gets a fresh
+  /// EC key and a certificate signed by this CA; its chain is
+  /// `[memberCert, caCert]`, so it validates against a [PdfTrustStore] holding
+  /// this CA's [certificate]. [validity] defaults to two years.
+  PdfSigningIdentity issue({
+    required String name,
+    String? email,
+    String? organization,
+    DateTime? notBefore,
+    Duration validity = const Duration(days: 365 * 2),
+    Random? random,
+  }) {
+    final rng = random ?? Random.secure();
+    final memberKey = EcPrivateKey.generate(EcCurve.p256, random: rng);
+    final start = (notBefore ?? DateTime.now()).toUtc();
+    final memberCert = issueCertificate(
+      issuerKey: privateKey,
+      issuerCertificate: certificate,
+      subjectPublicKey: memberKey.publicKey,
+      commonName: name,
+      email: email,
+      organization: organization,
+      notBefore: start.subtract(const Duration(minutes: 5)),
+      notAfter: start.add(validity),
+      random: rng,
+    );
+    return PdfSigningIdentity(
+      privateKey: memberKey,
+      certificates: [memberCert, ...certificates],
+      name: name,
+    );
+  }
+
   /// The EC signing key.
   final EcPrivateKey privateKey;
 

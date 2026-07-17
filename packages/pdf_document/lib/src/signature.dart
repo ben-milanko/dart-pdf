@@ -396,6 +396,19 @@ class PdfSignature {
 /// library ships no built-in roots - supply your platform's or your
 /// organization's.
 class PdfTrustStore {
+  PdfTrustStore();
+
+  /// A trust store seeded with [certificates] (DER, e.g. an org CA built with
+  /// `PdfSigningIdentity.generateCa`) so the identities it vouches for
+  /// validate against this store.
+  factory PdfTrustStore.trusting(Iterable<Uint8List> certificates) {
+    final store = PdfTrustStore();
+    for (final der in certificates) {
+      store.addDer(der);
+    }
+    return store;
+  }
+
   final List<X509Certificate> anchors = [];
 
   void addCertificate(X509Certificate certificate) =>

@@ -106,6 +106,64 @@ void main() {
     });
   });
 
+  group('org CA mode: member identities validate against the CA', () {
+    final signedAt = DateTime.utc(2026, 6, 10, 12);
+    final ca = PdfSigningIdentity.generateCa(
+      name: 'Acme Org CA',
+      organization: 'Acme',
+      notBefore: DateTime.utc(2026),
+      validity: const Duration(days: 3650),
+    );
+
+    test('a member signature chains to the shared CA and is trusted', () {
+      final member = ca.issue(
+        name: 'Carol Member',
+        email: 'carol@acme.example',
+        notBefore: DateTime.utc(2026),
+        validity: const Duration(days: 730),
+      );
+      // the member ships the leaf + the CA cert as its chain
+      expect(member.certificates, hasLength(2));
+
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSelfSigned(
+        identity: member,
+        signingTime: signedAt,
+      );
+
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.signerName, 'Carol Member');
+
+      // a verifier holding only the CA cert trusts the member's signature
+      final trustStore = PdfTrustStore.trusting([ca.certificate]);
+      final result = signature.validate(trustStore: trustStore);
+      expect(result.intact, isTrue, reason: result.problems.join('; '));
+      expect(result.chainTrusted, isTrue,
+          reason: result.chainProblems.join('; '));
+    });
+
+    test('a member of a different CA is not trusted by this CA', () {
+      final other = PdfSigningIdentity.generateCa(
+        name: 'Other CA',
+        notBefore: DateTime.utc(2026),
+        validity: const Duration(days: 3650),
+      );
+      final member = other.issue(
+        name: 'Outsider',
+        notBefore: DateTime.utc(2026),
+        validity: const Duration(days: 730),
+      );
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed =
+          editor.saveSelfSigned(identity: member, signingTime: signedAt);
+      final result = PdfSignature.of(PdfDocument.open(signed))
+          .single
+          .validate(trustStore: PdfTrustStore.trusting([ca.certificate]));
+      expect(result.chainTrusted, isFalse);
+    });
+  });
+
   group('EC PAdES B-T with a self-signed identity', () {
     final signedAt = DateTime.utc(2026, 6, 10, 12);
     final identity = PdfSigningIdentity.generate(
