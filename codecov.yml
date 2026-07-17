@@ -27,6 +27,12 @@ flags:
 
 ignore:
   - "**/test/**"
+  # Experimental multi-window glue built on Flutter's flag-gated, @internal
+  # windowing API. Its windowing branches throw UnsupportedError unless the
+  # `windowing` feature flag is on and cannot create real OS windows in the
+  # test harness, so they're unreachable in CI by construction. The reachable
+  # app-side wiring (app.dart / editor_screen.dart) stays covered.
+  - "app/lib/window_support.dart"
 
 coverage:
   status:
