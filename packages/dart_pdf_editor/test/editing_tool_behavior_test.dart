@@ -177,6 +177,25 @@ void main() {
     });
   });
 
+  group('measurement scale', () {
+    test('the controller forwards measurementScale to its preferences', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+
+      // Reads through to preferences (unset by default).
+      expect(editing.measurementScale, isNull);
+      expect(editing.hasMeasurementScale, isFalse);
+
+      final scale = PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
+      editing.measurementScale = scale;
+
+      // Writes through, and the getter reflects it.
+      expect(editing.measurementScale, same(scale));
+      expect(editing.preferences.measurementScale, same(scale));
+      expect(editing.hasMeasurementScale, isTrue);
+    });
+  });
+
   group('commit hooks emit annotations', () {
     PdfEditingController controller() {
       final editing = PdfEditingController(buildMultiPagePdf(1));
