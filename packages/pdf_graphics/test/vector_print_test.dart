@@ -58,6 +58,15 @@ void main() {
           throwsFormatException);
     });
 
+    test('rejects an unknown op tag', () async {
+      // A valid header ('V','P','R',1 + two f32 sizes) followed by a bogus op.
+      final valid = await encodeVectorPrintPage(
+          PdfDocument.open(buildContentPdf('', width: 10, height: 10)).page(0));
+      final header = Uint8List.sublistView(valid, 0, 12); // magic + w + h
+      final bad = Uint8List.fromList([...header, 0x7f]); // 0x7f is no op
+      expect(() => decodeVectorPrint(bad), throwsFormatException);
+    });
+
     test('a /Rotate 90 page swaps width and height', () async {
       final page = await encodeAndDecode(
           buildContentPdf('', width: 400, height: 300, rotate: 90));
@@ -137,6 +146,25 @@ void main() {
       final page = await encodeAndDecode(
           buildContentPdf('0 0 100 100 re W n 0 0 50 50 re f'));
       expect(page.ops.whereType<VpClipPath>(), hasLength(1));
+    });
+
+    test('q/Q bracket the content as save/restore ops', () async {
+      final page = await encodeAndDecode(
+          buildContentPdf('q 0 0 10 10 re f Q', width: 100, height: 100));
+      expect(page.ops.whereType<VpSave>(), isNotEmpty);
+      expect(page.ops.whereType<VpRestore>(), isNotEmpty);
+    });
+
+    test('a dashed stroke round-trips its dash array and phase', () async {
+      final page = await encodeAndDecode(
+          buildContentPdf('[4 2] 1 d 2 w 10 10 m 90 10 l S',
+              width: 100, height: 100));
+      final stroke = page.ops.whereType<VpStrokePath>().single;
+      // Dash lengths scale with the device magnification (identity here).
+      expect(stroke.dashes, hasLength(2));
+      expect(stroke.dashes[0], closeTo(4, 0.01));
+      expect(stroke.dashes[1], closeTo(2, 0.01));
+      expect(stroke.dashPhase, closeTo(1, 0.01));
     });
 
     test('an opaque fill has a fully-opaque alpha channel', () async {
