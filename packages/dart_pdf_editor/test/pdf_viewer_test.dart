@@ -1399,6 +1399,21 @@ void main() {
           reason: 'editing.document wins over the standalone document');
     });
 
+    test('a formController ignored by interactiveForms: false is not a source',
+        () {
+      // formController is ignored when interactiveForms is false, so it can't
+      // stand in for the document - the assert must reject this rather than
+      // let _document dereference a null document later.
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      expect(
+        () => PdfViewer(formController: editing, interactiveForms: false),
+        throwsAssertionError,
+      );
+      // with interactiveForms on (the default) it IS a source
+      expect(PdfViewer(formController: editing), isNotNull);
+    });
+
     testWidgets('a form fill revision reaches the viewer without a rebuild',
         (tester) async {
       SharedPreferences.setMockInitialValues({});

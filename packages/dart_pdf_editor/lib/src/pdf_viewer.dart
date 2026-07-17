@@ -742,10 +742,13 @@ class PdfViewer extends StatefulWidget {
     this.documentId,
     this.active = true,
   }) : assert(
-            document != null || editing != null || formController != null,
-            'PdfViewer needs a document: pass document for the read-only '
-            'reader path, or an editing/formController controller that owns '
-            'the document revisions.');
+            document != null ||
+                editing != null ||
+                (formController != null && interactiveForms),
+            'PdfViewer needs a document source: pass document for the '
+            'read-only reader path, or an editing / active formController '
+            'controller that owns the document revisions. (A formController '
+            'with interactiveForms: false is ignored, so it is not a source.)');
 
   /// The document to display when no controller drives the viewer (the
   /// read-only reader path). Ignored when [editing] or an active
@@ -1149,15 +1152,21 @@ class _PdfViewerState extends State<PdfViewer>
   late List<PdfPage> _pages;
   late List<double> _aspects; // height / width, after /Rotate
 
-  /// The controller that owns the document revisions, if any: the editing
-  /// controller, or - when interactive forms are on - the form controller.
-  /// The viewer reads its current [PdfEditingController.document] and
-  /// subscribes to it (see [_onRevisionControllerChanged]), so the displayed
-  /// document can never desync from the controller and the host does not have
-  /// to keep [PdfViewer.document] in step or rebuild on every notification.
-  PdfEditingController? get _revisionController =>
+  /// The controller that owns the document revisions for a given viewer
+  /// configuration, if any: the editing controller, or - when interactive
+  /// forms are on - the form controller. Kept as one function so the live
+  /// getter and the [didUpdateWidget] old-widget comparison can't drift.
+  static PdfEditingController? _revisionControllerFor(PdfViewer widget) =>
       widget.editing ??
       (widget.interactiveForms ? widget.formController : null);
+
+  /// This viewer's revision controller. The viewer reads its current
+  /// [PdfEditingController.document] and subscribes to it (see
+  /// [_onRevisionControllerChanged]), so the displayed document can never
+  /// desync from the controller and the host does not have to keep
+  /// [PdfViewer.document] in step or rebuild on every notification.
+  PdfEditingController? get _revisionController =>
+      _revisionControllerFor(widget);
 
   /// The document actually displayed: the revision controller's current
   /// document when one drives the viewer, otherwise the standalone
@@ -1952,8 +1961,7 @@ class _PdfViewerState extends State<PdfViewer>
     // the revision controller (editing, or an active formController) can be
     // swapped in place - move the subscription before reading _document, which
     // resolves through it
-    final oldRevisionController = oldWidget.editing ??
-        (oldWidget.interactiveForms ? oldWidget.formController : null);
+    final oldRevisionController = _revisionControllerFor(oldWidget);
     final newRevisionController = _revisionController;
     if (!identical(oldRevisionController, newRevisionController)) {
       oldRevisionController?.removeListener(_onRevisionControllerChanged);
