@@ -186,6 +186,15 @@ class CosStream extends CosObject {
   /// The stream payload exactly as stored in the file (still encoded).
   final Uint8List rawBytes;
 
+  /// The indirect object this stream was parsed from, set by the document
+  /// when it loads the stream. In an encrypted file this doubles as the
+  /// key source (the encryption key derives from the ref) and marks
+  /// [rawBytes] as still the file's original payload - the incremental
+  /// updater writes such payloads through verbatim rather than
+  /// re-encrypting them. Null for streams built in memory (editor output,
+  /// re-encrypted copies).
+  CosReference? sourceRef;
+
   @override
   String toString() => 'stream(${rawBytes.length} bytes) $dictionary';
 }

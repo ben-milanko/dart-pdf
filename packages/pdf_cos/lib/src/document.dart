@@ -39,10 +39,6 @@ class CosDocument {
   StandardSecurityHandler? _encryption;
   int? _encryptObjectNumber;
 
-  /// Which indirect object owns each loaded stream - decryption keys are
-  /// derived from the owner's number and generation.
-  final Map<CosStream, CosReference> _streamOwners = {};
-
   /// Object numbers currently mid-parse, guarding against definitions
   /// that reference their own object (fuzzed and corrupt files).
   final Set<int> _loadingObjects = {};
@@ -58,12 +54,6 @@ class CosDocument {
 
   /// Object number of the /Encrypt dictionary, whose strings stay raw.
   int? get encryptObjectNumber => _encryptObjectNumber;
-
-  /// Whether [stream]'s payload is still the bytes loaded from the file
-  /// (kept encrypted until [decodeStreamData] runs). Encrypt-on-write
-  /// leaves such payloads alone instead of double-encrypting them.
-  bool streamKeepsFileBytes(CosStream stream) =>
-      _streamOwners.containsKey(stream);
 
   /// Opens a document. For encrypted files [password] is tried first as
   /// the user and then as the owner password; the default empty password
@@ -158,8 +148,6 @@ class CosDocument {
     // it from the appended bytes; untouched objects keep their warm cache.
     _cache.removeWhere((ref, _) => changed.contains(ref.objectNumber));
     _objectStreams.removeWhere((number, _) => changed.contains(number));
-    _streamOwners
-        .removeWhere((stream, ref) => changed.contains(ref.objectNumber));
     _scannedHeaders = null;
     return changed;
   }
@@ -264,7 +252,6 @@ class CosDocument {
     }
     document._cache.clear();
     document._objectStreams.clear();
-    document._streamOwners.clear();
 
     document._initEncryption(password);
 
@@ -485,7 +472,8 @@ class CosDocument {
             // strings decrypt with the owning object's key the moment it
             // loads; stream payloads wait for decodeStreamData
             if (_encryption != null && objectNumber != _encryptObjectNumber) {
-              _decryptStringsDeep(result, objectNumber, indirect.generation);
+              _encryption!
+                  .decryptObjectGraph(result, objectNumber, indirect.generation);
             }
           }
         case CosXrefEntryType.compressed:
@@ -497,9 +485,10 @@ class CosDocument {
     } finally {
       _loadingObjects.remove(objectNumber);
     }
-    if (_encryption != null && result is CosStream) {
-      _streamOwners[result] = ref;
-    }
+    // Record the ref every loaded stream was parsed from: its encryption
+    // key derives from it, and its presence marks the payload as still the
+    // file's original bytes (see [CosStream.sourceRef]).
+    if (result is CosStream) result.sourceRef = ref;
     _cache[ref] = result;
     return result;
   }
@@ -529,40 +518,6 @@ class CosDocument {
     return _parseIndirectAt(entry.offset, objectNumber);
   }
 
-  /// Replaces every string in [object]'s graph with its decrypted form.
-  /// References are leaves here, so a single object's graph is a tree.
-  void _decryptStringsDeep(CosObject object, int objectNumber, int generation) {
-    final handler = _encryption!;
-    switch (object) {
-      case CosArray():
-        for (var i = 0; i < object.items.length; i++) {
-          final item = object.items[i];
-          if (item is CosString) {
-            object.items[i] = CosString(
-                handler.decryptString(item.bytes, objectNumber, generation),
-                isHex: item.isHex);
-          } else {
-            _decryptStringsDeep(item, objectNumber, generation);
-          }
-        }
-      case CosDictionary():
-        for (final key in object.entries.keys.toList()) {
-          final value = object.entries[key]!;
-          if (value is CosString) {
-            object.entries[key] = CosString(
-                handler.decryptString(value.bytes, objectNumber, generation),
-                isHex: value.isHex);
-          } else {
-            _decryptStringsDeep(value, objectNumber, generation);
-          }
-        }
-      case CosStream():
-        _decryptStringsDeep(object.dictionary, objectNumber, generation);
-      default:
-        break;
-    }
-  }
-
   /// Follows references until reaching a direct object. Null input and
   /// dangling references resolve to [CosNull.instance].
   CosObject resolve(CosObject? object) {
@@ -583,8 +538,8 @@ class CosDocument {
     var source = stream;
     final handler = _encryption;
     if (handler != null) {
-      final owner = _streamOwners[stream];
-      if (owner != null && _streamIsEncrypted(stream)) {
+      final owner = stream.sourceRef;
+      if (owner != null && handler.streamPayloadIsEncrypted(stream, resolve)) {
         source = CosStream(
             stream.dictionary,
             handler.decryptStream(
@@ -593,46 +548,6 @@ class CosDocument {
     }
     return decodeStream(source,
         resolve: _resolveRef, stopBeforeFilter: stopBeforeFilter);
-  }
-
-  /// Cross-reference streams are never encrypted (§7.5.8.2), /Metadata is
-  /// exempt under /EncryptMetadata false, and a /Crypt filter whose /Name
-  /// is /Identity (or missing - the default) marks the bytes as plain.
-  bool _streamIsEncrypted(CosStream stream) {
-    final dict = stream.dictionary;
-    final type = resolve(dict['Type']);
-    if (type is CosName && type.value == 'XRef') return false;
-    if (type is CosName &&
-        type.value == 'Metadata' &&
-        !_encryption!.encryptMetadata) {
-      return false;
-    }
-    final filter = resolve(dict['Filter']);
-    final hasCrypt = filter is CosName && filter.value == 'Crypt' ||
-        filter is CosArray &&
-            filter.items.any((f) {
-              final name = resolve(f);
-              return name is CosName && name.value == 'Crypt';
-            });
-    if (hasCrypt) {
-      var parms = resolve(dict['DecodeParms']);
-      if (parms is CosArray && filter is CosArray) {
-        // aligned with the filter array; find the /Crypt slot
-        final slots = parms;
-        parms = CosNull.instance;
-        for (var i = 0; i < filter.items.length && i < slots.length; i++) {
-          final name = resolve(filter.items[i]);
-          if (name is CosName && name.value == 'Crypt') {
-            parms = resolve(slots[i]);
-            break;
-          }
-        }
-      }
-      if (parms is! CosDictionary) return false;
-      final name = resolve(parms['Name']);
-      return name is CosName && name.value != 'Identity';
-    }
-    return true;
   }
 
   CosObject _resolveRef(CosReference ref) =>

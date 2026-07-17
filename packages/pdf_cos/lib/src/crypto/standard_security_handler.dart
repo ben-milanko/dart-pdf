@@ -289,6 +289,132 @@ class StandardSecurityHandler {
     return Uint8List.fromList(k.sublist(0, 32));
   }
 
+  // ---------- object-graph operations ----------
+
+  /// Whether [stream]'s payload is actually encrypted, per the exempt-stream
+  /// policy shared by loading and saving: cross-reference streams are never
+  /// encrypted (§7.5.8.2), /Metadata is exempt under /EncryptMetadata false,
+  /// and a /Crypt filter whose /Name is /Identity (or absent - the default)
+  /// marks the bytes as already plain. [resolve] follows indirect dictionary
+  /// entries (/Type, /Filter, /DecodeParms).
+  bool streamPayloadIsEncrypted(
+      CosStream stream, CosObject Function(CosObject?) resolve) {
+    final dict = stream.dictionary;
+    final type = resolve(dict['Type']);
+    if (type is CosName && type.value == 'XRef') return false;
+    if (type is CosName && type.value == 'Metadata' && !encryptMetadata) {
+      return false;
+    }
+    final filter = resolve(dict['Filter']);
+    final hasCrypt = filter is CosName && filter.value == 'Crypt' ||
+        filter is CosArray &&
+            filter.items.any((f) {
+              final name = resolve(f);
+              return name is CosName && name.value == 'Crypt';
+            });
+    if (hasCrypt) {
+      var parms = resolve(dict['DecodeParms']);
+      if (parms is CosArray && filter is CosArray) {
+        // aligned with the filter array; find the /Crypt slot
+        final slots = parms;
+        parms = CosNull.instance;
+        for (var i = 0; i < filter.items.length && i < slots.length; i++) {
+          final name = resolve(filter.items[i]);
+          if (name is CosName && name.value == 'Crypt') {
+            parms = resolve(slots[i]);
+            break;
+          }
+        }
+      }
+      if (parms is! CosDictionary) return false;
+      final name = resolve(parms['Name']);
+      return name is CosName && name.value != 'Identity';
+    }
+    return true;
+  }
+
+  /// Decrypts every string in [object]'s graph in place under the
+  /// ([objectNumber], [generation]) key. References are leaves, so a single
+  /// indirect object's graph is a tree. A stream's payload is left as raw
+  /// file bytes for lazy decoding (see [decryptStream]); only its
+  /// dictionary strings are touched here.
+  void decryptObjectGraph(
+      CosObject object, int objectNumber, int generation) {
+    switch (object) {
+      case CosArray():
+        for (var i = 0; i < object.items.length; i++) {
+          final item = object.items[i];
+          if (item is CosString) {
+            object.items[i] = CosString(
+                decryptString(item.bytes, objectNumber, generation),
+                isHex: item.isHex);
+          } else {
+            decryptObjectGraph(item, objectNumber, generation);
+          }
+        }
+      case CosDictionary():
+        for (final key in object.entries.keys.toList()) {
+          final value = object.entries[key]!;
+          if (value is CosString) {
+            object.entries[key] = CosString(
+                decryptString(value.bytes, objectNumber, generation),
+                isHex: value.isHex);
+          } else {
+            decryptObjectGraph(value, objectNumber, generation);
+          }
+        }
+      case CosStream():
+        decryptObjectGraph(object.dictionary, objectNumber, generation);
+      default:
+        break;
+    }
+  }
+
+  /// Deep-copies [object] with every string and non-exempt stream payload
+  /// encrypted under the ([objectNumber], [generation]) key, leaving the
+  /// original graph untouched so later edits in the same session keep their
+  /// plaintext. A stream whose [keepsFileCiphertext] reports its payload as
+  /// still the file's original bytes passes through verbatim (it is already
+  /// ciphertext); exempt streams (cross-reference, unencrypted /Metadata,
+  /// /Crypt-Identity - see [streamPayloadIsEncrypted]) stay plain. [resolve]
+  /// follows indirect dictionary entries for the exempt-policy check.
+  CosObject encryptObjectGraph(
+    CosObject object,
+    int objectNumber,
+    int generation, {
+    required CosObject Function(CosObject?) resolve,
+    required bool Function(CosStream) keepsFileCiphertext,
+  }) {
+    CosObject copy(CosObject value) {
+      switch (value) {
+        case CosString():
+          return CosString(
+              encryptString(value.bytes, objectNumber, generation),
+              isHex: value.isHex);
+        case CosArray():
+          return CosArray([for (final item in value.items) copy(item)]);
+        case CosStream():
+          final dict = copy(value.dictionary) as CosDictionary;
+          if (keepsFileCiphertext(value) ||
+              !streamPayloadIsEncrypted(value, resolve)) {
+            return CosStream(dict, value.rawBytes);
+          }
+          final cipher =
+              encryptStream(value.rawBytes, objectNumber, generation);
+          dict['Length'] = CosInteger(cipher.length);
+          return CosStream(dict, cipher);
+        case CosDictionary():
+          final out = CosDictionary();
+          value.entries.forEach((key, v) => out[key] = copy(v));
+          return out;
+        default:
+          return value;
+      }
+    }
+
+    return copy(object);
+  }
+
   // ---------- per-object decryption ----------
 
   Uint8List decryptString(Uint8List data, int objectNumber, int generation) =>
