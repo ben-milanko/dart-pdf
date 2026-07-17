@@ -116,6 +116,8 @@ void main() {
       final content = ascii('BT (hi) Tj ET');
       final graph = CosDictionary({
         'Title': CosString.fromText('Plain'),
+        // an array so the CosArray branch of the walk is exercised
+        'Names': CosArray([CosString.fromText('Nested'), const CosName('Keep')]),
         'Content': stream(
             CosDictionary({'Length': CosInteger(content.length)}),
             'BT (hi) Tj ET'),
@@ -128,10 +130,15 @@ void main() {
       expect((graph['Title'] as CosString).text, 'Plain');
       expect((graph['Content'] as CosStream).rawBytes, content);
 
-      // strings round-trip back through the reader
+      // strings round-trip back through the reader, anywhere in the graph
       expect(
           h.decryptString((out['Title'] as CosString).bytes, 10, 0),
           CosString.fromText('Plain').bytes);
+      final names = out['Names'] as CosArray;
+      expect(h.decryptString((names[0] as CosString).bytes, 10, 0),
+          CosString.fromText('Nested').bytes);
+      // a non-string array element is copied through unchanged
+      expect((names[1] as CosName).value, 'Keep');
       final outStream = out['Content'] as CosStream;
       expect(outStream.rawBytes, isNot(content));
       expect((outStream.dictionary['Length'] as CosInteger).value,
