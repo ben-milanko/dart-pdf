@@ -110,6 +110,43 @@ void main() {
     });
   });
 
+  group('parseSection - malformed sections throw', () {
+    void expectRejected(Uint8List bytes) => expect(
+        () => CosXrefReader(bytes).parseSection(0),
+        throwsA(isA<CosParseException>()));
+
+    test('an xref stream missing /W or /Size', () {
+      expectRejected(_xrefStreamSection('/Size 6', []));
+    });
+
+    test('a non-integer /W entry', () {
+      expectRejected(_xrefStreamSection('/Size 6 /W [1 /Bad 2]', []));
+    });
+
+    test('a non-integer /Index entry', () {
+      expectRejected(
+          _xrefStreamSection('/Size 6 /W [1 1 1] /Index [1 /Bad]', []));
+    });
+
+    test('an object that is not a cross-reference stream', () {
+      // Leads with neither the `xref` keyword nor a stream object.
+      expectRejected(ascii('7 0 obj\n<< /Type /Catalog >>\nendobj\n'));
+    });
+
+    test('a classic table with an invalid entry type', () {
+      expectRejected(ascii('xref\n0 2\n'
+          '0000000000 65535 f \n'
+          '0000000010 00000 x \n'
+          'trailer\n<< /Size 2 /Root 1 0 R >>\n'));
+    });
+
+    test('a classic table whose trailer is not a dictionary', () {
+      expectRejected(ascii('xref\n0 1\n'
+          '0000000000 65535 f \n'
+          'trailer\n42\n'));
+    });
+  });
+
   group('read / walkFrom - chain traversal', () {
     test('read merges the whole chain, newest section wins', () {
       // An incremental update appends a second xref section pointing /Prev at
@@ -152,6 +189,47 @@ void main() {
       expect(full.entries.keys, containsAll([1, 2, 3, 4, 5]));
       expect(appended.entries.keys, contains(5));
       expect(appended.entries.keys, isNot(contains(3)));
+    });
+
+    test('a hybrid file follows /XRefStm from the classic trailer', () {
+      // A hybrid-reference file (§7.5.8.4): a classic table for legacy readers
+      // whose trailer points /XRefStm at a cross-reference stream carrying the
+      // entries only the modern layout knows - here object 5.
+      final buffer = StringBuffer('%PDF-1.5\n');
+      final objects = <String>[
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>',
+      ];
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      // The cross-reference stream (object 4), declaring object 5 in use.
+      final xrefStmOffset = buffer.length;
+      final xrefStm =
+          _xrefStreamSection('/Size 6 /W [1 1 1] /Index [5 1]', [1, 0x99, 0]);
+      final builder = BytesBuilder()
+        ..add(ascii(buffer.toString()))
+        ..add(xrefStm);
+      // The classic table covers objects 0..3 and points /XRefStm at the stream.
+      final tableOffset = xrefStmOffset + xrefStm.length;
+      final tail = StringBuffer();
+      tail
+        ..write('xref\n0 ${objects.length + 1}\n')
+        ..write('0000000000 65535 f \n');
+      for (final offset in offsets) {
+        tail.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      tail.write('trailer\n<< /Size 6 /Root 1 0 R /XRefStm $xrefStmOffset >>\n');
+      builder.add(ascii(tail.toString()));
+
+      final xref = CosXrefReader(builder.takeBytes()).walkFrom(tableOffset);
+      // The classic entries and the /XRefStm-only entry both merged in.
+      expect(xref.entries[1]!.type, CosXrefEntryType.inUse);
+      expect(xref.entries[5]!.type, CosXrefEntryType.inUse);
+      expect(xref.entries[5]!.offset, 0x99);
     });
 
     test('a /Prev cycle terminates via the visited-offset guard', () {
