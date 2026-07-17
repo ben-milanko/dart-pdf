@@ -34,19 +34,30 @@ Future<Map<PdfImageRequest, PdfDecodedPixels>> _decodeVectorPrintImages(
   // Cold decode (no cache): printing is infrequent and we dispose the images
   // right after reading their bytes, so we don't want to churn the render cache.
   final images = await decodeImages(cos, requests);
+  // Read each decoded image back to pixels once, keyed by pdfImageKey - a page
+  // that draws the same image many times (a tiled underlay) shares one ui.Image
+  // and must share one GPU readback rather than repeating it per draw.
+  final pixelsByKey = <Object, PdfDecodedPixels>{};
   final out = <PdfImageRequest, PdfDecodedPixels>{};
   try {
     for (final request in requests) {
-      final image = images[pdfImageKey(request)];
+      final key = pdfImageKey(request);
+      final cached = pixelsByKey[key];
+      if (cached != null) {
+        out[request] = cached;
+        continue;
+      }
+      final image = images[key];
       if (image == null) continue;
-      final data =
-          await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (data == null) continue;
-      out[request] = PdfDecodedPixels(
-        data.buffer.asUint8List(),
+      final pixels = PdfDecodedPixels(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         image.width,
         image.height,
       );
+      pixelsByKey[key] = pixels;
+      out[request] = pixels;
     }
   } finally {
     for (final image in images.values) {
