@@ -99,4 +99,23 @@ void main() {
       expect(rgba[5], 255); // G of pixel 1
     });
   });
+
+  testWidgets('an image drawn twice shares one decoded-pixel readback',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The same /Im0 drawn at two placements: both image ops must carry the
+      // identical pixel buffer (the per-key memoization), not two readbacks.
+      final doc = PdfDocument.open(buildPagePdf(
+        'q 100 0 0 50 10 10 cm /Im0 Do Q q 100 0 0 50 10 100 cm /Im0 Do Q',
+        imageBytes: <int>[0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00],
+        imageWidth: 2,
+        imageHeight: 1,
+      ));
+      final page = decodeVectorPrint(await encodePageForVectorPrinting(doc.page(0)));
+      final images = page.ops.whereType<VpImage>().toList();
+      expect(images, hasLength(2));
+      // Same content, so identical pixel bytes from the shared readback.
+      expect(images[1].rgba, equals(images[0].rgba));
+    });
+  });
 }
