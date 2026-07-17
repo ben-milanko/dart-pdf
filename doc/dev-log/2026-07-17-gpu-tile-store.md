@@ -96,6 +96,40 @@ stall on web, retained MB on the #283 62-page scroll).
   present, `pdf-page-detail-image` gone, base RawImage intact); a classic scene
   reports region-cullable.
 
+## Benchmarks (`test/benchmark_tile_store_test.dart`)
+
+A skip-unless-`PDF_BENCHMARK_DIR` harness drives the two raster strategies -
+the shipping single detail patch (`rasterizeRegion` of the whole visible region
+per settle) vs. the tile store - through the same pinch-in, deep-zoom pan, and
+revisit sequences over each page's retained scene, sharing one up-front
+`record` so only the *re-raster* is measured. Run on `test_corpora/pdfjs`
+(14 pages, ratio 8, best-of-2, headless VM software raster):
+
+| scenario | legacy patch | tile store | verdict |
+|---|---|---|---|
+| **revisit** (drag back over just-seen area) | 196 Mpx / 216 ms | **0 Mpx / 0 ms** | **100% reuse** - the headline win, "pan = zero re-raster" |
+| **pan** (cold monotonic drag) | 218 Mpx / 235 ms | 112 Mpx / 1924 ms | tiles raster **1.9× fewer pixels** but are **~8× slower wall-time** |
+| **pinch-in** (zoom through buckets) | 91 Mpx | 206 Mpx | tiles do **2.3× more** cold work |
+
+The reuse win is decisive and real: any revisited area (back-and-forth pan,
+jitter, a settle at a scale already tiled) costs the tile store nothing, where
+the patch always re-rasters. But the cold-path numbers **confirm the issue's own
+risk** ("per-`toImage` overhead on web may favour batching several tiles per
+readback - measure via #306 before committing to tile size"): 91 Mpx split into
+~350 512²-tile `toImage` calls loses badly to one big-region `toImage`, because
+the fixed per-readback overhead dominates. So a naive 1-`toImage`-per-512²-tile
+at these sizes is throughput-negative on a cold sweep; the wins are reuse,
+cancellability, and uncapped fidelity, not raw cold throughput.
+
+**This is exactly the measurement that must gate flipping the flag to default**,
+and it says the next step before that is bigger tiles and/or batching several
+tiles per readback (the issue's #306 direction) - not turning `tileStoreDetail`
+on as-is. Caveat: headless software raster with a synchronous `toImage`
+overweights per-call overhead vs. an on-device GPU with an async, cancellable
+readback (the web case the pyramid most helps), and pdfjs pages are small enough
+that the patch's `_maxPixels`/`_maxDimension` caps - which tiles escape - never
+bind; a dense large-format sheet would shift pan/pinch further toward tiles.
+
 ## Gotchas
 
 - **Never call `findRenderObject` during layout.** The first cut computed the
