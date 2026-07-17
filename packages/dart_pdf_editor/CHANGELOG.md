@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Breaking:** remove the pure style forwarders from `PdfEditingController`.
+  The ~19 tool-style properties that only mirrored `preferences`
+  (`strokeWidth`, `cornerRadius`, `eraserRadius`, `fontSize`, `textAlign`,
+  `opacity`, `lineStyle`, `lineScale`, `lineStartEnding`, `lineEndEnding`,
+  `textFillColor`, `textBorderColor`, `shapeFillColor`, `author`,
+  `stampDateFormat`, `stampTimeFormat`, `fingerDrawsInk`, `measurementScale`,
+  `signature`) are gone; read and write them through
+  `controller.preferences.<name>` instead. The setters that carried editing
+  side effects stay on the controller (`color` still recolours the active
+  stamp and honours the colour lock; `fontFamily` still clears the embedded
+  `activeFont`), as do the computed helpers (`dashedStroke`,
+  `hasMeasurementScale`) and every signature/measurement behaviour method
+  (`placeSignature`, `calibrateScale`, `measuredDistance`, …) (#317).
 - Expose a customizable viewer scroll indicator / page-scrubber API: a
   read-only `PdfScrollMetrics` snapshot (page count, current page,
   normalized position/extent, pixel offsets, zoom) via
