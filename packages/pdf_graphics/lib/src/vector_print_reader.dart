@@ -181,7 +181,9 @@ VectorPrintOp _readOp(_Reader r) {
       final flags = r.u8();
       final matrix = [for (var i = 0; i < 6; i++) r.f32()];
       final fontSize = r.f32();
-      final text = utf8.decode(r.take(r.u16()));
+      // allowMalformed: a >64KB run may have been clipped mid-codepoint by the
+      // encoder's length cap; tolerate the fragment rather than throwing.
+      final text = utf8.decode(r.take(r.u16()), allowMalformed: true);
       return VpText(
         color,
         flags & kVectorPrintFontBold != 0,
@@ -209,21 +211,35 @@ class _Reader {
 
   bool get atEnd => _pos >= _bytes.length;
 
-  int u8() => _bytes[_pos++];
+  /// Guards a read of [n] bytes so a truncated or corrupt stream raises the
+  /// documented [FormatException] rather than an out-of-range [RangeError].
+  void _need(int n) {
+    if (n < 0 || _pos + n > _bytes.length) {
+      throw const FormatException('truncated vector-print stream');
+    }
+  }
+
+  int u8() {
+    _need(1);
+    return _bytes[_pos++];
+  }
 
   int u16() {
+    _need(2);
     final v = _data.getUint16(_pos, Endian.little);
     _pos += 2;
     return v;
   }
 
   int u32() {
+    _need(4);
     final v = _data.getUint32(_pos, Endian.little);
     _pos += 4;
     return v;
   }
 
   double f32() {
+    _need(4);
     final v = _data.getFloat32(_pos, Endian.little);
     _pos += 4;
     return v;
@@ -232,6 +248,7 @@ class _Reader {
   VpColor rgba() => VpColor(u8(), u8(), u8(), u8());
 
   Uint8List take(int n) {
+    _need(n);
     final out = Uint8List.sublistView(_bytes, _pos, _pos + n);
     _pos += n;
     return out;

@@ -287,14 +287,18 @@ void ReplayImage(StreamReader* r, HDC hdc, const DeviceTransform& t) {
   const LONG dst_h = t.Y(max_y) - dst_y;
   if (dst_w == 0 || dst_h == 0) return;
 
-  // Our rows are top-down RGBA; StretchDIBits wants BGRA. Repack into a scratch
-  // buffer (also drops premultiplication is unnecessary - printers are opaque).
+  // Our rows are top-down, premultiplied RGBA. StretchDIBits with SRCCOPY
+  // ignores the alpha channel, so composite each pixel over the white paper
+  // first: out = src_premultiplied + white*(1 - a) = src + (255 - a). That
+  // keeps a semi-transparent image (an /SMask or stencil) from printing
+  // darkened toward black. Store the result as BGR for the DIB.
   std::vector<uint8_t> bgra(pixels);
   for (size_t i = 0; i < static_cast<size_t>(w) * h; i++) {
-    bgra[i * 4 + 0] = rgba[i * 4 + 2];
-    bgra[i * 4 + 1] = rgba[i * 4 + 1];
-    bgra[i * 4 + 2] = rgba[i * 4 + 0];
-    bgra[i * 4 + 3] = rgba[i * 4 + 3];
+    const uint8_t inv = static_cast<uint8_t>(255 - rgba[i * 4 + 3]);
+    bgra[i * 4 + 0] = static_cast<uint8_t>(rgba[i * 4 + 2] + inv);  // B
+    bgra[i * 4 + 1] = static_cast<uint8_t>(rgba[i * 4 + 1] + inv);  // G
+    bgra[i * 4 + 2] = static_cast<uint8_t>(rgba[i * 4 + 0] + inv);  // R
+    bgra[i * 4 + 3] = 255;
   }
   BITMAPINFO bmi = {};
   bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);

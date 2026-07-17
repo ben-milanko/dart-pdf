@@ -250,14 +250,14 @@ class _EncodingDevice implements PdfDevice {
     _w.u8(stroke.cap);
     _w.u8(stroke.join);
     _w.f32(stroke.miterLimit);
-    // Dash lengths are page-space; scale by the device magnification so a hair
-    // dash stays a hair dash after the points->pixels scale the consumer adds.
-    final s = _toDevice.scaleFactor;
+    // Dash lengths, like the width and the path coordinates, are already in
+    // page-space points; the page transform is an isometry (rotation/flip/
+    // translation) so device points equal page points 1:1 - nothing to scale.
     _w.u16(stroke.dashArray.length);
     for (final d in stroke.dashArray) {
-      _w.f32(d * s);
+      _w.f32(d);
     }
-    _w.f32(stroke.dashPhase * s);
+    _w.f32(stroke.dashPhase);
     _writePath(path);
   }
 
@@ -275,12 +275,15 @@ class _EncodingDevice implements PdfDevice {
       _writeGlyphOutlines(run);
       return;
     }
-    if (run.text.isEmpty || !run.fill) return;
+    if (run.text.isEmpty || (!run.fill && run.strokeColor == null)) return;
     // Substituted font: emit selectable system-font text. em space (y-up) ->
-    // device via the run transform then the page transform.
+    // device via the run transform then the page transform. A stroke-only run
+    // (render mode 1) has no fill colour, so paint it in the stroke colour
+    // rather than dropping the text.
+    final color = run.fill ? run.color : run.strokeColor!;
     final m = run.transform.concat(_toDevice);
     _w.u8(_opText);
-    _w.rgba(run.color, 1);
+    _w.rgba(color, 1);
     _w.u8(_fontFlags(run.fontName));
     _w.matrix(m);
     _w.f32(run.fontSize);

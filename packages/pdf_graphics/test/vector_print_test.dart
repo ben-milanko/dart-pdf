@@ -58,6 +58,17 @@ void main() {
           throwsFormatException);
     });
 
+    test('rejects a truncated stream with FormatException, not RangeError',
+        () async {
+      // A valid page, cut off partway through its first op.
+      final full = await encodeVectorPrintPage(
+          PdfDocument.open(buildContentPdf('0 0 10 10 re f',
+                  width: 50, height: 50))
+              .page(0));
+      final truncated = Uint8List.sublistView(full, 0, 14); // header + a byte
+      expect(() => decodeVectorPrint(truncated), throwsFormatException);
+    });
+
     test('rejects an unknown op tag', () async {
       // A valid header ('V','P','R',1 + two f32 sizes) followed by a bogus op.
       final valid = await encodeVectorPrintPage(
@@ -192,6 +203,17 @@ void main() {
       final m = text.matrix;
       final det = m[0] * m[3] - m[1] * m[2];
       expect(det.abs(), greaterThan(1e-6));
+    });
+
+    test('stroke-only (mode 1) substituted text still emits selectable text',
+        () async {
+      // Render mode 1 strokes the glyphs; a non-embedded font has no outlines,
+      // so the run must still emit a selectable text op (in the stroke colour).
+      final page = await encodeAndDecode(buildContentPdf(
+          'BT /F1 24 Tf 1 Tr 1 0 0 RG 40 200 Td (Outline) Tj ET'));
+      final texts = page.ops.whereType<VpText>().toList();
+      expect(texts.map((t) => t.text).join(), contains('Outline'));
+      expect(texts.first.color, const VpColor(255, 0, 0, 255)); // stroke red
     });
 
     test('an embedded font emits glyph-outline fills, not a text op', () async {
