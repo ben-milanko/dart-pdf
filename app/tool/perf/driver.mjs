@@ -236,7 +236,9 @@ const MEMORY_PROBE = `(async () => {
         .slice(0, 6);
     } catch (e) { out.measureError = String(e); }
   } else {
-    out.measureError = 'measureUserAgentSpecificMemory unavailable (not cross-origin isolated?)';
+    out.measureError = 'measureUserAgentSpecificMemory unavailable '
+      + '(not cross-origin isolated, or an old-headless / headless_shell binary '
+      + 'without the PerformanceManager - use a full-browser binary + new headless)';
   }
   return out;
 })()`;
@@ -273,9 +275,19 @@ async function main() {
 
   const browser = await puppeteer.launch({
     executablePath: CHROME,
-    headless: HEADLESS ? 'shell' : false,
+    // New headless, NOT the old `chrome --headless=old` / headless_shell:
+    // performance.measureUserAgentSpecificMemory() - the whole point of the
+    // memory probe below - is backed by the browser-process PerformanceManager,
+    // which the headless shell doesn't run, so there the call throws
+    // "not available" even when the page is cross-origin isolated. New headless
+    // (a full Chrome/Chromium binary) has it. Point PERF_CHROME at a full
+    // browser binary, not a *_headless_shell one, for the memory numbers.
+    headless: HEADLESS ? true : false,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1400,1000',
-      '--js-flags=--expose-gc'],
+      '--js-flags=--expose-gc',
+      // A locale-less headless host makes Flutter's intl throw "Incorrect
+      // locale information provided" at startup; pin one so the app boots.
+      '--lang=en-US', '--accept-lang=en-US'],
     defaultViewport: { width: 1400, height: 1000 },
   });
 
