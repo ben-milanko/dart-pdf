@@ -34,7 +34,7 @@ void main() {
 
   testWidgets('reply through the sidebar adds a thread reply', (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..author = 'Ann'
+      ..preferences.author = 'Ann'
       ..addNote(0, 100, 700, 'Please check');
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
@@ -68,7 +68,7 @@ void main() {
 
   testWidgets('resolve then reopen toggles the state chip', (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..author = 'Ann'
+      ..preferences.author = 'Ann'
       ..addRectangle(0, const PdfRect(100, 100, 200, 150));
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
@@ -127,7 +127,7 @@ void main() {
   testWidgets('controller.setReviewState records a review verdict',
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..author = 'Ann'
+      ..preferences.author = 'Ann'
       ..addRectangle(0, const PdfRect(100, 100, 200, 150));
     addTearDown(editing.dispose);
 

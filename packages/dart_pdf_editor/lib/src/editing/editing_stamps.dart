@@ -366,10 +366,10 @@ class _StampDateTimeFormatControls extends StatelessWidget {
       children: [
         KeyedSubtree(
           key: ValueKey(
-              'pdf-stamp-date-format-field-${controller.stampDateFormat.name}'),
+              'pdf-stamp-date-format-field-${controller.preferences.stampDateFormat.name}'),
           child: DropdownButtonFormField<PdfStampDateFormat>(
             key: const ValueKey('pdf-stamp-date-format'),
-            initialValue: controller.stampDateFormat,
+            initialValue: controller.preferences.stampDateFormat,
             decoration: const InputDecoration(labelText: 'Date format'),
             items: [
               for (final format in PdfStampDateFormat.values)
@@ -380,17 +380,17 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 ),
             ],
             onChanged: (value) {
-              if (value != null) controller.stampDateFormat = value;
+              if (value != null) controller.preferences.stampDateFormat = value;
             },
           ),
         ),
         const SizedBox(height: 8),
         KeyedSubtree(
           key: ValueKey(
-              'pdf-stamp-time-format-field-${controller.stampTimeFormat.name}'),
+              'pdf-stamp-time-format-field-${controller.preferences.stampTimeFormat.name}'),
           child: DropdownButtonFormField<PdfStampTimeFormat>(
             key: const ValueKey('pdf-stamp-time-format'),
-            initialValue: controller.stampTimeFormat,
+            initialValue: controller.preferences.stampTimeFormat,
             decoration: const InputDecoration(labelText: 'Time format'),
             items: [
               for (final format in PdfStampTimeFormat.values)
@@ -401,7 +401,7 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 ),
             ],
             onChanged: (value) {
-              if (value != null) controller.stampTimeFormat = value;
+              if (value != null) controller.preferences.stampTimeFormat = value;
             },
           ),
         ),

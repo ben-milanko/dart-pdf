@@ -75,7 +75,6 @@ extension PdfParagraphReflow on PdfEditor {
 
       final font = fontFor(group.first.fontName);
       final reflowFont = _reflowFontFor(
-        page,
         group.first.fontName,
         font,
         group.first.fontSize,
@@ -141,15 +140,14 @@ extension PdfParagraphReflow on PdfEditor {
   /// A measuring/encoding strategy for [font] at [size], or null when the
   /// font isn't one paragraph reflow can rewrite.
   _ReflowFont? _reflowFontFor(
-    PdfPage page,
     String? name,
     CosDictionary? font,
     double size,
   ) {
     if (font == null) return null;
     if (PdfContentEditing._isType0(document.cos, font) && name != null) {
-      final editing = _Type0Editing.tryCreate(this, page, name, font, const []);
-      return editing == null ? null : _Type0ReflowFont(editing, size);
+      final type0 = Type0Font.forEditing(document.cos, font);
+      return type0 == null ? null : _Type0ReflowFont(type0, _updater, size);
     }
     return _SimpleReflowFont(_widthsFor(font), size);
   }
@@ -633,22 +631,21 @@ class _SimpleReflowFont extends _ReflowFont {
 }
 
 class _Type0ReflowFont extends _ReflowFont {
-  _Type0ReflowFont(this._editing, this._size);
+  _Type0ReflowFont(this._font, this._updater, this._size);
 
-  final _Type0Editing _editing;
+  final Type0Font _font;
+  final CosIncrementalUpdater _updater;
   final double _size;
 
   @override
-  double measure(String text) => _editing.measureReflow(text, _size);
+  double measure(String text) => _font.measure(text, _size);
 
   @override
   ContentOperation? showOp(String text) {
-    final string = _editing.encodeReflowLine(text);
+    final string = _font.encodeIdentity(text);
     return string == null ? null : ContentOperation('Tj', [string]);
   }
 
   @override
-  void commit() {
-    if (_editing.isDirty) _editing.commit();
-  }
+  void commit() => _font.commitFontDict(_updater);
 }

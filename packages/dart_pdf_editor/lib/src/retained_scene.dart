@@ -71,6 +71,13 @@ class PdfRetainedScene {
   bool debugLastRegionReplayWasSelective = false;
   int debugLastRegionReplayCommandCount = 0;
 
+  /// Whether region rasters ([rasterizeRegion]) can be spatially culled to the
+  /// requested bounds rather than replaying the whole transcript. False when a
+  /// transparency group or soft mask spans the page (splitting one would change
+  /// its isolated compositing) - the [PdfTileStore] tile path leaves such pages
+  /// on the legacy full-page raster to avoid per-tile full-transcript replays.
+  bool get supportsRegionRaster => _ensureRegionIndex().supported;
+
   int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
   int get debugRegionReplayEstimatedBytes =>
       _ensureRegionIndex().estimatedBytes;

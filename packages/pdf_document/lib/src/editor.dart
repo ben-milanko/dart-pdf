@@ -23,8 +23,9 @@ import 'rect.dart';
 import 'stamp_template.dart';
 import 'struct_tree.dart';
 import 'takeoff.dart';
+import 'content_run_rewriter.dart';
 import 'text_box_appearance.dart';
-import 'type0_metrics.dart';
+import 'type0_font.dart';
 import 'xmp.dart';
 
 part 'annotation_clipboard.dart';

@@ -391,7 +391,7 @@ void main() {
     testWidgets('signature hover previews without committing, click places',
         (tester) async {
       final (editing, boundary) = await pumpViewer(tester);
-      editing.signature = PdfInkSignature(
+      editing.preferences.signature = PdfInkSignature(
         strokes: [
           [(0, 0.5), (0.5, 0.5), (1, 0.5)]
         ],
@@ -431,7 +431,7 @@ void main() {
     testWidgets('touch press-drag-release places at the release point',
         (tester) async {
       final (editing, _) = await pumpViewer(tester);
-      editing.signature = PdfInkSignature(
+      editing.preferences.signature = PdfInkSignature(
         strokes: [
           [(0, 0.5), (1, 0.5)]
         ],

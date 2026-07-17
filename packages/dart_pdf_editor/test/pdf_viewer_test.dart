@@ -1342,4 +1342,102 @@ void main() {
     expect(controller.currentPage, 2,
         reason: 'jumpToPage must reach the replacement viewer');
   });
+
+  group('editing controller drives the document', () {
+    testWidgets(
+        'follows revisions with no host ListenableBuilder and no document',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      // deliberately no ListenableBuilder wrapping the viewer and no
+      // `document:` - the viewer reads editing.document and subscribes to the
+      // controller itself, so the host no longer owns that invariant.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(controller.pageCount, 3);
+
+      // a structural edit advances the revision; the viewer must pick it up
+      // on its own, without the host rebuilding it with a fresh document
+      editing.removePage(2);
+      await tester.pump();
+      expect(controller.pageCount, 2,
+          reason: 'the viewer tracks the controller revision by itself');
+    });
+
+    testWidgets('a stale standalone document never desyncs the viewer',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      // a document that does NOT match editing.document - the old debug
+      // invariant would have asserted; now the viewer ignores it and follows
+      // the controller instead.
+      final stale = PdfDocument.open(buildMultiPagePdf(5));
+      final controller = PdfViewerController();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: stale,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(controller.pageCount, 3,
+          reason: 'editing.document wins over the standalone document');
+    });
+
+    test('a formController ignored by interactiveForms: false is not a source',
+        () {
+      // formController is ignored when interactiveForms is false, so it can't
+      // stand in for the document - the assert must reject this rather than
+      // let _document dereference a null document later.
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      addTearDown(editing.dispose);
+      expect(
+        () => PdfViewer(formController: editing, interactiveForms: false),
+        throwsAssertionError,
+      );
+      // with interactiveForms on (the default) it IS a source
+      expect(PdfViewer(formController: editing), isNotNull);
+    });
+
+    testWidgets('a form fill revision reaches the viewer without a rebuild',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            formController: editing,
+            controller: controller,
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(controller.pageCount, 3);
+
+      // formController owns the revisions too: a page removal must land
+      // without the host wrapping the viewer in a ListenableBuilder.
+      editing.removePage(2);
+      await tester.pump();
+      expect(controller.pageCount, 2,
+          reason: 'the viewer subscribes to the form controller as well');
+    });
+  });
 }
