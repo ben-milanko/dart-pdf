@@ -698,7 +698,7 @@ typedef PdfScrollIndicatorBuilder = Widget Function(
 class PdfViewer extends StatefulWidget {
   const PdfViewer({
     super.key,
-    required this.document,
+    this.document,
     this.controller,
     this.onAction,
     this.onAnnotationTap,
@@ -741,9 +741,19 @@ class PdfViewer extends StatefulWidget {
     this.textCache,
     this.documentId,
     this.active = true,
-  });
+  }) : assert(
+            document != null || editing != null || formController != null,
+            'PdfViewer needs a document: pass document for the read-only '
+            'reader path, or an editing/formController controller that owns '
+            'the document revisions.');
 
-  final PdfDocument document;
+  /// The document to display when no controller drives the viewer (the
+  /// read-only reader path). Ignored when [editing] or an active
+  /// [formController] is set - those own the document revisions and the
+  /// viewer reads the current revision from them directly, so a host that
+  /// passes a controller never has to keep this field in sync (and may
+  /// leave it null). See [editing].
+  final PdfDocument? document;
 
   /// Whether the viewer is the foreground view. Set false when another view
   /// fully overlays it (the editor's full-area page grid) so it stops
@@ -855,17 +865,20 @@ class PdfViewer extends StatefulWidget {
   /// each page grows an editing layer that captures the tool's gestures,
   /// and the viewer binds undo/redo/delete shortcuts.
   ///
-  /// The controller owns the document revisions, so [document] must be
-  /// `editing.document` - rebuild the viewer when the controller
-  /// notifies. Because edits are incremental updates, a swap to the next
-  /// revision keeps the scroll position and zoom.
+  /// The controller owns the document revisions, and the viewer reads the
+  /// current revision from it and subscribes to it directly: a new revision
+  /// swaps the displayed document without the host rebuilding, and the
+  /// standalone [document] is ignored (it may be left null). Because edits
+  /// are incremental updates, a swap to the next revision keeps the scroll
+  /// position and zoom.
   final PdfEditingController? editing;
 
   /// Enables interactive form filling without the full editing surface -
   /// for the read-only reader, which lets users fill fields but not move
   /// or delete annotations. The controller owns the document revisions
-  /// (filling produces one), so [document] must track its current
-  /// revision, the same as [editing]. Ignored when [editing] is set (that
+  /// (filling produces one); the viewer reads the current revision from it
+  /// and subscribes directly, the same as [editing], so the standalone
+  /// [document] need not track it. Ignored when [editing] is set (that
   /// controller drives both) or [interactiveForms] is false.
   final PdfEditingController? formController;
 
@@ -1136,6 +1149,26 @@ class _PdfViewerState extends State<PdfViewer>
   late List<PdfPage> _pages;
   late List<double> _aspects; // height / width, after /Rotate
 
+  /// The controller that owns the document revisions, if any: the editing
+  /// controller, or - when interactive forms are on - the form controller.
+  /// The viewer reads its current [PdfEditingController.document] and
+  /// subscribes to it (see [_onRevisionControllerChanged]), so the displayed
+  /// document can never desync from the controller and the host does not have
+  /// to keep [PdfViewer.document] in step or rebuild on every notification.
+  PdfEditingController? get _revisionController =>
+      widget.editing ??
+      (widget.interactiveForms ? widget.formController : null);
+
+  /// The document actually displayed: the revision controller's current
+  /// document when one drives the viewer, otherwise the standalone
+  /// [PdfViewer.document] (the read-only reader path).
+  PdfDocument get _document => _revisionController?.document ?? widget.document!;
+
+  /// The document [_loadPages] last read - what is currently on screen. A
+  /// swap (a host rebuild with a new [PdfViewer.document], or the revision
+  /// controller advancing to the next revision) is detected against this.
+  PdfDocument? _loadedDocument;
+
   /// Displayed width of each page in PDF points (after /Rotate + view
   /// rotation). Pages lay out at this width times [_fitScale] (and the
   /// layout zoom), so they keep their true sizes relative to one another
@@ -1351,6 +1384,11 @@ class _PdfViewerState extends State<PdfViewer>
     // the first frame so covered pages never interpret
     if (!widget.active) _renderScheduler.holding = true;
     _pendingViewport = widget.initialViewport;
+    // subscribe to the revision controller directly: it owns the document
+    // revisions, so the viewer reads the current one and rebuilds itself when
+    // it notifies, instead of leaning on the host to rebuild with a matching
+    // document (the old unchecked invariant).
+    _revisionController?.addListener(_onRevisionControllerChanged);
     _zoomAnimator = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 200))
       ..addListener(() {
@@ -1911,61 +1949,21 @@ class _PdfViewerState extends State<PdfViewer>
         SchedulerBinding.instance.addTimingsCallback(_onPerformanceTimings);
       }
     }
-    if (!identical(oldWidget.document, widget.document)) {
-      // an edit-induced swap to a revision with the same page geometry
-      // keeps the reading position; a genuinely different document resets
-      final sameGeometry = _sameGeometryAs(widget.document);
-      _textCache.clear();
-      _annotCache.clear();
-      _visibleAnnotCache.clear();
-      _fieldRectCache.clear();
-      _controller.clearSearch();
-      _clearSelection();
-      _loadPages();
-      // an edit revision keeps its previews (rebound to the new page
-      // objects - edited pages refresh from their on-screen render); a
-      // different document starts clean
-      if (sameGeometry) {
-        // a page whose content stamp advanced changed materially (a
-        // redaction burn removes glyphs/images): drop its stale preview so
-        // a fast scroll can't flash the deleted content, instead of
-        // rebinding it. Untouched pages rebind in place as before.
-        _previews.rebind(_pages, changed: (i) {
-          final prev = _contentStamps[i];
-          return prev != null && prev != _contentStamp(i);
-        });
-      } else {
-        _previews.clear();
-        // the page list shifted under the lazy list's slot-keyed States;
-        // bump the epoch so each reused page drops the raster of the page
-        // that used to sit in its slot (otherwise a fast scroll right after
-        // an insert/remove/reorder paints the wrong, stale low-res page)
-        _pageEpoch++;
-      }
-      // the cached previews (rebound or cleared) now reflect this revision
-      _snapshotContentStamps();
-      // re-point (and, for a different file, re-prime) the persistent
-      // preview backing; an edit revision keeps its rebound previews so the
-      // prime is a no-op there
-      _bindRasterCache(prime: !sameGeometry);
-      _previewAttempts.clear();
-      _previewVectorAttempts.clear();
-      WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
-      if (!sameGeometry) {
-        // didUpdateWidget runs mid-build, and jumpTo synchronously
-        // dispatches a ScrollNotification - ancestors listening through a
-        // ScrollNotificationObserver (a Material AppBar's scrolled-under
-        // state, for one) would setState during build. Reset after the frame.
-        SchedulerBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
-        });
-        _transform.value = Matrix4.identity();
-        // a different file deserves a fresh fit; an edit revision (same
-        // geometry) keeps the zoom the user chose
-        _appliedInitialFit = false;
-      }
-      setState(() {});
+    // the revision controller (editing, or an active formController) can be
+    // swapped in place - move the subscription before reading _document, which
+    // resolves through it
+    final oldRevisionController = oldWidget.editing ??
+        (oldWidget.interactiveForms ? oldWidget.formController : null);
+    final newRevisionController = _revisionController;
+    if (!identical(oldRevisionController, newRevisionController)) {
+      oldRevisionController?.removeListener(_onRevisionControllerChanged);
+      newRevisionController?.addListener(_onRevisionControllerChanged);
     }
+    // a document swap is a new document object under the viewer, whether the
+    // host rebuilt with a fresh document/controller or the controller advanced
+    // a revision (handled directly in _onRevisionControllerChanged)
+    final documentSwapped = !identical(_loadedDocument, _document);
+    if (documentSwapped) _swapDocument();
     final oldPageImagesShowAnnotations = oldWidget.showAnnotations &&
         _pageImagesShowAnnotationsFor(
           editing: oldWidget.editing,
@@ -1993,8 +1991,7 @@ class _PdfViewerState extends State<PdfViewer>
     // A document swap in the same rebuild already reset the fit and scroll
     // (above), so only re-anchor for a pure layout flip - otherwise the two
     // branches would schedule competing post-frame scrolls.
-    if (oldWidget.pageLayout != widget.pageLayout &&
-        identical(oldWidget.document, widget.document)) {
+    if (oldWidget.pageLayout != widget.pageLayout && !documentSwapped) {
       // the scroll axis flipped: the fit dimension and every scroll extent
       // change, so drop the zoom window, re-fit, and re-anchor on the page
       // the reader was on once the new layout's extents exist.
@@ -2021,6 +2018,83 @@ class _PdfViewerState extends State<PdfViewer>
     }
   }
 
+  /// The revision controller notified. It owns the document revisions, so a
+  /// new revision (an edit, a form fill, undo/redo) means a new
+  /// [_document] to reconcile; every notification also feeds the build (an
+  /// armed tool, a selection, the eyedropper), so rebuild regardless. This is
+  /// what the host's `ListenableBuilder` used to do - the viewer now does it
+  /// itself so the displayed document can't lag the controller.
+  void _onRevisionControllerChanged() {
+    if (!mounted) return;
+    if (!identical(_loadedDocument, _document)) {
+      _swapDocument();
+    } else {
+      setState(() {});
+    }
+  }
+
+  /// Reconciles cached state to a document swap - from [_loadedDocument] to
+  /// the current [_document]. An edit revision with the same page geometry
+  /// keeps the reading position; a genuinely different document resets. Runs
+  /// from [didUpdateWidget] (a host rebuild with a new document/controller)
+  /// and from [_onRevisionControllerChanged] (a new revision with no host
+  /// rebuild).
+  void _swapDocument() {
+    final document = _document;
+    final sameGeometry = _sameGeometryAs(document);
+    _textCache.clear();
+    _annotCache.clear();
+    _visibleAnnotCache.clear();
+    _fieldRectCache.clear();
+    _controller.clearSearch();
+    _clearSelection();
+    _loadPages();
+    // an edit revision keeps its previews (rebound to the new page
+    // objects - edited pages refresh from their on-screen render); a
+    // different document starts clean
+    if (sameGeometry) {
+      // a page whose content stamp advanced changed materially (a
+      // redaction burn removes glyphs/images): drop its stale preview so
+      // a fast scroll can't flash the deleted content, instead of
+      // rebinding it. Untouched pages rebind in place as before.
+      _previews.rebind(_pages, changed: (i) {
+        final prev = _contentStamps[i];
+        return prev != null && prev != _contentStamp(i);
+      });
+    } else {
+      _previews.clear();
+      // the page list shifted under the lazy list's slot-keyed States;
+      // bump the epoch so each reused page drops the raster of the page
+      // that used to sit in its slot (otherwise a fast scroll right after
+      // an insert/remove/reorder paints the wrong, stale low-res page)
+      _pageEpoch++;
+    }
+    // the cached previews (rebound or cleared) now reflect this revision
+    _snapshotContentStamps();
+    // re-point (and, for a different file, re-prime) the persistent
+    // preview backing; an edit revision keeps its rebound previews so the
+    // prime is a no-op there
+    _bindRasterCache(prime: !sameGeometry);
+    _previewAttempts.clear();
+    _previewVectorAttempts.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _prerenderPreviews());
+    if (!sameGeometry) {
+      // didUpdateWidget/a controller notification can land mid-build, and
+      // jumpTo synchronously dispatches a ScrollNotification - ancestors
+      // listening through a ScrollNotificationObserver (a Material AppBar's
+      // scrolled-under state, for one) would setState during build. Reset
+      // after the frame.
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+      });
+      _transform.value = Matrix4.identity();
+      // a different file deserves a fresh fit; an edit revision (same
+      // geometry) keeps the zoom the user chose
+      _appliedInitialFit = false;
+    }
+    setState(() {});
+  }
+
   /// Whether [document] lays out exactly like the one on screen: same
   /// page count, same aspect ratio per page.
   bool _sameGeometryAs(PdfDocument document) {
@@ -2044,8 +2118,10 @@ class _PdfViewerState extends State<PdfViewer>
       ((_pages[index].rotation + _controller._viewRotation) % 360 + 360) % 360;
 
   void _loadPages() {
-    final count = widget.document.pageCount;
-    _pages = [for (var i = 0; i < count; i++) widget.document.page(i)];
+    final document = _document;
+    _loadedDocument = document;
+    final count = document.pageCount;
+    _pages = [for (var i = 0; i < count; i++) document.page(i)];
     _pageLabels = null; // recompute lazily for the (possibly new) document
     _recomputeAspects();
     _controller._setPageCount(count);
@@ -2055,7 +2131,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// document and reset on a document swap in [_loadPages].
   PdfPageLabels? _pageLabels;
   PdfPageLabels get _labels =>
-      _pageLabels ??= PdfPageLabels.of(widget.document);
+      _pageLabels ??= PdfPageLabels.of(_document);
 
   /// The logical label for page [index], or its 1-based number when the
   /// document carries no labels.
@@ -2191,6 +2267,7 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _revisionController?.removeListener(_onRevisionControllerChanged);
     widget.performance?.removeListener(_onPerformanceChanged);
     if (widget.performance != null) {
       SchedulerBinding.instance.removeTimingsCallback(_onPerformanceTimings);
@@ -2700,11 +2777,11 @@ class _PdfViewerState extends State<PdfViewer>
     final key = widget.documentId;
     if (textCache != null && key != null && widget.editing == null) {
       final text = await textCache.get(
-          key, index, () => PdfTextExtractor.extract(widget.document, index));
+          key, index, () => PdfTextExtractor.extract(_document, index));
       return _textCache.putIfAbsent(index, () => text);
     }
     return _textCache.putIfAbsent(
-        index, () => PdfTextExtractor.extract(widget.document, index));
+        index, () => PdfTextExtractor.extract(_document, index));
   }
 
   Future<List<PdfSearchResult>> _searchAllPages(
@@ -2762,7 +2839,7 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   PdfPageText _pageText(int index) => _textCache.putIfAbsent(
-      index, () => PdfTextExtractor.extract(widget.document, index));
+      index, () => PdfTextExtractor.extract(_document, index));
 
   /// The visible part of page [index]'s laid-out area, as fractions of
   /// the page (0–1, y-down), or null while the page is off-screen.
@@ -4719,13 +4796,6 @@ class _PdfViewerState extends State<PdfViewer>
 
   @override
   Widget build(BuildContext context) {
-    assert(
-        widget.editing == null ||
-            identical(widget.editing!.document, widget.document),
-        'PdfViewer.editing is set but document is not editing.document. '
-        'The editing controller owns the document revisions: rebuild the '
-        'viewer with editing.document whenever the controller notifies '
-        '(e.g. wrap it in a ListenableBuilder on the controller).');
     final editing = widget.editing;
     final canvasColor = widget.backgroundColor ??
         PdfViewerTheme.of(context).canvasColor ??
