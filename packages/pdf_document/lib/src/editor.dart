@@ -20,6 +20,7 @@ import 'pades.dart';
 import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
+import 'signing_identity.dart';
 import 'stamp_template.dart';
 import 'struct_tree.dart';
 import 'takeoff.dart';

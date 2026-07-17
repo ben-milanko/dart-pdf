@@ -35,6 +35,33 @@ enum PdfPadesLevel {
 typedef PdfTimestampClient = Future<Uint8List> Function(
     Uint8List timeStampRequest);
 
+/// Free, public RFC 3161 timestamp authorities suitable as the default a
+/// signature is timestamped against. A trusted timestamp gives even a
+/// self-signed signature CA-anchored signing time - the timestamp chain
+/// often validates in Acrobat even when the signer certificate does not.
+///
+/// These are transport endpoints only; the library performs no I/O. A host
+/// wires one into a [PdfTimestampClient] that POSTs the DER `TimeStampReq`
+/// with `Content-Type: application/timestamp-query` and returns the token
+/// via [timeStampTokenFromResponse]. [digicert] is a sensible default; the
+/// others are alternates to fall back to.
+abstract final class PdfDefaultTimestampAuthority {
+  /// DigiCert's public TSA - the recommended default (no account needed).
+  static const digicert = 'http://timestamp.digicert.com';
+
+  /// Sectigo's public TSA.
+  static const sectigo = 'http://timestamp.sectigo.com';
+
+  /// Apple's public TSA.
+  static const apple = 'http://timestamp.apple.com/ts01';
+
+  /// freeTSA.org, a community-run TSA.
+  static const freeTsa = 'https://freetsa.org/tsr';
+
+  /// All of the above, [digicert] first, for a fall-back list.
+  static const all = [digicert, sectigo, apple, freeTsa];
+}
+
 /// Revocation and certificate material gathered for a signature's chain,
 /// ready to embed in a /DSS for LTV. All blobs are DER: OCSP responses are
 /// `OCSPResponse` structures, CRLs are `CertificateList`s, and

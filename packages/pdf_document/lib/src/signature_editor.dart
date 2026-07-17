@@ -128,6 +128,73 @@ extension PdfSigning on PdfEditor {
     return revision.saved;
   }
 
+  /// Signs with an EC ([EcPrivateKey]) private key instead of RSA - the path
+  /// a self-signed P-256 [PdfSigningIdentity] takes. Otherwise identical to
+  /// [saveSigned]: an `adbe.pkcs7.detached` CMS (ECDSA over SHA-256), the
+  /// signer's certificate DER chain leaf-first, an optional visible
+  /// [appearance], and the same spent-after-use contract.
+  Uint8List saveSignedEcdsa({
+    required EcPrivateKey privateKey,
+    required List<Uint8List> certificates,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
+  }) {
+    if (certificates.isEmpty) {
+      throw ArgumentError('the signer certificate is required');
+    }
+    final time = (signingTime ?? DateTime.now()).toUtc();
+    final revision = _emitSignatureRevision(
+      subFilter: 'adbe.pkcs7.detached',
+      capacity: _cmsCapacity(certificates),
+      fieldName: fieldName,
+      signingTime: time,
+      signerName: signerName,
+      reason: reason,
+      location: location,
+      contactInfo: contactInfo,
+      defaultSignerCert: certificates.first,
+      appearance: appearance,
+    );
+    final cms = cmsSignDetachedEcdsa(
+      contentDigest: crypto.sha256.convert(revision.signedData).bytes,
+      privateKey: privateKey,
+      certificates: certificates,
+      signingTime: time,
+    );
+    _writeContents(revision, cms);
+    return revision.saved;
+  }
+
+  /// One-tap signing with a [PdfSigningIdentity] - typically one minted by
+  /// [PdfSigningIdentity.generate]. Dispatches to [saveSignedEcdsa],
+  /// defaulting the visible signer name to the identity's [name].
+  Uint8List saveSelfSigned({
+    required PdfSigningIdentity identity,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
+  }) =>
+      saveSignedEcdsa(
+        privateKey: identity.privateKey,
+        certificates: identity.certificates,
+        fieldName: fieldName,
+        signerName: signerName ?? identity.name,
+        reason: reason,
+        location: location,
+        contactInfo: contactInfo,
+        signingTime: signingTime,
+        appearance: appearance,
+      );
+
   /// Generous space for a CMS: certificates, attributes, signature, plus a
   /// timestamp token's worth of slack for the PAdES paths.
   static int _cmsCapacity(List<Uint8List> certificates) {

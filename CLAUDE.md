@@ -76,6 +76,16 @@ reports `padesLevel`, `timestamp`, and offline `embeddedRevocation` from the
 encrypted files is still refused. Test signer identity in
 `pdf_test_fixtures/src/signer_identity.dart`; LTV CA/leaf/TSA + revocation
 fixtures in `pkix_ltv.dart`, the in-process TSA in `test_tsa.dart`.
+One-tap self-signed identities are in: `EcPrivateKey.generate` + RFC 6979
+`ecdsaSign` + `buildSelfSignedCertificate` (pdf_cos - P-256 keygen and an
+X.509 v3 builder, KAT'd against RFC 6979 vectors) feed
+`PdfSigningIdentity.generate` (`signing_identity.dart`, with `toPem`/
+`fromPem` persistence) and `PdfEditor.saveSelfSigned` /
+`saveSignedEcdsa` / `saveSelfSignedPades` (ECDSA CMS via
+`cmsSignDetachedEcdsa`). A self-signed cert reads as "signed, validity
+unknown" outside our own `PdfTrustStore`; pair with a default TSA
+(`PdfDefaultTimestampAuthority`) B-T for trusted time. Flutter secure
+storage + "Create signing identity" UI is the follow-up (#322).
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and

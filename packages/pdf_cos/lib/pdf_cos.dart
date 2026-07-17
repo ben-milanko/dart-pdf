@@ -15,6 +15,7 @@ export 'src/crypto/rc4.dart';
 export 'src/crypto/rsa.dart';
 export 'src/crypto/standard_security_handler.dart';
 export 'src/crypto/tsp.dart';
+export 'src/crypto/x509_builder.dart';
 export 'src/document.dart';
 export 'src/exceptions.dart';
 export 'src/filters/filters.dart';

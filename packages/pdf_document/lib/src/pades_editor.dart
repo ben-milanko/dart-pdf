@@ -40,6 +40,122 @@ extension PdfPadesSigning on PdfEditor {
     bool certify = false,
     int docMdpPermissions = 2,
     PdfSignatureAppearance? appearance,
+  }) =>
+      _saveSignedPades(
+        signAttributes: (digest) =>
+            rsaSign(privateKey, DigestOid.sha256, digest),
+        signatureAlgorithm: null, // rsaEncryption (the assembler's default)
+        certificates: certificates,
+        level: level,
+        timestampClient: timestampClient,
+        revocationClient: revocationClient,
+        fieldName: fieldName,
+        signerName: signerName,
+        reason: reason,
+        location: location,
+        contactInfo: contactInfo,
+        signingTime: signingTime,
+        certify: certify,
+        docMdpPermissions: docMdpPermissions,
+        appearance: appearance,
+      );
+
+  /// The EC counterpart of [saveSignedPades]: signs the CAdES-baseline
+  /// signature with an [EcPrivateKey] (ECDSA over SHA-256) instead of RSA.
+  /// This is how a self-signed P-256 [PdfSigningIdentity] earns a trusted
+  /// signature timestamp (B-T) - CA-anchored signing time even though the
+  /// signer certificate itself is not publicly trusted. All other arguments
+  /// behave exactly as in [saveSignedPades].
+  Future<Uint8List> saveSignedPadesEcdsa({
+    required EcPrivateKey privateKey,
+    required List<Uint8List> certificates,
+    PdfPadesLevel level = PdfPadesLevel.bB,
+    PdfTimestampClient? timestampClient,
+    PdfRevocationClient? revocationClient,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    bool certify = false,
+    int docMdpPermissions = 2,
+    PdfSignatureAppearance? appearance,
+  }) =>
+      _saveSignedPades(
+        signAttributes: (digest) => ecdsaSign(privateKey, digest),
+        signatureAlgorithm: ecdsaSignatureAlgorithm(crypto.sha256),
+        certificates: certificates,
+        level: level,
+        timestampClient: timestampClient,
+        revocationClient: revocationClient,
+        fieldName: fieldName,
+        signerName: signerName,
+        reason: reason,
+        location: location,
+        contactInfo: contactInfo,
+        signingTime: signingTime,
+        certify: certify,
+        docMdpPermissions: docMdpPermissions,
+        appearance: appearance,
+      );
+
+  /// One-tap PAdES signing with a [PdfSigningIdentity]: dispatches to
+  /// [saveSignedPadesEcdsa] and defaults the signer name to the identity's.
+  /// Wire a [timestampClient] to a default public TSA (see
+  /// [PdfDefaultTimestampAuthority]) and pass [PdfPadesLevel.bT] so even a
+  /// self-signed signature carries trusted time.
+  Future<Uint8List> saveSelfSignedPades({
+    required PdfSigningIdentity identity,
+    PdfPadesLevel level = PdfPadesLevel.bB,
+    PdfTimestampClient? timestampClient,
+    PdfRevocationClient? revocationClient,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    bool certify = false,
+    int docMdpPermissions = 2,
+    PdfSignatureAppearance? appearance,
+  }) =>
+      saveSignedPadesEcdsa(
+        privateKey: identity.privateKey,
+        certificates: identity.certificates,
+        level: level,
+        timestampClient: timestampClient,
+        revocationClient: revocationClient,
+        fieldName: fieldName,
+        signerName: signerName ?? identity.name,
+        reason: reason,
+        location: location,
+        contactInfo: contactInfo,
+        signingTime: signingTime,
+        certify: certify,
+        docMdpPermissions: docMdpPermissions,
+        appearance: appearance,
+      );
+
+  /// Shared PAdES core: [signAttributes] signs the SHA-256 digest of the
+  /// signed attributes (RSA or ECDSA), and [signatureAlgorithm] is the
+  /// matching SignerInfo AlgorithmIdentifier (null = rsaEncryption).
+  Future<Uint8List> _saveSignedPades({
+    required Uint8List Function(List<int> attributeDigest) signAttributes,
+    required Uint8List? signatureAlgorithm,
+    required List<Uint8List> certificates,
+    required PdfPadesLevel level,
+    PdfTimestampClient? timestampClient,
+    PdfRevocationClient? revocationClient,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    bool certify = false,
+    int docMdpPermissions = 2,
+    PdfSignatureAppearance? appearance,
   }) async {
     if (certificates.isEmpty) {
       throw ArgumentError('the signer certificate is required');
@@ -71,8 +187,8 @@ extension PdfPadesSigning on PdfEditor {
       signingTime: time,
       essCertificate: signerCert,
     );
-    final signature = rsaSign(
-        privateKey, DigestOid.sha256, crypto.sha256.convert(signedAttrs).bytes);
+    final signature =
+        signAttributes(crypto.sha256.convert(signedAttrs).bytes);
 
     final unsigned = <Uint8List>[];
     var tsaChain = const <X509Certificate>[];
@@ -86,6 +202,7 @@ extension PdfPadesSigning on PdfEditor {
       signature: signature,
       certificates: certificates,
       unsignedAttributes: unsigned,
+      signatureAlgorithm: signatureAlgorithm,
     );
     PdfSigning._writeContents(revision, cms);
     var bytes = revision.saved;
