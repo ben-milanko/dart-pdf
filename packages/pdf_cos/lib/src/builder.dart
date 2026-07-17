@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart' show md5;
 
 import 'objects.dart';
 import 'serializer.dart';
+import 'xref_writer.dart';
 
 /// Assembles a brand-new PDF file from scratch - the counterpart of
 /// [CosIncrementalUpdater] for output that does not extend an existing
@@ -42,12 +43,13 @@ class CosDocumentBuilder {
           .writeIndirectObject(CosIndirectObject(i + 1, 0, _objects[i]));
     }
 
+    final tail = CosXrefTableWriter(out);
     final xrefOffset = out.length;
-    _writeText(out, 'xref\n0 ${_objects.length + 1}\n');
-    _writeText(out, '0000000000 65535 f \n');
-    for (final offset in offsets) {
-      _writeText(out, '${offset.toString().padLeft(10, '0')} 00000 n \n');
-    }
+    tail.writeTable(
+      {for (var i = 0; i < offsets.length; i++) i + 1: offsets[i]},
+      (_) => 0,
+      includeFreeHead: true,
+    );
 
     // both /ID halves may be identical for a freshly created file (§14.4)
     final id = Uint8List.fromList(md5.convert(out.toBytes()).bytes);
@@ -60,9 +62,8 @@ class CosDocumentBuilder {
         CosString(id, isHex: true),
       ]),
     });
-    _writeText(out, 'trailer\n');
-    serializer.writeObject(trailer);
-    _writeText(out, '\nstartxref\n$xrefOffset\n%%EOF\n');
+    tail.writeTrailer(trailer);
+    tail.writeEpilogue(xrefOffset);
     return out.takeBytes();
   }
 

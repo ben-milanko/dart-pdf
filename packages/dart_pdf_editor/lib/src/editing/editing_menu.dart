@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../page_range_dialog.dart';
+import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_form_style.dart';
 import 'text_prompt.dart';
@@ -78,8 +79,10 @@ typedef PdfAnnotationMenuBuilder = List<PdfAnnotationMenuItem> Function(
 
 /// Shows the annotation context menu at [position] (global coordinates)
 /// for [controller]'s current selection: copy/cut/apply-to-pages/paste,
-/// bring to front, send to back, delete, then whatever [customActions] adds.
-/// Resolves when the menu closes, after the picked action ran.
+/// bring to front, send to back, add/remove node (a single /PolyLine or
+/// /Polygon, when [pagePoint] is known), delete, then whatever
+/// [customActions] adds. Resolves when the menu closes, after the picked
+/// action ran.
 ///
 /// [pagePoint] is where on the page the menu was opened (page space) -
 /// Paste centers the clipboard there; without it the paste falls back
@@ -163,6 +166,44 @@ Future<void> showPdfAnnotationMenu({
         enabled: controller.canSendSelectedToBack,
         onSelected: (request) => request.controller.sendSelectedToBack(),
       ),
+      // A right-click on a /PolyLine or /Polygon can grow or drop a vertex
+      // at the click point. Needs the page point the menu opened on; the
+      // selection-chip "More" path (no point) hides these.
+      if (pagePoint != null && controller.canAddSelectedVertex) ...[
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-add-node'),
+          label: 'Add node',
+          icon: Icons.add_location_alt_outlined,
+          onSelected: (request) =>
+              request.controller.addSelectedVertexAt(pagePoint),
+        ),
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-remove-node'),
+          label: 'Remove node',
+          icon: Icons.wrong_location_outlined,
+          enabled: controller.canRemoveSelectedVertex,
+          onSelected: (request) =>
+              request.controller.removeSelectedVertexNear(pagePoint),
+        ),
+      ],
+      if (controller.canRecolorSnapshotSelected)
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
+          label: 'Recolour…',
+          icon: Icons.palette_outlined,
+          onSelected: (request) async {
+            final picked = await showPdfColorPicker(
+              context,
+              initial: request.controller.color,
+              initialFormat: request.controller.preferences.colorPickerFormat,
+              onFormatChanged: (format) =>
+                  request.controller.preferences.colorPickerFormat = format,
+            );
+            if (picked != null) {
+              request.controller.recolorSnapshotSelected(picked);
+            }
+          },
+        ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-delete'),
         label: 'Delete',

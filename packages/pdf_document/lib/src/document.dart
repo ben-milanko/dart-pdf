@@ -18,6 +18,23 @@ class PdfDocument {
   static PdfDocument open(Uint8List bytes, {String password = ''}) =>
       PdfDocument._(CosDocument.open(bytes, password: password));
 
+  /// Opens a document from an asynchronous, random-access [source] - a remote
+  /// file over HTTP Range requests, a local file read on demand, or any other
+  /// [PdfByteSource]. Only the bytes the parser needs (header, cross-reference
+  /// chain, and the live objects) are fetched, falling back to a full download
+  /// when the source cannot serve useful ranges or the file is malformed.
+  ///
+  /// [PdfDocument.open] and the byte-based widgets are unaffected; this is an
+  /// additive entry point for progressive/remote loading. See [PdfByteSource]
+  /// and, for the HTTP adapter, `PdfHttpByteSource` in `dart_pdf_editor`.
+  static Future<PdfDocument> openSource(
+    PdfByteSource source, {
+    String password = '',
+    PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
+  }) async =>
+      PdfDocument._(await CosDocument.openSource(source,
+          password: password, options: options));
+
   String get version => cos.version;
 
   CosDictionary get catalog => cos.catalog;
@@ -84,6 +101,19 @@ class PdfDocument {
   /// Drops cached page-tree state. Editing code calls this after structural
   /// changes (reorder, removal, insertion) so lookups re-walk the tree.
   void invalidatePageCache() => _leafCache = null;
+
+  /// Feeds an append-only incremental revision into this open document in
+  /// place (see [CosDocument.applyIncrementalUpdate]) and re-walks the page
+  /// tree, so a render worker can reflect one page's edit without re-parsing
+  /// the whole document. [newBytes] must begin with this document's current
+  /// bytes (`cos.bytes`).
+  /// Returns the set of redefined COS object numbers. Throws when the update
+  /// cannot be applied incrementally; the caller should re-open instead.
+  Set<int> applyIncrementalUpdate(Uint8List newBytes) {
+    final changed = cos.applyIncrementalUpdate(newBytes);
+    invalidatePageCache();
+    return changed;
+  }
 
   /// Zero-based index of a page dictionary, or -1 if it isn't a leaf of
   /// this document's page tree. Resolved objects are cached by reference,

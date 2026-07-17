@@ -51,12 +51,14 @@ class PdfEditingPreferences extends ChangeNotifier {
 
   Color _color = const Color(0xFFE53935);
   double _strokeWidth = 2;
+  double _cornerRadius = 0;
   double _eraserRadius = 8;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   PdfTextAlign? _textAlign;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
+  double _lineScale = 1;
   PdfLineEnding _lineStartEnding = PdfLineEnding.none;
   PdfLineEnding _lineEndEnding = PdfLineEnding.none;
   bool _fingerDrawsInk = true;
@@ -71,6 +73,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
   ThemeMode _themeMode = ThemeMode.system;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
+  List<Color> _recentColors = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
   bool _showAnnotations = true;
   bool _highlightFormFields = true;
@@ -134,6 +137,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       final color = store.getInt('${_prefix}color');
       if (color != null) _color = Color(color);
       _strokeWidth = store.getDouble('${_prefix}strokeWidth') ?? _strokeWidth;
+      _cornerRadius =
+          store.getDouble('${_prefix}cornerRadius') ?? _cornerRadius;
       _eraserRadius =
           store.getDouble('${_prefix}eraserRadius') ?? _eraserRadius;
       _fontSize = store.getDouble('${_prefix}fontSize') ?? _fontSize;
@@ -147,6 +152,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
+      _lineScale = store.getDouble('${_prefix}lineScale') ?? _lineScale;
       final lineStyle = store.getString('${_prefix}lineStyle');
       if (lineStyle != null) {
         _lineStyle = PdfLineStyle.values.asNameMap()[lineStyle] ?? _lineStyle;
@@ -190,6 +196,13 @@ class PdfEditingPreferences extends ChangeNotifier {
         _colorPickerFormat =
             PdfColorFormat.values.asNameMap()[colorPickerFormat] ??
                 _colorPickerFormat;
+      }
+      final recentColors = store.getStringList('${_prefix}recentColors');
+      if (recentColors != null) {
+        _recentColors = List.unmodifiable([
+          for (final entry in recentColors)
+            if (int.tryParse(entry) case final rgb?) Color(0xFF000000 | rgb),
+        ]);
       }
       final pageColor = store.getInt('${_prefix}pageColor');
       if (pageColor != null) _pageColor = Color(pageColor);
@@ -412,6 +425,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         if (slot['color'] case final int v) color = Color(v);
       }
       if (slot['strokeWidth'] case final num v) strokeWidth = v.toDouble();
+      if (slot['cornerRadius'] case final num v) cornerRadius = v.toDouble();
       if (slot['eraserRadius'] case final num v) eraserRadius = v.toDouble();
       if (slot['opacity'] case final num v) opacity = v.toDouble();
       if (slot['fontSize'] case final num v) fontSize = v.toDouble();
@@ -427,6 +441,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         final style = PdfLineStyle.values.asNameMap()[v];
         if (style != null) lineStyle = style;
       }
+      if (slot['lineScale'] case final num v) lineScale = v.toDouble();
       if (slot['lineStartEnding'] case final String v) {
         final ending = PdfLineEnding.values.asNameMap()[v];
         if (ending != null) lineStartEnding = ending;
@@ -474,12 +489,14 @@ class PdfEditingPreferences extends ChangeNotifier {
 
     put('color', _color.toARGB32());
     put('strokeWidth', _strokeWidth);
+    put('cornerRadius', _cornerRadius);
     put('eraserRadius', _eraserRadius);
     put('opacity', _opacity);
     put('fontSize', _fontSize);
     put('fontFamily', _fontFamily.name);
     put('textAlign', _textAlign?.name);
     put('lineStyle', _lineStyle.name);
+    put('lineScale', _lineScale);
     put('lineStartEnding', _lineStartEnding.name);
     put('lineEndEnding', _lineEndEnding.name);
     put('textFillColor', _textFillColor?.toARGB32());
@@ -519,6 +536,18 @@ class PdfEditingPreferences extends ChangeNotifier {
     _strokeWidth = value;
     _write((s) => s.setDouble('${_prefix}strokeWidth', value));
     _recordScoped('strokeWidth', value);
+    notifyListeners();
+  }
+
+  /// Corner radius for new rectangle shapes, in PDF points; 0 (the default)
+  /// gives square corners.
+  double get cornerRadius => _cornerRadius;
+
+  set cornerRadius(double value) {
+    if (value == _cornerRadius) return;
+    _cornerRadius = value;
+    _write((s) => s.setDouble('${_prefix}cornerRadius', value));
+    _recordScoped('cornerRadius', value);
     notifyListeners();
   }
 
@@ -593,6 +622,20 @@ class PdfEditingPreferences extends ChangeNotifier {
     _lineStyle = value;
     _write((s) => s.setString('${_prefix}lineStyle', value.name));
     _recordScoped('lineStyle', value.name);
+    notifyListeners();
+  }
+
+  /// The pattern scale new shape and line annotations are created with - a
+  /// multiplier (1 = default) driving the size of dash patterns and cloudy
+  /// scallops *independently* of [strokeWidth], so the line thickness and
+  /// the pattern size change separately. Persisted.
+  double get lineScale => _lineScale;
+
+  set lineScale(double value) {
+    if (value == _lineScale) return;
+    _lineScale = value;
+    _write((s) => s.setDouble('${_prefix}lineScale', value));
+    _recordScoped('lineScale', value);
     notifyListeners();
   }
 
@@ -727,6 +770,39 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _colorPickerFormat) return;
     _colorPickerFormat = value;
     _write((s) => s.setString('${_prefix}colorPickerFormat', value.name));
+    notifyListeners();
+  }
+
+  /// How many recently-picked colours to remember (see [recentColors]).
+  static const _maxRecentColors = 18;
+
+  /// The colours most recently chosen in the full colour picker, newest
+  /// first - the picker's "Recent" quick-pick grid. Opaque (alpha
+  /// dropped); deduplicated by RGB. Persisted on the device.
+  List<Color> get recentColors => _recentColors;
+
+  /// Records [color] as the most-recently-used colour, moving it to the
+  /// front (deduplicated by RGB) and dropping the oldest past
+  /// [_maxRecentColors]. Alpha is ignored - the picker deals in opaque
+  /// colours. A no-op when [color] is already the newest entry.
+  void noteRecentColor(Color color) {
+    final rgb = color.toARGB32() & 0xFFFFFF;
+    final opaque = Color(0xFF000000 | rgb);
+    if (_recentColors.isNotEmpty &&
+        (_recentColors.first.toARGB32() & 0xFFFFFF) == rgb) {
+      return;
+    }
+    final next = [
+      opaque,
+      for (final existing in _recentColors)
+        if ((existing.toARGB32() & 0xFFFFFF) != rgb) existing,
+    ];
+    if (next.length > _maxRecentColors) {
+      next.removeRange(_maxRecentColors, next.length);
+    }
+    _recentColors = List.unmodifiable(next);
+    _write((s) => s.setStringList('${_prefix}recentColors',
+        [for (final c in _recentColors) '${c.toARGB32() & 0xFFFFFF}']));
     notifyListeners();
   }
 

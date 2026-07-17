@@ -19,7 +19,7 @@ void main() {
       {required bool predict}) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
       ..color = const Color(0xFFFF0000)
-      ..strokeWidth = 8;
+      ..preferences.strokeWidth = 8;
     addTearDown(editing.dispose);
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(

@@ -1,9 +1,10 @@
 // Unit coverage for the print wrapper: the job-name normaliser and the
-// `printPdfBytes` hand-off to the `printing` plugin. The real plugin talks over
-// the `net.nfet.printing` method channel, which we mock here - driving the
-// `onCompleted` callback so `Printing.layoutPdf` resolves without a platform.
+// `printPdfBytes` hand-off to the native `native_print` channel (which every
+// platform runner registers, replacing the printing plugin / PDFium). The real
+// runner is unavailable under `flutter test`, so we mock the channel.
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'package:dart_pdf_editor_app/printing.dart';
 
@@ -30,36 +31,27 @@ void main() {
     });
   });
 
-  test('printPdfBytes hands the document to the print plugin', () async {
-    const channel = MethodChannel('net.nfet.printing');
+  test('printPdfBytes hands the document to the runner as vector', () async {
+    const channel = MethodChannel('dev.milanko.dartpdf/native_print');
     final messenger = binding.defaultBinaryMessenger;
-    final bytes = Uint8List.fromList('%PDF-1.7'.codeUnits);
 
-    String? sentName;
-    var printPdfCalls = 0;
+    Uint8List? sentPdf;
+    String? jobName;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      if (call.method != 'printPdf') return null;
-      printPdfCalls += 1;
-      final args = call.arguments as Map;
-      sentName = args['name'] as String?;
-      // Mimic the platform finishing the job so layoutPdf's completer resolves.
-      await messenger.handlePlatformMessage(
-        channel.name,
-        channel.codec.encodeMethodCall(
-          MethodCall('onCompleted', <String, dynamic>{
-            'job': args['job'],
-            'completed': true,
-          }),
-        ),
-        (_) {},
-      );
-      return 1;
+      if (call.method == 'printPdf') {
+        final args = call.arguments as Map;
+        sentPdf = args['pdf'] as Uint8List;
+        jobName = args['name'] as String?;
+        return true;
+      }
+      return null;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
+    final bytes = buildClassicPdf();
     await printPdfBytes(bytes: bytes, title: 'Report.pdf');
 
-    expect(printPdfCalls, 1);
-    expect(sentName, 'Report'); // the .pdf-stripped job name
+    expect(sentPdf, bytes); // the document went over as vector
+    expect(jobName, 'Report'); // the .pdf-stripped job name
   });
 }

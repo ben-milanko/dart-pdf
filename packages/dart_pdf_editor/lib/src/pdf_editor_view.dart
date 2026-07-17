@@ -213,6 +213,7 @@ class PdfEditorView extends StatefulWidget {
     this.onSave,
     this.onSaveAs,
     this.showSaveButton = true,
+    this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
@@ -236,6 +237,7 @@ class PdfEditorView extends StatefulWidget {
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
     this.toolbarBuilder,
+    this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.pasteboardMargin = 0,
     this.backgroundColor,
@@ -306,6 +308,13 @@ class PdfEditorView extends StatefulWidget {
   /// save affordance while still keeping [onSave] and the keyboard
   /// shortcut active.
   final bool showSaveButton;
+
+  /// Keeps Save (the button and ⌘S / Ctrl+S) enabled even when the
+  /// document has no unsaved edits. Hosts set this for a document that has
+  /// never been written to disk - a new untitled file - so the first Save
+  /// can create the file before any edit is made. Defaults to false, where
+  /// Save is gated on [PdfEditingController.isModified] as usual.
+  final bool alwaysAllowSave;
 
   /// Called after every revision - edits, undo, redo - with the new
   /// current bytes. For autosaving hosts.
@@ -407,6 +416,9 @@ class PdfEditorView extends StatefulWidget {
   /// [PdfEditorFeatures.toolbar] still gates this builder. Set that feature to
   /// false to disable all toolbar chrome regardless of this value.
   final PdfEditorToolbarBuilder? toolbarBuilder;
+
+  /// See [PdfViewer.pageLayout].
+  final PdfPageLayout pageLayout;
 
   /// See [PdfViewer.initialFit].
   final PdfViewerFit initialFit;
@@ -539,8 +551,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   /// Whether there's anything to save: false while the document still
   /// matches what was opened, which disables the Save button (and makes
-  /// the ⌘S / Ctrl+S shortcut a no-op).
-  bool get _canSave => _session.isModified;
+  /// the ⌘S / Ctrl+S shortcut a no-op). A host that flags the document as
+  /// never-saved ([PdfEditorView.alwaysAllowSave]) keeps Save enabled so a
+  /// brand-new file can be written before its first edit.
+  bool get _canSave => _session.isModified || widget.alwaysAllowSave;
 
   void _save() {
     if (!_canSave) return;
@@ -552,9 +566,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   Future<void> _promptAuthor() async {
     final session = _session;
     final name = await showPdfTextPrompt(context,
-        title: 'Author name', initial: session.author ?? '');
+        title: 'Author name', initial: session.preferences.author ?? '');
     if (name == null) return;
-    session.author = name.trim().isEmpty ? null : name.trim();
+    session.preferences.author = name.trim().isEmpty ? null : name.trim();
   }
 
   @override
@@ -797,7 +811,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 pageGrid: features.thumbnails,
                 pageColor: features.pageColorEditable,
                 author: features.author,
-                authorName: session.author,
+                authorName: session.preferences.author,
                 onAuthorPressed: _promptAuthor,
                 toolShortcuts: _toolShortcuts,
                 onToolShortcutsChanged: (value) =>
@@ -897,7 +911,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageGrid: features.thumbnails,
                         pageColor: features.pageColorEditable,
                         author: features.author,
-                        authorName: session.author,
+                        authorName: session.preferences.author,
                         onAuthorPressed: _promptAuthor,
                         toolShortcuts: _toolShortcuts,
                         onToolShortcutsChanged: (value) =>
@@ -986,6 +1000,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.markup)),
+                        pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
                         toolShortcuts: _toolShortcuts,
                         backgroundColor: widget.backgroundColor,

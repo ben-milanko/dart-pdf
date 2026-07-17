@@ -270,6 +270,17 @@ class PdfAnnotation {
     return values.any((value) => value > 0) ? values : null;
   }
 
+  /// The corner radius (page points) of a /Square annotation's rounded
+  /// rectangle, from the /Border array's first entry (§12.5.4
+  /// `[hCornerRadius vCornerRadius width]`); 0 for square corners or when
+  /// /Border is absent or malformed.
+  double get cornerRadius {
+    final border = document.cos.resolve(dict['Border']);
+    if (border is! CosArray || border.length < 3) return 0;
+    final r = _number(document.cos.resolve(border[0]));
+    return r != null && r > 0 ? r : 0;
+  }
+
   /// Whether the annotation asks conforming viewers to render its border as
   /// a cloudy border effect (`/BE << /S /Cloudy ... >>`).
   bool get hasCloudyBorder {
@@ -277,6 +288,17 @@ class PdfAnnotation {
     if (be is! CosDictionary) return false;
     final style = document.cos.resolve(be['S']);
     return style is CosName && style.value == 'Cloudy';
+  }
+
+  /// The cloud scallop scale carried on `/BE /I` (§12.5.4) - the border
+  /// effect intensity, which the editor also uses as a puff-size multiplier
+  /// so a cloud's scallop size survives a restyle or reshape independently
+  /// of its stroke width. Defaults to 1 when absent or not cloudy.
+  double get cloudBorderScale {
+    final be = document.cos.resolve(dict['BE']);
+    if (be is! CosDictionary) return 1;
+    final intensity = _number(document.cos.resolve(be['I']));
+    return intensity == null || intensity <= 0 ? 1 : intensity;
   }
 
   /// The endpoints of a /Line annotation, page space.
@@ -600,8 +622,8 @@ class PdfAnnotation {
       lineSpacing:
           number(kPdfFreeTextLineSpacingKey) ?? kPdfFreeTextDefaultLineSpacing,
       charSpacing: number(kPdfFreeTextCharSpacingKey) ?? 0,
-      horizontalScale: number(kPdfFreeTextHScaleKey) ??
-          kPdfFreeTextDefaultHorizontalScale,
+      horizontalScale:
+          number(kPdfFreeTextHScaleKey) ?? kPdfFreeTextDefaultHorizontalScale,
       underline: underlineFlag is CosBoolean && underlineFlag.value,
     );
   }

@@ -3,6 +3,7 @@
 library;
 
 export 'src/builder.dart';
+export 'src/byte_source.dart';
 export 'src/content_parser.dart';
 export 'src/crypto/aes.dart';
 export 'src/crypto/asn1.dart';
@@ -24,3 +25,4 @@ export 'src/serializer.dart';
 export 'src/token.dart';
 export 'src/updater.dart';
 export 'src/xref.dart';
+export 'src/xref_writer.dart';

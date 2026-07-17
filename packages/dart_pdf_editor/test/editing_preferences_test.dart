@@ -56,6 +56,43 @@ void main() {
       expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
     });
 
+    test('noteRecentColor moves to front, dedupes, caps, and persists',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      expect(a.recentColors, isEmpty);
+
+      // alpha is dropped and RGB deduplicated; newest goes first
+      a.noteRecentColor(const Color(0xFFE53935));
+      a.noteRecentColor(const Color(0x8043A047));
+      a.noteRecentColor(const Color(0xFFE53935)); // re-pick moves it to front
+      expect(a.recentColors,
+          const [Color(0xFF43A047), Color(0xFFE53935)].reversed.toList());
+      expect(a.recentColors.first, const Color(0xFFE53935));
+      expect(a.recentColors.length, 2);
+
+      // re-noting the newest colour (any alpha) is a no-op: no duplicate,
+      // no reorder, no listener churn
+      var notified = 0;
+      a.addListener(() => notified++);
+      a.noteRecentColor(const Color(0x00E53935)); // same RGB, alpha ignored
+      a.noteRecentColor(const Color(0xFFE53935));
+      expect(notified, 0);
+
+      // the cap holds: pushing 20 distinct colours keeps only the newest 18
+      for (var i = 0; i < 20; i++) {
+        a.noteRecentColor(Color(0xFF000000 | i));
+      }
+      expect(a.recentColors.length, 18);
+      expect(a.recentColors.first, const Color(0xFF000013)); // 19th push (i=19)
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.recentColors, a.recentColors);
+    });
+
     test('empty storage leaves the defaults', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = PdfEditingPreferences();
@@ -115,10 +152,10 @@ void main() {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       await editing.preferences.ready;
       expect(editing.color, const Color(0xFF00A040));
-      expect(editing.strokeWidth, 6);
-      expect(editing.fontSize, 22);
-      expect(editing.opacity, 0.4);
-      expect(editing.fingerDrawsInk, isFalse);
+      expect(editing.preferences.strokeWidth, 6);
+      expect(editing.preferences.fontSize, 22);
+      expect(editing.preferences.opacity, 0.4);
+      expect(editing.preferences.fingerDrawsInk, isFalse);
     });
 
     test('controller setters write through to storage', () async {
@@ -127,16 +164,16 @@ void main() {
       await first.preferences.ready;
       first
         ..color = const Color(0xFF0000FF)
-        ..strokeWidth = 7
-        ..opacity = 0.8;
+        ..preferences.strokeWidth = 7
+        ..preferences.opacity = 0.8;
       await pumpEventQueue();
 
       // a later session: new controller, its own preferences instance
       final second = PdfEditingController(buildMultiPagePdf(1));
       await second.preferences.ready;
       expect(second.color, const Color(0xFF0000FF));
-      expect(second.strokeWidth, 7);
-      expect(second.opacity, 0.8);
+      expect(second.preferences.strokeWidth, 7);
+      expect(second.preferences.opacity, 0.8);
     });
 
     test('preference changes notify controller listeners', () async {
@@ -159,22 +196,22 @@ void main() {
 
       editing.tool = PdfEditTool.ink;
       editing.color = const Color(0xFFFF0000);
-      editing.strokeWidth = 6;
+      editing.preferences.strokeWidth = 6;
 
       editing.tool = PdfEditTool.rectangle;
       editing.color = const Color(0xFF0000FF);
-      editing.strokeWidth = 2;
-      editing.shapeFillColor = const Color(0xFF00FF00);
+      editing.preferences.strokeWidth = 2;
+      editing.preferences.shapeFillColor = const Color(0xFF00FF00);
 
       // arming the rectangle didn't disturb ink's remembered style
       editing.tool = PdfEditTool.ink;
       expect(editing.color, const Color(0xFFFF0000));
-      expect(editing.strokeWidth, 6);
+      expect(editing.preferences.strokeWidth, 6);
 
       editing.tool = PdfEditTool.rectangle;
       expect(editing.color, const Color(0xFF0000FF));
-      expect(editing.strokeWidth, 2);
-      expect(editing.shapeFillColor, const Color(0xFF00FF00));
+      expect(editing.preferences.strokeWidth, 2);
+      expect(editing.preferences.shapeFillColor, const Color(0xFF00FF00));
     });
 
     test('the markup scope keeps the highlighter its own colour', () async {
@@ -205,8 +242,8 @@ void main() {
         ..tool = PdfEditTool.highlight;
 
       expect(editing.color, const Color(0xFF123456));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
 
       editing.colorLocked = false;
       expect(editing.color, const Color(0xFFFFD100));

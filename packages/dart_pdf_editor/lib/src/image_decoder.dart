@@ -7,6 +7,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'budgeted_cache.dart';
 import 'performance_policy.dart';
 
 /// Map key for a decoded image. Image XObjects key by stream identity -
@@ -100,8 +101,19 @@ class PdfInlineImageKey {
 class PdfImageCache {
   /// A cache holding at most [maxBytes] of decoded pixels, defaulting to the
   /// budget this platform can afford ([pdfDefaultImageCacheBytes]).
-  PdfImageCache({int? maxBytes})
-      : _maxBytes = maxBytes ?? pdfDefaultImageCacheBytes();
+  ///
+  /// [registerForPressure] wires the cache into the coordinated
+  /// [PdfCacheRegistry] pressure path; only the process-wide [instance] sets
+  /// it, so short-lived test caches stay out of the registry.
+  PdfImageCache({int? maxBytes, bool registerForPressure = false})
+      : _cache = PdfBudgetedCache<Object, ui.Image>(
+          weigher: (image) => image.width * image.height * 4,
+          maxWeight: maxBytes ?? pdfDefaultImageCacheBytes(),
+          cloner: (image) => image.clone(),
+          disposer: (image) => image.dispose(),
+          clearsUnderMemoryPressure: registerForPressure,
+          debugLabel: 'decoded-image',
+        );
 
   /// The shared cache every render path consults by default.
   ///
@@ -112,117 +124,60 @@ class PdfImageCache {
   /// ```dart
   /// PdfImageCache.instance.maxBytes = 64 * 1024 * 1024;
   /// ```
-  static final PdfImageCache instance = PdfImageCache();
+  static final PdfImageCache instance =
+      PdfImageCache(registerForPressure: true);
+
+  // The one budgeted LRU under every in-package cache; the byte budget, LRU
+  // order, clone-on-take and dispose-on-evict all live there (and are
+  // property-tested in budgeted_cache_test.dart).
+  final PdfBudgetedCache<Object, ui.Image> _cache;
 
   /// Eviction budget: the cache holds at most this many bytes of decoded
   /// pixels (estimated as width × height × 4), evicting the least-recently
   /// used master first. Lowering it trims to the new budget at once.
-  int get maxBytes => _maxBytes;
-  set maxBytes(int value) {
-    _maxBytes = value;
-    _trim();
-  }
-
-  int _maxBytes;
-
-  // LinkedHashMap insertion order is the LRU order: a hit re-inserts to the
-  // back, eviction takes the front.
-  final _entries = <Object, _CachedImage>{};
-  int _bytes = 0;
-  bool _disposed = false;
-  int _hits = 0;
-  int _misses = 0;
+  int get maxBytes => _cache.maxWeight;
+  set maxBytes(int value) => _cache.maxWeight = value;
 
   /// A clone of the cached image for [key] (the caller owns and disposes
   /// it), or null on a miss. Counts as a use for LRU ordering.
-  ui.Image? take(Object key) {
-    final entry = _entries.remove(key);
-    if (entry == null) {
-      _misses++;
-      return null;
-    }
-    _hits++;
-    _entries[key] = entry; // touch
-    return entry.image.clone();
-  }
+  ui.Image? take(Object key) => _cache.take(key);
 
   /// Stores [master] under [key] (the cache takes ownership of it) and
   /// returns a clone for the caller to use and dispose. The master stays
   /// cached until evicted.
-  ui.Image put(Object key, ui.Image master) {
-    if (_disposed) return master; // not cached; caller owns it outright
-    _entries.remove(key)?.dispose(this);
-    final entry = _CachedImage(master);
-    _entries[key] = entry;
-    _bytes += entry.bytes;
-    _trim();
-    return master.clone();
-  }
-
-  // Keep at least the most-recently-used entry even if it alone exceeds the
-  // budget - it is still useful for this render's clones; it ages out on the
-  // next insert.
-  void _trim() {
-    while (_bytes > _maxBytes && _entries.length > 1) {
-      _entries.remove(_entries.keys.first)!.dispose(this);
-    }
-  }
+  ui.Image put(Object key, ui.Image master) => _cache.putAndClone(key, master);
 
   /// Drops the cached master for [key] (e.g. an image whose stream changed).
-  void evict(Object key) => _entries.remove(key)?.dispose(this);
+  void evict(Object key) => _cache.evict(key);
 
   /// Empties the cache (a document close, a memory-pressure signal, test
   /// isolation). Outstanding clones the callers hold are unaffected.
-  void clear() {
-    for (final entry in _entries.values) {
-      entry.image.dispose();
-    }
-    _entries.clear();
-    _bytes = 0;
-  }
+  void clear() => _cache.clear();
 
-  void dispose() {
-    _disposed = true;
-    clear();
-  }
+  void dispose() => _cache.dispose();
 
   /// Estimated bytes of decoded pixels held right now, against [maxBytes].
   ///
   /// Occupancy, not a reservation: a document whose images fit well under the
   /// budget only ever costs what it uses.
-  int get bytes => _bytes;
+  int get bytes => _cache.weight;
 
   /// Number of cached masters - for tests.
   @visibleForTesting
-  int get debugLength => _entries.length;
+  int get debugLength => _cache.length;
 
   /// Lookups served from cached pixels - for tests and the budget benchmark.
   @visibleForTesting
-  int get debugHits => _hits;
+  int get debugHits => _cache.hits;
 
   /// Lookups that had to decode - for tests and the budget benchmark.
   @visibleForTesting
-  int get debugMisses => _misses;
+  int get debugMisses => _cache.misses;
 
   /// Zeroes the hit/miss counters (they survive [clear], which is a cache
   /// operation, not a new measurement).
   @visibleForTesting
-  void debugResetCounters() {
-    _hits = 0;
-    _misses = 0;
-  }
-}
-
-class _CachedImage {
-  _CachedImage(this.image) : bytes = image.width * image.height * 4;
-
-  final ui.Image image;
-  final int bytes;
-
-  void dispose(PdfImageCache cache) {
-    cache._bytes -= bytes;
-    image.dispose();
-  }
+  void debugResetCounters() => _cache.resetCounters();
 }
 
 /// Collects every image a page references, without painting anything.

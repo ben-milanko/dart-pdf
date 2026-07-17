@@ -51,6 +51,20 @@ node report.mjs 20                # last 20 runs' trend
 | `PERF_VERBOSE` | `false` | echo every browser console line |
 | `PERF_PORT` / `PERF_CHROME` | `8099` / system Chrome | server port / Chrome path |
 
+### Tab-memory probe
+
+The summary's `tab memory` line comes from
+`performance.measureUserAgentSpecificMemory()`, which counts CanvasKit's WASM
+heap (issue #283). It needs cross-origin isolation (the server sends COOP/COEP)
+**and** the browser-process PerformanceManager, which the old headless shell
+does not run — so `PERF_CHROME` must point at a **full** Chrome/Chromium binary,
+not a `*_headless_shell` one, and the driver uses new headless. `build.sh`
+builds with `--no-web-resources-cdn` so CanvasKit is served locally (the CDN
+fetch has no network in CI and is blocked by the credentialless COEP anyway).
+
+No representative document handy? `packages/pdf_cos/tool/gen_image_pdf.dart`
+generates an image-heavy multi-page PDF with the same decoded-RGBA footprint.
+
 ## Verdict
 
 `✓ PASS` means no harness/page errors, frames captured, pages visited. `◐ PASS

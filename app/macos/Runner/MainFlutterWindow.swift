@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import PDFKit
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -91,9 +92,48 @@ class MainFlutterWindow: NSWindow {
       result(pasteboard.setData(typed.data, forType: .png))
     }
 
+    // Print without a bundled PDF engine: the Dart side hands over the whole
+    // PDF and AppKit/PDFKit renders its vector content itself (CoreGraphics),
+    // keeping text selectable.
+    let nativePrintChannel = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/native_print",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    nativePrintChannel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "printPdf":
+        guard let args = call.arguments as? [String: Any],
+              let typed = args["pdf"] as? FlutterStandardTypedData else {
+          result(FlutterError(
+            code: "bad_args", message: "printPdf expects pdf bytes",
+            details: nil))
+          return
+        }
+        result(self.runPrintJob(
+          pdf: typed.data,
+          name: (args["name"] as? String) ?? "Document"))
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
+  }
+
+  /// Spools the whole PDF through AppKit's print panel via PDFKit. Returns
+  /// false when the data isn't a readable PDF or the user cancels.
+  private func runPrintJob(pdf: Data, name: String) -> Bool {
+    guard let document = PDFDocument(data: pdf) else { return false }
+
+    let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo.shared
+    guard let operation = document.printOperation(
+      for: printInfo, scalingMode: .pageScaleDownToFit, autoRotate: true)
+    else {
+      return false
+    }
+    operation.jobTitle = name
+    return operation.run()
   }
 
   private func readImageFromClipboard() -> FlutterStandardTypedData? {

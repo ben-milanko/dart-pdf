@@ -10,6 +10,7 @@ import 'package:pdf_graphics/raster.dart' show StripPlan, decodeStripPlan;
 import 'package:web/web.dart' as web;
 
 import 'perf_log.dart';
+import 'render_trace.dart';
 import 'render_worker.dart';
 
 // Worker lifecycle diagnostics, routed through PdfPerfLog so they ride the same
@@ -163,6 +164,11 @@ class _WebRenderWorker extends PdfRenderWorker {
   @override
   bool get isActive => !_disposed && !_failed;
 
+  PdfRenderTrace? _lastRenderTrace;
+
+  @override
+  PdfRenderTrace? get lastRenderTrace => _lastRenderTrace;
+
   void _onMessage(web.MessageEvent event) {
     final data = event.data as JSObject?;
     if (data == null) return;
@@ -280,6 +286,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
       }
       request.trace?.log(_workerNumber, request, outcome: 'ok');
+      _recordTrace(request);
       return commands;
     } catch (_) {
       request.trace?.log(_workerNumber, request, outcome: 'corrupt');
@@ -328,6 +335,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
       }
       request.trace?.log(_workerNumber, request, outcome: 'ok');
+      _recordTrace(request);
       return plan;
     } catch (_) {
       request.trace?.log(_workerNumber, request, outcome: 'corrupt');
@@ -385,6 +393,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
       }
       request.trace?.log(_workerNumber, request, outcome: 'ok');
+      _recordTrace(request);
       return detail;
     } catch (_) {
       request.trace?.log(_workerNumber, request, outcome: 'corrupt');
@@ -396,6 +405,15 @@ class _WebRenderWorker extends PdfRenderWorker {
     final clock = _perfClock;
     if (clock == null) return;
     request.trace = _WebRequestTrace(clock.elapsedMicroseconds);
+  }
+
+  /// Snapshots the just-completed request's trace onto [lastRenderTrace] so a
+  /// caller can read the end-to-end per-phase breakdown of the last job through
+  /// one worker call (in addition to the string line [_WebRequestTrace.log]
+  /// prints to the perf console).
+  void _recordTrace(_WebPending request) {
+    final trace = request.trace;
+    if (trace != null) _lastRenderTrace = trace.toRenderTrace(request.pageIndex);
   }
 
   /// Sends the highest-priority queued request to the worker when it is idle
@@ -709,6 +727,25 @@ class _WebRequestTrace {
     binUs = _intProperty(data, 'binUs');
     transcriptHit =
         (data.getProperty('transcriptHit'.toJS) as JSBoolean?)?.toDart ?? false;
+  }
+
+  /// Assembles this request's collected halves into one unified [PdfRenderTrace]
+  /// - the worker phases it reported plus the queue/transfer/deserialize the
+  /// main isolate measured.
+  PdfRenderTrace toRenderTrace(int pageIndex) {
+    final roundTripUs = receivedUs > 0 && sentUs > 0 ? receivedUs - sentUs : 0;
+    return PdfRenderTrace(pageIndex: pageIndex)
+      ..queueUs = sentUs > 0 ? sentUs - queuedUs : 0
+      ..workerUs = workerUs
+      ..parseUs = parseUs
+      ..interpretUs = interpretUs
+      ..streamUs = streamUs
+      ..serializeUs = serializeUs
+      ..decodeUs = decodeUs
+      ..binUs = binUs
+      ..transferUs = math.max(0, roundTripUs - workerUs)
+      ..deserializeUs = deserializeUs
+      ..transcriptHit = transcriptHit;
   }
 
   void log(int workerNumber, _WebPending request, {required String outcome}) {

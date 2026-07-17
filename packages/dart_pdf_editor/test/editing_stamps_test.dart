@@ -427,7 +427,7 @@ void main() {
         ],
       );
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..author = 'Comment Author'
+        ..preferences.author = 'Comment Author'
         ..stampTemplateClock = (() => DateTime(2026, 7, 4, 9, 5))
         ..stampTemplateValues = {
           'username': 'Ben',
@@ -466,8 +466,8 @@ void main() {
       );
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..stampTemplateClock = (() => DateTime(2026, 7, 4, 9, 5, 6))
-        ..stampDateFormat = PdfStampDateFormat.monthNameDayYear
-        ..stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds
+        ..preferences.stampDateFormat = PdfStampDateFormat.monthNameDayYear
+        ..preferences.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds
         ..activeStamp = PdfCustomStamp(
           text: '{{datetime}}',
           color: 0x1A3E8C,
@@ -915,12 +915,67 @@ void main() {
       expect(overlayPainter(tester).stampPreview, isNull);
     });
 
+    testWidgets('stamp hover previews a TEXT placeholder without an active stamp',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..tool = PdfEditTool.stamp;
+      addTearDown(editing.dispose);
+      expect(editing.activeStamp, isNull);
+
+      final page = editing.document.page(0);
+      final geometry = PdfPageGeometry(
+        cropBox: page.cropBox,
+        rotation: 0,
+        viewSize: const Size(306, 396),
+      );
+      Offset local(double x, double y) => Offset(x * 0.5, (792 - y) * 0.5);
+      await tester.pumpWidget(MaterialApp(
+        home: Material(
+          child: Center(
+            child: SizedBox(
+              width: geometry.viewSize.width,
+              height: geometry.viewSize.height,
+              child: EditingPageOverlay(
+                controller: editing,
+                pageIndex: 0,
+                geometry: geometry,
+                textPrompt: showPdfTextPrompt,
+                rasterCurrent: false,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final origin = tester.getTopLeft(find.byType(EditingPageOverlay));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: origin + local(250, 430));
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(origin + local(300, 400));
+      await tester.pump();
+
+      // hovering shows the placeholder; nothing is committed until a click
+      // prompts for the real caption.
+      expect(editing.document.page(0).annotations, isEmpty);
+      final preview = overlayPainter(tester).stampPreview;
+      expect(preview, isNotNull);
+      expect(preview.text, 'TEXT');
+      expect(preview.rect.center.dx, moreOrLessEquals(local(300, 400).dx));
+      expect(preview.rect.center.dy, moreOrLessEquals(local(300, 400).dy));
+
+      await mouse.moveTo(origin + const Offset(-20, -20));
+      await tester.pump();
+      expect(overlayPainter(tester).stampPreview, isNull);
+    });
+
     testWidgets('adding a stamp keeps existing annotations painted',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..color = const Color(0xFFE53935)
-        ..strokeWidth = 12
+        ..preferences.strokeWidth = 12
         ..addRectangle(0, const PdfRect(120, 650, 180, 720));
       addTearDown(editing.dispose);
       const boundaryKey = ValueKey('annotation-layer-capture');
@@ -1335,6 +1390,106 @@ void main() {
       expect(text.height, greaterThan(36));
     });
 
+    testWidgets('stamp editor resizes from any corner with a forgiving target',
+        (tester) async {
+      PdfCustomStamp? saved;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: FilledButton(
+              onPressed: () async {
+                saved = await showPdfStampEditor(context);
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final canvas = find.byKey(const ValueKey('pdf-stamp-template-canvas'));
+      final rect = tester.getRect(canvas);
+      final scale = rect.width / 240;
+      final origin = rect.topLeft;
+      // The default text component's top-left corner is at (20, 30). Grab it a
+      // few logical pixels off-center - the old single bottom-right handle
+      // could not do this, and the generous hit radius forgives the miss - then
+      // drag up and left so that corner (and only that corner) follows.
+      final resize = await tester.startGesture(
+          origin + Offset(20 * scale + 5, 30 * scale + 5),
+          kind: PointerDeviceKind.mouse);
+      await resize.moveBy(const Offset(-16, -10));
+      await resize.up();
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final text = saved!.template!.components
+          .firstWhere((c) => c.type == PdfStampTemplateComponentType.text);
+      // Top-left corner moved out, so the origin shrank and the box grew.
+      expect(text.x, lessThan(20));
+      expect(text.y, lessThan(30));
+      expect(text.width, greaterThan(200));
+      expect(text.height, greaterThan(36));
+    });
+
+    testWidgets('stamp editor taps to reselect the component being sized',
+        (tester) async {
+      PdfCustomStamp? saved;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: FilledButton(
+              onPressed: () async {
+                saved = await showPdfStampEditor(context);
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final canvas = find.byKey(const ValueKey('pdf-stamp-template-canvas'));
+      final rect = tester.getRect(canvas);
+      final scale = rect.width / 240;
+      final origin = rect.topLeft;
+      // Tap the empty strip above the components to clear the initial text
+      // selection, then press-drag there: with nothing selected the canvas has
+      // no handles, so the gesture is a no-op instead of resizing.
+      await tester.tapAt(origin + Offset(2 * scale, 2 * scale));
+      await tester.pump();
+      final empty = await tester.startGesture(origin + Offset(2 * scale, 2 * scale),
+          kind: PointerDeviceKind.mouse);
+      await empty.moveBy(const Offset(6, 6));
+      await empty.up();
+      await tester.pump();
+
+      // Tap the border rectangle - below the caption - to select it, then drag
+      // its bottom-right corner outward to grow it.
+      await tester.tapAt(origin + Offset(120 * scale, 22 * scale));
+      await tester.pump();
+      final resize = await tester.startGesture(
+          origin + Offset(234 * scale, 80 * scale),
+          kind: PointerDeviceKind.mouse);
+      await resize.moveBy(const Offset(8, 6));
+      await resize.up();
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final border = saved!.template!.components
+          .firstWhere((c) => c.type == PdfStampTemplateComponentType.rectangle);
+      expect(border.width, greaterThan(228));
+      expect(border.height, greaterThan(64));
+    });
+
     testWidgets('the picker lists and deletes saved stamps', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
@@ -1512,13 +1667,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('06/07/2026').last);
       await tester.pumpAndSettle();
-      expect(editing.stampDateFormat, PdfStampDateFormat.dayMonthYear);
+      expect(editing.preferences.stampDateFormat, PdfStampDateFormat.dayMonthYear);
 
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-time-format')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('17:05:06 (24 hr)').last);
       await tester.pumpAndSettle();
-      expect(editing.stampTimeFormat, PdfStampTimeFormat.twentyFourHourSeconds);
+      expect(editing.preferences.stampTimeFormat, PdfStampTimeFormat.twentyFourHourSeconds);
     });
 
     testWidgets('the picker lists app-supplied stamps without delete controls',

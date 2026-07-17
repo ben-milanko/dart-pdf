@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -50,6 +52,38 @@ void main() {
       cache.request(token, 9, () async => runs++); // same token, new page
       await settle();
       expect(runs, 1);
+    });
+  });
+
+  group('PdfThumbnailCache raster store', () {
+    Future<ui.Image> solid(int w, int h) {
+      final px = Uint8List(w * h * 4)..fillRange(0, w * h * 4, 255);
+      final c = Completer<ui.Image>();
+      ui.decodeImageFromPixels(px, w, h, ui.PixelFormat.rgba8888, c.complete);
+      return c.future;
+    }
+
+    test('put/claim hands out clones; clear disposes the masters', () async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      cache.put('a', await solid(4, 4));
+      expect(cache.contains('a'), isTrue);
+      final clone = cache.claim('a');
+      expect(clone, isNotNull);
+      clone!.dispose(); // disposing the clone must not affect the master
+      expect(cache.claim('a'), isNotNull);
+      cache.clear();
+      expect(cache.contains('a'), isFalse);
+    });
+
+    test('a raster arriving after dispose is dropped, not cached', () async {
+      final cache = PdfThumbnailCache();
+      cache.dispose();
+      // A warm render completing after the session went away: put disposes the
+      // orphan raster and caches nothing.
+      cache.put('late', await solid(4, 4));
+      expect(cache.contains('late'), isFalse);
+      expect(cache.claim('late'), isNull);
     });
   });
 

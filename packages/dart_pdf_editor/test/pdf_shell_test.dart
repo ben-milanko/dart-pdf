@@ -796,8 +796,8 @@ void main() {
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFF123456));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
     });
 
     testWidgets('color controls are present by default', (tester) async {
@@ -1149,7 +1149,7 @@ void main() {
       final editing =
           PdfEditingController(buildMultiPagePdf(1), preferences: prefs);
       addTearDown(editing.dispose);
-      editing.author = 'A. Reviewer';
+      editing.preferences.author = 'A. Reviewer';
 
       await pump(
         tester,

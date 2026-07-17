@@ -21,6 +21,7 @@ import 'incoming_file.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'pdf_cache.dart';
+import 'print_progress_dialog.dart';
 import 'printing.dart';
 import 'recents.dart';
 import 'session_store.dart';
@@ -1026,14 +1027,67 @@ class _EditorScreenState extends State<EditorScreen>
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
     try {
-      await (widget.printDocument ?? printPdfBytes)(
-        bytes: bytes,
-        title: tab.title,
-      );
+      final injected = widget.printDocument;
+      if (injected != null) {
+        await injected(bytes: bytes, title: tab.title);
+      } else {
+        await _printWithProgress(bytes, tab.title);
+      }
     } catch (_) {
       if (mounted) _toast('Could not print ${tab.title}');
     }
   }
+
+  /// Runs [printPdfBytes] with a modal progress dialog that tracks page
+  /// rendering. The print path rasterises every page up front, which is slow
+  /// for large documents, so we surface "page X of Y" progress rather than
+  /// appearing frozen.
+  ///
+  /// The dialog appears only for multi-page (slow) jobs - a one/two-page print
+  /// finishes too fast to be worth a flash - and is dismissed once rendering
+  /// finishes, before the OS print dialog opens.
+  Future<void> _printWithProgress(Uint8List bytes, String title) async {
+    final progress = ValueNotifier<(int, int)?>(null);
+    final navigator = Navigator.of(context, rootNavigator: true);
+    var dialogShown = false;
+    void dismiss() {
+      if (dialogShown) {
+        dialogShown = false;
+        navigator.pop();
+      }
+    }
+
+    try {
+      await printPdfBytes(
+        bytes: bytes,
+        title: title,
+        onProgress: (rendered, total) {
+          progress.value = (rendered, total);
+          if (total > _printProgressThreshold &&
+              rendered < total &&
+              !dialogShown &&
+              mounted) {
+            dialogShown = true;
+            unawaited(showDialog<void>(
+              context: context,
+              barrierDismissible: false,
+              useRootNavigator: true,
+              builder: (_) => PrintProgressDialog(progress: progress),
+            ));
+          }
+          // Rendering done: drop the dialog before the OS print dialog opens.
+          if (rendered >= total && mounted) dismiss();
+        },
+      );
+    } finally {
+      if (mounted) dismiss();
+      progress.dispose();
+    }
+  }
+
+  /// A print of this many pages or fewer skips the progress dialog - it renders
+  /// fast enough that a dialog would just flash.
+  static const _printProgressThreshold = 2;
 
   /// Prints the active document, if one is open - bound to ⌘P / Ctrl+P.
   void _printActive() {
@@ -1509,6 +1563,10 @@ class _EditorScreenState extends State<EditorScreen>
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
+      // A brand-new untitled document has no on-disk origin yet, so keep
+      // Save (button + Ctrl/⌘+S) live even before the first edit - the first
+      // save writes the file via the Save As flow.
+      alwaysAllowSave: tab.isUnsaved,
       onPickPdfToInsert: pickPdfBytes,
       onExportPages: (bytes) =>
           unawaited(saveBytesAs(context, bytes, tab.title)),

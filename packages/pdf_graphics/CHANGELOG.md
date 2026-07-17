@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.7
+
+- Resolve the Separation/DeviceN tint transform once per distinct sample
+  tuple (memoised, cap-bounded) instead of once per pixel, and stop
+  decoding a non-JPEG image base twice under a DCTDecode /SMask —
+  cutting a 62-page print export's worst DeviceN image from 23.7 s to
+  98 ms with bit-identical output across the corpus (#282).
+
 ## 1.4.6
 
 - Keep Arabic tashkil and other zero-advance marks with their base glyph when

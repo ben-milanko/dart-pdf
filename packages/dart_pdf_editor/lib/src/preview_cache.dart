@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'budgeted_cache.dart';
 import 'perf_log.dart';
 import 'raster_cache.dart';
 import 'render_worker.dart';
@@ -56,16 +57,29 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// large CAD rasters this cache is not intended to retain.
   final int maxFullRasterEntryPixels;
 
-  // LinkedHashMap insertion order doubles as the LRU order: lookups
-  // re-insert, eviction takes the first key.
-  final _entries = <int, _PreviewEntry>{};
-  final _fullEntries = <int, _FullRasterEntry>{};
-  int _fullRasterPixels = 0;
+  // Two shared budgeted LRUs: soft previews bounded by entry count, exact
+  // recent-page rasters bounded by total pixels. Both dispose evicted images;
+  // the pixel budget and count cap live in PdfBudgetedCache (and are
+  // property-tested there), so this class keeps only the preview-domain logic
+  // (disk write-through, rebinding, staleness) on top.
+  late final PdfBudgetedCache<int, _PreviewEntry> _entries =
+      PdfBudgetedCache<int, _PreviewEntry>(
+    maxEntries: capacity,
+    disposer: (entry) => entry.image.dispose(),
+    debugLabel: 'page-preview',
+  );
+  late final PdfBudgetedCache<int, _FullRasterEntry> _fullEntries =
+      PdfBudgetedCache<int, _FullRasterEntry>(
+    weigher: (entry) => entry.pixels,
+    maxWeight: maxFullRasterPixels,
+    disposer: (entry) => entry.image.dispose(),
+    debugLabel: 'page-full-raster',
+  );
   bool _disposed = false;
 
   /// Pixels currently retained by the exact recent-page cache.
   @visibleForTesting
-  int get debugFullRasterPixels => _fullRasterPixels;
+  int get debugFullRasterPixels => _fullEntries.weight;
 
   /// Optional persistent backing (see [PdfRasterCache]). When set, fresh
   /// previews are written through to disk as they render, and [loadFromDisk]
@@ -92,13 +106,9 @@ class PdfPagePreviewCache extends ChangeNotifier {
         image.dispose();
         continue;
       }
-      // adopt without writing back - these bytes just came from disk
-      _entries[i] = _PreviewEntry(pages[i], image, includesImages: true);
-      while (_entries.length > capacity) {
-        final oldest = _entries.keys.first;
-        if (oldest == i) break;
-        _entries.remove(oldest)!.image.dispose();
-      }
+      // adopt without writing back - these bytes just came from disk. put
+      // trims to capacity, disposing the LRU and never the entry just loaded.
+      _entries.put(i, _PreviewEntry(pages[i], image, includesImages: true));
       notifyListeners();
     }
   }
@@ -106,9 +116,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// The preview for page [index], as a clone the caller owns (and must
   /// dispose), or null when none is cached. Counts as a use for LRU.
   ui.Image? imageFor(int index) {
-    final entry = _entries.remove(index);
+    final entry = _entries.take(index); // touch; the master stays cached
     if (entry == null) return null;
-    _entries[index] = entry;
     return entry.image.clone();
   }
 
@@ -126,9 +135,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required bool annotations,
     required int? rotation,
   }) {
-    final entry = _fullEntries.remove(index);
+    final entry = _fullEntries.take(index); // touch; the master stays cached
     if (entry == null) return null;
-    _fullEntries[index] = entry;
     if (!identical(entry.page, page) ||
         entry.image.width != width ||
         entry.image.height != height ||
@@ -160,25 +168,19 @@ class PdfPagePreviewCache extends ChangeNotifier {
         pixels > maxFullRasterPixels) {
       return;
     }
-    final old = _fullEntries.remove(index);
-    if (old != null) {
-      _fullRasterPixels -= old.pixels;
-      old.image.dispose();
-    }
-    final entry = _FullRasterEntry(
-      page,
-      image.clone(),
-      pageColor: pageColor,
-      annotations: annotations,
-      rotation: rotation,
+    // put disposes any prior entry for this index and evicts the LRU rasters
+    // past the pixel budget; the entry just stored (which the guard above kept
+    // within budget) is never the one evicted.
+    _fullEntries.put(
+      index,
+      _FullRasterEntry(
+        page,
+        image.clone(),
+        pageColor: pageColor,
+        annotations: annotations,
+        rotation: rotation,
+      ),
     );
-    _fullEntries[index] = entry;
-    _fullRasterPixels += entry.pixels;
-    while (_fullRasterPixels > maxFullRasterPixels && _fullEntries.isNotEmpty) {
-      final evicted = _fullEntries.remove(_fullEntries.keys.first)!;
-      _fullRasterPixels -= evicted.pixels;
-      evicted.image.dispose();
-    }
   }
 
   /// Whether any preview (fresh or stale) exists for page [index].
@@ -188,7 +190,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// this [page] object - the staleness test both fill paths use to
   /// skip redundant work.
   bool isFresh(int index, PdfPage page, {bool requireImages = false}) {
-    final entry = _entries[index];
+    final entry = _entries.peek(index); // a staleness check, not a use
     if (!identical(entry?.page, page)) return false;
     return !requireImages || entry!.includesImages;
   }
@@ -317,12 +319,9 @@ class PdfPagePreviewCache extends ChangeNotifier {
       image.dispose();
       return;
     }
-    _entries.remove(index)?.image.dispose();
-    _entries[index] =
-        _PreviewEntry(page, image, includesImages: includesImages);
-    while (_entries.length > capacity) {
-      _entries.remove(_entries.keys.first)!.image.dispose();
-    }
+    // put disposes any prior preview for this index and evicts the LRU past
+    // capacity, never the entry just stored.
+    _entries.put(index, _PreviewEntry(page, image, includesImages: includesImages));
     // Write through to disk so the next session opens with this preview
     // already on screen. Fire-and-forget: the encode is a raster-thread
     // readback and a slow/failed store must never stall rendering.
@@ -347,20 +346,18 @@ class PdfPagePreviewCache extends ChangeNotifier {
     var dropped = false;
     for (final index in _entries.keys.toList()) {
       if (changed != null && changed(index)) {
-        _entries.remove(index)!.image.dispose();
+        _entries.evict(index); // disposes the image
         dropped = true;
       } else if (index < pages.length) {
-        _entries[index]!.page = pages[index];
+        _entries.peek(index)!.page = pages[index]; // rebind, no reorder
       }
     }
     for (final index in _fullEntries.keys.toList()) {
       if (changed != null && changed(index)) {
-        final entry = _fullEntries.remove(index)!;
-        _fullRasterPixels -= entry.pixels;
-        entry.image.dispose();
+        _fullEntries.evict(index); // disposes the image, subtracts its pixels
         dropped = true;
       } else if (index < pages.length) {
-        _fullEntries[index]!.page = pages[index];
+        _fullEntries.peek(index)!.page = pages[index]; // rebind, no reorder
       }
     }
     if (dropped && !_disposed) notifyListeners();
@@ -368,30 +365,16 @@ class PdfPagePreviewCache extends ChangeNotifier {
 
   /// Drops every preview (different document, page color change...).
   void clear() {
-    for (final entry in _entries.values) {
-      entry.image.dispose();
-    }
-    _entries.clear();
-    for (final entry in _fullEntries.values) {
-      entry.image.dispose();
-    }
+    _entries.clear(); // disposes every retained image
     _fullEntries.clear();
-    _fullRasterPixels = 0;
     if (!_disposed) notifyListeners();
   }
 
   @override
   void dispose() {
     _disposed = true;
-    for (final entry in _entries.values) {
-      entry.image.dispose();
-    }
-    _entries.clear();
-    for (final entry in _fullEntries.values) {
-      entry.image.dispose();
-    }
+    _entries.clear(); // disposes every retained image
     _fullEntries.clear();
-    _fullRasterPixels = 0;
     super.dispose();
   }
 }

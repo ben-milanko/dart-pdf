@@ -46,8 +46,10 @@ visual galleries, PDF.js pixel compare), invoke the `corpus-tests` skill
 See README.md. The pipeline through the viewer is done: interpreter, font
 engine, Flutter rendering, text selection/search, annotation appearance
 rendering, and encryption both ways (RC4/AES-128/AES-256 decryption;
-encrypt-on-write re-encrypts changed objects on save - `_encryptedCopy`
-in updater.dart; signing encrypted files stays refused). Annotation authoring is in:
+encrypt-on-write re-encrypts changed objects on save -
+`StandardSecurityHandler.encryptObjectGraph` (the graph walk + exempt
+policy live on the handler, shared with the loader's `decryptObjectGraph`);
+signing encrypted files stays refused). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
 them into page content. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
@@ -81,21 +83,29 @@ enumeration with approximate bounds, stream rewriting), and
 strings and consecutive Tj/TJ runs, with width-compensated re-measurement
 from the font's /Widths so following text holds position; composite
 /Type0 runs are handled too for the Identity-H/CIDFontType2/Identity-
-CIDToGIDMap shape - `content_editor_type0.dart`'s `_Type0Editing` reads
-existing text from /ToUnicode, re-encodes replacements through the
-embedded font's own cmap so any glyph the program carries can be typed,
-and merges new glyphs' advances + Unicode into the descendant /W and
-/ToUnicode; when the document font can't draw a character - a subsetted
+CIDToGIDMap shape - the composite font model is `Type0Font`
+(`type0_font.dart`): `Type0Font.decode` (lenient, for extraction) and
+`Type0Font.forEditing` (strict eligibility gate as its construction
+contract) both read text from /ToUnicode + widths from /W in one place;
+editing re-encodes replacements through the embedded font's own cmap so
+any glyph the program carries can be typed, and merges new glyphs'
+advances + Unicode into the descendant /W and /ToUnicode via
+`commitFontDict`. `content_editor_type0.dart`'s `_Type0RunEditor` is the
+thin editor-side wiring (fallback page-resource allocation, updater
+marking). When the document font can't draw a character - a subsetted
 font dropped it - `replaceText(fallbackFonts:)` embeds a style-matched
 bundled fallback as a new page /Font resource and emits that replacement
 between Tf switches (the editor passes the DejaVu trio via
 `loadFallbackFonts()`); within-line only - CFF/non-Identity Type0 still
-out) - all
-in `content_editor.dart`/`content_elements.dart`; shared Type0 metric
-parsing (/ToUnicode + /W) is in `type0_metrics.dart`, and
-`PdfPageElements` decodes Type0 runs through it so `element.text` is real
-Unicode (what the content-edit UI shows and passes as `find`). The
-content-stream tokenizer (`ContentStreamParser`) now lives in pdf_cos.
+out) - all in `content_editor.dart`/`content_elements.dart`. The
+flatten→match→splice→kern→coalesce run-rewrite engine is shared:
+`TextRunRewriter` + `RunCodec` (`content_run_rewriter.dart`, a
+document-free standalone lib so the kern/coalescing math is unit-testable
+against a fake codec), with simple / styled / Type0 / Type0-fallback
+codecs. `PdfPageElements` decodes Type0 runs through `Type0Font` so
+`element.text` is real Unicode (what the content-edit UI shows and passes
+as `find`). The content-stream tokenizer (`ContentStreamParser`) now
+lives in pdf_cos.
 Paragraph-level reflow is in: `PdfEditor.reflowText` (`content_reflow.dart`)
 re-wraps a whole detected paragraph when the replacement changes its line
 count and cascades the following lines through the content stream's own
@@ -110,8 +120,8 @@ page lookup with full-walk fallback, gradient /Extend semantics, JPEG
 (selection, highlights, overlays, and hit-testing are rotation-aware;
 the geometry mirrors the renderer's canvas transform).
 The big-gap batch landed next, all KAT-validated against reference
-codecs: encrypt-on-write (updater `_encryptedCopy`; signing encrypted
-files still refused), trust-store chain validation
+codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`;
+signing encrypted files still refused), trust-store chain validation
 (`verifyCertificateChain` in pdf_cos cms.dart, `PdfTrustStore` +
 `validate(trustStore:)` in pdf_document), mesh shadings 4-7
 (`PdfMeshParser`/`PdfMesh`, device `fillMesh`, drawVertices in
@@ -145,9 +155,13 @@ free text/note/stamp; select + move + resize via
 arrays - appearances regenerate for shapes/free text, stretch per
 §12.5.5 otherwise; see the batch-3 session-1 block), binds undo/redo/delete/escape
 shortcuts, and preserves the viewport across same-geometry document
-swaps. `PdfEditingToolbar` is the stock chrome. The host must rebuild
-the viewer with `editing.document` whenever the controller notifies
-(asserted in debug builds); the example app shows the wiring.
+swaps. `PdfEditingToolbar` is the stock chrome. `PdfViewer(editing:)`
+(and `formController:`) reads the current revision from the controller
+and subscribes to it itself, so the host neither passes `document` nor
+rebuilds the viewer as revisions land - `document` is only the
+no-controller reader path (`_revisionController`/`_document`/
+`_onRevisionControllerChanged` in pdf_viewer.dart). The example app
+shows the wiring.
 On top of that: style controls (controller carries strokeWidth/opacity/
 fontSize; the toolbar's tune button opens a slider popup), an
 annotation sidebar (`PdfAnnotationSidebar` - lists by page, tap selects

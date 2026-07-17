@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/scheduler.dart';
 
+import '../budgeted_cache.dart';
 import '../perf_log.dart';
 import '../raster_cache.dart';
 
@@ -53,9 +54,19 @@ class PdfThumbnailCache {
   /// freshly-rendered ones write through. Null leaves the cache session-only.
   PdfRasterCache? disk;
 
-  // LinkedHashMap insertion order doubles as LRU order: a claim re-inserts,
-  // eviction drops the first key.
-  final Map<String, ui.Image> _images = {};
+  // The shared budgeted LRU: count-bounded, cloning on claim so eviction never
+  // pulls pixels from a painting tile, disposing evicted rasters. Registered
+  // with PdfCacheRegistry (a thumbnail clear notifies no one, so the cache
+  // joins the coordinated pressure path directly) - before this the thumbnail
+  // cache was deaf to pressure.
+  late final PdfBudgetedCache<String, ui.Image> _images =
+      PdfBudgetedCache<String, ui.Image>(
+    maxEntries: capacity,
+    cloner: (image) => image.clone(),
+    disposer: (image) => image.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'thumbnail',
+  );
   bool _disposed = false;
 
   final List<_ThumbTask> _pending = [];
@@ -258,12 +269,7 @@ class PdfThumbnailCache {
 
   /// The raster for [key] as a clone the caller owns (and must dispose), or
   /// null on a miss. Counts as a use for LRU.
-  ui.Image? claim(String key) {
-    final image = _images.remove(key);
-    if (image == null) return null;
-    _images[key] = image; // back to most-recently-used
-    return image.clone();
-  }
+  ui.Image? claim(String key) => _images.take(key);
 
   /// Stores [image] under [key], taking ownership. Evicts the
   /// least-recently-used entries past [capacity].
@@ -272,27 +278,18 @@ class PdfThumbnailCache {
       image.dispose(); // landed after the session went away
       return;
     }
-    _images.remove(key)?.dispose();
-    _images[key] = image;
-    while (_images.length > capacity) {
-      _images.remove(_images.keys.first)!.dispose();
-    }
+    _images.put(key, image);
   }
 
   /// Drops every cached raster (a page-color change invalidates them all).
   /// Pending tasks are left to re-populate it.
-  void clear() {
-    for (final image in _images.values) {
-      image.dispose();
-    }
-    _images.clear();
-  }
+  void clear() => _images.clear();
 
   void dispose() {
     _disposed = true;
     _pending.clear();
     _warmRenderer = null;
-    clear();
+    _images.dispose(); // clears every raster and unregisters from the registry
   }
 }
 

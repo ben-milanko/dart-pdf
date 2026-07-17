@@ -226,6 +226,60 @@ void main() {
     expect(circle, contains('S'));
   });
 
+  test('rounded rectangle curves its corners and records /Border', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+          cornerRadius: 12,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.subtype, 'Square');
+    expect(square.cornerRadius, 12);
+
+    final content = appearanceText(doc, square);
+    // roundedRect draws corners as Bézier curves rather than a single `re`.
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
+
+    // §12.5.4 /Border = [hCornerRadius vCornerRadius width].
+    final border = doc.cos.resolve(square.dict['Border']) as CosArray;
+    expect(border.length, 3);
+    expect((doc.cos.resolve(border[0]) as CosReal).value, 12);
+    expect((doc.cos.resolve(border[1]) as CosReal).value, 12);
+  });
+
+  test('a plain rectangle keeps square corners and no /Border radius', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.cornerRadius, 0);
+    expect(appearanceText(doc, square), contains(' re'));
+  });
+
+  test('resizing a rounded rectangle keeps its corner radius', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addSquare(
+      0,
+      const PdfRect(100, 100, 300, 200),
+      strokeWidth: 2,
+      cornerRadius: 12,
+    );
+    final doc = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(doc);
+    final square = doc.page(0).annotations.single;
+    editor2.resizeAnnotation(0, square, const PdfRect(100, 100, 500, 400));
+    final resized = PdfDocument.open(editor2.save());
+    final annot = resized.page(0).annotations.single;
+    expect(annot.cornerRadius, 12);
+    final content = appearanceText(resized, annot);
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
+  });
+
   test('free text wraps to the rect and records /DA', () {
     final doc = roundTrip((e) => e.addFreeText(
           0,
@@ -1132,6 +1186,7 @@ void main() {
         _ => throw StateError('not a number: $r'),
       };
     }
+
     final bx0 = num(bbox[0]);
     final by0 = num(bbox[1]);
     final bx1 = num(bbox[2]);
@@ -1182,6 +1237,76 @@ void main() {
     // and the puffs really do bulge out past the polygon vertices
     expect(maxY, greaterThan(640));
     expect(minY, lessThan(500));
+  });
+
+  test('a cloud scale rides on /BE /I and bulges bigger scallops', () {
+    // The scallop size is driven by cloudScale, independent of the pen.
+    Iterable<double> puffExtent(double scale) {
+      final doc = roundTrip((e) {
+        e.addPolygon(
+          0,
+          [(120, 500), (420, 500), (420, 640), (120, 640)],
+          strokeWidth: 2,
+          cloudy: true,
+          cloudScale: scale,
+        );
+      });
+      final annotation = doc.page(0).annotations.single;
+      expect(annotation.cloudBorderScale, closeTo(scale, 1e-9));
+      final be = doc.cos.resolve(annotation.dict['BE']) as CosDictionary;
+      expect((doc.cos.resolve(be['I']) as CosReal).value, closeTo(scale, 1e-9));
+      // how far the /Rect balloons past the polygon footprint - a proxy for
+      // the scallop bulge
+      return [
+        120 - annotation.rect.left,
+        annotation.rect.right - 420,
+        annotation.rect.top - 640,
+      ];
+    }
+
+    final small = puffExtent(1).toList();
+    final big = puffExtent(2.5).toList();
+    for (var i = 0; i < small.length; i++) {
+      expect(big[i], greaterThan(small[i]));
+    }
+  });
+
+  test('restyling a cloud preserves its scale across a colour change', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+        cloudScale: 2.5,
+      );
+    });
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, color: 0x123456);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.hasCloudyBorder, isTrue);
+    expect(annotation.cloudBorderScale, closeTo(2.5, 1e-9));
+    // and the puffs are still the wider ones the scale asked for
+    expect(annotation.rect.top - 640, greaterThan(20));
+  });
+
+  test('restyleAnnotation cloudScale resizes the scallops', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+      );
+    });
+    final before = doc.page(0).annotations.single.rect.top - 640;
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, cloudScale: 3);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.cloudBorderScale, closeTo(3, 1e-9));
+    expect(annotation.rect.top - 640, greaterThan(before));
   });
 
   test('resizing a dashed arrow regenerates with scaled endpoints', () {
@@ -1462,8 +1587,8 @@ void main() {
     final editor = PdfEditor(doc)
       ..resizeAnnotation(0, box, const PdfRect(100, 600, 500, 640));
     final reopened = PdfDocument.open(editor.save());
-    expect(reopened.page(0).annotations.single.freeTextStyle!.underline,
-        isTrue);
+    expect(
+        reopened.page(0).annotations.single.freeTextStyle!.underline, isTrue);
   });
 
   test('rich free text carries per-run underline through /RC', () {

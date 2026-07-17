@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.7
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.7. No fixture
+  changes since 1.4.6.
+
 ## 1.4.6
 
 - Add a positioned-tashkil Arabic fixture that mirrors Skia's output shape

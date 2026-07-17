@@ -14,8 +14,8 @@ void main() {
   group('controller line endings', () {
     test('new lines and polylines use the persisted endings', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStartEnding = PdfLineEnding.circle
-        ..lineEndEnding = PdfLineEnding.closedArrow;
+        ..preferences.lineStartEnding = PdfLineEnding.circle
+        ..preferences.lineEndEnding = PdfLineEnding.closedArrow;
       addTearDown(editing.dispose);
 
       editing.addLine(0, (100, 100), (220, 160));
@@ -31,8 +31,8 @@ void main() {
 
     test('the arrow tool still forces a closed arrow at the end', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStartEnding = PdfLineEnding.diamond
-        ..lineEndEnding = PdfLineEnding.none;
+        ..preferences.lineStartEnding = PdfLineEnding.diamond
+        ..preferences.lineEndEnding = PdfLineEnding.none;
       addTearDown(editing.dispose);
 
       editing.addLine(0, (100, 100), (220, 160), arrow: true);
@@ -127,7 +127,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Closed arrow').last);
       await tester.pumpAndSettle();
-      expect(editing.lineEndEnding, PdfLineEnding.closedArrow);
+      expect(editing.preferences.lineEndEnding, PdfLineEnding.closedArrow);
     });
 
     testWidgets('the picker restyles a selected line in place', (tester) async {

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -365,10 +366,10 @@ class _StampDateTimeFormatControls extends StatelessWidget {
       children: [
         KeyedSubtree(
           key: ValueKey(
-              'pdf-stamp-date-format-field-${controller.stampDateFormat.name}'),
+              'pdf-stamp-date-format-field-${controller.preferences.stampDateFormat.name}'),
           child: DropdownButtonFormField<PdfStampDateFormat>(
             key: const ValueKey('pdf-stamp-date-format'),
-            initialValue: controller.stampDateFormat,
+            initialValue: controller.preferences.stampDateFormat,
             decoration: const InputDecoration(labelText: 'Date format'),
             items: [
               for (final format in PdfStampDateFormat.values)
@@ -379,17 +380,17 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 ),
             ],
             onChanged: (value) {
-              if (value != null) controller.stampDateFormat = value;
+              if (value != null) controller.preferences.stampDateFormat = value;
             },
           ),
         ),
         const SizedBox(height: 8),
         KeyedSubtree(
           key: ValueKey(
-              'pdf-stamp-time-format-field-${controller.stampTimeFormat.name}'),
+              'pdf-stamp-time-format-field-${controller.preferences.stampTimeFormat.name}'),
           child: DropdownButtonFormField<PdfStampTimeFormat>(
             key: const ValueKey('pdf-stamp-time-format'),
-            initialValue: controller.stampTimeFormat,
+            initialValue: controller.preferences.stampTimeFormat,
             decoration: const InputDecoration(labelText: 'Time format'),
             items: [
               for (final format in PdfStampTimeFormat.values)
@@ -400,7 +401,7 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 ),
             ],
             onChanged: (value) {
-              if (value != null) controller.stampTimeFormat = value;
+              if (value != null) controller.preferences.stampTimeFormat = value;
             },
           ),
         ),
@@ -614,20 +615,38 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
     _replaceSelected(component.copyWith(x: x, y: y));
   }
 
-  void _resizeSelected(Offset delta) {
+  void _resizeSelected(_StampHandle handle, Offset delta) {
     final component = _selectedComponent;
     if (component == null) return;
     final minWidth =
         component.type == PdfStampTemplateComponentType.text ? 28.0 : 16.0;
     final minHeight =
         component.type == PdfStampTemplateComponentType.text ? 14.0 : 16.0;
-    final width = (component.width + delta.dx)
-        .clamp(minWidth, _templateWidth - component.x)
-        .toDouble();
-    final height = (component.height + delta.dy)
-        .clamp(minHeight, _templateHeight - component.y)
-        .toDouble();
-    _replaceSelected(component.copyWith(width: width, height: height));
+    var left = component.x;
+    var top = component.y;
+    var right = component.x + component.width;
+    var bottom = component.y + component.height;
+    // Each handle moves only the edge(s) it owns; the opposite edge stays put,
+    // clamped so the box keeps a minimum size and never leaves the template.
+    if (handle.dx < 0) {
+      left = (left + delta.dx).clamp(0.0, right - minWidth).toDouble();
+    } else if (handle.dx > 0) {
+      right =
+          (right + delta.dx).clamp(left + minWidth, _templateWidth).toDouble();
+    }
+    if (handle.dy < 0) {
+      top = (top + delta.dy).clamp(0.0, bottom - minHeight).toDouble();
+    } else if (handle.dy > 0) {
+      bottom = (bottom + delta.dy)
+          .clamp(top + minHeight, _templateHeight)
+          .toDouble();
+    }
+    _replaceSelected(component.copyWith(
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    ));
   }
 
   void _setSelectedFont(PdfStandardFont font) {
@@ -1059,18 +1078,51 @@ class _StampTemplateCanvas extends StatefulWidget {
   final int? selectedIndex;
   final ValueChanged<int?> onSelect;
   final ValueChanged<Offset> onMoveSelected;
-  final ValueChanged<Offset> onResizeSelected;
+  final void Function(_StampHandle handle, Offset delta) onResizeSelected;
 
   @override
   State<_StampTemplateCanvas> createState() => _StampTemplateCanvasState();
 }
 
-enum _StampDragMode { move, resize }
+/// Which sides of the selection a resize handle moves: -1 the left/top edge,
+/// +1 the right/bottom edge, 0 leaves that axis anchored. (Template space, y
+/// down.) Mirrors the on-page editing overlay's `_Handle` convention.
+typedef _StampHandle = ({int dx, int dy});
+
+/// The eight resize handles (four corners + four edge midpoints) that ring a
+/// selected component, in the same order as the on-page overlay.
+const List<_StampHandle> _stampHandles = [
+  (dx: -1, dy: -1),
+  (dx: 0, dy: -1),
+  (dx: 1, dy: -1),
+  (dx: -1, dy: 0),
+  (dx: 1, dy: 0),
+  (dx: -1, dy: 1),
+  (dx: 0, dy: 1),
+  (dx: 1, dy: 1),
+];
+
+/// Side length of a handle square as drawn on the component, in logical pixels.
+const double _stampHandleSize = 9;
+
+/// How close (logical pixels) a press must land to a handle to grab it. Matches
+/// the overlay's forgiving target so scaling isn't finicky on touch.
+const double _stampHandleHitRadius = 14;
+
+/// The center of [handle] on [rect], in template space.
+Offset _stampHandleCenter(Rect rect, _StampHandle handle) => Offset(
+      rect.center.dx + handle.dx * rect.width / 2,
+      rect.center.dy + handle.dy * rect.height / 2,
+    );
+
+enum _StampDragKind { move, resize }
 
 class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
-  _StampDragMode? _dragMode;
+  _StampDragKind? _dragKind;
+  _StampHandle? _dragHandle;
   Offset? _lastTemplatePoint;
-  _StampDragMode? _pendingMode;
+  _StampDragKind? _pendingKind;
+  _StampHandle? _pendingHandle;
   Offset _pendingDelta = Offset.zero;
   bool _pendingFrame = false;
 
@@ -1084,19 +1136,27 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
   Rect _componentRect(PdfStampTemplateComponent c) =>
       Rect.fromLTWH(c.x, c.y, c.width, c.height);
 
-  Rect _handleRect(PdfStampTemplateComponent c, double scale) {
-    final size = 12 / scale;
-    return Rect.fromCenter(
-      center: _componentRect(c).bottomRight,
-      width: size,
-      height: size,
-    );
+  /// The resize handle whose forgiving hit target [local] (in logical pixels)
+  /// falls within, or null. Handles ride the selected component only, and the
+  /// test runs in logical pixels so the target stays the same size at any
+  /// template zoom.
+  _StampHandle? _handleAt(Offset local, Size size) {
+    final selected = widget.selectedIndex;
+    if (selected == null || selected >= widget.components.length) return null;
+    final scale = _scale(size);
+    final rect = _componentRect(widget.components[selected]);
+    for (final handle in _stampHandles) {
+      final center = _stampHandleCenter(rect, handle) * scale;
+      if ((local - center).distance <= _stampHandleHitRadius) return handle;
+    }
+    return null;
   }
 
-  int? _hitComponent(Offset templatePoint) {
+  int? _hitComponent(Offset templatePoint, double scale) {
+    final pad = 6 / scale;
     for (var i = widget.components.length - 1; i >= 0; i--) {
       if (_componentRect(widget.components[i])
-          .inflate(4)
+          .inflate(pad)
           .contains(templatePoint)) {
         return i;
       }
@@ -1104,34 +1164,38 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
     return null;
   }
 
-  void _start(Offset localPosition, Size size) {
-    final point = _toTemplate(localPosition, size);
-    _lastTemplatePoint = point;
-    final selected = widget.selectedIndex;
-    if (selected != null) {
-      final selectedComponent = widget.components[selected];
-      if (_handleRect(selectedComponent, _scale(size)).contains(point)) {
-        _dragMode = _StampDragMode.resize;
-        return;
-      }
+  void _panStart(DragStartDetails details, Size size) {
+    final local = details.localPosition;
+    _lastTemplatePoint = _toTemplate(local, size);
+    final handle = _handleAt(local, size);
+    if (handle != null) {
+      _dragKind = _StampDragKind.resize;
+      _dragHandle = handle;
+      return;
     }
-    final hit = _hitComponent(point);
+    final hit = _hitComponent(_lastTemplatePoint!, _scale(size));
     widget.onSelect(hit);
-    _dragMode = hit == null ? null : _StampDragMode.move;
+    _dragKind = hit == null ? null : _StampDragKind.move;
+    _dragHandle = null;
   }
 
-  void _update(Offset localPosition, Size size) {
-    final point = _toTemplate(localPosition, size);
+  void _panUpdate(DragUpdateDetails details, Size size) {
+    final point = _toTemplate(details.localPosition, size);
     final last = _lastTemplatePoint;
     _lastTemplatePoint = point;
     if (last == null) return;
-    final delta = point - last;
-    _queueDelta(delta);
+    _queueDelta(point - last);
+  }
+
+  void _tapUp(TapUpDetails details, Size size) {
+    widget.onSelect(_hitComponent(_toTemplate(details.localPosition, size),
+        _scale(size)));
   }
 
   void _queueDelta(Offset delta) {
-    if (_dragMode == null || delta == Offset.zero) return;
-    _pendingMode ??= _dragMode;
+    if (_dragKind == null || delta == Offset.zero) return;
+    _pendingKind ??= _dragKind;
+    _pendingHandle ??= _dragHandle;
     _pendingDelta += delta;
     if (_pendingFrame) return;
     _pendingFrame = true;
@@ -1143,22 +1207,25 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
   }
 
   void _flushPendingDelta() {
-    final mode = _pendingMode;
+    final kind = _pendingKind;
+    final handle = _pendingHandle;
     final delta = _pendingDelta;
-    _pendingMode = null;
+    _pendingKind = null;
+    _pendingHandle = null;
     _pendingDelta = Offset.zero;
-    if (!mounted || mode == null || delta == Offset.zero) return;
-    switch (mode) {
-      case _StampDragMode.move:
+    if (!mounted || kind == null || delta == Offset.zero) return;
+    switch (kind) {
+      case _StampDragKind.move:
         widget.onMoveSelected(delta);
-      case _StampDragMode.resize:
-        widget.onResizeSelected(delta);
+      case _StampDragKind.resize:
+        widget.onResizeSelected(handle ?? const (dx: 1, dy: 1), delta);
     }
   }
 
-  void _end() {
+  void _panEnd() {
     _flushPendingDelta();
-    _dragMode = null;
+    _dragKind = null;
+    _dragHandle = null;
     _lastTemplatePoint = null;
   }
 
@@ -1177,12 +1244,18 @@ class _StampTemplateCanvasState extends State<_StampTemplateCanvas> {
       child: SizedBox(
         width: size.width,
         height: size.height,
-        child: Listener(
+        child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPointerDown: (event) => _start(event.localPosition, size),
-          onPointerMove: (event) => _update(event.localPosition, size),
-          onPointerUp: (_) => _end(),
-          onPointerCancel: (_) => _end(),
+          // Anchor the drag at the press point (like the on-page editing
+          // overlay) so a handle grab and a move both start where the finger
+          // actually landed, not where the recognizer won the gesture arena.
+          // Using the recognizer also gives touch slop, so a tap-to-select no
+          // longer jitters the component.
+          dragStartBehavior: DragStartBehavior.down,
+          onTapUp: (details) => _tapUp(details, size),
+          onPanStart: (details) => _panStart(details, size),
+          onPanUpdate: (details) => _panUpdate(details, size),
+          onPanEnd: (_) => _panEnd(),
           child: _StampTemplateSurface(
             templateSize: widget.templateSize,
             components: widget.components,
@@ -1332,13 +1405,17 @@ class _StampTemplatePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 / scale;
       canvas.drawRect(rect.inflate(2 / scale), stroke);
-      final handle = Rect.fromCenter(
-        center: rect.bottomRight,
-        width: 10 / scale,
-        height: 10 / scale,
-      );
-      canvas.drawRect(handle, Paint()..color = scheme.surface);
-      canvas.drawRect(handle, stroke);
+      final handleSize = _stampHandleSize / scale;
+      final fill = Paint()..color = scheme.surface;
+      for (final handle in _stampHandles) {
+        final box = Rect.fromCenter(
+          center: _stampHandleCenter(rect, handle),
+          width: handleSize,
+          height: handleSize,
+        );
+        canvas.drawRect(box, fill);
+        canvas.drawRect(box, stroke);
+      }
     }
     canvas.restore();
   }

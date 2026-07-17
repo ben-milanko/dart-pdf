@@ -97,7 +97,7 @@ validate_package_list() {
 # 0 if $version is already published for $package on pub.dev, 1 otherwise.
 pub_has_version() {
   local package="$1" version="$2"
-  curl -fsSL "https://pub.dev/api/packages/${package}" 2>/dev/null \
+  curl -fsSL --max-time 30 "https://pub.dev/api/packages/${package}" 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if '$version' in [v['version'] for v in d.get('versions',[])] else 1)" \
     2>/dev/null
 }

@@ -190,4 +190,48 @@ void main() {
     expect(optimized!.retainedCommandWeight,
         lessThan(baseline.retainedCommandWeight));
   });
+
+  test('evictPages drops the named pages and keeps the rest warm', () async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final cache = PdfWorkerTranscriptCache(capacity: 4);
+    await cache.transcriptFor(document, 0, true, PdfCancellationToken());
+    await cache.transcriptFor(document, 1, true, PdfCancellationToken());
+    expect(cache.length, 2);
+
+    // Edit page 0: its transcript is stale, page 1's stays warm.
+    cache.evictPages({0});
+    expect(cache.length, 1);
+
+    final keptTimings = PdfWorkerPhaseTimings();
+    await cache.transcriptFor(
+      document,
+      1,
+      true,
+      PdfCancellationToken(),
+      timings: keptTimings,
+    );
+    expect(keptTimings.transcriptHit, isTrue,
+        reason: 'the unedited page survived');
+
+    final droppedTimings = PdfWorkerPhaseTimings();
+    await cache.transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+      timings: droppedTimings,
+    );
+    expect(droppedTimings.transcriptHit, isFalse,
+        reason: 'the edited page was dropped');
+  });
+
+  test('evictPages(null) clears every transcript', () async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final cache = PdfWorkerTranscriptCache(capacity: 4);
+    await cache.transcriptFor(document, 0, true, PdfCancellationToken());
+    await cache.transcriptFor(document, 1, true, PdfCancellationToken());
+    expect(cache.length, 2);
+    cache.evictPages(null);
+    expect(cache.length, 0);
+  });
 }

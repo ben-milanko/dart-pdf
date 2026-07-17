@@ -162,6 +162,13 @@ void main() {
     expect(device.fills[1].$2, const PdfColor.gray(0.5));
   });
 
+  test('scn with the wrong operand count falls back to a device reading', () {
+    // /DeviceRGB has 3 channels; a single scn operand does not match, so the
+    // interpreter reads it leniently as a 1-component (gray) device colour.
+    final device = interpret('/DeviceRGB cs 0.5 scn 0 0 1 1 re f');
+    expect(device.fills.single.$2, const PdfColor.gray(0.5));
+  });
+
   test('pure process cyan converts through the SWOP polynomial', () {
     final device = interpret('1 0 0 0 k 0 0 1 1 re f');
     final color = device.fills.single.$2;

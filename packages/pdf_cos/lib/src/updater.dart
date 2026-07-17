@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
-import 'crypto/standard_security_handler.dart';
 import 'document.dart';
 import 'objects.dart';
 import 'serializer.dart';
 import 'xref.dart';
+import 'xref_writer.dart';
 
 /// Writes changes to a document as an incremental update: the original bytes
 /// are preserved verbatim and changed objects plus a new cross-reference
@@ -85,7 +85,13 @@ class CosIncrementalUpdater {
       offsets[number] = out.length - shift;
       var object = _changed[number]!;
       if (handler != null && number != document.encryptObjectNumber) {
-        object = _encryptedCopy(object, number, _generationOf(number), handler);
+        object = handler.encryptObjectGraph(
+          object,
+          number,
+          _generationOf(number),
+          resolve: document.resolve,
+          keepsFileCiphertext: (stream) => stream.sourceRef != null,
+        );
       }
       serializer.writeIndirectObject(
           CosIndirectObject(number, _generationOf(number), object));
@@ -94,54 +100,16 @@ class CosIncrementalUpdater {
     // a file whose newest xref is a stream must be updated with a stream;
     // a classic-table file is updated with a classic table (§7.5.8.4)
     final xrefOffset = out.length - shift;
+    final tail = CosXrefTableWriter(out);
     if (document.trailer.typeName == 'XRef') {
       _writeXrefStream(serializer, offsets, xrefOffset);
     } else {
-      _writeXrefTable(out, offsets);
+      tail
+        ..writeTable(offsets, _generationOf)
+        ..writeTrailer(_buildTrailer());
     }
-    _writeText(out, 'startxref\n$xrefOffset\n%%EOF\n');
+    tail.writeEpilogue(xrefOffset);
     return out.takeBytes();
-  }
-
-  /// Deep-copies [object] with strings and stream payloads encrypted under
-  /// the (number, generation) object key. The live object stays plaintext
-  /// so later edits in the same session keep working. Cross-reference
-  /// streams and exempt /Metadata stay plain (§7.5.8.2); payloads still
-  /// holding the file's ciphertext pass through untouched.
-  CosObject _encryptedCopy(CosObject object, int number, int generation,
-      StandardSecurityHandler handler) {
-    CosObject copy(CosObject value) {
-      switch (value) {
-        case CosString():
-          return CosString(
-              handler.encryptString(value.bytes, number, generation),
-              isHex: value.isHex);
-        case CosArray():
-          return CosArray([for (final item in value.items) copy(item)]);
-        case CosStream():
-          final dict = copy(value.dictionary) as CosDictionary;
-          if (document.streamKeepsFileBytes(value)) {
-            return CosStream(dict, value.rawBytes);
-          }
-          final type = dict['Type'];
-          final exempt = type is CosName &&
-              (type.value == 'XRef' ||
-                  type.value == 'Metadata' && !handler.encryptMetadata);
-          if (exempt) return CosStream(dict, value.rawBytes);
-          final cipher =
-              handler.encryptStream(value.rawBytes, number, generation);
-          dict['Length'] = CosInteger(cipher.length);
-          return CosStream(dict, cipher);
-        case CosDictionary():
-          final out = CosDictionary();
-          value.entries.forEach((key, v) => out[key] = copy(v));
-          return out;
-        default:
-          return value;
-      }
-    }
-
-    return copy(object);
   }
 
   int _generationOf(int objectNumber) {
@@ -163,34 +131,6 @@ class CosIncrementalUpdater {
     return trailer;
   }
 
-  /// Groups sorted object numbers into runs of consecutive numbers.
-  static List<List<int>> _runsOf(List<int> sorted) {
-    final runs = <List<int>>[];
-    for (final number in sorted) {
-      if (runs.isEmpty || runs.last.last != number - 1) {
-        runs.add([number]);
-      } else {
-        runs.last.add(number);
-      }
-    }
-    return runs;
-  }
-
-  void _writeXrefTable(BytesBuilder out, Map<int, int> offsets) {
-    _writeText(out, 'xref\n');
-    for (final run in _runsOf(offsets.keys.toList()..sort())) {
-      _writeText(out, '${run.first} ${run.length}\n');
-      for (final number in run) {
-        final offset = offsets[number]!.toString().padLeft(10, '0');
-        final generation = _generationOf(number).toString().padLeft(5, '0');
-        _writeText(out, '$offset $generation n \n');
-      }
-    }
-    _writeText(out, 'trailer\n');
-    CosSerializer(out).writeObject(_buildTrailer());
-    _writeText(out, '\n');
-  }
-
   void _writeXrefStream(
       CosSerializer serializer, Map<int, int> offsets, int xrefOffset) {
     // the cross-reference stream is itself an object and lists itself
@@ -198,7 +138,7 @@ class CosIncrementalUpdater {
     offsets[streamNumber] = xrefOffset;
 
     final sorted = offsets.keys.toList()..sort();
-    final runs = _runsOf(sorted);
+    final runs = CosXrefTableWriter.runsOf(sorted);
     final data = BytesBuilder();
     for (final number in sorted) {
       final offset = offsets[number]!;
@@ -228,7 +168,4 @@ class CosIncrementalUpdater {
     serializer.writeIndirectObject(
         CosIndirectObject(streamNumber, 0, CosStream(dict, payload)));
   }
-
-  static void _writeText(BytesBuilder out, String text) =>
-      out.add(text.codeUnits);
 }

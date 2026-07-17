@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 
-import 'calibrated_color.dart';
 import 'color.dart';
+import 'color_space.dart';
 import 'function.dart';
 import 'matrix.dart';
 import 'mesh.dart';
@@ -101,12 +101,13 @@ class PdfShading {
     final coords = _numbers(cos, dict['Coords']);
     final domain = _numbers(cos, dict['Domain']);
     final extend = cos.resolve(dict['Extend']);
+    final colorSpace = PdfColorSpace.parse(cos, dict['ColorSpace']);
     return PdfShading._(
       shadingType: type is CosInteger ? type.value : 0,
       coords: coords,
       function: PdfFunction.parse(cos, dict['Function']),
-      components: _componentCount(cos, dict['ColorSpace']),
-      toColor: _colorConverterFor(cos, dict['ColorSpace']),
+      components: colorSpace.channels,
+      toColor: colorSpace.toSrgb,
       domain: domain.length >= 2 ? domain : const [0, 1],
       extendStart: extend is CosArray &&
           extend.length > 0 &&
@@ -150,6 +151,7 @@ class PdfShading {
       components: components,
       verticesPerRow: intOf('VerticesPerRow', 0),
       function: function,
+      toColor: toColor,
       transform: transform,
     ).parse();
   }
@@ -249,81 +251,5 @@ class PdfShading {
           _ => 0.0,
         },
     ];
-  }
-
-  /// Builds a converter from the shading's colour space to sRGB. Device
-  /// spaces map their components directly; Separation/DeviceN run the tint
-  /// transform into the alternate space (§8.6.6.4); ICCBased/CalRGB/
-  /// CalGray/Lab apply the calibrated conversion. Falls back to a plain
-  /// component conversion for anything unrecognised.
-  static PdfColor Function(List<double>) _colorConverterFor(
-      CosDocument cos, CosObject? space) {
-    final resolved = cos.resolve(space);
-    if (resolved is CosArray && resolved.length > 0) {
-      final family = cos.resolve(resolved[0]);
-      if (family is CosName) {
-        switch (family.value) {
-          case 'Separation':
-          case 'DeviceN':
-            // [/Separation name alt tint] or [/DeviceN names alt tint attrs]
-            if (resolved.length >= 4) {
-              final tint = PdfFunction.parse(cos, resolved[3]);
-              if (tint != null) {
-                final alternate = _colorConverterFor(cos, resolved[2]);
-                return (values) => alternate(tint.evaluateAt(values));
-              }
-            }
-          case 'ICCBased':
-          case 'CalRGB':
-          case 'CalGray':
-          case 'Lab':
-            final calibrated = PdfCalibratedColorSpace.parse(cos, resolved);
-            if (calibrated != null) return calibrated.toSrgb;
-        }
-      }
-    }
-    final n = _componentCount(cos, space);
-    return (values) => colorFromComponents(values, n);
-  }
-
-  /// Component count of a color-space object (name or array form).
-  static int _componentCount(CosDocument cos, CosObject? space) {
-    final resolved = cos.resolve(space);
-    if (resolved is CosName) {
-      return switch (resolved.value) {
-        'DeviceGray' || 'CalGray' || 'G' => 1,
-        'DeviceCMYK' || 'CMYK' => 4,
-        _ => 3,
-      };
-    }
-    if (resolved is CosArray && resolved.length > 0) {
-      final family = cos.resolve(resolved[0]);
-      if (family is CosName) {
-        switch (family.value) {
-          case 'ICCBased':
-            if (resolved.length > 1) {
-              final profile = cos.resolve(resolved[1]);
-              if (profile is CosStream) {
-                final n = cos.resolve(profile.dictionary['N']);
-                if (n is CosInteger) return n.value;
-              }
-            }
-            return 3;
-          case 'Indexed':
-          case 'Separation':
-            return 1;
-          case 'CalRGB':
-          case 'Lab':
-            return 3;
-          case 'DeviceN':
-            if (resolved.length > 1) {
-              final names = cos.resolve(resolved[1]);
-              if (names is CosArray) return names.length;
-            }
-            return 1;
-        }
-      }
-    }
-    return 3;
   }
 }

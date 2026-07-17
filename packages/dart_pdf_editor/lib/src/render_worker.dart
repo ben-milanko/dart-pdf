@@ -5,6 +5,8 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
+import 'budgeted_cache.dart';
+import 'render_trace.dart';
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
     if (dart.library.js_interop) 'render_worker_web.dart';
@@ -331,9 +333,54 @@ abstract class PdfRenderWorker {
   /// passes bins straight through).
   void cancelBinStrips(int pageIndex, {int priority = 0}) {}
 
+  /// Whether this backend can absorb an [updateRevision] in place instead of
+  /// being torn down and restarted on every edit. The native isolate backend
+  /// (and the wrappers around it) do; the null fallback and the web backend do
+  /// not yet, so their host restarts the worker on a revision change as before.
+  bool get supportsRevisionUpdate => false;
+
+  /// Feeds one append-only editor revision into the worker's already-open
+  /// document instead of disposing and restarting it, then invalidates the
+  /// worker's cached renders for the [changedPages] only.
+  ///
+  /// Revisions are byte prefixes of one growing buffer, so a page the edit did
+  /// not touch is byte-identical across the boundary: keeping the worker (and
+  /// its decoded-image, transcript, and record caches) alive turns "every
+  /// visible page re-warms from cold on every pen stroke" into "only the edited
+  /// page re-renders".
+  ///
+  /// The worker holds the bytes of the revision it currently reflects. To reach
+  /// the new revision it keeps that buffer's first [baseLength] bytes (the
+  /// shared prefix) and appends [appendedBytes], giving a buffer [newLength]
+  /// bytes long ([newLength] == [baseLength] + `appendedBytes.length`). A pure
+  /// undo therefore passes empty [appendedBytes] with [baseLength] ==
+  /// [newLength] (the worker just re-reads a shorter prefix it already holds).
+  ///
+  /// [changedPages] are the pages whose rendering the transition changed; null
+  /// means every page may have changed (the worker clears its per-page caches).
+  ///
+  /// The base implementation is a no-op (see [supportsRevisionUpdate]).
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {}
+
   /// Whether this worker actually offloads. False for the null fallback, so
   /// callers can skip the round-trip and render locally without asking.
   bool get isActive;
+
+  /// The unified [PdfRenderTrace] for the most recently completed job, or null
+  /// when no job has finished or this backend does not collect timings.
+  ///
+  /// This is the "one call on the worker" that surfaces the end-to-end per-phase
+  /// breakdown - the worker's half (parse/interpret/serialize/decode/bin) plus
+  /// the main-isolate transfer and deserialize this backend completed. Only the
+  /// web backend populates it, and only while [PdfPerfLog] is enabled, so it
+  /// stays free in ordinary rendering. Prefer [PdfRenderTrace.captureOffThread]
+  /// for a deterministic, backend-independent measurement.
+  PdfRenderTrace? get lastRenderTrace => null;
 
   /// Tears the worker down (kills the isolate, fails pending requests with
   /// null). Idempotent.
@@ -354,12 +401,17 @@ abstract class PdfRenderWorker {
 /// the same pair reuse its worker; [cancel] routes through that lease table so
 /// it still reaches the worker holding the queued request.
 ///
-/// Each worker opens its own copy of the document. The bytes are copied per
-/// worker ([Uint8List.fromList]) because a platform worker may transfer (and so
-/// detach) the buffer it is handed - sharing one buffer would leave later
-/// workers with an empty document. The cost is N copies of the bytes plus N
-/// decode working sets; size the pool to the platform via
-/// [pdfRenderWorkerPoolSize].
+/// Each worker opens its own copy of the document, but the pool does NOT hand
+/// each one a private snapshot: it makes ONE read-only copy of the source bytes
+/// and seeds every worker (and the lazy urgent one-off lane) from that single
+/// instance. Both platform backends copy the buffer internally before handing
+/// it to their isolate/worker - native `TransferableTypedData.fromList` copies into
+/// external memory, web copies into a `SharedArrayBuffer` or a transferred
+/// `ArrayBuffer` - and neither detaches the view it was given, so one shared
+/// snapshot is safe. That drops the pool's own source-byte footprint from N+1
+/// copies (a private per-worker copy plus the urgent copy) to exactly one; each
+/// worker's materialized copy inside its own isolate is unavoidable and
+/// unchanged. Size the pool to the platform via [pdfRenderWorkerPoolSize].
 ///
 /// Normally wrapped in a [PdfCachingRenderWorker] (see [PdfRenderWorker.start]),
 /// which dedups concurrent requests for one page - so the cache, not the pool,
@@ -370,13 +422,41 @@ abstract class PdfRenderWorker {
 /// jump should not wait behind several already-started background records that
 /// cannot receive cancellation until their synchronous parse step yields.
 class PdfPooledRenderWorker extends PdfRenderWorker {
-  /// Starts [size] platform workers over copies of [bytes]. [size] is clamped to
-  /// at least 1; a pool of 1 is just a single worker with this routing wrapper.
-  PdfPooledRenderWorker(Uint8List bytes, int size)
-      : _urgentBytes = Uint8List.fromList(bytes),
+  /// Starts [size] platform workers, all seeded from ONE read-only snapshot of
+  /// [bytes] (see the class doc - the backends copy internally, so the pool
+  /// keeps just this single source-byte copy instead of one per worker). [size]
+  /// is clamped to at least 1; a pool of 1 is just a single worker with this
+  /// routing wrapper.
+  factory PdfPooledRenderWorker(Uint8List bytes, int size) =>
+      PdfPooledRenderWorker._shared(
+        Uint8List.fromList(bytes),
+        size,
+        startRenderWorker,
+      );
+
+  /// Test seam: a pool that spawns its workers through [spawn] instead of the
+  /// platform [startRenderWorker], so the byte-sharing contract - every worker
+  /// (and the urgent lane) seeded from the SAME snapshot instance, no private
+  /// per-worker copy - can be asserted with fakes that capture the bytes they
+  /// are handed.
+  factory PdfPooledRenderWorker.withSpawner(
+    Uint8List bytes,
+    int size,
+    PdfRenderWorker Function(Uint8List) spawn,
+  ) =>
+      PdfPooledRenderWorker._shared(Uint8List.fromList(bytes), size, spawn);
+
+  /// Seeds every worker and the urgent lane from the already-owned [shared]
+  /// snapshot (the factories above copy the caller's bytes once into it).
+  PdfPooledRenderWorker._shared(
+    Uint8List shared,
+    int size,
+    PdfRenderWorker Function(Uint8List) spawn,
+  )   : _spawnWorker = spawn,
+        _urgentBytes = shared,
         _workers = List.generate(
           size < 1 ? 1 : size,
-          (_) => startRenderWorker(Uint8List.fromList(bytes)),
+          (_) => spawn(shared),
           growable: false,
         ) {
     _loads = List.filled(_workers.length, 0);
@@ -386,6 +466,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   /// teardown can be exercised with fakes instead of real platform workers.
   PdfPooledRenderWorker.fromWorkers(List<PdfRenderWorker> workers)
       : assert(workers.isNotEmpty),
+        _spawnWorker = startRenderWorker,
         _urgentBytes = null,
         _workers = List.of(workers, growable: false) {
     _loads = List.filled(_workers.length, 0);
@@ -393,7 +474,16 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   static const int _urgentPriority = -2000;
 
-  final Uint8List? _urgentBytes;
+  // Spawns one platform worker over a byte view. The real [startRenderWorker]
+  // in production; a fake in [PdfPooledRenderWorker.withSpawner] tests. Used for
+  // the lazy urgent lane too, so it also shares the pool's one snapshot.
+  final PdfRenderWorker Function(Uint8List) _spawnWorker;
+
+  // The bytes a lazily-created one-off urgent worker opens - the same snapshot
+  // instance the pool workers were seeded from. Kept at the current revision by
+  // [updateRevision] so a long-jump preview after an edit opens the edited
+  // document, not the stale spawn snapshot. Null in the test seam.
+  Uint8List? _urgentBytes;
   final List<PdfRenderWorker> _workers;
   late final List<int> _loads;
   final _routes = <(int, int), _PoolRoute>{};
@@ -473,6 +563,18 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   @override
   bool get isActive =>
       _workers.any((w) => w.isActive) || (_urgentWorker?.isActive ?? false);
+
+  /// The most recent trace across the pool's workers. Best-effort: a pool
+  /// serves pages on several workers at once, so this is whichever worker most
+  /// recently reported one, useful for a spot check rather than attribution.
+  @override
+  PdfRenderTrace? get lastRenderTrace {
+    for (final worker in _workers) {
+      final trace = worker.lastRenderTrace;
+      if (trace != null) return trace;
+    }
+    return _urgentWorker?.lastRenderTrace;
+  }
 
   @override
   Future<List<PdfRenderCommand>?> record(
@@ -581,6 +683,36 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       );
 
   @override
+  bool get supportsRevisionUpdate =>
+      _workers.every((worker) => worker.supportsRevisionUpdate);
+
+  @override
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {
+    for (final worker in _workers) {
+      worker.updateRevision(baseLength, appendedBytes, newLength, changedPages);
+    }
+    // Roll the urgent-worker seed bytes forward to the new revision and drop
+    // any live one-off worker so the next long-jump preview reopens the edited
+    // document instead of the snapshot it was spawned on.
+    final urgentBytes = _urgentBytes;
+    if (urgentBytes != null &&
+        baseLength <= urgentBytes.length &&
+        newLength == baseLength + appendedBytes.length) {
+      final next = Uint8List(newLength);
+      next.setRange(0, baseLength, urgentBytes);
+      next.setRange(baseLength, newLength, appendedBytes);
+      _urgentBytes = next;
+    }
+    _urgentWorker?.dispose();
+    _urgentWorker = null;
+  }
+
+  @override
   void dispose() {
     _routes.clear();
     _pageWorkers.clear();
@@ -604,7 +736,10 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     }
     final bytes = _urgentBytes;
     if (!start || bytes == null) return null;
-    return _urgentWorker = startRenderWorker(Uint8List.fromList(bytes));
+    // No defensive copy: the backend copies internally, and _urgentBytes is only
+    // ever replaced (never mutated in place), so the urgent worker can share the
+    // pool's snapshot like the ordinary workers do.
+    return _urgentWorker = _spawnWorker(bytes);
   }
 }
 
@@ -660,22 +795,77 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   /// [pdfRenderWorkerCacheMaxEntries].
   final int _maxEntries;
 
-  // LinkedHashMap iteration order doubles as LRU order: a hit re-inserts to
-  // the end, eviction takes the oldest (first) key.
-  final _cache = <_RecordCacheKey, _CachedRecord>{};
+  // The shared budgeted LRU: bounded by decoded image bytes ([_budgetBytes])
+  // and, so the weight-0 vector-first records the byte budget can't see stay
+  // bounded on a long scroll (#283), by entry count ([_maxEntries]). Byte
+  // eviction skips weight-0 records, a single record bigger than the whole
+  // budget is rejected outright (rejectOversize) rather than starving every
+  // reusable buffer - all handled once in PdfBudgetedCache. Registered with
+  // PdfCacheRegistry so a memory-pressure signal reaches the record cache too
+  // (it used to be deaf to pressure).
+  late final PdfBudgetedCache<_RecordCacheKey, _CachedRecord> _cache =
+      PdfBudgetedCache<_RecordCacheKey, _CachedRecord>(
+    weigher: (record) => record.weight,
+    maxWeight: _budgetBytes,
+    maxEntries: _maxEntries,
+    rejectOversize: true,
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'render-record',
+  );
   // Keys whose decode is running now, so concurrent requests share one decode.
   final _inflight = <_RecordCacheKey, Future<List<PdfRenderCommand>?>>{};
-  int _bytes = 0;
+
+  // Revision-invalidation epochs. A decode dispatched before an edit that
+  // touched its page must not store its now-stale result: the worker's document
+  // has moved on under it. Each [updateRevision] bumps [_epoch] and stamps the
+  // pages it invalidated (or [_globalInvalidatedAt] for an all-pages revision);
+  // a decode captures the epoch at dispatch and stores only if its page was not
+  // invalidated since.
+  int _epoch = 0;
+  int _globalInvalidatedAt = 0;
+  final Map<int, int> _pageInvalidatedAt = {};
+
+  int _invalidationEpochFor(int page) =>
+      math.max(_globalInvalidatedAt, _pageInvalidatedAt[page] ?? 0);
+
+  @override
+  bool get supportsRevisionUpdate => _inner.supportsRevisionUpdate;
+
+  @override
+  void updateRevision(
+    int baseLength,
+    Uint8List appendedBytes,
+    int newLength,
+    Set<int>? changedPages,
+  ) {
+    _epoch++;
+    if (changedPages == null) {
+      _globalInvalidatedAt = _epoch;
+      _pageInvalidatedAt.clear();
+      _cache.clear();
+      _inflight.clear();
+    } else {
+      for (final page in changedPages) {
+        _pageInvalidatedAt[page] = _epoch;
+      }
+      _cache.evictWhere((key) => changedPages.contains(key.$1));
+      _inflight.removeWhere((key, _) => changedPages.contains(key.$1));
+    }
+    _inner.updateRevision(baseLength, appendedBytes, newLength, changedPages);
+  }
 
   @override
   bool get isActive => _inner.isActive;
+
+  @override
+  PdfRenderTrace? get lastRenderTrace => _inner.lastRenderTrace;
 
   /// Decoded image bytes currently retained by completed cached records.
   ///
   /// This is intentionally the same weight used for eviction, not a full heap
   /// estimate. It gives callers a cheap signal for whether speculative warming
   /// is likely to evict useful full-image records before they are reused.
-  int get cachedBytes => _bytes;
+  int get cachedBytes => _cache.weight;
 
   /// Maximum decoded image bytes this cache tries to retain.
   int get cacheBudgetBytes => _budgetBytes;
@@ -689,7 +879,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   /// Fraction of [cacheBudgetBytes] currently occupied by decoded image data.
   double get cachePressure {
     if (_budgetBytes <= 0) return 1;
-    return (_bytes / _budgetBytes).clamp(0.0, 1.0).toDouble();
+    return (_cache.weight / _budgetBytes).clamp(0.0, 1.0).toDouble();
   }
 
   @override
@@ -741,8 +931,16 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
       imageDecodeRegion: effectiveRegion,
+      dispatchEpoch: _epoch,
     );
     _inflight[key] = future;
+    // Clear the slot only if it still holds THIS future. An updateRevision may
+    // have dropped the entry mid-decode and a newer request re-populated it; a
+    // stale decode's completion must not evict the fresh in-flight future, or
+    // the dedup breaks and the page is decoded redundantly.
+    future.whenComplete(() {
+      if (identical(_inflight[key], future)) _inflight.remove(key);
+    });
     return future;
   }
 
@@ -754,37 +952,38 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     required double? imagePixelRatio,
     required bool decodeImages,
     required PdfRect? imageDecodeRegion,
+    required int dispatchEpoch,
   }) async {
-    try {
-      final timeout = pdfRenderWorkerRecordTimeout;
-      final commands = await _inner
-          .record(
-        pageIndex,
-        annotations: annotations,
-        priority: priority,
-        imagePixelRatio: imagePixelRatio,
-        decodeImages: decodeImages,
-        commandLimit: key.$5,
-        imageDecodeRegion: imageDecodeRegion,
-      )
-          .timeout(
-        timeout,
-        onTimeout: () {
-          _inner.cancel(pageIndex, priority: priority);
-          _inner.dispose();
-          return null;
-        },
-      );
-      if (commands != null) {
-        final weight = _weigh(commands);
-        final storeKey =
-            key.$6 != null && weight == 0 ? _withoutRegion(key) : key;
-        _store(storeKey, commands, weight);
-      }
-      return commands;
-    } finally {
-      _inflight.remove(key);
+    final timeout = pdfRenderWorkerRecordTimeout;
+    final commands = await _inner
+        .record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: key.$5,
+      imageDecodeRegion: imageDecodeRegion,
+    )
+        .timeout(
+      timeout,
+      onTimeout: () {
+        _inner.cancel(pageIndex, priority: priority);
+        _inner.dispose();
+        return null;
+      },
+    );
+    // Skip storing a result whose page was invalidated by a revision update
+    // after this decode was dispatched: the worker's document has moved on,
+    // so the buffer is stale and must not be cached (a later request would
+    // hit it and paint pre-edit content).
+    if (commands != null && _invalidationEpochFor(pageIndex) <= dispatchEpoch) {
+      final weight = _weigh(commands);
+      final storeKey =
+          key.$6 != null && weight == 0 ? _withoutRegion(key) : key;
+      _store(storeKey, commands, weight);
     }
+    return commands;
   }
 
   @override
@@ -848,72 +1047,32 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
 
   @override
   void dispose() {
-    _cache.clear();
+    _cache.dispose();
     _inflight.clear();
-    _bytes = 0;
     _inner.dispose();
   }
 
-  _CachedRecord? _takeCached(_RecordCacheKey key) {
-    final hit = _cache.remove(key);
-    if (hit != null) {
-      _cache[key] = hit; // re-insert: now most-recently used
-    }
-    return hit;
-  }
+  _CachedRecord? _takeCached(_RecordCacheKey key) => _cache.take(key);
 
-  _CachedRecord? _takeCachedWeightless(_RecordCacheKey key) {
-    final hit = _cache[key];
-    if (hit == null || hit.weight != 0) return null;
-    _cache.remove(key);
-    _cache[key] = hit; // re-insert: now most-recently used
-    return hit;
-  }
+  /// Reuses a full-page (region-less) record for a region request only when it
+  /// carries no decoded bytes: a weight-0 vector-first buffer covers any region
+  /// unchanged, while a weight-bearing full-page buffer decoded at a different
+  /// resolution must not stand in for a region decode.
+  _CachedRecord? _takeCachedWeightless(_RecordCacheKey key) =>
+      _cache.weightOf(key) == 0 ? _cache.take(key) : null;
 
   void _store(
     _RecordCacheKey key,
     List<PdfRenderCommand> commands,
     int weight,
   ) {
-    if (weight > _budgetBytes) return; // one page bigger than the cache itself
-    final previous = _cache.remove(key);
-    if (previous != null) _bytes -= previous.weight;
-    _cache[key] = _CachedRecord(commands, weight);
-    _bytes += weight;
-    // Evict the least-recently-used entries that actually hold bytes until
-    // under budget. The budget bounds DECODED image memory, so evicting a
-    // weight-0 buffer (a vector-first pass or an image-free page) frees
-    // nothing - yet it would have to be re-decoded on the next revisit. On a
-    // heavy CAD sheet the full-image buffers (tens of MB each) are exactly
-    // what blows the budget while the cheap vector-first buffers are the ones
-    // re-requested every scroll settle, so a blind oldest-first eviction
-    // discarded the very entries the cache exists to keep. Skip the costless
-    // ones and never evict the entry we just inserted.
-    while (_bytes > _budgetBytes) {
-      final victim = _oldestHeavyKey(except: key);
-      if (victim == null) break; // nothing left worth evicting
-      _bytes -= _cache.remove(victim)!.weight;
-    }
-    // Second bound: total record count. The byte budget above cannot see the
-    // weight-0 records (image-free pages, vector-first passes), so on a long
-    // scroll they would otherwise pile up one-per-page without limit (issue
-    // #283). Evict the least-recently-used records - weight-0 or not - until
-    // back under the cap, never the entry we just inserted.
-    while (_cache.length > _maxEntries) {
-      final oldest = _cache.keys.first;
-      if (oldest == key) break;
-      _bytes -= _cache.remove(oldest)!.weight;
-    }
-  }
-
-  /// The least-recently-used key whose buffer holds decoded bytes (weight > 0),
-  /// other than [except] (the entry just inserted, which we keep). Null when no
-  /// such entry exists - every remaining buffer is costless, so eviction stops.
-  _RecordCacheKey? _oldestHeavyKey({required _RecordCacheKey except}) {
-    for (final entry in _cache.entries) {
-      if (entry.value.weight > 0 && entry.key != except) return entry.key;
-    }
-    return null;
+    // PdfBudgetedCache applies every bound: it rejects a single record bigger
+    // than the whole budget outright (rejectOversize - one page must not starve
+    // every reusable buffer), evicts the least-recently-used weight-bearing
+    // buffers under the byte budget (skipping the costless weight-0 vector-first
+    // buffers), and caps total record count so those weight-0 buffers still stay
+    // bounded on a long scroll (#283) - never evicting the record just inserted.
+    _cache.put(key, _CachedRecord(commands, weight));
   }
 
   /// Quantises the image-pixel ratio so tiny per-frame jitter (a 1px layout
