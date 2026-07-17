@@ -56,6 +56,13 @@ void main() {
       expect(PdfColorSpace.parse(cos, null).channels, 1);
       expect(PdfColorSpace.parse(cos, CosArray([])).channels, 1);
     });
+
+    test('non-ICC families carry no ICC profile', () {
+      expect(PdfColorSpace.parse(cos, const CosName('DeviceRGB')).iccProfile,
+          isNull);
+      expect(PdfColorSpace.parse(cos, const CosName('Pattern')).iccProfile,
+          isNull);
+    });
   });
 
   test('Pattern reports zero channels', () {
