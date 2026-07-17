@@ -26,6 +26,9 @@ void main(List<String> args) {
 
   final builder = CosDocumentBuilder();
   final zlib = ZLibCodec(level: 6);
+  // Reused across pages: every page overwrites all imgW*imgH*3 bytes, so one
+  // buffer avoids reallocating ~imgW*imgH*3 bytes per page.
+  final rgb = Uint8List(imgW * imgH * 3);
 
   // Object numbers are assigned in registration order starting at 1:
   //   1 = catalog, 2 = pages tree, then per page i (0-based), three objects
@@ -91,7 +94,6 @@ void main(List<String> args) {
     // file stays small - the decode still expands to the full RGBA footprint.
     // This matches the real doc's shape (24 MB file, 436 MB decoded RGBA):
     // it's the decoded size, not the file size, that drives the tab memory.
-    final rgb = Uint8List(imgW * imgH * 3);
     final phase = i * 37;
     var p = 0;
     for (var y = 0; y < imgH; y++) {

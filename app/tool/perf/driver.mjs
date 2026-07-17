@@ -282,7 +282,7 @@ async function main() {
     // "not available" even when the page is cross-origin isolated. New headless
     // (a full Chrome/Chromium binary) has it. Point PERF_CHROME at a full
     // browser binary, not a *_headless_shell one, for the memory numbers.
-    headless: HEADLESS ? true : false,
+    headless: HEADLESS,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1400,1000',
       '--js-flags=--expose-gc',
       // A locale-less headless host makes Flutter's intl throw "Incorrect
