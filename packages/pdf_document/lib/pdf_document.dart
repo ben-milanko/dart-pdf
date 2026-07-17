@@ -33,4 +33,5 @@ export 'src/stamp_template.dart';
 export 'src/struct_tree.dart';
 export 'src/takeoff.dart';
 export 'src/sync.dart';
+export 'src/text_box_appearance.dart';
 export 'src/xmp.dart';

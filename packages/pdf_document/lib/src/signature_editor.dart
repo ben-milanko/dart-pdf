@@ -607,64 +607,32 @@ extension PdfSigning on PdfEditor {
     List<String> wrapped;
     while (true) {
       wrapped = [
-        for (final line in lines) ..._wrapSignatureLine(line, font, size, boxW),
+        for (final line in lines)
+          ...pdfWrapText(line, boxW, (s) => font.measure(s, size)),
       ];
       if (wrapped.length * size * 1.3 <= boxH || size <= 4) break;
       size -= 0.5;
     }
     if (wrapped.isEmpty) return;
 
-    final lineHeight = size * 1.3;
-    final ascent = size * font.ascent / 1000;
-    final blockHeight = wrapped.length * lineHeight;
-    final blockTop =
-        centerVertical ? bottom + (boxH + blockHeight) / 2 : top;
-
-    writer
-      ..save()
-      ..rect(left, bottom, boxW, boxH)
-      ..clip()
-      ..beginText()
-      ..fillColor(color)
-      ..font(font.resourceName, size);
-    var prevX = 0.0, prevY = 0.0;
-    for (var i = 0; i < wrapped.length; i++) {
-      final lineWidth = font.measure(wrapped[i], size);
-      final x = switch (align) {
-        PdfTextAlign.center => left + (boxW - lineWidth) / 2,
-        PdfTextAlign.right => right - lineWidth,
-        PdfTextAlign.left => left,
-      };
-      final y = blockTop - i * lineHeight - ascent;
-      writer
-        ..textAt(x - prevX, y - prevY)
-        ..showText(wrapped[i]);
-      prevX = x;
-      prevY = y;
-    }
-    writer
-      ..endText()
-      ..restore();
-  }
-
-  /// Greedy word-wrap of [text] to [maxWidth]; a single overlong word
-  /// overflows (and is clipped by the box).
-  List<String> _wrapSignatureLine(
-      String text, PdfStandardFont font, double size, double maxWidth) {
-    if (font.measure(text, size) <= maxWidth) return [text];
-    final out = <String>[];
-    var line = '';
-    for (final word in text.split(' ')) {
-      final candidate = line.isEmpty ? word : '$line $word';
-      if (line.isNotEmpty && font.measure(candidate, size) > maxWidth) {
-        out.add(line);
-        line = word;
-      } else {
-        line = candidate;
-      }
-    }
-    if (line.isNotEmpty) out.add(line);
-    return out.isEmpty ? [text] : out;
+    // The box edges already exclude the caller's padding, so the shared
+    // builder runs with zero padding and unclamped alignment.
+    writer.save();
+    writePdfTextBox(
+      writer,
+      PdfRect(left, bottom, right, top),
+      wrapped,
+      font: font,
+      fontSize: size,
+      align: align,
+      padding: 0,
+      lineHeight: size * 1.3,
+      vAlign: centerVertical
+          ? PdfTextBoxVAlign.centerBlock
+          : PdfTextBoxVAlign.top,
+      writeColor: (w) => w.fillColor(color),
+    );
+    writer.restore();
   }
 
   /// Acrobat-style display date: `2026.06.10 12:00:00 +00'00'`. Signing

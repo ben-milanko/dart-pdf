@@ -55,19 +55,6 @@ const double _defaultLineSpacing = kPdfFreeTextDefaultLineSpacing;
 /// font's natural glyph width.
 const double _defaultHorizontalScale = kPdfFreeTextDefaultHorizontalScale;
 
-/// One underline segment recorded while a free-text line is laid out, drawn
-/// as a filled rectangle after the enclosing text object closes.
-class _UnderlineRun {
-  const _UnderlineRun(
-      this.x, this.baseline, this.width, this.fontSize, this.color);
-
-  final double x;
-  final double baseline;
-  final double width;
-  final double fontSize;
-  final int color;
-}
-
 /// One styled run inside a rich free-text annotation.
 ///
 /// A normal FreeText annotation has one `/DA` default appearance. Runs let
@@ -2532,73 +2519,50 @@ extension PdfAnnotationEditing on PdfEditor {
         )
         ..stroke();
     }
-    final lineHeight = fontSize * lineSpacing;
-    w
-      ..save()
-      ..rect(vr.left, vr.bottom, vr.width, vr.height)
-      ..clip()
-      ..beginText()
-      ..font(font.resourceName, fontSize)
-      ..leading(lineHeight)
-      ..fillColor(color);
-    if (charSpacing != 0) w.charSpacing(charSpacing);
-    if (horizontalScale != _defaultHorizontalScale) {
-      w.horizontalScale(horizontalScale);
-    }
-    // first baseline sits one ascent below the top padding
-    final firstY = vr.top - pad - fontSize * font.ascent / 1000;
     final lines = _wrap(text, fontSize, vr.width - 2 * pad,
         font: font, charSpacing: charSpacing, horizontalScale: horizontalScale);
     final resolvedDirection = textDirection.resolve(text);
     final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
-    final underlines = <_UnderlineRun>[];
-    var prevX = 0.0;
-    var prevY = 0.0;
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      final width = _advanceWidth(font, line, fontSize,
-          charSpacing: charSpacing, horizontalScale: horizontalScale);
-      final x = _lineX(effectiveAlign, vr, width, pad);
-      final y = firstY - i * lineHeight;
-      w.textAt(x - prevX, y - prevY);
-      if (font is PdfUnicodeFont) {
-        // Logical order: our renderer's TextPainter applies BiDi and shaping
-        // correctly; visual-order text would double-reverse and break Arabic
-        // contextual forms.
-        w.showGlyphHex(font.encodeHex(line));
-      } else {
-        final visual = pdfVisualText(line, resolvedDirection);
-        if (font is PdfEmbeddedFont) {
-          w.showGlyphHex(font.encodeHex(visual));
-        } else {
-          w.showText(visual);
+    w.save();
+    writePdfTextBox(
+      w,
+      vr,
+      lines,
+      font: font,
+      fontSize: fontSize,
+      align: effectiveAlign,
+      padding: pad,
+      lineHeight: fontSize * lineSpacing,
+      leading: true,
+      measureLine: (s) => _advanceWidth(font, s, fontSize,
+          charSpacing: charSpacing, horizontalScale: horizontalScale),
+      writeColor: (cw) {
+        cw.fillColor(color);
+        if (charSpacing != 0) cw.charSpacing(charSpacing);
+        if (horizontalScale != _defaultHorizontalScale) {
+          cw.horizontalScale(horizontalScale);
         }
-      }
-      if (underline && line.isNotEmpty) {
-        underlines.add(_UnderlineRun(x, y, width, fontSize, color));
-      }
-      prevX = x;
-      prevY = y;
-    }
-    w.endText();
-    _drawUnderlines(w, underlines);
+      },
+      emitLine: (cw, line) {
+        if (font is PdfUnicodeFont) {
+          // Logical order: our renderer's TextPainter applies BiDi and shaping
+          // correctly; visual-order text would double-reverse and break Arabic
+          // contextual forms.
+          cw.showGlyphHex(font.encodeHex(line));
+        } else {
+          final visual = pdfVisualText(line, resolvedDirection);
+          if (font is PdfEmbeddedFont) {
+            cw.showGlyphHex(font.encodeHex(visual));
+          } else {
+            cw.showText(visual);
+          }
+        }
+      },
+      underlineColor: underline ? color : null,
+    );
     w.restore();
     if (pageRotation != 0) w.restore();
     return w;
-  }
-
-  /// Draws the collected [runs] as filled underline rectangles - path
-  /// artwork must sit outside the enclosing BT/ET, so the caller records
-  /// each run during the text loop and flushes it here.
-  static void _drawUnderlines(ContentWriter w, List<_UnderlineRun> runs) {
-    for (final run in runs) {
-      final thickness = math.max(0.5, run.fontSize * 0.06);
-      final y = run.baseline - run.fontSize * 0.12;
-      w
-        ..fillColor(run.color)
-        ..rect(run.x, y, run.width, thickness)
-        ..fill();
-    }
   }
 
   ContentWriter _freeTextRichContent(
@@ -2647,7 +2611,7 @@ extension PdfAnnotationEditing on PdfEditor {
     var top = vr.top - pad;
     var prevX = 0.0;
     var prevY = 0.0;
-    final underlines = <_UnderlineRun>[];
+    final underlines = <PdfTextUnderline>[];
     w
       ..save()
       ..rect(vr.left, vr.bottom, vr.width, vr.height)
@@ -2671,7 +2635,7 @@ extension PdfAnnotationEditing on PdfEditor {
         0,
         (max, run) => math.max(max, run.style.fontSize * lineSpacing),
       );
-      var x = _lineX(effectiveAlign, vr, line.width, pad);
+      var x = pdfTextBoxLineX(effectiveAlign, vr, line.width, pad);
       final y = top - ascent;
       final drawRuns = resolvedDirection == PdfTextDirection.rtl
           ? line.runs.reversed
@@ -2696,7 +2660,7 @@ extension PdfAnnotationEditing on PdfEditor {
         }
         if (style.underline && run.text.isNotEmpty) {
           underlines
-              .add(_UnderlineRun(x, y, width, style.fontSize, style.color));
+              .add(PdfTextUnderline(x, y, width, style.fontSize, style.color));
         }
         prevX = x;
         prevY = y;
@@ -2705,7 +2669,7 @@ extension PdfAnnotationEditing on PdfEditor {
       top -= lineHeight;
     }
     w.endText();
-    _drawUnderlines(w, underlines);
+    pdfDrawUnderlines(w, underlines);
     w.restore();
     if (pageRotation != 0) w.restore();
     return w;
@@ -2717,21 +2681,6 @@ extension PdfAnnotationEditing on PdfEditor {
       direction == PdfTextDirection.rtl
           ? PdfTextAlign.right
           : PdfTextAlign.left;
-
-  /// The x where a line of width [width] starts so it sits at [align]
-  /// inside the padded visual rect [vr]. Centering cancels the padding, so
-  /// a centered line is centered within the full width.
-  static double _lineX(
-    PdfTextAlign align,
-    PdfRect vr,
-    double width,
-    double pad,
-  ) =>
-      switch (align) {
-        PdfTextAlign.left => vr.left + pad,
-        PdfTextAlign.center => vr.left + (vr.width - width) / 2,
-        PdfTextAlign.right => vr.right - pad - width,
-      };
 
   int _appearancePageRotation(int pageIndex, int? pageRotation) =>
       _normalizePageRotation(pageRotation ?? document.page(pageIndex).rotation);
@@ -2763,18 +2712,13 @@ extension PdfAnnotationEditing on PdfEditor {
     ContentWriter w,
     PdfRect pageRect,
     int pageRotation,
-  ) {
-    final cx = (pageRect.left + pageRect.right) / 2;
-    final cy = (pageRect.bottom + pageRect.top) / 2;
-    switch (pageRotation) {
-      case 90:
-        w.concatMatrix(0, 1, -1, 0, cx + cy, cy - cx);
-      case 180:
-        w.concatMatrix(-1, 0, 0, -1, 2 * cx, 2 * cy);
-      case 270:
-        w.concatMatrix(0, -1, 1, 0, cx - cy, cx + cy);
-    }
-  }
+  ) =>
+      writePdfCounterRotation(
+        w,
+        (pageRect.left + pageRect.right) / 2,
+        (pageRect.bottom + pageRect.top) / 2,
+        pageRotation,
+      );
 
   /// Rebuilds [runs] so any base-14 run carrying non-Latin-1 text is wrapped
   /// in a fresh [PdfUnicodeFont] (Identity-H) - the standard faces only speak
@@ -5877,27 +5821,14 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfTextFont font = PdfStandardFont.helvetica,
     double charSpacing = 0,
     double horizontalScale = _defaultHorizontalScale,
-  }) {
-    final lines = <String>[];
-    for (final paragraph in text.split('\n')) {
-      var line = '';
-      for (final word in paragraph.split(' ')) {
-        final candidate = line.isEmpty ? word : '$line $word';
-        if (line.isNotEmpty &&
-            _advanceWidth(font, candidate, fontSize,
-                    charSpacing: charSpacing,
-                    horizontalScale: horizontalScale) >
-                maxWidth + _wrapTolerance) {
-          lines.add(line);
-          line = word;
-        } else {
-          line = candidate;
-        }
-      }
-      lines.add(line);
-    }
-    return lines;
-  }
+  }) =>
+      pdfWrapText(
+        text,
+        maxWidth,
+        (candidate) => _advanceWidth(font, candidate, fontSize,
+            charSpacing: charSpacing, horizontalScale: horizontalScale),
+        tolerance: _wrapTolerance,
+      );
 
   /// The horizontal advance of [text] at [fontSize] in [font], including the
   /// per-glyph [charSpacing] (Tc) and the [horizontalScale] per cent (Tz) -
