@@ -787,7 +787,15 @@ class _ObjectStream {
   _ObjectStream(this.data, int count, this.first) {
     final parser = CosParser(data);
     for (var i = 0; i < count; i++) {
-      _index.add((parser.expectInteger(), parser.expectInteger()));
+      try {
+        _index.add((parser.expectInteger(), parser.expectInteger()));
+      } on CosParseException {
+        // A truncated or malformed header stops the index here; the pairs
+        // parsed so far stay usable (real-world files are lenient on
+        // input). Recovery keeps the leading compressed objects, and
+        // objectByNumber only fails to find the ones that never parsed.
+        break;
+      }
     }
   }
 
@@ -802,7 +810,7 @@ class _ObjectStream {
   /// The parsed (object number, relative offset) pairs, in stream order.
   /// Recovery reuses this so the header wire-format is parsed in exactly
   /// one place (see [CosDocument._recover]).
-  List<(int, int)> get index => _index;
+  List<(int, int)> get index => List.unmodifiable(_index);
 
   CosObject objectByNumber(int objectNumber, int hintIndex) {
     var entry = hintIndex >= 0 &&

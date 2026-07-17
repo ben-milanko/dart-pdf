@@ -18,11 +18,23 @@ have missed the other.
   The stream index the recovered entry points at is the position in that
   list, same as before.
 
-Behavior-preserving: both paths parsed the pairs with
-`expectInteger()`; the throw-on-bad-header case is still swallowed by the
-recovery loop's `try`/`catch` (previously an early `continue`). Recovery
-now also warms the `_objectStreams` cache it used to bypass, matching
-normal open.
+Recovery now also warms the `_objectStreams` cache it used to bypass,
+matching normal open.
+
+## Leniency (the point of the dedup)
+
+The old inline recovery loop registered each `(number, offset)` pair via
+`putIfAbsent` *as it parsed*, so a header that went bad partway still
+salvaged the leading compressed objects. Delegating to the
+`_ObjectStream` constructor would have regressed that - it built the
+whole `_index` up front and threw on the first bad pair, dropping the
+entire stream. Rather than special-case recovery, the leniency now lives
+in the one parse location: the constructor catches `CosParseException`
+per pair and `break`s, keeping the pairs parsed so far. Both the normal
+compressed-object path and recovery inherit it - exactly the
+"fix-it-once" property the dedup was for. `document_test.dart` gains "a
+truncated object-stream header still salvages leading objects" to lock
+this in.
 
 ## Tests
 

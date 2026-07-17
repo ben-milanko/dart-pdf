@@ -133,6 +133,26 @@ void main() {
       expect(doc.resolve(page['Parent']), doc.resolve(const CosReference(2, 0)));
     });
 
+    test('a truncated object-stream header still salvages leading objects', () {
+      // ObjStm declares /N 2 but the second pair's offset is junk ("z"),
+      // so only object 2 parses. Recovery must keep that leading object
+      // instead of dropping the whole stream (lenient on input).
+      const header = '2 0 3 z '; // pair 1 = (2, 0); pair 2 offset is not an int
+      const payload = '<< /Fnord 2 >> << /Zap 3 >>';
+      const first = header.length;
+      const objStmData = header + payload;
+      final body = StringBuffer('%PDF-1.5\n')
+        ..write('1 0 obj\n<< /Type /ObjStm /N 2 /First $first '
+            '/Length ${objStmData.length} >>\nstream\n$objStmData\n'
+            'endstream\nendobj\n');
+      // No xref/startxref, so open() falls back to scan recovery.
+      final doc = CosDocument.open(ascii(body.toString()));
+      final salvaged = doc.getObject(2, 0) as CosDictionary;
+      expect((salvaged['Fnord'] as CosInteger).value, 2);
+      // Object 3 never parsed out of the broken header, so it is absent.
+      expect(doc.getObject(3, 0), CosNull.instance);
+    });
+
     test('the last definition of an object number wins', () {
       final updated = (BytesBuilder()
             ..add(smash(buildClassicPdf(), 'startxref'))
