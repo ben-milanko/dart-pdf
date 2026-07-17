@@ -21,7 +21,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'calibrated_color.dart';
 import 'color.dart';
-import 'function.dart';
+import 'color_space.dart';
 import 'icc.dart';
 
 /// A fully decoded image: premultiplied RGBA8888, ready to hand straight to
@@ -1101,19 +1101,8 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
 
 /// The parsed ICC profile of an ICCBased image color space, when the
 /// engine supports its shape; null falls back to the device family.
-IccProfile? _iccProfileFor(CosDocument cos, CosDictionary dict) {
-  final space = cos.resolve(dict['ColorSpace']);
-  if (space is! CosArray || space.length < 2) return null;
-  final family = cos.resolve(space[0]);
-  if (family is! CosName || family.value != 'ICCBased') return null;
-  final stream = cos.resolve(space[1]);
-  if (stream is! CosStream) return null;
-  try {
-    return IccProfile.parse(cos.decodeStreamData(stream));
-  } on Exception {
-    return null;
-  }
-}
+IccProfile? _iccProfileFor(CosDocument cos, CosDictionary dict) =>
+    PdfColorSpace.parse(cos, dict['ColorSpace']).iccProfile;
 
 Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     int width, int height, int bits,
@@ -1123,7 +1112,7 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
 
   final space = pdfImageColorFamily(cos, dict);
   final alternate = _alternateColorSpaceFor(cos, dict);
-  final components = alternate?.components ??
+  final components = alternate?.channels ??
       switch (space) {
         'DeviceRGB' => 3,
         'DeviceGray' => 1,
@@ -1320,12 +1309,12 @@ Uint8List? _alternateToRgba(
   int width,
   int height,
   Uint8List out,
-  _AlternateColorSpace alternate,
+  PdfColorSpace alternate,
   List<(double, double)>? ranges,
   List<(int, int)>? colorKey,
 ) {
   final count = width * height;
-  final components = alternate.components;
+  final components = alternate.channels;
   if (data.length < count * components) return null;
   final luts = [for (var c = 0; c < components; c++) _lutFor(ranges, c)];
   final memo = components <= _tintMemoMaxComponents ? <int, int>{} : null;
@@ -1346,7 +1335,7 @@ Uint8List? _alternateToRgba(
       for (var c = 0; c < components; c++) {
         values[c] = luts[c][data[base + c]] / 255;
       }
-      final color = alternate.colorFor(values);
+      final color = alternate.toSrgb(values);
       rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
           ((color.green * 255).round().clamp(0, 255) << 8) |
           ((color.blue * 255).round().clamp(0, 255));
@@ -1526,98 +1515,17 @@ String _familyOf(CosDocument cos, CosObject? raw) {
   return 'DeviceGray';
 }
 
-class _AlternateColorSpace {
-  const _AlternateColorSpace({
-    required this.components,
-    required this.baseComponents,
-    required this.function,
-    this.calibrated,
-  });
-
-  final int components;
-  final int baseComponents;
-  final PdfFunction function;
-  final PdfCalibratedColorSpace? calibrated;
-
-  PdfColor colorFor(List<double> values) {
-    final transformed = function.evaluateAt(values);
-    return calibrated?.toSrgb(transformed) ??
-        colorFromComponents(transformed, baseComponents);
-  }
-}
-
-_AlternateColorSpace? _alternateColorSpaceFor(
-    CosDocument cos, CosDictionary dict) {
-  final space = cos.resolve(dict['ColorSpace']);
-  if (space is! CosArray || space.length < 4) return null;
-  final family = cos.resolve(space[0]);
-  if (family is! CosName) return null;
-
-  final int components;
-  final CosObject alternateSpace;
-  final CosObject functionObject;
-  switch (family.value) {
-    case 'Separation':
-      components = 1;
-      alternateSpace = space[2];
-      functionObject = space[3];
-    case 'DeviceN':
-      final names = cos.resolve(space[1]);
-      if (names is! CosArray || names.length == 0) return null;
-      components = names.length;
-      alternateSpace = space[2];
-      functionObject = space[3];
-    default:
-      return null;
-  }
-
-  final function = PdfFunction.parse(cos, functionObject);
-  if (function == null) return null;
-  final baseComponents = _alternateComponents(cos, alternateSpace);
-  if (baseComponents == 0) return null;
-  return _AlternateColorSpace(
-    components: components,
-    baseComponents: baseComponents,
-    function: function,
-    calibrated: PdfCalibratedColorSpace.parse(cos, alternateSpace),
-  );
-}
-
-int _alternateComponents(CosDocument cos, CosObject object) {
-  final space = cos.resolve(object);
-  if (space is CosName) {
-    return switch (space.value) {
-      'DeviceGray' || 'CalGray' || 'G' => 1,
-      'DeviceRGB' || 'CalRGB' || 'Lab' || 'RGB' => 3,
-      'DeviceCMYK' || 'CMYK' => 4,
-      _ => 0,
-    };
-  }
-  if (space is CosArray && space.length > 0) {
-    final family = cos.resolve(space[0]);
-    if (family is CosName) {
-      switch (family.value) {
-        case 'CalGray':
-          return 1;
-        case 'CalRGB':
-        case 'Lab':
-          return 3;
-        case 'ICCBased':
-          if (space.length > 1) {
-            final profile = cos.resolve(space[1]);
-            if (profile is CosStream) {
-              return switch (_intOf(cos.resolve(profile.dictionary['N']))) {
-                1 => 1,
-                4 => 4,
-                _ => 3,
-              };
-            }
-          }
-          return 3;
-      }
-    }
-  }
-  return 0;
+/// The Separation/DeviceN space of an image whose samples reach an alternate
+/// space through a tint transform (§8.6.6.4), or null when the /ColorSpace is
+/// not one of those (device, Indexed, and CIE spaces decode directly). The
+/// returned space's [PdfColorSpace.channels] is the colorant count of the
+/// samples and [PdfColorSpace.toSrgb] runs the tint transform into the
+/// alternate space.
+PdfColorSpace? _alternateColorSpaceFor(CosDocument cos, CosDictionary dict) {
+  final space = PdfColorSpace.parse(cos, dict['ColorSpace']);
+  return space.family == 'Separation' || space.family == 'DeviceN'
+      ? space
+      : null;
 }
 
 /// The image's /Filter names in order (resolving the dict and array forms).

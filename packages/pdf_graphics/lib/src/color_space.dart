@@ -1,0 +1,326 @@
+import 'package:pdf_cos/pdf_cos.dart';
+
+import 'calibrated_color.dart';
+import 'color.dart';
+import 'function.dart';
+import 'icc.dart';
+
+/// A PDF colour space (§8.6) resolved to what rendering needs: how many
+/// components a colour carries, and how those components become sRGB.
+///
+/// This is the single source of truth for the knowledge "given a COS
+/// colour-space object, how many channels does it have and how do N
+/// component values convert to sRGB". The interpreter (`sc`/`scn`), axial
+/// and radial shadings, mesh shadings, and image decoding all resolve their
+/// colour spaces through [parse] rather than each re-deriving the
+/// family/channel/conversion logic. The device families, the CIE-based
+/// calibrated spaces ([PdfCalibratedColorSpace]), ICC profiles
+/// ([IccProfile]), Indexed palettes, and Separation/DeviceN tint transforms
+/// are all folded into one interface here.
+abstract class PdfColorSpace {
+  const PdfColorSpace();
+
+  /// The default DeviceGray space - the initial fill/stroke space (§8.6.3)
+  /// and a safe fallback for anything unresolved.
+  static const PdfColorSpace deviceGray = _DeviceColorSpace('DeviceGray', 1);
+
+  /// Nominal component count of the space. Pattern spaces report 0.
+  int get channels;
+
+  /// The space's family name (`DeviceGray`/`DeviceRGB`/`DeviceCMYK`/
+  /// `Indexed`/`Separation`/`DeviceN`/`ICCBased`/`CalGray`/`CalRGB`/`Lab`/
+  /// `Pattern`).
+  String get family;
+
+  /// The parsed ICC profile backing an ICCBased space, when supported;
+  /// null for every other family (and for an ICCBased space whose profile
+  /// could not be parsed, where the device fallback applies).
+  IccProfile? get iccProfile => null;
+
+  /// Converts [values] - nominally one per [channels], in the space's own
+  /// component ranges - to sRGB. Lenient on a length mismatch: device
+  /// families read what they can and treat the rest as zero.
+  PdfColor toSrgb(List<double> values);
+
+  /// Converts raw 8-bit samples (0–255), as stored in image data or an
+  /// Indexed palette entry, to sRGB through the space's default component
+  /// decode (§8.6.5). The default decode is [0, 1] per component; Lab
+  /// overrides it with its L*/a*/b* ranges.
+  PdfColor toSrgbFromSamples(List<int> samples) =>
+      toSrgb([for (final s in samples) s / 255]);
+
+  /// Resolves a colour-space object. [object] may be a device or
+  /// abbreviation name, a `Pattern` name, an array space (`[/ICCBased …]`,
+  /// `[/Indexed …]`, `[/Separation …]`, `[/DeviceN …]`, `[/CalRGB …]`, …),
+  /// or - when [resources] is given - a name keying the resource
+  /// dictionary's `/ColorSpace` sub-dictionary (as `cs`/`CS` operands do).
+  /// Always returns a space; unrecognised shapes fall back to a device
+  /// family.
+  ///
+  /// [iccCache] optionally memoises parsed ICC profiles by their profile
+  /// stream, so a colour space selected repeatedly (a `cs`/`CS` in a tight
+  /// `q`/`Q` loop) parses its profile only once.
+  static PdfColorSpace parse(CosDocument cos, CosObject? object,
+      {CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache}) {
+    final resolved = cos.resolve(object);
+    if (resolved is CosName) {
+      final device = _deviceForName(resolved.value);
+      if (device != null) return device;
+      if (resolved.value == 'Pattern') return const _PatternColorSpace();
+      if (resources != null) {
+        final spaces = cos.resolve(resources['ColorSpace']);
+        if (spaces is CosDictionary && spaces.containsKey(resolved.value)) {
+          return parse(cos, spaces[resolved.value],
+              resources: resources, iccCache: iccCache);
+        }
+      }
+      // Unknown named space: assume RGB, the historical default.
+      return const _DeviceColorSpace('DeviceRGB', 3);
+    }
+    if (resolved is CosArray && resolved.length > 0) {
+      final family = cos.resolve(resolved[0]);
+      if (family is CosName) {
+        switch (family.value) {
+          case 'ICCBased':
+            return _parseIcc(cos, resolved, iccCache);
+          case 'Indexed' || 'I':
+            return _IndexedColorSpace.parse(cos, resolved, resources, iccCache) ??
+                const _DeviceColorSpace('DeviceRGB', 3);
+          case 'Separation':
+            return _TintColorSpace.parse(cos, resolved, 1, resources, iccCache) ??
+                const _DeviceColorSpace('DeviceGray', 1);
+          case 'DeviceN':
+            return _TintColorSpace.parseDeviceN(
+                    cos, resolved, resources, iccCache) ??
+                const _DeviceColorSpace('DeviceRGB', 3);
+          case 'CalGray' || 'CalRGB' || 'Lab':
+            final cal = PdfCalibratedColorSpace.parse(cos, resolved);
+            if (cal != null) return _CalibratedColorSpace(family.value, cal);
+            return _DeviceColorSpace(
+                family.value == 'CalGray' ? 'DeviceGray' : 'DeviceRGB',
+                family.value == 'CalGray' ? 1 : 3);
+          case 'Pattern':
+            return const _PatternColorSpace();
+          default:
+            final device = _deviceForName(family.value);
+            if (device != null) return device;
+        }
+      }
+    }
+    // Unresolved / malformed: a single-component gray keeps something visible.
+    return const _DeviceColorSpace('DeviceGray', 1);
+  }
+
+  static PdfColorSpace _parseIcc(CosDocument cos, CosArray space,
+      Map<CosStream, IccProfile?>? iccCache) {
+    // ICCBased carries its own component count in the profile stream's /N;
+    // the device family it degrades to is chosen from that count.
+    var channels = 3;
+    IccProfile? profile;
+    if (space.length > 1) {
+      final stream = cos.resolve(space[1]);
+      if (stream is CosStream) {
+        final n = cos.resolve(stream.dictionary['N']);
+        if (n is CosInteger) channels = n.value;
+        profile = iccCache != null
+            ? iccCache.putIfAbsent(stream, () => _parseProfile(cos, stream))
+            : _parseProfile(cos, stream);
+      }
+    }
+    return _IccColorSpace(profile, channels);
+  }
+
+  static IccProfile? _parseProfile(CosDocument cos, CosStream stream) {
+    try {
+      return IccProfile.parse(cos.decodeStreamData(stream));
+    } on Exception {
+      return null;
+    }
+  }
+
+  /// The device space for a colour-space name or its inline-image
+  /// abbreviation, or null when the name is not a device family.
+  static _DeviceColorSpace? _deviceForName(String name) => switch (name) {
+        'DeviceGray' || 'G' => const _DeviceColorSpace('DeviceGray', 1),
+        'DeviceRGB' || 'RGB' => const _DeviceColorSpace('DeviceRGB', 3),
+        'DeviceCMYK' || 'CMYK' => const _DeviceColorSpace('DeviceCMYK', 4),
+        _ => null,
+      };
+}
+
+/// DeviceGray/RGB/CMYK - components map straight through [colorFromComponents].
+/// Also the fallback for anything unrecognised.
+class _DeviceColorSpace extends PdfColorSpace {
+  const _DeviceColorSpace(this.family, this.channels);
+
+  @override
+  final String family;
+
+  @override
+  final int channels;
+
+  @override
+  PdfColor toSrgb(List<double> values) => colorFromComponents(values, channels);
+}
+
+/// The Pattern space: colours come from the pattern, not from components.
+class _PatternColorSpace extends PdfColorSpace {
+  const _PatternColorSpace();
+
+  @override
+  String get family => 'Pattern';
+
+  @override
+  int get channels => 0;
+
+  @override
+  PdfColor toSrgb(List<double> values) => PdfColor.black;
+}
+
+/// CalGray/CalRGB/Lab, delegating to the CIE machinery in
+/// [PdfCalibratedColorSpace].
+class _CalibratedColorSpace extends PdfColorSpace {
+  const _CalibratedColorSpace(this.family, this._calibrated);
+
+  @override
+  final String family;
+
+  final PdfCalibratedColorSpace _calibrated;
+
+  @override
+  int get channels => _calibrated.components;
+
+  @override
+  PdfColor toSrgb(List<double> values) => _calibrated.toSrgb(values);
+
+  @override
+  PdfColor toSrgbFromSamples(List<int> samples) =>
+      _calibrated.toSrgbFromSamples(samples);
+}
+
+/// An ICCBased space. Converts through the parsed [profile] when its channel
+/// count matches; otherwise (or when the profile could not be parsed) falls
+/// back to the device family the profile's /N implies.
+class _IccColorSpace extends PdfColorSpace {
+  const _IccColorSpace(this._profile, this.channels);
+
+  final IccProfile? _profile;
+
+  @override
+  final int channels;
+
+  @override
+  String get family => 'ICCBased';
+
+  @override
+  IccProfile? get iccProfile => _profile;
+
+  @override
+  PdfColor toSrgb(List<double> values) {
+    final profile = _profile;
+    if (profile != null && values.length == profile.channels) {
+      return profile.toSrgb(values);
+    }
+    return colorFromComponents(values, channels);
+  }
+}
+
+/// An `[/Indexed base hival lookup]` palette space (§8.6.6.3). A single index
+/// component selects a colour from the base space's lookup table.
+class _IndexedColorSpace extends PdfColorSpace {
+  _IndexedColorSpace(this._base, this._hival, this._table);
+
+  final PdfColorSpace _base;
+  final int _hival;
+  final List<int> _table;
+
+  @override
+  String get family => 'Indexed';
+
+  @override
+  int get channels => 1;
+
+  @override
+  PdfColor toSrgb(List<double> values) {
+    var index = (values.isEmpty ? 0.0 : values[0]).round();
+    if (index < 0) index = 0;
+    if (index > _hival) index = _hival;
+    final n = _base.channels;
+    final offset = index * n;
+    if (n <= 0 || offset + n > _table.length) return PdfColor.black;
+    return _base.toSrgbFromSamples(
+        [for (var i = 0; i < n; i++) _table[offset + i]]);
+  }
+
+  static _IndexedColorSpace? parse(CosDocument cos, CosArray space,
+      CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
+    if (space.length < 4) return null;
+    final base = PdfColorSpace.parse(cos, space[1],
+        resources: resources, iccCache: iccCache);
+    final hivalObj = cos.resolve(space[2]);
+    final hival = switch (hivalObj) {
+      CosInteger(:final value) => value,
+      CosReal(:final value) => value.round(),
+      _ => -1,
+    };
+    if (hival < 0) return null;
+    final lookupObj = cos.resolve(space[3]);
+    final List<int> table;
+    if (lookupObj is CosString) {
+      table = lookupObj.bytes;
+    } else if (lookupObj is CosStream) {
+      try {
+        table = cos.decodeStreamData(lookupObj);
+      } on Exception {
+        return null;
+      }
+    } else {
+      return null;
+    }
+    return _IndexedColorSpace(base, hival, table);
+  }
+}
+
+/// A Separation or DeviceN space: colorant values run through a tint
+/// transform ([function]) into the [alternate] space (§8.6.6.4).
+class _TintColorSpace extends PdfColorSpace {
+  _TintColorSpace(this.family, this.channels, this._function, this._alternate);
+
+  @override
+  final String family;
+
+  @override
+  final int channels;
+
+  final PdfFunction _function;
+  final PdfColorSpace _alternate;
+
+  @override
+  PdfColor toSrgb(List<double> values) =>
+      _alternate.toSrgb(_function.evaluateAt(values));
+
+  /// `[/Separation name alternate tint]`. [channels] is 1 for Separation.
+  static _TintColorSpace? parse(CosDocument cos, CosArray space, int channels,
+      CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
+    if (space.length < 4) return null;
+    final function = PdfFunction.parse(cos, space[3]);
+    if (function == null) return null;
+    final alternate = PdfColorSpace.parse(cos, space[2],
+        resources: resources, iccCache: iccCache);
+    return _TintColorSpace('Separation', channels, function, alternate);
+  }
+
+  /// `[/DeviceN names alternate tint attributes]`; the colorant count is the
+  /// length of the `names` array.
+  static _TintColorSpace? parseDeviceN(CosDocument cos, CosArray space,
+      CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
+    if (space.length < 4) return null;
+    final names = cos.resolve(space[1]);
+    if (names is! CosArray || names.length == 0) return null;
+    final function = PdfFunction.parse(cos, space[3]);
+    if (function == null) return null;
+    final alternate = PdfColorSpace.parse(cos, space[2],
+        resources: resources, iccCache: iccCache);
+    return _TintColorSpace('DeviceN', names.length, function, alternate);
+  }
+}

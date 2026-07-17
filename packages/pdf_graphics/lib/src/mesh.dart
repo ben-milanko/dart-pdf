@@ -48,6 +48,7 @@ class PdfMeshParser {
     required this.components,
     required this.verticesPerRow,
     required this.function,
+    required this.toColor,
     required this.transform,
   }) : _reader = _BitReader(data);
 
@@ -59,6 +60,12 @@ class PdfMeshParser {
   final int components;
   final int verticesPerRow;
   final PdfFunction? function;
+
+  /// Maps the vertices' colour values, in the shading's own colour space, to
+  /// sRGB - the shading's [PdfColorSpace.toSrgb], so Separation/DeviceN/
+  /// ICCBased/CIE mesh shadings convert the same way axial and radial ones
+  /// do.
+  final PdfColor Function(List<double>) toColor;
   final PdfMatrix transform;
   final _BitReader _reader;
 
@@ -112,9 +119,9 @@ class PdfMeshParser {
     ];
     final fn = function;
     if (fn != null) {
-      return colorFromComponents(fn.evaluate(values[0]), components);
+      return toColor(fn.evaluate(values[0]));
     }
-    return colorFromComponents(values, components);
+    return toColor(values);
   }
 
   PdfMeshVertex _readVertex() {
