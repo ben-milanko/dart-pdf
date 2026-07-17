@@ -1837,7 +1837,7 @@ class _PdfViewerState extends State<PdfViewer>
     var bestDistance = 1 << 30;
     var offset = 0.0;
     for (var i = 0; i < pages.length; i++) {
-      final height = _pageHeight(i) + widget.pageSpacing;
+      final height = _pageHeight(i) + _spacing;
       final top = offset;
       offset += height;
       if (!allowNearViewport && top + height >= nearTop && top <= nearBottom) {
@@ -2408,6 +2408,14 @@ class _PdfViewerState extends State<PdfViewer>
       _crossPointOf(index) * _fitScale * _layoutZoom;
   double _pageMain(int index) => _mainPointOf(index) * _fitScale * _layoutZoom;
 
+  /// The gap between pages, scaled by the layout zoom so it stays in
+  /// proportion to the pages as they lay out smaller below fit (a constant
+  /// pixel gap grows relative to the pages as you zoom out, which reads as
+  /// the spacing "changing" across the zoom range). At fit ([_layoutZoom]
+  /// == 1) it is exactly [PdfViewer.pageSpacing]; above fit the transform
+  /// scales the whole list, gap included, so the proportion holds there too.
+  double get _spacing => widget.pageSpacing * _layoutZoom;
+
   /// The page's inset along the cross axis: pages are centred on it (0 for
   /// the reference page at fit).
   double _crossInsetOf(int index) => (_crossView - _pageCross(index)) / 2;
@@ -2416,7 +2424,7 @@ class _PdfViewerState extends State<PdfViewer>
   double _mainOffsetOf(int index) {
     var offset = 0.0;
     for (var i = 0; i < index; i++) {
-      offset += _pageMain(i) + widget.pageSpacing;
+      offset += _pageMain(i) + _spacing;
     }
     return offset;
   }
@@ -2452,7 +2460,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// A page's slot extent in the scroll list, mirroring [itemExtentBuilder]:
   /// the leading [PdfViewer.pageSpacing] belongs to every page but the first.
   double _scrollExtentOf(int index) =>
-      _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing);
+      _pageMain(index) + (index == 0 ? 0 : _spacing);
 
   /// The list-space offset at which page [index]'s slot begins.
   double _slotStart(int index) {
@@ -2541,7 +2549,7 @@ class _PdfViewerState extends State<PdfViewer>
             (scale.isFinite && scale > 0 ? scale : 1.0);
     var offset = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      offset += _pageMain(i) + widget.pageSpacing;
+      offset += _pageMain(i) + _spacing;
       if (center < offset) {
         _controller._setCurrentPage(i);
         return;
@@ -2621,7 +2629,7 @@ class _PdfViewerState extends State<PdfViewer>
       // the list pads its bottom by pageSpacing, so a fully visible document
       // still carries that much nominal slack - the stock bar hides for it
       // (see PdfScrollbar.minOverflow), and so does this
-      hasOverflow: range > widget.pageSpacing + 0.5,
+      hasOverflow: range > _spacing + 0.5,
     );
   }
 
@@ -2655,7 +2663,7 @@ class _PdfViewerState extends State<PdfViewer>
     var mainStart = 0.0;
     for (var i = 0; i < _pages.length; i++) {
       final pageMain = _pageMain(i);
-      if (viewMain < mainStart + pageMain + widget.pageSpacing ||
+      if (viewMain < mainStart + pageMain + _spacing ||
           i == _pages.length - 1) {
         final pageCross = _pageCross(i);
         // fractions are layout-zoom independent: numerator and page size
@@ -2668,7 +2676,7 @@ class _PdfViewerState extends State<PdfViewer>
           zoom: _currentZoom,
         );
       }
-      mainStart += pageMain + widget.pageSpacing;
+      mainStart += pageMain + _spacing;
     }
     return null;
   }
@@ -2928,7 +2936,7 @@ class _PdfViewerState extends State<PdfViewer>
             point - Offset(_pageContentX(i), _pageContentY(i)));
         return (i, x, y);
       }
-      mainStart += pageMain + widget.pageSpacing;
+      mainStart += pageMain + _spacing;
     }
     return null;
   }
@@ -2953,7 +2961,7 @@ class _PdfViewerState extends State<PdfViewer>
         return contentCross >= crossStart &&
             contentCross <= crossStart + _pageCross(i);
       }
-      mainStart += pageMain + widget.pageSpacing;
+      mainStart += pageMain + _spacing;
     }
     return false;
   }
@@ -4946,15 +4954,15 @@ class _PdfViewerState extends State<PdfViewer>
         // jump (AMT-SP-101: 93k↔162k px between frames).
         itemExtentBuilder: (index, dimensions) => index >= _pages.length
             ? null
-            : _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing),
+            : _pageMain(index) + (index == 0 ? 0 : _spacing),
         itemCount: _pages.length,
         padding: _horizontal
-            ? EdgeInsets.only(right: widget.pageSpacing)
-            : EdgeInsets.only(bottom: widget.pageSpacing),
+            ? EdgeInsets.only(right: _spacing)
+            : EdgeInsets.only(bottom: _spacing),
         itemBuilder: (context, index) => Padding(
           padding: _horizontal
-              ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)
-              : EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
+              ? EdgeInsets.only(left: index == 0 ? 0 : _spacing)
+              : EdgeInsets.only(top: index == 0 ? 0 : _spacing),
           // each page lays out at its real size relative to the reference
           // page (times the layout zoom), centred on the cross axis - so
           // pages keep their true sizes instead of stretching to the viewport
@@ -5367,7 +5375,7 @@ class _PdfViewerState extends State<PdfViewer>
                     axis: widget.pageLayout.scrollAxis,
                     scroll: _scroll,
                     transform: _transform,
-                    minOverflow: widget.pageSpacing,
+                    minOverflow: _spacing,
                     onScrollBy: _scrollbarScrollBy,
                     thumbKey: const ValueKey('pdf-scrollbar-thumb'),
                   )),
