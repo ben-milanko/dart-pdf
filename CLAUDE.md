@@ -46,8 +46,10 @@ visual galleries, PDF.js pixel compare), invoke the `corpus-tests` skill
 See README.md. The pipeline through the viewer is done: interpreter, font
 engine, Flutter rendering, text selection/search, annotation appearance
 rendering, and encryption both ways (RC4/AES-128/AES-256 decryption;
-encrypt-on-write re-encrypts changed objects on save - `_encryptedCopy`
-in updater.dart; signing encrypted files stays refused). Annotation authoring is in:
+encrypt-on-write re-encrypts changed objects on save -
+`StandardSecurityHandler.encryptObjectGraph` (the graph walk + exempt
+policy live on the handler, shared with the loader's `decryptObjectGraph`);
+signing encrypted files stays refused). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
 them into page content. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
@@ -118,8 +120,8 @@ page lookup with full-walk fallback, gradient /Extend semantics, JPEG
 (selection, highlights, overlays, and hit-testing are rotation-aware;
 the geometry mirrors the renderer's canvas transform).
 The big-gap batch landed next, all KAT-validated against reference
-codecs: encrypt-on-write (updater `_encryptedCopy`; signing encrypted
-files still refused), trust-store chain validation
+codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`;
+signing encrypted files still refused), trust-store chain validation
 (`verifyCertificateChain` in pdf_cos cms.dart, `PdfTrustStore` +
 `validate(trustStore:)` in pdf_document), mesh shadings 4-7
 (`PdfMeshParser`/`PdfMesh`, device `fillMesh`, drawVertices in

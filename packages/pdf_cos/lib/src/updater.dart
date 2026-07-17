@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'crypto/standard_security_handler.dart';
 import 'document.dart';
 import 'objects.dart';
 import 'serializer.dart';
@@ -86,7 +85,13 @@ class CosIncrementalUpdater {
       offsets[number] = out.length - shift;
       var object = _changed[number]!;
       if (handler != null && number != document.encryptObjectNumber) {
-        object = _encryptedCopy(object, number, _generationOf(number), handler);
+        object = handler.encryptObjectGraph(
+          object,
+          number,
+          _generationOf(number),
+          resolve: document.resolve,
+          keepsFileCiphertext: (stream) => stream.sourceRef != null,
+        );
       }
       serializer.writeIndirectObject(
           CosIndirectObject(number, _generationOf(number), object));
@@ -105,47 +110,6 @@ class CosIncrementalUpdater {
     }
     tail.writeEpilogue(xrefOffset);
     return out.takeBytes();
-  }
-
-  /// Deep-copies [object] with strings and stream payloads encrypted under
-  /// the (number, generation) object key. The live object stays plaintext
-  /// so later edits in the same session keep working. Cross-reference
-  /// streams and exempt /Metadata stay plain (§7.5.8.2); payloads still
-  /// holding the file's ciphertext pass through untouched.
-  CosObject _encryptedCopy(CosObject object, int number, int generation,
-      StandardSecurityHandler handler) {
-    CosObject copy(CosObject value) {
-      switch (value) {
-        case CosString():
-          return CosString(
-              handler.encryptString(value.bytes, number, generation),
-              isHex: value.isHex);
-        case CosArray():
-          return CosArray([for (final item in value.items) copy(item)]);
-        case CosStream():
-          final dict = copy(value.dictionary) as CosDictionary;
-          if (document.streamKeepsFileBytes(value)) {
-            return CosStream(dict, value.rawBytes);
-          }
-          final type = dict['Type'];
-          final exempt = type is CosName &&
-              (type.value == 'XRef' ||
-                  type.value == 'Metadata' && !handler.encryptMetadata);
-          if (exempt) return CosStream(dict, value.rawBytes);
-          final cipher =
-              handler.encryptStream(value.rawBytes, number, generation);
-          dict['Length'] = CosInteger(cipher.length);
-          return CosStream(dict, cipher);
-        case CosDictionary():
-          final out = CosDictionary();
-          value.entries.forEach((key, v) => out[key] = copy(v));
-          return out;
-        default:
-          return value;
-      }
-    }
-
-    return copy(object);
   }
 
   int _generationOf(int objectNumber) {

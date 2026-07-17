@@ -128,6 +128,30 @@ void main() {
       expect((reopened.resolve(info['Title']) as CosString).text, 'Edited');
     });
 
+    test('a fresh /Crypt-Identity stream is written plain, not re-encrypted',
+        () {
+      // The verified bug (issue #313): the updater's exempt policy omitted
+      // the /Crypt-filter-with-/Identity case the loader honoured, so
+      // encrypt-on-write would wrongly re-encrypt an Identity-crypt stream.
+      // The policy now lives once, on the handler.
+      final doc = CosDocument.open(buildEncryptedPdf(revision: 4));
+      final updater = CosIncrementalUpdater(doc);
+      const marker = 'identity-crypt payload stays plain';
+      updater.addObject(CosStream(
+          CosDictionary({
+            'Length': CosInteger(marker.length),
+            'Filter': const CosName('Crypt'),
+            'DecodeParms':
+                CosDictionary({'Name': const CosName('Identity')}),
+          }),
+          ascii(marker)));
+
+      final saved = updater.save();
+      final tail = String.fromCharCodes(saved.sublist(doc.bytes.length));
+      // exempt from encryption, so the plaintext survives verbatim
+      expect(tail, contains(marker));
+    });
+
     test('resaving a loaded stream does not double-encrypt it', () {
       final doc = CosDocument.open(buildEncryptedPdf(revision: 4));
       final page = doc.resolve(
