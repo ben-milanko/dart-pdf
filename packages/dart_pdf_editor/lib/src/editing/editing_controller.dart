@@ -1836,6 +1836,13 @@ class PdfEditingController extends ChangeNotifier {
   /// scale has been calibrated.
   bool get hasMeasurementScale => preferences.measurementScale != null;
 
+  /// The active measurement scale, forwarded to [preferences]. Setting it
+  /// (e.g. from a calibration dialog or a test) calibrates every measurement
+  /// tool at once.
+  PdfMeasurementScale? get measurementScale => preferences.measurementScale;
+  set measurementScale(PdfMeasurementScale? value) =>
+      preferences.measurementScale = value;
+
   /// Calibrates [preferences.measurementScale] from a reference segment between
   /// [start] and [end] (page-space points) that represents [realLength]
   /// [unitLabel]s. The classic "two-point calibration" flow.

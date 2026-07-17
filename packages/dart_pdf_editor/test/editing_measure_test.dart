@@ -29,6 +29,19 @@ void main() {
       expect(scale.ratioLabel, '1 in = 20 ft');
     });
 
+    test('the controller measurementScale forwarder round-trips preferences',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(editing.measurementScale, isNull);
+
+      final scale = PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
+      editing.measurementScale = scale;
+      // The getter reads through to preferences; the setter wrote it there.
+      expect(editing.measurementScale, same(scale));
+      expect(editing.preferences.measurementScale, same(scale));
+    });
+
     test('live readouts compute distance, perimeter, and area', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);

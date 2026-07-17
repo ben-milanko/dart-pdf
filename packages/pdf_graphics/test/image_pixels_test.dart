@@ -56,6 +56,30 @@ void main() {
     expect(pixels.rgba, [100, 100, 100, 255, 200, 200, 200, 255]);
   });
 
+  test('ICCBased 8-bit RGB decodes through the embedded profile', () {
+    // The profile stream's /N picks the device family; the parsed AdobeRGB
+    // profile is applied per pixel (littleCMS reference in icc_test:
+    // AdobeRGB (128,64,200) -> sRGB (146,62,205)).
+    final profile =
+        CosStream(CosDictionary({'N': const CosInteger(3)}), adobeRgb1998Icc());
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([const CosName('ICCBased'), profile]),
+    }, [
+      128,
+      64,
+      200,
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba[0], closeTo(146, 3));
+    expect(pixels.rgba[1], closeTo(62, 3));
+    expect(pixels.rgba[2], closeTo(205, 3));
+    expect(pixels.rgba[3], 255);
+  });
+
   test('/ImageMask stencil decodes to 0/255 alpha', () {
     final stream = image({
       'ImageMask': const CosBoolean(true),
