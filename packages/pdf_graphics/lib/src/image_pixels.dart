@@ -1100,9 +1100,16 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
 }
 
 /// The parsed ICC profile of an ICCBased image color space, when the
-/// engine supports its shape; null falls back to the device family.
-IccProfile? _iccProfileFor(CosDocument cos, CosDictionary dict) =>
-    PdfColorSpace.parse(cos, dict['ColorSpace']).iccProfile;
+/// engine supports its shape; null falls back to the device family. Gated on
+/// the family name so a non-ICCBased image never parses its (potentially
+/// expensive) colour space just to discover there is no profile.
+IccProfile? _iccProfileFor(CosDocument cos, CosDictionary dict) {
+  final space = cos.resolve(dict['ColorSpace']);
+  if (space is! CosArray || space.length < 1) return null;
+  final family = cos.resolve(space[0]);
+  if (family is! CosName || family.value != 'ICCBased') return null;
+  return PdfColorSpace.parse(cos, space).iccProfile;
+}
 
 Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     int width, int height, int bits,
@@ -1522,10 +1529,17 @@ String _familyOf(CosDocument cos, CosObject? raw) {
 /// samples and [PdfColorSpace.toSrgb] runs the tint transform into the
 /// alternate space.
 PdfColorSpace? _alternateColorSpaceFor(CosDocument cos, CosDictionary dict) {
-  final space = PdfColorSpace.parse(cos, dict['ColorSpace']);
-  return space.family == 'Separation' || space.family == 'DeviceN'
-      ? space
-      : null;
+  // Gate on the family name before the full parse: only Separation/DeviceN
+  // need the tint transform decoded here, so device/Indexed/ICCBased images
+  // must not pay to parse (and re-parse) their colour space.
+  final space = cos.resolve(dict['ColorSpace']);
+  if (space is! CosArray || space.length < 1) return null;
+  final family = cos.resolve(space[0]);
+  if (family is! CosName ||
+      (family.value != 'Separation' && family.value != 'DeviceN')) {
+    return null;
+  }
+  return PdfColorSpace.parse(cos, space);
 }
 
 /// The image's /Filter names in order (resolving the dict and array forms).
