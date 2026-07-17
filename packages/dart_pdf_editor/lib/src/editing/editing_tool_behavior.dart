@@ -124,10 +124,6 @@ abstract class PdfEditToolBehavior {
   /// rectangle by default.
   bool get isPoly => false;
 
-  /// A closed poly tool (its last vertex joins the first): polygon and the
-  /// area / volume measurements.
-  bool get closesPoly => false;
-
   /// Placed by dragging a single straight segment (a /Line, an arrow, a
   /// distance/slope measurement, or the scale-calibration drag).
   bool get isLineDrag => false;
@@ -322,7 +318,6 @@ class _PolyTool extends PdfEditToolBehavior {
   const _PolyTool(this.tool,
       {required this.styleScopeKey,
       required this.styleScopeFields,
-      required this.closesPoly,
       required this.styleFields});
 
   @override
@@ -331,8 +326,6 @@ class _PolyTool extends PdfEditToolBehavior {
   final String? styleScopeKey;
   @override
   final Set<String> styleScopeFields;
-  @override
-  final bool closesPoly;
   @override
   final PdfToolStyleFields styleFields;
   @override
@@ -387,7 +380,7 @@ class _MeasureLineTool extends PdfEditToolBehavior {
 /// readout is its perimeter, area, interior angle, arc length, or volume.
 class _MeasurePolyTool extends PdfEditToolBehavior {
   const _MeasurePolyTool(this.tool, this.measureKind,
-      {this.fixedPolyCount, required this.closesPoly, required this.hasEndings});
+      {this.fixedPolyCount, required this.hasEndings});
 
   @override
   final PdfEditTool tool;
@@ -395,8 +388,6 @@ class _MeasurePolyTool extends PdfEditToolBehavior {
   final PdfMeasurementKind measureKind;
   @override
   final int? fixedPolyCount;
-  @override
-  final bool closesPoly;
 
   /// Whether the running readout draws an open segment (so it carries
   /// endings): perimeter / angle / arc, but not the closed area / volume.
@@ -535,7 +526,6 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
     const _PolyTool(PdfEditTool.polyline,
         styleScopeKey: 'polyline',
         styleScopeFields: _lineFields,
-        closesPoly: false,
         styleFields: PdfToolStyleFields(
           stroke: true,
           strokeColor: true,
@@ -547,7 +537,6 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
     const _PolyTool(PdfEditTool.polygon,
         styleScopeKey: 'polygon',
         styleScopeFields: _shapeFields,
-        closesPoly: true,
         styleFields: PdfToolStyleFields(
           stroke: true,
           strokeColor: true,
@@ -560,15 +549,15 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
     const _MeasureLineTool(PdfEditTool.measureSlope, PdfMeasurementKind.slope),
     const _MeasurePolyTool(
         PdfEditTool.measurePerimeter, PdfMeasurementKind.perimeter,
-        closesPoly: false, hasEndings: true),
+        hasEndings: true),
     const _MeasurePolyTool(PdfEditTool.measureArea, PdfMeasurementKind.area,
-        closesPoly: true, hasEndings: false),
+        hasEndings: false),
     const _MeasurePolyTool(PdfEditTool.measureAngle, PdfMeasurementKind.angle,
-        fixedPolyCount: 3, closesPoly: false, hasEndings: true),
+        fixedPolyCount: 3, hasEndings: true),
     const _MeasurePolyTool(PdfEditTool.measureArc, PdfMeasurementKind.arc,
-        fixedPolyCount: 3, closesPoly: false, hasEndings: true),
+        fixedPolyCount: 3, hasEndings: true),
     const _MeasurePolyTool(PdfEditTool.measureVolume, PdfMeasurementKind.volume,
-        closesPoly: true, hasEndings: false),
+        hasEndings: false),
     const _SimpleTool(PdfEditTool.calibrate, isLineDrag: true),
     const _SimpleTool(PdfEditTool.freeText,
         styleScopeKey: 'freeText',
