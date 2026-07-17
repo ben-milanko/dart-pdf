@@ -891,6 +891,13 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       dispatchEpoch: _epoch,
     );
     _inflight[key] = future;
+    // Clear the slot only if it still holds THIS future. An updateRevision may
+    // have dropped the entry mid-decode and a newer request re-populated it; a
+    // stale decode's completion must not evict the fresh in-flight future, or
+    // the dedup breaks and the page is decoded redundantly.
+    future.whenComplete(() {
+      if (identical(_inflight[key], future)) _inflight.remove(key);
+    });
     return future;
   }
 
@@ -904,40 +911,36 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     required PdfRect? imageDecodeRegion,
     required int dispatchEpoch,
   }) async {
-    try {
-      final timeout = pdfRenderWorkerRecordTimeout;
-      final commands = await _inner
-          .record(
-        pageIndex,
-        annotations: annotations,
-        priority: priority,
-        imagePixelRatio: imagePixelRatio,
-        decodeImages: decodeImages,
-        commandLimit: key.$5,
-        imageDecodeRegion: imageDecodeRegion,
-      )
-          .timeout(
-        timeout,
-        onTimeout: () {
-          _inner.cancel(pageIndex, priority: priority);
-          _inner.dispose();
-          return null;
-        },
-      );
-      // Skip storing a result whose page was invalidated by a revision update
-      // after this decode was dispatched: the worker's document has moved on,
-      // so the buffer is stale and must not be cached (a later request would
-      // hit it and paint pre-edit content).
-      if (commands != null && _invalidationEpochFor(pageIndex) <= dispatchEpoch) {
-        final weight = _weigh(commands);
-        final storeKey =
-            key.$6 != null && weight == 0 ? _withoutRegion(key) : key;
-        _store(storeKey, commands, weight);
-      }
-      return commands;
-    } finally {
-      _inflight.remove(key);
+    final timeout = pdfRenderWorkerRecordTimeout;
+    final commands = await _inner
+        .record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: key.$5,
+      imageDecodeRegion: imageDecodeRegion,
+    )
+        .timeout(
+      timeout,
+      onTimeout: () {
+        _inner.cancel(pageIndex, priority: priority);
+        _inner.dispose();
+        return null;
+      },
+    );
+    // Skip storing a result whose page was invalidated by a revision update
+    // after this decode was dispatched: the worker's document has moved on,
+    // so the buffer is stale and must not be cached (a later request would
+    // hit it and paint pre-edit content).
+    if (commands != null && _invalidationEpochFor(pageIndex) <= dispatchEpoch) {
+      final weight = _weigh(commands);
+      final storeKey =
+          key.$6 != null && weight == 0 ? _withoutRegion(key) : key;
+      _store(storeKey, commands, weight);
     }
+    return commands;
   }
 
   @override

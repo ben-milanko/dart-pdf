@@ -145,6 +145,42 @@ void main() {
         reason: 'a decode dispatched before the edit must not cache its result');
   });
 
+  test('a stale in-flight completion does not evict a newer in-flight decode',
+      () async {
+    final backend = _FakeBackend();
+    final worker = PdfCachingRenderWorker(backend);
+
+    // F1 for page 8 is held in flight.
+    final gate1 = Completer<void>();
+    backend.gate = gate1;
+    final f1 = worker.record(8);
+    expect(backend.recordCounts[8], 1);
+
+    // Edit page 8: its in-flight entry is dropped from the dedup map.
+    worker.updateRevision(10, Uint8List.fromList([1]), 11, {8});
+
+    // A fresh request re-decodes against the new revision (F2) and becomes the
+    // in-flight decode for page 8.
+    final gate2 = Completer<void>();
+    backend.gate = gate2;
+    final f2 = worker.record(8);
+    expect(backend.recordCounts[8], 2);
+
+    // The stale F1 now completes. Its cleanup must NOT clear the slot F2 owns.
+    gate1.complete();
+    await f1;
+    await Future<void>.microtask(() {});
+
+    // A third request must share F2 (in-flight dedup), not start a third decode.
+    backend.gate = null;
+    final f3 = worker.record(8);
+    expect(backend.recordCounts[8], 2,
+        reason: 'the stale decode must not clear the fresh in-flight slot');
+
+    gate2.complete();
+    await Future.wait([f2, f3]);
+  });
+
   testWidgets(
       'the real isolate worker updates its document in place across an edit',
       (tester) async {

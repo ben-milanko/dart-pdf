@@ -632,38 +632,47 @@ void _workerMain(_WorkerInit init) {
     if (kind == 'update') {
       // The main side only dispatches an update when the worker is idle, so it
       // never overlaps an in-flight record/bin walk that would see the document
-      // mutate mid-interpret.
-      final baseLength = request[2] as int;
-      final appended =
-          (request[3] as TransferableTypedData).materialize().asUint8List();
-      final newLength = request[4] as int;
-      final changed = (request[5] as List?)?.cast<int>().toSet();
-      workerBytes = Uint8List(baseLength + appended.length)
-        ..setRange(0, baseLength, workerBytes)
-        ..setRange(baseLength, baseLength + appended.length, appended);
-      final live = Uint8List.sublistView(workerBytes, 0, newLength);
-      var incremental = false;
-      final doc = document;
-      if (doc != null) {
-        try {
-          doc.applyIncrementalUpdate(live);
-          incremental = true;
-        } catch (_) {
-          // Not a forward append (an undo shrinks to a prefix) or an
-          // unsupported document: re-open from the target prefix instead.
+      // mutate mid-interpret. The whole body is guarded so a malformed update
+      // (an inconsistent length triple) can never throw past the ack below and
+      // leave the main side's slot pinned - that would wedge the worker.
+      try {
+        final baseLength = request[2] as int;
+        final appended =
+            (request[3] as TransferableTypedData).materialize().asUint8List();
+        final newLength = request[4] as int;
+        final changed = (request[5] as List?)?.cast<int>().toSet();
+        final rebuilt = Uint8List(baseLength + appended.length)
+          ..setRange(0, baseLength, workerBytes)
+          ..setRange(baseLength, baseLength + appended.length, appended);
+        final live = Uint8List.sublistView(rebuilt, 0, newLength);
+        var incremental = false;
+        final doc = document;
+        if (doc != null) {
+          try {
+            doc.applyIncrementalUpdate(live);
+            incremental = true;
+          } catch (_) {
+            // Not a forward append (an undo shrinks to a prefix) or an
+            // unsupported document: re-open from the target prefix instead.
+          }
         }
-      }
-      if (!incremental) {
-        try {
-          document = PdfDocument.open(live);
-        } catch (_) {
-          document = null;
+        if (!incremental) {
+          try {
+            document = PdfDocument.open(live);
+          } catch (_) {
+            document = null;
+          }
         }
+        // Commit the grown buffer only once the document reflects it.
+        workerBytes = rebuilt;
+        // On the in-place fast path only the changed pages' cached commands are
+        // stale; a re-open makes a fresh document, so every cached command
+        // (which referenced the old one) must go.
+        binCommands.evictPages(incremental ? changed : null);
+      } catch (_) {
+        // Malformed update: leave the document and buffer as they were and just
+        // free the worker slot below so it keeps serving other pages.
       }
-      // On the in-place fast path only the changed pages' cached commands are
-      // stale; a re-open makes a fresh document, so every cached command (which
-      // referenced the old one) must go.
-      binCommands.evictPages(incremental ? changed : null);
       init.reply.send([id, null]);
       return;
     }
