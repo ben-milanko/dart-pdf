@@ -244,6 +244,14 @@ String? _fontLabel(PdfTextFont? font) {
 /// menu previews (see [_ensureDocumentFontPreview]), so each embeds once.
 final Set<String> _documentPreviewFamilies = <String>{};
 
+/// The basic Latin alphabet and digits a font must fully cover to be typed
+/// freely. A document font is usually a subset carrying only the glyphs the
+/// file already draws (see [PdfEmbeddedFont.canRender]); one that can't draw
+/// all of these is flagged "limited" in the menu, because new text typed in
+/// it would drop the characters the subset lacks.
+const String _typeableProbe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    'abcdefghijklmnopqrstuvwxyz0123456789';
+
 /// Registers [font]'s program bytes with the engine under a private family
 /// name so a menu entry can preview it in its own face, and returns that
 /// name (null when the engine can't load it, e.g. in a headless test). The
@@ -274,6 +282,7 @@ class _FontEntry {
     this.package,
     this.recentKey,
     this.section,
+    this.limited = false,
   });
 
   final Key key;
@@ -283,6 +292,11 @@ class _FontEntry {
   final _FontChoice choice;
   final String? fontFamily;
   final String? package;
+
+  /// Whether this is a document subset font that can't cover the basic Latin
+  /// alphabet, so typing new text in it would drop unavailable characters -
+  /// the menu flags it with a caption and a warning icon.
+  final bool limited;
 
   /// The opaque key this entry is remembered under in the "Recently used"
   /// group (see [PdfEditingPreferences.recentFonts]); null for entries that
@@ -399,6 +413,20 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                                 ? null
                                 : Text(entry.subtitle!,
                                     overflow: TextOverflow.ellipsis),
+                            trailing: entry.limited
+                                ? Tooltip(
+                                    message: 'This font is subset - only the '
+                                        'characters already used in the '
+                                        'document can be typed.',
+                                    child: Icon(
+                                      Icons.warning_amber_rounded,
+                                      size: 18,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline,
+                                    ),
+                                  )
+                                : null,
                             onTap: () =>
                                 Navigator.of(context).pop(entry.choice),
                           );
@@ -451,14 +479,21 @@ Future<void> showPdfFontMenu({
   final inDocument = documentFonts ?? controller.documentFonts;
 
   // Register each document font's outlines with the engine (best-effort) so
-  // its menu row can preview in its own face. A font that fails to register
-  // just renders in the default face; it still embeds fine on pick.
+  // its menu row can preview in its own face. Only fonts that can actually
+  // draw their whole name get a preview: document fonts are usually subsets
+  // whose unused glyphs were stripped (the cmap survives but the outline is
+  // empty), so previewing their name would drop letters - those render in the
+  // legible UI face instead. A font that fails to register also falls back.
+  // A document subset that can't cover the basic alphabet can only type the
+  // characters the file already used, so flag it "limited".
+  final limited = [for (final f in inDocument) !f.canRender(_typeableProbe)];
   final previewFamilies = <int, String>{};
   await Future.wait([
     for (var i = 0; i < inDocument.length; i++)
-      _ensureDocumentFontPreview(inDocument[i]).then((family) {
-        if (family != null) previewFamilies[i] = family;
-      }),
+      if (inDocument[i].canRender(inDocument[i].displayName))
+        _ensureDocumentFontPreview(inDocument[i]).then((family) {
+          if (family != null) previewFamilies[i] = family;
+        }),
   ]);
   if (!context.mounted) return;
 
@@ -470,6 +505,7 @@ Future<void> showPdfFontMenu({
       _FontEntry(
         key: ValueKey('pdf-font-document-$i'),
         label: inDocument[i].displayName,
+        subtitle: limited[i] ? 'Limited characters' : null,
         searchText: '${inDocument[i].displayName} '
                 '${inDocument[i].familyName} ${inDocument[i].postScriptName} '
                 'document embedded font'
@@ -478,6 +514,7 @@ Future<void> showPdfFontMenu({
         fontFamily: previewFamilies[i],
         recentKey: 'doc:${inDocument[i].postScriptName}',
         section: 'In this document',
+        limited: limited[i],
       ),
     const _FontEntry(
       key: ValueKey('pdf-font-std-sans'),
@@ -566,6 +603,7 @@ Future<void> showPdfFontMenu({
       package: match.package,
       recentKey: match.recentKey,
       section: match.section,
+      limited: match.limited,
     ));
   }
 

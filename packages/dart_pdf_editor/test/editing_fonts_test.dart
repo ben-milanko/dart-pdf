@@ -280,6 +280,14 @@ void main() {
       // It sits under its own "In this document" section header.
       expect(find.text('IN THIS DOCUMENT'), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-font-document-0')), findsOneWidget);
+      // DejaVu is a full font (covers the basic alphabet), so it is not
+      // flagged "limited".
+      expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('pdf-font-document-0')),
+            matching: find.text('Limited characters'),
+          ),
+          findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('pdf-font-document-0')));
       await tester.pumpAndSettle();

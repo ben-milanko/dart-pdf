@@ -79,6 +79,21 @@ void main() {
       expect(font!.familyName, contains('DejaVu'));
     });
 
+    test('canRender / glyphHasOutline gate a legible preview', () {
+      final font = PdfEmbeddedFont.parse(_fontBytes);
+      // A real letter has contours, so the font can preview its own name.
+      expect(font.glyphHasOutline(font.glyphForRune('A'.codeUnitAt(0))), isTrue);
+      expect(font.canRender('DejaVu Sans'), isTrue);
+      // A character the font lacks entirely (unmapped) can't be rendered - the
+      // same gate that, for a subset font, rejects a name whose glyphs were
+      // stripped (verified against real subset PDFs). U+10FFFF is unassigned,
+      // so no cmap maps it.
+      expect(font.glyphForRune(0x10FFFF), 0);
+      expect(font.canRender('\u{10FFFF}'), isFalse);
+      // Out-of-range gids are given the benefit of the doubt, never suppressed.
+      expect(font.glyphHasOutline(1 << 20), isTrue);
+    });
+
     test('displayName leaves an untagged name untouched', () {
       // Guards against the subset-tag stripper mangling a normal family name;
       // DejaVu carries no `ABCDEF+` tag.

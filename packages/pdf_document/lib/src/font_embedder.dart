@@ -372,6 +372,64 @@ class PdfEmbeddedFont implements PdfTextFont {
   /// The glyph id for [rune], or 0 (.notdef) when the font lacks it.
   int glyphForRune(int rune) => _cmap.gidFor(rune);
 
+  /// Whether [gid]'s TrueType outline actually has contours - i.e. its `glyf`
+  /// entry is non-empty.
+  ///
+  /// Subsetters keep a font's full `cmap` but empty the `glyf` of every glyph
+  /// the document never draws, so [glyphForRune] can map a character to a
+  /// glyph that renders blank. This distinguishes a real glyph from a
+  /// stripped one. Returns true for CFF/OpenType outlines (not checkable this
+  /// cheaply) and whenever the tables can't be read, so callers only ever
+  /// *suppress* a preview they can prove is blank, never a real one.
+  bool glyphHasOutline(int gid) {
+    if (_isCff || gid < 0) return true;
+    try {
+      final data = ByteData.sublistView(_bytes);
+      final numTables = data.getUint16(4);
+      int? headOffset, locaOffset, locaLength, glyfOffset;
+      for (var i = 0; i < numTables; i++) {
+        final rec = 12 + i * 16;
+        final tag = String.fromCharCodes(_bytes, rec, rec + 4);
+        final offset = data.getUint32(rec + 8);
+        switch (tag) {
+          case 'head':
+            headOffset = offset;
+          case 'loca':
+            locaOffset = offset;
+            locaLength = data.getUint32(rec + 12);
+          case 'glyf':
+            glyfOffset = offset;
+        }
+      }
+      if (headOffset == null || locaOffset == null || glyfOffset == null) {
+        return true; // no glyf-based outlines to check
+      }
+      // indexToLocFormat (head + 50): 0 = short (2-byte, *2), 1 = long (4-byte)
+      final longLoca = data.getInt16(headOffset + 50) != 0;
+      final entries = longLoca ? locaLength! ~/ 4 : locaLength! ~/ 2;
+      if (gid + 1 >= entries) return true; // out of range - don't second-guess
+      int locaAt(int g) => longLoca
+          ? data.getUint32(locaOffset! + g * 4)
+          : data.getUint16(locaOffset! + g * 2) * 2;
+      // An empty glyf entry has zero length (start == end offset).
+      return locaAt(gid + 1) > locaAt(gid);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Whether this font can draw every non-space character of [text] with a
+  /// real (non-empty) glyph - so [text] can be previewed in this face without
+  /// missing letters. Spaces are ignored (their empty glyf is expected).
+  bool canRender(String text) {
+    for (final rune in text.runes) {
+      if (rune == 0x20) continue;
+      final gid = glyphForRune(rune);
+      if (gid == 0 || !glyphHasOutline(gid)) return false;
+    }
+    return true;
+  }
+
   /// Advance width of [gid] in thousandths of an em.
   int advanceForGlyph(int gid) {
     if (_numHMetrics == 0) return 0;

@@ -94,6 +94,36 @@ Three menu refinements after review:
   `HorbseTextured`). Used by the menu row label, the toolbar font chip
   (`_familyLabel`), the button label (`_fontLabel`), and `activeFontLabel`.
 
+## Follow-up 2: subset fonts (preview + typing honesty)
+
+Real documents embed **subset** fonts: the producer keeps the full `cmap`
+but strips the `glyf` outline of every glyph the file never draws. So a
+recovered document font maps a character to a glyph that renders blank -
+previewing its own name drops letters (`Montern` -> "ontern", `HomemadeApple`
+-> "omemadeApple"), and, more importantly, **typing** new text in it drops
+any character the subset lacks. The outlines aren't in the file; nothing can
+recover them.
+
+- `PdfEmbeddedFont.glyphHasOutline(gid)` reads the TrueType `loca`/`glyf`
+  tables and reports whether a glyph's entry is non-empty (empty entry =
+  stripped glyph). `canRender(text)` = every non-space rune maps to a glyph
+  with an outline. Both are conservative: CFF/OpenType and unreadable tables
+  return "has outline", so we only ever suppress a preview we can *prove* is
+  blank. (`cmap` presence alone is not enough - hence `glyphForRune > 0` is
+  insufficient; the outline must exist.)
+- **Preview gate**: a document row previews in its own face only when
+  `canRender(displayName)`; otherwise it renders in the legible UI font. No
+  more half-blank names.
+- **Typing honesty** (user asked): a document subset that can't cover the
+  basic alphabet (`_typeableProbe` = A–Z a–z 0–9) is flagged **"Limited
+  characters"** with a warning icon + tooltip, because typing in it would drop
+  glyphs. It stays selectable (useful for re-typing text the file already
+  contains). Decision was "mark them", not hide/substitute.
+- Detection was validated against the user's real 235-page PDF: 10/12 fonts
+  correctly flagged limited, matching the blanks seen in the screenshot
+  (`Montern` blank="M", `HomemadeApple` blank="H", etc.); `NoyhABistro-Rough`
+  and `FranklinGothic-Demi` cover their names and preview cleanly.
+
 ## Gotchas
 
 - Re-embedding a document font only works when its program still carries a
