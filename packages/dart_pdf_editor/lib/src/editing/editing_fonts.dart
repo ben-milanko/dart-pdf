@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_controller.dart';
@@ -236,8 +236,31 @@ class _LoadChoice extends _FontChoice {
 String? _fontLabel(PdfTextFont? font) {
   if (font == null) return null;
   if (font is PdfStandardFont) return font.family.label;
-  if (font is PdfEmbeddedFont) return font.familyName;
+  if (font is PdfEmbeddedFont) return font.displayName;
   return font.resourceName;
+}
+
+/// Family names of document fonts already registered with the engine for
+/// menu previews (see [_ensureDocumentFontPreview]), so each embeds once.
+final Set<String> _documentPreviewFamilies = <String>{};
+
+/// Registers [font]'s program bytes with the engine under a private family
+/// name so a menu entry can preview it in its own face, and returns that
+/// name (null when the engine can't load it, e.g. in a headless test). The
+/// name is stable per PostScript name and cached, so repeated menu opens
+/// don't re-register the same face.
+Future<String?> _ensureDocumentFontPreview(PdfEmbeddedFont font) async {
+  final family = 'pdf-doc-font::${font.postScriptName}';
+  if (_documentPreviewFamilies.contains(family)) return family;
+  try {
+    await (FontLoader(family)
+          ..addFont(Future.value(ByteData.sublistView(font.fontBytes))))
+        .load();
+    _documentPreviewFamilies.add(family);
+    return family;
+  } catch (_) {
+    return null; // preview only - the font still embeds fine on pick
+  }
 }
 
 class _FontEntry {
@@ -250,6 +273,7 @@ class _FontEntry {
     this.fontFamily,
     this.package,
     this.recentKey,
+    this.section,
   });
 
   final Key key;
@@ -264,6 +288,10 @@ class _FontEntry {
   /// group (see [PdfEditingPreferences.recentFonts]); null for entries that
   /// aren't tracked as recents (the "Load font…" action).
   final String? recentKey;
+
+  /// The section header this entry is grouped under in the menu ("In this
+  /// document", "All fonts"); null groups it with the preceding entry.
+  final String? section;
 }
 
 class _PdfFontPickerDialog extends StatefulWidget {
@@ -295,16 +323,23 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
   Widget build(BuildContext context) {
     final query = _search.text.trim().toLowerCase();
     // A flat list of rows: a String is a section header, a _FontEntry a
-    // tappable font. Recents (and their headers) show only for an empty
-    // query - searching filters the whole catalogue instead.
+    // tappable font. While the query is empty the list is grouped under
+    // section headers ("Recently used", then each entry's own section);
+    // searching flattens it, filtering the whole catalogue with no headers.
     final rows = <Object>[];
     if (query.isEmpty) {
       if (widget.recent.isNotEmpty) {
         rows.add('Recently used');
         rows.addAll(widget.recent);
-        rows.add('All fonts');
       }
-      rows.addAll(widget.entries);
+      String? lastSection;
+      for (final entry in widget.entries) {
+        if (entry.section != null && entry.section != lastSection) {
+          rows.add(entry.section!);
+          lastSection = entry.section;
+        }
+        rows.add(entry);
+      }
     } else {
       rows.addAll(
           widget.entries.where((entry) => entry.searchText.contains(query)));
@@ -414,7 +449,36 @@ Future<void> showPdfFontMenu({
 }) async {
   final platform = platformFonts ?? pdfPlatformFonts;
   final inDocument = documentFonts ?? controller.documentFonts;
+
+  // Register each document font's outlines with the engine (best-effort) so
+  // its menu row can preview in its own face. A font that fails to register
+  // just renders in the default face; it still embeds fine on pick.
+  final previewFamilies = <int, String>{};
+  await Future.wait([
+    for (var i = 0; i < inDocument.length; i++)
+      _ensureDocumentFontPreview(inDocument[i]).then((family) {
+        if (family != null) previewFamilies[i] = family;
+      }),
+  ]);
+  if (!context.mounted) return;
+
   final entries = <_FontEntry>[
+    // Document fonts head the catalogue in their own "In this document"
+    // section, previewed in their own face and shown by their real family
+    // name (subset tag stripped).
+    for (var i = 0; i < inDocument.length; i++)
+      _FontEntry(
+        key: ValueKey('pdf-font-document-$i'),
+        label: inDocument[i].displayName,
+        searchText: '${inDocument[i].displayName} '
+                '${inDocument[i].familyName} ${inDocument[i].postScriptName} '
+                'document embedded font'
+            .toLowerCase(),
+        choice: _DocumentChoice(inDocument[i]),
+        fontFamily: previewFamilies[i],
+        recentKey: 'doc:${inDocument[i].postScriptName}',
+        section: 'In this document',
+      ),
     const _FontEntry(
       key: ValueKey('pdf-font-std-sans'),
       label: 'Sans (Helvetica)',
@@ -423,6 +487,7 @@ Future<void> showPdfFontMenu({
       choice: _StandardChoice(PdfStandardFontFamily.sans),
       fontFamily: 'Helvetica',
       recentKey: 'std:sans',
+      section: 'All fonts',
     ),
     const _FontEntry(
       key: ValueKey('pdf-font-std-serif'),
@@ -432,6 +497,7 @@ Future<void> showPdfFontMenu({
       choice: _StandardChoice(PdfStandardFontFamily.serif),
       fontFamily: 'Times New Roman',
       recentKey: 'std:serif',
+      section: 'All fonts',
     ),
     const _FontEntry(
       key: ValueKey('pdf-font-std-mono'),
@@ -441,18 +507,8 @@ Future<void> showPdfFontMenu({
       choice: _StandardChoice(PdfStandardFontFamily.mono),
       fontFamily: 'Courier',
       recentKey: 'std:mono',
+      section: 'All fonts',
     ),
-    for (var i = 0; i < inDocument.length; i++)
-      _FontEntry(
-        key: ValueKey('pdf-font-document-$i'),
-        label: inDocument[i].familyName,
-        subtitle: 'In this document',
-        searchText: '${inDocument[i].familyName} '
-                '${inDocument[i].postScriptName} document embedded font'
-            .toLowerCase(),
-        choice: _DocumentChoice(inDocument[i]),
-        recentKey: 'doc:${inDocument[i].postScriptName}',
-      ),
     for (var i = 0; i < bundled.length; i++)
       _FontEntry(
         key: ValueKey('pdf-font-bundled-$i'),
@@ -463,6 +519,7 @@ Future<void> showPdfFontMenu({
         fontFamily: bundled[i].label,
         package: 'dart_pdf_editor',
         recentKey: 'bundled:${bundled[i].label}',
+        section: 'All fonts',
       ),
     for (var i = 0; i < platform.length; i++)
       _FontEntry(
@@ -475,6 +532,7 @@ Future<void> showPdfFontMenu({
         choice: _PlatformChoice(platform[i]),
         fontFamily: platform[i].family,
         recentKey: 'platform:${platform[i].label}',
+        section: 'All fonts',
       ),
     if (fontPicker != null)
       const _FontEntry(
@@ -483,6 +541,7 @@ Future<void> showPdfFontMenu({
         subtitle: 'TTF or OTF file',
         searchText: 'load custom font ttf otf file upload',
         choice: _LoadChoice(),
+        section: 'All fonts',
       ),
   ];
 
@@ -506,6 +565,7 @@ Future<void> showPdfFontMenu({
       fontFamily: match.fontFamily,
       package: match.package,
       recentKey: match.recentKey,
+      section: match.section,
     ));
   }
 

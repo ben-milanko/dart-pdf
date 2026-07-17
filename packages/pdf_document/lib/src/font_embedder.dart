@@ -60,6 +60,15 @@ class PdfEmbeddedFont implements PdfTextFont {
   /// A human-friendly family name (name table id 1), for font menus.
   final String familyName;
 
+  /// [familyName] with the six-letter subset tag PDF producers prepend to a
+  /// subsetted font stripped (e.g. `XAAPZZ+HorbseTextured` ->
+  /// `HorbseTextured`) - what a font menu should show for a font recovered
+  /// from a document.
+  String get displayName {
+    final match = RegExp(r'^[A-Z]{6}\+').firstMatch(familyName);
+    return match == null ? familyName : familyName.substring(match.end);
+  }
+
   /// The raw font program (the TrueType/OpenType bytes this was parsed
   /// from). Exposed so a host can register the same outline data with a
   /// UI toolkit's font system - e.g. to preview the font while editing -

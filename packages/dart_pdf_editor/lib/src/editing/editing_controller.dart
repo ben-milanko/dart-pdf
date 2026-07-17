@@ -1190,7 +1190,7 @@ class PdfEditingController extends ChangeNotifier {
   /// be written in (the embedded font's family, or the standard family).
   String get activeFontLabel =>
       selectedMeasurementCaptionStyle?.font.family.label ??
-      _activeFont?.familyName ??
+      _activeFont?.displayName ??
       preferences.fontFamily.family.label;
 
   /// Parses [bytes] as a TrueType (.ttf) or OpenType (.otf) font and

@@ -79,6 +79,14 @@ void main() {
       expect(font!.familyName, contains('DejaVu'));
     });
 
+    test('displayName leaves an untagged name untouched', () {
+      // Guards against the subset-tag stripper mangling a normal family name;
+      // DejaVu carries no `ABCDEF+` tag.
+      final font = PdfEmbeddedFont.parse(_fontBytes);
+      expect(font.familyName, contains('DejaVu'));
+      expect(font.displayName, font.familyName);
+    });
+
     test('returns null for a dict with no embedded program', () {
       final doc = _edited((e) => e.addFreeText(
             0,

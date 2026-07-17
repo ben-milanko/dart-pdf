@@ -277,15 +277,32 @@ void main() {
       await pumpButton(tester, c);
       await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
       await tester.pumpAndSettle();
-      await tester.enterText(
-          find.byKey(const ValueKey('pdf-font-search')), 'dejavu');
-      await tester.pump();
+      // It sits under its own "In this document" section header.
+      expect(find.text('IN THIS DOCUMENT'), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-font-document-0')), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('pdf-font-document-0')));
       await tester.pumpAndSettle();
       expect(c.activeFont, isNotNull);
       expect(c.activeFontLabel, contains('DejaVu'));
+    });
+
+    testWidgets('a document font row previews in its own registered face',
+        (tester) async {
+      final c = PdfEditingController(buildMultiPagePdf(1))
+        ..setCustomFont(_fontBytes);
+      c.addFreeText(0, const PdfRect(72, 600, 300, 660), 'Embedded');
+      c.fontFamily = PdfStandardFont.helvetica;
+
+      await pumpButton(tester, c);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      final title = tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('pdf-font-document-0')),
+        matching: find.byType(Text),
+      ));
+      // The row renders in the font's own registered preview family.
+      expect(title.style?.fontFamily, startsWith('pdf-doc-font::'));
     });
 
     testWidgets('a picked font shows up under "Recently used" next time',

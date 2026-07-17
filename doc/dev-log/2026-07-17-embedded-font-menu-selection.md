@@ -72,6 +72,28 @@ embedding path to lean on for the common case.
   embed on pick; a pick reappears under "Recently used" next open and
   re-applies; the search field is focused on open.
 
+## Follow-up (same session)
+
+Three menu refinements after review:
+
+- **Document fonts get their own section.** `_FontEntry` gained a `section`
+  label; the dialog now groups the catalogue under headers ("Recently used",
+  then "In this document", then "All fonts") while the query is empty, and
+  flattens (no headers) while searching. Document entries are ordered first
+  so their section leads the catalogue.
+- **Rows preview in their own face.** `_ensureDocumentFontPreview` registers
+  each document font's `fontBytes` with the engine via `FontLoader` under a
+  stable private family (`pdf-doc-font::<postScriptName>`, cached so repeated
+  opens don't re-register), and the row's title renders in it. Best-effort:
+  a font the engine can't load just renders plain and still embeds on pick.
+  Preloaded before the dialog opens (with a `context.mounted` guard after the
+  await). Bundled/standard/platform rows already previewed via their declared
+  families.
+- **Clean names.** `PdfEmbeddedFont.displayName` strips the six-letter
+  `ABCDEF+` subset tag producers prepend (`XAAPZZ+HorbseTextured` ->
+  `HorbseTextured`). Used by the menu row label, the toolbar font chip
+  (`_familyLabel`), the button label (`_fontLabel`), and `activeFontLabel`.
+
 ## Gotchas
 
 - Re-embedding a document font only works when its program still carries a
