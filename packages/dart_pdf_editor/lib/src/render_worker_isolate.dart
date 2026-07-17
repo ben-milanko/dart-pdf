@@ -40,6 +40,17 @@ int debugPdfRenderWorkerIgnoredStaleCancels = 0;
 /// just carry a different payload (device geometry in, an encoded [StripPlan]
 /// out) and are cancelled through [PdfRenderWorker.cancelBinStrips] so a
 /// record and a bin for the same page never cancel each other.
+///
+/// The command buffer crosses the seam as a serialized [Uint8List] wrapped in
+/// [TransferableTypedData] (zero-copy transfer), and is rebuilt with
+/// [deserializeCommands] on the main isolate. Passing the live
+/// `List<PdfRenderCommand>` graph over the port instead (issue #309's
+/// "transfer half") was measured and rejected: the VM's general object-graph
+/// copy is ~3–4x slower than the compact byte codec on a dense page and lands
+/// on the receiving UI isolate, and `Isolate.exit`'s zero-copy hand-off would
+/// kill this long-lived pooled worker. See
+/// `packages/pdf_graphics/tool/bench_render_seam.dart` and
+/// `doc/dev-log/2026-07-17-seam-transfer-measurement.md`.
 PdfRenderWorker startRenderWorker(Uint8List bytes) =>
     _IsolateRenderWorker(bytes);
 
