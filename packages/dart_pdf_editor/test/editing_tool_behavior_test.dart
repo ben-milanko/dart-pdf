@@ -228,7 +228,7 @@ void main() {
 
     test('a line-shaped measurement needs a scale and stamps a /Line', () {
       final editing = controller();
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       final consumed = PdfEditToolBehavior.of(PdfEditTool.measureDistance)
           .commitLineDrag(editing, 0, (100, 100), (316, 100));
@@ -240,7 +240,7 @@ void main() {
 
     test('a poly-shaped measurement stamps a takeoff', () {
       final editing = controller();
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       PdfEditToolBehavior.of(PdfEditTool.measurePerimeter)
           .commitPoly(editing, 0, const [(100, 100), (300, 100), (300, 260)]);
@@ -252,7 +252,7 @@ void main() {
     test('the volume tool declines the synchronous commit (it needs a depth)',
         () {
       final editing = controller();
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       final consumed = PdfEditToolBehavior.of(PdfEditTool.measureVolume)
           .commitPoly(editing, 0, const [(100, 100), (300, 100), (300, 260)]);
