@@ -6,11 +6,18 @@ import 'package:flutter/material.dart';
 
 import 'editor_screen.dart';
 import 'platform_fonts.dart';
+import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
 /// the MaterialApp can follow the persisted light/dark choice and every
 /// editing session shares the same tool styles, panel layout, and viewport
 /// memory.
+///
+/// When multi-window support is enabled ([multiWindowSupported]), every
+/// additional OS window opened from the "New window" action renders another
+/// [_DartPdfWindow] backed by *this* app's [_prefs], so theme and tool styles
+/// stay in lock-step across windows. The preferences outlive every window and
+/// are disposed here with the app.
 class DartPdfEditorApp extends StatefulWidget {
   const DartPdfEditorApp({super.key, this.launchArgs = const []});
 
@@ -58,10 +65,61 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     super.dispose();
   }
 
+  /// Opens another top-level window hosting a fresh editor that shares this
+  /// app's preferences. [context] must belong to a currently open window (any
+  /// one works) so the new window joins the same registry. A no-op when
+  /// windowing isn't available.
+  void _openNewWindow(BuildContext context) {
+    openRegularWindow(
+      context,
+      title: 'DartPDF',
+      builder: (context) => _DartPdfWindow(
+        prefs: _prefs,
+        onNewWindow: _openNewWindow,
+        // Only the primary window owns the single persisted session; extra
+        // windows start empty so they don't reopen or clobber it.
+        persistSession: false,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _DartPdfWindow(
+      prefs: _prefs,
+      launchArgs: widget.launchArgs,
+      autoCheckUpdates: true,
+      onNewWindow: multiWindowSupported ? _openNewWindow : null,
+    );
+  }
+}
+
+/// One window's worth of DartPDF: a themed [MaterialApp] around an
+/// [EditorScreen]. Reused for the primary window and every window opened via
+/// "New window", all sharing the same [prefs] so theme/tool changes propagate
+/// everywhere at once.
+class _DartPdfWindow extends StatelessWidget {
+  const _DartPdfWindow({
+    required this.prefs,
+    this.launchArgs = const [],
+    this.autoCheckUpdates = false,
+    this.onNewWindow,
+    this.persistSession = true,
+  });
+
+  final PdfEditingPreferences prefs;
+  final List<String> launchArgs;
+  final bool autoCheckUpdates;
+  final bool persistSession;
+
+  /// Opens another window; null when multi-window support is unavailable, which
+  /// hides the "New window" affordances.
+  final void Function(BuildContext context)? onNewWindow;
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _prefs,
+      listenable: prefs,
       builder: (context, _) => MaterialApp(
         title: 'DartPDF',
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
@@ -70,11 +128,13 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           brightness: Brightness.dark,
           useMaterial3: true,
         ),
-        themeMode: _prefs.themeMode,
+        themeMode: prefs.themeMode,
         home: EditorScreen(
-          prefs: _prefs,
-          launchArgs: widget.launchArgs,
-          autoCheckUpdates: true,
+          prefs: prefs,
+          launchArgs: launchArgs,
+          autoCheckUpdates: autoCheckUpdates,
+          onNewWindow: onNewWindow,
+          persistSession: persistSession,
         ),
       ),
     );

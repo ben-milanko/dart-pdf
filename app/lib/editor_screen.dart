@@ -60,6 +60,8 @@ class EditorScreen extends StatefulWidget {
     this.saveDocumentToPath,
     this.imageClipboardWriter,
     this.imageClipboardReader,
+    this.onNewWindow,
+    this.persistSession = true,
   });
 
   final PdfEditingPreferences prefs;
@@ -118,6 +120,20 @@ class EditorScreen extends StatefulWidget {
   /// Override for reading an image from the system clipboard. Tests inject a
   /// fake; production falls back to [readImageFromClipboard].
   final ImageClipboardReader? imageClipboardReader;
+
+  /// Opens a fresh editor in a new OS window, called with this screen's own
+  /// [BuildContext] so the new window joins the same window registry. Null
+  /// when multi-window support is unavailable - the app menu then hides the
+  /// "New window" item and the ⇧⌘/Ctrl+Shift+N shortcut is a no-op. Wired by
+  /// the app when Flutter's experimental windowing feature is enabled; see
+  /// `window_support.dart`.
+  final void Function(BuildContext context)? onNewWindow;
+
+  /// Whether this screen restores the last session's tabs on launch and
+  /// persists tab changes. The primary window owns the single persisted
+  /// session; additional multi-window instances pass `false` so they start
+  /// empty and don't race the primary on the shared store. Defaults to true.
+  final bool persistSession;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -180,7 +196,9 @@ class _EditorScreenState extends State<EditorScreen>
     if (doc != null) _openBytes(doc.bytes, doc.title);
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
-    unawaited(_restoreSession());
+    // Additional multi-window instances opt out so they don't reopen (or later
+    // clobber) the primary window's persisted session.
+    if (widget.persistSession) unawaited(_restoreSession());
     if (widget.autoCheckUpdates && UpdateService.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
@@ -353,7 +371,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// launch can restore it. A no-op until the previous session has been read
   /// back, so early opens can't clobber the stored set before [_restoreSession].
   Future<void> _persistSession() async {
-    if (!_sessionLoaded) return;
+    if (!widget.persistSession || !_sessionLoaded) return;
     final documents = <SessionDocument>[];
     final seen = <String>{};
     for (final tab in _tabs) {
@@ -550,6 +568,12 @@ class _EditorScreenState extends State<EditorScreen>
     _readOnly = false;
     _addTab(tab);
   }
+
+  /// Opens a fresh editor in a separate OS window (experimental multi-window;
+  /// see `window_support.dart`). Passes this screen's own context so the new
+  /// window joins the shared window registry. A no-op when the host didn't
+  /// provide [EditorScreen.onNewWindow] (multi-window support unavailable).
+  void _newWindow() => widget.onNewWindow?.call(context);
 
   /// Opens a file the OS handed us (association, share, launch arg).
   ///
@@ -1379,6 +1403,17 @@ class _EditorScreenState extends State<EditorScreen>
             shortcut: _menuShortcut('N'),
           ),
         ),
+        if (widget.onNewWindow != null)
+          PopupMenuItem(
+            key: const ValueKey('menu-new-window'),
+            height: _appMenuItemHeight(),
+            value: _newWindow,
+            child: _appMenuTile(
+              icon: Icons.open_in_new,
+              title: 'New window',
+              shortcut: _menuShortcut('N', shift: true),
+            ),
+          ),
         PopupMenuItem(
           key: const ValueKey('menu-open'),
           height: _appMenuItemHeight(),
@@ -1506,6 +1541,10 @@ class _EditorScreenState extends State<EditorScreen>
               _newDocument,
           const SingleActivator(LogicalKeyboardKey.keyN, control: true):
               _newDocument,
+          const SingleActivator(LogicalKeyboardKey.keyN, meta: true, shift: true):
+              _newWindow,
+          const SingleActivator(LogicalKeyboardKey.keyN,
+              control: true, shift: true): _newWindow,
           const SingleActivator(LogicalKeyboardKey.keyO,
               meta: true, shift: true): _openMostRecent,
           const SingleActivator(LogicalKeyboardKey.keyO,

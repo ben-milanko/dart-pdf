@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'app.dart' deferred as app;
 import 'app_info.dart' deferred as app_info;
+import 'window_support.dart';
 
 /// On Windows and Linux the OS launches the app with the opened file as a
 /// command-line argument; the Flutter runner forwards it here.
@@ -11,7 +12,10 @@ Future<void> main(List<String> args) async {
   // PackageInfo (loaded below) needs the binding; ensure it before awaiting.
   WidgetsFlutterBinding.ensureInitialized();
 
-  runApp(_DeferredApp(launchArgs: args));
+  // With the experimental windowing feature enabled this bootstraps an
+  // explicit primary window that can spawn siblings; otherwise it's the
+  // classic single-window runApp. Either way the widget tree is identical.
+  runDartPdfApp(_DeferredApp(launchArgs: args));
 
   // Do not block first paint or the initial loading unit on package metadata.
   // The About box refreshes from this best-effort value after the shell is
