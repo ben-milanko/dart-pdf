@@ -172,6 +172,117 @@ PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
   return _finish(m.$1, m.$2, m.$3, hasAlpha: true);
 }
 
+/// A rectangular source-pixel region of an image, in the top-left origin of
+/// decoded samples (the same coordinates a decode produces). Hand one to
+/// [decodePdfImage] to decode only the visible slice of a large raster.
+class PdfImageRegion {
+  const PdfImageRegion(
+      this.sourceX, this.sourceY, this.sourceWidth, this.sourceHeight);
+
+  final int sourceX;
+  final int sourceY;
+  final int sourceWidth;
+  final int sourceHeight;
+}
+
+/// Decodes image XObject [stream] to premultiplied, codec-ready RGBA by
+/// stating *what pixels you want*, not which decoder can produce them:
+///
+///  * [region] - decode only this source-pixel rectangle (deep-zoom detail
+///    renders that must not ship the whole raster underlay).
+///  * [targetWidth]/[targetHeight] - the display size to decode to; a target
+///    smaller than the source (or region) avoids expanding a huge native
+///    raster only to downsample it. Omit both to decode at native size.
+///
+/// The façade picks the narrowest fast path that fits - region-scaled,
+/// whole-image scaled, or a plain full decode - and, when that fast path
+/// can't handle the stream (a stacked filter, an Indexed-8/ICC/Lab space, a
+/// 16-bit or /SMask'd image; the fast paths only cover single-filter Flate/
+/// raw/CCITT), transparently falls back to a full decode cropped and
+/// downsampled to the request. That fall-back-and-downscale policy used to be
+/// copied into each caller.
+///
+/// Returns null only when even the full pure-Dart decode can't produce pixels
+/// - a non-CMYK DCTDecode base, or an image under a DCT-encoded /SMask, needs
+/// the platform JPEG codec. Those callers decode the base via
+/// [decodePdfImageBase] and pair it with the platform codec one layer up.
+PdfDecodedPixels? decodePdfImage(
+  CosDocument cos,
+  CosStream stream, {
+  PdfImageRegion? region,
+  int? targetWidth,
+  int? targetHeight,
+}) {
+  if (region != null) {
+    final tw = targetWidth ?? region.sourceWidth;
+    final th = targetHeight ?? region.sourceHeight;
+    final fast = decodePdfImagePixelsRegionScaled(
+      cos,
+      stream,
+      region.sourceX,
+      region.sourceY,
+      region.sourceWidth,
+      region.sourceHeight,
+      tw,
+      th,
+    );
+    if (fast != null) return fast;
+    final full = decodePdfImagePixels(cos, stream);
+    if (full == null) return null;
+    return cropDownsamplePdfDecodedPixels(
+      full,
+      region.sourceX,
+      region.sourceY,
+      region.sourceWidth,
+      region.sourceHeight,
+      tw,
+      th,
+    );
+  }
+
+  if (targetWidth != null && targetHeight != null) {
+    final fast = decodePdfImagePixelsScaled(cos, stream, targetWidth, targetHeight);
+    if (fast != null) return fast;
+    final full = decodePdfImagePixels(cos, stream);
+    if (full == null) return null;
+    return downsamplePdfDecodedPixels(full, targetWidth, targetHeight);
+  }
+
+  return decodePdfImagePixels(cos, stream);
+}
+
+/// Crops premultiplied [decoded] to the source rectangle and downsamples it to
+/// [targetWidth]×[targetHeight]. Returns null when the rectangle falls outside
+/// [decoded]. Shared by [decodePdfImage]'s full-decode fallback and callers
+/// that already hold a decoded image to slice (a cached whole-image raster).
+PdfDecodedPixels? cropDownsamplePdfDecodedPixels(
+  PdfDecodedPixels decoded,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
+  if (sourceX < 0 ||
+      sourceY < 0 ||
+      sourceWidth <= 0 ||
+      sourceHeight <= 0 ||
+      sourceX + sourceWidth > decoded.width ||
+      sourceY + sourceHeight > decoded.height) {
+    return null;
+  }
+  final cropped = Uint8List(sourceWidth * sourceHeight * 4);
+  for (var y = 0; y < sourceHeight; y++) {
+    final srcOffset = ((sourceY + y) * decoded.width + sourceX) * 4;
+    final dstOffset = y * sourceWidth * 4;
+    cropped.setRange(
+        dstOffset, dstOffset + sourceWidth * 4, decoded.rgba, srcOffset);
+  }
+  final pixels = PdfDecodedPixels(cropped, sourceWidth, sourceHeight);
+  return downsamplePdfDecodedPixels(pixels, targetWidth, targetHeight);
+}
+
 /// Decodes a simple Flate/raw or CCITT image directly to
 /// [targetWidth]×[targetHeight], or returns null when the stream needs the full
 /// general decoder.
