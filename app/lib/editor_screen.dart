@@ -998,13 +998,24 @@ class _EditorScreenState extends State<EditorScreen>
       final options = await (widget.digitalSignatureOptionsProvider ??
           showDigitalSigningDialog)(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
-      await session.addDigitalSignature(
-        options.identity,
-        fieldName: options.fieldName,
-        reason: options.reason,
-        location: options.location,
-        contactInfo: options.contactInfo,
-      );
+      final selfSigned = options.selfSignedIdentity;
+      if (selfSigned != null) {
+        await session.addSelfSignedSignature(
+          selfSigned,
+          fieldName: options.fieldName,
+          reason: options.reason,
+          location: options.location,
+          contactInfo: options.contactInfo,
+        );
+      } else {
+        await session.addDigitalSignature(
+          options.identity!,
+          fieldName: options.fieldName,
+          reason: options.reason,
+          location: options.location,
+          contactInfo: options.contactInfo,
+        );
+      }
       if (!mounted || !_tabs.contains(tab)) return;
       // Signing is a document revision, then follows the normal save path so
       // an existing origin is overwritten and an untitled document gets a

@@ -87,9 +87,104 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result, isNotNull);
-    expect(result!.identity.signerName, 'Dart PDF Test Signer');
+    expect(result!.identity!.signerName, 'Dart PDF Test Signer');
     expect(result!.reason, 'Approved');
     expect(result!.location, 'Melbourne');
+  });
+
+  testWidgets('one-tap: create a self-signed identity and sign with it',
+      (tester) async {
+    DigitalSignatureOptions? result;
+    final store = InMemoryIdentityStore();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async {
+              result = await showDigitalSigningDialog(
+                context,
+                identityStore: store,
+                createSelfSignedIdentity: (context, store) async {
+                  final identity = PdfSigningIdentity.generate(name: 'Ada Lovelace');
+                  await store.save(identity.name!, identity);
+                  return identity;
+                },
+              );
+            },
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    // Sign is disabled until an identity is chosen.
+    expect(
+      tester
+          .widget<FilledButton>(
+              find.byKey(const ValueKey('digital-signature-sign')))
+          .onPressed,
+      isNull,
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('digital-signature-create-identity')));
+    await tester.pumpAndSettle();
+
+    // The self-signed identity is shown and was persisted to the store.
+    expect(find.byKey(const ValueKey('digital-signature-self-signed')),
+        findsOneWidget);
+    expect(find.text('Ada Lovelace'), findsOneWidget);
+    expect(await store.ids(), ['Ada Lovelace']);
+
+    await tester.tap(find.byKey(const ValueKey('digital-signature-sign')));
+    await tester.pumpAndSettle();
+
+    expect(result, isNotNull);
+    expect(result!.identity, isNull);
+    expect(result!.selfSignedIdentity, isNotNull);
+    expect(result!.selfSignedIdentity!.name, 'Ada Lovelace');
+    expect(result!.signerName, 'Ada Lovelace');
+  });
+
+  testWidgets('app menu signs with a self-signed identity, then saves',
+      (tester) async {
+    Uint8List? saved;
+    final original = buildClassicPdf();
+    final identity = PdfSigningIdentity.generate(name: 'Grace Hopper');
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        initialDocument: (bytes: original, title: 'Contract.pdf'),
+        digitalSignatureOptionsProvider: (context) async =>
+            DigitalSignatureOptions(
+          selfSignedIdentity: identity,
+          reason: 'Approved for release',
+        ),
+        saveDocumentAs: (context, bytes, suggestedName) async {
+          saved = Uint8List.fromList(bytes);
+          return SaveResult.downloaded(suggestedName);
+        },
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-digital-signature')));
+    await tester.pumpAndSettle();
+
+    expect(saved, isNotNull);
+    expect(saved!.sublist(0, original.length), original);
+    final signatures = PdfSignature.of(PdfDocument.open(saved!));
+    expect(signatures, hasLength(1));
+    expect(signatures.single.signerName, 'Grace Hopper');
+    expect(signatures.single.subFilter, 'adbe.pkcs7.detached');
+    final validation = signatures.single.validate();
+    expect(validation.intact, isTrue);
+    expect(validation.coversWholeDocument, isTrue);
   });
 
   testWidgets('app menu digitally signs then saves the current document',

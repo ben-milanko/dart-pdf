@@ -640,6 +640,31 @@ class PdfEditingController extends ChangeNotifier {
     return _adoptDigitalSignature(signed, before: before);
   }
 
+  /// Like [addDigitalSignature] but signs with a one-tap self-signed
+  /// [PdfSigningIdentity] (ECDSA over SHA-256), typically minted by
+  /// [PdfSigningIdentity.generate]. Produces an `adbe.pkcs7.detached`
+  /// signature and goes through the same validation and undo integration.
+  Future<bool> addSelfSignedSignature(
+    PdfSigningIdentity identity, {
+    String? fieldName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+  }) async {
+    final before = bytes;
+    final signed = PdfEditor(PdfDocument.open(before, password: _password))
+        .saveSelfSigned(
+      identity: identity,
+      fieldName: fieldName,
+      reason: reason,
+      location: location,
+      contactInfo: contactInfo,
+      signingTime: signingTime,
+    );
+    return _adoptDigitalSignature(signed, before: before);
+  }
+
   bool _adoptDigitalSignature(Uint8List signed, {required Uint8List before}) {
     if (signed.length <= before.length) {
       throw const FormatException(

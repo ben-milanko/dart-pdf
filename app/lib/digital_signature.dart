@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 const digitalSignatureKeyTypeGroup = XTypeGroup(
   label: 'RSA private keys',
@@ -24,34 +25,60 @@ typedef DigitalSignatureOptionsProvider = Future<DigitalSignatureOptions?>
 typedef DigitalSignaturePrivateKeyPicker = Future<XFile?> Function();
 typedef DigitalSignatureCertificatePicker = Future<List<XFile>> Function();
 
-/// Everything the app needs to add one approval signature. The private key is
-/// retained only by [identity] in memory and is never persisted by the app.
+/// Mints (or shows a dialog to mint) a one-tap self-signed identity. Injected
+/// in tests; defaults to [showCreateSigningIdentityDialog].
+typedef SelfSignedIdentityCreator = Future<PdfSigningIdentity?> Function(
+    BuildContext context, PdfIdentityStore store);
+
+/// Everything the app needs to add one approval signature. Exactly one of
+/// [identity] (a bring-your-own RSA key + chain) or [selfSignedIdentity] (a
+/// one-tap self-signed P-256 identity) is set. Either way the private key is
+/// only used in memory when signing; a self-signed identity may also be kept
+/// in the platform keychain via [SecureIdentityStore].
 class DigitalSignatureOptions {
   const DigitalSignatureOptions({
-    required this.identity,
+    this.identity,
+    this.selfSignedIdentity,
     this.fieldName,
     this.reason,
     this.location,
     this.contactInfo,
-  });
+  }) : assert((identity == null) != (selfSignedIdentity == null),
+            'exactly one identity kind must be provided');
 
-  final PdfDigitalSignatureIdentity identity;
+  /// A bring-your-own RSA/X.509 identity from files, or null for a self-signed
+  /// signature.
+  final PdfDigitalSignatureIdentity? identity;
+
+  /// A one-tap self-signed P-256 identity, or null for a file-based signature.
+  final PdfSigningIdentity? selfSignedIdentity;
+
   final String? fieldName;
   final String? reason;
   final String? location;
   final String? contactInfo;
+
+  /// The signer name to show, regardless of which identity kind is set.
+  String? get signerName =>
+      identity?.signerName ?? selfSignedIdentity?.name;
 }
 
 Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   BuildContext context, {
   DigitalSignaturePrivateKeyPicker? privateKeyPicker,
   DigitalSignatureCertificatePicker? certificatePicker,
+  PdfIdentityStore? identityStore,
+  SelfSignedIdentityCreator? createSelfSignedIdentity,
 }) =>
     showDialog<DigitalSignatureOptions>(
       context: context,
       builder: (context) => DigitalSignatureDialog(
         privateKeyPicker: privateKeyPicker ?? _pickPrivateKey,
         certificatePicker: certificatePicker ?? _pickCertificates,
+        identityStore: identityStore ?? SecureIdentityStore(),
+        createSelfSignedIdentity: createSelfSignedIdentity ??
+            (context, store) =>
+                showCreateSigningIdentityDialog(context, store: store),
       ),
     );
 
@@ -68,10 +95,14 @@ class DigitalSignatureDialog extends StatefulWidget {
     super.key,
     required this.privateKeyPicker,
     required this.certificatePicker,
+    required this.identityStore,
+    required this.createSelfSignedIdentity,
   });
 
   final DigitalSignaturePrivateKeyPicker privateKeyPicker;
   final DigitalSignatureCertificatePicker certificatePicker;
+  final PdfIdentityStore identityStore;
+  final SelfSignedIdentityCreator createSelfSignedIdentity;
 
   @override
   State<DigitalSignatureDialog> createState() => _DigitalSignatureDialogState();
@@ -88,7 +119,30 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   String? _privateKeyName;
   List<String> _certificateNames = const [];
   PdfDigitalSignatureIdentity? _identity;
+  PdfSigningIdentity? _selfSigned;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRememberedIdentity();
+  }
+
+  /// Surfaces a previously created self-signed identity from the keychain, so
+  /// signing is genuinely one-tap on the second use. Any storage error (e.g.
+  /// no secure storage in a test) just leaves no remembered identity.
+  Future<void> _loadRememberedIdentity() async {
+    try {
+      final ids = await widget.identityStore.ids();
+      if (ids.isEmpty) return;
+      final identity = await widget.identityStore.load(ids.first);
+      if (identity != null && mounted && _identity == null) {
+        setState(() => _selfSigned = identity);
+      }
+    } catch (_) {
+      // no secure storage here - the "Create" button still works
+    }
+  }
 
   @override
   void dispose() {
@@ -97,6 +151,22 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     _location.dispose();
     _contact.dispose();
     super.dispose();
+  }
+
+  Future<void> _createSelfSignedIdentity() async {
+    final identity =
+        await widget.createSelfSignedIdentity(context, widget.identityStore);
+    if (identity == null || !mounted) return;
+    setState(() {
+      _selfSigned = identity;
+      // A self-signed identity supersedes any file selection.
+      _privateKey = null;
+      _certificates = const [];
+      _privateKeyName = null;
+      _certificateNames = const [];
+      _identity = null;
+      _error = null;
+    });
   }
 
   Future<void> _selectPrivateKey() async {
@@ -137,6 +207,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   void _rebuildIdentity() {
     _identity = null;
     _error = null;
+    _selfSigned = null; // an explicit file selection supersedes self-signed
     final key = _privateKey;
     if (key == null || _certificates.isEmpty) return;
     try {
@@ -157,6 +228,17 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   }
 
   void _submit() {
+    final selfSigned = _selfSigned;
+    if (selfSigned != null) {
+      Navigator.of(context).pop(DigitalSignatureOptions(
+        selfSignedIdentity: selfSigned,
+        fieldName: _value(_fieldName),
+        reason: _value(_reason),
+        location: _value(_location),
+        contactInfo: _value(_contact),
+      ));
+      return;
+    }
     final identity = _identity;
     if (identity == null) return;
     Navigator.of(context).pop(DigitalSignatureOptions(
@@ -171,6 +253,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   @override
   Widget build(BuildContext context) {
     final identity = _identity;
+    final selfSigned = _selfSigned;
+    final canSign = identity != null || selfSigned != null;
     final theme = Theme.of(context);
     return AlertDialog(
       title: const Row(children: [
@@ -213,6 +297,29 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                     ? 'Choose certificate chain…'
                     : _certificateNames.join(', ')),
               ),
+              const SizedBox(height: 12),
+              Row(children: [
+                const Expanded(child: Divider()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('or', style: theme.textTheme.bodySmall),
+                ),
+                const Expanded(child: Divider()),
+              ]),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const ValueKey('digital-signature-create-identity'),
+                onPressed: _createSelfSignedIdentity,
+                icon: const Icon(Icons.badge_outlined),
+                label: const Text('Create a signing identity…'),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'No files needed. A self-signed identity reads as "signed, '
+                'validity unknown" in Acrobat (like its own self-signed IDs); '
+                'it is remembered in your device keychain.',
+                style: theme.textTheme.bodySmall,
+              ),
               if (_error != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -235,6 +342,17 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                       '${MaterialLocalizations.of(context).formatMediumDate(identity.validFrom.toLocal())} '
                       'to ${MaterialLocalizations.of(context).formatMediumDate(identity.validUntil.toLocal())}',
                     ),
+                  ),
+                ),
+              ] else if (selfSigned != null) ...[
+                const SizedBox(height: 10),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    key: const ValueKey('digital-signature-self-signed'),
+                    leading: const Icon(Icons.badge_outlined),
+                    title: Text(selfSigned.name ?? 'Self-signed identity'),
+                    subtitle: const Text('Self-signed · validity unknown'),
                   ),
                 ),
               ],
@@ -273,7 +391,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
         ),
         FilledButton.icon(
           key: const ValueKey('digital-signature-sign'),
-          onPressed: identity == null ? null : _submit,
+          onPressed: canSign ? _submit : null,
           icon: const Icon(Icons.draw_outlined),
           label: const Text('Sign'),
         ),
