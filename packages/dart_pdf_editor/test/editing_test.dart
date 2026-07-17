@@ -117,7 +117,7 @@ void main() {
 
     test('ink pressures are buffered and committed with the annotation', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..strokeWidth = 4
+        ..preferences.strokeWidth = 4
         ..addInkStroke(0, [(100, 100), (150, 130), (200, 100)],
             pressures: [0.0, 0.5, 1.0])
         ..addInkStroke(0, [(120, 90), (140, 95)]);
@@ -278,7 +278,7 @@ void main() {
 
     test('opacity is baked into new annotation appearances', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..opacity = 0.5
+        ..preferences.opacity = 0.5
         ..addRectangle(0, const PdfRect(100, 100, 200, 150));
       final written = String.fromCharCodes(editing.bytes);
       expect(written, contains('/ExtGState'));
@@ -793,7 +793,7 @@ void main() {
       final (editing, _) = await pumpEditor(tester);
       editing.tool = PdfEditTool.ink;
       await tester.pump();
-      expect(editing.fingerDrawsInk, isTrue);
+      expect(editing.preferences.fingerDrawsInk, isTrue);
 
       // TestGesture can't carry pressure, so dispatch the Apple Pencil
       // contact as raw events: pressure rising over the stroke
@@ -812,7 +812,7 @@ void main() {
       ));
       await tester.pump();
       // the first stylus contact turns palm rejection on
-      expect(editing.fingerDrawsInk, isFalse);
+      expect(editing.preferences.fingerDrawsInk, isFalse);
       binding.handlePointerEvent(PointerMoveEvent(
         pointer: pointer,
         kind: PointerDeviceKind.stylus,
@@ -1154,22 +1154,22 @@ void main() {
       expect(editing.tool, PdfEditTool.highlight);
       expect(viewer.hasSelection, isFalse);
       expect(editing.color, const Color(0xFFFFD100));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
 
       await tester.tap(find.widgetWithIcon(IconButton, Icons.draw));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFFE53935));
-      expect(editing.strokeWidth, 2);
-      expect(editing.opacity, 1);
+      expect(editing.preferences.strokeWidth, 2);
+      expect(editing.preferences.opacity, 1);
 
       await tester.tap(find.byTooltip('Highlight - draw freehand'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFFFFD100));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
 
       final gesture = await tester.startGesture(view(80, 720),
           kind: PointerDeviceKind.mouse);
@@ -1342,22 +1342,22 @@ void main() {
       // pattern scale
       await tester.drag(menuSliders.at(0), const Offset(200, 0));
       await tester.pump();
-      expect(editing.strokeWidth, greaterThan(2));
+      expect(editing.preferences.strokeWidth, greaterThan(2));
 
       await tester.drag(menuSliders.at(1), const Offset(200, 0));
       await tester.pump();
-      expect(editing.cornerRadius, greaterThan(0));
+      expect(editing.preferences.cornerRadius, greaterThan(0));
 
       await tester.drag(menuSliders.at(2), const Offset(-200, 0));
       await tester.pump();
-      expect(editing.opacity, lessThan(1));
+      expect(editing.preferences.opacity, lessThan(1));
 
       // the pattern scale is independent of the pen width
-      final beforeStroke = editing.strokeWidth;
+      final beforeStroke = editing.preferences.strokeWidth;
       await tester.drag(menuSliders.at(3), const Offset(200, 0));
       await tester.pump();
-      expect(editing.lineScale, greaterThan(1));
-      expect(editing.strokeWidth, beforeStroke);
+      expect(editing.preferences.lineScale, greaterThan(1));
+      expect(editing.preferences.strokeWidth, beforeStroke);
       await tester.pumpAndSettle();
     });
 

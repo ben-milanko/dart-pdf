@@ -351,7 +351,7 @@ void main() {
       // a red rectangle near the bottom of page 1 (page y 30..70)
       editing
         ..color = const Color(0xFFFF0000)
-        ..strokeWidth = 3
+        ..preferences.strokeWidth = 3
         ..addRectangle(0, const PdfRect(250, 30, 400, 70))
         ..tool = PdfEditTool.select;
       await tester.pump();

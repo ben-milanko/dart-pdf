@@ -1077,7 +1077,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// but finger-drawing is off, so touch is reserved for scrolling.
   bool get _fingerPansViewport =>
       _drawTool &&
-      !_controller.fingerDrawsInk &&
+      !_controller.preferences.fingerDrawsInk &&
       _host.panViewport != null;
   bool get _polyTool =>
       _tool == PdfEditTool.polyline ||
@@ -1136,7 +1136,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_drawTool) return false;
     return switch (kind) {
       PointerDeviceKind.stylus || PointerDeviceKind.invertedStylus => true,
-      PointerDeviceKind.touch => _controller.fingerDrawsInk,
+      PointerDeviceKind.touch => _controller.preferences.fingerDrawsInk,
       _ => false,
     };
   }
@@ -1209,12 +1209,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     if (_drawTool &&
-        _controller.fingerDrawsInk &&
+        _controller.preferences.fingerDrawsInk &&
         (event.kind == PointerDeviceKind.stylus ||
             event.kind == PointerDeviceKind.invertedStylus)) {
       // an Apple Pencil (or other stylus) is in play: from now on the
       // pen draws and fingers scroll, until the user toggles it back
-      _controller.fingerDrawsInk = false;
+      _controller.preferences.fingerDrawsInk = false;
     }
     if (_pointers.rawPointer == null && _rawDrives(event.kind)) {
       _pointers.rawPointer = event.pointer;
@@ -1403,7 +1403,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// deletes them.
   void _eraseAt(Offset position) {
     final point = _geometry.toPagePoint(position);
-    final radius = _controller.eraserRadius;
+    final radius = _controller.preferences.eraserRadius;
     final from = _erasePath.isEmpty ? point : _erasePath.last;
     setState(() {
       _eraserCursor = position;
@@ -1784,7 +1784,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         template: null,
         check: check,
         color: color,
-        opacity: _controller.opacity.clamp(0.0, 1.0).toDouble(),
+        opacity: _controller.preferences.opacity.clamp(0.0, 1.0).toDouble(),
       ),
       document: _controller.document,
     );
@@ -1839,7 +1839,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         template: template,
         check: check,
         color: color,
-        opacity: _controller.opacity.clamp(0.0, 1.0).toDouble(),
+        opacity: _controller.preferences.opacity.clamp(0.0, 1.0).toDouble(),
       );
 
   _StampAfterimage? _activeStampAfterimageAt(Offset position) {
@@ -1902,7 +1902,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       template: null,
       check: true,
       color: _controller.color,
-      opacity: _controller.opacity.clamp(0.0, 1.0).toDouble(),
+      opacity: _controller.preferences.opacity.clamp(0.0, 1.0).toDouble(),
     );
   }
 
@@ -2256,7 +2256,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a new box in flight follows the tune popup's box-level defaults live
     // (alignment, spacing, underline) instead of only picking them up on open
     if (!_textEditExisting && _textEditFieldName == null) {
-      final align = _controller.textAlign;
+      final align = _controller.preferences.textAlign;
       final ls = _controller.lineSpacing;
       final cs = _controller.charSpacing;
       final ul = _controller.textUnderline;
@@ -2504,7 +2504,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Rect _defaultPlacementRect(Offset tap) {
     final scale = _geometry.scale;
     final w = 200.0 * scale;
-    final h = (_controller.fontSize * 1.6 + 8) * scale;
+    final h = (_controller.preferences.fontSize * 1.6 + 8) * scale;
     final size = _geometry.viewSize;
     final left = tap.dx.clamp(0.0, math.max(0.0, size.width - w)).toDouble();
     final top = tap.dy.clamp(0.0, math.max(0.0, size.height - h)).toDouble();
@@ -2536,7 +2536,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final defaultFont = existing
         ? (style?.font ?? _controller.fontFamily)
         : (_controller.activeFont ?? _controller.fontFamily);
-    final defaultSize = style?.size ?? _controller.fontSize;
+    final defaultSize = style?.size ?? _controller.preferences.fontSize;
     final defaultColor = annotationColor != null
         ? Color(0xFF000000 | annotationColor)
         : _controller.color;
@@ -2566,7 +2566,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           defaultFont is PdfStandardFont ? defaultFont : _controller.fontFamily;
       _textEditSize = defaultSize;
       _textEditColor = defaultColor;
-      _textEditAlign = existing ? parsed?.alignment : _controller.textAlign;
+      _textEditAlign = existing ? parsed?.alignment : _controller.preferences.textAlign;
       _textEditLineSpacing = existing
           ? (parsed?.lineSpacing ?? kPdfFreeTextDefaultLineSpacing)
           : _controller.lineSpacing;
@@ -2576,7 +2576,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           ? (parsed?.fillColor != null
               ? Color(0xFF000000 | parsed!.fillColor!)
               : null)
-          : _controller.textFillColor;
+          : _controller.preferences.textFillColor;
     });
     _beginInteraction(PdfEditingInteractionIntent.text, _lastPointerKind);
     _controller.setEditingText(true);
@@ -2645,8 +2645,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return (
         terminus,
         _nearestBoxEdge(_textEditRect!, terminus),
-        _controller.textBorderColor ?? _controller.color,
-        _controller.strokeWidth * _geometry.scale,
+        _controller.preferences.textBorderColor ?? _controller.color,
+        _controller.preferences.strokeWidth * _geometry.scale,
       );
     }
     return null;
@@ -2995,7 +2995,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfEditTool.signature:
         // press-drag-release placement: the preview rides the pointer
         // (touch has no hover), release commits where it landed
-        if (_controller.signature != null) {
+        if (_controller.preferences.signature != null) {
           _beginInteraction(
               PdfEditingInteractionIntent.signature, details.kind);
           setState(() {
@@ -3564,9 +3564,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       points: [start, end],
       tool: _tool!,
       color: _controller.color
-          .withValues(alpha: _controller.opacity.clamp(0.0, 1.0)),
+          .withValues(alpha: _controller.preferences.opacity.clamp(0.0, 1.0)),
       fillColor: null,
-      strokeWidth: _controller.strokeWidth * _geometry.scale,
+      strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
       dashed: _controller.dashedStroke,
     );
     _afterDocument = _controller.document;
@@ -3576,7 +3576,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// the real world, then derives [PdfEditingController.measurementScale]
   /// from it and disarms the tool. Nothing is stamped on the page.
   Future<void> _commitCalibration(Offset start, Offset end) async {
-    final existing = _controller.measurementScale;
+    final existing = _controller.preferences.measurementScale;
     final result = await showPdfCalibrationLengthDialog(
       context,
       initialUnit: existing?.unitLabel,
@@ -3599,7 +3599,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Future<void> _commitVolume(List<(double, double)> pagePoints) async {
     final depth = await showPdfDepthDialog(
       context,
-      unitLabel: _controller.measurementScale?.unitLabel,
+      unitLabel: _controller.preferences.measurementScale?.unitLabel,
     );
     if (!mounted || depth == null) return;
     _controller.addMeasurement(
@@ -3639,7 +3639,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : Color(0xFF000000 | annotation!.behavior.style.fillColor!)
               .withValues(alpha: opacity),
       strokeWidth:
-          (style?.strokeWidth ?? _controller.strokeWidth) * _geometry.scale,
+          (style?.strokeWidth ?? _controller.preferences.strokeWidth) * _geometry.scale,
       dashed: annotation?.borderDash != null,
     );
     _afterDocument = _controller.document;
@@ -3667,7 +3667,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : Color(0xFF000000 | annotation.behavior.style.fillColor!)
               .withValues(alpha: opacity),
       strokeWidth:
-          (style.strokeWidth ?? _controller.strokeWidth) * _geometry.scale,
+          (style.strokeWidth ?? _controller.preferences.strokeWidth) * _geometry.scale,
       dashed: annotation.borderDash != null,
     );
   }
@@ -3749,8 +3749,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _polyPoints = null;
       _polyHover = null;
     });
-    final opacity = _controller.opacity.clamp(0.0, 1.0);
-    final fill = _controller.shapeFillColor;
+    final opacity = _controller.preferences.opacity.clamp(0.0, 1.0);
+    final fill = _controller.preferences.shapeFillColor;
     _afterPath = (
       points: simplified,
       tool: _tool!,
@@ -3763,7 +3763,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               fill != null
           ? fill.withValues(alpha: opacity)
           : null,
-      strokeWidth: _controller.strokeWidth * _geometry.scale,
+      strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
       dashed: _controller.dashedStroke,
     );
     _afterDocument = _controller.document;
@@ -3791,8 +3791,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           rect: viewRect,
           tool: tool,
           color: _controller.color
-              .withValues(alpha: _controller.opacity.clamp(0.0, 1.0)),
-          strokeWidth: _controller.strokeWidth * _geometry.scale,
+              .withValues(alpha: _controller.preferences.opacity.clamp(0.0, 1.0)),
+          strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
         );
         _afterDocument = _controller.document;
       case PdfEditTool.stamp:
@@ -4218,7 +4218,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       cursor = SystemMouseCursors.precise;
     } else if (_tool == PdfEditTool.signature) {
       // the live preview rides the mouse; a click commits it
-      if (_controller.signature != null &&
+      if (_controller.preferences.signature != null &&
           event.localPosition != _signaturePreview) {
         setState(() => _signaturePreview = event.localPosition);
       }
@@ -4362,7 +4362,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     } else if (font is PdfEmbeddedFont) {
       _controller.activeFont = font;
     }
-    if (size != null) _controller.fontSize = size;
+    if (size != null) _controller.preferences.fontSize = size;
     if (color != null) _controller.color = Color(0xFF000000 | rgb!);
     if (underline != null) _controller.textUnderline = underline;
     _controller.setEditingTextSelection(_textEditText.selection);
@@ -4670,8 +4670,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       } else {
         return null;
       }
-      width = _controller.strokeWidth;
-      opacity = _controller.opacity;
+      width = _controller.preferences.strokeWidth;
+      opacity = _controller.preferences.opacity;
     } else {
       return null;
     }
@@ -4987,7 +4987,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         behavior: HitTestBehavior.opaque,
         // with finger drawing off, touch falls through to the scroll
         // view and only pen-like devices reach the ink recognizers
-        supportedDevices: _drawTool && !_controller.fingerDrawsInk
+        supportedDevices: _drawTool && !_controller.preferences.fingerDrawsInk
             ? const {
                 PointerDeviceKind.stylus,
                 PointerDeviceKind.invertedStylus,
@@ -5060,7 +5060,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     chromeScale: _chromeScale,
                     tool: _tool,
                     color: _controller.color,
-                    strokeWidth: _controller.strokeWidth * _geometry.scale,
+                    strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
                     geometry: _geometry,
                     // the in-progress stroke is NOT here - it rides its own
                     // RepaintBoundary layer below so each appended point is a
@@ -5079,9 +5079,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     dragPath: polyPreview,
                     dragPathFill: (_tool == PdfEditTool.polygon ||
                                 _tool == PdfEditTool.cloudPolygon) &&
-                            _controller.shapeFillColor != null
-                        ? _controller.shapeFillColor!.withValues(
-                            alpha: _controller.opacity.clamp(0.0, 1.0))
+                            _controller.preferences.shapeFillColor != null
+                        ? _controller.preferences.shapeFillColor!.withValues(
+                            alpha: _controller.preferences.opacity.clamp(0.0, 1.0))
                         : null,
                     dashed: _controller.dashedStroke,
                     livePath: vertexPreview,
@@ -5138,12 +5138,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _tool == PdfEditTool.eraser || _pointers.rawErasing
                             ? _eraserCursor
                             : null,
-                    eraserRadius: _controller.eraserRadius * _geometry.scale,
+                    eraserRadius: _controller.preferences.eraserRadius * _geometry.scale,
                     // the pen-preview dot (ink tool) and the rotation glyph
                     // (rotate knob): painted in place of the system cursor
                     penCursor:
                         _inkTool && _activeStroke == null ? _penCursor : null,
-                    penOpacity: _controller.opacity,
+                    penOpacity: _controller.preferences.opacity,
                     countPreview:
                         _tool == PdfEditTool.count && _countCursor != null
                             ? _countPreviewAt(_countCursor!)
@@ -5598,17 +5598,17 @@ class _ActiveStrokePainter extends CustomPainter {
       [display],
       [pressures],
       _state._controller.color,
-      _state._controller.strokeWidth * geometry.scale,
+      _state._controller.preferences.strokeWidth * geometry.scale,
     );
     final cursor = _state._penCursor;
     if (cursor != null && _state._inkTool) {
       _paintPenCursor(
         canvas,
         cursor,
-        strokeWidth: _state._controller.strokeWidth * geometry.scale,
+        strokeWidth: _state._controller.preferences.strokeWidth * geometry.scale,
         chromeScale: _state._chromeScale,
         color: _state._controller.color,
-        opacity: _state._controller.opacity,
+        opacity: _state._controller.preferences.opacity,
       );
     }
   }

@@ -78,7 +78,7 @@ void main() {
     test('stamps a centered, y-flipped Ink annotation', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..color = const Color(0xFF1A3E8C)
-        ..signature = signature();
+        ..preferences.signature = signature();
       expect(editing.placeSignature(0, 300, 400, width: 100), isTrue);
 
       final ink = editing.document.page(0).annotations.single;
@@ -96,7 +96,7 @@ void main() {
 
     test('clamps so the whole signature stays on the page', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..signature = signature();
+        ..preferences.signature = signature();
       final box = editing.document.page(0).cropBox;
       expect(editing.placeSignature(0, box.right, box.bottom), isTrue);
 
@@ -110,7 +110,7 @@ void main() {
     test('the placed signature follows the selected colour, not the drawn one',
         () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..signature = signature() // drawn in 0x1A3E8C
+        ..preferences.signature = signature() // drawn in 0x1A3E8C
         ..color = const Color(0xFF00AA00);
       expect(editing.placeSignature(0, 300, 400, width: 100), isTrue);
       expect(editing.document.page(0).annotations.single.color, 0x00AA00);
@@ -189,7 +189,7 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Done'));
       await tester.pumpAndSettle();
 
-      expect(editing.signature, isNotNull);
+      expect(editing.preferences.signature, isNotNull);
       expect(editing.tool, PdfEditTool.signature);
 
       // tap the page; the double-tap recognizer holds taps ~300ms

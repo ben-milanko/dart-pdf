@@ -67,7 +67,7 @@ void main() {
   testWidgets('annotations carry the author and the sidebar shows it',
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..author = 'Ben'
+      ..preferences.author = 'Ben'
       ..addNote(0, 100, 700, 'first note');
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
@@ -267,7 +267,7 @@ void main() {
   group('search', () {
     testWidgets('filters by type, contents, and author', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(2))
-        ..author = 'Ben'
+        ..preferences.author = 'Ben'
         ..addNote(0, 100, 700, 'review this paragraph')
         ..addRectangle(0, const PdfRect(100, 100, 200, 150))
         ..addStamp(1, const PdfRect(100, 600, 240, 650), 'DRAFT');

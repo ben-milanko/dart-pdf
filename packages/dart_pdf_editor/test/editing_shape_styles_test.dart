@@ -15,7 +15,7 @@ void main() {
   group('line style (dash) on the controller', () {
     test('a non-solid line style stores a /BS /D dash array on new shapes', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStyle = PdfLineStyle.dashed;
+        ..preferences.lineStyle = PdfLineStyle.dashed;
       addTearDown(editing.dispose);
       editing.addRectangle(0, const PdfRect(100, 100, 200, 200));
       final square = editing.document.page(0).annotations.single;
@@ -65,16 +65,16 @@ void main() {
     test('the pattern scale drives new shapes and is independent of stroke',
         () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineStyle = PdfLineStyle.dashed
-        ..strokeWidth = 1
-        ..lineScale = 1;
+        ..preferences.lineStyle = PdfLineStyle.dashed
+        ..preferences.strokeWidth = 1
+        ..preferences.lineScale = 1;
       addTearDown(editing.dispose);
       editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
       final narrow =
           editing.document.page(0).annotations.single.borderDash!.first;
 
       editing
-        ..lineScale = 3
+        ..preferences.lineScale = 3
         ..addRectangle(0, const PdfRect(100, 300, 300, 400));
       final wide = editing.document.page(0).annotations.last.borderDash!.first;
       expect(wide, greaterThan(narrow));
@@ -84,7 +84,7 @@ void main() {
   group('pattern scale on clouds', () {
     test('a cloud drawn at a bigger scale stores it on /BE /I', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..lineScale = 2.5;
+        ..preferences.lineScale = 2.5;
       addTearDown(editing.dispose);
       editing.addCloudPolygon(0, const PdfRect(100, 100, 300, 200));
       final cloud = editing.document.page(0).annotations.single;
@@ -109,7 +109,7 @@ void main() {
   group('rectangle corner radius on the controller', () {
     test('the corner radius preference rounds new rectangles', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..cornerRadius = 10;
+        ..preferences.cornerRadius = 10;
       addTearDown(editing.dispose);
       editing.addRectangle(0, const PdfRect(100, 100, 300, 200));
       expect(
@@ -158,7 +158,7 @@ void main() {
   group('polygon fill', () {
     test('a polygon drawn with a shape fill colour stores /IC', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..shapeFillColor = const Color(0xFF80C0FF);
+        ..preferences.shapeFillColor = const Color(0xFF80C0FF);
       addTearDown(editing.dispose);
       editing.addPolygon(0, const [(100, 100), (200, 180), (160, 100)]);
       expect(
@@ -311,8 +311,8 @@ void main() {
       await tester.pump();
       editing
         ..tool = PdfEditTool.rectangle
-        ..strokeWidth = 4
-        ..opacity = 0.5;
+        ..preferences.strokeWidth = 4
+        ..preferences.opacity = 0.5;
       await tester.pump();
 
       final gesture = await tester.startGesture(view(150, 600));
@@ -349,8 +349,8 @@ void main() {
       await tester.pump();
       editing
         ..tool = PdfEditTool.rectangle
-        ..strokeWidth = 4
-        ..opacity = 0.5;
+        ..preferences.strokeWidth = 4
+        ..preferences.opacity = 0.5;
       await tester.pump();
 
       Future<Rect> dragAndRead(Offset start, Offset end) async {

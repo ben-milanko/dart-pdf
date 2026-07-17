@@ -332,7 +332,7 @@ class _PdfAnnotationPropertiesPanelState
         initial: current ?? const Color(0xFF000000));
     if (picked != null) {
       _controller.restyleSelectedText(
-          border: (_rgb(picked),), borderWidth: _controller.strokeWidth);
+          border: (_rgb(picked),), borderWidth: _controller.preferences.strokeWidth);
     }
   }
 
@@ -558,7 +558,7 @@ class _PdfAnnotationPropertiesPanelState
       ]);
       children.add(_sliderRow(
         'Stroke',
-        _draggingStroke ?? widths.value ?? _controller.strokeWidth,
+        _draggingStroke ?? widths.value ?? _controller.preferences.strokeWidth,
         key: const ValueKey('pdf-prop-stroke'),
         min: 0.5,
         max: 16,
@@ -604,14 +604,14 @@ class _PdfAnnotationPropertiesPanelState
         'Scale',
         _draggingScale ??
             _controller.selectedLineScale ??
-            _controller.lineScale,
+            _controller.preferences.lineScale,
         key: const ValueKey('pdf-prop-line-scale'),
         min: 0.5,
         max: 4,
         display: (v) => '${v.toStringAsFixed(1)}×',
         onChanged: (v) => setState(() => _draggingScale = v),
         onChangeEnd: (v) {
-          _controller.lineScale = v;
+          _controller.preferences.lineScale = v;
           _controller.restyleSelected(scale: v);
           setState(() => _draggingScale = null);
         },

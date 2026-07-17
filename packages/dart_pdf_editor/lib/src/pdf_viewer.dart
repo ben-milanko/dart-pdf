@@ -3734,7 +3734,7 @@ class _PdfViewerState extends State<PdfViewer>
     }
     return switch (kind) {
       PointerDeviceKind.stylus || PointerDeviceKind.invertedStylus => true,
-      PointerDeviceKind.touch => editing.fingerDrawsInk,
+      PointerDeviceKind.touch => editing.preferences.fingerDrawsInk,
       _ => false,
     };
   }
