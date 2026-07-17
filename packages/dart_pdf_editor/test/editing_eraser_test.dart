@@ -62,7 +62,7 @@ void main() {
         ..finishInk()
         ..addInkStroke(0, [(150, 450), (250, 450)])
         ..finishInk();
-      editing.eraserRadius = 30;
+      editing.preferences.eraserRadius = 30;
 
       expect(
         editing.sliceErase(0, const [(200, 550), (200, 420)]),
@@ -112,7 +112,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       final g = await tester.startGesture(view(200, 550),
@@ -141,7 +141,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       final g = await tester.startGesture(view(200, 550),
@@ -170,7 +170,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       const pointer = 17;
@@ -214,7 +214,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       const pointer = 18;
@@ -256,7 +256,7 @@ void main() {
         ..addInkStroke(0, [(195, 500), (205, 500)])
         ..finishInk();
       editing.tool = PdfEditTool.eraser;
-      editing.eraserRadius = 30;
+      editing.preferences.eraserRadius = 30;
       await tester.pump();
 
       await tester.tapAt(view(200, 500), kind: PointerDeviceKind.mouse);
@@ -273,7 +273,7 @@ void main() {
         ..addInkStroke(0, [(150, 400), (250, 400)])
         ..finishInk();
       editing.tool = PdfEditTool.eraser;
-      editing.eraserRadius = 30;
+      editing.preferences.eraserRadius = 30;
       await tester.pump();
 
       // sweep along the whole upper stroke
@@ -352,7 +352,7 @@ void main() {
       expect((extraInk.single.strokes as List), hasLength(2));
       // the ring cursor rides the pointer at the page-space radius
       expect(painter.eraserCursor, isNotNull);
-      expect(painter.eraserRadius, closeTo(editing.eraserRadius * scale, 1e-6));
+      expect(painter.eraserRadius, closeTo(editing.preferences.eraserRadius * scale, 1e-6));
 
       await g.up();
       await tester.pump();
@@ -433,7 +433,7 @@ void main() {
               matching: find.byType(Slider)),
           const Offset(200, 0));
       await tester.pump();
-      expect(editing.eraserRadius, greaterThan(8));
+      expect(editing.preferences.eraserRadius, greaterThan(8));
       await tester.pumpAndSettle();
     });
 

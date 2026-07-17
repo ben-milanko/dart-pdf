@@ -427,7 +427,7 @@ void main() {
         ],
       );
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..author = 'Comment Author'
+        ..preferences.author = 'Comment Author'
         ..stampTemplateClock = (() => DateTime(2026, 7, 4, 9, 5))
         ..stampTemplateValues = {
           'username': 'Ben',
@@ -466,8 +466,8 @@ void main() {
       );
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..stampTemplateClock = (() => DateTime(2026, 7, 4, 9, 5, 6))
-        ..stampDateFormat = PdfStampDateFormat.monthNameDayYear
-        ..stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds
+        ..preferences.stampDateFormat = PdfStampDateFormat.monthNameDayYear
+        ..preferences.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds
         ..activeStamp = PdfCustomStamp(
           text: '{{datetime}}',
           color: 0x1A3E8C,
@@ -975,7 +975,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..color = const Color(0xFFE53935)
-        ..strokeWidth = 12
+        ..preferences.strokeWidth = 12
         ..addRectangle(0, const PdfRect(120, 650, 180, 720));
       addTearDown(editing.dispose);
       const boundaryKey = ValueKey('annotation-layer-capture');
@@ -1667,13 +1667,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('06/07/2026').last);
       await tester.pumpAndSettle();
-      expect(editing.stampDateFormat, PdfStampDateFormat.dayMonthYear);
+      expect(editing.preferences.stampDateFormat, PdfStampDateFormat.dayMonthYear);
 
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-time-format')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('17:05:06 (24 hr)').last);
       await tester.pumpAndSettle();
-      expect(editing.stampTimeFormat, PdfStampTimeFormat.twentyFourHourSeconds);
+      expect(editing.preferences.stampTimeFormat, PdfStampTimeFormat.twentyFourHourSeconds);
     });
 
     testWidgets('the picker lists app-supplied stamps without delete controls',

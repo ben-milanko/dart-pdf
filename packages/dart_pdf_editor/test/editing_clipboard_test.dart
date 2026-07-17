@@ -196,8 +196,8 @@ void main() {
     test('selectedAnnotationStyle reads the current style', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..color = const Color(0xFFE53935)
-        ..strokeWidth = 4
-        ..opacity = 0.5
+        ..preferences.strokeWidth = 4
+        ..preferences.opacity = 0.5
         ..addRectangle(0, const PdfRect(100, 650, 250, 750));
       addTearDown(editing.dispose);
       expect(editing.selectedAnnotationStyle, isNull);
@@ -523,7 +523,7 @@ void main() {
         (tester) async {
       final (editing, _) = await pumpEditor(tester, toolbar: true);
       editing
-        ..strokeWidth = 2
+        ..preferences.strokeWidth = 2
         ..addRectangle(0, const PdfRect(100, 650, 250, 750))
         ..selectAnnotation(0, 0);
       await tester.pump();

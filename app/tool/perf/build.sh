@@ -18,9 +18,14 @@ echo "==> Building the render worker (web)"
 $DART run dart_pdf_editor:build_web_worker
 
 echo "==> flutter build web $MODE (harness entrypoint, PDF_PERF_LOG=true)"
+# --no-web-resources-cdn bundles CanvasKit into build/web/canvaskit instead of
+# loading it from gstatic.com. The driver serves the bundle offline behind
+# COOP/COEP (cross-origin isolation, which the CDN fetch fails under
+# credentialless COEP anyway), so a headless/CI run has no network for the CDN.
 $FLUTTER build web $MODE \
   --target tool/perf/perf_harness.dart \
   --dart-define=PDF_PERF_LOG=true \
+  --no-web-resources-cdn \
   "$@"
 
 echo "==> Done. Harness bundle in app/build/web; worker beside index.html."

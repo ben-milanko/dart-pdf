@@ -6,7 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'content_writer.dart';
 import 'document.dart';
 import 'rect.dart';
-import 'type0_metrics.dart';
+import 'type0_font.dart';
 
 /// What a content element draws.
 enum PdfElementKind {
@@ -137,8 +137,8 @@ class PdfPageElements {
     // once to a decoder that turns codes into real text (via /ToUnicode) and
     // advance widths (via the descendant /W), so text elements read and
     // measure correctly instead of as Latin-1 byte pairs.
-    final type0Decoders = <String, _Type0Decode?>{};
-    _Type0Decode? type0For(String? name) {
+    final type0Decoders = <String, Type0Font?>{};
+    Type0Font? type0For(String? name) {
       if (name == null) return null;
       return type0Decoders.putIfAbsent(name, () {
         final fonts = cos.resolve(resources['Font']);
@@ -147,21 +147,7 @@ class PdfPageElements {
         if (f is! CosDictionary) return null;
         final sub = cos.resolve(f['Subtype']);
         if (sub is! CosName || sub.value != 'Type0') return null;
-        final toUni = cos.resolve(f['ToUnicode']);
-        final text = toUni is CosStream
-            ? parseToUnicodeCmap(cos.decodeStreamData(toUni))
-            : <int, String>{};
-        var widths = <int, double>{};
-        var dw = 1000.0;
-        final desc = cos.resolve(f['DescendantFonts']);
-        if (desc is CosArray && desc.items.isNotEmpty) {
-          final cid = cos.resolve(desc.items.first);
-          if (cid is CosDictionary) {
-            widths = parseCidWidths(cos, cid);
-            dw = cidDefaultWidth(cos, cid);
-          }
-        }
-        return _Type0Decode(text, widths, dw);
+        return Type0Font.decode(cos, f);
       });
     }
 
@@ -293,7 +279,7 @@ class PdfPageElements {
             final b = o.bytes;
             for (var k = 0; k + 1 < b.length; k += 2) {
               final code = (b[k] << 8) | b[k + 1];
-              shown.write(decoder.text[code] ?? '');
+              shown.write(decoder.codeToText[code] ?? '');
               advanceEm += decoder.widthOf(code);
             }
           }
@@ -432,19 +418,6 @@ class _TextState {
   void advance(double width) {
     matrix = _multiply((1, 0, 0, 1, width, 0), matrix);
   }
-}
-
-/// A composite (/Type0) font's text + width lookup for one page: code →
-/// Unicode (from `/ToUnicode`) and code → advance (from the descendant `/W`,
-/// falling back to `/DW`).
-class _Type0Decode {
-  _Type0Decode(this.text, this._widths, this._dw);
-
-  final Map<int, String> text;
-  final Map<int, double> _widths;
-  final double _dw;
-
-  double widthOf(int code) => _widths[code] ?? _dw;
 }
 
 typedef _Matrix = (double, double, double, double, double, double);
