@@ -1,0 +1,431 @@
+// PdfTileStore: the zoom-bucket tile pyramid must snap ratios to a stable
+// ladder, cover a viewport center-out, fall back per-tile to the nearest
+// coarser cached bucket, invalidate per page (discarding stale in-flight
+// rasters), and stay under its byte budget - all the behaviour the deep-zoom
+// composite depends on.
+import 'dart:async';
+import 'dart:ui' as ui;
+
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/painting.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+Future<ui.Image> _solidImage(int w, int h,
+    [Color color = const Color(0xFF102030)]) {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+      Paint()..color = color);
+  final picture = recorder.endRecording();
+  final image = picture.toImage(w, h);
+  picture.dispose();
+  return image;
+}
+
+/// A rasterizer that holds every request pending until [flush], so a test can
+/// inspect the in-flight state before the tiles land.
+class _Rasterizer {
+  _Rasterizer({this.tileSize = 16});
+
+  final int tileSize;
+  final calls = <({Rect region, double ratio})>[];
+  final _pending = <Completer<ui.Image>>[];
+
+  Future<ui.Image> call(Rect region, double ratio) {
+    calls.add((region: region, ratio: ratio));
+    final completer = Completer<ui.Image>();
+    _pending.add(completer);
+    return completer.future;
+  }
+
+  int get pendingCount => _pending.where((c) => !c.isCompleted).length;
+
+  /// Completes every outstanding raster with a solid tile-sized image, then
+  /// drains the store's completion + tick microtasks.
+  Future<void> flush() async {
+    final pending = _pending.where((c) => !c.isCompleted).toList();
+    // Build every image first, then complete them all in one synchronous burst
+    // so the store's completions land in a single microtask drain (the case
+    // its tick-coalescing targets).
+    final images = <ui.Image>[
+      for (var i = 0; i < pending.length; i++)
+        await _solidImage(tileSize, tileSize),
+    ];
+    for (var i = 0; i < pending.length; i++) {
+      pending[i].complete(images[i]);
+    }
+    await pumpEventQueue();
+  }
+}
+
+const _plan = PdfPageRenderPlan();
+
+PdfTilePageIdentity _id(int page, {int epoch = 0, int content = 0}) =>
+    PdfTilePageIdentity(
+      pageIndex: page,
+      pageEpoch: epoch,
+      contentStamp: content,
+      destructiveStamp: 0,
+      plan: _plan,
+    );
+
+void main() {
+  group('PdfTileZoomLadder', () {
+    test('rung 0 is ratio 1 and the ×√2 ladder round-trips', () {
+      const ladder = PdfTileZoomLadder(); // stepsPerOctave: 2
+      expect(ladder.ratioFor(0), 1.0);
+      expect(ladder.ratioFor(2), closeTo(2.0, 1e-9));
+      expect(ladder.ratioFor(-2), closeTo(0.5, 1e-9));
+      expect(ladder.ratioFor(1), closeTo(1.4142135, 1e-6));
+      for (final rung in [-4, -1, 0, 3, 7]) {
+        expect(ladder.rungFor(ladder.ratioFor(rung)), rung);
+      }
+    });
+
+    test('snaps a desired ratio to the nearest rung and clamps', () {
+      const ladder = PdfTileZoomLadder(stepsPerOctave: 1, minRung: -2, maxRung: 4);
+      expect(ladder.rungFor(1.1), 0); // nearest rung 0 (ratio 1)
+      expect(ladder.rungFor(1.9), 1); // nearest rung 1 (ratio 2)
+      expect(ladder.rungFor(1000), 4); // clamped to maxRung
+      expect(ladder.rungFor(0.001), -2); // clamped to minRung
+      expect(ladder.rungFor(0), -2); // degenerate ratio → safe 0.05, clamped
+    });
+  });
+
+  group('PdfTileStore.viewFor', () {
+    testWidgets('schedules the visible tiles center-out at the bucket ratio',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        const pageSize = Size(64, 64); // 4×4 grid at rung 0 (span 16)
+
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+        );
+
+        expect(view.rung, 0);
+        expect(view.complete, isFalse); // nothing cached yet
+        expect(view.isEmpty, isTrue); // no fallback available
+        expect(store.inFlightCount, 16);
+        expect(raster.calls.length, 16);
+        expect(raster.calls.every((c) => c.ratio == 1.0), isTrue);
+
+        // The first scheduled tile is one of the four central tiles (col/row
+        // 1 or 2), not a corner.
+        final first = raster.calls.first.region;
+        expect(first.left, anyOf(16.0, 32.0));
+        expect(first.top, anyOf(16.0, 32.0));
+
+        await raster.flush();
+        expect(store.tileCount, 16);
+        expect(store.debugTilesLanded, 16);
+
+        // A second identical request now composites exact tiles - no reschedule.
+        final calls = raster.calls.length;
+        final view2 = store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+        );
+        expect(view2.complete, isTrue);
+        expect(view2.placements.length, 16);
+        expect(raster.calls.length, calls); // fully cached, nothing scheduled
+        store.dispose();
+      });
+    });
+
+    testWidgets('prefetch ring schedules the border outside the viewport',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 1,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        // Visible = the single centre tile (2,2) of a 5×5 grid; ring adds the
+        // 8 surrounding tiles.
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(80, 80),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(32, 32, 16, 16),
+          rasterize: raster.call,
+        );
+        expect(store.inFlightCount, 9); // 1 visible + 8 ring
+        store.dispose();
+      });
+    });
+
+    testWidgets('falls back to the nearest coarser cached bucket, upscaled',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 32,
+          prefetchRing: 0,
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(tileSize: 32);
+        const pageSize = Size(256, 256);
+        const visible = Rect.fromLTWH(0, 0, 128, 128);
+
+        // Warm a coarse bucket (ratio 1, rung 0).
+        store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: visible,
+          rasterize: raster.call,
+        );
+        await raster.flush();
+        final coarseTiles = store.tileCount;
+        expect(coarseTiles, greaterThan(0));
+
+        // Request a sharper bucket over the same area: exact tiles are missing,
+        // but the coarse bucket covers it, so the view is non-empty yet not
+        // complete (upscaled fallback in play).
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 4.0, // rung 4 on the ×√2 ladder
+          visiblePageRect: visible,
+          rasterize: raster.call,
+        );
+        expect(view.rung, greaterThan(0));
+        expect(view.complete, isFalse);
+        expect(view.placements, isNotEmpty,
+            reason: 'coarser bucket should supply a fallback');
+        // Every fallback placement draws from a coarse-bucket image (32² here).
+        expect(view.placements.every((p) => p.image.width == 32), isTrue);
+        store.dispose();
+      });
+    });
+
+    testWidgets('no fallback and no cache yields an empty (base-only) view',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 32,
+          prefetchRing: 0,
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(tileSize: 32);
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: const Size(128, 128),
+          desiredRatio: 4.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 128, 128),
+          rasterize: raster.call,
+        );
+        expect(view.isEmpty, isTrue);
+        expect(view.complete, isFalse);
+        store.dispose();
+      });
+    });
+  });
+
+  group('PdfTileStore.invalidate', () {
+    testWidgets('drops only the named pages; others survive', (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        for (final page in [0, 1]) {
+          store.viewFor(
+            id: _id(page),
+            pageSize: const Size(32, 32),
+            desiredRatio: 1.0,
+            visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+            rasterize: raster.call,
+          );
+        }
+        await raster.flush();
+        final before = store.tileCount;
+        expect(before, 8); // 4 tiles each
+
+        store.invalidate(pages: {0});
+        expect(store.tileCount, 4);
+        expect(store.containsTile(PdfTileKey(_id(0), 0, 0, 0)), isFalse);
+        expect(store.containsTile(PdfTileKey(_id(1), 0, 0, 0)), isTrue);
+        store.dispose();
+      });
+    });
+
+    testWidgets('discards in-flight rasters for an invalidated page',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        expect(store.inFlightCount, 4);
+
+        // Invalidate before the rasters land: their results must be dropped.
+        store.invalidate(pages: {0});
+        await raster.flush();
+        expect(store.tileCount, 0);
+        expect(store.debugTilesDiscarded, 4);
+        expect(store.debugTilesLanded, 0);
+        store.dispose();
+      });
+    });
+
+    testWidgets('null clears every page', (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        await raster.flush();
+        expect(store.tileCount, greaterThan(0));
+        store.invalidate();
+        expect(store.tileCount, 0);
+        store.dispose();
+      });
+    });
+  });
+
+  group('PdfTileStore budget & lifecycle', () {
+    testWidgets('stays under the byte budget as tiles land', (tester) async {
+      await tester.runAsync(() async {
+        // 8 MB budget (the floor), 4 MB tiles → at most 2 retained.
+        final store = PdfTileStore(
+          tilePixels: 1024,
+          prefetchRing: 0,
+          maxBytes: 8 << 20,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(tileSize: 1024); // 1024² × 4 = 4 MB
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(64, 64), // 4×4 tiles at span 16
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+        );
+        await raster.flush();
+        expect(store.retainedBytes, lessThanOrEqualTo(8 << 20));
+        expect(store.tileCount, lessThanOrEqualTo(2));
+        expect(store.tileCount, greaterThan(0)); // the MRU tile survives
+        store.dispose();
+      });
+    });
+
+    testWidgets('ticks once (coalesced) as a batch of tiles lands',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        var ticks = 0;
+        store.addListener(() => ticks++);
+        final raster = _Rasterizer();
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        await raster.flush(); // 4 tiles land in one microtask batch
+        expect(store.debugTilesLanded, 4);
+        expect(ticks, 1, reason: 'notifications coalesce to one tick');
+        store.dispose();
+      });
+    });
+
+    testWidgets('memory pressure clears every tile', (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+        );
+        final raster = _Rasterizer();
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        await raster.flush();
+        expect(store.tileCount, greaterThan(0));
+        PdfCacheRegistry.instance.handleMemoryPressure();
+        expect(store.tileCount, 0);
+        store.dispose();
+      });
+    });
+
+    testWidgets('after dispose viewFor is inert and late tiles are dropped',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        store.dispose();
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        expect(view.isEmpty, isTrue);
+        await raster.flush(); // completions after dispose just free the images
+        expect(store.tileCount, 0);
+      });
+    });
+  });
+}

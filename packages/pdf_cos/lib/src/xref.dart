@@ -50,21 +50,29 @@ class CosXrefSection {
 /// The merged view of a walked cross-reference chain: every object number
 /// mapped to the entry from the newest section that defines it, plus the
 /// newest section's trailer and the `startxref` the walk began at.
-class CosXref {
-  CosXref(this.entries, this.trailer, this.startXref);
+class CosXrefChain {
+  CosXrefChain(this.entries, this.trailer, this.startXref,
+      {required this.parsedSection});
 
   final Map<int, CosXrefEntry> entries;
   final CosDictionary trailer;
 
   /// The `startxref` value the walk began at, relative to the header.
   final int startXref;
+
+  /// Whether the walk parsed at least one section. False only when the walk's
+  /// entire range was pruned by [CosXrefReader.walkFrom]'s `stopAt` (the
+  /// incremental-update case where the append did not move past the base), in
+  /// which case [trailer] is an empty placeholder that must not refresh the
+  /// document trailer.
+  final bool parsedSection;
 }
 
 /// Reads a document's cross-reference machinery over a byte buffer: locating
 /// `startxref`, parsing a single section (classic `xref` table or a `/XRef`
 /// stream, with `/W` widths and `/Index` ranges), and walking the
 /// `/Prev`+`/XRefStm` chain newest-to-oldest into one merged
-/// [CosXref] view.
+/// [CosXrefChain] view.
 ///
 /// It is deliberately pure over [bytes] - no object cache, encryption, or
 /// scan recovery - so a `/W`-width, `/Index`-range, hybrid-ordering, or
@@ -94,7 +102,7 @@ class CosXrefReader {
 
   /// Reads the whole chain declared by the file's `startxref`. Convenience for
   /// [findStartXref] followed by [walkFrom].
-  CosXref read() => walkFrom(findStartXref());
+  CosXrefChain read() => walkFrom(findStartXref());
 
   /// Walks the cross-reference chain from [startXref] (a value relative to the
   /// header), newest-to-oldest. The first entry seen for an object number wins;
@@ -104,11 +112,12 @@ class CosXrefReader {
   /// [stopAt] (also relative to the header, when given) is a section already
   /// known to the caller: the walk never descends into it, pruning the
   /// already-loaded tail of the chain for incremental updates. The returned
-  /// [CosXref.entries] then holds only the sections newer than [stopAt].
-  CosXref walkFrom(int startXref, {int? stopAt}) {
+  /// [CosXrefChain.entries] then holds only the sections newer than [stopAt],
+  /// and [CosXrefChain.parsedSection] is false when the whole range was pruned.
+  CosXrefChain walkFrom(int startXref, {int? stopAt}) {
     final entries = <int, CosXrefEntry>{};
     var trailer = CosDictionary();
-    var isNewest = true;
+    var parsedSection = false;
     final stopOffset = stopAt == null ? null : stopAt + shift;
 
     final pending = <int>[startXref + shift];
@@ -123,16 +132,18 @@ class CosXrefReader {
       for (final entry in section.entries.entries) {
         entries.putIfAbsent(entry.key, () => entry.value);
       }
-      if (isNewest) {
+      // The first section reached is the newest; its trailer wins.
+      if (!parsedSection) {
         trailer = section.trailer;
-        isNewest = false;
+        parsedSection = true;
       }
       final hybrid = section.trailer['XRefStm'];
       if (hybrid is CosInteger) pending.add(hybrid.value + shift);
       final prev = section.trailer['Prev'];
       if (prev is CosInteger) pending.add(prev.value + shift);
     }
-    return CosXref(entries, trailer, startXref);
+    return CosXrefChain(entries, trailer, startXref,
+        parsedSection: parsedSection);
   }
 
   /// Parses one section at absolute file [offset]: a classic `xref` table or a

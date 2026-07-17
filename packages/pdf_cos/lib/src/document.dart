@@ -128,12 +128,11 @@ class CosDocument {
     final changed = appended.entries.keys.toSet();
     appended.entries.forEach((number, entry) => _xref[number] = entry);
 
-    // A parsed newest section iff the append moved startxref; only then does
-    // its trailer refresh the doc-level one.
-    final parsedNewestSection = newStartXref != startXref;
     bytes = newBytes;
     startXref = newStartXref;
-    if (parsedNewestSection) {
+    // Only a section the walk actually parsed carries a trailer to refresh the
+    // doc-level one with (a fully pruned walk leaves the base trailer intact).
+    if (appended.parsedSection) {
       // The newest trailer wins, but an incremental trailer may omit doc-level
       // keys (/Root, /Encrypt, /ID) that still carry over from the base.
       final merged = CosDictionary();
@@ -235,7 +234,10 @@ class CosDocument {
     document._initEncryption(password);
 
     // Index object streams so compressed objects resolve. Direct
-    // definitions found by the scan win over compressed ones.
+    // definitions found by the scan win over compressed ones. The
+    // "/N pairs, /First offset" wire format is parsed by the object-stream
+    // decoder itself ([_objectStream]) so a lenience fix there reaches
+    // recovery too - recovery only decides which streams to index.
     for (final number in List.of(entries.keys)) {
       final entry = entries[number]!;
       if (entry.type != CosXrefEntryType.inUse) continue;
@@ -244,12 +246,9 @@ class CosDocument {
         if (object is! CosStream) continue;
         final type = object.dictionary['Type'];
         if (type is! CosName || type.value != 'ObjStm') continue;
-        final n = document.resolve(object.dictionary['N']);
-        if (n is! CosInteger) continue;
-        final parser = CosParser(document.decodeStreamData(object));
-        for (var index = 0; index < n.value; index++) {
-          final objectNumber = parser.expectInteger();
-          parser.expectInteger(); // offset within the stream, unused here
+        final stream = document._objectStream(number);
+        for (var index = 0; index < stream.index.length; index++) {
+          final objectNumber = stream.index[index].$1;
           entries.putIfAbsent(
               objectNumber, () => CosXrefEntry.compressed(number, index));
         }
@@ -638,7 +637,15 @@ class _ObjectStream {
   _ObjectStream(this.data, int count, this.first) {
     final parser = CosParser(data);
     for (var i = 0; i < count; i++) {
-      _index.add((parser.expectInteger(), parser.expectInteger()));
+      try {
+        _index.add((parser.expectInteger(), parser.expectInteger()));
+      } on CosParseException {
+        // A truncated or malformed header stops the index here; the pairs
+        // parsed so far stay usable (real-world files are lenient on
+        // input). Recovery keeps the leading compressed objects, and
+        // objectByNumber only fails to find the ones that never parsed.
+        break;
+      }
     }
   }
 
@@ -649,6 +656,11 @@ class _ObjectStream {
 
   /// (object number, relative offset) pairs from the stream header.
   final List<(int, int)> _index = [];
+
+  /// The parsed (object number, relative offset) pairs, in stream order.
+  /// Recovery reuses this so the header wire-format is parsed in exactly
+  /// one place (see [CosDocument._recover]).
+  List<(int, int)> get index => List.unmodifiable(_index);
 
   CosObject objectByNumber(int objectNumber, int hintIndex) {
     var entry = hintIndex >= 0 &&
