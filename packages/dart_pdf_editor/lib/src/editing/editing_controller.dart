@@ -1832,18 +1832,16 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // measurements (§12.9)
 
-  /// The active measurement calibration the measure tools stamp onto new
-  /// annotations, or null until [calibrateScale] (or setting
-  /// [measurementScale]) provides one. Persisted with the other
-  /// [preferences].
-  PdfMeasurementScale? get measurementScale => preferences.measurementScale;
-
-  set measurementScale(PdfMeasurementScale? value) =>
-      preferences.measurementScale = value;
-
   /// Whether a measurement tool can place an annotation right now - i.e. a
   /// scale has been calibrated.
   bool get hasMeasurementScale => preferences.measurementScale != null;
+
+  /// The active measurement scale, forwarded to [preferences]. Setting it
+  /// (e.g. from a calibration dialog or a test) calibrates every measurement
+  /// tool at once.
+  PdfMeasurementScale? get measurementScale => preferences.measurementScale;
+  set measurementScale(PdfMeasurementScale? value) =>
+      preferences.measurementScale = value;
 
   /// Calibrates [preferences.measurementScale] from a reference segment between
   /// [start] and [end] (page-space points) that represents [realLength]
