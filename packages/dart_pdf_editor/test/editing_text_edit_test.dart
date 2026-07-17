@@ -1052,6 +1052,46 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the toolbar font chip shows the embedded face, not Sans',
+        (tester) async {
+      // regression: the chip parsed only the base-14 family from /DA and
+      // collapsed an embedded box to "Sans", while the tune popup's font
+      // button reported the real face - so the two disagreed
+      SharedPreferences.setMockInitialValues({});
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      final embedded = editing.activeFont as PdfEmbeddedFont;
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello');
+      editing.selectAnnotation(0, 0);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      final chip = find.byTooltip('Stroke, opacity, font');
+      await tester.scrollUntilVisible(chip, 100,
+          scrollable: find.byType(Scrollable).first);
+      // the chip carries the embedded family name, not the base-14 "Sans"
+      expect(
+          find.descendant(
+              of: chip, matching: find.text(embedded.familyName)),
+          findsOneWidget);
+      expect(find.descendant(of: chip, matching: find.text('Sans')),
+          findsNothing);
+      editing.activeFont = null;
+    });
+
     testWidgets('resizing an embedded-font box reflows instead of stretching',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

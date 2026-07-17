@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
     show
         PdfAlignment,
+        PdfEmbeddedFont,
         PdfFieldType,
         PdfFormField,
         PdfLineEnding,
@@ -3940,7 +3941,12 @@ class _FontChip extends StatelessWidget {
   final String tooltip;
   final VoidCallback onTap;
 
-  static String _familyLabel(PdfStandardFont font) {
+  static String _familyLabel(PdfTextFont font) {
+    // an embedded/bundled/custom face shows its own name, not the base-14
+    // family "Sans" - matching the style popup's font button
+    if (font is! PdfStandardFont) {
+      return font is PdfEmbeddedFont ? font.familyName : font.resourceName;
+    }
     final base = font.family.label;
     final suffix = switch ((font.isBold, font.isItalic)) {
       (true, true) => ' BI',
@@ -3955,7 +3961,13 @@ class _FontChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = controller.selectedTextStyle;
-    final font = style?.font ?? controller.fontFamily;
+    // reflect the box's real face (an embedded/bundled font shows its own
+    // name) the same way the style popup's font button does, so the chip
+    // and popup never disagree
+    final font = controller.selectedTextFont ??
+        controller.activeFont ??
+        style?.font ??
+        controller.fontFamily;
     final size = (style?.size ?? controller.preferences.fontSize).round();
     return Tooltip(
       message: tooltip,
