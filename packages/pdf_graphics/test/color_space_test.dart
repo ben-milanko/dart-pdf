@@ -186,6 +186,108 @@ void main() {
     });
   });
 
+  group('fallbacks and error paths', () {
+    test('Pattern in array form and its toSrgb', () {
+      final space = PdfColorSpace.parse(cos, CosArray([const CosName('Pattern')]));
+      expect(space.family, 'Pattern');
+      expect(space.channels, 0);
+      expect(space.toSrgb(const []), PdfColor.black);
+    });
+
+    test('a device name in array form resolves to the device family', () {
+      final space =
+          PdfColorSpace.parse(cos, CosArray([const CosName('DeviceRGB')]));
+      expect(space.family, 'DeviceRGB');
+      expect(space.channels, 3);
+    });
+
+    test('a CIE space with invalid params degrades to its device family', () {
+      // Missing /WhitePoint -> PdfCalibratedColorSpace.parse returns null.
+      final calRgb = PdfColorSpace.parse(
+          cos, CosArray([const CosName('CalRGB'), CosDictionary({})]));
+      expect(calRgb.family, 'DeviceRGB');
+      expect(calRgb.channels, 3);
+      final calGray = PdfColorSpace.parse(
+          cos, CosArray([const CosName('CalGray'), CosDictionary({})]));
+      expect(calGray.family, 'DeviceGray');
+      expect(calGray.channels, 1);
+    });
+
+    test('an ICC profile that cannot be decoded degrades to device', () {
+      // A FlateDecode filter over non-flate bytes fails to decode; the parse
+      // swallows it and falls back to the /N device family.
+      final space = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('ICCBased'),
+            CosStream(
+              CosDictionary({
+                'N': const CosInteger(3),
+                'Filter': const CosName('FlateDecode'),
+              }),
+              Uint8List.fromList([1, 2, 3, 4]),
+            ),
+          ]));
+      expect(space.iccProfile, isNull);
+      expect(space.channels, 3);
+      expectColor(space.toSrgb([0.1, 0.2, 0.3]), const PdfColor(0.1, 0.2, 0.3));
+    });
+
+    test('iccCache memoises the parsed profile across parses', () {
+      final iccBytes = adobeRgb1998Icc();
+      final stream =
+          CosStream(CosDictionary({'N': const CosInteger(3)}), iccBytes);
+      final array = CosArray([const CosName('ICCBased'), stream]);
+      final cache = <CosStream, IccProfile?>{};
+      final first = PdfColorSpace.parse(cos, array, iccCache: cache).iccProfile;
+      final second = PdfColorSpace.parse(cos, array, iccCache: cache).iccProfile;
+      expect(cache, contains(stream));
+      expect(identical(first, second), isTrue);
+    });
+
+    test('Indexed accepts a stream lookup table', () {
+      final space = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('Indexed'),
+            const CosName('DeviceRGB'),
+            const CosInteger(1),
+            CosStream(CosDictionary({}),
+                Uint8List.fromList([255, 0, 0, 0, 255, 0])),
+          ]));
+      expect(space.family, 'Indexed');
+      expectColor(space.toSrgb([1]), const PdfColor(0, 1, 0));
+    });
+
+    test('an Indexed lookup stream that fails to decode degrades to device',
+        () {
+      final space = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('Indexed'),
+            const CosName('DeviceRGB'),
+            const CosInteger(1),
+            // FlateDecode over non-flate bytes throws on decode -> parse null.
+            CosStream(
+                CosDictionary({'Filter': const CosName('FlateDecode')}),
+                Uint8List.fromList([9, 9, 9, 9])),
+          ]));
+      expect(space.family, isNot('Indexed'));
+    });
+
+    test('an Indexed space with a bad /hival degrades to a device family', () {
+      final space = PdfColorSpace.parse(
+          cos,
+          CosArray([
+            const CosName('Indexed'),
+            const CosName('DeviceRGB'),
+            const CosName('nope'), // hival must be a number
+            CosString(Uint8List.fromList([0, 0, 0])),
+          ]));
+      expect(space.family, isNot('Indexed'));
+    });
+  });
+
   group('CIE-based', () {
     test('delegates to PdfCalibratedColorSpace', () {
       final array = CosArray([
