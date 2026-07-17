@@ -38,12 +38,28 @@ void main() {
           isFalse);
     });
 
-    test('/Metadata is exempt only when /EncryptMetadata is false', () {
+    test('/Metadata stays encrypted when /EncryptMetadata is true', () {
       final metadata = stream(
           CosDictionary({'Type': const CosName('Metadata')}), '<xml/>');
       // the revision-3 fixture leaves metadata encrypted by default
       expect(h.encryptMetadata, isTrue);
       expect(h.streamPayloadIsEncrypted(metadata, identity), isTrue);
+    });
+
+    test('/Metadata is exempt when /EncryptMetadata is false', () {
+      final noMetaHandler = CosDocument.open(
+              buildEncryptedPdf(revision: 4, encryptMetadata: false))
+          .encryption!;
+      expect(noMetaHandler.encryptMetadata, isFalse);
+      final metadata = stream(
+          CosDictionary({'Type': const CosName('Metadata')}), '<xml/>');
+      // exempt from encryption - the exempt (false) branch of the policy
+      expect(noMetaHandler.streamPayloadIsEncrypted(metadata, identity),
+          isFalse);
+      // and encrypt-on-write passes such a payload through plain
+      final out = noMetaHandler.encryptObjectGraph(metadata, 10, 0,
+          resolve: identity, keepsFileCiphertext: (_) => false) as CosStream;
+      expect(out.rawBytes, ascii('<xml/>'));
     });
 
     test('a /Crypt filter naming /Identity marks the bytes as plain', () {
