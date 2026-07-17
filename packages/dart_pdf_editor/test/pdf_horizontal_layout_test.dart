@@ -277,26 +277,10 @@ void main() {
       (tester) async {
     // In a horizontal layout the cross (rubber-band) axis is vertical, so a
     // vertical touch drag past the page edge over-scrolls and springs back.
-    final editing = PdfEditingController(buildMultiPagePdf(3));
-    addTearDown(editing.dispose);
-    final controller = PdfViewerController();
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: ListenableBuilder(
-          listenable: editing,
-          builder: (context, _) => PdfViewer(
-            document: editing.document,
-            editing: editing,
-            controller: controller,
-            pageLayout: const PdfPageLayout.horizontalContinuous(),
-            initialFit: PdfViewerFit.width,
-          ),
-        ),
-      ),
-    ));
-    await tester.pump();
-    editing.tool = PdfEditTool.select;
-    await tester.pump();
+    // No editing tool: a zoomed one-finger touch pan is owned by the viewer's
+    // own recognizer, which rubber-bands the transform and, on lift-off,
+    // animates the cross axis back to the edge (_onCrossBounceTick).
+    final controller = await pumpHorizontal(tester, pages: 3);
 
     // zoom in with a touch double-tap (2.5×)
     await tester.tapAt(const Offset(400, 300));
@@ -308,20 +292,21 @@ void main() {
     final regionBefore = controller.visiblePageRegion(0)!;
 
     // vertical touch drag downward → content slides down, visible region
-    // pushes past the top edge (top < 0 in rubber-band)
+    // pushes past the top edge, well into the rubber-band zone
     final gesture = await tester.startGesture(const Offset(400, 300),
         kind: PointerDeviceKind.touch);
     var stamp = Duration.zero;
-    for (var i = 0; i < 15; i++) {
+    for (var i = 0; i < 20; i++) {
       stamp += const Duration(milliseconds: 16);
       await gesture.moveBy(const Offset(0, 60), timeStamp: stamp);
       await tester.pump(const Duration(milliseconds: 16));
     }
     final regionMidDrag = controller.visiblePageRegion(0)!;
     expect(regionMidDrag.top, lessThan(regionBefore.top),
-        reason: 'the content should have shifted down');
+        reason: 'the content should have shifted down past the edge');
 
-    // hold still so lift-off carries ~no velocity, then release
+    // hold still so lift-off carries ~no velocity: the release springs back
+    // directly (no fling), animating the over-scroll to the edge
     for (var i = 0; i < 6; i++) {
       stamp += const Duration(milliseconds: 16);
       await gesture.moveBy(Offset.zero, timeStamp: stamp);
@@ -330,7 +315,7 @@ void main() {
     await gesture.up(timeStamp: stamp + const Duration(milliseconds: 16));
     // advance the spring-back with bounded pumps (pumpAndSettle would wait on
     // the double-tap timer)
-    for (var i = 0; i < 40; i++) {
+    for (var i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 16));
     }
     // the cross-axis over-scroll relaxes back to the page edge
