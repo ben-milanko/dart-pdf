@@ -98,6 +98,25 @@ PdfEditorView(
 PdfReader(bytes: pdfBytes)
 ```
 
+To open a large PDF hosted remotely without downloading the whole file first,
+use the asynchronous byte-source API. `PdfHttpByteSource` fetches over HTTP
+Range requests (forwarding auth headers, with cancellation and progress), and
+falls back to a plain download when the server does not support ranges:
+
+```dart
+final source = PdfHttpByteSource(
+  Uri.parse('https://host/big.pdf'),
+  headers: {'Authorization': 'Bearer $token'},
+  cancelToken: cancelToken,
+  onProgress: (received, total) => report(received, total),
+);
+final document = await PdfDocument.openSource(source);
+```
+
+`PdfByteSource` is network-agnostic (`length` + `readRange`), so any random-
+access transport works; `PdfDocument.open(Uint8List)` and the byte-based widgets
+are unchanged. See [`doc/dev-log`](doc/dev-log) for the loader design.
+
 For OCR, add one engine package and call `PdfEditor.applyOcr` before opening
 or replacing the document in your viewer:
 

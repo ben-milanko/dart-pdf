@@ -18,6 +18,23 @@ class PdfDocument {
   static PdfDocument open(Uint8List bytes, {String password = ''}) =>
       PdfDocument._(CosDocument.open(bytes, password: password));
 
+  /// Opens a document from an asynchronous, random-access [source] - a remote
+  /// file over HTTP Range requests, a local file read on demand, or any other
+  /// [PdfByteSource]. Only the bytes the parser needs (header, cross-reference
+  /// chain, and the live objects) are fetched, falling back to a full download
+  /// when the source cannot serve useful ranges or the file is malformed.
+  ///
+  /// [PdfDocument.open] and the byte-based widgets are unaffected; this is an
+  /// additive entry point for progressive/remote loading. See [PdfByteSource]
+  /// and, for the HTTP adapter, `PdfHttpByteSource` in `dart_pdf_editor`.
+  static Future<PdfDocument> openSource(
+    PdfByteSource source, {
+    String password = '',
+    PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
+  }) async =>
+      PdfDocument._(await CosDocument.openSource(source,
+          password: password, options: options));
+
   String get version => cos.version;
 
   CosDictionary get catalog => cos.catalog;

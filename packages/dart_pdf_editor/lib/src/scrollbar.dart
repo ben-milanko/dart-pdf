@@ -32,9 +32,11 @@ class PdfScrollbar extends StatefulWidget {
     this.viewExtent,
     this.onScrollBy,
     this.thumbKey,
-  })  : assert(axis == Axis.vertical ? scroll != null : viewExtent != null),
-        assert(axis == Axis.vertical || transform != null,
-            'a horizontal bar measures overflow from the transform'),
+  })  : assert(scroll != null || viewExtent != null,
+            'a scroll-driven bar needs a controller; a transform-only bar '
+            'needs the cross-axis view extent'),
+        assert(scroll != null || transform != null,
+            'a transform-only bar measures overflow from the transform'),
         assert(onScrollBy != null || scroll != null);
 
   /// How much room bars reserve: the viewer's horizontal bar is inset
@@ -85,12 +87,22 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
 
   bool get _vertical => widget.axis == Axis.vertical;
 
+  /// Whether this bar tracks a real [ScrollController] (the layout's main
+  /// axis) rather than measuring overflow purely from the zoom transform
+  /// (the cross axis, which overflows only while zoomed in). Independent of
+  /// orientation: a horizontal continuous layout has a scroll-driven
+  /// *horizontal* main bar and a transform-only *vertical* cross bar.
+  bool get _scrollDriven => widget.scroll != null;
+
+  /// This bar's translation index into the zoom transform, by orientation.
+  int get _translateIndex => _vertical ? 13 : 12;
+
   double get _scale => widget.transform?.value.getMaxScaleOnAxis() ?? 1;
 
   /// (laid-out extent, visible extent) along the axis, in list-space
   /// pixels, or null while there are no metrics yet.
   (double, double)? _extents() {
-    if (_vertical) {
+    if (_scrollDriven) {
       final scroll = widget.scroll!;
       // exactly one: a host swapping its list's slot in the tree leaves
       // both the old and new positions attached for one frame
@@ -100,21 +112,22 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
       final total = position.maxScrollExtent + position.viewportDimension;
       return (total, position.viewportDimension / _scale);
     }
-    // horizontally the pages always lay out at the viewer width;
+    // the cross axis always lays out at the viewer's cross extent;
     // overflow exists only inside the zoom window
     final total = widget.viewExtent!;
     return (total, total / _scale);
   }
 
   /// The visible window's leading edge in list space: the viewport
-  /// unprojects through the transform as (p - t) / s, riding on the
-  /// scroll offset vertically (see _visibleFractionOf).
+  /// unprojects through the transform as (p - t) / s, riding on the scroll
+  /// offset along the scroll-driven (main) axis (see _visibleFractionOf).
   double _offset() {
     final m = widget.transform?.value;
-    if (m == null) return widget.scroll!.position.pixels;
-    return _vertical
-        ? -m.storage[13] / _scale + widget.scroll!.position.pixels
-        : -m.storage[12] / _scale;
+    if (!_scrollDriven) {
+      return m == null ? 0 : -m.storage[_translateIndex] / _scale;
+    }
+    final base = widget.scroll!.position.pixels;
+    return m == null ? base : -m.storage[_translateIndex] / _scale + base;
   }
 
   void _scrollBy(double delta) {

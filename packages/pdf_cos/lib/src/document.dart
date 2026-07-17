@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'byte_source.dart';
 import 'crypto/standard_security_handler.dart';
 import 'exceptions.dart';
 import 'filters/filters.dart';
@@ -162,6 +163,19 @@ class CosDocument {
     _scannedHeaders = null;
     return changed;
   }
+
+  /// Opens a document from an asynchronous, random-access [source], fetching
+  /// only the byte ranges it needs (header, cross-reference chain, and the
+  /// live objects) instead of requiring the whole file up front. Falls back
+  /// to a full sequential download when the source cannot serve useful
+  /// ranges or the cross-reference machinery is broken. See [PdfByteSource]
+  /// and [openCosDocumentFromSource].
+  static Future<CosDocument> openSource(
+    PdfByteSource source, {
+    String password = '',
+    PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
+  }) =>
+      openCosDocumentFromSource(source, password: password, options: options);
 
   static CosDocument _openFromXref(Uint8List bytes, int shift) {
     final startXref = _findStartXref(bytes);
