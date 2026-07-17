@@ -19,6 +19,7 @@ import 'editing_fonts.dart';
 import 'editing_interaction.dart';
 import 'editing_measure.dart';
 import 'editing_tool_behavior.dart';
+import 'handle_layout.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
@@ -624,25 +625,18 @@ typedef _ShapeResize = ({
 
 /// Which sides of the selection a resize handle moves: -1 left/top edge,
 /// +1 right/bottom edge, 0 leaves that axis alone. (View space, y down.)
-typedef _Handle = ({int dx, int dy});
+// Resize-handle geometry lives in handle_layout.dart as a pure, unit-testable
+// value type ([HandleLayout]); these aliases keep the overlay's existing names.
+typedef _Handle = SelectionHandle;
 
-const List<_Handle> _handles = [
-  (dx: -1, dy: -1),
-  (dx: 0, dy: -1),
-  (dx: 1, dy: -1),
-  (dx: -1, dy: 0),
-  (dx: 1, dy: 0),
-  (dx: -1, dy: 1),
-  (dx: 0, dy: 1),
-  (dx: 1, dy: 1),
-];
+const List<_Handle> _handles = selectionHandles;
 
 const double _handleSize = 8;
-const double _handleHitRadius = 12;
+const double _handleHitRadius = HandleLayout.defaultHitRadius;
 const double _minSizeView = 12;
 
 /// How far the rotation knob floats above the selection's top edge.
-const double _rotateHandleDistance = 22;
+const double _rotateHandleDistance = HandleLayout.defaultRotateHandleDistance;
 
 /// Rotation drags snap to 45° multiples when within this margin.
 const double _rotateSnapRadians = 3 * math.pi / 180;
@@ -1603,11 +1597,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
-  static Offset _rotatePoint(Offset p, Offset center, double angle) {
-    final d = p - center;
-    final c = math.cos(angle), s = math.sin(angle);
-    return center + Offset(d.dx * c - d.dy * s, d.dx * s + d.dy * c);
-  }
+  static Offset _rotatePoint(Offset p, Offset center, double angle) =>
+      HandleLayout.rotatePoint(p, center, angle);
 
   /// Drops the afterimage (and its ghost picture, which the state owns).
   void _clearAfterimage() {
@@ -2300,9 +2291,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         underline: request.underline);
   }
 
-  Offset _handleCenter(Rect rect, _Handle handle) => Offset(
-        rect.center.dx + handle.dx * rect.width / 2,
-        rect.center.dy + handle.dy * rect.height / 2,
+  /// The chrome-handle geometry for a selection [rect] at the current
+  /// [_chromeScale], carrying the resting [rotation] for the rotate knob.
+  HandleLayout _handleLayout(Rect rect, [double rotation = 0]) => HandleLayout(
+        rect: rect,
+        rotation: rotation,
+        chromeScale: _chromeScale,
+        hitRadius: _handleHitRadius,
+        rotateHandleDistance: _rotateHandleDistance,
       );
 
   /// The resize cursor for a handle by its corner/edge: orthogonal edges
@@ -2317,13 +2313,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   _Handle? _handleAt(Rect rect, Offset position) {
     if (!_controller.canResizeSelected) return null;
-    for (final handle in _handles) {
-      if ((position - _handleCenter(rect, handle)).distance <=
-          _handleHitRadius * _chromeScale) {
-        return handle;
-      }
-    }
-    return null;
+    return _handleLayout(rect).handleAt(position);
   }
 
   int? _vertexHandleAt(List<Offset> points, Offset position) {
@@ -2336,20 +2326,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return null;
   }
 
-  /// The rotate knob's view position: above the chrome box's top edge,
-  /// riding the annotation's resting [rotation] about the box center.
-  Offset _rotateHandleCenter(Rect rect, double rotation) => _rotatePoint(
-        Offset(rect.center.dx, rect.top - _rotateHandleDistance * _chromeScale),
-        rect.center,
-        rotation,
-      );
-
   /// Resize handles get first claim (the top-center knob sits close),
   /// so this is only consulted after [_handleAt] misses.
   bool _hitsRotateHandle(Rect rect, double rotation, Offset position) =>
       _controller.canRotateSelected &&
-      (position - _rotateHandleCenter(rect, rotation)).distance <=
-          _handleHitRadius * _chromeScale;
+      _handleLayout(rect, rotation).hitsRotateHandle(position);
 
   /// The drag's rotation delta for the pointer at [position]: the angle
   /// swept about the selection center. The *total* rotation (resting +
