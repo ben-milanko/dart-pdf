@@ -121,6 +121,18 @@ void main() {
       expect(pages.typeName, 'Pages');
     });
 
+    test('recovery reuses the object-stream decoder for the header index', () {
+      // Every compressed object must resolve through the recovered index,
+      // including the last one in the stream (index 2) - proving recovery
+      // reuses the decoder's parsed (number, offset) pairs rather than a
+      // second inline header parse.
+      final doc = CosDocument.open(smash(buildXrefStreamPdf(), 'startxref'));
+      final page = doc.getObject(3, 0) as CosDictionary;
+      expect(page.typeName, 'Page');
+      expect((doc.resolve(page['MediaBox']) as CosArray).length, 4);
+      expect(doc.resolve(page['Parent']), doc.resolve(const CosReference(2, 0)));
+    });
+
     test('the last definition of an object number wins', () {
       final updated = (BytesBuilder()
             ..add(smash(buildClassicPdf(), 'startxref'))

@@ -269,7 +269,10 @@ class CosDocument {
     document._initEncryption(password);
 
     // Index object streams so compressed objects resolve. Direct
-    // definitions found by the scan win over compressed ones.
+    // definitions found by the scan win over compressed ones. The
+    // "/N pairs, /First offset" wire format is parsed by the object-stream
+    // decoder itself ([_objectStream]) so a lenience fix there reaches
+    // recovery too - recovery only decides which streams to index.
     for (final number in List.of(entries.keys)) {
       final entry = entries[number]!;
       if (entry.type != CosXrefEntryType.inUse) continue;
@@ -278,12 +281,9 @@ class CosDocument {
         if (object is! CosStream) continue;
         final type = object.dictionary['Type'];
         if (type is! CosName || type.value != 'ObjStm') continue;
-        final n = document.resolve(object.dictionary['N']);
-        if (n is! CosInteger) continue;
-        final parser = CosParser(document.decodeStreamData(object));
-        for (var index = 0; index < n.value; index++) {
-          final objectNumber = parser.expectInteger();
-          parser.expectInteger(); // offset within the stream, unused here
+        final stream = document._objectStream(number);
+        for (var index = 0; index < stream.index.length; index++) {
+          final objectNumber = stream.index[index].$1;
           entries.putIfAbsent(
               objectNumber, () => CosXrefEntry.compressed(number, index));
         }
@@ -798,6 +798,11 @@ class _ObjectStream {
 
   /// (object number, relative offset) pairs from the stream header.
   final List<(int, int)> _index = [];
+
+  /// The parsed (object number, relative offset) pairs, in stream order.
+  /// Recovery reuses this so the header wire-format is parsed in exactly
+  /// one place (see [CosDocument._recover]).
+  List<(int, int)> get index => _index;
 
   CosObject objectByNumber(int objectNumber, int hintIndex) {
     var entry = hintIndex >= 0 &&
