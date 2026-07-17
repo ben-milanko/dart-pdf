@@ -108,6 +108,34 @@ void main() {
       expect(ecdsaVerify(restored.publicKey, digest, ecdsaSign(restored, digest)),
           isTrue);
     });
+
+    test('a PKCS#8 key reads its curve from the outer AlgorithmIdentifier',
+        () {
+      // A non-P256 key whose PKCS#8 inner ECPrivateKey omits its own [0]
+      // curve params - the curve must come from the outer AlgorithmIdentifier.
+      final key = EcPrivateKey.generate(EcCurve.p384, random: _SeededRandom(3));
+      final size = (EcCurve.p384.n.bitLength + 7) >> 3;
+      final scalar = Uint8List(size);
+      var rest = key.d;
+      for (var i = size - 1; i >= 0 && rest > BigInt.zero; i--) {
+        scalar[i] = (rest & BigInt.from(0xFF)).toInt();
+        rest >>= 8;
+      }
+      final inner = derSequence([derInteger(BigInt.one), derOctetString(scalar)]);
+      final pkcs8 = derSequence([
+        derInteger(BigInt.zero),
+        derSequence([
+          derOid('1.2.840.10045.2.1'), // ecPublicKey
+          derOid(EcCurve.p384.oid), // named curve, outer only
+        ]),
+        derOctetString(inner),
+      ]);
+
+      final restored = EcPrivateKey.fromSec1(pkcs8);
+      expect(restored.curve.oid, EcCurve.p384.oid);
+      expect(restored.d, key.d);
+      expect(restored.publicKey.x, key.publicKey.x);
+    });
   });
 
   group('self-signed X.509 builder', () {

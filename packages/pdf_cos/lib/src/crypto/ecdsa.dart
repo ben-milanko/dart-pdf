@@ -152,13 +152,22 @@ class EcPrivateKey {
   /// (P-256 when absent).
   factory EcPrivateKey.fromSec1(Uint8List der) {
     var seq = DerObject.parse(der).children;
+    var curve = EcCurve.p256;
     // PKCS#8: SEQUENCE { version, AlgorithmIdentifier, OCTET STRING key }
     if (seq.length >= 3 &&
         seq[1].tag == DerTag.sequence &&
         seq[2].tag == DerTag.octetString) {
+      // The named curve lives in the PKCS#8 AlgorithmIdentifier; the inner
+      // ECPrivateKey usually omits its own [0] parameters, so read it here.
+      final algorithm = seq[1].children;
+      if (algorithm.length > 1) {
+        final named = EcCurve.byOid(algorithm[1].asOid);
+        if (named != null) curve = named;
+      }
       seq = DerObject.parse(seq[2].content).children;
     }
-    var curve = EcCurve.p256;
+    // An RFC 5915 key (or a PKCS#8 inner key that kept them) names the curve
+    // in its own [0] parameters, which take precedence when present.
     for (final field in seq.skip(2)) {
       if (field.tag == DerTag.context(0)) {
         final named = EcCurve.byOid(field.children.first.asOid);
