@@ -874,6 +874,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ui.Picture? _resizeCleanPicture;
   Object? _resizeCleanFor;
 
+  // The embedded/bundled face a free-text resize preview re-wraps with,
+  // reparsed from the box's appearance program once per selection. Recovering
+  // the program isn't free, so it's cached against the annotation instance
+  // (stable within a revision) rather than decoded on every drag frame.
+  PdfEmbeddedFont? _resizeEmbeddedFont;
+  PdfAnnotation? _resizeEmbeddedFontFor;
+
   // Clean page for a selected annotation's original footprint. Move commits
   // clip this into the source rect so the annotation disappears without
   // covering underlying page content with a paper-colored box.
@@ -930,7 +937,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ({
     Rect rect,
     String text,
-    PdfStandardFont font,
+    PdfTextFont font,
     double size,
     Color color,
     Color? fill,
@@ -1886,13 +1893,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
+  /// The embedded (Type0-with-program) face a free-text [annotation] names in
+  /// its /DA, reparsed from its appearance program so a resize preview can
+  /// re-wrap in the real font. Cached against the annotation instance (stable
+  /// within a revision) because decoding the program isn't cheap. Null when
+  /// the box has no embedded program or it can't be recovered.
+  PdfEmbeddedFont? _resizeEmbeddedFontOf(PdfAnnotation annotation) {
+    if (!identical(annotation, _resizeEmbeddedFontFor)) {
+      _resizeEmbeddedFontFor = annotation;
+      _resizeEmbeddedFont = annotation.behavior.hasEmbeddedTextFont
+          ? PdfEmbeddedFont.fromFreeText(annotation)
+          : null;
+    }
+    return _resizeEmbeddedFont;
+  }
+
   /// The selection's text style when a resize commit will RE-WRAP it at
   /// a constant font size - the editor's FreeText regenerate path:
-  /// an /AP to replace and a /DA naming a standard font. Null means the
+  /// an /AP to replace and a /DA naming the box's font. Null means the
   /// commit stretches the appearance and the ghost previews faithfully.
   ({
     String text,
-    PdfStandardFont font,
+    PdfTextFont font,
     double size,
     Color color,
     Color? fill,
@@ -1906,10 +1928,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfAnnotationResizeBehavior.reflowText) {
       return null;
     }
-    // an embedded-font box reflows too, but the lightweight preview can only
-    // draw base-14 faces - fall back to the stretch ghost during the drag
-    // (the commit still re-wraps correctly)
-    final font = annotation.behavior.standardTextFont;
+    // Base-14 boxes preview in the matching platform face; an embedded/bundled
+    // box previews in its own outline bytes, registered with the engine under
+    // a synthetic family ([_wrappedTextBox] kicks that off) exactly like the
+    // inline editor - so the drag wraps in the real font instead of stretching
+    // baked glyphs. Only when neither is recoverable does the stretch ghost
+    // still stand in (the commit re-wraps correctly regardless).
+    final PdfTextFont? font = annotation.behavior.standardTextFont ??
+        _resizeEmbeddedFontOf(annotation);
     if (font == null) return null;
     final parsed = annotation.behavior.style.freeText!;
     return (
@@ -4690,7 +4716,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     Key? key,
     required Rect rect,
     required String text,
-    required PdfStandardFont font,
+    required PdfTextFont font,
     required double size,
     required Color color,
     required Color? background,
@@ -4699,6 +4725,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     bool underline = false,
     double lineSpacing = kPdfFreeTextDefaultLineSpacing,
   }) {
+    // An embedded/bundled face has no platform family - register its outline
+    // bytes so Flutter wraps this preview in the real font (until the async
+    // load lands, [_textEditUiFamily] returns null and the fallback face wraps
+    // it, still without stretching). Bold/italic are base-14-only variants.
+    if (font is PdfEmbeddedFont) _ensureEmbeddedFontPreview(font);
+    final isBold = font is PdfStandardFont && font.isBold;
+    final isItalic = font is PdfStandardFont && font.isItalic;
     final direction = _flutterTextDirection(text);
     final columnAlign = switch (align) {
       null => AlignmentDirectional.topStart.resolve(direction),
@@ -4724,9 +4757,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             color: color,
             fontSize: size * _geometry.scale,
             height: lineSpacing,
-            fontFamily: _uiFamily(font),
-            fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
-            fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
+            fontFamily: _textEditUiFamily(font),
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
             decoration: underline ? TextDecoration.underline : null,
             decorationColor: underline ? color : null,
           ),
@@ -4741,14 +4774,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       ),
     );
   }
-
-  /// The Flutter font family that visually matches [font] - the same
-  /// substitution the renderer uses for non-embedded base-14 fonts.
-  static String _uiFamily(PdfStandardFont font) => switch (font.family) {
-        PdfStandardFontFamily.sans => 'Helvetica',
-        PdfStandardFontFamily.serif => 'Times New Roman',
-        PdfStandardFontFamily.mono => 'Courier',
-      };
 
   @override
   Widget build(BuildContext context) {
@@ -5321,7 +5346,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   height: _textEditLineSpacing,
                                   letterSpacing:
                                       _textEditCharSpacing * _geometry.scale,
-                                  fontFamily: _uiFamily(_textEditFont),
+                                  fontFamily: _textEditUiFamily(_textEditFont),
                                   fontWeight: _textEditFont.isBold
                                       ? FontWeight.bold
                                       : FontWeight.normal,

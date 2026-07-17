@@ -1420,6 +1420,43 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('resizing an embedded-font box previews the re-wrap too',
+        (tester) async {
+      const previewKey = ValueKey('pdf-text-resize-preview');
+      final (editing, _) = await pumpEditor(tester);
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      editing
+        ..preferences.fontSize = 16
+        ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Wrap me please')
+        ..tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+      // genuinely the embedded path, not a base-14 fallback
+      expect(editing.selectedTextFont, isA<PdfEmbeddedFont>());
+
+      // grab the bottom-right handle and pull it inward
+      final gesture = await tester.startGesture(view(300, 600));
+      await gesture.moveTo(view(260, 580));
+      await gesture.moveTo(view(220, 560));
+      await tester.pump();
+
+      // an embedded/bundled box re-wraps live just like a base-14 box - the
+      // wrapped-text preview rides the dragged box at the committed size,
+      // rather than falling back to stretched glyphs
+      expect(find.byKey(previewKey), findsOneWidget);
+      final text = tester.widget<Text>(find.descendant(
+          of: find.byKey(previewKey), matching: find.byType(Text)));
+      expect(text.data, 'Wrap me please');
+      expect(text.style!.fontSize, closeTo(16 * scale, 0.01));
+
+      await gesture.up();
+      await tester.pump();
+      editing.activeFont = null;
+      await settle(tester);
+    });
+
     testWidgets('the resize preview lifts the box, transparent over the page',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
