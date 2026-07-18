@@ -18,6 +18,7 @@ import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
 import 'incoming_file.dart';
+import 'keyless_identity_cache.dart';
 import 'keyless_signing.dart';
 import 'new_document.dart';
 import 'ocr.dart';
@@ -1006,6 +1007,20 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- printing ------------------------------------------------------------
 
+  /// Reuses a keyless (Sigstore/Fulcio) identity across signatures while its
+  /// short-lived certificate (~10 min) stays valid, so most boxes need no
+  /// fresh OIDC sign-in.
+  final _keylessCache = KeylessIdentityCache();
+
+  /// A keyless identity for signing: the cached one while its cert is valid,
+  /// else freshly minted via [tokenProvider] (interactive or silent).
+  Future<PdfSigningIdentity?> _obtainKeyless(
+          BuildContext context, OidcTokenProvider tokenProvider) =>
+      _keylessCache.obtain(
+          context,
+          (context) =>
+              keylessSigningIdentity(context, tokenProvider: tokenProvider));
+
   /// Opens the digital-signature dialog and signs. When [placement] is set
   /// (the signature-box tool drew a rectangle), the dialog offers the visible
   /// appearance (hand-drawn mark, logo backdrop) and the signature is rendered
@@ -1017,25 +1032,26 @@ class _EditorScreenState extends State<EditorScreen>
     setState(() => _digitallySigning = true);
     try {
       final tokenProvider = widget.oidcTokenProvider;
+      final silentProvider = widget.oidcSilentTokenProvider;
       final options = await (widget.digitalSignatureOptionsProvider ??
           (context) => showDigitalSigningDialog(
                 context,
                 createKeylessIdentity: tokenProvider == null
                     ? null
-                    : (context) => keylessSigningIdentity(context,
-                        tokenProvider: tokenProvider),
+                    : (context) => _obtainKeyless(context, tokenProvider),
                 timestampClient:
                     tokenProvider == null ? null : defaultTimestampClient,
                 // On the web the OAuth broker can't complete in a browser tab,
                 // so keyless is native-only; tell the user where to find it.
                 keylessUnavailable: kIsWeb,
                 // Pre-select keyless on open only via the silent provider, so
-                // opening the dialog never launches the browser.
-                autoCreateKeylessIdentity: (tokenProvider == null ||
-                        widget.oidcSilentTokenProvider == null)
-                    ? null
-                    : (context) => keylessSigningIdentity(context,
-                        tokenProvider: widget.oidcSilentTokenProvider!),
+                // opening the dialog never launches the browser. It reuses the
+                // cached Fulcio identity while its cert is valid (~10 min), so
+                // most boxes need no OIDC token at all.
+                autoCreateKeylessIdentity:
+                    (tokenProvider == null || silentProvider == null)
+                        ? null
+                        : (context) => _obtainKeyless(context, silentProvider),
                 placement: placement,
                 logoPicker: placement == null ? null : pickImageBytes,
                 pageCount: session.document.pageCount,
