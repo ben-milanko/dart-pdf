@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf_cos/pdf_cos.dart' show X509Certificate;
 import 'package:pdf_document/pdf_document.dart';
 
 import 'signature_appearance_store.dart';
@@ -235,7 +236,12 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   PdfSigningIdentity? _selfSigned;
   PdfSigningIdentity? _keyless;
   bool _keylessBusy = false;
+  bool _submitting = false;
   String? _error;
+
+  /// A keyless cert with less than this left is re-minted at Sign time, so a
+  /// signature never goes out on an about-to-expire short-lived certificate.
+  static const _keylessRemintMargin = Duration(minutes: 2);
 
   // Visible-box appearance (only when widget.placement is set).
   Uint8List? _signaturePng; // rasterized hand-drawn mark
@@ -508,12 +514,57 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     );
   }
 
-  void _submit() {
+  /// Keyless certs live only minutes. If the selected one is at (or near) its
+  /// expiry, re-mint from the cached login for a fresh cert before signing;
+  /// returns null (and shows an error, dropping the selection) if that fails.
+  /// A comfortably-valid cert is returned unchanged.
+  Future<PdfSigningIdentity?> _freshKeylessIfStale(
+      PdfSigningIdentity current) async {
+    final creator = widget.createKeylessIdentity;
+    if (creator == null) return current;
+    DateTime? notAfter;
+    try {
+      notAfter = X509Certificate.parse(current.certificate).notAfter.toUtc();
+    } catch (_) {
+      notAfter = null; // unreadable -> treat as stale, re-mint
+    }
+    final now = DateTime.now().toUtc();
+    if (notAfter != null && notAfter.isAfter(now.add(_keylessRemintMargin))) {
+      return current; // still comfortably valid
+    }
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    PdfSigningIdentity? fresh;
+    Object? failure;
+    try {
+      fresh = await creator(context);
+    } catch (error) {
+      failure = error;
+    }
+    if (!mounted) return null;
+    setState(() {
+      _submitting = false;
+      if (fresh == null) {
+        _keyless = null; // force a re-tap of "Sign in with your email"
+        _error = failure == null
+            ? 'Your keyless sign-in expired. Please sign in again.'
+            : 'Keyless sign-in failed: $failure';
+      }
+    });
+    return fresh;
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
     final appearance = _buildAppearance();
     final keyless = _keyless;
     if (keyless != null) {
+      final fresh = await _freshKeylessIfStale(keyless);
+      if (fresh == null || !mounted) return; // re-mint failed; stay open
       Navigator.of(context).pop(DigitalSignatureOptions(
-        keylessIdentity: keyless,
+        keylessIdentity: fresh,
         timestampClient: widget.timestampClient,
         fieldName: _value(_fieldName),
         reason: _value(_reason),
@@ -799,6 +850,10 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                       selfSigned?.name ??
                       keyless?.name,
                   reason: _value(_reason),
+                  aspectRatio: widget.placement == null
+                      ? 2.0
+                      : widget.placement!.rect.width /
+                          widget.placement!.rect.height,
                   onClearSignature: _signaturePng == null
                       ? null
                       : () {
@@ -831,9 +886,15 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
         ),
         FilledButton.icon(
           key: const ValueKey('digital-signature-sign'),
-          onPressed: canSign ? _submit : null,
-          icon: const Icon(Icons.draw_outlined),
-          label: const Text('Sign'),
+          onPressed: (canSign && !_submitting) ? () => unawaited(_submit()) : null,
+          icon: _submitting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.draw_outlined),
+          label: Text(_submitting ? 'Refreshing sign-in…' : 'Sign'),
         ),
       ],
     );
@@ -849,6 +910,7 @@ class _AppearancePreview extends StatelessWidget {
     required this.logoBytes,
     required this.signerName,
     required this.reason,
+    required this.aspectRatio,
     required this.onClearSignature,
     required this.onClearLogo,
   });
@@ -857,6 +919,9 @@ class _AppearancePreview extends StatelessWidget {
   final Uint8List? logoBytes;
   final String? signerName;
   final String? reason;
+
+  /// The drawn box's width / height, so the preview matches its shape.
+  final double aspectRatio;
   final VoidCallback? onClearSignature;
   final VoidCallback? onClearLogo;
 
@@ -869,57 +934,68 @@ class _AppearancePreview extends StatelessWidget {
       'Date: ${MaterialLocalizations.of(context).formatFullDate(DateTime.now())}',
       if (reason != null && reason!.isNotEmpty) 'Reason: $reason',
     ];
+    final box = Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFF2E5E86)),
+        borderRadius: BorderRadius.circular(4),
+        image: logoBytes == null
+            ? null
+            : DecorationImage(
+                image: MemoryImage(logoBytes!),
+                fit: BoxFit.contain,
+                opacity: _signatureLogoOpacity),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: Center(
+            child: signaturePng != null
+                ? Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Image.memory(signaturePng!, fit: BoxFit.contain),
+                  )
+                : Text(
+                    signerName ?? 'Signer',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Color(0xFF1A1A1A),
+                        fontWeight: FontWeight.bold),
+                  ),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final line in details)
+                  Text(line,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 8, color: Color(0xFF1A1A1A))),
+              ],
+            ),
+          ),
+        ),
+      ]),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          height: 92,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: const Color(0xFF2E5E86)),
-            borderRadius: BorderRadius.circular(4),
-            image: logoBytes == null
-                ? null
-                : DecorationImage(
-                    image: MemoryImage(logoBytes!),
-                    fit: BoxFit.contain,
-                    opacity: _signatureLogoOpacity),
+        // Match the preview to the box the user drew on the page.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440, maxHeight: 150),
+            child: AspectRatio(
+              aspectRatio: aspectRatio.clamp(0.2, 8.0),
+              child: box,
+            ),
           ),
-          child: Row(children: [
-            Expanded(
-              child: Center(
-                child: signaturePng != null
-                    ? Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Image.memory(signaturePng!, fit: BoxFit.contain),
-                      )
-                    : Text(
-                        signerName ?? 'Signer',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            color: Color(0xFF1A1A1A),
-                            fontWeight: FontWeight.bold),
-                      ),
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final line in details)
-                      Text(line,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 8, color: Color(0xFF1A1A1A))),
-                  ],
-                ),
-              ),
-            ),
-          ]),
         ),
         Row(children: [
           if (onClearSignature != null)
