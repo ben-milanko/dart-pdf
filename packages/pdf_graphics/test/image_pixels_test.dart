@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -164,6 +165,55 @@ void main() {
     }, List.filled(16, 0));
     expect(decodePdfImagePixels(cos, stream), isNull);
     expect(decodePdfImageBase(cos, stream), isNull);
+  });
+
+  group('CMYK JPEG polarity (#370)', () {
+    // Two 16x8 baseline JPEGs, hand-built with constant 8x8 blocks and custom
+    // Huffman tables so the stored samples are exact by construction. The
+    // YCCK file carries an Adobe APP14 marker with transform=2 and stores
+    // Y'CbCr of the inverted CMY (K stored as ink); the CMYK file carries
+    // transform=0 and stores plain ink values. Both paint the same content:
+    // left half cyan ink (255,0,0,0), right half magenta + half K
+    // (0,255,0,128) in PDF ink polarity.
+    //
+    // Ground truth: pdf.js renders of each file embedded as a DeviceCMYK
+    // image XObject (its _convertYcckToCmyk inverts the converted CMY and
+    // leaves K unchanged; the plain CMYK path is untouched).
+    const ycckJpeg =
+        '/9j/7gAOQWRvYmUAZAAAAAAC/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABYAAQEBAAAAAAAAAAAAAAAAAAUGB//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAOBAEAAgADAAQAAD8AaKINoCLS7eGfv//Z';
+    const cmykJpeg =
+        '/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABcAAQEBAQAAAAAAAAAAAAAAAAAGBwj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADgQBAAIAAwAEAAA/ANAQaDZ+5/bwNAf/2Q==';
+
+    CosStream cmykDct(String b64) => image({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(8),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceCMYK'),
+          'Filter': const CosName('DCTDecode'),
+        }, base64Decode(b64));
+
+    void expectPixel(Uint8List rgba, int x, List<int> expected) {
+      final i = (4 * 16 + x) * 4; // middle row
+      for (var ch = 0; ch < 3; ch++) {
+        expect((rgba[i + ch] - expected[ch]).abs(), lessThanOrEqualTo(3),
+            reason: 'x=$x channel=$ch');
+      }
+      expect(rgba[i + 3], 255);
+    }
+
+    test('YCCK (Adobe transform=2) inverts CMY and keeps K', () {
+      final pixels = decodePdfImagePixels(cos, cmykDct(ycckJpeg))!;
+      expect(pixels.width, 16);
+      expectPixel(pixels.rgba, 2, [0, 7, 39]); // cyan + full K
+      expectPixel(pixels.rgba, 12, [140, 17, 11]); // M+Y + half K
+    });
+
+    test('plain CMYK (Adobe transform=0) passes samples through', () {
+      final pixels = decodePdfImagePixels(cos, cmykDct(cmykJpeg))!;
+      expect(pixels.width, 16);
+      expectPixel(pixels.rgba, 2, [0, 184, 241]); // pure cyan
+      expectPixel(pixels.rgba, 12, [142, 15, 82]); // magenta + half K
+    });
   });
 
   test('scaled DeviceRGB Flate decodes directly to target size', () {

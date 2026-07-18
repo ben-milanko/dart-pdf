@@ -875,10 +875,15 @@ _DctCmykImage? _decodeDctCmyk(Uint8List jpegBytes) {
         final cr = yy - 128;
         final cb = m - 128;
         final yScaled = c << 8;
-        c = _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
-        m = _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
-        yy = _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
-        k = 255 - k;
+        // YCCK -> CMYK per pdf.js's _convertYcckToCmyk: Adobe stores the
+        // chroma/luma of the inverted CMY, so the converted channels are
+        // inverted back to PDF ink polarity (0 = no ink). K passes through
+        // unchanged - pdf.js leaves it to a /Decode array, and matching the
+        // reference renderer matters more than MuPDF's all-four-inverted
+        // convention, which disagrees on K.
+        c = 255 - _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
+        m = 255 - _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
+        yy = 255 - _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
       }
 
       final i = (y * width + x) * 4;
