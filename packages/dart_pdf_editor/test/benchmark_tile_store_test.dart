@@ -1,10 +1,13 @@
 // Before/after benchmark for the PdfTileStore deep-zoom path (issue #314):
 // the shipping single detail patch re-rasterizes the whole visible region on
 // every settle, while the tile pyramid rasterizes only the missing tiles and
-// reuses the rest. This harness drives the two raster strategies through the
-// same pinch-in and deep-zoom pan sequences over a page's retained scene and
-// reports the raster work each pays (calls, megapixels, wall time) plus the
-// tile reuse ratio and retained bytes.
+// reuses the rest. This harness drives three raster strategies - the legacy
+// patch, the per-tile store (batchRasters: false), and the batched store
+// (one slab readback per settle, sliced GPU-side) - through the same pinch-in
+// and deep-zoom pan sequences over a page's retained scene and reports the
+// raster work each pays (calls, megapixels, wall time), the settle-loop wall
+// clock (which for the batched store includes slab slicing), the tile reuse
+// ratio, and retained bytes.
 //
 // Both strategies share one up-front PdfRetainedScene.record (interpret +
 // decode) - the cost the zoom must never re-pay - so the numbers isolate the
@@ -140,50 +143,54 @@ void main() {
       }
 
       // Aggregate the raster work each strategy paid across every page.
-      var patchPanMp = 0.0, tilePanMp = 0.0, patchPanMs = 0.0, tilePanMs = 0.0;
-      var patchPinchMp = 0.0, tilePinchMp = 0.0;
-      var patchRevMp = 0.0, tileRevMp = 0.0, patchRevMs = 0.0, tileRevMs = 0.0;
-      for (final res in results) {
-        if (res['error'] != null) continue;
-        patchPanMp += (res['patchPan'] as Map)['rasterMegapixels'] as double;
-        tilePanMp += (res['tilePan'] as Map)['rasterMegapixels'] as double;
-        patchPanMs += (res['patchPan'] as Map)['rasterMs'] as double;
-        tilePanMs += (res['tilePan'] as Map)['rasterMs'] as double;
-        patchPinchMp += (res['patchPinch'] as Map)['rasterMegapixels'] as double;
-        tilePinchMp += (res['tilePinch'] as Map)['rasterMegapixels'] as double;
-        patchRevMp += (res['patchRevisit'] as Map)['rasterMegapixels'] as double;
-        tileRevMp += (res['tileRevisit'] as Map)['rasterMegapixels'] as double;
-        patchRevMs += (res['patchRevisit'] as Map)['rasterMs'] as double;
-        tileRevMs += (res['tileRevisit'] as Map)['rasterMs'] as double;
-      }
+      final ok = results.where((r) => r['error'] == null).toList();
+      double sumOf(String key, String field) => ok.fold(
+          0.0,
+          (t, r) =>
+              t + (((r[key] as Map)[field] ?? 0) as num).toDouble());
+      double round1(double v) => double.parse(v.toStringAsFixed(1));
       double ratio(double a, double b) =>
           b == 0 ? 0 : double.parse((a / b).toStringAsFixed(2));
+
+      // One phase ('Pan'/'Revisit'/'Pinch') across the three strategies.
+      Map<String, Object?> phaseAgg(String phase) => {
+            for (final strat in ['patch', 'tile', 'batch']) ...{
+              '${strat}Megapixels':
+                  round1(sumOf('$strat$phase', 'rasterMegapixels')),
+              '${strat}Ms': round1(sumOf('$strat$phase', 'rasterMs')),
+              '${strat}Calls': sumOf('$strat$phase', 'rasterCalls').round(),
+            },
+            'tileSettleMs': round1(sumOf('tile$phase', 'settleMs')),
+            'batchSettleMs': round1(sumOf('batch$phase', 'settleMs')),
+            'tileMegapixelSpeedup': ratio(
+                sumOf('patch$phase', 'rasterMegapixels'),
+                sumOf('tile$phase', 'rasterMegapixels')),
+            'batchMegapixelSpeedup': ratio(
+                sumOf('patch$phase', 'rasterMegapixels'),
+                sumOf('batch$phase', 'rasterMegapixels')),
+            'tileMsSpeedup': ratio(sumOf('patch$phase', 'rasterMs'),
+                sumOf('tile$phase', 'rasterMs')),
+            'batchMsSpeedup': ratio(sumOf('patch$phase', 'rasterMs'),
+                sumOf('batch$phase', 'rasterMs')),
+          };
+
+      final patchRevMp = sumOf('patchRevisit', 'rasterMegapixels');
       final aggregate = {
-        'pagesBenched': results.where((r) => r['error'] == null).length,
-        'pan': {
-          'patchMegapixels': double.parse(patchPanMp.toStringAsFixed(1)),
-          'tileMegapixels': double.parse(tilePanMp.toStringAsFixed(1)),
-          'patchMs': double.parse(patchPanMs.toStringAsFixed(1)),
-          'tileMs': double.parse(tilePanMs.toStringAsFixed(1)),
-          'megapixelSpeedup': ratio(patchPanMp, tilePanMp),
-          'msSpeedup': ratio(patchPanMs, tilePanMs),
-        },
+        'pagesBenched': ok.length,
+        'pan': phaseAgg('Pan'),
         'revisit': {
-          'patchMegapixels': double.parse(patchRevMp.toStringAsFixed(1)),
-          'tileMegapixels': double.parse(tileRevMp.toStringAsFixed(1)),
-          'patchMs': double.parse(patchRevMs.toStringAsFixed(1)),
-          'tileMs': double.parse(tileRevMs.toStringAsFixed(1)),
+          ...phaseAgg('Revisit'),
           // How much of the legacy re-raster the tile cache avoided on revisit.
           'tileReusePct': patchRevMp == 0
               ? null
-              : double.parse(
-                  (100 * (1 - tileRevMp / patchRevMp)).toStringAsFixed(1)),
+              : round1(100 *
+                  (1 - sumOf('tileRevisit', 'rasterMegapixels') / patchRevMp)),
+          'batchReusePct': patchRevMp == 0
+              ? null
+              : round1(100 *
+                  (1 - sumOf('batchRevisit', 'rasterMegapixels') / patchRevMp)),
         },
-        'pinch': {
-          'patchMegapixels': double.parse(patchPinchMp.toStringAsFixed(1)),
-          'tileMegapixels': double.parse(tilePinchMp.toStringAsFixed(1)),
-          'megapixelSpeedup': ratio(patchPinchMp, tilePinchMp),
-        },
+        'pinch': phaseAgg('Pinch'),
       };
       // ignore: avoid_print
       print('  tile-store aggregate: ${const JsonEncoder().convert(aggregate)}');
@@ -258,36 +265,9 @@ Future<Map<String, Object?>> _benchFile(
       (await patchPinch.raster(scene, region, ratio)).dispose();
     }
 
-    final tilePinch = _RasterMeter();
-    final pinchStore = PdfTileStore(
-      tilePixels: tilePx,
-      registerForMemoryPressure: false,
-    );
-    for (final ratio in pinchRatios) {
-      final region = _visibleRegion(
-        pageSize,
-        viewport,
-        ratio,
-        (pageSize.width - viewport.width / ratio) / 2,
-        (pageSize.height - viewport.height / ratio) / 2,
-      );
-      pinchStore.viewFor(
-        id: identity,
-        pageSize: pageSize,
-        desiredRatio: ratio,
-        visiblePageRect: region,
-        rasterize: (r, pr) => tilePinch.raster(scene, r, pr),
-      );
-      await tester.pumpAndSettle(const Duration(milliseconds: 1));
-      await Future<void>.delayed(Duration.zero);
-    }
-    final pinchRetained = pinchStore.retainedBytes;
-    final pinchTiles = pinchStore.tileCount;
-    pinchStore.dispose();
-
-    // --- Pan: fixed deep zoom, incremental drag (overlapping viewports, the
-    // case tile reuse targets - each step reveals a leading strip and keeps
-    // the rest). stepDx = a fraction of the visible width. ---
+    // --- Pan geometry: fixed deep zoom, incremental drag (overlapping
+    // viewports, the case tile reuse targets - each step reveals a leading
+    // strip and keeps the rest). stepDx = a fraction of the visible width. ---
     final visW = math.min(viewport.width / tileRatio, pageSize.width);
     final stepDx = visW * panFraction;
 
@@ -298,32 +278,8 @@ Future<Map<String, Object?>> _benchFile(
       (await patchPan.raster(scene, region, tileRatio)).dispose();
     }
 
-    final tilePan = _RasterMeter();
-    final panStore = PdfTileStore(
-      tilePixels: tilePx,
-      registerForMemoryPressure: false,
-    );
-    Future<void> tileSettleAt(double ox, _RasterMeter meter) async {
-      final region = _visibleRegion(pageSize, viewport, tileRatio, ox, 0);
-      panStore.viewFor(
-        id: identity,
-        pageSize: pageSize,
-        desiredRatio: tileRatio,
-        visiblePageRect: region,
-        rasterize: (r, pr) => meter.raster(scene, r, pr),
-      );
-      await tester.pumpAndSettle(const Duration(milliseconds: 1));
-      await Future<void>.delayed(Duration.zero);
-    }
-
-    for (var i = 0; i < panSteps; i++) {
-      await tileSettleAt(i * stepDx, tilePan);
-    }
-    final panRetained = panStore.retainedBytes;
-    final panTiles = panStore.tileCount;
-
-    // Revisit: drag back over the just-tiled area. Legacy re-rasters the full
-    // region every step; the tile store reuses cached tiles (the "pan = zero
+    // Revisit: drag back over the just-seen area. Legacy re-rasters the full
+    // region every step; a tile store reuses cached tiles (the "pan = zero
     // re-raster" claim), so its revisit raster work should be near zero.
     final patchRevisit = _RasterMeter();
     for (var i = panSteps - 2; i >= 0; i--) {
@@ -331,12 +287,112 @@ Future<Map<String, Object?>> _benchFile(
           _visibleRegion(pageSize, viewport, tileRatio, i * stepDx, 0);
       (await patchRevisit.raster(scene, region, tileRatio)).dispose();
     }
-    final tileRevisit = _RasterMeter();
-    for (var i = panSteps - 2; i >= 0; i--) {
-      await tileSettleAt(i * stepDx, tileRevisit);
-    }
-    panStore.dispose();
 
+    // One tile strategy (per-tile or batched slab), through the same pinch /
+    // pan / revisit settles. settleMs is the loop's wall clock - for the
+    // batched store that includes the GPU-side slab slicing the raster meter
+    // can't see (both tile strategies share the same pump overhead, so they
+    // compare apples-to-apples).
+    Future<Map<String, Object?>> runTileStrategy({required bool batch}) async {
+      final pinch = _RasterMeter();
+      final pinchStore = PdfTileStore(
+        tilePixels: tilePx,
+        batchRasters: batch,
+        registerForMemoryPressure: false,
+      );
+      final pinchClock = Stopwatch()..start();
+      for (final ratio in pinchRatios) {
+        final region = _visibleRegion(
+          pageSize,
+          viewport,
+          ratio,
+          (pageSize.width - viewport.width / ratio) / 2,
+          (pageSize.height - viewport.height / ratio) / 2,
+        );
+        pinchStore.viewFor(
+          id: identity,
+          pageSize: pageSize,
+          desiredRatio: ratio,
+          visiblePageRect: region,
+          rasterize: (r, pr) => pinch.raster(scene, r, pr),
+        );
+        await tester.pumpAndSettle(const Duration(milliseconds: 1));
+        // Settle-to-sharp: the settle isn't over until every scheduled tile
+        // has landed (or been sliced), so drain in-flight rasters inside the
+        // clock window.
+        while (pinchStore.inFlightCount > 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+      pinchClock.stop();
+      final pinchRetained = pinchStore.retainedBytes;
+      final pinchTiles = pinchStore.tileCount;
+      pinchStore.dispose();
+
+      final panStore = PdfTileStore(
+        tilePixels: tilePx,
+        batchRasters: batch,
+        registerForMemoryPressure: false,
+      );
+      Future<void> settleAt(double ox, _RasterMeter meter) async {
+        final region = _visibleRegion(pageSize, viewport, tileRatio, ox, 0);
+        panStore.viewFor(
+          id: identity,
+          pageSize: pageSize,
+          desiredRatio: tileRatio,
+          visiblePageRect: region,
+          rasterize: (r, pr) => meter.raster(scene, r, pr),
+        );
+        await tester.pumpAndSettle(const Duration(milliseconds: 1));
+        // Settle-to-sharp: drain in-flight rasters inside the clock window.
+        while (panStore.inFlightCount > 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+
+      final pan = _RasterMeter();
+      final panClock = Stopwatch()..start();
+      for (var i = 0; i < panSteps; i++) {
+        await settleAt(i * stepDx, pan);
+      }
+      panClock.stop();
+      final panRetained = panStore.retainedBytes;
+      final panTiles = panStore.tileCount;
+
+      final revisit = _RasterMeter();
+      final revisitClock = Stopwatch()..start();
+      for (var i = panSteps - 2; i >= 0; i--) {
+        await settleAt(i * stepDx, revisit);
+      }
+      revisitClock.stop();
+      panStore.dispose();
+
+      double ms(Stopwatch sw) =>
+          double.parse((sw.elapsedMicroseconds / 1000).toStringAsFixed(2));
+      return {
+        'pinch': {
+          ...pinch.summary(pinchRatios.length),
+          'settleMs': ms(pinchClock),
+          'retainedKB': pinchRetained ~/ 1024,
+          'tiles': pinchTiles,
+        },
+        'pan': {
+          ...pan.summary(panSteps),
+          'settleMs': ms(panClock),
+          'retainedKB': panRetained ~/ 1024,
+          'tiles': panTiles,
+        },
+        'revisit': {
+          ...revisit.summary(panSteps - 1),
+          'settleMs': ms(revisitClock),
+        },
+      };
+    }
+
+    final tiles = await runTileStrategy(batch: false);
+    final batched = await runTileStrategy(batch: true);
+
+    double mp(Map<String, Object?> s) => (s['rasterMegapixels'] as num).toDouble();
     double speedup(double a, double b) =>
         b == 0 ? 0 : double.parse((a / b).toStringAsFixed(2));
 
@@ -347,25 +403,24 @@ Future<Map<String, Object?>> _benchFile(
       'commands': scene.commands.length,
       'regionCullable': scene.supportsRegionRaster,
       'patchPinch': patchPinch.summary(pinchRatios.length),
-      'tilePinch': {
-        ...tilePinch.summary(pinchRatios.length),
-        'retainedKB': pinchRetained ~/ 1024,
-        'tiles': pinchTiles,
-      },
+      'tilePinch': tiles['pinch'],
+      'batchPinch': batched['pinch'],
       'patchPan': patchPan.summary(panSteps),
-      'tilePan': {
-        ...tilePan.summary(panSteps),
-        'retainedKB': panRetained ~/ 1024,
-        'tiles': panTiles,
-      },
+      'tilePan': tiles['pan'],
+      'batchPan': batched['pan'],
       'patchRevisit': patchRevisit.summary(panSteps - 1),
-      'tileRevisit': tileRevisit.summary(panSteps - 1),
-      'tileRevisitSpeedup':
-          speedup(patchRevisit.pixels.toDouble(), tileRevisit.pixels.toDouble()),
-      'tilePanSpeedup':
-          speedup(patchPan.pixels.toDouble(), tilePan.pixels.toDouble()),
-      'tilePinchSpeedup':
-          speedup(patchPinch.pixels.toDouble(), tilePinch.pixels.toDouble()),
+      'tileRevisit': tiles['revisit'],
+      'batchRevisit': batched['revisit'],
+      'tileRevisitSpeedup': speedup(patchRevisit.pixels / 1e6,
+          mp(tiles['revisit'] as Map<String, Object?>)),
+      'tilePanSpeedup': speedup(
+          patchPan.pixels / 1e6, mp(tiles['pan'] as Map<String, Object?>)),
+      'tilePinchSpeedup': speedup(
+          patchPinch.pixels / 1e6, mp(tiles['pinch'] as Map<String, Object?>)),
+      'batchPanSpeedup': speedup(
+          patchPan.pixels / 1e6, mp(batched['pan'] as Map<String, Object?>)),
+      'batchPinchSpeedup': speedup(patchPinch.pixels / 1e6,
+          mp(batched['pinch'] as Map<String, Object?>)),
     };
   } finally {
     scene.dispose();

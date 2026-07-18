@@ -25,9 +25,15 @@ Future<ui.Image> _solidImage(int w, int h,
 /// A rasterizer that holds every request pending until [flush], so a test can
 /// inspect the in-flight state before the tiles land.
 class _Rasterizer {
-  _Rasterizer({this.tileSize = 16});
+  _Rasterizer({this.tileSize = 16, this.sizeFromRegion = false});
 
   final int tileSize;
+
+  /// Size each completed image from its requested region × ratio (what a real
+  /// scene raster returns) instead of a fixed [tileSize] - required by batched
+  /// stores, whose slab slicing reads exact pixel offsets.
+  final bool sizeFromRegion;
+
   final calls = <({Rect region, double ratio})>[];
   final _pending = <Completer<ui.Image>>[];
 
@@ -40,19 +46,29 @@ class _Rasterizer {
 
   int get pendingCount => _pending.where((c) => !c.isCompleted).length;
 
-  /// Completes every outstanding raster with a solid tile-sized image, then
-  /// drains the store's completion + tick microtasks.
+  /// Completes every outstanding raster with a solid image, then drains the
+  /// store's completion + tick microtasks.
   Future<void> flush() async {
-    final pending = _pending.where((c) => !c.isCompleted).toList();
+    final pending = <int>[
+      for (var i = 0; i < _pending.length; i++)
+        if (!_pending[i].isCompleted) i,
+    ];
     // Build every image first, then complete them all in one synchronous burst
     // so the store's completions land in a single microtask drain (the case
     // its tick-coalescing targets).
     final images = <ui.Image>[
-      for (var i = 0; i < pending.length; i++)
-        await _solidImage(tileSize, tileSize),
+      for (final i in pending)
+        await _solidImage(
+          sizeFromRegion
+              ? (calls[i].region.width * calls[i].ratio).ceil()
+              : tileSize,
+          sizeFromRegion
+              ? (calls[i].region.height * calls[i].ratio).ceil()
+              : tileSize,
+        ),
     ];
     for (var i = 0; i < pending.length; i++) {
-      pending[i].complete(images[i]);
+      _pending[pending[i]].complete(images[i]);
     }
     await pumpEventQueue();
   }
@@ -100,6 +116,7 @@ void main() {
           tilePixels: 16,
           prefetchRing: 0,
           ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          batchRasters: false, // this test pins the per-tile scheduling order
           registerForMemoryPressure: false,
         );
         final raster = _Rasterizer();
@@ -425,6 +442,164 @@ void main() {
         expect(view.isEmpty, isTrue);
         await raster.flush(); // completions after dispose just free the images
         expect(store.tileCount, 0);
+      });
+    });
+  });
+
+  group('PdfTileStore batched rasters', () {
+    testWidgets('a cold settle coalesces into one slab readback and slices it',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 1,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(sizeFromRegion: true);
+        const pageSize = Size(64, 64); // 4×4 grid, fully visible (no ring)
+
+        store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+        );
+        // All 16 tiles in flight, but a single readback for the whole region.
+        expect(store.inFlightCount, 16);
+        expect(raster.calls.length, 1);
+        expect(raster.calls.single.region, const Rect.fromLTWH(0, 0, 64, 64));
+        expect(store.debugBatchesDispatched, 1);
+
+        await raster.flush();
+        expect(store.tileCount, 16);
+        expect(store.debugTilesLanded, 16);
+
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+        );
+        expect(view.complete, isTrue);
+        expect(view.placements.length, 16);
+        // Every slice is a real tile-sized image of its own.
+        expect(view.placements.every((p) => p.image.width == 16), isTrue);
+        expect(raster.calls.length, 1); // fully cached, nothing new
+        store.dispose();
+      });
+    });
+
+    testWidgets('slab slices land each tile\'s own pixels', (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        const colors = [
+          Color(0xFFFF0000), // tile (0,0)
+          Color(0xFF00FF00), // tile (1,0)
+          Color(0xFF0000FF), // tile (0,1)
+          Color(0xFFFFFF00), // tile (1,1)
+        ];
+        // Paints the requested region as a 2×2 quadrant grid in slab pixels.
+        Future<ui.Image> quadrants(Rect region, double ratio) async {
+          final recorder = ui.PictureRecorder();
+          final canvas = Canvas(recorder);
+          for (var i = 0; i < 4; i++) {
+            canvas.drawRect(
+              Rect.fromLTWH((i % 2) * 16.0, (i ~/ 2) * 16.0, 16, 16),
+              Paint()..color = colors[i],
+            );
+          }
+          final picture = recorder.endRecording();
+          final image = await picture.toImage(
+            (region.width * ratio).ceil(),
+            (region.height * ratio).ceil(),
+          );
+          picture.dispose();
+          return image;
+        }
+
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: quadrants,
+        );
+        expect(store.debugBatchesDispatched, 1);
+        await pumpEventQueue();
+        expect(store.tileCount, 4);
+
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 32),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: quadrants,
+        );
+        expect(view.placements.length, 4);
+        for (final placement in view.placements) {
+          final tx = placement.destFraction.left >= 0.5 ? 1 : 0;
+          final ty = placement.destFraction.top >= 0.5 ? 1 : 0;
+          final data = (await placement.image.toByteData())!;
+          final o = ((8 * placement.image.width) + 8) * 4; // center pixel
+          final pixel = Color.fromARGB(data.getUint8(o + 3), data.getUint8(o),
+              data.getUint8(o + 1), data.getUint8(o + 2));
+          expect(pixel, colors[ty * 2 + tx],
+              reason: 'tile ($tx,$ty) sliced from the wrong slab offset');
+        }
+        store.dispose();
+      });
+    });
+
+    testWidgets('a sparse missing set never re-rasters the cached area between',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(sizeFromRegion: true);
+        const pageSize = Size(160, 16); // 10×1 grid
+
+        // Warm the middle run (tiles 1..8) as one slab.
+        store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(16, 0, 128, 16),
+          rasterize: raster.call,
+        );
+        expect(raster.calls.length, 1);
+        await raster.flush();
+        expect(store.tileCount, 8);
+
+        // Full row: only the far ends (tiles 0 and 9) are missing. A bounding
+        // box would re-raster the 8 cached tiles between them; the sparse path
+        // must issue two tile-sized rasters instead.
+        store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 160, 16),
+          rasterize: raster.call,
+        );
+        final sparse = raster.calls.skip(1).toList();
+        expect(sparse.length, 2);
+        expect(sparse.every((c) => c.region.width == 16), isTrue);
+        expect({sparse[0].region.left, sparse[1].region.left}, {0.0, 144.0});
+
+        await raster.flush();
+        expect(store.tileCount, 10);
+        store.dispose();
       });
     });
   });
