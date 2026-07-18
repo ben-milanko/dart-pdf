@@ -76,3 +76,38 @@ Five `PdfPanelDock` prefs in `editing_preferences.dart`
   (asserting the pref flips to `top`). Existing `editing_panel_frame_test.dart`
   / `editing_panels_test.dart` / `benchmark_panel_frame_test.dart` were updated
   for the `side` -> `dock` rename.
+
+## Tab groups (IDE-style)
+
+Follow-up: panels sharing an edge can be **side-by-side** (the default) or
+combined into a **tab group** (one visible at a time, tabs to switch),
+VS Code / JetBrains style.
+
+- Model: each panel carries a persisted **tab-group id** (`panelGroup`,
+  `editing_preferences.dart`, default = its own enum index → all standalone).
+  Panels sharing both a dock *and* a group id render as one tabbed panel; a
+  panel alone in its group is standalone. Grouping key = (dock, group id).
+- Interaction (reuses the drag infra): dropping a panel's handle/tab onto an
+  **edge zone** docks it standalone there (and resets its group id → splits it
+  out); dropping it onto **another panel's body** joins that panel's group
+  (tabs them). `PdfPanelTabDropRegion` (`shell_chrome.dart`) wraps every dock
+  child as the "drop onto me to tab" target; it rejects a drag of one of its
+  own members (no self-join). Edge bands were shrunk (≈10%, capped 56–96 px)
+  so an already-docked panel keeps a reachable inner tab-target past the band.
+- `PdfPanelTabGroup` (`shell_chrome.dart`) hosts the tabbed panels: one shared
+  `PdfSidebarPanelFrame` (extent + grip, persisted per dock via
+  `panelGroupWidth`) + a scrollable tab strip (`_PanelTab` — each an
+  independently draggable `Draggable<PdfDockablePanel>` with a close ×) over an
+  `IndexedStack` (all bodies stay mounted, so tab state survives switching).
+  Tab bodies are the panels built in **bottom-sheet content mode**
+  (`bottomSheet: true`) — that already renders them chromeless (no frame, no
+  per-panel close/move), which is exactly a bare tab body; the group supplies
+  the frame + close/move affordances.
+- `pdf_editor_view.dart`'s `dockedPanels(dock)` now partitions the dock's
+  visible panels by group id (preserving first-appearance order) and emits a
+  standalone panel or a `PdfPanelTabGroup`, each wrapped in a
+  `PdfPanelTabDropRegion`. `_joinPanel` sets dock+group on a drop-to-tab;
+  `_setPanelDock` (edge drop) sets dock and resets the group to standalone.
+- Tests in `panel_dock_test.dart`: group defaults/persistence, drag-panel-onto-
+  panel → tabbed, drag-tab-to-edge → split, and tab selection. The tab strip is
+  a horizontal scroller, so tests `ensureVisible` a tab before hitting it.

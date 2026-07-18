@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
 import 'editing_color_picker.dart' show PdfColorFormat;
-import 'editing_panel.dart' show PdfPanelDock;
+import 'editing_panel.dart' show PdfDockablePanel, PdfPanelDock;
 import 'line_style.dart';
 import 'editing_measure.dart';
 import 'editing_signature.dart';
@@ -100,6 +100,16 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfPanelDock _bookmarkSidebarDock = PdfPanelDock.left;
   PdfPanelDock _annotationSidebarDock = PdfPanelDock.right;
   PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
+  // Tab-group membership: panels sharing the same dock AND the same group id
+  // render as one tabbed panel; a panel alone in its group is a standalone
+  // side-by-side panel. The default id is each panel's own enum index, so
+  // every panel starts standalone (the built-in side-by-side layout).
+  final Map<PdfDockablePanel, int> _panelGroups = {
+    for (final p in PdfDockablePanel.values) p: p.index,
+  };
+  // The dragged extent of a dock's tab group (its width for left/right, its
+  // height for top/bottom), null until the group is first resized.
+  final Map<PdfPanelDock, double> _panelGroupWidths = {};
   Color? _textFillColor;
   Color? _textBorderColor;
   Color? _shapeFillColor;
@@ -264,6 +274,14 @@ class PdfEditingPreferences extends ChangeNotifier {
           _readDock(store, 'annotationSidebarDock', _annotationSidebarDock);
       _propertiesPanelDock =
           _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
+      for (final p in PdfDockablePanel.values) {
+        _panelGroups[p] =
+            store.getInt('${_prefix}panelGroup.${p.name}') ?? _panelGroups[p]!;
+      }
+      for (final d in PdfPanelDock.values) {
+        final w = store.getDouble('${_prefix}panelGroupWidth.${d.name}');
+        if (w != null) _panelGroupWidths[d] = w;
+      }
       final textFill = store.getInt('${_prefix}textFillColor');
       if (textFill != null) _textFillColor = Color(textFill);
       final textBorder = store.getInt('${_prefix}textBorderColor');
@@ -1146,6 +1164,63 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _propertiesPanelDock) return;
     _propertiesPanelDock = value;
     _setDock('propertiesPanelDock', value);
+  }
+
+  /// The dock a specific [panel] is attached to, keyed by identity - the
+  /// generic form of the per-panel dock getters above.
+  PdfPanelDock panelDock(PdfDockablePanel panel) => switch (panel) {
+        PdfDockablePanel.thumbnails => _thumbnailSidebarDock,
+        PdfDockablePanel.search => _searchPanelDock,
+        PdfDockablePanel.bookmarks => _bookmarkSidebarDock,
+        PdfDockablePanel.annotations => _annotationSidebarDock,
+        PdfDockablePanel.properties => _propertiesPanelDock,
+      };
+
+  /// Sets [panel]'s dock, keyed by identity.
+  void setPanelDock(PdfDockablePanel panel, PdfPanelDock dock) {
+    switch (panel) {
+      case PdfDockablePanel.thumbnails:
+        thumbnailSidebarDock = dock;
+      case PdfDockablePanel.search:
+        searchPanelDock = dock;
+      case PdfDockablePanel.bookmarks:
+        bookmarkSidebarDock = dock;
+      case PdfDockablePanel.annotations:
+        annotationSidebarDock = dock;
+      case PdfDockablePanel.properties:
+        propertiesPanelDock = dock;
+    }
+  }
+
+  /// The tab-group id [panel] belongs to. Panels that share both a dock and
+  /// a group id render as one tabbed panel; a panel alone in its group is a
+  /// standalone side-by-side panel. Defaults to the panel's own enum index
+  /// (every panel standalone).
+  int panelGroup(PdfDockablePanel panel) => _panelGroups[panel]!;
+
+  /// Its own enum index - the value [panelGroup] returns when the panel is
+  /// standalone (in no shared tab group).
+  int standalonePanelGroup(PdfDockablePanel panel) => panel.index;
+
+  /// Sets [panel]'s tab-group id. Pass [standalonePanelGroup] to split it out
+  /// of any tab group.
+  void setPanelGroup(PdfDockablePanel panel, int group) {
+    if (_panelGroups[panel] == group) return;
+    _panelGroups[panel] = group;
+    _write((s) => s.setInt('${_prefix}panelGroup.${panel.name}', group));
+    notifyListeners();
+  }
+
+  /// The dragged extent of the tab group docked on [dock] (its width for
+  /// left/right, its height for top/bottom), or null before it is resized.
+  double? panelGroupWidth(PdfPanelDock dock) => _panelGroupWidths[dock];
+
+  /// Persists the dragged extent of the tab group docked on [dock].
+  void setPanelGroupWidth(PdfPanelDock dock, double width) {
+    if (_panelGroupWidths[dock] == width) return;
+    _panelGroupWidths[dock] = width;
+    _write((s) => s.setDouble('${_prefix}panelGroupWidth.${dock.name}', width));
+    notifyListeners();
   }
 
   /// Whether document search matches case (see `PdfSearchOptions.matchCase`).

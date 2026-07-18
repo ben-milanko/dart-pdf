@@ -170,11 +170,12 @@ class _PanelDropZones extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      // edge bands sized to a fraction of the area, capped so they stay
-      // legible targets without swallowing the whole viewer
-      final bandW = (constraints.maxWidth * 0.18).clamp(72.0, 200.0).toDouble();
-      final bandH =
-          (constraints.maxHeight * 0.18).clamp(56.0, 160.0).toDouble();
+      // Thin edge bands hug the very edge: docking a panel to an edge is
+      // dropping in its band, while dropping on a panel's body (inward of
+      // the band) tabs the two together. Kept narrow so an already-docked
+      // panel stays a reachable tab target.
+      final bandW = (constraints.maxWidth * 0.1).clamp(56.0, 96.0).toDouble();
+      final bandH = (constraints.maxHeight * 0.1).clamp(48.0, 84.0).toDouble();
       return Stack(children: [
         Positioned(
           left: 0,
@@ -257,6 +258,258 @@ class _DropTarget extends StatelessWidget {
                 size: active ? 32 : 26),
           ),
         );
+      },
+    );
+  }
+}
+
+/// One panel in a [PdfPanelTabGroup].
+class PdfPanelTabEntry {
+  const PdfPanelTabEntry({
+    required this.panel,
+    required this.body,
+    this.onClose,
+  });
+
+  /// The panel's identity (its label + icon name the tab).
+  final PdfDockablePanel panel;
+
+  /// The panel's content, built chromeless (it fills the tab body).
+  final Widget body;
+
+  /// Hides this panel - the shell turns its visibility preference off.
+  final VoidCallback? onClose;
+}
+
+/// Several panels docked on the same edge and grouped into one tabbed panel:
+/// a tab strip selects which body shows, and the rest stay mounted (their
+/// state survives tab switches). Each tab is draggable - onto an edge zone to
+/// split it back out, or onto another panel to move it - and closable. Shares
+/// the docked-panel frame (fixed extent + resize grip) with standalone panels.
+class PdfPanelTabGroup extends StatefulWidget {
+  const PdfPanelTabGroup({
+    super.key,
+    required this.dock,
+    required this.entries,
+    required this.width,
+    required this.minWidth,
+    required this.maxWidth,
+    required this.gripKey,
+    this.persistedWidth,
+    this.onPersistWidth,
+  });
+
+  final PdfPanelDock dock;
+  final List<PdfPanelTabEntry> entries;
+  final double width;
+  final double minWidth;
+  final double maxWidth;
+  final double? persistedWidth;
+  final ValueChanged<double>? onPersistWidth;
+  final Key gripKey;
+
+  @override
+  State<PdfPanelTabGroup> createState() => _PdfPanelTabGroupState();
+}
+
+class _PdfPanelTabGroupState extends State<PdfPanelTabGroup> {
+  int _selected = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = widget.entries;
+    final selected = _selected.clamp(0, entries.length - 1);
+    return PdfSidebarPanelFrame(
+      width: widget.width,
+      minWidth: widget.minWidth,
+      maxWidth: widget.maxWidth,
+      persistedWidth: widget.persistedWidth,
+      onPersistWidth: widget.onPersistWidth,
+      dock: widget.dock,
+      // no single move handle: each tab is dragged individually
+      resizable: true,
+      bottomSheet: false,
+      gripKey: widget.gripKey,
+      builder: (context, geometry) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: Column(children: [
+          _tabStrip(context, geometry, entries, selected),
+          const Divider(height: 1),
+          Expanded(
+            child: IndexedStack(
+              index: selected,
+              sizing: StackFit.expand,
+              children: [for (final e in entries) e.body],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _tabStrip(
+    BuildContext context,
+    PdfSidebarPanelGeometry geometry,
+    List<PdfPanelTabEntry> entries,
+    int selected,
+  ) {
+    return Padding(
+      // keep the strip clear of the inner resize grip
+      padding: EdgeInsets.only(
+        left: geometry.contentStartInset,
+        right: geometry.contentEndInset,
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (var i = 0; i < entries.length; i++)
+              _PanelTab(
+                entry: entries[i],
+                selected: i == selected,
+                onSelect: () => setState(() => _selected = i),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A single tab chip: selects its panel on tap, drags to redock/split, and
+/// carries a close button.
+class _PanelTab extends StatelessWidget {
+  const _PanelTab({
+    required this.entry,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final PdfPanelTabEntry entry;
+  final bool selected;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final panel = entry.panel;
+    final chip = InkWell(
+      key: ValueKey('pdf-panel-tab-${panel.name}'),
+      onTap: onSelect,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+        decoration: BoxDecoration(
+          color: selected ? scheme.surfaceContainerHighest : null,
+          border: Border(
+            bottom: BorderSide(
+              color: selected ? scheme.primary : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(panel.icon,
+              size: 16,
+              color: selected ? scheme.primary : scheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(panel.label,
+              style: TextStyle(
+                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                fontSize: 13,
+              )),
+          if (entry.onClose != null) ...[
+            const SizedBox(width: 4),
+            InkWell(
+              key: ValueKey('pdf-panel-tab-close-${panel.name}'),
+              onTap: entry.onClose,
+              customBorder: const CircleBorder(),
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child:
+                    Icon(Icons.close, size: 14, color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ]),
+      ),
+    );
+    final scope = PdfPanelDragScope.maybeOf(context);
+    if (scope == null) return chip;
+    return Draggable<PdfDockablePanel>(
+      data: panel,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      onDragStarted: scope.onDragStarted,
+      onDragEnd: (_) => scope.onDragEnded(),
+      onDraggableCanceled: (_, __) => scope.onDragEnded(),
+      feedback: PdfPanelDragFeedback(panel: panel),
+      child: MouseRegion(cursor: SystemMouseCursors.move, child: chip),
+    );
+  }
+}
+
+/// Wraps a docked panel (standalone or a tab group) so that dragging another
+/// panel onto it joins that panel into this one's tab group. Passive - and
+/// pointer-transparent - until a droppable panel that is not already a
+/// [members] of this group hovers it.
+class PdfPanelTabDropRegion extends StatelessWidget {
+  const PdfPanelTabDropRegion({
+    super.key,
+    required this.members,
+    required this.onJoin,
+    required this.child,
+  });
+
+  /// The panels already in this target group - a drag of one of them is
+  /// rejected (dropping onto its own group is a no-op).
+  final Set<PdfDockablePanel> members;
+
+  /// Joins the dragged panel into this group.
+  final ValueChanged<PdfDockablePanel> onJoin;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DragTarget<PdfDockablePanel>(
+      onWillAcceptWithDetails: (details) => !members.contains(details.data),
+      onAcceptWithDetails: (details) => onJoin(details.data),
+      builder: (context, candidate, rejected) {
+        final active = candidate.isNotEmpty;
+        return Stack(children: [
+          child,
+          if (active)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: scheme.primary, width: 2),
+                  ),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.tab,
+                            size: 18, color: scheme.onPrimaryContainer),
+                        const SizedBox(width: 6),
+                        Text('Tab here',
+                            style: TextStyle(color: scheme.onPrimaryContainer)),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ]);
       },
     );
   }

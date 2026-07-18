@@ -1,4 +1,7 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+// PdfShellPanelLayout / PdfPanelTabGroup are shell-internal (not exported);
+// reach them directly for these composition tests.
+import 'package:dart_pdf_editor/src/shell_chrome.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -181,6 +184,131 @@ void main() {
       expect(handle, findsOneWidget);
       expect(find.descendant(of: handle, matching: find.byType(Draggable)),
           findsNothing);
+    });
+  });
+
+  group('tab groups', () {
+    test('group ids default to standalone and persist', () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      addTearDown(a.dispose);
+      await a.ready;
+      // every panel starts in its own group (all side-by-side)
+      final groups = {
+        for (final p in PdfDockablePanel.values) a.panelGroup(p),
+      };
+      expect(groups.length, PdfDockablePanel.values.length);
+
+      // tab properties into annotations' group
+      a.setPanelGroup(PdfDockablePanel.properties,
+          a.panelGroup(PdfDockablePanel.annotations));
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      addTearDown(b.dispose);
+      await b.ready;
+      expect(b.panelGroup(PdfDockablePanel.properties),
+          b.panelGroup(PdfDockablePanel.annotations));
+    });
+
+    testWidgets(
+        'dropping a panel onto another tabs them, dragging a tab out '
+        'to an edge splits it back', (tester) async {
+      final prefs = PdfEditingPreferences()
+        ..showAnnotationSidebar = true
+        ..showPropertiesPanel = true;
+      addTearDown(prefs.dispose);
+      await prefs.ready;
+      await pump(
+        tester,
+        PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs),
+      );
+      await tester.pump();
+
+      // annotations + properties start side-by-side on the right (two frames,
+      // no tab group yet)
+      expect(find.byType(PdfPanelTabGroup), findsNothing);
+      final propsHandle =
+          find.byKey(const ValueKey('pdf-properties-panel-move'));
+      final annotationsPanel =
+          find.byKey(const ValueKey('pdf-shell-annotations-docked'));
+      expect(propsHandle, findsOneWidget);
+      expect(annotationsPanel, findsOneWidget);
+
+      // drag the properties handle onto the annotations panel body -> tab them
+      var gesture = await tester.startGesture(tester.getCenter(propsHandle));
+      await gesture.moveBy(const Offset(-24, 0));
+      await tester.pump(const Duration(milliseconds: 40));
+      await gesture.moveTo(tester.getCenter(annotationsPanel));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      // they now share a group and render as one tabbed panel
+      expect(prefs.panelGroup(PdfDockablePanel.properties),
+          prefs.panelGroup(PdfDockablePanel.annotations));
+      expect(prefs.propertiesPanelDock, PdfPanelDock.right);
+      expect(find.byType(PdfPanelTabGroup), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-panel-tab-annotations')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-panel-tab-properties')),
+          findsOneWidget);
+
+      // now drag the properties tab onto the left edge zone -> split it out
+      final tab = find.byKey(const ValueKey('pdf-panel-tab-properties'));
+      await tester.ensureVisible(tab); // the tab strip scrolls; reveal it
+      await tester.pump();
+      gesture = await tester.startGesture(tester.getCenter(tab));
+      await gesture.moveBy(const Offset(-24, 0));
+      await tester.pump(const Duration(milliseconds: 40));
+      final leftZone = find.byKey(const ValueKey('pdf-shell-dropzone-left'));
+      expect(leftZone, findsOneWidget);
+      await gesture.moveTo(tester.getCenter(leftZone));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      // properties moved to the left, standalone (its own group again), so the
+      // tab group is gone
+      expect(prefs.propertiesPanelDock, PdfPanelDock.left);
+      expect(prefs.panelGroup(PdfDockablePanel.properties),
+          prefs.standalonePanelGroup(PdfDockablePanel.properties));
+      expect(find.byType(PdfPanelTabGroup), findsNothing);
+      await tester.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('tapping a tab switches the visible panel', (tester) async {
+      final prefs = PdfEditingPreferences()
+        ..showAnnotationSidebar = true
+        ..showPropertiesPanel = true;
+      addTearDown(prefs.dispose);
+      await prefs.ready;
+      // pre-tab annotations + properties into one group on the right
+      prefs.setPanelGroup(PdfDockablePanel.properties,
+          prefs.panelGroup(PdfDockablePanel.annotations));
+      await pump(
+        tester,
+        PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs),
+      );
+      await tester.pump();
+
+      expect(find.byType(PdfPanelTabGroup), findsOneWidget);
+      // the first tab (annotations) is selected: its search field shows
+      expect(
+          find.byKey(const ValueKey('pdf-annotation-search')), findsOneWidget);
+
+      final propsTab = find.byKey(const ValueKey('pdf-panel-tab-properties'));
+      await tester.ensureVisible(propsTab); // the tab strip scrolls; reveal it
+      await tester.pump();
+      await tester.tap(propsTab);
+      await tester.pump();
+      // properties tab body is now shown (its "select an annotation" empty
+      // state), and the tabs are still both present
+      expect(find.byKey(const ValueKey('pdf-panel-tab-annotations')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-panel-tab-properties')),
+          findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
     });
   });
 }

@@ -147,7 +147,7 @@ class PdfSidebarMoveHandle extends StatelessWidget {
       onDragStarted: scope.onDragStarted,
       onDragEnd: (_) => scope.onDragEnded(),
       onDraggableCanceled: (_, __) => scope.onDragEnded(),
-      feedback: _MoveFeedback(panel: panel),
+      feedback: PdfPanelDragFeedback(panel: panel),
       // keep the handle in place under the moving feedback chip
       childWhenDragging: Opacity(opacity: 0.3, child: handle),
       child: handle,
@@ -155,9 +155,10 @@ class PdfSidebarMoveHandle extends StatelessWidget {
   }
 }
 
-/// The chip that follows the pointer while a panel is being redocked.
-class _MoveFeedback extends StatelessWidget {
-  const _MoveFeedback({required this.panel});
+/// The chip that follows the pointer while a panel is being redocked or
+/// dragged onto another panel to form a tab group.
+class PdfPanelDragFeedback extends StatelessWidget {
+  const PdfPanelDragFeedback({super.key, required this.panel});
 
   final PdfDockablePanel panel;
 

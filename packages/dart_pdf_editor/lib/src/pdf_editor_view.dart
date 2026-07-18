@@ -571,22 +571,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     session.preferences.author = name.trim().isEmpty ? null : name.trim();
   }
 
-  /// Redocks [panel] onto [dock] by writing its persisted dock preference;
-  /// the pref change notifies and rebuilds, re-routing the panel to its new
-  /// edge. Wired to [PdfShellPanelLayout.onPanelDock].
+  /// Redocks [panel] standalone onto [dock] (an edge drop zone): writes its
+  /// dock and splits it out of any tab group. The pref change notifies and
+  /// rebuilds, re-routing the panel. Wired to
+  /// [PdfShellPanelLayout.onPanelDock].
   void _setPanelDock(PdfDockablePanel panel, PdfPanelDock dock) {
-    switch (panel) {
-      case PdfDockablePanel.thumbnails:
-        _prefs.thumbnailSidebarDock = dock;
-      case PdfDockablePanel.search:
-        _prefs.searchPanelDock = dock;
-      case PdfDockablePanel.bookmarks:
-        _prefs.bookmarkSidebarDock = dock;
-      case PdfDockablePanel.annotations:
-        _prefs.annotationSidebarDock = dock;
-      case PdfDockablePanel.properties:
-        _prefs.propertiesPanelDock = dock;
-    }
+    _prefs.setPanelDock(panel, dock);
+    _prefs.setPanelGroup(panel, _prefs.standalonePanelGroup(panel));
+  }
+
+  /// Tabs [panel] into the group at [dock]/[group] (a drop onto another
+  /// panel): matches its dock and group id so the two render as one tabbed
+  /// panel. Wired to [PdfPanelTabDropRegion.onJoin].
+  void _joinPanel(PdfDockablePanel panel, PdfPanelDock dock, int group) {
+    _prefs.setPanelDock(panel, dock);
+    _prefs.setPanelGroup(panel, group);
   }
 
   @override
@@ -735,26 +734,101 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final showPropertiesPanel =
               features.propertiesPanel && prefs.showPropertiesPanel && !altView;
 
-          // The visible docked panels paired with the edge each is docked
-          // on (persisted per panel). [dockedPanels] filters them into the
-          // shell's four dock groups; a panel's move handle can drag it
-          // between edges, which rewrites the pref and re-routes it here.
-          final docked = <(PdfPanelDock, Widget)>[
-            if (showThumbnailsPanel && !useSheets)
-              (prefs.thumbnailSidebarDock, thumbnails(bottomSheet: false)),
-            if (showSearchPanel && !useSheets)
-              (prefs.searchPanelDock, searchResults(bottomSheet: false)),
-            if (showBookmarksPanel && !useSheets)
-              (prefs.bookmarkSidebarDock, bookmarks(bottomSheet: false)),
+          // The visible docked panels, in canonical order. Each is placed on
+          // its persisted edge ([PdfEditingPreferences.panelDock]) and, within
+          // that edge, its persisted tab group ([panelGroup]): panels sharing
+          // an edge and a group id render as one tabbed panel, otherwise as
+          // side-by-side panels. Dragging a panel's handle onto an edge zone
+          // redocks it standalone; dragging it onto another panel tabs them.
+          final visiblePanels = <PdfDockablePanel>[
+            if (showThumbnailsPanel && !useSheets) PdfDockablePanel.thumbnails,
+            if (showSearchPanel && !useSheets) PdfDockablePanel.search,
+            if (showBookmarksPanel && !useSheets) PdfDockablePanel.bookmarks,
             if (showAnnotationsPanel && !useSheets)
-              (prefs.annotationSidebarDock, annotations(bottomSheet: false)),
-            if (showPropertiesPanel && !useSheets)
-              (prefs.propertiesPanelDock, properties(bottomSheet: false)),
+              PdfDockablePanel.annotations,
+            if (showPropertiesPanel && !useSheets) PdfDockablePanel.properties,
           ];
-          List<Widget> dockedPanels(PdfPanelDock dock) => [
-                for (final (d, w) in docked)
-                  if (d == dock) w
-              ];
+          Widget standalonePanel(PdfDockablePanel p) => switch (p) {
+                PdfDockablePanel.thumbnails => thumbnails(bottomSheet: false),
+                PdfDockablePanel.search => searchResults(bottomSheet: false),
+                PdfDockablePanel.bookmarks => bookmarks(bottomSheet: false),
+                PdfDockablePanel.annotations => annotations(bottomSheet: false),
+                PdfDockablePanel.properties => properties(bottomSheet: false),
+              };
+          // a chromeless body for use inside a tab group (the group supplies
+          // the frame, tab strip, and close buttons); reuses the panels'
+          // bottom-sheet content mode
+          Widget tabBody(PdfDockablePanel p) => switch (p) {
+                PdfDockablePanel.thumbnails => thumbnails(bottomSheet: true),
+                PdfDockablePanel.search => searchResults(bottomSheet: true),
+                PdfDockablePanel.bookmarks => bookmarks(bottomSheet: true),
+                PdfDockablePanel.annotations => annotations(bottomSheet: true),
+                PdfDockablePanel.properties => properties(bottomSheet: true),
+              };
+          VoidCallback closePanel(PdfDockablePanel p) => switch (p) {
+                PdfDockablePanel.thumbnails => () =>
+                    prefs.showThumbnailSidebar = false,
+                PdfDockablePanel.search => () =>
+                    prefs.showSearchResultsPanel = false,
+                PdfDockablePanel.bookmarks => () =>
+                    prefs.showBookmarkSidebar = false,
+                PdfDockablePanel.annotations => () =>
+                    prefs.showAnnotationSidebar = false,
+                PdfDockablePanel.properties => () =>
+                    prefs.showPropertiesPanel = false,
+              };
+          List<Widget> dockedPanels(PdfPanelDock dock) {
+            final onDock = [
+              for (final p in visiblePanels)
+                if (prefs.panelDock(p) == dock) p
+            ];
+            // partition into tab groups by group id, preserving the order in
+            // which each group first appears
+            final order = <int>[];
+            final byGroup = <int, List<PdfDockablePanel>>{};
+            for (final p in onDock) {
+              final g = prefs.panelGroup(p);
+              if (!byGroup.containsKey(g)) {
+                byGroup[g] = [];
+                order.add(g);
+              }
+              byGroup[g]!.add(p);
+            }
+            final children = <Widget>[];
+            for (final g in order) {
+              final members = byGroup[g]!;
+              final Widget child;
+              if (members.length == 1) {
+                child = standalonePanel(members.first);
+              } else {
+                child = PdfPanelTabGroup(
+                  key: ValueKey('pdf-panel-tabgroup-${dock.name}-$g'),
+                  dock: dock,
+                  width: 300,
+                  minWidth: 200,
+                  maxWidth: 560,
+                  persistedWidth: prefs.panelGroupWidth(dock),
+                  onPersistWidth: (w) => prefs.setPanelGroupWidth(dock, w),
+                  gripKey: ValueKey('pdf-panel-tabgroup-grip-${dock.name}-$g'),
+                  entries: [
+                    for (final m in members)
+                      PdfPanelTabEntry(
+                        panel: m,
+                        body: tabBody(m),
+                        onClose: closePanel(m),
+                      ),
+                  ],
+                );
+              }
+              // dropping another panel onto this one tabs it into this group
+              children.add(PdfPanelTabDropRegion(
+                members: members.toSet(),
+                onJoin: (dragged) => _joinPanel(dragged, dock, g),
+                child: child,
+              ));
+            }
+            return children;
+          }
 
           final sheets = !useSheets
               ? const <Widget>[]
