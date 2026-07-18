@@ -1014,6 +1014,9 @@ class _EditorScreenState extends State<EditorScreen>
                         tokenProvider: tokenProvider),
                 timestampClient:
                     tokenProvider == null ? null : defaultTimestampClient,
+                // On the web the OAuth broker can't complete in a browser tab,
+                // so keyless is native-only; tell the user where to find it.
+                keylessUnavailable: kIsWeb,
               ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
       final keyless = options.keylessIdentity;

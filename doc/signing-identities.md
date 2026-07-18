@@ -171,8 +171,15 @@ short-lived certificate and signs B-T with a DigiCert timestamp.
 
 Two knobs:
 
-- **Web:** the loopback redirect can't be captured in a browser tab, so keyless
-  is hidden on web (`app.dart` passes `oidcTokenProvider` only off-web).
+- **Web:** keyless is native-only. A browser tab can't host the loopback
+  redirect, and — the harder wall — Sigstore's OAuth broker
+  (`oauth2.sigstore.dev`) sends **no CORS headers**, so a browser is blocked
+  from the token exchange in *any* flow (loopback, redirect, or device-code);
+  Fulcio itself does allow cross-origin (`Access-Control-Allow-Origin: *`), but
+  the sign-in step can't complete. So `app.dart` wires `oidcTokenProvider`
+  off-web only, and the dialog shows a short note pointing web users to the
+  desktop/mobile app. (A deployment with its own CORS-enabled IdP can still wire
+  a custom `oidcTokenProvider` for web.)
 - **Custom identity provider:** to use your own OAuth/OIDC instead of the
   Sigstore broker, pass your own `EditorScreen.oidcTokenProvider` returning an
   `id_token`. Passing `null` hides the option entirely; the file/self-signed

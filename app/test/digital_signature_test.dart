@@ -300,6 +300,30 @@ void main() {
     expect(result!.signerName, 'dev@example.com');
   });
 
+  testWidgets('on web, a note points to the desktop/mobile app for keyless',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () => showDigitalSigningDialog(
+              context,
+              keylessUnavailable: true, // stands in for kIsWeb
+            ),
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    // no keyless button (no provider), but the explanatory note is shown
+    expect(find.byKey(const ValueKey('digital-signature-keyless')), findsNothing);
+    expect(find.byKey(const ValueKey('digital-signature-keyless-web-note')),
+        findsOneWidget);
+  });
+
   testWidgets('keyless option is hidden unless a token provider is wired',
       (tester) async {
     Future<void> open({OidcTokenProvider? tokenProvider}) async {

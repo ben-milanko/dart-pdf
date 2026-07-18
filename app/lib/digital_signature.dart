@@ -103,6 +103,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   SelfSignedIdentityCreator? createSelfSignedIdentity,
   KeylessIdentityCreator? createKeylessIdentity,
   PdfTimestampClient? timestampClient,
+  bool keylessUnavailable = false,
 }) =>
     showDialog<DigitalSignatureOptions>(
       context: context,
@@ -115,6 +116,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
                 showCreateSigningIdentityDialog(context, store: store),
         createKeylessIdentity: createKeylessIdentity,
         timestampClient: timestampClient,
+        keylessUnavailable: keylessUnavailable,
       ),
     );
 
@@ -135,6 +137,7 @@ class DigitalSignatureDialog extends StatefulWidget {
     required this.createSelfSignedIdentity,
     this.createKeylessIdentity,
     this.timestampClient,
+    this.keylessUnavailable = false,
   });
 
   final DigitalSignaturePrivateKeyPicker privateKeyPicker;
@@ -148,6 +151,11 @@ class DigitalSignatureDialog extends StatefulWidget {
   /// Timestamp client used for a keyless (B-T) signature. Required when
   /// [createKeylessIdentity] is set.
   final PdfTimestampClient? timestampClient;
+
+  /// When true and no [createKeylessIdentity] is wired, shows a note that
+  /// keyless email signing is available in the desktop/mobile app - set on the
+  /// web, where the OAuth broker's loopback/CORS constraints preclude it.
+  final bool keylessUnavailable;
 
   @override
   State<DigitalSignatureDialog> createState() => _DigitalSignatureDialogState();
@@ -439,6 +447,16 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   'short-lived certificate plus a trusted timestamp. No key to '
                   'manage; the email is real, but (like every free option) it '
                   'reads as "validity unknown" in Acrobat.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ] else if (widget.keylessUnavailable) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Keyless email signing (sign in, no files) is available in '
+                  'the DartPDF desktop and mobile apps. It can\'t run in a web '
+                  'browser: the Sigstore sign-in service blocks cross-origin '
+                  'browser requests.',
+                  key: const ValueKey('digital-signature-keyless-web-note'),
                   style: theme.textTheme.bodySmall,
                 ),
               ],
