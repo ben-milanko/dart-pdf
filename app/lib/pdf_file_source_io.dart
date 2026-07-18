@@ -97,11 +97,13 @@ class PdfFileByteSource implements PdfByteSource {
 
   @override
   Future<void> close() async {
+    // Drain the queue first so a read in flight finishes on the current handle;
+    // clearing [_file] before draining would make a queued read reopen a fresh
+    // handle that then leaks.
+    await _synchronized(() async {});
     final file = _file;
     _file = null;
     if (file != null) {
-      // Drain the queue so a read in flight finishes before the handle closes.
-      await _synchronized(() async {});
       try {
         await file.close();
       } catch (_) {

@@ -79,6 +79,16 @@ void main() {
       // /Extra is marked compressed in an object stream that does not exist.
       expect(doc.resolve(doc.catalog['Extra']), isA<CosNull>());
     });
+
+    test('a compressed object in an undecodable object stream resolves to null',
+        () {
+      // The object stream exists but its /FlateDecode body is garbage, so the
+      // decoder throws a FormatException (not a CosParseException) - which must
+      // still resolve to a dangling null rather than crashing the caller.
+      final doc = CosDocument.open(_corruptObjStmPdf());
+      expect(doc.catalog.typeName, 'Catalog');
+      expect(doc.resolve(doc.catalog['Extra']), isA<CosNull>());
+    });
   });
 
   test('junk before the header shifts offsets', () {
@@ -290,6 +300,51 @@ Uint8List _danglingCompressedPdf() {
       ..addAll([(row[2] >> 8) & 0xFF, row[2] & 0xFF]);
   }
   out.write('3 0 obj\n<< /Type /XRef /Size 5 /W [1 4 2] /Root 1 0 R '
+      '/Length ${xrefData.length} >>\nstream\n');
+
+  return (BytesBuilder()
+        ..add(ascii(out.toString()))
+        ..add(xrefData)
+        ..add(ascii('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n')))
+      .takeBytes();
+}
+
+/// Like [_danglingCompressedPdf], but object 4 lives in a real object stream
+/// (object 5) whose /FlateDecode body is garbage - so decoding it throws a
+/// FormatException, exercising the non-CosParseException leniency path.
+Uint8List _corruptObjStmPdf() {
+  final out = StringBuffer('%PDF-1.5\n');
+  final offset1 = out.length;
+  out.write('1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Extra 4 0 R >>\nendobj\n');
+  final offset2 = out.length;
+  out.write('2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n');
+  final offset5 = out.length;
+  const garbage = 'not valid deflate data';
+  out.write('5 0 obj\n<< /Type /ObjStm /N 1 /First 6 /Filter /FlateDecode '
+      '/Length ${garbage.length} >>\nstream\n$garbage\nendstream\nendobj\n');
+
+  final xrefOffset = out.length;
+  final rows = <List<int>>[
+    [0, 0, 0xFFFF], // 0: free-list head
+    [1, offset1, 0], // 1: catalog
+    [1, offset2, 0], // 2: pages
+    [1, xrefOffset, 0], // 3: this xref stream
+    [2, 5, 0], // 4: compressed in object stream 5, index 0
+    [1, offset5, 0], // 5: the (corrupt) object stream
+  ];
+  final xrefData = <int>[];
+  for (final row in rows) {
+    xrefData
+      ..add(row[0])
+      ..addAll([
+        (row[1] >> 24) & 0xFF,
+        (row[1] >> 16) & 0xFF,
+        (row[1] >> 8) & 0xFF,
+        row[1] & 0xFF,
+      ])
+      ..addAll([(row[2] >> 8) & 0xFF, row[2] & 0xFF]);
+  }
+  out.write('3 0 obj\n<< /Type /XRef /Size 6 /W [1 4 2] /Root 1 0 R '
       '/Length ${xrefData.length} >>\nstream\n');
 
   return (BytesBuilder()

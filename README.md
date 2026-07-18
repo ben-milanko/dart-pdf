@@ -113,9 +113,29 @@ final source = PdfHttpByteSource(
 final document = await PdfDocument.openSource(source);
 ```
 
+For an even faster first paint on a big, image-heavy document (a scan, a CAD
+sheet), pass `firstPaintPages` so the loader fetches only the first page's
+bytes, paints it, and lets you stream the rest in behind it:
+
+```dart
+final preview = await PdfDocument.openSource(
+  source,
+  options: PdfSourceLoadOptions(
+    firstPaintPages: 1,
+    onProgress: (received, total) => report(received, total),
+  ),
+);
+// `preview` renders the first page immediately, but its buffer is deliberately
+// incomplete - render-only, never edit or sign from it. Read the whole source
+// in the background and reopen for the full document when you need every page.
+```
+
 `PdfByteSource` is network-agnostic (`length` + `readRange`), so any random-
-access transport works; `PdfDocument.open(Uint8List)` and the byte-based widgets
-are unchanged. See [`doc/dev-log`](doc/dev-log) for the loader design.
+access transport works - including a local file. `PdfDocument.open(Uint8List)`
+and the byte-based widgets are unchanged. See
+[`doc/progressive-loading.md`](doc/progressive-loading.md) for the full guide
+(local files, the fast-first-paint pattern, Flutter viewer wiring) and
+[`doc/dev-log`](doc/dev-log) for the loader design.
 
 For OCR, add one engine package and call `PdfEditor.applyOcr` before opening
 or replacing the document in your viewer:

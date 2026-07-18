@@ -291,8 +291,12 @@ Future<Uint8List> readSourceFully(
       final end = pos + chunk < len ? pos + chunk : len;
       final data = await source.readRange(pos, end);
       if (data.isEmpty) break;
-      out.setRange(pos, pos + data.length, data);
-      pos += data.length;
+      // Never trust a source to honour the requested length: a misbehaving one
+      // can answer with more bytes than asked for (a 200-style full body).
+      // Clamp so setRange can't run past the buffer.
+      final count = data.length < len - pos ? data.length : len - pos;
+      out.setRange(pos, pos + count, data);
+      pos += count;
       onProgress?.call(pos, len);
     }
     return pos == len ? out : Uint8List.sublistView(out, 0, pos);

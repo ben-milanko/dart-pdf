@@ -478,7 +478,11 @@ class CosDocument {
           try {
             compressed = _objectStream(entry.streamObjectNumber)
                 .objectByNumber(objectNumber, entry.indexInStream);
-          } on CosParseException {
+          } on Exception {
+            // A malformed or not-yet-fetched object stream throws various
+            // exception types - CosParseException, a filter's FormatException /
+            // UnsupportedFilterException, etc. Treat them all as a dangling
+            // reference, like the in-use path's parse fallback above.
             compressed = CosNull.instance;
           } on RangeError {
             compressed = CosNull.instance;
