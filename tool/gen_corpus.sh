@@ -18,4 +18,19 @@ echo "generating public corpus into $OUT"
 (cd "$ROOT" &&
   $DART packages/pdf_cos/tool/gen_cad_pdf.dart "$OUT/cad-sheet-8p.pdf" \
     8 6000 20260718)
+# Diagram-dense sheets: the rail/utility circuit-diagram class profiled from
+# a real (unredistributable) ARTC overhead-wiring diagram - ~280k content
+# ops per page, ~5 MB decoded content per page, tokenizer/interpreter
+# saturation. Same generator, density cranked 5x.
+(cd "$ROOT" &&
+  $DART packages/pdf_cos/tool/gen_cad_pdf.dart "$OUT/diagram-dense-3p.pdf" \
+    3 80000 20260721)
+# Plan-set sheets: the multi-sheet territory-plan class profiled from a real
+# (unredistributable) 58-sheet rail plan - sustained ~80k ops/page across
+# the whole set, high peak RSS. 16 committed pages carry the per-sheet
+# density; FULL-set scale (memory pressure, prefetch) lives in the
+# generated cad-138p-sweep scenario, not in the repo.
+(cd "$ROOT" &&
+  $DART packages/pdf_cos/tool/gen_cad_pdf.dart "$OUT/plan-set-16p.pdf" \
+    16 23000 20260722)
 ls -la "$OUT" | awk 'NR>1 {print "  " $NF "\t" $5 " bytes"}' | grep -v '^\s*\.'

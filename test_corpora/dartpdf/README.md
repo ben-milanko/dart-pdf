@@ -26,12 +26,29 @@ is exactly the kind of diff to review deliberately.
 
 | File | Class | Exercises |
 |---|---|---|
-| `cad-sheet-8p.pdf` | dense vector CAD (A1) | interpreter throughput, linework/hatch/label density (~6k ops/page) |
+| `cad-sheet-8p.pdf` | dense vector CAD (A1) | interpreter throughput, linework/hatch/label density (~55k ops/page) |
+| `diagram-dense-3p.pdf` | ultra-dense diagram sheet | tokenizer/interpreter saturation: ~270k ops/page, MB-scale content streams |
+| `plan-set-16p.pdf` | multi-sheet plan set | sustained ~70k ops/page across a set (per-sheet density of the 58-sheet class; full-set memory scale lives in the *generated* `cad-138p-sweep` scenario) |
+| `styled-booklet-24p.pdf` | designed booklet | 8 embedded TrueType programs, ~12 Form XObject tokenizations/page, transparency (ExtGState), two-column text over full-page art |
 | `text-report-40p.pdf` | office text | page tree walk, base-14 text runs, extraction |
 | `image-scan-4p.pdf` | scan-like images | full-page RGB decode (Flate), image cache |
 | `annotated-10p.pdf` | markup revision | annotation appearances (highlight/underline/strikeout/ink/square/circle/line/free text/note), incremental-update parsing |
 | `broken-startxref.pdf` | recovery | xref rebuild via the `N G obj` scan (recovery timing class) |
 | `junk-prefix.pdf` | leniency | junk before `%PDF-`, header-relative offsets |
+
+## Profiled classes (sim-not-ship)
+
+Real-world documents that cannot be redistributed (commercial or
+third-party copyright — "publicly available on a website" is not a
+license) are **profiled locally with the perf sweep**
+(`perf_sweep.dart --one <file> --phases`) and their workload signature is
+reproduced synthetically here: `styled-booklet` mirrors a 62-page RPG
+quickstart (93 embedded fonts, 13 form tokenizations/page),
+`diagram-dense` an ARTC overhead-wiring diagram (279k ops/page), and
+`plan-set` a 58-sheet rail territory plan (81k ops/page sustained,
+0.5 GB peak RSS). Keep the originals in the gitignored `corpus/` for the
+`local-corpus-sweep` scenario; when you meet a new document class worth
+covering, profile it the same way and add a seeded builder for its shape.
 
 Generators: `packages/pdf_document/tool/gen_public_corpus.dart` and
 `packages/pdf_cos/tool/gen_cad_pdf.dart`, orchestrated by

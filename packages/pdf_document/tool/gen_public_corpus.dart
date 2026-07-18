@@ -23,6 +23,7 @@ import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 /// Deterministic 64-bit LCG; top 52 bits, never divide by 1 << 63 (that
 /// literal is int64-negative on the VM).
@@ -297,6 +298,191 @@ Uint8List buildAnnotated() {
   return editor.save();
 }
 
+/// A designed-booklet workload: the "InDesign export" class, profiled from
+/// a real (unredistributable) RPG quickstart with the perf sweep - 62pp,
+/// 93 embedded font programs, ~13 content-stream tokenizations per page
+/// (Form XObject decoration), ~8k ops/page, transparency, full-page art.
+/// This sim reproduces the SHAPE at committable size: multiple embedded
+/// TrueType programs (the A/B test font - headings are AB-alphabet
+/// strings, the corpus measures work not prose), shared + per-page Form
+/// XObjects, a translucent full-page background image, two-column body
+/// text, and vector ornament density.
+Uint8List buildStyledBooklet(int pageCount, {int seed = 20260720}) {
+  const pageW = 612.0, pageH = 792.0;
+  final rng = _Lcg(seed);
+  final builder = CosDocumentBuilder();
+  final zlib = ZLibCodec(level: 6);
+
+  // Registration order is dynamic here (fonts/forms/image before pages), so
+  // collect page refs afterward instead of precomputing numbers.
+  final catalog = CosDictionary({'Type': const CosName('Catalog')});
+  final catalogRef = builder.add(catalog);
+  final tree = CosDictionary({'Type': const CosName('Pages')});
+  final treeRef = builder.add(tree);
+  catalog['Pages'] = treeRef;
+
+  final helveticaRef = builder.add(CosDictionary({
+    'Type': const CosName('Font'),
+    'Subtype': const CosName('Type1'),
+    'BaseFont': const CosName('Helvetica'),
+  }));
+
+  // Eight distinct embedded font programs (the real booklet carried 93
+  // subsets; eight keeps fontParse hot without bloating the file).
+  final ttf = buildTestTrueTypeFont(includePost: true);
+  final headingFonts = <String, CosObject>{};
+  final headingEncoders = <String, PdfEmbeddedFont>{};
+  for (var i = 0; i < 8; i++) {
+    final name = 'HF$i';
+    final font = PdfEmbeddedFont.parse(ttf, resourceName: name);
+    headingEncoders[name] = font;
+    headingFonts[name] = font.buildResource(builder.add).entries.values.first;
+  }
+  final headingRefs = <String, CosReference>{
+    for (final e in headingFonts.entries) e.key: builder.add(e.value),
+  };
+
+  // Shared translucent background art: one 300x400 RGB wash reused by every
+  // page (decoded once, cached - like a booklet's repeating spread art).
+  final rgb = Uint8List(300 * 400 * 3);
+  var at = 0;
+  for (var y = 0; y < 400; y++) {
+    for (var x = 0; x < 300; x++) {
+      rgb[at++] = 140 + (x * 80 ~/ 300);
+      rgb[at++] = 120 + (y * 60 ~/ 400);
+      rgb[at++] = 170;
+    }
+  }
+  final bgDeflated = Uint8List.fromList(zlib.encode(rgb));
+  final bgRef = builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': const CosInteger(300),
+      'Height': const CosInteger(400),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'BitsPerComponent': const CosInteger(8),
+      'Filter': const CosName('FlateDecode'),
+      'Length': CosInteger(bgDeflated.length),
+    }),
+    bgDeflated,
+  ));
+
+  final alphaRef = builder.add(CosDictionary({
+    'Type': const CosName('ExtGState'),
+    'CA': const CosReal(0.35),
+    'ca': const CosReal(0.35),
+  }));
+
+  CosReference addForm(String content, double w, double h) {
+    final deflated = _deflate(content);
+    return builder.add(CosStream(
+      CosDictionary({
+        'Type': const CosName('XObject'),
+        'Subtype': const CosName('Form'),
+        'BBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          CosReal(w),
+          CosReal(h),
+        ]),
+        'Filter': const CosName('FlateDecode'),
+        'Length': CosInteger(deflated.length),
+      }),
+      deflated,
+    ));
+  }
+
+  String ornament(double w, double h, int strokes) {
+    final sb = StringBuffer('0.4 w\n');
+    for (var i = 0; i < strokes; i++) {
+      sb.writeln('${(rng.unit() * w).toStringAsFixed(1)} '
+          '${(rng.unit() * h).toStringAsFixed(1)} m '
+          '${(rng.unit() * w).toStringAsFixed(1)} '
+          '${(rng.unit() * h).toStringAsFixed(1)} l S');
+    }
+    return sb.toString();
+  }
+
+  // Eight shared decoration forms (sidebars, rules, flourishes).
+  final sharedForms = <String, CosReference>{
+    for (var i = 0; i < 8; i++)
+      'Dec$i': addForm(ornament(120, 700, 60 + rng.intBelow(60)), 120, 700),
+  };
+
+  String heading(_Lcg rng) {
+    const letters = ['A', 'B'];
+    return [
+      for (var i = 0, n = 5 + rng.intBelow(6); i < n; i++)
+        letters[rng.intBelow(2)],
+    ].join();
+  }
+
+  final pageRefs = <CosReference>[];
+  for (var p = 0; p < pageCount; p++) {
+    // Four page-unique callout forms on top of the shared eight - the
+    // per-use tokenization mix the real booklet showed (~12 forms/page).
+    final pageForms = <String, CosReference>{
+      ...sharedForms,
+      for (var i = 0; i < 4; i++)
+        'Box$i': addForm(ornament(180, 90, 25), 180, 90),
+    };
+
+    final headingFont = 'HF${rng.intBelow(8)}';
+    final hex = headingEncoders[headingFont]!.encodeHex(heading(rng));
+    final sb = StringBuffer()
+      // Translucent background art, scaled full page.
+      ..writeln('q /GS0 gs $pageW 0 0 $pageH 0 0 cm /Bg Do Q')
+      // Decoration forms.
+      ..writeln('q 1 0 0 1 12 60 cm /Dec${p % 8} Do Q')
+      ..writeln('q 1 0 0 1 ${pageW - 132} 60 cm /Dec${(p + 3) % 8} Do Q');
+    for (var i = 0; i < 4; i++) {
+      sb.writeln('q 1 0 0 1 ${150 + i * 80} ${90 + rng.intBelow(40)} cm '
+          '/Box$i Do Q');
+    }
+    // Embedded-font chapter heading.
+    sb.writeln('BT /$headingFont 22 Tf 150 ${pageH - 80} Td <$hex> Tj ET');
+    // Two-column body text.
+    for (final colX in const [150.0, 390.0]) {
+      sb.writeln('BT /F1 9 Tf $colX ${pageH - 120} Td 11 TL');
+      for (var l = 0; l < 52; l++) {
+        sb.writeln('(${_sentence(rng)}) Tj T*');
+      }
+      sb.writeln('ET');
+    }
+    // Direct vector ornament to bring ops/page toward the profiled density.
+    sb.write(ornament(pageW - 40, 40, 260));
+
+    final contentRef = _addContent(builder, sb.toString());
+    final page = CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': treeRef,
+      'MediaBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(pageW),
+        const CosReal(pageH),
+      ]),
+      'Resources': CosDictionary({
+        'Font': CosDictionary({
+          'F1': helveticaRef,
+          headingFont: headingRefs[headingFont]!,
+        }),
+        'XObject': CosDictionary({
+          'Bg': bgRef,
+          for (final e in pageForms.entries) e.key: e.value,
+        }),
+        'ExtGState': CosDictionary({'GS0': alphaRef}),
+      }),
+      'Contents': contentRef,
+    });
+    pageRefs.add(builder.add(page));
+  }
+  tree['Kids'] = CosArray(pageRefs);
+  tree['Count'] = CosInteger(pageCount);
+  return builder.build(root: catalogRef);
+}
+
 /// Smashes every [needle] occurrence so offsets stay valid.
 Uint8List _smash(Uint8List bytes, String needle) {
   final text = String.fromCharCodes(bytes);
@@ -322,6 +508,7 @@ void main(List<String> argv) {
   write('text-report-40p.pdf', textReport);
   write('image-scan-4p.pdf', buildImageScan(4));
   write('annotated-10p.pdf', buildAnnotated());
+  write('styled-booklet-24p.pdf', buildStyledBooklet(24));
   // Damaged classes derive from a well-formed base so recovery/leniency
   // timing measures the same underlying document.
   write('broken-startxref.pdf', _smash(textReport, 'startxref'));
