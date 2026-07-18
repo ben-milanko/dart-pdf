@@ -65,7 +65,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       width: 360,
       minWidth: 300,
       maxWidth: 560,
-      side: PdfSidebarSide.right,
+      dock: PdfPanelDock.right,
       resizable: true,
       bottomSheet: false,
       gripKey: const ValueKey('devtools-resize-grip'),
