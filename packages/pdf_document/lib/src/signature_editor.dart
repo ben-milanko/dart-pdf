@@ -740,6 +740,34 @@ extension PdfSigning on PdfEditor {
     return _setNormalAppearance(widget, form);
   }
 
+  /// Space-wraps [line] to [maxWidth]; when [breakTokens] is set, any single
+  /// chunk still wider than the box (a long token like an email address) is
+  /// split character by character so it wraps instead of overflowing.
+  static List<String> _wrapSignatureLine(String line, double maxWidth,
+      double Function(String) measure, bool breakTokens) {
+    final soft = pdfWrapText(line, maxWidth, measure);
+    if (!breakTokens) return soft;
+    final out = <String>[];
+    for (final chunk in soft) {
+      if (measure(chunk) <= maxWidth) {
+        out.add(chunk);
+        continue;
+      }
+      var current = '';
+      for (final ch in chunk.split('')) {
+        final candidate = current + ch;
+        if (current.isNotEmpty && measure(candidate) > maxWidth) {
+          out.add(current);
+          current = ch;
+        } else {
+          current = candidate;
+        }
+      }
+      if (current.isNotEmpty) out.add(current);
+    }
+    return out;
+  }
+
   /// A base-14 font dict (with /Widths) for the appearance's /Font resource.
   CosDictionary _signatureFont(PdfStandardFont font) => CosDictionary({
         'Type': const CosName('Font'),
@@ -751,9 +779,16 @@ extension PdfSigning on PdfEditor {
         'Widths': CosArray([for (final width in font.widths) CosInteger(width)]),
       });
 
-  /// Lays [lines] out in the box `[left, bottom, right, top]`, shrinking the
-  /// font (from [maxSize]) and wrapping until the block fits, clipped to the
-  /// box. Top-anchored unless [centerVertical]; aligned per [align].
+  /// Font size at or below which an over-wide run (e.g. a long email with no
+  /// spaces) is broken mid-token to wrap instead of being shrunk further -
+  /// "contain, then wrap once the font gets small enough".
+  static const double _signatureWrapFloor = 10.0;
+
+  /// Lays [lines] out in the box `[left, bottom, right, top]`. Shrinks the
+  /// font (from [maxSize]) so the text is contained in both width and height;
+  /// once it reaches [_signatureWrapFloor] and a run is still too wide (a long
+  /// unbreakable token), it wraps the run mid-token rather than shrinking
+  /// (and clipping) further. Top-anchored unless [centerVertical].
   void _drawSignatureText(
     ContentWriter writer,
     List<String> lines,
@@ -773,11 +808,17 @@ extension PdfSigning on PdfEditor {
     var size = maxSize;
     List<String> wrapped;
     while (true) {
+      final breakTokens = size <= _signatureWrapFloor;
       wrapped = [
         for (final line in lines)
-          ...pdfWrapText(line, boxW, (s) => font.measure(s, size)),
+          ..._wrapSignatureLine(
+              line, boxW, (s) => font.measure(s, size), breakTokens),
       ];
-      if (wrapped.length * size * 1.3 <= boxH || size <= 4) break;
+      final widest = wrapped.fold<double>(
+          0, (m, l) => math.max(m, font.measure(l, size)));
+      final fits =
+          widest <= boxW && wrapped.length * size * 1.3 <= boxH;
+      if (fits || size <= 4) break;
       size -= 0.5;
     }
     if (wrapped.isEmpty) return;

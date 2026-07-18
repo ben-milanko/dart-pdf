@@ -284,6 +284,34 @@ void main() {
           doc.page(0).annotations.where((a) => a.subtype == 'Stamp'), isEmpty);
     });
 
+    test('a long signer name is wrapped to fit, not clipped', () {
+      const email = 'verylong.name@example-company.com';
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        signerName: email,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 222, 660), // a narrow box
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final field = PdfSignature.of(doc).single.field;
+      expect(PdfSignature.of(doc).single.validate().intact, isTrue);
+      final content = appearanceContent(doc, field)!;
+
+      // the full email never appears as one unbroken run - it is broken to
+      // fit the narrow box rather than drawn oversized and clipped
+      expect(content, isNot(contains('($email)')));
+      // but its characters are preserved (the wrapped chunks reconstruct it)
+      final shown = RegExp(r'\(([^)]*)\) Tj')
+          .allMatches(content)
+          .map((m) => m.group(1)!)
+          .join();
+      expect(shown, contains(email));
+    });
+
     test('a details-only box (no name/graphic) omits the left panel', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       final signed = editor.saveSigned(
