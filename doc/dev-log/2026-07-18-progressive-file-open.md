@@ -29,8 +29,20 @@ rules), so the sources live in the app:
 Factory + helpers in `file_io.dart`:
 - `pdfByteSourceForPath(path, {bookmark})` picks the bookmark source on
   sandboxed macOS, else the RAF source.
-- `progressiveOpenSupported(path)` gates it to desktop with a real path (web
-  and mobile picks are already fully in memory / have no durable path).
+- `progressiveOpenSupported(path)` gates it to desktop with a real path. Web
+  has no filesystem. **Mobile is a real gap, not "already in memory":** you can
+  pick a OneDrive/iCloud file on a phone, but `file_selector` hands us a *copy*
+  — `file_selector_android`'s `getPathFromCopyOfFileFromUri` streams the whole
+  content URI into `{cacheDir}/{uuid}/` at pick time, and `file_selector_ios`
+  uses `UIDocumentPickerViewController(in: .import)`, which copies too. So the
+  full cloud transport is paid inside the OS picker, before the app sees a byte
+  or a path; app-level ranged open can't intercept it. Making mobile progressive
+  needs a custom picker (Android `ACTION_OPEN_DOCUMENT` keeping the content Uri;
+  iOS `.open` + a security-scoped URL) plus native ranged reads
+  (`ContentResolver.openFileDescriptor` — often non-seekable for cloud
+  providers; iOS `NSFileCoordinator` + `FileHandle`) — a separate,
+  provider-dependent effort. Mobile *reopens* already read the local snapshot
+  (`cacheOpenedPdf`), so only the first pick pays cloud transport.
 - `readSourceFully(source, {onProgress})` reassembles the **complete**
   contiguous buffer with progress — unlike the sparse buffer `openSource`
   assembles (zeros in the free space the parser never reads), this is what the

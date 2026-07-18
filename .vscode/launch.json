@@ -17,6 +17,14 @@
             "deviceId": "chrome"
         },
         {
+            "name": "DartPDF app (release)",
+            "type": "dart",
+            "request": "launch",
+            "cwd": "app",
+            "program": "lib/main.dart",
+            "flutterMode": "release"
+        },
+        {
             "name": "Example app",
             "type": "dart",
             "request": "launch",
