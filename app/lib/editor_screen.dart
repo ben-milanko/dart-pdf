@@ -877,36 +877,43 @@ class _EditorScreenState extends State<EditorScreen>
         Offset.zero & overlay.size,
       ),
       items: [
+        // Match the app menu's tight rows on desktop (kMinInteractiveDimension
+        // stays on touch platforms) so every popup reads at one size.
         if (supportsOpenContainingFolder && tab.originPath != null) ...[
           PopupMenuItem(
             key: const ValueKey('tab-menu-open-folder'),
+            height: _appMenuItemHeight(),
             value: _TabMenuAction.openFolder,
             child: Text(openContainingFolderLabel),
           ),
           const PopupMenuDivider(),
         ],
-        const PopupMenuItem(
-          key: ValueKey('tab-menu-close'),
+        PopupMenuItem(
+          key: const ValueKey('tab-menu-close'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.close,
-          child: Text('Close'),
+          child: const Text('Close'),
         ),
         PopupMenuItem(
           key: const ValueKey('tab-menu-close-others'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.closeOthers,
           enabled: _tabs.length > 1,
           child: const Text('Close others'),
         ),
         PopupMenuItem(
           key: const ValueKey('tab-menu-close-right'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.closeRight,
           enabled: index < _tabs.length - 1,
           child: const Text('Close tabs to the right'),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem(
-          key: ValueKey('tab-menu-close-all'),
+        PopupMenuItem(
+          key: const ValueKey('tab-menu-close-all'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.closeAll,
-          child: Text('Close all'),
+          child: const Text('Close all'),
         ),
       ],
     );
@@ -1463,10 +1470,17 @@ class _EditorScreenState extends State<EditorScreen>
               ),
             ],
           ],
-          child: _appMenuTile(
-            icon: Icons.history,
-            title: 'Open Recent',
-            trailing: trailing,
+          // The item carries no padding so the submenu button fills the whole
+          // row for hit-testing; inset the visible content by the stock menu
+          // padding so this row's icon/label line up with the plain items
+          // above it (New, Open…), which sit inside that default padding.
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _appMenuTile(
+              icon: Icons.history,
+              title: 'Open Recent',
+              trailing: trailing,
+            ),
           ),
         ),
       ),
