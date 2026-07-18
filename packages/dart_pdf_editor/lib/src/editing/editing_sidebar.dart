@@ -51,7 +51,7 @@ class PdfAnnotationSidebar extends StatefulWidget {
     required this.controller,
     required this.viewerController,
     this.width = 280,
-    this.side = PdfSidebarSide.right,
+    this.dock = PdfPanelDock.right,
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 480,
@@ -68,9 +68,9 @@ class PdfAnnotationSidebar extends StatefulWidget {
   /// [PdfEditingPreferences.annotationSidebarWidth], wins over it.
   final double width;
 
-  /// Which side of the viewer the panel sits on; the resize grip rides
+  /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge.
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
 
   /// Whether the inner edge can be dragged to resize the panel.
   final bool resizable;
@@ -258,6 +258,13 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     final closeButton = geometry.closeButton(
       key: const ValueKey('pdf-annotation-panel-close'),
     );
+    final moveHandle = geometry.moveHandle(
+      key: const ValueKey('pdf-annotation-panel-move'),
+    );
+    final trailing = <Widget>[
+      if (moveHandle != null) moveHandle,
+      if (closeButton != null) closeButton,
+    ];
     final field = TextField(
       key: const ValueKey('pdf-annotation-search'),
       controller: _search,
@@ -278,18 +285,22 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       ),
     );
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, 8, closeButton != null ? 4 : 12, 4),
-      child: closeButton != null
+      padding: EdgeInsets.fromLTRB(12, 8, trailing.isNotEmpty ? 4 : 12, 4),
+      child: trailing.isNotEmpty
           ? Row(children: [
               Expanded(child: field),
-              closeButton,
+              ...trailing,
             ])
           : field,
     );
   }
 
-  Widget _tile(BuildContext context, int pageIndex, int index,
-      PdfAnnotation annotation, PdfCommentThread? thread,
+  Widget _tile(
+      BuildContext context,
+      int pageIndex,
+      int index,
+      PdfAnnotation annotation,
+      PdfCommentThread? thread,
       List<(int, int)> ordered) {
     final slot = (pageIndex, index);
     final editable = annotation.behavior.selectable &&
@@ -372,8 +383,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
           key: ValueKey('pdf-annotation-delete-$pageIndex-$index'),
           icon: const Icon(Icons.delete_outline, size: 20),
           tooltip: 'Delete',
-          onPressed: () =>
-              widget.controller.deleteAnnotation(pageIndex, index),
+          onPressed: () => widget.controller.deleteAnnotation(pageIndex, index),
         ),
     ];
     if (actions.isEmpty) return null;
@@ -696,7 +706,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       maxWidth: widget.maxWidth,
       persistedWidth: _preferences.annotationSidebarWidth,
       onPersistWidth: (width) => _preferences.annotationSidebarWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.annotations,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-annotation-resize-grip'),
@@ -754,7 +765,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 tiles.add(_tile(context, page, i, annotation, thread, ordered));
                 // a markup annotation hosts a comment thread
                 if (annotation.behavior.selectable) {
-                  tiles.addAll(_threadSection(context, page, annotation, thread));
+                  tiles.addAll(
+                      _threadSection(context, page, annotation, thread));
                 }
               }
               if (tiles.isNotEmpty) {

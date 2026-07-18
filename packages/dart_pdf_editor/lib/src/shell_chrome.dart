@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'editing/editing_color_picker.dart';
 import 'editing/editing_controller.dart';
+import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/tool_shortcuts.dart';
 import 'pdf_viewer.dart';
@@ -39,28 +40,44 @@ const double _pdfShellSheetMaxFactor = 0.9;
 Widget pdfShellBottomSheets(List<Widget> sheets) =>
     _PdfShellBottomSheetArea(sheets: sheets);
 
-/// Shared shell topology: side panels dock around a stable viewer element on
-/// wide layouts, while compact layouts pass panel widgets as [bottomSheets].
-class PdfShellPanelLayout extends StatelessWidget {
+/// Shared shell topology: panels dock around a stable viewer element on wide
+/// layouts - a column of [topPanels], a row of [leadingPanels] · viewer ·
+/// [trailingPanels], then a column of [bottomPanels] - while compact layouts
+/// pass panel widgets as [bottomSheets].
+///
+/// When [onPanelDock] is wired, a panel's move handle can be dragged onto one
+/// of four edge drop zones to redock it; the shell reports the new dock
+/// through the callback and reveals the zones only while a drag is underway.
+class PdfShellPanelLayout extends StatefulWidget {
   const PdfShellPanelLayout({
     super.key,
     required this.viewer,
     this.leadingPanels = const [],
     this.trailingPanels = const [],
+    this.topPanels = const [],
+    this.bottomPanels = const [],
     this.bottomSheets = const [],
     this.overlays = const [],
     this.floatingToolbar,
     this.dockedToolbar,
+    this.onPanelDock,
   });
 
   /// The page viewer, reflow view, or other primary document surface.
   final Widget viewer;
 
-  /// Docked panels before the viewer in the horizontal row.
+  /// Docked panels before the viewer in the horizontal row (left edge).
   final List<Widget> leadingPanels;
 
-  /// Docked panels after the viewer in the horizontal row.
+  /// Docked panels after the viewer in the horizontal row (right edge).
   final List<Widget> trailingPanels;
+
+  /// Docked panels stacked above the viewer row, spanning the width (top edge).
+  final List<Widget> topPanels;
+
+  /// Docked panels stacked below the viewer row, spanning the width
+  /// (bottom edge).
+  final List<Widget> bottomPanels;
 
   /// Compact panels presented through [pdfShellBottomSheets].
   final List<Widget> bottomSheets;
@@ -74,34 +91,174 @@ class PdfShellPanelLayout extends StatelessWidget {
   /// A toolbar that consumes layout space below the content area.
   final Widget? dockedToolbar;
 
+  /// Redocks the given panel to the dropped-on edge. Null disables the
+  /// drag-to-redock affordance (panels then show no move handle).
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
+
+  @override
+  State<PdfShellPanelLayout> createState() => _PdfShellPanelLayoutState();
+}
+
+class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
+  bool _dragging = false;
+
+  void _setDragging(bool value) {
+    if (_dragging == value) return;
+    setState(() => _dragging = value);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final content = Stack(children: [
-      Positioned.fill(
-        child: Row(children: [
-          ...leadingPanels,
-          Expanded(
-            key: const ValueKey('pdf-shell-viewer'),
-            child: viewer,
-          ),
-          ...trailingPanels,
-        ]),
+    final row = Row(children: [
+      ...widget.leadingPanels,
+      Expanded(
+        key: const ValueKey('pdf-shell-viewer'),
+        child: widget.viewer,
       ),
-      ...overlays,
-      if (floatingToolbar != null)
+      ...widget.trailingPanels,
+    ]);
+    final stacked = Column(children: [
+      ...widget.topPanels,
+      Expanded(child: row),
+      ...widget.bottomPanels,
+    ]);
+    final content = Stack(children: [
+      Positioned.fill(child: stacked),
+      ...widget.overlays,
+      if (widget.floatingToolbar != null)
         Positioned(
           left: 0,
           right: 0,
           bottom: 0,
-          child: floatingToolbar!,
+          child: widget.floatingToolbar!,
         ),
-      if (bottomSheets.isNotEmpty) pdfShellBottomSheets(bottomSheets),
+      if (widget.bottomSheets.isNotEmpty)
+        pdfShellBottomSheets(widget.bottomSheets),
+      // the redock drop zones sit above everything while a panel is being
+      // dragged, so a panel can be dropped onto any edge - even over the
+      // toolbar or another panel
+      if (widget.onPanelDock != null && _dragging)
+        Positioned.fill(
+          child: _PanelDropZones(onPanelDock: widget.onPanelDock!),
+        ),
     ]);
 
-    return Column(children: [
+    Widget result = Column(children: [
       Expanded(child: content),
-      if (dockedToolbar != null) dockedToolbar!,
+      if (widget.dockedToolbar != null) widget.dockedToolbar!,
     ]);
+    if (widget.onPanelDock != null) {
+      // the panels below read this to drive the drag: their move handles
+      // toggle the drop zones on and off.
+      result = PdfPanelDragScope(
+        onDragStarted: () => _setDragging(true),
+        onDragEnded: () => _setDragging(false),
+        child: result,
+      );
+    }
+    return result;
+  }
+}
+
+/// The four edge drop targets shown while a panel is being dragged. Dropping
+/// the panel onto one redocks it to that edge.
+class _PanelDropZones extends StatelessWidget {
+  const _PanelDropZones({required this.onPanelDock});
+
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      // edge bands sized to a fraction of the area, capped so they stay
+      // legible targets without swallowing the whole viewer
+      final bandW = (constraints.maxWidth * 0.18).clamp(72.0, 200.0).toDouble();
+      final bandH =
+          (constraints.maxHeight * 0.18).clamp(56.0, 160.0).toDouble();
+      return Stack(children: [
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: bandW,
+          child: _DropTarget(dock: PdfPanelDock.left, onPanelDock: onPanelDock),
+        ),
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: bandW,
+          child:
+              _DropTarget(dock: PdfPanelDock.right, onPanelDock: onPanelDock),
+        ),
+        // top/bottom bands inset horizontally so they never overlap the
+        // left/right bands at the corners
+        Positioned(
+          left: bandW,
+          right: bandW,
+          top: 0,
+          height: bandH,
+          child: _DropTarget(dock: PdfPanelDock.top, onPanelDock: onPanelDock),
+        ),
+        Positioned(
+          left: bandW,
+          right: bandW,
+          bottom: 0,
+          height: bandH,
+          child:
+              _DropTarget(dock: PdfPanelDock.bottom, onPanelDock: onPanelDock),
+        ),
+      ]);
+    });
+  }
+}
+
+class _DropTarget extends StatelessWidget {
+  const _DropTarget({required this.dock, required this.onPanelDock});
+
+  final PdfPanelDock dock;
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+
+  IconData get _icon => switch (dock) {
+        PdfPanelDock.left => Icons.west,
+        PdfPanelDock.right => Icons.east,
+        PdfPanelDock.top => Icons.north,
+        PdfPanelDock.bottom => Icons.south,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DragTarget<PdfDockablePanel>(
+      onWillAcceptWithDetails: (_) => true,
+      onAcceptWithDetails: (details) => onPanelDock(details.data, dock),
+      builder: (context, candidate, rejected) {
+        final active = candidate.isNotEmpty;
+        return AnimatedContainer(
+          key: ValueKey('pdf-shell-dropzone-${dock.name}'),
+          duration: const Duration(milliseconds: 120),
+          margin: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: (active ? scheme.primary : scheme.primaryContainer)
+                .withValues(alpha: active ? 0.35 : 0.18),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active
+                  ? scheme.primary
+                  : scheme.primary.withValues(
+                      alpha: 0.4,
+                    ),
+              width: active ? 2 : 1,
+            ),
+          ),
+          child: Center(
+            child: Icon(_icon,
+                color: active ? scheme.primary : scheme.onPrimaryContainer,
+                size: active ? 32 : 26),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -549,8 +706,7 @@ class PdfShellBar extends StatelessWidget {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: ConstrainedBox(
-                    constraints:
-                        BoxConstraints(minWidth: constraints.maxWidth),
+                    constraints: BoxConstraints(minWidth: constraints.maxWidth),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [

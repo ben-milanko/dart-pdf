@@ -210,7 +210,7 @@ class PdfSearchResultsPanel extends StatefulWidget {
     required this.controller,
     this.preferences,
     this.width = 280,
-    this.side = PdfSidebarSide.left,
+    this.dock = PdfPanelDock.left,
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 480,
@@ -231,9 +231,9 @@ class PdfSearchResultsPanel extends StatefulWidget {
   /// The default width - a persisted user-dragged width wins over it.
   final double width;
 
-  /// Which side of the viewer the panel sits on; the resize grip rides
+  /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge.
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
 
   /// Whether the inner edge can be dragged to resize the panel.
   final bool resizable;
@@ -405,53 +405,61 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
       onPersistWidth: widget.preferences == null
           ? null
           : (width) => widget.preferences!.searchPanelWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.search,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-search-resize-grip'),
       onClose: widget.onClose,
-      builder: (context, geometry) => Material(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        child: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) => Column(children: [
-            // the docked panel's close button; a bottom sheet supplies
-            // its own in its sheet chrome
-            if (geometry.closeButton(
-              key: const ValueKey('pdf-search-panel-close'),
-            )
-                case final closeButton?)
-              Padding(
-                // clear the right-edge resize grip when it rides this side
-                padding:
-                    EdgeInsets.fromLTRB(16, 4, geometry.contentEndInset + 4, 0),
-                child: Row(children: [
-                  Expanded(
-                    child: Text('Search results',
-                        style: Theme.of(context).textTheme.titleSmall),
-                  ),
-                  closeButton,
-                ]),
-              ),
-            if (widget.showOptions) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: _SearchOptionsBar(
-                      controller: controller, preferences: widget.preferences),
+      builder: (context, geometry) {
+        final moveHandle = geometry.moveHandle(
+          key: const ValueKey('pdf-search-panel-move'),
+        );
+        final closeButton = geometry.closeButton(
+          key: const ValueKey('pdf-search-panel-close'),
+        );
+        return Material(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          child: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => Column(children: [
+              // the drag-to-redock handle and the docked panel's close
+              // button; a bottom sheet supplies its own in its sheet chrome
+              if (moveHandle != null || closeButton != null)
+                Padding(
+                  // clear the right-edge resize grip when it rides this side
+                  padding: EdgeInsets.fromLTRB(
+                      16, 4, geometry.contentEndInset + 4, 0),
+                  child: Row(children: [
+                    Expanded(
+                      child: Text('Search results',
+                          style: Theme.of(context).textTheme.titleSmall),
+                    ),
+                    if (moveHandle != null) moveHandle,
+                    if (closeButton != null) closeButton,
+                  ]),
                 ),
-              ),
-              Divider(
-                height: 1,
-                indent: geometry.contentStartInset,
-                endIndent: geometry.contentEndInset,
-              ),
-            ],
-            Expanded(child: _body(context, geometry: geometry)),
-          ]),
-        ),
-      ),
+              if (widget.showOptions) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _SearchOptionsBar(
+                        controller: controller,
+                        preferences: widget.preferences),
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  indent: geometry.contentStartInset,
+                  endIndent: geometry.contentEndInset,
+                ),
+              ],
+              Expanded(child: _body(context, geometry: geometry)),
+            ]),
+          ),
+        );
+      },
     );
   }
 }

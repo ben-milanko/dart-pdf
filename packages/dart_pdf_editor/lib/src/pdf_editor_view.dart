@@ -7,6 +7,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'editing/editing_bookmarks.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_menu.dart';
+import 'editing/editing_panel.dart';
 import 'editing/editing_pencil.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_properties.dart';
@@ -570,6 +571,24 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     session.preferences.author = name.trim().isEmpty ? null : name.trim();
   }
 
+  /// Redocks [panel] onto [dock] by writing its persisted dock preference;
+  /// the pref change notifies and rebuilds, re-routing the panel to its new
+  /// edge. Wired to [PdfShellPanelLayout.onPanelDock].
+  void _setPanelDock(PdfDockablePanel panel, PdfPanelDock dock) {
+    switch (panel) {
+      case PdfDockablePanel.thumbnails:
+        _prefs.thumbnailSidebarDock = dock;
+      case PdfDockablePanel.search:
+        _prefs.searchPanelDock = dock;
+      case PdfDockablePanel.bookmarks:
+        _prefs.bookmarkSidebarDock = dock;
+      case PdfDockablePanel.annotations:
+        _prefs.annotationSidebarDock = dock;
+      case PdfDockablePanel.properties:
+        _prefs.propertiesPanelDock = dock;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final features = widget.features;
@@ -610,6 +629,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 pageColor: pageColor,
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: features.pageEditing,
+                dock: prefs.thumbnailSidebarDock,
                 bottomSheet: bottomSheet,
                 // the sheet chrome carries its own close button
                 onClose: bottomSheet
@@ -629,6 +649,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     'pdf-shell-search-panel-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: _viewer,
                 preferences: prefs,
+                dock: prefs.searchPanelDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -641,6 +662,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 viewerController: _viewer,
                 editable: true,
+                dock: prefs.bookmarkSidebarDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -652,6 +674,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     'pdf-shell-annotations-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: session,
                 viewerController: _viewer,
+                dock: prefs.annotationSidebarDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -664,6 +687,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     'pdf-shell-properties-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: session,
                 showAuthor: features.authorEditable,
+                dock: prefs.propertiesPanelDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -710,6 +734,27 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               !altView;
           final showPropertiesPanel =
               features.propertiesPanel && prefs.showPropertiesPanel && !altView;
+
+          // The visible docked panels paired with the edge each is docked
+          // on (persisted per panel). [dockedPanels] filters them into the
+          // shell's four dock groups; a panel's move handle can drag it
+          // between edges, which rewrites the pref and re-routes it here.
+          final docked = <(PdfPanelDock, Widget)>[
+            if (showThumbnailsPanel && !useSheets)
+              (prefs.thumbnailSidebarDock, thumbnails(bottomSheet: false)),
+            if (showSearchPanel && !useSheets)
+              (prefs.searchPanelDock, searchResults(bottomSheet: false)),
+            if (showBookmarksPanel && !useSheets)
+              (prefs.bookmarkSidebarDock, bookmarks(bottomSheet: false)),
+            if (showAnnotationsPanel && !useSheets)
+              (prefs.annotationSidebarDock, annotations(bottomSheet: false)),
+            if (showPropertiesPanel && !useSheets)
+              (prefs.propertiesPanelDock, properties(bottomSheet: false)),
+          ];
+          List<Widget> dockedPanels(PdfPanelDock dock) => [
+                for (final (d, w) in docked)
+                  if (d == dock) w
+              ];
 
           final sheets = !useSheets
               ? const <Widget>[]
@@ -959,14 +1004,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               ),
             Expanded(
               child: PdfShellPanelLayout(
-                leadingPanels: [
-                  if (showThumbnailsPanel && !useSheets)
-                    thumbnails(bottomSheet: false),
-                  if (showSearchPanel && !useSheets)
-                    searchResults(bottomSheet: false),
-                  if (showBookmarksPanel && !useSheets)
-                    bookmarks(bottomSheet: false),
-                ],
+                leadingPanels: dockedPanels(PdfPanelDock.left),
+                topPanels: dockedPanels(PdfPanelDock.top),
+                bottomPanels: dockedPanels(PdfPanelDock.bottom),
+                onPanelDock: _setPanelDock,
                 viewer: reflowActive
                     ? PdfReflowView(
                         document: session.document,
@@ -1019,12 +1060,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         // page still scrolls it before the grid closes.
                         active: !gridActive,
                       ),
-                trailingPanels: [
-                  if (showAnnotationsPanel && !useSheets)
-                    annotations(bottomSheet: false),
-                  if (showPropertiesPanel && !useSheets)
-                    properties(bottomSheet: false),
-                ],
+                trailingPanels: dockedPanels(PdfPanelDock.right),
                 bottomSheets: sheets,
                 overlays: [
                   // the page grid covers the (still-mounted) viewer: a tap can

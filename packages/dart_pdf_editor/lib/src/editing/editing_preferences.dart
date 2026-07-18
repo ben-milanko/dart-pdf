@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
 import 'editing_color_picker.dart' show PdfColorFormat;
+import 'editing_panel.dart' show PdfPanelDock;
 import 'line_style.dart';
 import 'editing_measure.dart';
 import 'editing_signature.dart';
@@ -91,6 +92,14 @@ class PdfEditingPreferences extends ChangeNotifier {
   double? _annotationSidebarWidth;
   double? _propertiesPanelWidth;
   double? _searchPanelWidth;
+  // Which edge each dockable panel is attached to. Defaults reproduce the
+  // built-in layout (thumbnails/search/bookmarks left, annotations/
+  // properties right); the user drags a panel's move handle to redock it.
+  PdfPanelDock _thumbnailSidebarDock = PdfPanelDock.left;
+  PdfPanelDock _searchPanelDock = PdfPanelDock.left;
+  PdfPanelDock _bookmarkSidebarDock = PdfPanelDock.left;
+  PdfPanelDock _annotationSidebarDock = PdfPanelDock.right;
+  PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
   Color? _textFillColor;
   Color? _textBorderColor;
   Color? _shapeFillColor;
@@ -246,6 +255,15 @@ class PdfEditingPreferences extends ChangeNotifier {
               _propertiesPanelWidth;
       _searchPanelWidth =
           store.getDouble('${_prefix}searchPanelWidth') ?? _searchPanelWidth;
+      _thumbnailSidebarDock =
+          _readDock(store, 'thumbnailSidebarDock', _thumbnailSidebarDock);
+      _searchPanelDock = _readDock(store, 'searchPanelDock', _searchPanelDock);
+      _bookmarkSidebarDock =
+          _readDock(store, 'bookmarkSidebarDock', _bookmarkSidebarDock);
+      _annotationSidebarDock =
+          _readDock(store, 'annotationSidebarDock', _annotationSidebarDock);
+      _propertiesPanelDock =
+          _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
       final textFill = store.getInt('${_prefix}textFillColor');
       if (textFill != null) _textFillColor = Color(textFill);
       final textBorder = store.getInt('${_prefix}textBorderColor');
@@ -1072,6 +1090,62 @@ class PdfEditingPreferences extends ChangeNotifier {
         ? s.remove('${_prefix}searchPanelWidth')
         : s.setDouble('${_prefix}searchPanelWidth', value));
     notifyListeners();
+  }
+
+  PdfPanelDock _readDock(
+          SharedPreferences store, String key, PdfPanelDock fallback) =>
+      PdfPanelDock.values.asNameMap()[store.getString('$_prefix$key')] ??
+      fallback;
+
+  void _setDock(String key, PdfPanelDock value) {
+    _write((s) => s.setString('$_prefix$key', value.name));
+    notifyListeners();
+  }
+
+  /// Which edge the page-thumbnail panel is docked on. Persisted so a
+  /// dragged layout survives reopening the app.
+  PdfPanelDock get thumbnailSidebarDock => _thumbnailSidebarDock;
+
+  set thumbnailSidebarDock(PdfPanelDock value) {
+    if (value == _thumbnailSidebarDock) return;
+    _thumbnailSidebarDock = value;
+    _setDock('thumbnailSidebarDock', value);
+  }
+
+  /// Which edge the search-results panel is docked on. Persisted.
+  PdfPanelDock get searchPanelDock => _searchPanelDock;
+
+  set searchPanelDock(PdfPanelDock value) {
+    if (value == _searchPanelDock) return;
+    _searchPanelDock = value;
+    _setDock('searchPanelDock', value);
+  }
+
+  /// Which edge the bookmarks/outline panel is docked on. Persisted.
+  PdfPanelDock get bookmarkSidebarDock => _bookmarkSidebarDock;
+
+  set bookmarkSidebarDock(PdfPanelDock value) {
+    if (value == _bookmarkSidebarDock) return;
+    _bookmarkSidebarDock = value;
+    _setDock('bookmarkSidebarDock', value);
+  }
+
+  /// Which edge the annotation-list panel is docked on. Persisted.
+  PdfPanelDock get annotationSidebarDock => _annotationSidebarDock;
+
+  set annotationSidebarDock(PdfPanelDock value) {
+    if (value == _annotationSidebarDock) return;
+    _annotationSidebarDock = value;
+    _setDock('annotationSidebarDock', value);
+  }
+
+  /// Which edge the annotation-properties panel is docked on. Persisted.
+  PdfPanelDock get propertiesPanelDock => _propertiesPanelDock;
+
+  set propertiesPanelDock(PdfPanelDock value) {
+    if (value == _propertiesPanelDock) return;
+    _propertiesPanelDock = value;
+    _setDock('propertiesPanelDock', value);
   }
 
   /// Whether document search matches case (see `PdfSearchOptions.matchCase`).
