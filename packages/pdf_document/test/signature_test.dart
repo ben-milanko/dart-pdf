@@ -204,6 +204,38 @@ void main() {
       expect(shownText(content), isNot(contains('Dart PDF Test Signer Dart')));
     });
 
+    test('a background image covers the box behind the text, clipped', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        appearance: PdfSignatureAppearance(
+          rect: const PdfRect(72, 600, 320, 700),
+          backgroundImage: PdfEmbeddableImage.png(_png),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      final widget = signature.field.widgets.first;
+      final ap = doc.cos.resolve(widget['AP']) as CosDictionary;
+      final form = doc.cos.resolve(ap['N']) as CosStream;
+      final resources =
+          doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+      final xobjects = doc.cos.resolve(resources['XObject']) as CosDictionary;
+      expect(xobjects.entries.keys, contains('SigBg'));
+
+      final content = String.fromCharCodes(doc.cos.decodeStreamData(form));
+      // clipped to the box and drawn before the border stroke, and the
+      // signer name still renders on top (not replaced, unlike /graphic).
+      expect(content, contains('W'));
+      expect(content, contains('/SigBg Do'));
+      expect(content.indexOf('/SigBg Do'), lessThan(content.indexOf('S\n')));
+      expect(shownText(content), contains('Digitally signed by'));
+    });
+
     test('a details-only box (no name/graphic) omits the left panel', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       final signed = editor.saveSigned(

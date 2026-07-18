@@ -86,6 +86,36 @@ void main() {
     expect(signatures.single.validate().intact, isTrue);
   });
 
+  test('a placed appearance signs into a visible box (rect + /AP)', () async {
+    final editing = PdfEditingController(buildClassicPdf());
+    addTearDown(editing.dispose);
+    final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
+
+    expect(
+      await editing.addDigitalSignature(
+        identity(),
+        reason: 'Approved',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+        ),
+      ),
+      isTrue,
+    );
+
+    final signature = PdfSignature.of(editing.document).single;
+    expect(signature.validate().intact, isTrue);
+
+    // the widget carries the placed /Rect and a rendered appearance stream
+    final widget = signature.field.widgets.first;
+    final rect = pdfRectFrom(editing.document.cos, widget['Rect'])!;
+    expect(rect.left, closeTo(72, 0.5));
+    expect(rect.top, closeTo(720, 0.5));
+    // a rendered appearance stream was installed (visible box)
+    expect(widget['AP'], isNotNull);
+  });
+
   test('controller adds a timestamped keyless (B-T) signature', () async {
     final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
     final ca = TestFulcioCa.generate(notBefore: DateTime.utc(2026));

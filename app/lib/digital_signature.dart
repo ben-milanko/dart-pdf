@@ -5,6 +5,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'signature_raster.dart';
+
 const digitalSignatureKeyTypeGroup = XTypeGroup(
   label: 'RSA private keys',
   extensions: ['pem', 'key', 'der'],
@@ -24,6 +26,15 @@ typedef DigitalSignatureOptionsProvider = Future<DigitalSignatureOptions?>
 
 typedef DigitalSignaturePrivateKeyPicker = Future<XFile?> Function();
 typedef DigitalSignatureCertificatePicker = Future<List<XFile>> Function();
+
+/// Supplies PNG or JPEG bytes for the signature box's logo backdrop
+/// ([PdfSignatureAppearance.backgroundImage]) - typically a file picker.
+/// Returns null to cancel.
+typedef SignatureLogoPicker = Future<Uint8List?> Function();
+
+/// The page and rectangle (PDF user space) a visible signature box will be
+/// drawn into - handed to the dialog by the signature-box placement tool.
+typedef SignaturePlacement = ({int page, PdfRect rect});
 
 /// Mints (or shows a dialog to mint) a one-tap self-signed identity. Injected
 /// in tests; defaults to [showCreateSigningIdentityDialog].
@@ -57,6 +68,7 @@ class DigitalSignatureOptions {
     this.location,
     this.contactInfo,
     this.signingTime,
+    this.appearance,
   }) : assert(
             (identity == null ? 0 : 1) +
                     (selfSignedIdentity == null ? 0 : 1) +
@@ -88,6 +100,12 @@ class DigitalSignatureOptions {
   /// tests for determinism; production leaves it null.
   final DateTime? signingTime;
 
+  /// The visible signature box to draw the signature into - its page, its
+  /// rectangle (in PDF user space), and any hand-drawn mark or logo backdrop
+  /// the user added. Null for an invisible signature (menu-triggered, no
+  /// placement). Set when the box came from the signature-box tool.
+  final PdfSignatureAppearance? appearance;
+
   /// The signer name to show, regardless of which identity kind is set.
   String? get signerName =>
       identity?.signerName ??
@@ -104,6 +122,8 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   KeylessIdentityCreator? createKeylessIdentity,
   PdfTimestampClient? timestampClient,
   bool keylessUnavailable = false,
+  SignaturePlacement? placement,
+  SignatureLogoPicker? logoPicker,
 }) =>
     showDialog<DigitalSignatureOptions>(
       context: context,
@@ -117,6 +137,8 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
         createKeylessIdentity: createKeylessIdentity,
         timestampClient: timestampClient,
         keylessUnavailable: keylessUnavailable,
+        placement: placement,
+        logoPicker: logoPicker,
       ),
     );
 
@@ -138,6 +160,8 @@ class DigitalSignatureDialog extends StatefulWidget {
     this.createKeylessIdentity,
     this.timestampClient,
     this.keylessUnavailable = false,
+    this.placement,
+    this.logoPicker,
   });
 
   final DigitalSignaturePrivateKeyPicker privateKeyPicker;
@@ -156,6 +180,14 @@ class DigitalSignatureDialog extends StatefulWidget {
   /// keyless email signing is available in the desktop/mobile app - set on the
   /// web, where the OAuth broker's loopback/CORS constraints preclude it.
   final bool keylessUnavailable;
+
+  /// When set, the signature is drawn into this page/rectangle (the
+  /// signature-box tool placed it) and the dialog shows an Appearance section
+  /// for a hand-drawn mark and a logo backdrop. Null = invisible signature.
+  final SignaturePlacement? placement;
+
+  /// Supplies the logo backdrop image; only used when [placement] is set.
+  final SignatureLogoPicker? logoPicker;
 
   @override
   State<DigitalSignatureDialog> createState() => _DigitalSignatureDialogState();
@@ -176,6 +208,11 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   PdfSigningIdentity? _keyless;
   bool _keylessBusy = false;
   String? _error;
+
+  // Visible-box appearance (only when widget.placement is set).
+  Uint8List? _signaturePng; // rasterized hand-drawn mark
+  Uint8List? _logoBytes; // logo backdrop (PNG/JPEG)
+  String? _appearanceError;
 
   @override
   void initState() {
@@ -319,7 +356,52 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     return value.isEmpty ? null : value;
   }
 
+  Future<void> _drawSignature() async {
+    final signature = await showPdfSignatureDialog(context);
+    if (signature == null || !mounted) return;
+    final png = await rasterizeInkSignature(signature);
+    if (!mounted) return;
+    setState(() {
+      _signaturePng = png;
+      _appearanceError = png == null ? 'Could not capture the signature.' : null;
+    });
+  }
+
+  Future<void> _pickLogo() async {
+    final picker = widget.logoPicker;
+    if (picker == null) return;
+    final bytes = await picker();
+    if (bytes == null || !mounted) return;
+    // fail early on a format the embedder can't take, rather than at sign time
+    try {
+      PdfEmbeddableImage.decode(bytes);
+    } catch (_) {
+      setState(() => _appearanceError = 'Choose a PNG or JPEG image.');
+      return;
+    }
+    setState(() {
+      _logoBytes = bytes;
+      _appearanceError = null;
+    });
+  }
+
+  /// The visible-box appearance for the placed rectangle, or null when there
+  /// is no placement (an invisible signature).
+  PdfSignatureAppearance? _buildAppearance() {
+    final placement = widget.placement;
+    if (placement == null) return null;
+    return PdfSignatureAppearance(
+      page: placement.page,
+      rect: placement.rect,
+      graphic:
+          _signaturePng != null ? PdfEmbeddableImage.png(_signaturePng!) : null,
+      backgroundImage:
+          _logoBytes != null ? PdfEmbeddableImage.decode(_logoBytes!) : null,
+    );
+  }
+
   void _submit() {
+    final appearance = _buildAppearance();
     final keyless = _keyless;
     if (keyless != null) {
       Navigator.of(context).pop(DigitalSignatureOptions(
@@ -329,6 +411,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
         reason: _value(_reason),
         location: _value(_location),
         contactInfo: _value(_contact),
+        appearance: appearance,
       ));
       return;
     }
@@ -340,6 +423,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
         reason: _value(_reason),
         location: _value(_location),
         contactInfo: _value(_contact),
+        appearance: appearance,
       ));
       return;
     }
@@ -351,6 +435,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       reason: _value(_reason),
       location: _value(_location),
       contactInfo: _value(_contact),
+      appearance: appearance,
     ));
   }
 
@@ -375,59 +460,14 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Add a certificate-backed PAdES signature. This is a '
-                'cryptographic signature, separate from a drawn signature.',
+                'A digital signature proves you signed this document and that '
+                'it has not been changed since. Pick how you want to sign.',
                 style: theme.textTheme.bodyMedium,
               ),
-              const SizedBox(height: 12),
-              Text(
-                'Choose an unencrypted RSA PKCS#1/PKCS#8 key and its X.509 '
-                'certificate chain (PEM or DER). The key is used in memory '
-                'only and is never saved by DartPDF.',
-                style: theme.textTheme.bodySmall,
-              ),
               const SizedBox(height: 16),
-              OutlinedButton.icon(
-                key: const ValueKey('digital-signature-private-key'),
-                onPressed: _selectPrivateKey,
-                icon: const Icon(Icons.key_outlined),
-                label: Text(_privateKeyName ?? 'Choose private key…'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                key: const ValueKey('digital-signature-certificates'),
-                onPressed: _selectCertificates,
-                icon: const Icon(Icons.workspace_premium_outlined),
-                label: Text(_certificateNames.isEmpty
-                    ? 'Choose certificate chain…'
-                    : _certificateNames.join(', ')),
-              ),
-              const SizedBox(height: 12),
-              Row(children: [
-                const Expanded(child: Divider()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text('or', style: theme.textTheme.bodySmall),
-                ),
-                const Expanded(child: Divider()),
-              ]),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                key: const ValueKey('digital-signature-create-identity'),
-                onPressed: _createSelfSignedIdentity,
-                icon: const Icon(Icons.badge_outlined),
-                label: const Text('Create a signing identity…'),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'No files needed. A self-signed identity reads as "signed, '
-                'validity unknown" in Acrobat (like its own self-signed IDs); '
-                'it is remembered in your device keychain.',
-                style: theme.textTheme.bodySmall,
-              ),
+              // Easiest options first.
               if (widget.createKeylessIdentity != null) ...[
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
+                FilledButton.tonalIcon(
                   key: const ValueKey('digital-signature-keyless'),
                   onPressed: _keylessBusy ? null : _createKeylessIdentity,
                   icon: _keylessBusy
@@ -439,27 +479,81 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                       : const Icon(Icons.mail_lock_outlined),
                   label: Text(_keylessBusy
                       ? 'Signing you in…'
-                      : 'Sign in with your email (keyless)…'),
+                      : 'Sign in with your email'),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Verifies your email through Sigstore and signs with a '
-                  'short-lived certificate plus a trusted timestamp. No key to '
-                  'manage; the email is real, but (like every free option) it '
-                  'reads as "validity unknown" in Acrobat.',
+                  'Easiest. We confirm it\'s you by email and sign for you, '
+                  'with a trusted timestamp. Nothing to install or set up.',
                   style: theme.textTheme.bodySmall,
                 ),
+                const SizedBox(height: 16),
               ] else if (widget.keylessUnavailable) ...[
-                const SizedBox(height: 12),
                 Text(
-                  'Keyless email signing (sign in, no files) is available in '
-                  'the DartPDF desktop and mobile apps. It can\'t run in a web '
-                  'browser: the Sigstore sign-in service blocks cross-origin '
-                  'browser requests.',
+                  'Signing in with your email is the easiest way — it\'s '
+                  'available in the DartPDF desktop and mobile apps. For '
+                  'security reasons it can\'t run in a web browser.',
                   key: const ValueKey('digital-signature-keyless-web-note'),
                   style: theme.textTheme.bodySmall,
                 ),
+                const SizedBox(height: 16),
               ],
+              OutlinedButton.icon(
+                key: const ValueKey('digital-signature-create-identity'),
+                onPressed: _createSelfSignedIdentity,
+                icon: const Icon(Icons.badge_outlined),
+                label: const Text('Create a signature on this device'),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'No sign-in or files needed. Best for personal use — it\'s '
+                'saved on this device for next time. Some PDF readers will '
+                'show it as "signed, validity unknown", which is normal for a '
+                'signature you make yourself.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              // The technical option, tucked away for those who need it.
+              Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  key: const ValueKey('digital-signature-advanced'),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  title: Text('Use your own certificate',
+                      style: theme.textTheme.bodyMedium),
+                  subtitle: Text(
+                      'For a signing certificate from your organisation',
+                      style: theme.textTheme.bodySmall),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Choose your private key (RSA, PEM or DER) and its '
+                        'certificate file. The key is only used to sign and is '
+                        'never saved.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      key: const ValueKey('digital-signature-private-key'),
+                      onPressed: _selectPrivateKey,
+                      icon: const Icon(Icons.key_outlined),
+                      label: Text(_privateKeyName ?? 'Choose private key…'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      key: const ValueKey('digital-signature-certificates'),
+                      onPressed: _selectCertificates,
+                      icon: const Icon(Icons.workspace_premium_outlined),
+                      label: Text(_certificateNames.isEmpty
+                          ? 'Choose certificate file…'
+                          : _certificateNames.join(', ')),
+                    ),
+                  ],
+                ),
+              ),
               if (_error != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -532,6 +626,73 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                 controller: _contact,
                 decoration: const InputDecoration(labelText: 'Contact info'),
               ),
+              if (widget.placement != null) ...[
+                const SizedBox(height: 16),
+                Row(children: [
+                  const Expanded(child: Divider()),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text('Appearance', style: theme.textTheme.labelMedium),
+                  ),
+                  const Expanded(child: Divider()),
+                ]),
+                const SizedBox(height: 6),
+                Text(
+                  'The signature is drawn where you placed it. The signer name '
+                  'and details are always shown; you can add a hand-drawn mark '
+                  'and a logo backdrop.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      key: const ValueKey('digital-signature-draw'),
+                      onPressed: _drawSignature,
+                      icon: const Icon(Icons.draw_outlined),
+                      label: Text(_signaturePng == null
+                          ? 'Draw signature…'
+                          : 'Signature added ✓'),
+                    ),
+                  ),
+                  if (widget.logoPicker != null) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('digital-signature-logo'),
+                        onPressed: _pickLogo,
+                        icon: const Icon(Icons.image_outlined),
+                        label: Text(
+                            _logoBytes == null ? 'Add logo…' : 'Logo added ✓'),
+                      ),
+                    ),
+                  ],
+                ]),
+                if (_signaturePng != null || _logoBytes != null) ...[
+                  const SizedBox(height: 10),
+                  _AppearancePreview(
+                    signaturePng: _signaturePng,
+                    logoBytes: _logoBytes,
+                    signerName: identity?.signerName ??
+                        selfSigned?.name ??
+                        keyless?.name,
+                    reason: _value(_reason),
+                    onClearSignature: _signaturePng == null
+                        ? null
+                        : () => setState(() => _signaturePng = null),
+                    onClearLogo: _logoBytes == null
+                        ? null
+                        : () => setState(() => _logoBytes = null),
+                  ),
+                ],
+                if (_appearanceError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _appearanceError!,
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                ],
+              ],
             ],
           ),
         ),
@@ -547,6 +708,101 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
           icon: const Icon(Icons.draw_outlined),
           label: const Text('Sign'),
         ),
+      ],
+    );
+  }
+}
+
+/// A rough live preview of the visible signature box: the logo backdrop (if
+/// any), the hand-drawn mark or the signer name on the left, and the signing
+/// details on the right - mirroring the two-column box the signer renders.
+class _AppearancePreview extends StatelessWidget {
+  const _AppearancePreview({
+    required this.signaturePng,
+    required this.logoBytes,
+    required this.signerName,
+    required this.reason,
+    required this.onClearSignature,
+    required this.onClearLogo,
+  });
+
+  final Uint8List? signaturePng;
+  final Uint8List? logoBytes;
+  final String? signerName;
+  final String? reason;
+  final VoidCallback? onClearSignature;
+  final VoidCallback? onClearLogo;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final details = <String>[
+      if (signerName != null && signerName!.isNotEmpty)
+        'Digitally signed by $signerName',
+      'Date: ${MaterialLocalizations.of(context).formatFullDate(DateTime.now())}',
+      if (reason != null && reason!.isNotEmpty) 'Reason: $reason',
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          height: 92,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFF2E5E86)),
+            borderRadius: BorderRadius.circular(4),
+            image: logoBytes == null
+                ? null
+                : DecorationImage(
+                    image: MemoryImage(logoBytes!), fit: BoxFit.cover),
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Center(
+                child: signaturePng != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Image.memory(signaturePng!, fit: BoxFit.contain),
+                      )
+                    : Text(
+                        signerName ?? 'Signer',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: Color(0xFF1A1A1A),
+                            fontWeight: FontWeight.bold),
+                      ),
+              ),
+            ),
+            const VerticalDivider(color: Color(0xFF2E5E86), width: 1),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final line in details)
+                      Text(line,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 8, color: Color(0xFF1A1A1A))),
+                  ],
+                ),
+              ),
+            ),
+          ]),
+        ),
+        Row(children: [
+          if (onClearSignature != null)
+            TextButton(
+                onPressed: onClearSignature,
+                child: const Text('Remove signature')),
+          if (onClearLogo != null)
+            TextButton(onPressed: onClearLogo, child: const Text('Remove logo')),
+        ]),
+        Text('Preview - the signed box may differ slightly.',
+            style: theme.textTheme.bodySmall),
       ],
     );
   }

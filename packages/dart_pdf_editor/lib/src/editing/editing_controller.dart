@@ -209,6 +209,15 @@ enum PdfEditTool {
   /// or share it; with no handler the tool does nothing. It only reads the
   /// page: no annotation or page content is written.
   snapshot,
+
+  /// Drag out a rectangle to place a **visible digital-signature** box, the
+  /// way Acrobat and Bluebeam let you draw where the signature appears. On
+  /// release the host's [PdfViewer.onPlaceSignature] handler runs with the
+  /// page and the box (in PDF user space) to collect an identity/appearance
+  /// and cryptographically sign into that rectangle
+  /// (via [PdfEditingController.addKeylessSignature] et al. with a
+  /// [PdfSignatureAppearance]). With no handler the tool does nothing.
+  signatureBox,
 }
 
 /// Text-markup kinds for [PdfEditingController.addMarkup].
@@ -625,6 +634,7 @@ class PdfEditingController extends ChangeNotifier {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) async {
     final before = bytes;
     final signed = await identity.sign(
@@ -636,6 +646,7 @@ class PdfEditingController extends ChangeNotifier {
       location: location,
       contactInfo: contactInfo,
       signingTime: signingTime,
+      appearance: appearance,
     );
     return _adoptDigitalSignature(signed, before: before);
   }
@@ -651,6 +662,7 @@ class PdfEditingController extends ChangeNotifier {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) async {
     final before = bytes;
     final signed = PdfEditor(PdfDocument.open(before, password: _password))
@@ -661,6 +673,7 @@ class PdfEditingController extends ChangeNotifier {
       location: location,
       contactInfo: contactInfo,
       signingTime: signingTime,
+      appearance: appearance,
     );
     return _adoptDigitalSignature(signed, before: before);
   }
@@ -680,6 +693,7 @@ class PdfEditingController extends ChangeNotifier {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) async {
     final before = bytes;
     final signed = await PdfEditor(PdfDocument.open(before, password: _password))
@@ -692,6 +706,7 @@ class PdfEditingController extends ChangeNotifier {
       location: location,
       contactInfo: contactInfo,
       signingTime: signingTime,
+      appearance: appearance,
     );
     return _adoptDigitalSignature(signed, before: before);
   }

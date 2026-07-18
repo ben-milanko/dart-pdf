@@ -230,6 +230,7 @@ class PdfEditorView extends StatefulWidget {
     this.customStamps = const [],
     this.fontPicker,
     this.onSnapshot,
+    this.onPlaceSignature,
     this.textPrompt,
     this.styledTextPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
@@ -375,6 +376,9 @@ class PdfEditorView extends StatefulWidget {
   /// copy on the clipboard for in-app paste; this callback additionally
   /// exports the captured raster image (copy/save/share).
   final PdfSnapshotHandler? onSnapshot;
+
+  /// See [PdfViewer.onPlaceSignature].
+  final PdfSignaturePlacer? onPlaceSignature;
 
   /// How dialog-based tools ask for text. Defaults to
   /// [showPdfTextPrompt], a Material dialog.
@@ -981,6 +985,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         systemImagePasteProvider:
                             widget.systemImagePasteProvider,
                         onSnapshot: widget.onSnapshot,
+                        onPlaceSignature: widget.onPlaceSignature,
                         editingTextPrompt: widget.textPrompt,
                         editingStyledTextPrompt: widget.styledTextPrompt,
                         editingPalette: widget.palette,

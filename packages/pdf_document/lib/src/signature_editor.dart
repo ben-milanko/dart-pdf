@@ -16,6 +16,7 @@ class PdfSignatureAppearance {
     this.page = 0,
     this.rect,
     this.graphic,
+    this.backgroundImage,
     this.showName = true,
     this.showDate = true,
     this.showReason = true,
@@ -38,6 +39,11 @@ class PdfSignatureAppearance {
   /// An optional handwritten-signature or logo image drawn in the left
   /// panel in place of the large name text.
   final PdfEmbeddableImage? graphic;
+
+  /// An optional image drawn opaquely across the whole box, behind the
+  /// border, divider, text and [graphic] - a company logo or letterhead
+  /// backdrop. Scaled to cover the box (aspect fill, clipped to the /Rect).
+  final PdfEmbeddableImage? backgroundImage;
 
   /// Draws the large signer name in the left panel and the
   /// "Digitally signed by …" line on the right.
@@ -550,6 +556,26 @@ extension PdfSigning on PdfEditor {
         ..fillColor(config.backgroundColor!)
         ..rect(0, 0, w, h)
         ..fill();
+    }
+    if (config.backgroundImage != null) {
+      final image = config.backgroundImage!;
+      if (image.width > 0 && image.height > 0) {
+        final imageRef =
+            _updater.addObject(image.toXObject((s) => _updater.addObject(s)));
+        // Cover the box (aspect fill), clipped to the /Rect so overflow of
+        // the larger dimension is trimmed rather than drawn outside the box.
+        final scale =
+            math.max(w / image.width, h / image.height);
+        final dw = image.width * scale, dh = image.height * scale;
+        writer
+          ..save()
+          ..rect(0, 0, w, h)
+          ..clip()
+          ..concatMatrix(dw, 0, 0, dh, (w - dw) / 2, (h - dh) / 2)
+          ..drawXObject('SigBg')
+          ..restore();
+        xObjects['SigBg'] = imageRef;
+      }
     }
     writer
       ..strokeColor(config.borderColor)

@@ -88,10 +88,17 @@ void main() {
       isNull,
     );
 
+    // The certificate-file option lives under "Advanced" (easy options first).
+    await tester.tap(find.byKey(const ValueKey('digital-signature-advanced')));
+    await tester.pumpAndSettle();
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('digital-signature-private-key')));
     await tester.tap(
       find.byKey(const ValueKey('digital-signature-private-key')),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-certificates')));
     await tester.tap(
       find.byKey(const ValueKey('digital-signature-certificates')),
     );
@@ -298,6 +305,66 @@ void main() {
     expect(result!.keylessIdentity, isNotNull);
     expect(result!.timestampClient, isNotNull);
     expect(result!.signerName, 'dev@example.com');
+  });
+
+  testWidgets('placement shows the Appearance section and returns an appearance',
+      (tester) async {
+    // A 1x1 opaque PNG stands in for a company logo backdrop.
+    final logo = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+    final store = InMemoryIdentityStore();
+    DigitalSignatureOptions? result;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async {
+              result = await showDigitalSigningDialog(
+                context,
+                identityStore: store,
+                createSelfSignedIdentity: (context, store) async =>
+                    PdfSigningIdentity.generate(name: 'Ada Lovelace'),
+                placement: (page: 0, rect: const PdfRect(72, 640, 320, 720)),
+                logoPicker: () async => logo,
+              );
+            },
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    // the Appearance section (only shown for a placement) offers the pickers
+    expect(find.text('Appearance'), findsOneWidget);
+    expect(find.byKey(const ValueKey('digital-signature-draw')), findsOneWidget);
+
+    // add a logo backdrop
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('digital-signature-logo')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-logo')));
+    await tester.pumpAndSettle();
+    expect(find.text('Logo added ✓'), findsOneWidget);
+
+    // choose an identity, then sign
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-create-identity')));
+    await tester
+        .tap(find.byKey(const ValueKey('digital-signature-create-identity')));
+    await tester.pumpAndSettle();
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('digital-signature-sign')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-sign')));
+    await tester.pumpAndSettle();
+
+    expect(result, isNotNull);
+    final appearance = result!.appearance;
+    expect(appearance, isNotNull);
+    expect(appearance!.page, 0);
+    expect(appearance.rect, const PdfRect(72, 640, 320, 720));
+    expect(appearance.backgroundImage, isNotNull);
   });
 
   testWidgets('on web, a note points to the desktop/mobile app for keyless',

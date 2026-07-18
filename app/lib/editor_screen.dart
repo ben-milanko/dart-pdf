@@ -999,7 +999,12 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- printing ------------------------------------------------------------
 
-  Future<void> _digitallySign(DocumentTab tab) async {
+  /// Opens the digital-signature dialog and signs. When [placement] is set
+  /// (the signature-box tool drew a rectangle), the dialog offers the visible
+  /// appearance (hand-drawn mark, logo backdrop) and the signature is rendered
+  /// into that box; otherwise the signature is invisible.
+  Future<void> _digitallySign(DocumentTab tab,
+      {SignaturePlacement? placement}) async {
     final session = tab.session;
     if (session == null || _digitallySigning) return;
     setState(() => _digitallySigning = true);
@@ -1017,6 +1022,8 @@ class _EditorScreenState extends State<EditorScreen>
                 // On the web the OAuth broker can't complete in a browser tab,
                 // so keyless is native-only; tell the user where to find it.
                 keylessUnavailable: kIsWeb,
+                placement: placement,
+                logoPicker: placement == null ? null : pickImageBytes,
               ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
       final keyless = options.keylessIdentity;
@@ -1030,6 +1037,7 @@ class _EditorScreenState extends State<EditorScreen>
           location: options.location,
           contactInfo: options.contactInfo,
           signingTime: options.signingTime,
+          appearance: options.appearance,
         );
       } else if (selfSigned != null) {
         await session.addSelfSignedSignature(
@@ -1039,6 +1047,7 @@ class _EditorScreenState extends State<EditorScreen>
           location: options.location,
           contactInfo: options.contactInfo,
           signingTime: options.signingTime,
+          appearance: options.appearance,
         );
       } else {
         await session.addDigitalSignature(
@@ -1048,6 +1057,7 @@ class _EditorScreenState extends State<EditorScreen>
           location: options.location,
           contactInfo: options.contactInfo,
           signingTime: options.signingTime,
+          appearance: options.appearance,
         );
       }
       if (!mounted || !_tabs.contains(tab)) return;
@@ -1636,6 +1646,10 @@ class _EditorScreenState extends State<EditorScreen>
               : 'Could not copy snapshot to clipboard');
         },
       ),
+      // The signature-box tool: drag a box, then pick an identity and
+      // appearance and cryptographically sign into that rectangle.
+      onPlaceSignature: (context, {required pageIndex, required pageRect}) =>
+          _digitallySign(tab, placement: (page: pageIndex, rect: pageRect)),
     );
   }
 
