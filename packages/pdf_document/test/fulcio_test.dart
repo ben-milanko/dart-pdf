@@ -179,6 +179,33 @@ void main() {
           reason: result.chainProblems.join('; '));
     });
 
+    test('a large (public-TSA-sized) timestamp token still fits /Contents',
+        () async {
+      // A public TSA like DigiCert returns a token carrying its whole CA
+      // chain - several KB of certificates that the /Contents budget must
+      // reserve for on top of the signer chain. Simulate that by handing the
+      // test TSA a chain padded to a realistic size; with too small a reserve
+      // this throws "signature blob exceeded its reserved space".
+      final signerCert = pemBytes(testSignerCertPem);
+      final fatChain = [for (var i = 0; i < 16; i++) signerCert];
+      // comfortably past the old fixed 6144-byte /Contents slack
+      expect(fatChain.fold<int>(0, (n, c) => n + c.length), greaterThan(8192));
+
+      final identity = await mintIdentity();
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = await editor.saveSelfSignedPades(
+        identity: identity,
+        level: PdfPadesLevel.bT,
+        timestampClient: (request) async => buildTestTimeStampToken(request,
+            genTime: signedAt, certificateChain: fatChain),
+        signingTime: signedAt,
+      );
+
+      final signature = PdfSignature.of(PdfDocument.open(signed)).single;
+      expect(signature.validate().intact, isTrue);
+      expect(signature.validate().timestamp, isNotNull);
+    });
+
     test('a tampered proof is rejected by the CA', () async {
       // Drive the transport with a request whose proof is for a wrong subject.
       final key = EcPrivateKey.generate(EcCurve.p256, random: _SeededRandom(7));

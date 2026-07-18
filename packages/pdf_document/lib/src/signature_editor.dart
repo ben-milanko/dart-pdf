@@ -195,13 +195,24 @@ extension PdfSigning on PdfEditor {
         appearance: appearance,
       );
 
-  /// Generous space for a CMS: certificates, attributes, signature, plus a
-  /// timestamp token's worth of slack for the PAdES paths.
-  static int _cmsCapacity(List<Uint8List> certificates) {
+  /// Bytes reserved for an embedded RFC 3161 timestamp token. The token is a
+  /// full CMS SignedData that carries the TSA's own certificate chain (a
+  /// public TSA like DigiCert ships several KB of certs), so it needs its own
+  /// budget on top of the signer chain. Used both as the standalone
+  /// DocTimeStamp /Contents size and as extra slack for a PAdES B-T CMS, whose
+  /// token is fetched only after the /Contents space is already reserved.
+  static const int _timestampTokenReserve = 16384;
+
+  /// Generous space for a CMS: certificates, attributes, signature, plus - when
+  /// a PAdES path embeds an RFC 3161 timestamp ([withTimestamp]) - a full
+  /// timestamp token's worth of slack.
+  static int _cmsCapacity(List<Uint8List> certificates,
+      {bool withTimestamp = false}) {
     var capacity = 6144;
     for (final cert in certificates) {
       capacity += cert.length;
     }
+    if (withTimestamp) capacity += _timestampTokenReserve;
     return capacity;
   }
 
