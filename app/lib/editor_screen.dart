@@ -2185,31 +2185,55 @@ class _EditorScreenState extends State<EditorScreen>
             setState(() => _dragging = false);
             _onFilesDropped(detail.files);
           },
-          child: Stack(
-            children: [
-              // The devtools panel docks beside the body (like the editor's
-              // own sidebars), so the viewer relays out narrower instead of
-              // being overlaid - zoom and scroll gestures keep their space.
-              Positioned.fill(
-                child: Row(
-                  children: [
-                    Expanded(child: _buildBody(tab)),
-                    if (_devToolsOpen && kDevToolsEnabled)
-                      DevToolsPanel(
-                        onClose: _toggleDevTools,
-                        session: tab?.session,
-                      ),
-                  ],
-                ),
-              ),
-              if (_dragging)
+          child: Builder(builder: (context) {
+            final compactDevTools = _isCompactWidth(context);
+            return Stack(
+              children: [
+                // On wide screens the devtools panel docks beside the body
+                // (like the editor's own sidebars), so the viewer relays out
+                // narrower instead of being overlaid - zoom and scroll
+                // gestures keep their space. On phones there is no room for a
+                // side dock, so it rides up as a bottom sheet instead (below).
                 Positioned.fill(
-                  child: _DropOverlay(
-                    canInsert: tab?.session != null && !_readOnly,
+                  child: Row(
+                    children: [
+                      Expanded(child: _devToolsPointerLog(_buildBody(tab))),
+                      if (_devToolsOpen &&
+                          kDevToolsEnabled &&
+                          !compactDevTools)
+                        DevToolsPanel(
+                          onClose: _toggleDevTools,
+                          session: tab?.session,
+                        ),
+                    ],
                   ),
                 ),
-            ],
-          ),
+                if (_dragging)
+                  Positioned.fill(
+                    child: _DropOverlay(
+                      canInsert: tab?.session != null && !_readOnly,
+                    ),
+                  ),
+                // Phone devtools: a bottom sheet over the viewer. Scrim-less,
+                // so the page underneath still takes gestures (matching the
+                // docked panel, which never blocked the viewer either).
+                if (_devToolsOpen && kDevToolsEnabled && compactDevTools)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: SafeArea(
+                      top: false,
+                      child: DevToolsPanel(
+                        onClose: _toggleDevTools,
+                        session: tab?.session,
+                        bottomSheet: true,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          }),
         ),
       ),
     );
@@ -2383,6 +2407,22 @@ class _EditorScreenState extends State<EditorScreen>
 
   bool _isCompactWidth(BuildContext context) =>
       MediaQuery.sizeOf(context).width < _mobileTabsBreakpoint;
+
+  /// Wraps the body in a passive [Listener] that feeds the devtools touch-input
+  /// log. It is not a gesture recognizer, so it never joins the arena and
+  /// cannot affect panning/zoom; the callbacks no-op unless the log is on.
+  /// Gated on [kDevToolsEnabled] so a stripped build carries no wrapper.
+  Widget _devToolsPointerLog(Widget body) {
+    if (!kDevToolsEnabled) return body;
+    final tools = AppDevTools.instance;
+    return Listener(
+      onPointerDown: tools.logPointerEvent,
+      onPointerMove: tools.logPointerEvent,
+      onPointerUp: tools.logPointerEvent,
+      onPointerCancel: tools.logPointerEvent,
+      child: body,
+    );
+  }
 
   Widget _buildMobileTabsButton() {
     return Padding(

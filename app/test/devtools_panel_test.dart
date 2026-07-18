@@ -1,6 +1,7 @@
 // The F12 developer tools panel: opens via F12, shows the metric sections,
 // hosts the deep-zoom detail mode switch (#314), and captures logs. The panel
 // exists in debug/profile builds only; tests run in debug, so it's available.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,10 @@ void main() {
     // Reset the statics the mode switch flips so tests stay independent.
     PdfPageView.tileStoreDetail = false;
     PdfPageView.debugTileStoreOverride = null;
+    // Touch logging is a process-global singleton; reset it (and the viewer
+    // sink it installs) so it never leaks into another test.
+    AppDevTools.instance.logTouchInput = false;
+    AppDevTools.instance.clearLog();
   });
 
   Future<void> pumpWithDoc(WidgetTester tester) async {
@@ -102,6 +107,61 @@ void main() {
     await tester.pump();
     expect(find.textContaining('alpha entry'), findsOneWidget);
     expect(find.textContaining('beta entry'), findsNothing);
+  });
+
+  testWidgets('touch input logging captures a drag as down/up summaries',
+      (tester) async {
+    await pumpWithDoc(tester);
+    // The toggle installs the viewer gesture sink and starts pointer capture.
+    AppDevTools.instance.logTouchInput = true;
+    expect(pdfDebugGestureLog, isNotNull);
+
+    // A touch drag over the viewer body, routed through the passive Listener.
+    final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(PdfViewer)),
+        kind: PointerDeviceKind.touch);
+    for (var i = 0; i < 5; i++) {
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 8));
+    }
+    await gesture.up();
+    await tester.pump();
+
+    final messages = AppDevTools.instance.log.map((e) => e.message).toList();
+    expect(messages.any((m) => m.startsWith('touch: DOWN')), isTrue,
+        reason: 'a touch-down summary should be logged');
+    expect(
+        messages.any((m) =>
+            m.startsWith('touch: UP') && m.contains('moves=')),
+        isTrue,
+        reason: 'a touch-up summary with a move count should be logged');
+
+    // Turning it off tears the viewer sink back down.
+    AppDevTools.instance.logTouchInput = false;
+    expect(pdfDebugGestureLog, isNull);
+  });
+
+  testWidgets('devtools rides up as a bottom sheet on a phone-width screen',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpWithDoc(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+
+    final panel = find.byKey(const ValueKey('devtools-panel'));
+    expect(panel, findsOneWidget);
+    // The sheet supplies its own close button (the docked frame's is absent in
+    // bottom-sheet mode) and anchors to the bottom of the screen.
+    expect(find.byKey(const ValueKey('devtools-close')), findsOneWidget);
+    final box = tester.getRect(panel);
+    expect(box.bottom, moreOrLessEquals(844, epsilon: 1),
+        reason: 'the sheet hugs the bottom edge');
+    expect(box.top, greaterThan(844 * 0.3),
+        reason: 'the sheet is a partial-height card, not full screen');
   });
 
   testWidgets('Settings offers Developer tools and it opens the panel',

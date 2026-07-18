@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../debug_overlays.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
@@ -3112,6 +3113,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _marqueeAdd = _additiveModifier;
       });
     } else if (_host.panViewport != null) {
+      pdfLogGesture('overlay viewport-pan START',
+          () => 'page=${widget.pageIndex} kind=${details.kind?.name}');
       _beginInteraction(
           PdfEditingInteractionIntent.viewportPan, details.kind);
       _viewportPanning = true;

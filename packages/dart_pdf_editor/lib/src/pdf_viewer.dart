@@ -14,6 +14,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'annotation_tap.dart';
+import 'debug_overlays.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
@@ -4426,6 +4427,8 @@ class _PdfViewerState extends State<PdfViewer>
   double _pinchScale = 1;
 
   void _onPinchStart(ScaleStartDetails details) {
+    pdfLogGesture('eager-pinch START',
+        () => 'pointers=${details.pointerCount}');
     _panFlinger.stop();
     _touchFlinger.stop();
     _hBounceController.stop();
@@ -4450,6 +4453,7 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _onPinchEnd(ScaleEndDetails details) {
+    pdfLogGesture('eager-pinch END');
     _settleZoomGesture();
     _springBackCross();
   }
@@ -4459,6 +4463,8 @@ class _PdfViewerState extends State<PdfViewer>
   /// transform translation created by the pinch: the list reaches its own
   /// top/bottom while part of the zoomed page is still outside the viewport.
   void _onZoomedTouchPanStart(DragStartDetails details) {
+    pdfLogGesture('viewer zoomed-touch-pan START',
+        () => 'kind=${details.kind?.name}');
     _panFlinger.stop();
     _touchFlinger.stop();
     _hBounceController.stop();
@@ -4471,10 +4477,12 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _onZoomedTouchPanEnd(DragEndDetails details) {
+    pdfLogGesture('viewer zoomed-touch-pan END');
     _flingViewport(details.velocity);
   }
 
   void _onZoomedTouchPanCancel() {
+    pdfLogGesture('viewer zoomed-touch-pan CANCEL');
     _springBackCross();
   }
 
@@ -4488,12 +4496,18 @@ class _PdfViewerState extends State<PdfViewer>
         (editing.tool == null &&
             !editing.isPickingColor &&
             !editing.hasAnnotationSelection)) {
+      pdfLogGesture('zoomed-pan gate: ENABLED (viewer owns pan)',
+          () => 'tool=${editing?.tool?.name ?? 'none'}');
       return true;
     }
     // An armed tool/selection handles touches through its per-page overlay.
     // Canvas and inter-page gaps have no overlay, so the viewer must claim
     // them or scrolling becomes bounded to the small visible page islands.
-    return !_pageContainsListPoint(localPosition);
+    final overPage = _pageContainsListPoint(localPosition);
+    pdfLogGesture(
+        'zoomed-pan gate: ${overPage ? 'DISABLED (overlay owns page)' : 'ENABLED (canvas gap)'}',
+        () => 'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
+    return !overPage;
   }
 
   /// Settles a finished zoom gesture into the layout/transform regime
@@ -5108,7 +5122,11 @@ class _PdfViewerState extends State<PdfViewer>
                   // touch pinches that InteractiveViewer still wins run on
                   // the transform mid-gesture; settle them the same way as
                   // the eager pinch recognizer's
+                  onInteractionStart: (details) => pdfLogGesture(
+                      'InteractiveViewer interaction START',
+                      () => 'pointers=${details.pointerCount}'),
                   onInteractionEnd: (_) {
+                    pdfLogGesture('InteractiveViewer interaction END');
                     _settleZoomGesture();
                     _springBackCross();
                   },

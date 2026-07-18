@@ -14,6 +14,7 @@ import 'dart:ui' show FramePhase;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -40,6 +41,22 @@ class DevLogEntry {
 }
 
 enum DevLogLevel { info, error }
+
+/// Per-pointer accumulator for touch-input logging: the net displacement,
+/// total path length, and move count between a pointer's down and up.
+class _TouchTrack {
+  _TouchTrack(this.start, this.startTime);
+
+  final Offset start;
+  final Duration startTime;
+  double pathLength = 0;
+  int moves = 0;
+
+  void accumulate(Offset delta) {
+    pathLength += delta.distance;
+    moves++;
+  }
+}
 
 /// Rolling frame-timing aggregates over the sample window.
 class DevFrameStats {
@@ -94,6 +111,8 @@ class AppDevTools extends ChangeNotifier {
   bool _installed = false;
   bool _capturing = false;
   bool _notifyScheduled = false;
+  bool _logTouchInput = false;
+  final Map<int, _TouchTrack> _touchTracks = {};
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Captured log, oldest first. A fixed-size ring of [maxLogEntries].
@@ -130,6 +149,63 @@ class AppDevTools extends ChangeNotifier {
     _log.clear();
     notifyListeners();
   }
+
+  // --- touch input logging --------------------------------------------------
+
+  /// Whether raw pointer events over the viewer are summarized into the log,
+  /// and the viewer's own gesture-decision sink ([pdfDebugGestureLog]) is
+  /// captured too. Off by default; the diagnostic for "panning does nothing
+  /// while zoomed" and similar touch reports, which never reproduce off the
+  /// affected device. Toggling it installs/removes the viewer sink.
+  bool get logTouchInput => _logTouchInput;
+
+  set logTouchInput(bool value) {
+    if (_logTouchInput == value) return;
+    _logTouchInput = value;
+    // The viewer's discrete gesture decisions (which recognizer claimed a
+    // drag) join the same log, tagged so the panel filter can isolate them.
+    pdfDebugGestureLog = value ? (m) => addLog('gesture: $m') : null;
+    if (!value) _touchTracks.clear();
+    addLog('devtools: touch input logging ${value ? 'on' : 'off'}');
+    _scheduleNotify();
+  }
+
+  /// Feeds one raw pointer event from a host [Listener]. A no-op unless
+  /// [logTouchInput] is on. Emits one line per gesture on down and up/cancel
+  /// (with a moved-distance/duration summary), never per move - a dragging
+  /// finger fires moves at 60-120 Hz and would drown the ring buffer.
+  void logPointerEvent(PointerEvent event) {
+    if (!_logTouchInput) return;
+    // Mice and trackpads are not the subject here (touch/stylus panning is);
+    // logging their hover/move stream would bury the finger events.
+    if (event.kind != PointerDeviceKind.touch &&
+        event.kind != PointerDeviceKind.stylus &&
+        event.kind != PointerDeviceKind.invertedStylus) {
+      return;
+    }
+    if (event is PointerDownEvent) {
+      _touchTracks[event.pointer] = _TouchTrack(event.position, event.timeStamp);
+      addLog('touch: DOWN id=${event.pointer} ${event.kind.name} '
+          '@${_fmt(event.position)} contacts=${_touchTracks.length}');
+    } else if (event is PointerMoveEvent) {
+      _touchTracks[event.pointer]?.accumulate(event.delta);
+    } else if (event is PointerUpEvent || event is PointerCancelEvent) {
+      final track = _touchTracks.remove(event.pointer);
+      final verb = event is PointerCancelEvent ? 'CANCEL' : 'UP';
+      if (track == null) {
+        addLog('touch: $verb id=${event.pointer}');
+        return;
+      }
+      final net = event.position - track.start;
+      final ms = (event.timeStamp - track.startTime).inMilliseconds;
+      addLog('touch: $verb id=${event.pointer} net=${_fmt(net)} '
+          'path=${track.pathLength.toStringAsFixed(0)}px '
+          'moves=${track.moves} ${ms}ms');
+    }
+  }
+
+  static String _fmt(Offset o) =>
+      '(${o.dx.toStringAsFixed(0)},${o.dy.toStringAsFixed(0)})';
 
   void _record(DevLogLevel level, String message) {
     // debugPrint re-entrance guard: recording must never print.
@@ -247,6 +323,7 @@ class AppDevTools extends ChangeNotifier {
         showPerformanceOverlay.value = v;
       }
       if (map['perfLog'] case final bool v) PdfPerfLog.enabled = v;
+      if (map['logTouchInput'] case final bool v) logTouchInput = v;
       if (map['workers'] case final int v) {
         pdfRenderWorkerPoolSize = v.clamp(1, 8);
       }
@@ -267,6 +344,7 @@ class AppDevTools extends ChangeNotifier {
           'renderWindow': pdfDebugShowRenderWindow.value,
           'perfOverlay': showPerformanceOverlay.value,
           'perfLog': PdfPerfLog.enabled,
+          'logTouchInput': _logTouchInput,
           'workers': pdfRenderWorkerPoolSize,
         }),
       );
