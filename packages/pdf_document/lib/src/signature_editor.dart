@@ -728,6 +728,7 @@ extension PdfSigning on PdfEditor {
         w - pad,
         h - pad,
         maxSize: 9,
+        centerVertical: true,
       );
     }
 

@@ -1015,7 +1015,7 @@ class _AppearancePreview extends StatelessWidget {
                           color: Color(0xFF1A1A1A))),
               ],
             ),
-            Alignment.topLeft,
+            Alignment.centerLeft,
           ),
         ),
       ]),
