@@ -106,6 +106,95 @@ function chart(metric, series, budget) {
 </figure>`;
 }
 
+// ---- Headline tiles ---------------------------------------------------------
+// Hero numbers from the latest envelope of each key group, with a delta vs
+// the run before it (lower is better for every timing metric shown here).
+function groupRuns(matcher) {
+  const out = runs.filter(matcher).filter((r) => r.metrics);
+  return out.length ? out : null;
+}
+function tile(label, note, value, unit, prev, { betterLow = true, digits = 2 } = {}) {
+  if (value == null) return null;
+  let delta = '';
+  let cls = 'flat';
+  if (prev != null && prev > 0) {
+    const pct = ((value - prev) / prev) * 100;
+    // Under 3% is measurement jitter, not a signal - match the counter
+    // gate's tolerance rather than painting noise red/green.
+    if (Math.abs(pct) >= 3) {
+      const improved = betterLow ? pct < 0 : pct > 0;
+      cls = improved ? 'good' : 'bad';
+      delta = `${improved ? '▼' : '▲'} ${Math.abs(pct).toFixed(0)}% vs prev run`;
+    } else {
+      delta = '≈ prev run';
+    }
+  }
+  const shown = value >= 100 ? fmt(value) : value.toFixed(digits);
+  return `<div class="tile">
+    <div class="tile-label">${esc(label)}</div>
+    <div class="tile-value">${shown}<span class="tile-unit">${esc(unit)}</span></div>
+    <div class="tile-delta ${cls}">${esc(delta || note)}</div>
+    ${delta ? `<div class="tile-note">${esc(note)}</div>` : ''}
+  </div>`;
+}
+
+const tiles = [];
+{
+  const corpus = groupRuns((r) => r.suite === 'vm-sweep' && r.scenario === 'dartpdf-corpus')
+    ?? groupRuns((r) => r.suite === 'vm-sweep');
+  if (corpus) {
+    const last = corpus[corpus.length - 1].metrics;
+    const prev = corpus.length > 1 ? corpus[corpus.length - 2].metrics : {};
+    const scen = corpus[corpus.length - 1].scenario ?? 'vm-sweep';
+    tiles.push(tile('Open p50', scen, last.p50OpenMs, 'ms', prev.p50OpenMs));
+    tiles.push(tile('Interpret p50', `${scen}, per page`,
+      last.p50InterpretMsPerPage, 'ms/pg', prev.p50InterpretMsPerPage));
+    tiles.push(tile('Peak RSS', `${scen}, worst file`,
+      last.maxPeakRssBytes == null ? null : last.maxPeakRssBytes / 1e6, 'MB',
+      prev.maxPeakRssBytes == null ? null : prev.maxPeakRssBytes / 1e6,
+      { digits: 0 }));
+  }
+  const save = groupRuns((r) => r.scenario === 'save-incremental');
+  if (save) {
+    const last = save[save.length - 1].metrics;
+    const prev = save.length > 1 ? save[save.length - 2].metrics : {};
+    tiles.push(tile('Save p50', 'incremental, ghent', last.p50SaveMs, 'ms', prev.p50SaveMs));
+  }
+  // Competitive: dart-pdf vs PDFium document open over the same corpus.
+  const ghent = groupRuns((r) => r.scenario === 'ghent-suite-open');
+  const pdfium = groupRuns((r) => r.suite === 'pdfium');
+  const dartOpen = ghent?.[ghent.length - 1].metrics.p50OpenMs;
+  const pdfiumOpen = pdfium?.[pdfium.length - 1].metrics.p50OpenMs;
+  if (dartOpen > 0 && pdfiumOpen > 0) {
+    const ratio = pdfiumOpen / dartOpen;
+    tiles.push(tile('Open vs PDFium', 'ghent, p50, higher is better',
+      ratio, 'x faster', null, { betterLow: false, digits: 1 }));
+  }
+  // Bluebeam budgets: pass count across every scenario with targets + data.
+  let pass = 0, total = 0;
+  for (const [scenario, budgets] of Object.entries(targets)) {
+    if (scenario.startsWith('_')) continue;
+    const g = groupRuns((r) => r.scenario === scenario);
+    if (!g) continue;
+    const m = g[g.length - 1].metrics;
+    for (const [key, budget] of Object.entries(budgets)) {
+      if (typeof m[key] !== 'number' || budget.max == null) continue;
+      total++;
+      if (m[key] <= budget.max) pass++;
+    }
+  }
+  if (total > 0) {
+    tiles.push(`<div class="tile">
+      <div class="tile-label">Bluebeam budgets</div>
+      <div class="tile-value ${pass === total ? 'all-pass' : ''}">${pass}<span class="tile-unit">/ ${total} green</span></div>
+      <div class="tile-note">targets.json, aspirational</div>
+    </div>`);
+  }
+}
+const tilesHtml = tiles.filter(Boolean).length
+  ? `<div class="tiles">${tiles.filter(Boolean).join('\n')}</div>`
+  : '';
+
 // ---- Sections --------------------------------------------------------------
 let sections = '';
 for (const [key, groupRuns] of groups) {
@@ -228,6 +317,19 @@ const html = `<!doctype html>
   th { color: var(--text-secondary); font-weight: 500; }
   td.pass { color: var(--pass); } td.fail { color: var(--fail); }
   code { font-size: 12px; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0 6px; }
+  .tile { background: var(--card); border-radius: 8px; padding: 12px 16px;
+    min-width: 150px; }
+  .tile-label { font-size: 12px; color: var(--text-secondary); }
+  .tile-value { font-size: 26px; font-weight: 650; line-height: 1.25;
+    font-variant-numeric: tabular-nums; }
+  .tile-value.all-pass { color: var(--pass); }
+  .tile-unit { font-size: 12px; font-weight: 400;
+    color: var(--text-secondary); margin-left: 4px; }
+  .tile-delta { font-size: 11.5px; color: var(--text-secondary); }
+  .tile-delta.good { color: var(--pass); }
+  .tile-delta.bad { color: var(--fail); }
+  .tile-note { font-size: 11px; color: var(--text-secondary); }
 </style>
 </head>
 <body>
@@ -236,6 +338,7 @@ const html = `<!doctype html>
   <p class="meta">Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC ·
     ${runs.length} runs on record · budgets from tool/perf/targets.json
     (aspirational Bluebeam-level marks, never PR gates)</p>
+  ${tilesHtml}
   ${sections}
 </div>
 </body>
