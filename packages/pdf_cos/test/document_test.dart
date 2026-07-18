@@ -66,6 +66,19 @@ void main() {
       expect(page.typeName, 'Page');
       expect((doc.resolve(page['MediaBox']) as CosArray).length, 4);
     });
+
+    test('a compressed object in a missing object stream resolves to null',
+        () {
+      // A page-scoped / progressive open leaves some object streams unfetched
+      // (zeros). Objects the xref marks as living inside one must resolve to a
+      // dangling null - like an in-use object at a junk offset - not throw, so
+      // callers that already tolerate dangling references (forms, annotations)
+      // don't fault on a partial buffer.
+      final doc = CosDocument.open(_danglingCompressedPdf());
+      expect(doc.catalog.typeName, 'Catalog'); // /Root is reachable
+      // /Extra is marked compressed in an object stream that does not exist.
+      expect(doc.resolve(doc.catalog['Extra']), isA<CosNull>());
+    });
   });
 
   test('junk before the header shifts offsets', () {
@@ -243,4 +256,45 @@ void main() {
       expect(doc.catalog.typeName, 'Catalog');
     });
   });
+}
+
+/// A cross-reference-stream PDF whose object 4 (/Extra on the catalog) is marked
+/// as compressed inside object stream 99 - which does not exist. The catalog
+/// (/Root) and pages node stay uncompressed so the document opens; resolving
+/// /Extra must yield a dangling null rather than throwing.
+Uint8List _danglingCompressedPdf() {
+  final out = StringBuffer('%PDF-1.5\n');
+  final offset1 = out.length;
+  out.write('1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Extra 4 0 R >>\nendobj\n');
+  final offset2 = out.length;
+  out.write('2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n');
+
+  final xrefOffset = out.length;
+  final rows = <List<int>>[
+    [0, 0, 0xFFFF], // 0: free-list head
+    [1, offset1, 0], // 1: catalog
+    [1, offset2, 0], // 2: pages
+    [1, xrefOffset, 0], // 3: this xref stream
+    [2, 99, 0], // 4: "compressed" in the non-existent stream 99
+  ];
+  final xrefData = <int>[];
+  for (final row in rows) {
+    xrefData
+      ..add(row[0])
+      ..addAll([
+        (row[1] >> 24) & 0xFF,
+        (row[1] >> 16) & 0xFF,
+        (row[1] >> 8) & 0xFF,
+        row[1] & 0xFF,
+      ])
+      ..addAll([(row[2] >> 8) & 0xFF, row[2] & 0xFF]);
+  }
+  out.write('3 0 obj\n<< /Type /XRef /Size 5 /W [1 4 2] /Root 1 0 R '
+      '/Length ${xrefData.length} >>\nstream\n');
+
+  return (BytesBuilder()
+        ..add(ascii(out.toString()))
+        ..add(xrefData)
+        ..add(ascii('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n')))
+      .takeBytes();
 }

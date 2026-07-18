@@ -104,6 +104,40 @@ Milestones are logged to the **F12 devtools** log
 (`AppDevTools.instance.addLog`), and the whole ranged fetch is already timed by
 `PdfPerfPhase.sourceFetch` — enable the panel's perf-log toggle to see it.
 
+## 2c. Lazy page-scoped first paint (the actual win)
+
+The first cut fetched the whole *object graph* for the first paint
+(`openCosDocumentFromSource` fetches every live object). The 2026-07-18 perf
+export showed why that's not enough: for an image-heavy scan/CAD file the live
+objects **are** the page images, so `sourceFetch` was **36 s / 211 MB** at
+~5.8 MB/s (the OneDrive rate) - the whole file, before first paint. Parse itself
+is trivial (`docOpen` 9 ms). So the "first paint" was really a 36 s spinner.
+
+`PdfSourceLoadOptions.firstPaintPages` (pdf_cos `byte_source.dart`) makes the
+loader fetch only what the first N pages need: it builds an object-number →
+`CosXrefEntry` map with `CosXrefReader`, walks the page tree fetching every node
+and leaf dict (small - so page count and navigation still work), and then, for
+the first N leaves only, fetches the transitive closure of their `/Contents` and
+`/Resources` (fonts, image XObjects), following `/Parent` for inherited
+resources but **never** `/Kids` (so it can't pull other pages' content). Object
+streams are decoded on the way (`_DecodedObjStm`). Any surprise falls back to
+fetching every object, so a first-paint open never fails where a whole-object
+one would. The app passes `firstPaintPages: 1`; the background `readSourceFully`
+then completes the buffer for the full session. Result: first paint is ~1 page
+(~1 MB, ~1 s) instead of the whole file.
+
+**Tolerating the partial buffer.** The read-only preview renders the sparse
+buffer in the real viewer, which eagerly resolves objects beyond page 1 - an
+AcroForm's field widgets, say, living in a not-yet-fetched object stream. The
+in-use object path already returns a dangling `CosNull` for a missing object
+(real files have dangling refs, so forms/annotations tolerate it), but the
+**compressed** path *threw* `CosParseException: object stream N is not a stream`
+→ a red error widget. `CosDocument.getObject` now returns `CosNull` for a
+compressed object whose object stream can't be loaded, mirroring the in-use
+path - lenient on input, and correct for genuinely broken files too. The swap
+also defers `preview.dispose()` to a post-frame callback so the read-only
+viewer's controller isn't torn down mid-render.
+
 ## 3. Fewer worker byte copies
 
 `PdfPooledRenderWorker` made one defensive `Uint8List.fromList` snapshot of the

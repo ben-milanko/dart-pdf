@@ -690,7 +690,13 @@ class _EditorScreenState extends State<EditorScreen>
 
     PdfDocument doc;
     try {
-      doc = await PdfDocument.openSource(source);
+      // Fetch just the first page's worth of bytes for the read-only first
+      // paint - for an image-heavy scan/CAD file the live objects are the page
+      // images, so fetching every object would be the whole file (tens of
+      // seconds). The background read behind the preview then completes the
+      // buffer for the full edit session.
+      doc = await PdfDocument.openSource(source,
+          options: const PdfSourceLoadOptions(firstPaintPages: 1));
     } on PdfHttpCancelledException {
       progress.dispose();
       await source.close();
@@ -814,7 +820,10 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: preview.cachePath,
       );
     });
-    preview.dispose();
+    // Dispose the preview's live viewer only after this frame swaps the
+    // read-only PdfReader out of the tree - disposing its controller while the
+    // widget is still mounted would fault its in-flight render.
+    WidgetsBinding.instance.addPostFrameCallback((_) => preview.dispose());
     unawaited(_persistSession());
     return true;
   }
