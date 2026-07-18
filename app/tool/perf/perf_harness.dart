@@ -60,6 +60,12 @@ final bool _fastPass = _qBool(
     'fast', const bool.fromEnvironment('PERF_FAST_PASS', defaultValue: true));
 final int _targetPage = _qInt('targetPage', -1);
 
+/// `?zoom=N`: after each step-pass page dwell, run N zoom-in/out settle
+/// cycles (1x -> 3x -> 1x via the controller's setZoom, waiting out the
+/// viewer's settle debounce between legs) - the pan/zoom-settle workload a
+/// Revu comparison cares about. 0 (default) = off.
+final int _zoomCycles = _qInt('zoom', 0);
+
 /// Decoded-image cache budget, MB. 0 leaves the platform default in place; the
 /// driver sweeps it to measure what each budget costs a real tab (issue #281).
 final int _imageCacheMb = _qInt('imageCacheMb', 0);
@@ -214,10 +220,22 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     final last = _maxPages > 0 ? (_maxPages.clamp(1, count)) : count;
 
     for (var pass = 0; pass < _passes; pass++) {
-      _record('[perf] HARNESS PASS step $pass/$_passes pages=$last');
+      _record('[perf] HARNESS PASS step $pass/$_passes pages=$last '
+          'zoomCycles=$_zoomCycles');
       for (var i = 0; i < last; i++) {
         await _viewer.jumpToPage(i); // animates ~250ms
         await Future<void>.delayed(Duration(milliseconds: _dwellMs));
+        for (var z = 0; z < _zoomCycles; z++) {
+          _record('[perf] HARNESS ZOOM page=$i cycle=$z in');
+          _viewer.setZoom(3);
+          // Outwait the viewer's 200ms settle debounce plus refine headroom,
+          // so the sharp re-raster (the settle cost being measured) lands
+          // inside this window's frame timings.
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+          _record('[perf] HARNESS ZOOM page=$i cycle=$z out');
+          _viewer.setZoom(1);
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+        }
       }
     }
 

@@ -1,3 +1,4 @@
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -117,7 +118,15 @@ class PdfRenderTrace {
   }
 
   /// A deep copy - a stable snapshot of a still-mutating accumulator.
+  /// The COS-layer PdfPerf delta recorded across this capture (per-filter
+  /// decode times, object loads, cache-relevant counters), attached by
+  /// [captureOffThread] when `PdfPerf.enabled`. Null otherwise. Carried by
+  /// [copy]; [min] keeps whichever side has one (it is a breakdown, not a
+  /// timing to minimize).
+  PdfPerfStats? cosStats;
+
   PdfRenderTrace copy() => PdfRenderTrace(pageIndex: pageIndex)
+    ..cosStats = cosStats
     ..parseUs = parseUs
     ..streamUs = streamUs
     ..interpretUs = interpretUs
@@ -137,6 +146,7 @@ class PdfRenderTrace {
   /// GC/scheduler jitter that would otherwise make a wall-clock gate flaky.
   PdfRenderTrace min(PdfRenderTrace other) =>
       PdfRenderTrace(pageIndex: pageIndex == other.pageIndex ? pageIndex : -1)
+        ..cosStats = cosStats ?? other.cosStats
         ..parseUs = _min(parseUs, other.parseUs)
         ..streamUs = _min(streamUs, other.streamUs)
         ..interpretUs = _min(interpretUs, other.interpretUs)
@@ -204,6 +214,7 @@ class PdfRenderTrace {
     if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
     final page = document.page(pageIndex);
     final trace = PdfRenderTrace(pageIndex: pageIndex);
+    final perfBefore = PdfPerf.enabled ? PdfPerf.snapshot() : null;
     final clock = Stopwatch()..start();
 
     final content = page.contentBytes();
@@ -240,6 +251,22 @@ class PdfRenderTrace {
     replayCommands(commands, RecordingPdfDevice());
     trace.replayUs = clock.elapsedMicroseconds;
 
+    if (perfBefore != null) {
+      // Attach the COS-layer breakdown as the delta across this capture.
+      final delta = PdfPerfStats.empty();
+      PdfPerf.snapshot().addInto(delta);
+      for (var i = 0; i < delta.phaseUs.length; i++) {
+        delta.phaseUs[i] -= perfBefore.phaseUs[i];
+        delta.phaseCalls[i] -= perfBefore.phaseCalls[i];
+      }
+      for (var i = 0; i < delta.counts.length; i++) {
+        delta.counts[i] -= perfBefore.counts[i];
+      }
+      for (var i = 0; i < delta.events.length; i++) {
+        delta.events[i] -= perfBefore.events[i];
+      }
+      trace.cosStats = delta;
+    }
     return trace;
   }
 }

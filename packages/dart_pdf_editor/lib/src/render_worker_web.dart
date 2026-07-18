@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan, decodeStripPlan;
@@ -715,6 +717,7 @@ class _WebRequestTrace {
   int binUs = 0;
   int deserializeUs = 0;
   bool transcriptHit = false;
+  String? cosStatsJson;
 
   void receive(JSObject data, int nowUs) {
     receivedUs = nowUs;
@@ -727,6 +730,7 @@ class _WebRequestTrace {
     binUs = _intProperty(data, 'binUs');
     transcriptHit =
         (data.getProperty('transcriptHit'.toJS) as JSBoolean?)?.toDart ?? false;
+    cosStatsJson = (data.getProperty('cosStats'.toJS) as JSString?)?.toDart;
   }
 
   /// Assembles this request's collected halves into one unified [PdfRenderTrace]
@@ -745,7 +749,11 @@ class _WebRequestTrace {
       ..binUs = binUs
       ..transferUs = math.max(0, roundTripUs - workerUs)
       ..deserializeUs = deserializeUs
-      ..transcriptHit = transcriptHit;
+      ..transcriptHit = transcriptHit
+      ..cosStats = cosStatsJson == null
+          ? null
+          : PdfPerfStats.fromJson(
+              jsonDecode(cosStatsJson!) as Map<String, Object?>);
   }
 
   void log(int workerNumber, _WebPending request, {required String outcome}) {

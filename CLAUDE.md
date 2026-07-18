@@ -11,6 +11,26 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 - `cd packages/<pkg> && fvm dart test` (pure-Dart packages)
 - `cd packages/dart_pdf_editor && fvm flutter test`
 
+## Performance tooling
+
+`tool/perf.sh` is the front door (sweep/render/web/compare-pdfium/gate/dce/
+diff/report). The zero-overhead instrumentation core is `PdfPerf`
+(`package:pdf_cos/perf.dart`, NOT exported from pdf_cos.dart): enum-indexed
+phases/counters, off by default (one branch when compiled in;
+`--dart-define=PDF_PERF=false` tree-shakes it — CI-verified by
+`tool/check_perf_dce.sh`). `PdfPerfLog.enabled = true` lights up the whole
+stack. Never allocate a Stopwatch in lib/ code - use
+`PdfPerf.begin()/end()`. Results use the envelope schema
+(`tool/perf/SCHEMA.md`); scenarios in `tool/perf/scenarios.json`; Bluebeam
+budget targets in `tool/perf/targets.json`. Per-PR CI runs the
+deterministic counter gate (`tool/perf.sh gate`, baseline
+`tool/perf/baselines/counters.json` — re-baseline deliberately with
+`--update-baseline`) and `perf_gate_test.dart`/`render_trace_gate_test.dart`.
+Nightly trends + dashboard live on the orphan `perf-data` branch
+(perf-nightly.yml). A/B a change: `tool/perf.sh diff <ref> [scenario]`.
+NEVER edit sources or run builds while a sweep/loop is measuring. See
+doc/dev-log/2026-07-18-perf-tooling-suite.md.
+
 ## Layering rules (strict)
 
 `pdf_cos` ← `pdf_document` ← `pdf_graphics` ← `dart_pdf_editor`

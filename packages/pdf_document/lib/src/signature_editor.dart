@@ -291,6 +291,7 @@ extension PdfSigning on PdfEditor {
 
     final saved = _updater.save();
 
+    final tPatch = PdfPerf.begin();
     final tailStart = cos.bytes.length;
     final hexLength = placeholder.length * 2;
     final contentsStart =
@@ -310,6 +311,7 @@ extension PdfSigning on PdfEditor {
             .padRight(rangeToken.length)
             .codeUnits;
     saved.setRange(rangeStart, rangeStart + byteRange.length, byteRange);
+    PdfPerf.end(PdfPerfPhase.byteRangePatch, tPatch);
 
     final signedBytes = BytesBuilder(copy: false)
       ..add(Uint8List.sublistView(saved, 0, contentsStart))

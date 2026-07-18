@@ -27,6 +27,9 @@ import multiprocessing as mp
 import os
 import sys
 import time
+import datetime
+import platform
+import subprocess
 
 try:
     import pypdfium2 as pdfium
@@ -46,8 +49,13 @@ def find_pdfs(root):
     return out
 
 
-def bench_file(path, scale, max_pages):
-    """Returns (pages, pages_rendered, open_ms, render_ms, error)."""
+def bench_file(path, scale, max_pages, first_page=False, save_copy=False):
+    """Returns (pages, pages_rendered, open_ms, render_ms, error, extra) -
+    `extra` carries the optional Bluebeam-proxy metrics (firstPageMs: open ->
+    first rendered page; saveMs: FPDF_SaveAsCopy round trip). Both are opt-in
+    flags so the default renderMs stays comparable with the README's
+    committed tables (a first-page pre-render warms page 0)."""
+    extra = {}
     with open(path, "rb") as fh:
         data = fh.read()
 
@@ -57,8 +65,21 @@ def bench_file(path, scale, max_pages):
         doc = pdfium.PdfDocument(data)
         n = len(doc)
     except Exception as exc:  # noqa: BLE001 - record, don't crash the sweep
-        return (0, 0, (time.perf_counter() - t0) * 1000, 0.0, repr(exc))
+        return (0, 0, (time.perf_counter() - t0) * 1000, 0.0, repr(exc), extra)
     open_ms = (time.perf_counter() - t0) * 1000
+
+    if first_page and n > 0:
+        try:
+            page = doc[0]
+            bitmap = page.render(scale=scale)
+            _ = len(bitmap.buffer)
+            bitmap.close()
+            page.close()
+            # Open-to-first-paint proxy: parse + first page rasterized,
+            # measured from the same t0 the open was.
+            extra["firstPageMs"] = round((time.perf_counter() - t0) * 1000, 3)
+        except Exception:  # noqa: BLE001 - optional metric never fails a file
+            pass
 
     limit = n if max_pages <= 0 else min(n, max_pages)
     rendered = 0
@@ -77,15 +98,26 @@ def bench_file(path, scale, max_pages):
     except Exception as exc:  # noqa: BLE001
         error = repr(exc)
     render_ms = (time.perf_counter() - t1) * 1000
+
+    if save_copy:
+        try:
+            import io
+            t2 = time.perf_counter()
+            sink = io.BytesIO()
+            doc.save(sink)
+            extra["saveMs"] = round((time.perf_counter() - t2) * 1000, 3)
+        except Exception:  # noqa: BLE001
+            pass
     doc.close()
-    return (n, rendered, open_ms, render_ms, error)
+    return (n, rendered, open_ms, render_ms, error, extra)
 
 
-def _bench_child(path, scale, max_pages, q):
-    q.put(bench_file(path, scale, max_pages))
+def _bench_child(path, scale, max_pages, first_page, save_copy, q):
+    q.put(bench_file(path, scale, max_pages, first_page, save_copy))
 
 
-def bench_with_timeout(path, scale, max_pages, timeout, ctx):
+def bench_with_timeout(path, scale, max_pages, timeout, ctx,
+                       first_page=False, save_copy=False):
     """bench_file, but render in a killable fork child so a single malformed
     PDF can't stall the sweep. A long native PDFium render ignores signals, so
     nothing short of killing the process works - hence a child, not SIGALRM.
@@ -94,19 +126,50 @@ def bench_with_timeout(path, scale, max_pages, timeout, ctx):
     inherits the loaded native lib (no per-file re-import cost) and the timing
     brackets stay inside bench_file (fork/IPC overhead is excluded)."""
     if timeout <= 0:
-        return bench_file(path, scale, max_pages)
+        return bench_file(path, scale, max_pages, first_page, save_copy)
     q = ctx.Queue()
-    p = ctx.Process(target=_bench_child, args=(path, scale, max_pages, q))
+    p = ctx.Process(target=_bench_child,
+                    args=(path, scale, max_pages, first_page, save_copy, q))
     p.start()
     p.join(timeout)
     if p.is_alive():
         p.terminate()
         p.join()
-        return (0, 0, 0.0, 0.0, f"timeout>{timeout}s")
+        return (0, 0, 0.0, 0.0, f"timeout>{timeout}s", {})
     try:
         return q.get_nowait()
     except Exception:  # noqa: BLE001 - child crashed (e.g. native abort)
-        return (0, 0, 0.0, 0.0, "child died (native crash?)")
+        return (0, 0, 0.0, 0.0, "child died (native crash?)", {})
+
+
+def _envelope_fields():
+    """rev/env/ts envelope sections (tool/perf/SCHEMA.md); additive - the
+    legacy fields keep their meaning so compare.py is unaffected."""
+    def git(*args):
+        try:
+            return subprocess.run(("git",) + args, capture_output=True,
+                                  text=True, check=False).stdout.strip()
+        except OSError:
+            return ""
+    return {
+        "schema": 1,
+        "suite": "pdfium",
+        "scenario": None,
+        "rev": {
+            "sha": git("rev-parse", "HEAD"),
+            "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+            "dirty": bool(git("status", "--porcelain")),
+            "date": git("show", "-s", "--format=%cI", "HEAD"),
+        },
+        "env": {
+            "os": f"{platform.system().lower()}-{platform.machine()}",
+            "cpus": os.cpu_count(),
+            "python": platform.python_version(),
+            "ci": os.environ.get("CI") == "true",
+            "runner": "github-actions" if os.environ.get("RUNNER_OS") else "local",
+        },
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
 
 
 def main():
@@ -123,6 +186,13 @@ def main():
                          "file exceeding it is killed and recorded as a timeout "
                          "error. Needed for corpora with malformed PDFs that send "
                          "PDFium into a long native spin.")
+    ap.add_argument("--first-page", action="store_true",
+                    help="also record firstPageMs (open -> page 0 rendered), "
+                         "the Revu-comparable time-to-first-paint proxy. Note: "
+                         "warms page 0, so renderMs shifts slightly vs runs "
+                         "without this flag.")
+    ap.add_argument("--save", action="store_true",
+                    help="also record saveMs (FPDF_SaveAsCopy to memory)")
     ap.add_argument("--out", default=None, help="write JSON here (else stdout)")
     args = ap.parse_args()
 
@@ -138,8 +208,10 @@ def main():
     best = {}
     for r in range(args.repeat):
         for path in files:
-            pages, rendered, open_ms, render_ms, error = bench_with_timeout(
-                path, args.scale, args.max_pages, args.timeout, ctx)
+            pages, rendered, open_ms, render_ms, error, extra = \
+                bench_with_timeout(
+                    path, args.scale, args.max_pages, args.timeout, ctx,
+                    args.first_page, args.save)
             if error and str(error).startswith("timeout"):
                 print(f"  TIMEOUT >{args.timeout}s  {os.path.basename(path)}",
                       file=sys.stderr, flush=True)
@@ -155,12 +227,14 @@ def main():
                     "openMs": round(open_ms, 3),
                     "renderMs": round(render_ms, 3),
                     "error": error,
+                    **extra,
                 }
         print(f"  pdfium pass {r + 1}/{args.repeat} done ({len(files)} files)",
               file=sys.stderr)
 
     results = [best[p] for p in files]
     payload = {
+        **_envelope_fields(),
         "tool": "pdfium",
         "scale": args.scale,
         "maxPages": args.max_pages,

@@ -16,6 +16,8 @@ import 'dart:io';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'perf_run_context.dart';
+
 /// Swallows every device call - the interpreter still does all the parsing,
 /// font shaping, and geometry work; only the paint sink is a no-op.
 class NullDevice implements PdfDevice {
@@ -141,12 +143,37 @@ void main(List<String> argv) {
         '(${files.length} files)');
   }
 
+  final results = [for (final f in files) best[f.path]];
+  final perPage = <double>[
+    for (final r in results)
+      if (r!['error'] == null && (r['pagesRendered'] as int) > 0)
+        (r['renderMs'] as double) / (r['pagesRendered'] as int),
+  ];
+  final repoRoot = findRepoRoot();
   final payload = {
+    // Envelope fields (tool/perf/SCHEMA.md); the legacy fields below keep
+    // their exact old meaning so benchmark/compare.py reads this unchanged.
+    'schema': 1,
+    'suite': 'vm-interpret',
+    'scenario': null,
+    'rev': revInfo(repoRoot),
+    'env': envInfo(),
+    'ts': isoNow(),
+    'metrics': {
+      'files': results.length,
+      'errors': results.where((r) => r!['error'] != null).length,
+      if (perPage.isNotEmpty)
+        'p50InterpretMsPerPage':
+            double.parse(percentile(perPage, 50).toStringAsFixed(3)),
+      if (perPage.isNotEmpty)
+        'p95InterpretMsPerPage':
+            double.parse(percentile(perPage, 95).toStringAsFixed(3)),
+    },
     'tool': 'dart-pdf-interpret',
     'scale': args.scale,
     'maxPages': args.maxPages,
     'engine': 'dart-pdf (pdf_graphics interpreter, NullDevice)',
-    'results': [for (final f in files) best[f.path]],
+    'results': results,
   };
   final text = const JsonEncoder.withIndent('  ').convert(payload);
   final outPath = args.out;

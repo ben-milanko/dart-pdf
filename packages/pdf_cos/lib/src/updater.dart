@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'document.dart';
 import 'objects.dart';
+import 'perf/perf.dart';
 import 'serializer.dart';
 import 'xref.dart';
 import 'xref_writer.dart';
@@ -70,6 +71,18 @@ class CosIncrementalUpdater {
 
   /// Returns the full bytes of the updated file: original + appended update.
   Uint8List save() {
+    final t0 = PdfPerf.begin();
+    try {
+      final saved = _saveTimed();
+      PdfPerf.add(PdfPerfCount.savedBytes, saved.length - document.bytes.length);
+      PdfPerf.add(PdfPerfCount.savedObjects, _changed.length);
+      return saved;
+    } finally {
+      PdfPerf.end(PdfPerfPhase.saveIncremental, t0);
+    }
+  }
+
+  Uint8List _saveTimed() {
     final out = BytesBuilder(copy: false)..add(document.bytes);
     final last = document.bytes.isEmpty ? 0x0A : document.bytes.last;
     if (last != 0x0A && last != 0x0D) out.addByte(0x0A);
@@ -85,6 +98,7 @@ class CosIncrementalUpdater {
       offsets[number] = out.length - shift;
       var object = _changed[number]!;
       if (handler != null && number != document.encryptObjectNumber) {
+        final tEncrypt = PdfPerf.begin();
         object = handler.encryptObjectGraph(
           object,
           number,
@@ -92,6 +106,7 @@ class CosIncrementalUpdater {
           resolve: document.resolve,
           keepsFileCiphertext: (stream) => stream.sourceRef != null,
         );
+        PdfPerf.end(PdfPerfPhase.encryptGraph, tEncrypt);
       }
       serializer.writeIndirectObject(
           CosIndirectObject(number, _generationOf(number), object));
