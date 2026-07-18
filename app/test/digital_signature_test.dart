@@ -255,6 +255,47 @@ void main() {
     expect(validation.padesLevel, PdfPadesLevel.bB);
   });
 
+  testWidgets('after signing, Undo removes the accidental signature',
+      (tester) async {
+    final saves = <Uint8List>[];
+    final original = buildClassicPdf();
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        initialDocument: (bytes: original, title: 'Contract.pdf'),
+        digitalSignatureOptionsProvider: (context) async =>
+            DigitalSignatureOptions(
+          selfSignedIdentity: PdfSigningIdentity.generate(name: 'Ada'),
+          reason: 'oops',
+        ),
+        saveDocumentAs: (context, bytes, suggestedName) async {
+          saves.add(Uint8List.fromList(bytes));
+          return SaveResult.downloaded(suggestedName);
+        },
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-digital-signature')));
+    await tester.pumpAndSettle();
+
+    // signed once, and the "Undo" affordance is offered
+    expect(saves, hasLength(1));
+    expect(PdfSignature.of(PdfDocument.open(saves.first)), hasLength(1));
+    expect(find.widgetWithText(SnackBarAction, 'Undo'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    // re-saved, now without the signature
+    expect(saves.length, greaterThan(1));
+    expect(PdfSignature.of(PdfDocument.open(saves.last)), isEmpty);
+    expect(find.text('Signature removed'), findsOneWidget);
+  });
+
   testWidgets('keyless: sign in with email, then the dialog returns it',
       (tester) async {
     final keyless = await mintKeyless();

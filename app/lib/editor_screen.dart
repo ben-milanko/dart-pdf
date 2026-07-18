@@ -1096,6 +1096,8 @@ class _EditorScreenState extends State<EditorScreen>
       // an existing origin is overwritten and an untitled document gets a
       // Save As destination. Cancelling Save As leaves the signed tab dirty.
       await _save(tab);
+      // Offer an immediate undo, in case the signature was placed by accident.
+      if (mounted && _tabs.contains(tab)) _offerSignatureUndo(tab);
     } on FormatException catch (error) {
       if (mounted) _toast('Could not digitally sign: ${error.message}');
     } catch (error) {
@@ -1103,6 +1105,36 @@ class _EditorScreenState extends State<EditorScreen>
     } finally {
       if (mounted) setState(() => _digitallySigning = false);
     }
+  }
+
+  /// Shows a snackbar offering to undo a signature just placed (its revision
+  /// sits on the undo stack), removing it and re-saving without it.
+  void _offerSignatureUndo(DocumentTab tab) {
+    final session = tab.session;
+    if (session == null || !session.canUndo) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: const Text('Document digitally signed'),
+        behavior: SnackBarBehavior.floating,
+        margin: pdfFloatingToastMargin(context),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => unawaited(_undoSignature(tab)),
+        ),
+      ));
+  }
+
+  /// Removes the just-placed signature (undoes its revision) and re-saves so
+  /// the file no longer carries it.
+  Future<void> _undoSignature(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null || !session.canUndo || !_tabs.contains(tab)) return;
+    session.undo();
+    if (!mounted || !_tabs.contains(tab)) return;
+    await _save(tab);
+    if (mounted) _toast('Signature removed');
   }
 
   /// Hands the active document to the OS print dialog (the `printing` plugin -
