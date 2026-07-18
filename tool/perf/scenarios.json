@@ -1,4 +1,12 @@
 {
+  "dartpdf-corpus": {
+    "suite": "vm-sweep",
+    "corpus": "test_corpora/dartpdf",
+    "maxPages": 0,
+    "repeat": 3,
+    "phases": true,
+    "ciSafe": true
+  },
   "ghent-suite-open": {
     "suite": "vm-sweep",
     "corpus": "test_corpora/ghent",

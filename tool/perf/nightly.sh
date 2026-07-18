@@ -19,6 +19,7 @@ sweep() { # sweep <scenario>
     grep -v '^  \[' || true)
 }
 
+sweep dartpdf-corpus
 sweep ghent-suite-open
 sweep pdfjs-hostile
 sweep save-incremental
