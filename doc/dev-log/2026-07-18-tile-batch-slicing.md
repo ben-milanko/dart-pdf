@@ -73,6 +73,20 @@ Reading it honestly:
   that it removes the readback-count explosion (the web killer: each readback
   is an uncancellable main-thread stall).
 
+## Default rollout (same day, after interactive validation)
+
+`PdfPageView.tileStoreDetail` now defaults per platform
+(`pdfDefaultTileStoreDetail()`): **on for desktop**, off for web/mobile.
+Desktop evidence: interactive testing on dense CAD sheets (with the
+vector-only per-tile veto) and a 198-page scan book - 4,490 tiles over 862
+slab readbacks, zero discards, pyramid pinned at its 96 MB budget, RSS
+healthy under the coordinated ceiling, and the scan handoff
+(vector-only → full record → tiles) confirmed working. Web stays off until
+its own pass (Slug-layer coexistence, CanvasKit `toImageSync`, readback
+stalls - the wins are biggest there, so measure, don't assume); mobile is
+untested and jetsam-tight. Widget tests run as TargetPlatform.android, so
+the existing detail-patch tests keep pinning the patch path unchanged.
+
 ## Gotchas
 
 - Never compare summed per-operation stopwatches across strategies with

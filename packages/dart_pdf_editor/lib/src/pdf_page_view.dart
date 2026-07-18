@@ -302,19 +302,21 @@ class PdfPageView extends StatefulWidget {
   /// thread turns the returned detail commands into the sharp on-screen patch.
   static bool deferFullRenderUntilDetailPaint = true;
 
-  /// Opt-in: composite deep-zoom detail from the [PdfTileStore] zoom-bucket
-  /// pyramid instead of the single unbudgeted detail patch. When true (and the
-  /// page retains a region-cullable scene), the visible slice is tiled: panning
-  /// at deep zoom draws cached tiles with zero re-raster and a settle only
-  /// rasterizes the missing tiles, all under one shared byte budget that evicts
-  /// by least-recently used and drops under memory pressure.
+  /// Composite deep-zoom detail from the [PdfTileStore] zoom-bucket pyramid
+  /// instead of the single unbudgeted detail patch. When true (and the page
+  /// retains a region-cullable scene), the visible slice is tiled: panning at
+  /// deep zoom draws cached tiles with zero re-raster and a settle only
+  /// rasterizes the missing tiles (batched into slab readbacks), all under one
+  /// shared byte budget that evicts by least-recently used and drops under
+  /// memory pressure.
   ///
   /// Additive to the existing pipeline: the tile layer sits ABOVE the base
   /// raster, so a gap not yet tiled shows the (capped) base image through it,
   /// and pages the region index cannot cull (soft-mask/group spans) keep the
-  /// legacy single-patch path. Default false while the pyramid is measured
-  /// against the shipping detail patch (issue #314).
-  static bool tileStoreDetail = false;
+  /// legacy single-patch path. Defaults per platform
+  /// ([pdfDefaultTileStoreDetail], issue #314): on for desktop, off for
+  /// web/mobile pending their own validation passes.
+  static bool tileStoreDetail = pdfDefaultTileStoreDetail();
 
   /// Test seam: the store the tile layer draws from. Null uses the shared
   /// [PdfTileStore.instance].
