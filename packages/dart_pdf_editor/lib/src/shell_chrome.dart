@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -387,6 +388,24 @@ class PdfShellControlItem {
 /// and a trailing group (panel toggles), pushed apart when there is room.
 /// On compact screens the trailing group becomes a single Controls button
 /// that opens a large-button bottom sheet.
+/// Scroll behavior for the shell header's horizontal overflow scroller.
+///
+/// The header only needs to scroll (via the wheel or a trackpad scroll
+/// gesture - both pointer *signals*) when its controls overflow a narrow
+/// window. It must never scroll on a pointer *drag*: Flutter's default
+/// [dragDevices] include the trackpad, and on macOS a trackpad click carries
+/// enough motion that the drag-to-scroll recognizer claims the gesture and
+/// swallows the tap on the button underneath - leaving the whole bar
+/// hover-only (search, save, panel toggles all dead) while every other bar
+/// works. Dropping every drag device keeps the controls tappable; wheel and
+/// trackpad *scrolling* are unaffected.
+class _HeaderScrollBehavior extends MaterialScrollBehavior {
+  const _HeaderScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => const <PointerDeviceKind>{};
+}
+
 class PdfShellBar extends StatelessWidget {
   const PdfShellBar({
     super.key,
@@ -500,13 +519,16 @@ class PdfShellBar extends StatelessWidget {
                 return Row(
                   children: [
                     Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(children: [
-                          const SizedBox(width: 8),
-                          ...compactHeader,
-                          const SizedBox(width: 4),
-                        ]),
+                      child: ScrollConfiguration(
+                        behavior: const _HeaderScrollBehavior(),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(children: [
+                            const SizedBox(width: 8),
+                            ...compactHeader,
+                            const SizedBox(width: 4),
+                          ]),
+                        ),
                       ),
                     ),
                     if (compactControls.isNotEmpty ||
@@ -522,20 +544,24 @@ class PdfShellBar extends StatelessWidget {
                   ],
                 );
               }
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [const SizedBox(width: 8), ...leading],
-                      ),
-                      Row(
-                        children: [...trailing, const SizedBox(width: 8)],
-                      ),
-                    ],
+              return ScrollConfiguration(
+                behavior: const _HeaderScrollBehavior(),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints:
+                        BoxConstraints(minWidth: constraints.maxWidth),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [const SizedBox(width: 8), ...leading],
+                        ),
+                        Row(
+                          children: [...trailing, const SizedBox(width: 8)],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
