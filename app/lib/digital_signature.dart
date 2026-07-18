@@ -129,6 +129,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   KeylessIdentityCreator? createKeylessIdentity,
   PdfTimestampClient? timestampClient,
   bool keylessUnavailable = false,
+  bool autoKeyless = false,
   SignaturePlacement? placement,
   SignatureLogoPicker? logoPicker,
   int pageCount = 1,
@@ -146,6 +147,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
         createKeylessIdentity: createKeylessIdentity,
         timestampClient: timestampClient,
         keylessUnavailable: keylessUnavailable,
+        autoKeyless: autoKeyless,
         placement: placement,
         logoPicker: logoPicker,
         pageCount: pageCount,
@@ -171,6 +173,7 @@ class DigitalSignatureDialog extends StatefulWidget {
     this.createKeylessIdentity,
     this.timestampClient,
     this.keylessUnavailable = false,
+    this.autoKeyless = false,
     this.placement,
     this.logoPicker,
     this.pageCount = 1,
@@ -193,6 +196,11 @@ class DigitalSignatureDialog extends StatefulWidget {
   /// keyless email signing is available in the desktop/mobile app - set on the
   /// web, where the OAuth broker's loopback/CORS constraints preclude it.
   final bool keylessUnavailable;
+
+  /// When true, a still-valid keyless login is already available, so the
+  /// dialog mints and pre-selects the keyless identity on open (no browser
+  /// sign-in). Only acts when [createKeylessIdentity] is also wired.
+  final bool autoKeyless;
 
   /// When set, the signature is drawn into this page/rectangle (the
   /// signature-box tool placed it) and the dialog shows an Appearance section
@@ -242,6 +250,14 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     super.initState();
     _loadRememberedIdentity();
     if (widget.placement != null) _loadRememberedAppearance();
+    // A still-valid keyless login: mint and pre-select it on open, so the
+    // user doesn't have to click "Sign in with your email" again. Silent -
+    // any failure just leaves keyless unselected (the button still works).
+    if (widget.autoKeyless && widget.createKeylessIdentity != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _createKeylessIdentity(silent: true);
+      });
+    }
   }
 
   /// Pre-fills the drawn mark and logo from the device so a placed signature
@@ -313,9 +329,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     });
   }
 
-  Future<void> _createKeylessIdentity() async {
+  Future<void> _createKeylessIdentity({bool silent = false}) async {
     final creator = widget.createKeylessIdentity;
-    if (creator == null || _keylessBusy) return;
+    if (creator == null || _keylessBusy || _keyless != null) return;
     setState(() {
       _keylessBusy = true;
       _error = null;
@@ -331,7 +347,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     setState(() {
       _keylessBusy = false;
       if (failure != null) {
-        _error = 'Keyless sign-in failed: $failure';
+        // A pre-select attempt on open fails quietly; the user can retry with
+        // the button (which surfaces the error).
+        if (!silent) _error = 'Keyless sign-in failed: $failure';
         return;
       }
       if (identity == null) return; // cancelled

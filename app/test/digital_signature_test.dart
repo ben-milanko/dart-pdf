@@ -424,6 +424,48 @@ void main() {
     expect(find.text('Logo added ✓'), findsOneWidget);
   });
 
+  testWidgets('autoKeyless pre-selects the keyless identity on open',
+      (tester) async {
+    final keyless = await mintKeyless();
+    DigitalSignatureOptions? result;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async {
+              result = await showDigitalSigningDialog(
+                context,
+                createKeylessIdentity: (context) async => keyless,
+                timestampClient: fakeTsa,
+                autoKeyless: true, // a still-valid login is cached
+              );
+            },
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    // pre-selected without tapping "Sign in with your email"
+    expect(find.byKey(const ValueKey('digital-signature-keyless-identity')),
+        findsOneWidget);
+    expect(find.text('dev@example.com'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+              find.byKey(const ValueKey('digital-signature-sign')))
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('digital-signature-sign')));
+    await tester.pumpAndSettle();
+    expect(result!.keylessIdentity, isNotNull);
+  });
+
   testWidgets('on web, a note points to the desktop/mobile app for keyless',
       (tester) async {
     await tester.pumpWidget(MaterialApp(

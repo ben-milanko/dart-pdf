@@ -58,6 +58,7 @@ class EditorScreen extends StatefulWidget {
     this.printDocument,
     this.digitalSignatureOptionsProvider,
     this.oidcTokenProvider,
+    this.keylessLoginAvailable,
     this.saveDocumentAs,
     this.saveDocumentToPath,
     this.imageClipboardWriter,
@@ -101,6 +102,11 @@ class EditorScreen extends StatefulWidget {
   /// the signature with the default TSA. Null (the default) hides the keyless
   /// option, since no OAuth client ships with the app.
   final OidcTokenProvider? oidcTokenProvider;
+
+  /// Whether a still-valid keyless (Sigstore) login is already available, so
+  /// the Digitally sign dialog can pre-select the keyless identity on open
+  /// without a browser sign-in. Wired to the cached OIDC token's validity.
+  final bool Function()? keylessLoginAvailable;
 
   /// Overrides the Save As backend. Tests use this seam to assert that the
   /// active tab adopts the chosen file without opening platform dialogs.
@@ -1022,6 +1028,7 @@ class _EditorScreenState extends State<EditorScreen>
                 // On the web the OAuth broker can't complete in a browser tab,
                 // so keyless is native-only; tell the user where to find it.
                 keylessUnavailable: kIsWeb,
+                autoKeyless: widget.keylessLoginAvailable?.call() ?? false,
                 placement: placement,
                 logoPicker: placement == null ? null : pickImageBytes,
                 pageCount: session.document.pageCount,
