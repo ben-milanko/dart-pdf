@@ -7,16 +7,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HISTORY="${1:?usage: nightly.sh <history-dir>}"
 mkdir -p "$HISTORY"
+# Absolutize: perf_sweep runs from packages/pdf_graphics, so a relative
+# history path would land inside that package (the 2026-07-18 nightly bug -
+# the append-to-perf-data step then found nothing).
+HISTORY="$(cd "$HISTORY" && pwd)"
 
 DART=dart
 if command -v fvm >/dev/null 2>&1; then DART="fvm dart"; fi
 
 sweep() { # sweep <scenario>
   echo "── vm-sweep: $1"
+  # No output filtering: a filter pipeline's || true masked real sweep
+  # failures once already. Per-file progress in the log is fine.
   (cd "$ROOT/packages/pdf_graphics" &&
     $DART run tool/perf_sweep.dart --scenario "$1" \
-      --append-history "$HISTORY/vm-sweep.ndjson" --out /dev/null 2>&1 |
-    grep -v '^  \[' || true)
+      --append-history "$HISTORY/vm-sweep.ndjson" --out /dev/null)
 }
 
 sweep dartpdf-corpus

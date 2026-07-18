@@ -162,7 +162,9 @@ for (const [key, groupRuns] of groups) {
 }
 
 if (!sections) {
-  sections = '<p class="meta">No history yet. Run <code>tool/perf.sh sweep &lt;scenario&gt;</code> to record the first envelope.</p>';
+  sections = runs.length === 0
+    ? '<p class="meta">No history yet. Run <code>tool/perf.sh sweep &lt;scenario&gt;</code> to record the first envelope.</p>'
+    : `<p class="meta">${runs.length} run(s) on record, but none carry a chartable <code>metrics</code> block - check the producing tool emits envelope metrics (tool/perf/SCHEMA.md).</p>`;
 }
 
 // ---- Page ------------------------------------------------------------------

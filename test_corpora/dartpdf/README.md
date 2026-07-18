@@ -30,6 +30,7 @@ is exactly the kind of diff to review deliberately.
 | `diagram-dense-3p.pdf` | ultra-dense diagram sheet | tokenizer/interpreter saturation: ~270k ops/page, MB-scale content streams |
 | `plan-set-16p.pdf` | multi-sheet plan set | sustained ~70k ops/page across a set (per-sheet density of the 58-sheet class; full-set memory scale lives in the *generated* `cad-138p-sweep` scenario) |
 | `styled-booklet-24p.pdf` | designed booklet | 8 embedded TrueType programs, ~12 Form XObject tokenizations/page, transparency (ExtGState), two-column text over full-page art |
+| `scan-book-12p.pdf` | scanned circuit book (A3) | memory workload: 3.7 MB decoded grayscale per page (~45 MB/set) behind ~40 KB streams, trivial content ops - the image-cache/OOM class |
 | `text-report-40p.pdf` | office text | page tree walk, base-14 text runs, extraction |
 | `image-scan-4p.pdf` | scan-like images | full-page RGB decode (Flate), image cache |
 | `annotated-10p.pdf` | markup revision | annotation appearances (highlight/underline/strikeout/ink/square/circle/line/free text/note), incremental-update parsing |
@@ -44,9 +45,11 @@ license) are **profiled locally with the perf sweep**
 (`perf_sweep.dart --one <file> --phases`) and their workload signature is
 reproduced synthetically here: `styled-booklet` mirrors a 62-page RPG
 quickstart (93 embedded fonts, 13 form tokenizations/page),
-`diagram-dense` an ARTC overhead-wiring diagram (279k ops/page), and
+`diagram-dense` an ARTC overhead-wiring diagram (279k ops/page),
 `plan-set` a 58-sheet rail territory plan (81k ops/page sustained,
-0.5 GB peak RSS). Keep the originals in the gitignored `corpus/` for the
+0.5 GB peak RSS), and `scan-book` a 187 MB / 198-page scanned relay-room
+book from an app-OOM bug report (trivial ops, decoded-pixel memory is the
+whole workload). Keep the originals in the gitignored `corpus/` for the
 `local-corpus-sweep` scenario; when you meet a new document class worth
 covering, profile it the same way and add a seeded builder for its shape.
 

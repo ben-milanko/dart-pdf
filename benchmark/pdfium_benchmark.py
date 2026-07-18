@@ -233,8 +233,27 @@ def main():
               file=sys.stderr)
 
     results = [best[p] for p in files]
+    ok = [r for r in results if r["error"] is None and r["pagesRendered"] > 0]
+    per_page = sorted(r["renderMs"] / r["pagesRendered"] for r in ok)
+    opens = sorted(r["openMs"] for r in ok)
+
+    def pct(v, p):
+        if not v:
+            return 0.0
+        rank = (p / 100) * (len(v) - 1)
+        lo, hi = int(rank), min(int(rank) + 1, len(v) - 1)
+        return round(v[lo] + (v[hi] - v[lo]) * (rank - lo), 3)
+
     payload = {
         **_envelope_fields(),
+        "metrics": {
+            "files": len(results),
+            "errors": len(results) - len(ok),
+            "p50OpenMs": pct(opens, 50),
+            "p95OpenMs": pct(opens, 95),
+            "p50RenderMsPerPage": pct(per_page, 50),
+            "p95RenderMsPerPage": pct(per_page, 95),
+        },
         "tool": "pdfium",
         "scale": args.scale,
         "maxPages": args.max_pages,

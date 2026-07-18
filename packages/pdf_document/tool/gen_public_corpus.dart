@@ -298,6 +298,112 @@ Uint8List buildAnnotated() {
   return editor.save();
 }
 
+/// The scanned-circuit-book class, profiled from a real (unshareable)
+/// 187 MB / 198-page relay-room "Reds" book that OOM-crashed an app on
+/// upload: every page is one large scanned image, content streams are
+/// trivial (~8 ops), and memory - not the interpreter - is the workload
+/// (COS layer alone reached 760 MB RSS; decoded pixels are what kill a
+/// device). The sim keeps committed bytes small but the DECODED footprint
+/// real: big-dimension grayscale pages of ruled circuit-like line art
+/// (structured, so Flate crushes it) - 2200x1700 x 8-bit = 3.7 MB decoded
+/// per page, ~45 MB for the set.
+Uint8List buildScanBook(int pageCount, {int seed = 20260723}) {
+  const pageW = 1190.0, pageH = 842.0; // A3 landscape sheet
+  const imgW = 2200, imgH = 1700;
+  final rng = _Lcg(seed);
+  final builder = CosDocumentBuilder();
+  final zlib = ZLibCodec(level: 6);
+
+  final catalog = CosDictionary({'Type': const CosName('Catalog')});
+  final catalogRef = builder.add(catalog);
+  final tree = CosDictionary({'Type': const CosName('Pages')});
+  final treeRef = builder.add(tree);
+  catalog['Pages'] = treeRef;
+
+  final gray = Uint8List(imgW * imgH);
+  final pageRefs = <CosReference>[];
+  for (var p = 0; p < pageCount; p++) {
+    gray.fillRange(0, gray.length, 245); // paper
+    void hline(int y, int x0, int x1, int ink) {
+      if (y < 0 || y >= imgH) return;
+      for (var x = x0.clamp(0, imgW - 1); x <= x1.clamp(0, imgW - 1); x++) {
+        gray[y * imgW + x] = ink;
+      }
+    }
+
+    void vline(int x, int y0, int y1, int ink) {
+      if (x < 0 || x >= imgW) return;
+      for (var y = y0.clamp(0, imgH - 1); y <= y1.clamp(0, imgH - 1); y++) {
+        gray[y * imgW + x] = ink;
+      }
+    }
+
+    // Sheet frame + title block.
+    for (var t = 0; t < 3; t++) {
+      hline(40 + t, 40, imgW - 40, 30);
+      hline(imgH - 40 - t, 40, imgW - 40, 30);
+      vline(40 + t, 40, imgH - 40, 30);
+      vline(imgW - 40 - t, 40, imgH - 40, 30);
+    }
+    // Circuit-like ruling: horizontal bus lines with vertical drops.
+    final buses = 14 + rng.intBelow(8);
+    for (var b = 0; b < buses; b++) {
+      final y = 120 + rng.intBelow(imgH - 240);
+      final x0 = 80 + rng.intBelow(300);
+      final x1 = imgW - 80 - rng.intBelow(300);
+      hline(y, x0, x1, 25 + rng.intBelow(40));
+      final drops = 4 + rng.intBelow(10);
+      for (var d = 0; d < drops; d++) {
+        final x = x0 + rng.intBelow((x1 - x0).clamp(1, imgW));
+        vline(x, y, y + 60 + rng.intBelow(300), 25 + rng.intBelow(40));
+      }
+    }
+    // Scanner artefacts: speckle + a skewed streak (keeps flate honest).
+    for (var s = 0; s < 2200; s++) {
+      gray[rng.intBelow(gray.length)] = 60 + rng.intBelow(120);
+    }
+    final streakY = 200 + rng.intBelow(imgH - 400);
+    for (var x = 0; x < imgW; x++) {
+      hline(streakY + x ~/ 90, x, x, 200);
+    }
+
+    final deflated = Uint8List.fromList(zlib.encode(gray));
+    final imageRef = builder.add(CosStream(
+      CosDictionary({
+        'Type': const CosName('XObject'),
+        'Subtype': const CosName('Image'),
+        'Width': const CosInteger(imgW),
+        'Height': const CosInteger(imgH),
+        'ColorSpace': const CosName('DeviceGray'),
+        'BitsPerComponent': const CosInteger(8),
+        'Filter': const CosName('FlateDecode'),
+        'Length': CosInteger(deflated.length),
+      }),
+      deflated,
+    ));
+    final contentRef = _addContent(
+        builder, 'q $pageW 0 0 $pageH 0 0 cm /Im0 Do Q\n');
+    final page = CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': treeRef,
+      'MediaBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(pageW),
+        const CosReal(pageH),
+      ]),
+      'Resources': CosDictionary({
+        'XObject': CosDictionary({'Im0': imageRef}),
+      }),
+      'Contents': contentRef,
+    });
+    pageRefs.add(builder.add(page));
+  }
+  tree['Kids'] = CosArray(pageRefs);
+  tree['Count'] = CosInteger(pageCount);
+  return builder.build(root: catalogRef);
+}
+
 /// A designed-booklet workload: the "InDesign export" class, profiled from
 /// a real (unredistributable) RPG quickstart with the perf sweep - 62pp,
 /// 93 embedded font programs, ~13 content-stream tokenizations per page
@@ -509,6 +615,7 @@ void main(List<String> argv) {
   write('image-scan-4p.pdf', buildImageScan(4));
   write('annotated-10p.pdf', buildAnnotated());
   write('styled-booklet-24p.pdf', buildStyledBooklet(24));
+  write('scan-book-12p.pdf', buildScanBook(12));
   // Damaged classes derive from a well-formed base so recovery/leniency
   // timing measures the same underlying document.
   write('broken-startxref.pdf', _smash(textReport, 'startxref'));
