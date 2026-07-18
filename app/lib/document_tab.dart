@@ -14,6 +14,7 @@ class DocumentTab {
       {required this.title,
       this.originPath,
       this.originBookmark,
+      this.originToken,
       this.cachePath})
       : session = null,
         viewer = null,
@@ -29,6 +30,7 @@ class DocumentTab {
     required PdfEditingPreferences preferences,
     this.originPath,
     this.originBookmark,
+    this.originToken,
     this.cachePath,
     bool initiallyDirty = false,
   })  : session = PdfEditingController(bytes, preferences: preferences),
@@ -98,6 +100,7 @@ class DocumentTab {
     required this.cancel,
     this.originPath,
     this.originBookmark,
+    this.originToken,
     this.cachePath,
   })  : session = null,
         viewer = PdfViewerController(),
@@ -187,6 +190,14 @@ class DocumentTab {
 
   /// macOS security-scoped bookmark for [originPath], when available.
   String? originBookmark;
+
+  /// Opaque native reference to a mobile pick's *original* file (Android
+  /// persisted `content://` Uri; iOS security-scoped bookmark), when the tab
+  /// was opened progressively through the mobile reference picker (#364). Used
+  /// to build the ranged byte source and the full-read fallback while the
+  /// progressive first paint is on screen; null on desktop/web and after the
+  /// tab swaps to its complete, snapshotted bytes.
+  String? originToken;
 
   /// The app-private byte snapshot backing a mobile pick (see pdf_cache.dart),
   /// or null when the document has a real [originPath] (desktop) or can't be
