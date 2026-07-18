@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'devtools.dart';
+
 /// Reads the `exp` (expiry) claim of a JWT as a UTC [DateTime], or null when
 /// the token is malformed or carries no numeric `exp`. This only decodes the
 /// unsigned payload - it is not verification - and is used solely to decide
@@ -16,7 +18,8 @@ DateTime? oidcTokenExpiry(String token) {
     if (exp is! num) return null;
     return DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000,
         isUtc: true);
-  } catch (_) {
+  } catch (e) {
+    AppDevTools.instance.addLog('cached OIDC token unreadable: $e');
     return null;
   }
 }

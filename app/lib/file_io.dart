@@ -369,10 +369,18 @@ Future<SaveResult> saveBytesAs(
 Future<SaveResult> exportCustomStampsAs(
   BuildContext context,
   List<PdfCustomStamp> stamps,
+) =>
+    saveJsonAs(context, encodeCustomStampBundle(stamps), 'dartpdf-stamps.json');
+
+/// Save-as for a JSON document, with the same platform behaviour as
+/// [saveBytesAs]: a save dialog on desktop, a browser download on the web,
+/// the share sheet on phones. [name] should carry `.json`.
+Future<SaveResult> saveJsonAs(
+  BuildContext context,
+  String json,
+  String name,
 ) async {
-  final name = 'dartpdf-stamps.json';
-  final bytes =
-      Uint8List.fromList(utf8.encode(encodeCustomStampBundle(stamps)));
+  final bytes = Uint8List.fromList(utf8.encode(json));
   final file = XFile.fromData(
     bytes,
     mimeType: 'application/json',

@@ -2,6 +2,8 @@ import 'package:flutter/widgets.dart';
 import 'package:pdf_cos/pdf_cos.dart' show X509Certificate;
 import 'package:pdf_document/pdf_document.dart' show PdfSigningIdentity;
 
+import 'devtools.dart';
+
 /// Mints a keyless (Sigstore/Fulcio) identity - an OIDC sign-in followed by a
 /// Fulcio certificate. Returns null when it can't: a silent attempt with no
 /// reusable login, or a cancelled interactive sign-in.
@@ -48,7 +50,9 @@ class KeylessIdentityCache {
     try {
       final notAfter = X509Certificate.parse(identity.certificate).notAfter;
       return notAfter.toUtc().isAfter(_now().toUtc().add(margin));
-    } catch (_) {
+    } catch (e) {
+      AppDevTools.instance
+          .addLog('keyless identity certificate unreadable: $e');
       return false;
     }
   }

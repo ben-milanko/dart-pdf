@@ -12,6 +12,8 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'devtools.dart';
+import 'devtools_panel.dart';
 import 'digital_signature.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
@@ -170,6 +172,9 @@ class _EditorScreenState extends State<EditorScreen>
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
 
+  /// Whether the developer tools panel is docked over the editor (F12).
+  bool _devToolsOpen = false;
+
   DocumentTab? get _active =>
       _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
 
@@ -181,6 +186,9 @@ class _EditorScreenState extends State<EditorScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (!kReleaseMode) {
+      HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
+    }
     _recents.load().then((_) {
       if (mounted) _pruneRecentCache();
     });
@@ -268,6 +276,9 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (!kReleaseMode) {
+      HardwareKeyboard.instance.removeHandler(_onGlobalKeyEvent);
+    }
     _incomingSub?.cancel();
     _incoming.dispose();
     _ocr.dispose();
@@ -363,8 +374,10 @@ class _EditorScreenState extends State<EditorScreen>
             cachePath: doc.cachePath,
             bookmark: doc.bookmark);
       }
-    } catch (_) {
+    } catch (e) {
       // The file is gone (moved/deleted): drop the placeholder quietly.
+      AppDevTools.instance.addLog('deferred open failed (file moved?): $e',
+          level: DevLogLevel.error);
       if (mounted) await _closeTabs([loading]);
     }
   }
@@ -420,6 +433,8 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   void _openError(String title, String error) {
+    AppDevTools.instance
+        .addLog('open error: $title - $error', level: DevLogLevel.error);
     _addTab(DocumentTab.error(title: title, error: error));
   }
 
@@ -697,7 +712,9 @@ class _EditorScreenState extends State<EditorScreen>
         final bytes = await item.readAsBytes();
         session.insertPagesFromBytes(bytes);
         inserted++;
-      } catch (_) {
+      } catch (e) {
+        AppDevTools.instance
+            .addLog('insert failed: ${item.name} - $e', level: DevLogLevel.error);
         failed.add(item.name);
       }
     }
@@ -1378,6 +1395,9 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   void _toast(String message) {
+    // Toasts are transient; mirroring them into the devtools log keeps a
+    // history (and puts them in the exported snapshot).
+    AppDevTools.instance.addLog('toast: $message');
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
@@ -1638,6 +1658,7 @@ class _EditorScreenState extends State<EditorScreen>
             prefs: _prefs,
             recents: _recents,
             updates: _updates,
+            onOpenDevTools: kReleaseMode ? null : _toggleDevTools,
           ),
           child: _appMenuTile(
             icon: Icons.settings_outlined,
@@ -1645,6 +1666,26 @@ class _EditorScreenState extends State<EditorScreen>
           ),
         ),
       ];
+
+  /// Shows/hides the developer tools panel (F12, debug/profile builds only).
+  void _toggleDevTools() {
+    if (kReleaseMode) return;
+    setState(() => _devToolsOpen = !_devToolsOpen);
+  }
+
+  /// Global F12 hook (registered in initState): a devtools toggle must work
+  /// regardless of where focus sits - a CallbackShortcuts binding goes deaf
+  /// whenever the focused node leaves its subtree (e.g. after the panel
+  /// itself opens).
+  bool _onGlobalKeyEvent(KeyEvent event) {
+    if (!kReleaseMode &&
+        event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.f12) {
+      _toggleDevTools();
+      return true;
+    }
+    return false;
+  }
 
   // --- build ---------------------------------------------------------------
 
@@ -1691,7 +1732,21 @@ class _EditorScreenState extends State<EditorScreen>
           },
           child: Stack(
             children: [
-              Positioned.fill(child: _buildBody(tab)),
+              // The devtools panel docks beside the body (like the editor's
+              // own sidebars), so the viewer relays out narrower instead of
+              // being overlaid - zoom and scroll gestures keep their space.
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    Expanded(child: _buildBody(tab)),
+                    if (_devToolsOpen && !kReleaseMode)
+                      DevToolsPanel(
+                        onClose: _toggleDevTools,
+                        session: tab?.session,
+                      ),
+                  ],
+                ),
+              ),
               if (_dragging)
                 Positioned.fill(
                   child: _DropOverlay(

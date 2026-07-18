@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../debug_overlays.dart';
 import '../page_range_dialog.dart';
 import '../pdf_viewer.dart';
 import '../perf_log.dart';
@@ -1915,6 +1916,36 @@ class _PageTileState extends State<_PageTile> {
                           painter: _ViewportPainter(viewport, indicator),
                         ),
                       ),
+                    // Devtools overlay: mark the pages whose page-view state
+                    // is live (the lazy list's render window) - the pages
+                    // whose retained scenes/rasters hold real memory.
+                    Positioned.fill(
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: pdfDebugShowRenderWindow,
+                        builder: (context, on, _) => !on
+                            ? const SizedBox.shrink()
+                            : ListenableBuilder(
+                                listenable: PdfLivePageRegistry.instance,
+                                builder: (context, _) => !PdfLivePageRegistry
+                                        .instance
+                                        .contains(pageIndex)
+                                    ? const SizedBox.shrink()
+                                    : IgnorePointer(
+                                        child: DecoratedBox(
+                                          key: ValueKey(
+                                              'pdf-thumbnail-live-$pageIndex'),
+                                          decoration: BoxDecoration(
+                                            border: Border.all(
+                                              // teal: live render window
+                                              color: const Color(0xCC009688),
+                                              width: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                      ),
+                    ),
                   ]),
                 );
               },

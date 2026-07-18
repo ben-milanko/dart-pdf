@@ -489,6 +489,17 @@ class PdfEditingController extends ChangeNotifier {
   bool get canUndo => _cursor > _undoFloor;
   bool get canRedo => _cursor < _revisions.length - 1;
 
+  /// Diagnostics: how many revisions the session buffer retains (every one is
+  /// a byte prefix of the same grow-only buffer, so this is the undo/redo
+  /// history length, not extra copies).
+  int get revisionCount => _revisions.length;
+
+  /// Diagnostics: total bytes retained by the session's grow-only buffer -
+  /// the whole edit history, of which [bytes] is the current revision's
+  /// prefix view. This only ever grows within a session (see the memory
+  /// audit notes); watch it when chasing memory growth during editing.
+  int get sessionBufferBytes => _bytes.length;
+
   void undo() {
     if (!canUndo) return;
     final beforeLength = _revisions[_cursor];

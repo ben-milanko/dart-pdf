@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter/widgets.dart';
 
+import 'debug_overlays.dart';
 import 'tile_store.dart';
 
 /// Draws a page's tile pyramid over its visible region.
@@ -74,7 +75,9 @@ class _TilePagePainter extends CustomPainter {
     required this.visibleFraction,
     required this.rasterize,
     required this.filterQuality,
-  }) : super(repaint: store); // tick as sharper tiles land
+  }) : super(
+            // tick as sharper tiles land, and repaint on debug-border toggles
+            repaint: Listenable.merge([store, pdfDebugPaintDetailBounds]));
 
   final PdfTileStore store;
   final PdfTilePageIdentity identity;
@@ -104,6 +107,19 @@ class _TilePagePainter extends CustomPainter {
     );
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
+    final debugBounds = pdfDebugPaintDetailBounds.value;
+    final exactBorder = debugBounds
+        ? (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0xAA00C853)) // green: exact-bucket tile
+        : null;
+    final fallbackBorder = debugBounds
+        ? (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0xAAFF6D00)) // orange: upscaled fallback
+        : null;
     for (final placement in view.placements) {
       final dest = Rect.fromLTRB(
         placement.destFraction.left * size.width,
@@ -112,6 +128,10 @@ class _TilePagePainter extends CustomPainter {
         placement.destFraction.bottom * size.height,
       );
       canvas.drawImageRect(placement.image, placement.src, dest, paint);
+      if (debugBounds) {
+        canvas.drawRect(
+            dest, placement.isFallback ? fallbackBorder! : exactBorder!);
+      }
     }
   }
 

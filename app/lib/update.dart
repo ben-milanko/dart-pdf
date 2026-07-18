@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+
 /// A parsed semantic version (`major.minor.patch`), tolerant of the leading
 /// `app-v` / `v` that the release tags carry, an optional `+build` metadata
 /// suffix (ignored for ordering, per semver), and an optional `-prerelease`
@@ -288,6 +290,8 @@ class UpdateService extends ChangeNotifier {
         _status = UpdateStatus.upToDate;
       }
     } catch (e) {
+      AppDevTools.instance
+          .addLog('update check failed: $e', level: DevLogLevel.error);
       _error = e;
       _status = UpdateStatus.failed;
     }

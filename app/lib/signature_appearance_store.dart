@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+
 /// The reusable parts of a visible signature - the hand-drawn mark and the
 /// logo backdrop - remembered on the device so the next signature can reuse
 /// them without redrawing or re-picking.
@@ -39,7 +41,10 @@ class PrefsSignatureAppearanceStore implements SignatureAppearanceStore {
       if (value == null) return null;
       try {
         return base64Decode(value);
-      } catch (_) {
+      } catch (e) {
+        AppDevTools.instance.addLog(
+            'signature appearance cache corrupt ($key): $e',
+            level: DevLogLevel.error);
         return null;
       }
     }

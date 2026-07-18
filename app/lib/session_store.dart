@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+
 /// One file-backed document that was open in the previous session, captured so
 /// the editor can re-open it on the next launch.
 @immutable
@@ -82,8 +84,10 @@ class SessionStore {
           .map((m) => SessionDocument.fromJson(m.cast<String, dynamic>()))
           .where((d) => d.readPath != null)
           .toList();
-    } catch (_) {
+    } catch (e) {
       // No storage (tests) - keep whatever is already in memory.
+      AppDevTools.instance
+          .addLog('session restore failed: $e', level: DevLogLevel.error);
     }
     return _documents;
   }
@@ -95,8 +99,10 @@ class SessionStore {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           _key, jsonEncode(_documents.map((d) => d.toJson()).toList()));
-    } catch (_) {
+    } catch (e) {
       // No storage - nothing to persist.
+      AppDevTools.instance
+          .addLog('session persist failed: $e', level: DevLogLevel.error);
     }
   }
 }

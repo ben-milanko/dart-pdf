@@ -13,6 +13,7 @@ import 'package:pdf_graphics/pdf_graphics.dart'
         PdfMatrix,
         PdfRenderCommand;
 
+import 'debug_overlays.dart';
 import 'perf_log.dart';
 import 'page_render_session.dart';
 import 'performance_policy.dart';
@@ -438,6 +439,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void initState() {
     super.initState();
+    PdfLivePageRegistry.instance.add(widget.previewIndex);
     _renderSession = PdfPageRenderSession(_renderIntent(widget));
     widget.renderHold?.addListener(_onRenderHoldChanged);
     widget.previewCache?.addListener(_onPreviewCacheChanged);
@@ -552,6 +554,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       liveTransform?.addListener(_onLiveTransformChanged);
     }
     if (oldWidget.previewIndex != widget.previewIndex) {
+      PdfLivePageRegistry.instance
+          .move(oldWidget.previewIndex, widget.previewIndex);
       // The lazy list reused this State for a different page (it scrolled into
       // this slot): cancel the old page's queued worker request - the user
       // scrolled past it, so decoding it now would only delay the page now on
@@ -616,6 +620,7 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   @override
   void dispose() {
+    PdfLivePageRegistry.instance.remove(widget.previewIndex);
     widget.renderHold?.removeListener(_onRenderHoldChanged);
     _liveTransformFor(widget)?.removeListener(_onLiveTransformChanged);
     _speculateTimer?.cancel();
@@ -2271,11 +2276,27 @@ class _PdfPageViewState extends State<PdfPageView> {
                       top: fraction.top * h,
                       width: fraction.width * w,
                       height: fraction.height * h,
-                      child: RawImage(
-                        key: const ValueKey('pdf-page-detail-image'),
-                        image: detail,
-                        fit: BoxFit.fill,
-                        filterQuality: FilterQuality.medium,
+                      // The debug border repaints on toggle without a page
+                      // rebuild (the flag is a ValueNotifier).
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: pdfDebugPaintDetailBounds,
+                        child: RawImage(
+                          key: const ValueKey('pdf-page-detail-image'),
+                          image: detail,
+                          fit: BoxFit.fill,
+                          filterQuality: FilterQuality.medium,
+                        ),
+                        builder: (context, debugBounds, child) => !debugBounds
+                            ? child!
+                            : DecoratedBox(
+                                position: DecorationPosition.foreground,
+                                decoration: BoxDecoration(
+                                  // purple: the legacy single detail patch
+                                  border: Border.all(
+                                      color: const Color(0xAAAA00FF)),
+                                ),
+                                child: child,
+                              ),
                       ),
                     ),
                 ],

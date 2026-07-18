@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+
 /// One entry in the "recent documents" list shown on the welcome screen.
 @immutable
 class RecentFile {
@@ -98,8 +100,10 @@ class RecentsStore extends ChangeNotifier {
             .map((m) => RecentFile.fromJson(m.cast<String, dynamic>())));
       _sort();
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
       // No storage (tests) - keep the in-memory list.
+      AppDevTools.instance
+          .addLog('recents load failed: $e', level: DevLogLevel.error);
     }
   }
 
@@ -142,8 +146,10 @@ class RecentsStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           _key, jsonEncode(_items.map((e) => e.toJson()).toList()));
-    } catch (_) {
+    } catch (e) {
       // No storage - nothing to persist.
+      AppDevTools.instance
+          .addLog('recents persist failed: $e', level: DevLogLevel.error);
     }
   }
 }

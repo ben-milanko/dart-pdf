@@ -4,6 +4,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'devtools.dart';
 import 'editor_screen.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
@@ -33,6 +34,8 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   void initState() {
     super.initState();
+    // Log/frame-timing capture for the F12 developer tools (debug/profile).
+    if (!kReleaseMode) AppDevTools.instance.install();
     // A small pool gives heavy CAD/image pages real overlap without multiplying
     // document memory too far. Mobile-class targets get a lower default; the
     // perf harness is allowed to be more aggressive.
@@ -42,6 +45,19 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
       TargetPlatform.fuchsia =>
         2,
       _ => 3,
+    };
+    // Proactive process-level ceiling across the viewer's budgeted caches
+    // (decoded images 256 MB + render records + previews + thumbnails + tiles
+    // can sum past 600 MB, and desktop OSes deliver the memory-pressure signal
+    // that used to be the only trim too late, if at all - see the 2026-07-18
+    // memory audit). The split between the ceiling and the per-cache budgets
+    // is heuristic pending a re-run of benchmark_image_cache_budget_test.
+    PdfCacheRegistry.instance.maxTotalWeight = switch (defaultTargetPlatform) {
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.fuchsia =>
+        192 << 20,
+      _ => 384 << 20,
     };
     // Offer the host's installed fonts in the editor's font menu by default.
     // Fire-and-forget: the registry is read when a font menu opens, and an
@@ -53,8 +69,10 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   Future<void> _loadPlatformFonts() async {
     try {
       pdfPlatformFonts = await loadPlatformFonts();
-    } catch (_) {
+    } catch (e) {
       // Font discovery is best-effort; the menu degrades to its other choices.
+      AppDevTools.instance
+          .addLog('platform font discovery failed: $e', level: DevLogLevel.error);
     }
   }
 
@@ -67,9 +85,12 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _prefs,
+      listenable: Listenable.merge(
+          [_prefs, AppDevTools.instance.showPerformanceOverlay]),
       builder: (context, _) => MaterialApp(
         title: 'DartPDF',
+        showPerformanceOverlay:
+            AppDevTools.instance.showPerformanceOverlay.value,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
         darkTheme: ThemeData(
           colorSchemeSeed: Colors.indigo,
