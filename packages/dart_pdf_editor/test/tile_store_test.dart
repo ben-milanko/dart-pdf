@@ -343,6 +343,139 @@ void main() {
     });
   });
 
+  group('PdfTileStore budget-fit guard (#314/#360)', () {
+    test('budgetTileCapacity is the byte budget counted in whole tiles', () {
+      final store = PdfTileStore(
+        tilePixels: 512, // 512² × 4 = 1 MB per tile
+        maxBytes: 8 << 20, // 8 MB → 8 tiles
+        registerForMemoryPressure: false,
+      );
+      expect(store.budgetTileCapacity, 8);
+      store.dispose();
+    });
+
+    test('viewFitsBudget rejects a view whose visible set overruns the budget',
+        () {
+      // 8-tile budget; the fit threshold is 75% → up to 6 visible tiles tile.
+      final store = PdfTileStore(
+        tilePixels: 512,
+        maxBytes: 8 << 20,
+        ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+        registerForMemoryPressure: false,
+      );
+      // 2×2 = 4 visible tiles ≤ 6 → fits.
+      expect(
+        store.viewFitsBudget(
+          pageSize: const Size(1024, 1024),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 1024, 1024),
+        ),
+        isTrue,
+      );
+      // 3×3 = 9 visible tiles > 6 → does not fit (the caller uses the patch).
+      expect(
+        store.viewFitsBudget(
+          pageSize: const Size(1536, 1536),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 1536, 1536),
+        ),
+        isFalse,
+      );
+      store.dispose();
+    });
+
+    test('viewFor drops the prefetch ring when the visible set fills the budget',
+        () {
+      const pageSize = Size(5120, 5120); // 10×10 grid at span 512
+      const window = Rect.fromLTWH(2048, 2048, 1536, 1536); // centre 3×3 = 9
+      final raster = _Rasterizer(tileSize: 512);
+
+      // Ample budget → the full 5×5 ring around the 3×3 window is scheduled.
+      final roomy = PdfTileStore(
+        tilePixels: 512,
+        prefetchRing: 1,
+        maxBytes: 128 << 20, // 128 tiles
+        ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+        batchRasters: false,
+        registerForMemoryPressure: false,
+      );
+      roomy.viewFor(
+        id: _id(0),
+        pageSize: pageSize,
+        desiredRatio: 1.0,
+        visiblePageRect: window,
+        rasterize: raster.call,
+      );
+      expect(roomy.inFlightCount, 25, reason: '3×3 visible + full 5×5 ring');
+      roomy.dispose();
+
+      // Budget exactly the visible set → no headroom, ring fully dropped.
+      final tight = PdfTileStore(
+        tilePixels: 512,
+        prefetchRing: 1,
+        maxBytes: 9 << 20, // 9 tiles = the visible 3×3 exactly
+        ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+        batchRasters: false,
+        registerForMemoryPressure: false,
+      );
+      tight.viewFor(
+        id: _id(0),
+        pageSize: pageSize,
+        desiredRatio: 1.0,
+        visiblePageRect: window,
+        rasterize: raster.call,
+      );
+      expect(tight.inFlightCount, 9, reason: 'ring dropped: visible tiles only');
+      tight.dispose();
+    });
+
+    testWidgets('a budget-tight static view converges - no eviction thrash',
+        (tester) async {
+      await tester.runAsync(() async {
+        const pageSize = Size(5120, 5120);
+        const window = Rect.fromLTWH(2048, 2048, 1536, 1536); // 3×3 = 9
+        final raster = _Rasterizer(tileSize: 512);
+        final store = PdfTileStore(
+          tilePixels: 512,
+          prefetchRing: 1,
+          maxBytes: 9 << 20, // holds exactly the 9 visible tiles
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+
+        PdfTileView view() => store.viewFor(
+              id: _id(0),
+              pageSize: pageSize,
+              desiredRatio: 1.0,
+              visiblePageRect: window,
+              rasterize: raster.call,
+            );
+
+        view();
+        await raster.flush();
+        expect(store.tileCount, 9);
+        expect(store.debugTilesLanded, 9);
+        final scheduledAfterFirst = store.debugTilesScheduled;
+        expect(scheduledAfterFirst, 9, reason: 'ring dropped, visible only');
+
+        // Re-run the identical static view several times (the repaint-tick
+        // loop). A thrashing store re-schedules evicted tiles every pass; a
+        // healthy one composites the cached tiles and schedules nothing new.
+        for (var i = 0; i < 4; i++) {
+          final v = view();
+          expect(v.complete, isTrue);
+          await raster.flush();
+        }
+        expect(store.debugTilesScheduled, scheduledAfterFirst,
+            reason: 'static view schedules nothing further - no thrash');
+        expect(store.debugTilesDiscarded, 0);
+        expect(store.tileCount, 9);
+        store.dispose();
+      });
+    });
+  });
+
   group('PdfTileStore budget & lifecycle', () {
     testWidgets('stays under the byte budget as tiles land', (tester) async {
       await tester.runAsync(() async {

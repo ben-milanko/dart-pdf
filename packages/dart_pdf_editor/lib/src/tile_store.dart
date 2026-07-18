@@ -321,6 +321,87 @@ class PdfTileStore extends ChangeNotifier {
               (fraction: tile.pageFraction, rung: tile.rung),
       ];
 
+  /// Bytes a full tile occupies (edge tiles are clamped smaller, so this
+  /// over-counts): the unit the weight budget is measured in.
+  int get _fullTileBytes => tilePixels * tilePixels * 4;
+
+  /// How many full tiles the current weight budget holds. [viewFor] keeps one
+  /// pass's resident set under this so the LRU never evicts a tile the live
+  /// view still needs - the eviction thrash issues #314/#360 hit on dense,
+  /// many-tile views (a HiDPI viewport whose visible+ring set overran the
+  /// budget re-rastered on every repaint tick, flickering even when static).
+  int get budgetTileCapacity => math.max(1, maxBytes ~/ _fullTileBytes);
+
+  /// A single view may claim at most this fraction of [budgetTileCapacity] and
+  /// still be tiled; the remainder is headroom for coarser fallback tiles, edge
+  /// under-fill, and a margin against eviction. Beyond it the caller falls back
+  /// to the single detail patch (see [viewFitsBudget]).
+  static const _budgetFitFraction = 0.75;
+
+  /// The exact-bucket tile grid one [viewFor] pass touches for this view: the
+  /// rung [desiredRatio] snaps to, its ratio and page-point tile [span], the
+  /// full page grid dims, and the visible tile range. Null when the view is
+  /// degenerate. Shared by [viewFor] and [viewFitsBudget] so the fit test and
+  /// the scheduler count exactly the same tiles.
+  ({
+    int rung,
+    double ratio,
+    double span,
+    int nx,
+    int ny,
+    int tx0,
+    int ty0,
+    int tx1,
+    int ty1,
+  })? _tileGrid(Size pageSize, double desiredRatio, Rect visiblePageRect) {
+    if (pageSize.width <= 0 ||
+        pageSize.height <= 0 ||
+        visiblePageRect.isEmpty) {
+      return null;
+    }
+    final rung = ladder.rungFor(desiredRatio);
+    final ratio = ladder.ratioFor(rung);
+    final span = tilePixels / ratio; // page points per tile side
+    if (!span.isFinite || span <= 0) return null;
+    final nx = math.max(1, (pageSize.width / span).ceil());
+    final ny = math.max(1, (pageSize.height / span).ceil());
+    final visible = visiblePageRect.intersect(Offset.zero & pageSize);
+    if (visible.isEmpty) return null;
+    final tx0 = (visible.left / span).floor().clamp(0, nx - 1);
+    final ty0 = (visible.top / span).floor().clamp(0, ny - 1);
+    final tx1 = ((visible.right / span).ceil() - 1).clamp(0, nx - 1);
+    final ty1 = ((visible.bottom / span).ceil() - 1).clamp(0, ny - 1);
+    return (
+      rung: rung,
+      ratio: ratio,
+      span: span,
+      nx: nx,
+      ny: ny,
+      tx0: tx0,
+      ty0: ty0,
+      tx1: tx1,
+      ty1: ty1,
+    );
+  }
+
+  /// Whether tiling this view fits the weight budget with margin - so a
+  /// [viewFor] pass will not thrash the shared LRU. Counts the visible
+  /// exact-bucket tiles only (the prefetch ring is dropped under pressure
+  /// inside [viewFor]); false means the caller should use the single detail
+  /// patch instead, which covers an arbitrarily large view in one raster
+  /// without evicting the pyramid. The page view consults this before it
+  /// engages the tile layer.
+  bool viewFitsBudget({
+    required Size pageSize,
+    required double desiredRatio,
+    required Rect visiblePageRect,
+  }) {
+    final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
+    if (grid == null) return false;
+    final visible = (grid.tx1 - grid.tx0 + 1) * (grid.ty1 - grid.ty0 + 1);
+    return visible <= (budgetTileCapacity * _budgetFitFraction).floor();
+  }
+
   /// The best-available composite for [id] over [visiblePageRect] (page points)
   /// at [desiredRatio], scheduling the missing exact-bucket tiles (center-out)
   /// plus a one-tile prefetch ring. Missing tiles fall back per-tile to the
@@ -347,30 +428,23 @@ class PdfTileStore extends ChangeNotifier {
     required PdfTileRasterizer rasterize,
     bool Function(Rect region)? canRasterize,
   }) {
-    if (_disposed ||
-        pageSize.width <= 0 ||
-        pageSize.height <= 0 ||
-        visiblePageRect.isEmpty) {
-      return PdfTileView.empty;
-    }
-
-    final rung = ladder.rungFor(desiredRatio);
-    final ratio = ladder.ratioFor(rung);
-    final span = tilePixels / ratio; // page points per tile side
-    if (!span.isFinite || span <= 0) return PdfTileView.empty;
-
-    final nx = math.max(1, (pageSize.width / span).ceil());
-    final ny = math.max(1, (pageSize.height / span).ceil());
-
-    final visible = visiblePageRect.intersect(Offset.zero & pageSize);
-    if (visible.isEmpty) return PdfTileView.empty;
-
-    final tx0 = (visible.left / span).floor().clamp(0, nx - 1);
-    final ty0 = (visible.top / span).floor().clamp(0, ny - 1);
-    final tx1 = ((visible.right / span).ceil() - 1).clamp(0, nx - 1);
-    final ty1 = ((visible.bottom / span).ceil() - 1).clamp(0, ny - 1);
+    if (_disposed) return PdfTileView.empty;
+    final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
+    if (grid == null) return PdfTileView.empty;
+    final rung = grid.rung;
+    final ratio = grid.ratio;
+    final span = grid.span;
+    final nx = grid.nx;
+    final ny = grid.ny;
+    final tx0 = grid.tx0;
+    final ty0 = grid.ty0;
+    final tx1 = grid.tx1;
+    final ty1 = grid.ty1;
 
     // Center-out ordering: the tile under the viewport center sharpens first.
+    // (_tileGrid guaranteed a non-empty intersection, so recomputing the
+    // clipped visible rect for its center is safe.)
+    final visible = visiblePageRect.intersect(Offset.zero & pageSize);
     final cx = (visible.center.dx / span);
     final cy = (visible.center.dy / span);
     final coords = <(int, int)>[];
@@ -411,17 +485,28 @@ class PdfTileStore extends ChangeNotifier {
 
     // Prefetch ring: pre-raster the border just outside the visible range so a
     // pan reveals ready tiles. Scheduled after the visible tiles (which matter
-    // now); dedup keeps a hovering viewport from re-queueing.
+    // now); dedup keeps a hovering viewport from re-queueing. Capped to the
+    // budget headroom left after the visible set, so a large view never
+    // schedules more tiles than the LRU can hold - which would evict this
+    // view's own tiles and re-raster them on every repaint (issues #314/#360).
+    // A view whose visible set already fills the budget gets no ring; the page
+    // view falls back to the single patch before a view gets that dense.
     if (prefetchRing > 0) {
-      final rx0 = math.max(0, tx0 - prefetchRing);
-      final ry0 = math.max(0, ty0 - prefetchRing);
-      final rx1 = math.min(nx - 1, tx1 + prefetchRing);
-      final ry1 = math.min(ny - 1, ty1 + prefetchRing);
-      for (var ty = ry0; ty <= ry1; ty++) {
-        for (var tx = rx0; tx <= rx1; tx++) {
-          if (tx >= tx0 && tx <= tx1 && ty >= ty0 && ty <= ty1) continue;
-          _schedule(PdfTileKey(id, rung, tx, ty), id, pageSize, span, ratio,
-              rasterize, pending, canRasterize);
+      final visibleCount = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
+      var ringHeadroom = budgetTileCapacity - visibleCount;
+      if (ringHeadroom > 0) {
+        final rx0 = math.max(0, tx0 - prefetchRing);
+        final ry0 = math.max(0, ty0 - prefetchRing);
+        final rx1 = math.min(nx - 1, tx1 + prefetchRing);
+        final ry1 = math.min(ny - 1, ty1 + prefetchRing);
+        ring:
+        for (var ty = ry0; ty <= ry1; ty++) {
+          for (var tx = rx0; tx <= rx1; tx++) {
+            if (tx >= tx0 && tx <= tx1 && ty >= ty0 && ty <= ty1) continue;
+            if (ringHeadroom-- <= 0) break ring;
+            _schedule(PdfTileKey(id, rung, tx, ty), id, pageSize, span, ratio,
+                rasterize, pending, canRasterize);
+          }
         }
       }
     }

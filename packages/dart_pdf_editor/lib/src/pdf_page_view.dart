@@ -313,9 +313,9 @@ class PdfPageView extends StatefulWidget {
   /// Additive to the existing pipeline: the tile layer sits ABOVE the base
   /// raster, so a gap not yet tiled shows the (capped) base image through it,
   /// and pages the region index cannot cull (soft-mask/group spans) keep the
-  /// legacy single-patch path. Defaults per platform
-  /// ([pdfDefaultTileStoreDetail], issue #314): on for desktop, off for
-  /// web/mobile pending their own validation passes.
+  /// legacy single-patch path. On by default on every platform
+  /// ([pdfDefaultTileStoreDetail], issues #314/#360) now the budget-vs-demand
+  /// guard keeps a dense view from thrashing the shared pyramid.
   static bool tileStoreDetail = pdfDefaultTileStoreDetail();
 
   /// Test seam: the store the tile layer draws from. Null uses the shared
@@ -1465,9 +1465,12 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (_renderPaused) return false;
 
     // The tile pyramid supplies deep-zoom detail instead of the single patch:
-    // just refresh the visible slice and let the tile layer schedule/composite.
-    if (_useTilePath) {
-      _refreshTileGeometry();
+    // refresh the visible slice and let the tile layer schedule/composite. When
+    // the view is too dense to tile within the pyramid budget,
+    // _refreshTileGeometry returns false and we fall through to the single-patch
+    // path below, which covers an arbitrarily large region in one raster
+    // without thrashing the shared pyramid (issues #314/#360).
+    if (_useTilePath && _refreshTileGeometry()) {
       return true;
     }
 
@@ -1836,18 +1839,34 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// so the painter's identity check doesn't see a fresh closure every build.
   bool Function(Rect region)? _tileCanRasterize;
 
-  /// Recomputes the tile layer's visible slice + desired ratio on a settle.
-  /// Runs post-render (never during layout), so reading the render tree in
-  /// [_detailGeometryAt] is safe; `build` reads the stored fields.
-  void _refreshTileGeometry() {
-    if (!mounted) return;
+  /// Pan-ahead guard band for the tile path's visible slice, as a fraction of
+  /// the viewport per side. Zero: the pyramid's prefetch ring already
+  /// pre-rasters the border, so - unlike the single patch - the tile slice
+  /// needs no inflation, and inheriting the patch's 50% band only quadrupled
+  /// the working set past the tile budget (issues #314/#360).
+  static const _tileInflation = 0.0;
+
+  /// Recomputes the tile layer's visible slice + desired ratio on a settle and
+  /// reports whether the tile path is handling this view. Runs post-render
+  /// (never during layout), so reading the render tree in [_detailGeometryAt]
+  /// is safe; `build` reads the stored fields.
+  ///
+  /// Returns false when the caller should fall back to the single detail patch:
+  /// either the base raster is already sharp ([_detailGeometryAt] null - tiles
+  /// add nothing) or the view is too dense to tile within the pyramid budget
+  /// ([PdfTileStore.viewFitsBudget]), where tiling would thrash the shared LRU.
+  bool _refreshTileGeometry() {
+    if (!mounted) return false;
     Rect? fraction;
     double? desired;
+    var tiling = false;
     if (_useTilePath) {
-      // _detailGeometryAt returns null when the base raster is already sharp
-      // enough (desired <= effective) - exactly when tiles add nothing.
-      fraction = _detailGeometryAt(widget.scale)?.fraction;
-      if (fraction != null) desired = _desiredRatioAt(widget.scale);
+      final geom = _detailGeometryAt(widget.scale, inflation: _tileInflation);
+      if (geom != null && _tilesFitBudget(geom.fraction)) {
+        fraction = geom.fraction;
+        desired = _desiredRatioAt(widget.scale);
+        tiling = true;
+      }
     }
     if (fraction != _tileFraction || desired != _tileDesiredRatio) {
       setState(() {
@@ -1855,6 +1874,26 @@ class _PdfPageViewState extends State<PdfPageView> {
         _tileDesiredRatio = desired;
       });
     }
+    return tiling;
+  }
+
+  /// Whether the shared tile store can hold [fraction]'s tiles at the current
+  /// zoom without evicting them out from under the view that just asked for
+  /// them - see [PdfTileStore.viewFitsBudget].
+  bool _tilesFitBudget(Rect fraction) {
+    final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    final size = _renderPlan.pageSize(widget.page);
+    if (size.width <= 0 || size.height <= 0) return false;
+    return store.viewFitsBudget(
+      pageSize: size,
+      desiredRatio: _desiredRatioAt(widget.scale),
+      visiblePageRect: Rect.fromLTRB(
+        fraction.left * size.width,
+        fraction.top * size.height,
+        fraction.right * size.width,
+        fraction.bottom * size.height,
+      ),
+    );
   }
 
   /// The [PdfTileStore] deep-zoom composite for this page, or null when the
