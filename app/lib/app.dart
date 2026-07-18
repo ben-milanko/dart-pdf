@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'devtools.dart';
+import 'document_tab.dart';
 import 'editor_screen.dart';
 import 'keyless_signing.dart';
 import 'oidc_signin.dart';
@@ -97,13 +98,16 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   /// app's preferences. [context] must belong to a currently open window (any
   /// one works) so the new window joins the same registry. A no-op when
   /// windowing isn't available.
-  void _openNewWindow(BuildContext context) {
+  void _openNewWindow(BuildContext context, {DocumentHandoff? document}) {
     openRegularWindow(
       context,
       title: 'DartPDF',
       builder: (context) => _DartPdfWindow(
         prefs: _prefs,
         onNewWindow: _openNewWindow,
+        // Carries a document when a tab was moved into this new window; null
+        // for a plain "New window".
+        initialHandoff: document,
         // Share the same signing login across every window (see build()).
         oidcTokenProvider: _oidcTokenProvider?.call,
         oidcSilentTokenProvider: _oidcTokenProvider == null
@@ -146,6 +150,7 @@ class _DartPdfWindow extends StatelessWidget {
     this.launchArgs = const [],
     this.autoCheckUpdates = false,
     this.onNewWindow,
+    this.initialHandoff,
     this.oidcTokenProvider,
     this.oidcSilentTokenProvider,
     this.persistSession = true,
@@ -156,14 +161,20 @@ class _DartPdfWindow extends StatelessWidget {
   final bool autoCheckUpdates;
   final bool persistSession;
 
+  /// A document moved into this window from another (the "Move to new window"
+  /// tab action); null for the primary window and a plain "New window".
+  final DocumentHandoff? initialHandoff;
+
   /// Keyless signing token providers, forwarded to the [EditorScreen]. Shared
   /// across every window so one signing login is reused everywhere.
   final OidcTokenProvider? oidcTokenProvider;
   final OidcTokenProvider? oidcSilentTokenProvider;
 
   /// Opens another window; null when multi-window support is unavailable, which
-  /// hides the "New window" affordances.
-  final void Function(BuildContext context)? onNewWindow;
+  /// hides the "New window" affordances. A [DocumentHandoff] moves a tab into
+  /// the new window.
+  final void Function(BuildContext context, {DocumentHandoff? document})?
+      onNewWindow;
 
   @override
   Widget build(BuildContext context) {
@@ -186,6 +197,7 @@ class _DartPdfWindow extends StatelessWidget {
           launchArgs: launchArgs,
           autoCheckUpdates: autoCheckUpdates,
           onNewWindow: onNewWindow,
+          initialHandoff: initialHandoff,
           oidcTokenProvider: oidcTokenProvider,
           oidcSilentTokenProvider: oidcSilentTokenProvider,
           persistSession: persistSession,

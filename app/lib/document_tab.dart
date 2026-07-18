@@ -2,6 +2,35 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+/// A snapshot of an open document handed to a freshly-opened window when a tab
+/// is moved out of its window ("Move to new window", experimental
+/// multi-window). Carries the current revision's [bytes] plus the file identity
+/// so the moved document keeps its origin - Save in the new window still
+/// targets the same file - and a [dirty] document stays dirty. Undo history and
+/// viewport do **not** cross the window boundary: the receiving window opens a
+/// fresh [DocumentTab.document] at the moved revision.
+@immutable
+class DocumentHandoff {
+  const DocumentHandoff({
+    required this.bytes,
+    required this.title,
+    this.originPath,
+    this.originBookmark,
+    this.cachePath,
+    this.dirty = false,
+  });
+
+  final Uint8List bytes;
+  final String title;
+  final String? originPath;
+  final String? originBookmark;
+  final String? cachePath;
+
+  /// Whether the source tab had unsaved edits, so the moved tab shows the dirty
+  /// indicator and warns on close.
+  final bool dirty;
+}
+
 /// One open document. Holds its own edit session and viewer controller so
 /// switching tabs preserves edits, undo history, and scroll position.
 ///

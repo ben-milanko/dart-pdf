@@ -87,6 +87,37 @@ fvm flutter run -d macos \
   secondary windows remain (no `exit(0)` override — kept out to stay
   `dart:io`-free and web-safe).
 
+## "Move to new window" (tab tear-off)
+
+The tab context menu gains **Move to new window** (shown only when
+`onNewWindow != null`, i.e. windowing is enabled, and the tab holds a live
+session). It hands the document to a fresh window and removes it here:
+
+- `DocumentHandoff` (`document_tab.dart`) is the payload: the current
+  revision's bytes (defensively copied so disposing the source session can't
+  disturb them), title, and file identity (`originPath` / `originBookmark` /
+  `cachePath`) plus a `dirty` flag.
+- `onNewWindow` grew an optional `{DocumentHandoff? document}` — a plain "New
+  window" passes none; the move passes the handoff. `app.dart` forwards it to
+  the receiving window's `EditorScreen` as `initialHandoff`, which opens it as
+  a `DocumentTab.document` (with `initiallyDirty: handoff.dirty`) on startup.
+- Source removal goes through a new `_removeTabs` (the no-prompt core factored
+  out of `_closeTabs`) — no discard dialog, because the content moved rather
+  than being lost.
+
+**Fidelity:** the moved document keeps its content, file origin (Save still
+targets the same file), and dirty indicator. Undo history and viewport do
+**not** cross — the receiving window opens a fresh session at the moved
+revision. That's the inherent limit of moving across an OS window boundary
+without transferring the live controller.
+
+**Why not literal drag-the-tab-out?** Flutter's windowing API has no
+primitive for dragging a widget across native window boundaries (nor for
+querying a window's screen position to detect "dropped outside"), so a true
+Chrome-style tear-off isn't reliably buildable on it yet. The context-menu
+move is the same UX VS Code ships ("Move Editor into New Window"). A
+drag-out gesture could be layered on later if the API grows the hooks.
+
 ## Tests
 
 `app/test/multi_window_test.dart` — the flag is off in the harness (no real
@@ -95,4 +126,7 @@ the `menu-new-window` item appears iff `onNewWindow` is provided and routes
 to it with a live context; ⇧⌘N and Ctrl+Shift+N both fire it (document open +
 viewer focused, the same recipe as the Save-shortcut tests); and a
 `persistSession: false` screen leaves a seeded stored session untouched after
-opening a document. Full app suite stays green (171 → 176 tests).
+opening a document. The move flow adds: the `tab-menu-move-window` item shows
+only with an opener, a move hands off the document (title/bytes, and
+origin/dirty for a file-backed edited tab) and removes the source tab, and an
+`initialHandoff` opens as a tab. Full app suite stays green.

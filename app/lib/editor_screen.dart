@@ -67,6 +67,7 @@ class EditorScreen extends StatefulWidget {
     this.imageClipboardWriter,
     this.imageClipboardReader,
     this.onNewWindow,
+    this.initialHandoff,
     this.persistSession = true,
   });
 
@@ -141,12 +142,20 @@ class EditorScreen extends StatefulWidget {
   final ImageClipboardReader? imageClipboardReader;
 
   /// Opens a fresh editor in a new OS window, called with this screen's own
-  /// [BuildContext] so the new window joins the same window registry. Null
-  /// when multi-window support is unavailable - the app menu then hides the
-  /// "New window" item and the ⇧⌘/Ctrl+Shift+N shortcut is a no-op. Wired by
-  /// the app when Flutter's experimental windowing feature is enabled; see
+  /// [BuildContext] so the new window joins the same window registry. Pass a
+  /// [document] to move a specific tab into the new window (a plain "New window"
+  /// passes none). Null when multi-window support is unavailable - the app menu
+  /// then hides the "New window" item, the tab context menu hides "Move to new
+  /// window", and the ⇧⌘/Ctrl+Shift+N shortcut is a no-op. Wired by the app when
+  /// Flutter's experimental windowing feature is enabled; see
   /// `window_support.dart`.
-  final void Function(BuildContext context)? onNewWindow;
+  final void Function(BuildContext context, {DocumentHandoff? document})?
+      onNewWindow;
+
+  /// A document handed over from another window (the "Move to new window"
+  /// action), opened as a tab on startup. Null for the primary window and a
+  /// plain "New window".
+  final DocumentHandoff? initialHandoff;
 
   /// Whether this screen restores the last session's tabs on launch and
   /// persists tab changes. The primary window owns the single persisted
@@ -224,6 +233,9 @@ class _EditorScreenState extends State<EditorScreen>
     startWebLaunchQueue(_openIncoming);
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    // A tab moved here from another window (experimental multi-window).
+    final handoff = widget.initialHandoff;
+    if (handoff != null) _openHandoff(handoff);
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
     // Additional multi-window instances opt out so they don't reopen (or later
@@ -506,6 +518,28 @@ class _EditorScreenState extends State<EditorScreen>
     AppDevTools.instance
         .addLog('open error: $title - $error', level: DevLogLevel.error);
     _addTab(DocumentTab.error(title: title, error: error));
+  }
+
+  /// Opens a document moved here from another window (experimental
+  /// multi-window). The moved bytes become this window's tab, keeping the file
+  /// origin so Save still targets it and the dirty state so unsaved edits are
+  /// still flagged.
+  void _openHandoff(DocumentHandoff handoff) {
+    _addTab(DocumentTab.document(
+      title: handoff.title,
+      bytes: handoff.bytes,
+      preferences: _prefs,
+      originPath: handoff.originPath,
+      originBookmark: handoff.originBookmark,
+      cachePath: handoff.cachePath,
+      initiallyDirty: handoff.dirty,
+    ));
+    _recents.add(
+      title: handoff.title,
+      path: handoff.originPath,
+      cachePath: handoff.cachePath,
+      bookmark: handoff.originBookmark,
+    );
   }
 
   void _addTab(DocumentTab tab) {
@@ -1387,6 +1421,15 @@ class _EditorScreenState extends State<EditorScreen>
       );
       if (!ok || !mounted) return;
     }
+    _removeTabs(targets);
+  }
+
+  /// Removes [targets] from the strip and disposes them, keeping the previously
+  /// active document active wherever it lands. No discard prompt: callers that
+  /// might lose unsaved edits ([_closeTabs]) confirm first, while a tab moved to
+  /// another window is removed through here directly because its content isn't
+  /// lost.
+  void _removeTabs(List<DocumentTab> targets) {
     final active = _active;
     setState(() {
       for (final tab in targets) {
@@ -1407,6 +1450,30 @@ class _EditorScreenState extends State<EditorScreen>
       }
     });
     unawaited(_persistSession());
+  }
+
+  /// Moves [tab]'s document into a fresh window (experimental multi-window) and
+  /// removes it here. The current revision, title, and file origin travel, so
+  /// Save in the new window still targets the same file and a dirty document
+  /// stays dirty; undo history and viewport do not cross the window boundary. A
+  /// no-op unless the tab holds a live session and windowing is available.
+  void _moveTabToNewWindow(DocumentTab tab) {
+    final open = widget.onNewWindow;
+    final session = tab.session;
+    if (open == null || session == null) return;
+    open(
+      context,
+      document: DocumentHandoff(
+        // Copy so disposing this tab's session can't disturb the moved bytes.
+        bytes: Uint8List.fromList(session.bytes),
+        title: tab.title,
+        originPath: tab.originPath,
+        originBookmark: tab.originBookmark,
+        cachePath: tab.cachePath,
+        dirty: tab.isDirty,
+      ),
+    );
+    _removeTabs([tab]);
   }
 
   /// Opens the right-click context menu for the tab at [index] at [position]
@@ -1430,6 +1497,15 @@ class _EditorScreenState extends State<EditorScreen>
             height: _appMenuItemHeight(),
             value: _TabMenuAction.openFolder,
             child: Text(openContainingFolderLabel),
+          ),
+          const PopupMenuDivider(),
+        ],
+        if (widget.onNewWindow != null && tab.session != null) ...[
+          PopupMenuItem(
+            key: const ValueKey('tab-menu-move-window'),
+            height: _appMenuItemHeight(),
+            value: _TabMenuAction.moveToNewWindow,
+            child: const Text('Move to new window'),
           ),
           const PopupMenuDivider(),
         ],
@@ -1471,6 +1547,8 @@ class _EditorScreenState extends State<EditorScreen>
       case _TabMenuAction.openFolder:
         final opened = await openContainingFolder(tab.originPath);
         if (!opened && mounted) _toast('Could not open containing folder');
+      case _TabMenuAction.moveToNewWindow:
+        _moveTabToNewWindow(tab);
       case _TabMenuAction.close:
         await _closeTabs([tab]);
       case _TabMenuAction.closeOthers:
@@ -2843,7 +2921,14 @@ class _ProgressivePreview extends StatelessWidget {
 }
 
 /// The actions offered by a tab's right-click context menu.
-enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
+enum _TabMenuAction {
+  openFolder,
+  moveToNewWindow,
+  close,
+  closeOthers,
+  closeRight,
+  closeAll
+}
 
 /// Shows a non-interactive thumbnail card for an inactive desktop tab after a
 /// short hover. This uses a plain [OverlayEntry], not an OverlayPortal: the tab
