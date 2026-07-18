@@ -21,7 +21,7 @@ phases/counters, off by default (one branch when compiled in;
 `tool/check_perf_dce.sh`). `PdfPerfLog.enabled = true` lights up the whole
 stack. Never allocate a Stopwatch in lib/ code - use
 `PdfPerf.begin()/end()`. Results use the envelope schema
-(`tool/perf/SCHEMA.md`); scenarios in `tool/perf/scenarios.json`; Bluebeam
+(`tool/perf/SCHEMA.md`); scenarios in `tool/perf/scenarios.json`; perf
 budget targets in `tool/perf/targets.json`. Per-PR CI runs the
 deterministic counter gate (`tool/perf.sh gate`, baseline
 `tool/perf/baselines/counters.json` — re-baseline deliberately with

@@ -170,7 +170,7 @@ const tiles = [];
     tiles.push(tile('Open vs PDFium', 'ghent, p50, higher is better',
       ratio, 'x faster', null, { betterLow: false, digits: 1 }));
   }
-  // Bluebeam budgets: pass count across every scenario with targets + data.
+  // Perf budgets: pass count across every scenario with targets + data.
   let pass = 0, total = 0;
   for (const [scenario, budgets] of Object.entries(targets)) {
     if (scenario.startsWith('_')) continue;
@@ -185,7 +185,7 @@ const tiles = [];
   }
   if (total > 0) {
     tiles.push(`<div class="tile">
-      <div class="tile-label">Bluebeam budgets</div>
+      <div class="tile-label">Perf budgets</div>
       <div class="tile-value ${pass === total ? 'all-pass' : ''}">${pass}<span class="tile-unit">/ ${total} green</span></div>
       <div class="tile-note">targets.json, aspirational</div>
     </div>`);
@@ -337,7 +337,7 @@ const html = `<!doctype html>
   <h1>dart-pdf perf trends</h1>
   <p class="meta">Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC ·
     ${runs.length} runs on record · budgets from tool/perf/targets.json
-    (aspirational Bluebeam-level marks, never PR gates)</p>
+    (aspirational targets, never PR gates)</p>
   ${tilesHtml}
   ${sections}
 </div>

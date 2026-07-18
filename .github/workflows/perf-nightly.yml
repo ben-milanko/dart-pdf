@@ -1,4 +1,4 @@
-# Nightly perf trend run (issue: Bluebeam-level performance push).
+# Nightly perf trend run (the long-term performance push).
 #
 # Wall-time numbers from a shared runner are only comparable within one job,
 # so regressions are judged by the BASELINE-RERUN RATIO CHECK: the previous

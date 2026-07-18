@@ -1,5 +1,5 @@
 {
-  "_comment": "Aspirational Bluebeam-Revu-level budgets per scenario. Trend markers on the nightly dashboard and `diff.dart --targets` - NEVER PR gates. Times in ms unless the key says Bytes.",
+  "_comment": "Aspirational per-scenario perf budgets. Trend markers on the nightly dashboard and `diff.dart --targets` - NEVER PR gates. Times in ms unless the key says Bytes.",
   "cad-138p-sweep": {
     "p50OpenMs": { "max": 400 },
     "p50FirstPageMs": { "max": 800 },

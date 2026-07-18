@@ -1,6 +1,6 @@
 # 2026-07-18 — Performance tooling suite (zero-cost instrumentation + capture/compare/trend)
 
-Groundwork for the Bluebeam-level performance push: the render path was
+Groundwork for the long-term performance push: the render path was
 already well-instrumented (PdfPerfLog, PdfRenderTrace + gate, the Chrome
 loop, the pdfium harness — perf issues #213–#219/#306 all closed), but
 nothing below `dart_pdf_editor` was timed, no run was comparable to any
@@ -88,7 +88,7 @@ Hard constraint honored throughout: **zero impact on regular API users**.
   → serve from `perf-data`.
 - **Dashboard** (`tool/perf/report/build_report.mjs`, zero-dep node):
   static index.html, inline SVG trend charts per scenario×metric, budget
-  lines + PASS/MISS vs `tool/perf/targets.json` (the Bluebeam ambition made
+  lines + PASS/MISS vs `tool/perf/targets.json` (the perf ambition made
   checkable — never a PR gate), per-point commit tooltips, light+dark.
 - pdfium harness gained `--first-page` (open→page-0 rendered, the Revu
   time-to-first-paint proxy) and `--save` (FPDF_SaveAsCopy) — opt-in flags
