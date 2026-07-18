@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dart-pdf perf trends</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e;
+    --series-1: #2a78d6; --grid: #52514e33; --budget: #e34948;
+    --pass: #008300; --fail: #e34948; --card: #f2f1ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
+      --series-1: #3987e5; --grid: #c3c2b733; --budget: #e66767;
+      --pass: #7fbf7f; --fail: #e66767; --card: #242423;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
+    --series-1: #3987e5; --grid: #c3c2b733; --budget: #e66767;
+    --pass: #7fbf7f; --fail: #e66767; --card: #242423;
+  }
+  body { margin: 0; }
+  .viz-root { background: var(--surface-1); color: var(--text-primary);
+    font: 14px/1.5 system-ui, sans-serif; padding: 24px; min-height: 100vh; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 28px 0 2px; }
+  .meta { color: var(--text-secondary); margin: 0 0 10px; font-size: 12.5px; }
+  .charts { display: flex; flex-wrap: wrap; gap: 12px; }
+  .chart { margin: 0; background: var(--card); border-radius: 8px;
+    padding: 10px 12px; width: 320px; }
+  .chart figcaption { font-size: 12.5px; color: var(--text-secondary);
+    display: flex; justify-content: space-between; gap: 8px; }
+  .chart .last { color: var(--text-primary); font-weight: 600;
+    font-variant-numeric: tabular-nums; }
+  .chart .verdict { font-weight: 400; font-size: 11.5px; }
+  .chart.miss .verdict { color: var(--fail); }
+  .chart:not(.miss) .verdict { color: var(--pass); }
+  svg { display: block; width: 100%; height: auto; }
+  .line { fill: none; stroke: var(--series-1); stroke-width: 2;
+    stroke-linejoin: round; stroke-linecap: round; }
+  .dot { fill: var(--series-1); }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .budget { stroke: var(--budget); stroke-width: 1; stroke-dasharray: 4 3; }
+  .axis { fill: var(--text-secondary); font-size: 9px; }
+  .hit { fill: transparent; }
+  .hit:hover { fill: var(--series-1); fill-opacity: 0.25; }
+  details { margin: 10px 0 0; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: 12.5px; }
+  table { border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 3px 14px 3px 0;
+    border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th { color: var(--text-secondary); font-weight: 500; }
+  td.pass { color: var(--pass); } td.fail { color: var(--fail); }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <h1>dart-pdf perf trends</h1>
+  <p class="meta">Generated 2026-07-18 01:27 UTC ·
+    1 runs on record · budgets from tool/perf/targets.json
+    (aspirational Bluebeam-level marks, never PR gates)</p>
+  <p class="meta">No history yet. Run <code>tool/perf.sh sweep &lt;scenario&gt;</code> to record the first envelope.</p>
+</div>
+</body>
+</html>
