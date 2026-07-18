@@ -9,13 +9,26 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:ui' show FramePhase;
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'devtools_memory_stub.dart'
     if (dart.library.io) 'devtools_memory_io.dart' as memory;
+
+/// Whether the developer tools (F12 panel, capture hooks, option restore)
+/// are enabled in this build. On by default in EVERY mode, release included -
+/// the tools are the user's own metrics and logs, and release is where real
+/// performance questions live. A store/CI build that wants them gone passes
+/// `--dart-define=DEVTOOLS=false`, which also lets the tree-shaker drop the
+/// panel. Debug-engine-only toggles (repaint rainbow) and profile-only ones
+/// (performance overlay) stay additionally gated inside the panel.
+const bool kDevToolsEnabled =
+    bool.fromEnvironment('DEVTOOLS', defaultValue: true);
 
 /// One captured log line.
 class DevLogEntry {
@@ -169,6 +182,98 @@ class AppDevTools extends ChangeNotifier {
 
   /// RSS high-water mark, null on the web.
   int? get maxRssBytes => memory.maxRssBytes();
+
+  // --- deep-zoom detail mode (shared by the panel and option restore) -------
+
+  static const modePatch = 'patch';
+  static const modeTiles = 'tiles (per-tile)';
+  static const modeBatched = 'tiles (batched)';
+
+  /// The active deep-zoom detail mechanism (#314 experiment switch).
+  String get deepZoomMode {
+    if (!PdfPageView.tileStoreDetail) return modePatch;
+    final store = PdfPageView.debugTileStoreOverride;
+    return (store?.batchRasters ?? true) ? modeBatched : modeTiles;
+  }
+
+  /// Applies [mode], swapping the tile store via the debug override seam.
+  /// Takes effect from the next zoom or pan settle.
+  void setDeepZoomMode(String mode) {
+    if (mode == deepZoomMode) return;
+    final old = PdfPageView.debugTileStoreOverride;
+    switch (mode) {
+      case modePatch:
+        PdfPageView.tileStoreDetail = false;
+        PdfPageView.debugTileStoreOverride = null;
+      case modeTiles:
+        PdfPageView.tileStoreDetail = true;
+        PdfPageView.debugTileStoreOverride = PdfTileStore(batchRasters: false);
+      case modeBatched:
+        PdfPageView.tileStoreDetail = true;
+        PdfPageView.debugTileStoreOverride = PdfTileStore();
+      default:
+        return;
+    }
+    // Free the previous pyramid's tiles but keep its notifier alive: a
+    // mounted PdfTileLayer may still listen until the next rebuild.
+    old?.invalidate();
+    addLog('devtools: deep-zoom detail → $mode');
+  }
+
+  // --- option persistence ---------------------------------------------------
+
+  static const _optionsKey = 'devtools.options';
+
+  /// Restores persisted devtools options. Call once at app start, after the
+  /// platform defaults are set (the persisted values override them). A pool
+  /// spawned before this async load completes just uses the default size
+  /// until its next respawn.
+  Future<void> restoreOptions() async {
+    try {
+      final raw = (await SharedPreferences.getInstance()).getString(_optionsKey);
+      if (raw == null) return;
+      final map = jsonDecode(raw);
+      if (map is! Map) return;
+      if (map['deepZoomMode'] case final String mode) {
+        setDeepZoomMode(mode);
+      }
+      if (map['tileBorders'] case final bool v) {
+        pdfDebugPaintDetailBounds.value = v;
+      }
+      if (map['renderWindow'] case final bool v) {
+        pdfDebugShowRenderWindow.value = v;
+      }
+      if (map['perfOverlay'] case final bool v) {
+        showPerformanceOverlay.value = v;
+      }
+      if (map['perfLog'] case final bool v) PdfPerfLog.enabled = v;
+      if (map['workers'] case final int v) {
+        pdfRenderWorkerPoolSize = v.clamp(1, 8);
+      }
+      _scheduleNotify();
+    } catch (e) {
+      addLog('devtools options restore failed: $e', level: DevLogLevel.error);
+    }
+  }
+
+  /// Persists the current option set. The panel calls this after each change.
+  Future<void> persistOptions() async {
+    try {
+      await (await SharedPreferences.getInstance()).setString(
+        _optionsKey,
+        jsonEncode({
+          'deepZoomMode': deepZoomMode,
+          'tileBorders': pdfDebugPaintDetailBounds.value,
+          'renderWindow': pdfDebugShowRenderWindow.value,
+          'perfOverlay': showPerformanceOverlay.value,
+          'perfLog': PdfPerfLog.enabled,
+          'workers': pdfRenderWorkerPoolSize,
+        }),
+      );
+    } catch (e) {
+      addLog('devtools options persist failed: $e', level: DevLogLevel.error);
+    }
+  }
 
   /// Throttle bursts (a frame's timings, a multi-line print) to at most one
   /// notification per quarter second, and always notify from a microtask:

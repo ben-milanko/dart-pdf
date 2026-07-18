@@ -186,7 +186,7 @@ class _EditorScreenState extends State<EditorScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (!kReleaseMode) {
+    if (kDevToolsEnabled) {
       HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
     }
     _recents.load().then((_) {
@@ -276,7 +276,7 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (!kReleaseMode) {
+    if (kDevToolsEnabled) {
       HardwareKeyboard.instance.removeHandler(_onGlobalKeyEvent);
     }
     _incomingSub?.cancel();
@@ -1658,7 +1658,7 @@ class _EditorScreenState extends State<EditorScreen>
             prefs: _prefs,
             recents: _recents,
             updates: _updates,
-            onOpenDevTools: kReleaseMode ? null : _toggleDevTools,
+            onOpenDevTools: kDevToolsEnabled ? _toggleDevTools : null,
           ),
           child: _appMenuTile(
             icon: Icons.settings_outlined,
@@ -1667,9 +1667,10 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       ];
 
-  /// Shows/hides the developer tools panel (F12, debug/profile builds only).
+  /// Shows/hides the developer tools panel (F12; every build mode unless
+  /// stripped with --dart-define=DEVTOOLS=false).
   void _toggleDevTools() {
-    if (kReleaseMode) return;
+    if (!kDevToolsEnabled) return;
     setState(() => _devToolsOpen = !_devToolsOpen);
   }
 
@@ -1678,7 +1679,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// whenever the focused node leaves its subtree (e.g. after the panel
   /// itself opens).
   bool _onGlobalKeyEvent(KeyEvent event) {
-    if (!kReleaseMode &&
+    if (kDevToolsEnabled &&
         event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.f12) {
       _toggleDevTools();
@@ -1739,7 +1740,7 @@ class _EditorScreenState extends State<EditorScreen>
                 child: Row(
                   children: [
                     Expanded(child: _buildBody(tab)),
-                    if (_devToolsOpen && !kReleaseMode)
+                    if (_devToolsOpen && kDevToolsEnabled)
                       DevToolsPanel(
                         onClose: _toggleDevTools,
                         session: tab?.session,

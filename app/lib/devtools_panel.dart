@@ -4,8 +4,9 @@
 /// the experimental deep-zoom detail mode switch (#314 tile pyramid vs the
 /// shipping patch), PdfPerf phase/counter accumulators, session diagnostics,
 /// and the captured log. Model state lives in `devtools.dart`; this file is
-/// pure presentation. The whole panel is compiled into debug/profile builds
-/// only (the editor gates its creation on `!kReleaseMode`).
+/// pure presentation. Available in every build mode (release included) unless
+/// stripped with `--dart-define=DEVTOOLS=false` ([kDevToolsEnabled]); the
+/// debug-engine-only toggles gate themselves inside the panel.
 library;
 
 import 'dart:async';
@@ -141,7 +142,11 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       'tool': 'dartpdf-devtools',
       'exportedAt': DateTime.now().toIso8601String(),
       'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
-      'buildMode': kDebugMode ? 'debug' : 'profile',
+      'buildMode': kDebugMode
+          ? 'debug'
+          : kReleaseMode
+              ? 'release'
+              : 'profile',
       'frames': {
         'window': frames.frames,
         'fps': frames.fps,
@@ -233,7 +238,10 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               icon: const Icon(Icons.remove, size: 16),
               visualDensity: VisualDensity.compact,
               onPressed: pdfRenderWorkerPoolSize > 1
-                  ? () => setState(() => pdfRenderWorkerPoolSize--)
+                  ? () => setState(() {
+                        pdfRenderWorkerPoolSize--;
+                        _persist();
+                      })
                   : null,
             ),
             Text('$pdfRenderWorkerPoolSize',
@@ -243,7 +251,10 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               icon: const Icon(Icons.add, size: 16),
               visualDensity: VisualDensity.compact,
               onPressed: pdfRenderWorkerPoolSize < 8
-                  ? () => setState(() => pdfRenderWorkerPoolSize++)
+                  ? () => setState(() {
+                        pdfRenderWorkerPoolSize++;
+                        _persist();
+                      })
                   : null,
             ),
           ],
@@ -381,16 +392,19 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       _kv(theme, 'Jank frames (>16.7 ms)', '${stats.jankFrames}',
           help: 'Frames in the window whose build + raster exceeded 16.7 ms - '
               'each one missed a 60 Hz deadline and was visible as jank.'),
-      _helpSwitch(
-        theme,
-        key: null,
-        title: 'Performance overlay',
+      if (!kReleaseMode)
+        _helpSwitch(
+          theme,
+          key: null,
+          title: 'Performance overlay',
         help: "Flutter's built-in overlay graphing UI-thread and raster-"
             'thread frame times on top of the app. Available in debug and '
             'profile builds; profile numbers are the meaningful ones.',
         value: _tools.showPerformanceOverlay.value,
-        onChanged: (v) =>
-            setState(() => _tools.showPerformanceOverlay.value = v),
+        onChanged: (v) => setState(() {
+          _tools.showPerformanceOverlay.value = v;
+          _persist();
+        }),
       ),
       if (kDebugMode)
         _helpSwitch(
@@ -491,36 +505,21 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
 
   // --- deep-zoom detail mode ------------------------------------------------
 
-  static const _modePatch = 'patch';
-  static const _modeTiles = 'tiles (per-tile)';
-  static const _modeBatched = 'tiles (batched)';
+  static const _modePatch = AppDevTools.modePatch;
+  static const _modeTiles = AppDevTools.modeTiles;
+  static const _modeBatched = AppDevTools.modeBatched;
 
-  String get _deepZoomMode {
-    if (!PdfPageView.tileStoreDetail) return _modePatch;
-    final store = PdfPageView.debugTileStoreOverride;
-    return (store?.batchRasters ?? true) ? _modeBatched : _modeTiles;
-  }
+  String get _deepZoomMode => _tools.deepZoomMode;
 
   void _setDeepZoomMode(String mode) {
-    if (mode == _deepZoomMode) return;
-    final old = PdfPageView.debugTileStoreOverride;
-    switch (mode) {
-      case _modePatch:
-        PdfPageView.tileStoreDetail = false;
-        PdfPageView.debugTileStoreOverride = null;
-      case _modeTiles:
-        PdfPageView.tileStoreDetail = true;
-        PdfPageView.debugTileStoreOverride = PdfTileStore(batchRasters: false);
-      case _modeBatched:
-        PdfPageView.tileStoreDetail = true;
-        PdfPageView.debugTileStoreOverride = PdfTileStore();
-    }
-    // Free the previous pyramid's tiles but keep its notifier alive: a mounted
-    // PdfTileLayer may still listen until the next rebuild replaces it.
-    old?.invalidate();
-    _tools.addLog('devtools: deep-zoom detail → $mode');
+    _tools.setDeepZoomMode(mode);
+    _persist();
     setState(() {});
   }
+
+  /// Every option change writes the whole set - devtools options survive an
+  /// app restart.
+  void _persist() => unawaited(_tools.persistOptions());
 
   Widget _deepZoomSection(ThemeData theme) {
     final store = PdfPageView.debugTileStoreOverride;
@@ -558,11 +557,16 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         title: 'Tile / patch borders',
         help: 'Outlines what sharpens the visible slice: green borders are '
             'exact-bucket tiles, orange are upscaled coarser-bucket '
-            'fallbacks, purple is the legacy single detail patch. Nothing '
-            'outlined at deep zoom means the tile path is not engaging for '
-            'this page (e.g. it is on the vector-first progressive path).',
+            'fallbacks, purple is the legacy single detail patch. The Pages '
+            'sidebar mirrors it per thumbnail (cached tiles green - dimmer '
+            'for coarser buckets - patch purple), so you can see the whole '
+            "pyramid's coverage at a glance. Nothing outlined at deep zoom "
+            'means the tile path is not engaging for this page.',
         value: pdfDebugPaintDetailBounds.value,
-        onChanged: (v) => setState(() => pdfDebugPaintDetailBounds.value = v),
+        onChanged: (v) => setState(() {
+          pdfDebugPaintDetailBounds.value = v;
+          _persist();
+        }),
       ),
       _helpSwitch(
         theme,
@@ -574,7 +578,10 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
             'patch, and a scene with decoded images, so this window is '
             'where per-page memory goes.',
         value: pdfDebugShowRenderWindow.value,
-        onChanged: (v) => setState(() => pdfDebugShowRenderWindow.value = v),
+        onChanged: (v) => setState(() {
+          pdfDebugShowRenderWindow.value = v;
+          _persist();
+        }),
       ),
       if (store != null) ...[
         const SizedBox(height: 4),
@@ -711,7 +718,10 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               'up the PdfPerf accumulators. Chatty - enable to diagnose, '
               'then turn it off.',
           value: PdfPerfLog.enabled,
-          onChanged: (v) => setState(() => PdfPerfLog.enabled = v),
+          onChanged: (v) => setState(() {
+            PdfPerfLog.enabled = v;
+            _persist();
+          }),
         ),
         TextField(
           key: const ValueKey('devtools-log-filter'),

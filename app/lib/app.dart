@@ -34,8 +34,8 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   void initState() {
     super.initState();
-    // Log/frame-timing capture for the F12 developer tools (debug/profile).
-    if (!kReleaseMode) AppDevTools.instance.install();
+    // Log/frame-timing capture for the F12 developer tools.
+    if (kDevToolsEnabled) AppDevTools.instance.install();
     // A small pool gives heavy CAD/image pages real overlap without multiplying
     // document memory too far. Mobile-class targets get a lower default; the
     // perf harness is allowed to be more aggressive.
@@ -59,6 +59,9 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         192 << 20,
       _ => 384 << 20,
     };
+    // Persisted devtools options (deep-zoom mode, overlays, worker count)
+    // override the defaults above once loaded.
+    if (kDevToolsEnabled) unawaited(AppDevTools.instance.restoreOptions());
     // Offer the host's installed fonts in the editor's font menu by default.
     // Fire-and-forget: the registry is read when a font menu opens, and an
     // empty result (web, or a locked-down platform) just leaves the base-14,
