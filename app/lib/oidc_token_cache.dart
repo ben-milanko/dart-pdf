@@ -1,9 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/widgets.dart';
-
-import 'keyless_signing.dart';
-
 /// Reads the `exp` (expiry) claim of a JWT as a UTC [DateTime], or null when
 /// the token is malformed or carries no numeric `exp`. This only decodes the
 /// unsigned payload - it is not verification - and is used solely to decide
@@ -22,47 +18,5 @@ DateTime? oidcTokenExpiry(String token) {
         isUtc: true);
   } catch (_) {
     return null;
-  }
-}
-
-/// Wraps an [OidcTokenProvider] so a still-valid Sigstore login is reused
-/// rather than launching the browser again every time the Digitally sign
-/// dialog opens. The last `id_token` is kept in memory and returned as long as
-/// its `exp` claim is still in the future (minus [leeway]); otherwise the inner
-/// provider runs and its fresh token is cached.
-///
-/// The instance is callable, so it drops straight into
-/// [EditorScreen.oidcTokenProvider]. [now] is injectable for tests.
-class CachingOidcTokenProvider {
-  CachingOidcTokenProvider(
-    this._inner, {
-    Duration leeway = const Duration(minutes: 1),
-    DateTime Function()? now,
-  })  : _leeway = leeway,
-        _now = now ?? DateTime.now;
-
-  final OidcTokenProvider _inner;
-  final Duration _leeway;
-  final DateTime Function() _now;
-
-  String? _cached;
-
-  /// Whether a still-valid login is cached (no browser sign-in needed).
-  bool get hasValidToken => _cached != null && _isValid(_cached!);
-
-  Future<String?> call(BuildContext context) async {
-    final cached = _cached;
-    if (cached != null && _isValid(cached)) return cached;
-    final token = await _inner(context);
-    _cached = (token != null && token.isNotEmpty) ? token : null;
-    return _cached;
-  }
-
-  /// Forgets any cached login (e.g. on explicit sign-out).
-  void clear() => _cached = null;
-
-  bool _isValid(String token) {
-    final exp = oidcTokenExpiry(token);
-    return exp != null && exp.subtract(_leeway).isAfter(_now().toUtc());
   }
 }

@@ -14,7 +14,20 @@ abstract final class SigstoreOidc {
   static const authorizationEndpoint = 'https://oauth2.sigstore.dev/auth/auth';
   static const tokenEndpoint = 'https://oauth2.sigstore.dev/auth/token';
   static const clientId = 'sigstore';
-  static const scopes = 'openid email';
+  // offline_access asks the broker for a refresh token so a still-signed-in
+  // user can mint a fresh id_token without opening the browser again. Brokers
+  // that don't grant it simply omit the refresh token - the flow still works.
+  static const scopes = 'openid email offline_access';
+}
+
+/// The tokens the broker returns: the [idToken] keyless signing consumes and,
+/// when the broker grants one, a [refreshToken] to silently mint the next
+/// [idToken] without a browser round-trip.
+class OidcTokens {
+  const OidcTokens({required this.idToken, this.refreshToken});
+
+  final String idToken;
+  final String? refreshToken;
 }
 
 /// A PKCE (RFC 7636) verifier + its S256 challenge, plus the CSRF `state` and
@@ -74,9 +87,19 @@ String buildTokenRequestBody({
       'code_verifier': session.verifier,
     }).query;
 
-/// Extracts the `id_token` (the JWT keyless signing uses) from a token
-/// endpoint JSON response body. Throws a [FormatException] if absent.
-String idTokenFromResponse(String responseBody) {
+/// The `application/x-www-form-urlencoded` body for the refresh-token grant -
+/// swaps a [refreshToken] for a fresh `id_token` with no browser interaction.
+String buildRefreshTokenRequestBody({required String refreshToken}) =>
+    Uri(queryParameters: {
+      'grant_type': 'refresh_token',
+      'refresh_token': refreshToken,
+      'client_id': SigstoreOidc.clientId,
+    }).query;
+
+/// Extracts the `id_token` (the JWT keyless signing uses) and any
+/// `refresh_token` from a token endpoint JSON response body. Throws a
+/// [FormatException] when there is no `id_token`.
+OidcTokens oidcTokensFromResponse(String responseBody) {
   final decoded = json.decode(responseBody);
   final token = decoded is Map ? decoded['id_token'] : null;
   if (token is! String || token.isEmpty) {
@@ -84,8 +107,16 @@ String idTokenFromResponse(String responseBody) {
     throw FormatException(
         'no id_token in the OAuth token response${error == null ? '' : ' ($error)'}');
   }
-  return token;
+  final refresh = decoded is Map ? decoded['refresh_token'] : null;
+  return OidcTokens(
+    idToken: token,
+    refreshToken: refresh is String && refresh.isNotEmpty ? refresh : null,
+  );
 }
+
+/// The `id_token` alone from a token response (throws if absent).
+String idTokenFromResponse(String responseBody) =>
+    oidcTokensFromResponse(responseBody).idToken;
 
 String _s256(String verifier) =>
     _base64Url(crypto.sha256.convert(ascii.encode(verifier)).bytes);

@@ -15,7 +15,7 @@ import 'oidc_pkce.dart';
 /// authorization code, and exchanges it for tokens. [client] and [launch] are
 /// injectable for tests; production uses a fresh [http.Client] and
 /// `url_launcher`.
-Future<String?> runSigstoreSignIn({
+Future<OidcTokens?> runSigstoreSignIn({
   http.Client? client,
   Future<bool> Function(Uri url)? launch,
 }) async {
@@ -46,12 +46,45 @@ Future<String?> runSigstoreSignIn({
             'token endpoint returned HTTP ${response.statusCode}',
             Uri.parse(SigstoreOidc.tokenEndpoint));
       }
-      return idTokenFromResponse(response.body);
+      return oidcTokensFromResponse(response.body);
     } finally {
       if (owned) c.close();
     }
   } finally {
     await server.close(force: true);
+  }
+}
+
+/// Exchanges a [refreshToken] for a fresh [OidcTokens] with no browser
+/// interaction. Returns null when the broker rejects the refresh (e.g. the
+/// refresh token expired or was revoked), so the caller can fall back to an
+/// interactive sign-in.
+Future<OidcTokens?> refreshSigstoreTokens(
+  String refreshToken, {
+  http.Client? client,
+}) async {
+  final owned = client == null;
+  final http.Client c = client ?? http.Client();
+  try {
+    final response = await c.post(
+      Uri.parse(SigstoreOidc.tokenEndpoint),
+      headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: buildRefreshTokenRequestBody(refreshToken: refreshToken),
+    );
+    if (response.statusCode != 200) return null;
+    try {
+      final tokens = oidcTokensFromResponse(response.body);
+      // Dex may rotate the refresh token; carry the old one forward when the
+      // response omits a new one so the session stays refreshable.
+      return OidcTokens(
+        idToken: tokens.idToken,
+        refreshToken: tokens.refreshToken ?? refreshToken,
+      );
+    } on FormatException {
+      return null;
+    }
+  } finally {
+    if (owned) c.close();
   }
 }
 

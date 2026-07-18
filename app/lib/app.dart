@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import 'editor_screen.dart';
 import 'oidc_signin.dart';
-import 'oidc_token_cache.dart';
 import 'platform_fonts.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -26,10 +25,10 @@ class DartPdfEditorApp extends StatefulWidget {
 class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   final _prefs = PdfEditingPreferences();
 
-  // Reuse a still-valid Sigstore login across Digitally sign dialogs instead
-  // of re-running the browser OAuth each time. Off the web only (loopback).
-  final _oidcTokenProvider =
-      kIsWeb ? null : CachingOidcTokenProvider(sigstoreOidcTokenProvider);
+  // Reuse a Sigstore login across Digitally sign dialogs: cache the id_token,
+  // refresh it silently when it expires, and only sign in via the browser when
+  // there's nothing to reuse. Off the web only (loopback needs a local server).
+  final _oidcTokenProvider = kIsWeb ? null : SigstoreSignInManager();
 
   @override
   void initState() {
