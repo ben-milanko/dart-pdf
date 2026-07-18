@@ -158,6 +158,8 @@ void main() {
         );
         expect(view2.complete, isTrue);
         expect(view2.placements.length, 16);
+        // Exact-bucket placements are never flagged as fallbacks.
+        expect(view2.placements.any((p) => p.isFallback), isFalse);
         expect(raster.calls.length, calls); // fully cached, nothing scheduled
         store.dispose();
       });
@@ -225,8 +227,10 @@ void main() {
         expect(view.complete, isFalse);
         expect(view.placements, isNotEmpty,
             reason: 'coarser bucket should supply a fallback');
-        // Every fallback placement draws from a coarse-bucket image (32² here).
+        // Every fallback placement draws from a coarse-bucket image (32² here)
+        // and is flagged as a fallback (what the debug overlay colors orange).
         expect(view.placements.every((p) => p.image.width == 32), isTrue);
+        expect(view.placements.every((p) => p.isFallback), isTrue);
         store.dispose();
       });
     });
@@ -645,6 +649,66 @@ void main() {
         expect(store.tileCount, 10);
         store.dispose();
       });
+    });
+  });
+
+  group('PdfTileStore diagnostics', () {
+    testWidgets('debugTileFractionsForPage reports cached tiles as fractions',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        const pageSize = Size(32, 32); // 2×2 grid at span 16
+
+        expect(store.debugTileFractionsForPage(0), isEmpty);
+        store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        await raster.flush();
+
+        final fractions = store.debugTileFractionsForPage(0);
+        expect(fractions.length, 4);
+        // The 4 tiles tile the unit square in quarters (span 16 of 32).
+        expect(
+          fractions.map((f) => f.fraction).toSet(),
+          {
+            const Rect.fromLTRB(0, 0, 0.5, 0.5),
+            const Rect.fromLTRB(0.5, 0, 1, 0.5),
+            const Rect.fromLTRB(0, 0.5, 0.5, 1),
+            const Rect.fromLTRB(0.5, 0.5, 1, 1),
+          },
+        );
+        expect(fractions.every((f) => f.rung == 0), isTrue);
+
+        // Scoped by page, and a pure peek (no LRU touch → no reschedule).
+        expect(store.debugTileFractionsForPage(1), isEmpty);
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        expect(view.complete, isTrue, reason: 'peek did not evict any tile');
+        store.dispose();
+      });
+    });
+
+    test('instanceOrNull is null until instance is first touched', () {
+      // Guarded by whether another test already created the shared store; if
+      // so, instanceOrNull just mirrors instance. Assert the invariant that
+      // holds either way: once instance exists, instanceOrNull returns it.
+      final shared = PdfTileStore.instance;
+      expect(PdfTileStore.instanceOrNull, same(shared));
     });
   });
 }

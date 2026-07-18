@@ -417,4 +417,51 @@ void main() {
       expect(cache.weight, 300, reason: 'only the per-cache budget applies');
     });
   });
+
+  group('PdfCacheRegistry.snapshot', () {
+    test('reports each registered cache label, count, weight, and budget', () {
+      final registry = PdfCacheRegistry.instance;
+      final images = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 500,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'images',
+      );
+      final records = PdfBudgetedCache<int, _Res>(
+        maxEntries: 4,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'records',
+      );
+      addTearDown(() {
+        images.dispose();
+        records.dispose();
+      });
+      images.put(0, _Res(0, weight: 40));
+      images.put(1, _Res(1, weight: 60));
+      records.put(0, _Res(0));
+
+      final rows = {for (final row in registry.snapshot()) row.label: row};
+      expect(rows['images']!.length, 2);
+      expect(rows['images']!.weight, 100);
+      expect(rows['images']!.maxWeight, 500);
+      // An entry-bounded cache has no weight budget: maxWeight is 0.
+      expect(rows['records']!.length, 1);
+      expect(rows['records']!.weight, 0);
+      expect(rows['records']!.maxWeight, 0);
+    });
+
+    test('a disposed cache drops out of the snapshot', () {
+      final registry = PdfCacheRegistry.instance;
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 100,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'ephemeral',
+      );
+      cache.put(0, _Res(0, weight: 10));
+      expect(registry.snapshot().any((r) => r.label == 'ephemeral'), isTrue);
+      cache.dispose();
+      expect(registry.snapshot().any((r) => r.label == 'ephemeral'), isFalse);
+    });
+  });
 }
