@@ -41,8 +41,8 @@ Factory + helpers in `file_io.dart`:
   iOS `.open` + a security-scoped URL) plus native ranged reads
   (`ContentResolver.openFileDescriptor` — often non-seekable for cloud
   providers; iOS `NSFileCoordinator` + `FileHandle`) — a separate,
-  provider-dependent effort. Mobile *reopens* already read the local snapshot
-  (`cacheOpenedPdf`), so only the first pick pays cloud transport.
+  provider-dependent effort, tracked in #364. Mobile *reopens* already read the
+  local snapshot (`cacheOpenedPdf`), so only the first pick pays cloud transport.
 - `readSourceFully(source, {onProgress})` reassembles the **complete**
   contiguous buffer with progress — unlike the sparse buffer `openSource`
   assembles (zeros in the free space the parser never reads), this is what the
