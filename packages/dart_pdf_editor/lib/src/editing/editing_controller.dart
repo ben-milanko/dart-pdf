@@ -748,6 +748,49 @@ class PdfEditingController extends ChangeNotifier {
     return true;
   }
 
+  /// The signatures present in the current revision (`PdfSignature.of`).
+  List<PdfSignature> get signatures => PdfSignature.of(_document);
+
+  /// Removes a digital signature as one undoable revision: drops its signature
+  /// field (and its widget) and every "apply to pages" appearance copy - the
+  /// /Stamp annotations that share the signature's appearance stream. Use to
+  /// delete a signature placed by accident; undo restores it.
+  ///
+  /// The signature's own signed bytes stay in the file history (they can't be
+  /// scrubbed), but the signature is no longer an active field, so it stops
+  /// being listed or shown. Returns false if the field can't be resolved.
+  bool removeSignature(PdfSignature signature) {
+    final fieldName = signature.field.name;
+    // The appearance stream object shared by the widget and its repeat stamps.
+    final apObjectNumber = _appearanceObjectNumber(signature.field.widgets);
+    clearAnnotationSelection();
+    return apply((editor) {
+      final field = editor.acroForm?.fieldNamed(fieldName);
+      if (field != null) editor.removeField(field);
+      if (apObjectNumber == null) return;
+      for (var page = 0; page < editor.document.pageCount; page++) {
+        final copies = [
+          for (final annotation in editor.document.page(page).annotations)
+            if (annotation.subtype == 'Stamp' &&
+                _appearanceObjectNumber([annotation.dict]) == apObjectNumber)
+              annotation,
+        ];
+        if (copies.isNotEmpty) editor.removeAnnotations(page, copies);
+      }
+    });
+  }
+
+  /// The object number of the /AP /N appearance shared by [dicts] (the first
+  /// that has one), used to match a signature's repeat stamps to its widget.
+  int? _appearanceObjectNumber(List<CosDictionary> dicts) {
+    for (final dict in dicts) {
+      final ap = _document.cos.resolve(dict['AP']);
+      final n = ap is CosDictionary ? ap['N'] : null;
+      if (n is CosReference) return n.objectNumber;
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------------
   // document outline / bookmarks
 

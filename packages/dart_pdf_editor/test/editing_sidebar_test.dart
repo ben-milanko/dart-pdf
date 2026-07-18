@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +63,40 @@ void main() {
     ));
     await tester.pump();
   }
+
+  testWidgets('a signed signature is deletable from the sidebar',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+
+    final ok = await editing.addSelfSignedSignature(
+      PdfSigningIdentity.generate(name: 'Ada Lovelace'),
+      appearance:
+          const PdfSignatureAppearance(page: 0, rect: PdfRect(72, 640, 320, 720)),
+    );
+    expect(ok, isTrue);
+    expect(editing.signatures, hasLength(1));
+
+    await pumpSidebar(tester, editing, viewer);
+    expect(find.text('Signature field'), findsOneWidget);
+
+    // reveal the row actions (hover) and delete the signature
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(tester.getCenter(find.text('Signature field')));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('pdf-signature-delete-0-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove signature?'), findsOneWidget);
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    expect(editing.signatures, isEmpty);
+  });
 
   testWidgets('annotations carry the author and the sidebar shows it',
       (tester) async {

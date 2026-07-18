@@ -116,6 +116,45 @@ void main() {
     expect(widget['AP'], isNotNull);
   });
 
+  test('removeSignature drops the field and its apply-to-pages copies',
+      () async {
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
+
+    expect(
+      await editing.addDigitalSignature(
+        identity(),
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+          repeatPages: [1, 2],
+        ),
+      ),
+      isTrue,
+    );
+    expect(editing.signatures, hasLength(1));
+    List<PdfAnnotation> stamps(int page) => editing.document
+        .page(page)
+        .annotations
+        .where((a) => a.subtype == 'Stamp')
+        .toList();
+    expect(stamps(1), hasLength(1));
+    expect(stamps(2), hasLength(1));
+
+    // removing the signature drops the field and both appearance copies
+    expect(editing.removeSignature(editing.signatures.single), isTrue);
+    expect(editing.signatures, isEmpty);
+    expect(stamps(1), isEmpty);
+    expect(stamps(2), isEmpty);
+
+    // and it's undoable
+    editing.undo();
+    expect(editing.signatures, hasLength(1));
+    expect(stamps(1), hasLength(1));
+  });
+
   test('controller adds a timestamped keyless (B-T) signature', () async {
     final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
     final ca = TestFulcioCa.generate(notBefore: DateTime.utc(2026));
