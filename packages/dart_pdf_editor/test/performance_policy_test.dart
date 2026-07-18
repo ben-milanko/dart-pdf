@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
@@ -146,5 +147,31 @@ void main() {
     expect(controller.tuning.previewWindow, 2);
     expect(controller.tuning.vectorFirstPreviews, isTrue);
     expect(controller.beginWorkerGeneration(), 1);
+  });
+
+  group('pdfDefaultTileStoreDetail (issue #314 rollout)', () {
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    test('on for desktop platforms', () {
+      for (final platform in [
+        TargetPlatform.macOS,
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(pdfDefaultTileStoreDetail(), isTrue, reason: '$platform');
+      }
+    });
+
+    test('off for mobile platforms pending their own validation', () {
+      for (final platform in [
+        TargetPlatform.iOS,
+        TargetPlatform.android,
+        TargetPlatform.fuchsia,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(pdfDefaultTileStoreDetail(), isFalse, reason: '$platform');
+      }
+    });
   });
 }

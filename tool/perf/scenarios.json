@@ -1,0 +1,59 @@
+{
+  "dartpdf-corpus": {
+    "suite": "vm-sweep",
+    "corpus": "test_corpora/dartpdf",
+    "maxPages": 0,
+    "repeat": 3,
+    "phases": true,
+    "ciSafe": true
+  },
+  "ghent-suite-open": {
+    "suite": "vm-sweep",
+    "corpus": "test_corpora/ghent",
+    "maxPages": 10,
+    "repeat": 3,
+    "ciSafe": true
+  },
+  "pdfjs-hostile": {
+    "suite": "vm-sweep",
+    "corpus": "test_corpora/pdfjs",
+    "maxPages": 10,
+    "repeat": 2,
+    "timeoutS": 60,
+    "ciSafe": true
+  },
+  "cad-138p-sweep": {
+    "suite": "vm-sweep",
+    "generate": { "pages": 138, "opsPerPage": 6000, "seed": 20260718 },
+    "maxPages": 0,
+    "repeat": 3,
+    "timeoutS": 600,
+    "ciSafe": true
+  },
+  "save-incremental": {
+    "suite": "vm-sweep",
+    "corpus": "test_corpora/ghent",
+    "measures": ["open", "save"],
+    "repeat": 5,
+    "ciSafe": true
+  },
+  "local-corpus-sweep": {
+    "suite": "vm-sweep",
+    "corpus": "corpus",
+    "maxPages": 20,
+    "repeat": 2,
+    "timeoutS": 300,
+    "ciSafe": false
+  },
+  "cad-133p-scroll": {
+    "suite": "chrome-scroll",
+    "note": "app/tool/perf loop against the real local CAD PDF ($PERF_PDF); manual/local only",
+    "ciSafe": false
+  },
+  "cad-synthetic-scroll": {
+    "suite": "chrome-scroll",
+    "note": "app/tool/perf loop against the generated cad-138p corpus; used by perf-web.yml",
+    "generate": { "pages": 138, "opsPerPage": 6000, "seed": 20260718 },
+    "ciSafe": true
+  }
+}

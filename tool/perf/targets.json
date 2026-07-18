@@ -1,0 +1,22 @@
+{
+  "_comment": "Aspirational per-scenario perf budgets. Trend markers on the nightly dashboard and `diff.dart --targets` - NEVER PR gates. Times in ms unless the key says Bytes.",
+  "cad-138p-sweep": {
+    "p50OpenMs": { "max": 400 },
+    "p50FirstPageMs": { "max": 800 },
+    "p95InterpretMsPerPage": { "max": 120 },
+    "p50SaveMs": { "max": 500 },
+    "maxPeakRssBytes": { "max": 1610612736 }
+  },
+  "ghent-suite-open": {
+    "p50OpenMs": { "max": 50 },
+    "p95OpenMs": { "max": 250 },
+    "p95InterpretMsPerPage": { "max": 150 }
+  },
+  "save-incremental": {
+    "p95SaveMs": { "max": 100 }
+  },
+  "cad-synthetic-scroll": {
+    "jankCount": { "max": 0 },
+    "buildP95": { "max": 16 }
+  }
+}

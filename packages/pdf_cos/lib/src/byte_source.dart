@@ -6,6 +6,7 @@ import 'exceptions.dart';
 import 'filters/filters.dart';
 import 'objects.dart';
 import 'parser.dart';
+import 'perf/perf.dart';
 import 'token.dart';
 
 /// A random-access, possibly asynchronous source of PDF bytes.
@@ -122,11 +123,15 @@ Future<CosDocument> openCosDocumentFromSource(
   PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
 }) async {
   Uint8List buffer;
+  final t0 = PdfPerf.begin();
   try {
     buffer = await _ProgressiveLoader(source, options).load();
   } on _FallbackToFullDownload {
+    PdfPerf.add(PdfPerfCount.fullDownloadFallback);
+    PdfPerf.event(PdfPerfEvent.rangedSourceFellBack);
     buffer = await _downloadFully(source, options);
   }
+  PdfPerf.end(PdfPerfPhase.sourceFetch, t0);
   return CosDocument.open(buffer, password: password);
 }
 
@@ -150,6 +155,8 @@ Future<Uint8List> _downloadFully(
   final len = await source.length;
   if (len != null && len >= 0) {
     final data = await source.readRange(0, len);
+    PdfPerf.add(PdfPerfCount.rangeRequests);
+    PdfPerf.add(PdfPerfCount.rangeBytesFetched, data.length);
     options.onProgress?.call(data.length, len);
     return data;
   }
@@ -157,6 +164,8 @@ Future<Uint8List> _downloadFully(
   var pos = 0;
   while (true) {
     final chunk = await source.readRange(pos, pos + options.downloadChunk);
+    PdfPerf.add(PdfPerfCount.rangeRequests);
+    PdfPerf.add(PdfPerfCount.rangeBytesFetched, chunk.length);
     if (chunk.isEmpty) break;
     builder.add(chunk);
     pos += chunk.length;
@@ -424,6 +433,8 @@ class _ProgressiveLoader {
     if (end <= start) return;
     for (final gap in _missing(start, end)) {
       final data = await source.readRange(gap.start, gap.end);
+      PdfPerf.add(PdfPerfCount.rangeRequests);
+      PdfPerf.add(PdfPerfCount.rangeBytesFetched, data.length);
       if (data.isEmpty) continue;
       // Never trust a source to honour the requested length: a misbehaving
       // server can answer a ranged read with more bytes than asked for

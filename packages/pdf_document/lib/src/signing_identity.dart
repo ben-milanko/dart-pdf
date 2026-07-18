@@ -13,7 +13,6 @@
 /// inside this library's own viewer.
 library;
 
-import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -172,19 +171,10 @@ class PdfSigningIdentity {
   /// key with no passphrase protection.
   String toPem() {
     final buffer = StringBuffer()
-      ..write(_pemBlock('EC PRIVATE KEY', privateKey.sec1Der));
+      ..write(pemEncode('EC PRIVATE KEY', privateKey.sec1Der));
     for (final cert in certificates) {
-      buffer.write(_pemBlock('CERTIFICATE', cert));
+      buffer.write(pemEncode('CERTIFICATE', cert));
     }
     return buffer.toString();
-  }
-
-  static String _pemBlock(String label, Uint8List der) {
-    final body = base64.encode(der);
-    final lines = [
-      for (var i = 0; i < body.length; i += 64)
-        body.substring(i, i + 64 > body.length ? body.length : i + 64),
-    ];
-    return '-----BEGIN $label-----\n${lines.join('\n')}\n-----END $label-----\n';
   }
 }

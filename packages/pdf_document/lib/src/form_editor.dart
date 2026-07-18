@@ -677,8 +677,10 @@ extension PdfFormFilling on PdfEditor {
   }
 
   /// Installs [form] as the widget's /AP /N, preserving other /AP entries
-  /// (down/rollover appearances) when present.
-  void _setNormalAppearance(CosDictionary widget, CosStream form) {
+  /// (down/rollover appearances) when present. Returns the form's reference
+  /// so callers can reuse the one appearance stream (e.g. repeating a
+  /// signature box on several pages).
+  CosReference _setNormalAppearance(CosDictionary widget, CosStream form) {
     final ref = _updater.addObject(form);
     final ap = document.cos.resolve(widget['AP']);
     if (ap is CosDictionary) {
@@ -686,6 +688,7 @@ extension PdfFormFilling on PdfEditor {
     } else {
       widget['AP'] = CosDictionary({'N': ref});
     }
+    return ref;
   }
 
   // ---------------------------------------------------------------------

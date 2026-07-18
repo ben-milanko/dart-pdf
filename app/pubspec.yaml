@@ -19,6 +19,7 @@ dependencies:
   # The PDF engine and editing UI live in the workspace packages.
   dart_pdf_editor: ^1.4.7
   pdf_document: ^1.4.7
+  pdf_cos: ^1.4.7
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).

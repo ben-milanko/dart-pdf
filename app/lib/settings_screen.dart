@@ -88,11 +88,16 @@ Future<void> showAppSettings(
   required PdfEditingPreferences prefs,
   required RecentsStore recents,
   UpdateService? updates,
+  VoidCallback? onOpenDevTools,
 }) {
   return showDialog<void>(
     context: context,
-    builder: (context) =>
-        _SettingsDialog(prefs: prefs, recents: recents, updates: updates),
+    builder: (context) => _SettingsDialog(
+      prefs: prefs,
+      recents: recents,
+      updates: updates,
+      onOpenDevTools: onOpenDevTools,
+    ),
   );
 }
 
@@ -101,11 +106,16 @@ class _SettingsDialog extends StatefulWidget {
     required this.prefs,
     required this.recents,
     this.updates,
+    this.onOpenDevTools,
   });
 
   final PdfEditingPreferences prefs;
   final RecentsStore recents;
   final UpdateService? updates;
+
+  /// Non-null in debug/profile builds: closes the dialog and opens the
+  /// developer tools panel (same as F12).
+  final VoidCallback? onOpenDevTools;
 
   @override
   State<_SettingsDialog> createState() => _SettingsDialogState();
@@ -178,6 +188,19 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _showDefaultAppSetup(context),
                 ),
+                if (widget.onOpenDevTools != null)
+                  ListTile(
+                    key: const ValueKey('settings-devtools'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.build_outlined),
+                    title: const Text('Developer tools'),
+                    subtitle: const Text('Metrics, logs, render modes (F12)'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      widget.onOpenDevTools!();
+                    },
+                  ),
                 if (widget.updates != null && UpdateService.supported) ...[
                   const Divider(height: 32),
                   _UpdateSection(updates: widget.updates!),

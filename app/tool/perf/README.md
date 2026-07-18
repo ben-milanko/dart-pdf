@@ -1,5 +1,11 @@
 # Automated real-world Chrome perf loop
 
+> **Front door:** `tool/perf.sh web` at the repo root runs this loop; runs
+> append envelope records (`tool/perf/SCHEMA.md`, suite `chrome-scroll`) to
+> `results.ndjson`. Do not edit sources or run builds/tests while a
+> measurement loop is running - concurrent compiles both pollute timings and
+> can crash mid-compile child processes.
+
 An unattended version of the manual `flutter run -d chrome` perf check: it
 loads the big CAD PDF in **real headless Chrome** (system Chrome, dart2js
 build), auto-scrolls every page, scrapes the `PdfPerfLog` trace + `FrameTiming`,

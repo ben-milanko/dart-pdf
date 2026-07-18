@@ -209,6 +209,15 @@ enum PdfEditTool {
   /// or share it; with no handler the tool does nothing. It only reads the
   /// page: no annotation or page content is written.
   snapshot,
+
+  /// Drag out a rectangle to place a **visible digital-signature** box, the
+  /// way Acrobat and Bluebeam let you draw where the signature appears. On
+  /// release the host's [PdfViewer.onPlaceSignature] handler runs with the
+  /// page and the box (in PDF user space) to collect an identity/appearance
+  /// and cryptographically sign into that rectangle
+  /// (via [PdfEditingController.addKeylessSignature] et al. with a
+  /// [PdfSignatureAppearance]). With no handler the tool does nothing.
+  signatureBox,
 }
 
 /// Text-markup kinds for [PdfEditingController.addMarkup].
@@ -480,6 +489,17 @@ class PdfEditingController extends ChangeNotifier {
   bool get canUndo => _cursor > _undoFloor;
   bool get canRedo => _cursor < _revisions.length - 1;
 
+  /// Diagnostics: how many revisions the session buffer retains (every one is
+  /// a byte prefix of the same grow-only buffer, so this is the undo/redo
+  /// history length, not extra copies).
+  int get revisionCount => _revisions.length;
+
+  /// Diagnostics: total bytes retained by the session's grow-only buffer -
+  /// the whole edit history, of which [bytes] is the current revision's
+  /// prefix view. This only ever grows within a session (see the memory
+  /// audit notes); watch it when chasing memory growth during editing.
+  int get sessionBufferBytes => _bytes.length;
+
   void undo() {
     if (!canUndo) return;
     final beforeLength = _revisions[_cursor];
@@ -625,6 +645,7 @@ class PdfEditingController extends ChangeNotifier {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) async {
     final before = bytes;
     final signed = await identity.sign(
@@ -636,6 +657,7 @@ class PdfEditingController extends ChangeNotifier {
       location: location,
       contactInfo: contactInfo,
       signingTime: signingTime,
+      appearance: appearance,
     );
     return _adoptDigitalSignature(signed, before: before);
   }
@@ -651,6 +673,7 @@ class PdfEditingController extends ChangeNotifier {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) async {
     final before = bytes;
     final signed = PdfEditor(PdfDocument.open(before, password: _password))
@@ -661,6 +684,40 @@ class PdfEditingController extends ChangeNotifier {
       location: location,
       contactInfo: contactInfo,
       signingTime: signingTime,
+      appearance: appearance,
+    );
+    return _adoptDigitalSignature(signed, before: before);
+  }
+
+  /// Signs with a **keyless** [PdfSigningIdentity] - a short-lived
+  /// Sigstore/Fulcio identity minted from an OIDC-verified email (see
+  /// `fulcioSigningIdentity`). Because that certificate expires within minutes,
+  /// this always produces a PAdES **B-T** signature: [timestampClient] fetches a
+  /// trusted RFC 3161 timestamp so the signing time is preserved after the
+  /// certificate lapses. Otherwise identical to [addSelfSignedSignature] -
+  /// same validation and undo integration.
+  Future<bool> addKeylessSignature(
+    PdfSigningIdentity identity, {
+    required PdfTimestampClient timestampClient,
+    String? fieldName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
+  }) async {
+    final before = bytes;
+    final signed = await PdfEditor(PdfDocument.open(before, password: _password))
+        .saveSelfSignedPades(
+      identity: identity,
+      level: PdfPadesLevel.bT,
+      timestampClient: timestampClient,
+      fieldName: fieldName,
+      reason: reason,
+      location: location,
+      contactInfo: contactInfo,
+      signingTime: signingTime,
+      appearance: appearance,
     );
     return _adoptDigitalSignature(signed, before: before);
   }
@@ -700,6 +757,49 @@ class PdfEditingController extends ChangeNotifier {
       impact: PdfEditImpact.none,
     );
     return true;
+  }
+
+  /// The signatures present in the current revision (`PdfSignature.of`).
+  List<PdfSignature> get signatures => PdfSignature.of(_document);
+
+  /// Removes a digital signature as one undoable revision: drops its signature
+  /// field (and its widget) and every "apply to pages" appearance copy - the
+  /// /Stamp annotations that share the signature's appearance stream. Use to
+  /// delete a signature placed by accident; undo restores it.
+  ///
+  /// The signature's own signed bytes stay in the file history (they can't be
+  /// scrubbed), but the signature is no longer an active field, so it stops
+  /// being listed or shown. Returns false if the field can't be resolved.
+  bool removeSignature(PdfSignature signature) {
+    final fieldName = signature.field.name;
+    // The appearance stream object shared by the widget and its repeat stamps.
+    final apObjectNumber = _appearanceObjectNumber(signature.field.widgets);
+    clearAnnotationSelection();
+    return apply((editor) {
+      final field = editor.acroForm?.fieldNamed(fieldName);
+      if (field != null) editor.removeField(field);
+      if (apObjectNumber == null) return;
+      for (var page = 0; page < editor.document.pageCount; page++) {
+        final copies = [
+          for (final annotation in editor.document.page(page).annotations)
+            if (annotation.subtype == 'Stamp' &&
+                _appearanceObjectNumber([annotation.dict]) == apObjectNumber)
+              annotation,
+        ];
+        if (copies.isNotEmpty) editor.removeAnnotations(page, copies);
+      }
+    });
+  }
+
+  /// The object number of the /AP /N appearance shared by [dicts] (the first
+  /// that has one), used to match a signature's repeat stamps to its widget.
+  int? _appearanceObjectNumber(List<CosDictionary> dicts) {
+    for (final dict in dicts) {
+      final ap = _document.cos.resolve(dict['AP']);
+      final n = ap is CosDictionary ? ap['N'] : null;
+      if (n is CosReference) return n.objectNumber;
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------------

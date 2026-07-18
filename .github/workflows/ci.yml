@@ -38,6 +38,18 @@ jobs:
               echo "::error::Bundled web worker is stale; run app/tool/build_web.sh."
               exit 1
             }
+      # Deterministic perf counter gate: structural work counters (objects
+      # loaded, bytes decoded, content ops, ...) over fixed inputs vs the
+      # committed baseline. No wall time, so a noisy shared runner cannot
+      # flake it. Re-baseline deliberately with
+      # `tool/perf.sh gate --update-baseline`.
+      - name: Perf counter gate
+        working-directory: packages/pdf_graphics
+        run: dart run tool/perf_count_gate.dart
+      # Prove the PdfPerf facade's kill switch still dead-code-eliminates:
+      # -DPDF_PERF=false must strip the marker from compiled JS.
+      - name: Perf facade DCE check
+        run: tool/check_perf_dce.sh
       - name: Activate coverage tool
         run: dart pub global activate coverage
 

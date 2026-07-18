@@ -36,6 +36,27 @@ class DocumentTab {
         compareAfter = null,
         isLoading = false;
 
+  /// A document whose bytes are already in hand but not yet parsed: the
+  /// expensive [PdfEditingController] construction (a synchronous PDF open,
+  /// noticeable for large files) is postponed until this tab is first
+  /// activated. Opening a batch of files this way keeps only the tab the user
+  /// is looking at on the parse hot path; the rest materialize as they are
+  /// visited. See [EditorScreen] materialization.
+  DocumentTab.deferred({
+    required this.title,
+    required Uint8List bytes,
+    this.originPath,
+    this.originBookmark,
+    this.cachePath,
+  })  : session = null,
+        viewer = null,
+        savedLength = bytes.length,
+        error = null,
+        compareBefore = null,
+        compareAfter = null,
+        isLoading = false,
+        deferredBytes = bytes;
+
   DocumentTab.error({required this.title, required this.error})
       : session = null,
         viewer = null,
@@ -68,6 +89,17 @@ class DocumentTab {
   String title;
   final String? error;
   final bool isLoading;
+
+  /// The unparsed bytes of a [DocumentTab.deferred] tab, held until the tab is
+  /// activated and its edit session is built. Null on every other kind.
+  Uint8List? deferredBytes;
+
+  /// True while this tab holds bytes it has not yet parsed into a session.
+  bool get isDeferred => deferredBytes != null;
+
+  /// Guards against kicking off materialization more than once while the
+  /// placeholder frame is still on screen (build can run several times).
+  bool materializing = false;
 
   /// The writable on-disk origin (desktop), when the document was opened from
   /// a real path. Save writes back here; updated when a Save As lands on a new

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' show md5;
 
 import 'objects.dart';
+import 'perf/perf.dart';
 import 'serializer.dart';
 import 'xref_writer.dart';
 
@@ -26,6 +27,22 @@ class CosDocumentBuilder {
   /// Serializes the file: header, object bodies, a classic cross-reference
   /// table, and the trailer. [root] must reference the document catalog.
   Uint8List build({
+    required CosReference root,
+    CosReference? info,
+    String version = '1.7',
+  }) {
+    final t0 = PdfPerf.begin();
+    try {
+      final built = _buildTimed(root: root, info: info, version: version);
+      PdfPerf.add(PdfPerfCount.savedBytes, built.length);
+      PdfPerf.add(PdfPerfCount.savedObjects, _objects.length);
+      return built;
+    } finally {
+      PdfPerf.end(PdfPerfPhase.saveFull, t0);
+    }
+  }
+
+  Uint8List _buildTimed({
     required CosReference root,
     CosReference? info,
     String version = '1.7',

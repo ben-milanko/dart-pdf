@@ -8,8 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../debug_overlays.dart';
 import '../page_range_dialog.dart';
+import '../pdf_page_view.dart';
 import '../pdf_viewer.dart';
+import '../tile_store.dart';
 import '../perf_log.dart';
 import '../raster_cache.dart';
 import '../render_worker.dart';
@@ -1915,6 +1918,64 @@ class _PageTileState extends State<_PageTile> {
                           painter: _ViewportPainter(viewport, indicator),
                         ),
                       ),
+                    // Devtools overlay: each page's cached tiles (green) and
+                    // legacy detail patch (purple), scaled into the thumbnail.
+                    Positioned.fill(
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: pdfDebugPaintDetailBounds,
+                        builder: (context, on, _) {
+                          if (!on) return const SizedBox.shrink();
+                          final store = PdfPageView.debugTileStoreOverride ??
+                              PdfTileStore.instanceOrNull;
+                          return ListenableBuilder(
+                            listenable: Listenable.merge([
+                              PdfDebugDetailRegions.instance,
+                              if (store != null) store,
+                            ]),
+                            builder: (context, _) => IgnorePointer(
+                              child: CustomPaint(
+                                painter: _DetailBoundsPainter(
+                                  store?.debugTileFractionsForPage(pageIndex) ??
+                                      const [],
+                                  PdfDebugDetailRegions.instance
+                                      .patchFractionOf(pageIndex),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    // Devtools overlay: mark the pages whose page-view state
+                    // is live (the lazy list's render window) - the pages
+                    // whose retained scenes/rasters hold real memory.
+                    Positioned.fill(
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: pdfDebugShowRenderWindow,
+                        builder: (context, on, _) => !on
+                            ? const SizedBox.shrink()
+                            : ListenableBuilder(
+                                listenable: PdfLivePageRegistry.instance,
+                                builder: (context, _) => !PdfLivePageRegistry
+                                        .instance
+                                        .contains(pageIndex)
+                                    ? const SizedBox.shrink()
+                                    : IgnorePointer(
+                                        child: DecoratedBox(
+                                          key: ValueKey(
+                                              'pdf-thumbnail-live-$pageIndex'),
+                                          decoration: BoxDecoration(
+                                            border: Border.all(
+                                              // teal: live render window
+                                              color: const Color(0xCC009688),
+                                              width: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                      ),
+                    ),
                   ]),
                 );
               },
@@ -2500,6 +2561,46 @@ String _traceMs(double v) => '${v.toStringAsFixed(1)}ms';
 
 /// Marks the viewer's viewport on a thumbnail: [region] is the visible
 /// part of the page as fractions of its area.
+/// Devtools: strokes a page's cached tile grid (green, dimmer the coarser
+/// the rung relative to the sharpest present) and its legacy detail patch
+/// (purple) into the thumbnail. Rects arrive as page fractions.
+class _DetailBoundsPainter extends CustomPainter {
+  const _DetailBoundsPainter(this.tiles, this.patch);
+
+  final List<({Rect fraction, int rung})> tiles;
+  final Rect? patch;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    Rect scale(Rect f) => Rect.fromLTRB(f.left * size.width,
+        f.top * size.height, f.right * size.width, f.bottom * size.height);
+    if (tiles.isNotEmpty) {
+      final sharpest =
+          tiles.map((t) => t.rung).reduce((a, b) => a > b ? a : b);
+      for (final tile in tiles) {
+        final paint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0xFF00C853)
+              .withValues(alpha: tile.rung == sharpest ? 0.9 : 0.35);
+        canvas.drawRect(scale(tile.fraction), paint);
+      }
+    }
+    if (patch != null) {
+      canvas.drawRect(
+        scale(patch!),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = const Color(0xCCAA00FF),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DetailBoundsPainter old) => true;
+}
+
 class _ViewportPainter extends CustomPainter {
   const _ViewportPainter(this.region, this.color);
 

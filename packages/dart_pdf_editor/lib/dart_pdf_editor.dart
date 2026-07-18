@@ -12,6 +12,7 @@ export 'package:pdf_document/pdf_document.dart'
 
 export 'src/annotation_tap.dart';
 export 'src/budgeted_cache.dart';
+export 'src/debug_overlays.dart';
 export 'src/canvas_device.dart';
 export 'src/comparison/comparison_view.dart';
 export 'src/comparison/document_comparison.dart';

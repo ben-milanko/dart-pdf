@@ -133,13 +133,18 @@ class PdfTileKey {
 /// A retained tile image plus the page-point region it covers and the bucket it
 /// belongs to. Owned by the store's cache; disposed on eviction.
 class PdfTile {
-  PdfTile(this.image, this.region, this.rung);
+  PdfTile(this.image, this.region, this.rung, this.pageFraction);
 
   final ui.Image image;
 
   /// The tile's bounds in page points (clamped to the page at the edges).
   final Rect region;
   final int rung;
+
+  /// [region] as fractions (0..1) of the page - recorded at raster time so
+  /// diagnostics (the thumbnail debug overlay) can place the tile without
+  /// knowing the page size.
+  final Rect pageFraction;
 
   int get bytes => image.width * image.height * 4;
 }
@@ -152,11 +157,17 @@ class PdfTilePlacement {
     required this.image,
     required this.src,
     required this.destFraction,
+    this.isFallback = false,
   });
 
   final ui.Image image;
   final Rect src;
   final Rect destFraction;
+
+  /// True when this placement upscales a coarser-bucket tile standing in for
+  /// a missing exact tile (diagnostic - drawn differently by the debug
+  /// border overlay).
+  final bool isFallback;
 }
 
 /// The synchronous result of [PdfTileStore.viewFor]: the tiles to composite for
@@ -196,8 +207,12 @@ class PdfTileStore extends ChangeNotifier {
     int maxBytes = _defaultMaxBytes,
     this.prefetchRing = 1,
     this.maxFallbackDepth = 4,
+    this.batchRasters = true,
+    this.maxBatchTilesPerAxis = 8,
     bool registerForMemoryPressure = true,
-  }) : _cache = PdfBudgetedCache<PdfTileKey, PdfTile>(
+  })  : assert(tilePixels * maxBatchTilesPerAxis <= 1 << 14,
+            'a batch slab must fit the engine texture limit'),
+        _cache = PdfBudgetedCache<PdfTileKey, PdfTile>(
           weigher: (tile) => tile.bytes,
           maxWeight: math.max(maxBytes, _minBytes),
           disposer: (tile) => tile.image.dispose(),
@@ -219,6 +234,10 @@ class PdfTileStore extends ChangeNotifier {
   /// (or registered for memory pressure) unless the tile path is exercised.
   static PdfTileStore get instance => _instance ??= PdfTileStore();
 
+  /// The shared store if one was ever created, without creating it -
+  /// diagnostics must not allocate a pyramid just by looking.
+  static PdfTileStore? get instanceOrNull => _instance;
+
   /// Physical pixels per tile side. A tile at bucket ratio r covers
   /// `tilePixels / r` page points per side.
   final int tilePixels;
@@ -231,6 +250,29 @@ class PdfTileStore extends ChangeNotifier {
   /// How many buckets coarser [viewFor] will search for an upscaled fallback
   /// before leaving the base raster to show through.
   final int maxFallbackDepth;
+
+  /// Coalesce the missing tiles of one [viewFor] pass into as few region
+  /// rasters as possible, then slice each returned slab into tiles GPU-side
+  /// (`drawImageRect` + `toImageSync` - a blit, no scene replay and no extra
+  /// readback). The per-`toImage` fixed overhead is what makes one raster per
+  /// 512² tile lose to the legacy single-patch path on a cold sweep (see
+  /// benchmark_tile_store_test.dart), so batching restores the patch's
+  /// one-readback-per-settle cost while keeping the pyramid's reuse.
+  ///
+  /// A dense missing set (at least half of its bounding box, the cold-settle
+  /// shape) rasters as one slab; a sparse one (revisit holes) falls back to
+  /// per-row runs so cached tiles are never re-rastered. False restores one
+  /// raster call per tile.
+  final bool batchRasters;
+
+  /// Cap on a batch's tile extent per axis, bounding the slab under the
+  /// engine's 2^14 px texture limit (8 × 512 = 4096) and bounding the latency
+  /// of any single readback.
+  final int maxBatchTilesPerAxis;
+
+  /// A missing set sparser than this fraction of its bounding box splits into
+  /// per-row runs instead of one slab, bounding wasted raster area to <2×.
+  static const _batchFillThreshold = 0.5;
 
   final PdfBudgetedCache<PdfTileKey, PdfTile> _cache;
   final Set<PdfTileKey> _inFlight = {};
@@ -250,6 +292,7 @@ class PdfTileStore extends ChangeNotifier {
   int debugTilesLanded = 0;
   int debugTilesDiscarded = 0;
   int debugTicks = 0;
+  int debugBatchesDispatched = 0;
 
   /// Total bytes of retained tiles.
   int get retainedBytes => _cache.weight;
@@ -267,11 +310,28 @@ class PdfTileStore extends ChangeNotifier {
   /// Whether a tile for [key] is retained (test/diagnostic; no LRU touch).
   bool containsTile(PdfTileKey key) => _cache.containsKey(key);
 
+  /// Diagnostic snapshot of the retained tiles for [pageIndex] (any identity
+  /// generation), as page fractions + rung. Pure peek - no LRU touches. The
+  /// thumbnail debug overlay draws these.
+  List<({Rect fraction, int rung})> debugTileFractionsForPage(int pageIndex) =>
+      [
+        for (final key in _cache.keys.toList())
+          if (key.id.pageIndex == pageIndex)
+            if (_cache.peek(key) case final tile?)
+              (fraction: tile.pageFraction, rung: tile.rung),
+      ];
+
   /// The best-available composite for [id] over [visiblePageRect] (page points)
   /// at [desiredRatio], scheduling the missing exact-bucket tiles (center-out)
   /// plus a one-tile prefetch ring. Missing tiles fall back per-tile to the
   /// nearest coarser cached bucket, upscaled; anything still uncovered leaves
   /// the base raster showing through.
+  ///
+  /// [canRasterize], when given, vetoes scheduling per tile region: a vetoed
+  /// tile is never rastered or cached (its area keeps the fallback/base),
+  /// and is re-consulted on every pass so it heals once the veto lifts. The
+  /// page view uses this to tile a vector-only progressive scene everywhere
+  /// except the regions its absent image pixels would corrupt.
   ///
   /// Synchronous and side-effecting: every tile it *places* is touched to
   /// most-recently-used, so a concurrent completion's eviction can only drop
@@ -285,6 +345,7 @@ class PdfTileStore extends ChangeNotifier {
     required double desiredRatio,
     required Rect visiblePageRect,
     required PdfTileRasterizer rasterize,
+    bool Function(Rect region)? canRasterize,
   }) {
     if (_disposed ||
         pageSize.width <= 0 ||
@@ -327,6 +388,7 @@ class PdfTileStore extends ChangeNotifier {
     });
 
     final placements = <PdfTilePlacement>[];
+    final pending = batchRasters ? <PdfTileKey>[] : null;
     var complete = true;
     for (final (tx, ty) in coords) {
       final key = PdfTileKey(id, rung, tx, ty);
@@ -340,7 +402,8 @@ class PdfTileStore extends ChangeNotifier {
         ));
       } else {
         complete = false;
-        _schedule(key, id, pageSize, span, ratio, rasterize);
+        _schedule(key, id, pageSize, span, ratio, rasterize, pending,
+            canRasterize);
         final fallback = _coarserFallback(id, rung, tx, ty, span, pageSize);
         if (fallback != null) placements.add(fallback);
       }
@@ -358,8 +421,14 @@ class PdfTileStore extends ChangeNotifier {
         for (var tx = rx0; tx <= rx1; tx++) {
           if (tx >= tx0 && tx <= tx1 && ty >= ty0 && ty <= ty1) continue;
           _schedule(PdfTileKey(id, rung, tx, ty), id, pageSize, span, ratio,
-              rasterize);
+              rasterize, pending, canRasterize);
         }
+      }
+    }
+
+    if (pending != null && pending.isNotEmpty) {
+      for (final group in _groupBatches(pending)) {
+        _dispatchBatch(group, id, pageSize, span, ratio, rasterize);
       }
     }
 
@@ -408,11 +477,15 @@ class PdfTileStore extends ChangeNotifier {
           src.bottom.clamp(0, tile.image.height.toDouble()),
         ),
         destFraction: _fractionOf(overlap, pageSize),
+        isFallback: true,
       );
     }
     return null;
   }
 
+  /// Marks [key] in-flight and either dispatches its raster now or, when
+  /// [pending] is non-null (one [viewFor] pass in [batchRasters] mode), defers
+  /// it into the pass's batch.
   void _schedule(
     PdfTileKey key,
     PdfTilePageIdentity id,
@@ -420,14 +493,23 @@ class PdfTileStore extends ChangeNotifier {
     double span,
     double ratio,
     PdfTileRasterizer rasterize,
+    List<PdfTileKey>? pending,
+    bool Function(Rect region)? canRasterize,
   ) {
     if (_disposed || _cache.containsKey(key) || _inFlight.contains(key)) return;
     final region = _clampToPage(
         Rect.fromLTWH(key.tx * span, key.ty * span, span, span), pageSize);
     if (region.width <= 0 || region.height <= 0) return;
+    // Vetoed tiles are neither in-flight nor cached, so every pass re-asks -
+    // the veto lifting (a scene upgrade) heals them without invalidation.
+    if (canRasterize != null && !canRasterize(region)) return;
 
     _inFlight.add(key);
     debugTilesScheduled++;
+    if (pending != null) {
+      pending.add(key);
+      return;
+    }
     final dispatchEpoch = _globalEpoch;
     rasterize(region, ratio).then((image) {
       _inFlight.remove(key);
@@ -436,13 +518,145 @@ class PdfTileStore extends ChangeNotifier {
         debugTilesDiscarded++;
         return;
       }
-      _cache.put(key, PdfTile(image, region, key.rung));
+      _cache.put(
+          key, PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
       debugTilesLanded++;
       _scheduleTick();
     }, onError: (Object _, StackTrace __) {
       _inFlight.remove(key);
       debugTilesDiscarded++;
     });
+  }
+
+  /// Splits one pass's missing tiles into raster batches: the whole set as a
+  /// single slab when it fills at least [_batchFillThreshold] of its bounding
+  /// box (and fits [maxBatchTilesPerAxis]), else contiguous per-row runs so a
+  /// sparse set never re-rasters the cached tiles between its holes.
+  List<List<PdfTileKey>> _groupBatches(List<PdfTileKey> keys) {
+    var txMin = keys.first.tx, txMax = keys.first.tx;
+    var tyMin = keys.first.ty, tyMax = keys.first.ty;
+    for (final k in keys) {
+      txMin = math.min(txMin, k.tx);
+      txMax = math.max(txMax, k.tx);
+      tyMin = math.min(tyMin, k.ty);
+      tyMax = math.max(tyMax, k.ty);
+    }
+    final w = txMax - txMin + 1;
+    final h = tyMax - tyMin + 1;
+    if (w <= maxBatchTilesPerAxis &&
+        h <= maxBatchTilesPerAxis &&
+        keys.length >= _batchFillThreshold * w * h) {
+      return [keys];
+    }
+    final byRow = <int, List<PdfTileKey>>{};
+    for (final k in keys) {
+      (byRow[k.ty] ??= []).add(k);
+    }
+    final groups = <List<PdfTileKey>>[];
+    for (final row in byRow.values) {
+      row.sort((a, b) => a.tx.compareTo(b.tx));
+      var run = <PdfTileKey>[row.first];
+      for (final k in row.skip(1)) {
+        if (k.tx == run.last.tx + 1 && run.length < maxBatchTilesPerAxis) {
+          run.add(k);
+        } else {
+          groups.add(run);
+          run = [k];
+        }
+      }
+      groups.add(run);
+    }
+    return groups;
+  }
+
+  /// Rasters one batch as a single slab readback and slices it into tiles.
+  /// Every key in [batch] is already in [_inFlight].
+  void _dispatchBatch(
+    List<PdfTileKey> batch,
+    PdfTilePageIdentity id,
+    Size pageSize,
+    double span,
+    double ratio,
+    PdfTileRasterizer rasterize,
+  ) {
+    Rect tileRegion(PdfTileKey key) => _clampToPage(
+        Rect.fromLTWH(key.tx * span, key.ty * span, span, span), pageSize);
+
+    var txMin = batch.first.tx, txMax = batch.first.tx;
+    var tyMin = batch.first.ty, tyMax = batch.first.ty;
+    for (final k in batch) {
+      txMin = math.min(txMin, k.tx);
+      txMax = math.max(txMax, k.tx);
+      tyMin = math.min(tyMin, k.ty);
+      tyMax = math.max(tyMax, k.ty);
+    }
+    final batchRegion = _clampToPage(
+        Rect.fromLTWH(txMin * span, tyMin * span, (txMax - txMin + 1) * span,
+            (tyMax - tyMin + 1) * span),
+        pageSize);
+
+    final dispatchEpoch = _globalEpoch;
+    debugBatchesDispatched++;
+    rasterize(batchRegion, ratio).then((slab) {
+      for (final key in batch) {
+        _inFlight.remove(key);
+      }
+      if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
+        slab.dispose();
+        debugTilesDiscarded += batch.length;
+        return;
+      }
+      try {
+        for (final key in batch) {
+          final region = tileRegion(key);
+          _cache.put(
+              key,
+              PdfTile(_sliceTile(slab, batchRegion, region, ratio), region,
+                  key.rung, _fractionOf(region, pageSize)));
+          debugTilesLanded++;
+        }
+      } finally {
+        slab.dispose();
+      }
+      _scheduleTick();
+    }, onError: (Object _, StackTrace __) {
+      for (final key in batch) {
+        _inFlight.remove(key);
+      }
+      debugTilesDiscarded += batch.length;
+    });
+  }
+
+  /// Cuts one tile out of a batch slab: a 1:1 `drawImageRect` blit converted
+  /// with `toImageSync`, so the tile becomes its own GPU-resident texture
+  /// without a scene replay or a pixel readback.
+  ui.Image _sliceTile(
+      ui.Image slab, Rect batchRegion, Rect tileRegion, double ratio) {
+    final w = (tileRegion.width * ratio).ceil().clamp(1, 1 << 14);
+    final h = (tileRegion.height * ratio).ceil().clamp(1, 1 << 14);
+    final src = Rect.fromLTWH(
+      (tileRegion.left - batchRegion.left) * ratio,
+      (tileRegion.top - batchRegion.top) * ratio,
+      w.toDouble(),
+      h.toDouble(),
+    ).intersect(
+        Rect.fromLTWH(0, 0, slab.width.toDouble(), slab.height.toDouble()));
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    if (!src.isEmpty) {
+      canvas.drawImageRect(
+        slab,
+        src,
+        Rect.fromLTWH(0, 0, src.width, src.height),
+        Paint()..filterQuality = FilterQuality.none,
+      );
+    }
+    final picture = recorder.endRecording();
+    try {
+      return picture.toImageSync(w, h);
+    } finally {
+      picture.dispose();
+    }
   }
 
   bool _isStale(int pageIndex, int dispatchEpoch) =>

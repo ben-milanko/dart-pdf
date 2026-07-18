@@ -13,6 +13,7 @@ import 'package:pdf_graphics/pdf_graphics.dart'
         PdfMatrix,
         PdfRenderCommand;
 
+import 'debug_overlays.dart';
 import 'perf_log.dart';
 import 'page_render_session.dart';
 import 'performance_policy.dart';
@@ -301,19 +302,21 @@ class PdfPageView extends StatefulWidget {
   /// thread turns the returned detail commands into the sharp on-screen patch.
   static bool deferFullRenderUntilDetailPaint = true;
 
-  /// Opt-in: composite deep-zoom detail from the [PdfTileStore] zoom-bucket
-  /// pyramid instead of the single unbudgeted detail patch. When true (and the
-  /// page retains a region-cullable scene), the visible slice is tiled: panning
-  /// at deep zoom draws cached tiles with zero re-raster and a settle only
-  /// rasterizes the missing tiles, all under one shared byte budget that evicts
-  /// by least-recently used and drops under memory pressure.
+  /// Composite deep-zoom detail from the [PdfTileStore] zoom-bucket pyramid
+  /// instead of the single unbudgeted detail patch. When true (and the page
+  /// retains a region-cullable scene), the visible slice is tiled: panning at
+  /// deep zoom draws cached tiles with zero re-raster and a settle only
+  /// rasterizes the missing tiles (batched into slab readbacks), all under one
+  /// shared byte budget that evicts by least-recently used and drops under
+  /// memory pressure.
   ///
   /// Additive to the existing pipeline: the tile layer sits ABOVE the base
   /// raster, so a gap not yet tiled shows the (capped) base image through it,
   /// and pages the region index cannot cull (soft-mask/group spans) keep the
-  /// legacy single-patch path. Default false while the pyramid is measured
-  /// against the shipping detail patch (issue #314).
-  static bool tileStoreDetail = false;
+  /// legacy single-patch path. Defaults per platform
+  /// ([pdfDefaultTileStoreDetail], issue #314): on for desktop, off for
+  /// web/mobile pending their own validation passes.
+  static bool tileStoreDetail = pdfDefaultTileStoreDetail();
 
   /// Test seam: the store the tile layer draws from. Null uses the shared
   /// [PdfTileStore.instance].
@@ -438,6 +441,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void initState() {
     super.initState();
+    PdfLivePageRegistry.instance.add(widget.previewIndex);
     _renderSession = PdfPageRenderSession(_renderIntent(widget));
     widget.renderHold?.addListener(_onRenderHoldChanged);
     widget.previewCache?.addListener(_onPreviewCacheChanged);
@@ -552,6 +556,9 @@ class _PdfPageViewState extends State<PdfPageView> {
       liveTransform?.addListener(_onLiveTransformChanged);
     }
     if (oldWidget.previewIndex != widget.previewIndex) {
+      PdfLivePageRegistry.instance
+          .move(oldWidget.previewIndex, widget.previewIndex);
+      PdfDebugDetailRegions.instance.report(oldWidget.previewIndex, null);
       // The lazy list reused this State for a different page (it scrolled into
       // this slot): cancel the old page's queued worker request - the user
       // scrolled past it, so decoding it now would only delay the page now on
@@ -616,6 +623,8 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   @override
   void dispose() {
+    PdfLivePageRegistry.instance.remove(widget.previewIndex);
+    PdfDebugDetailRegions.instance.report(widget.previewIndex, null);
     widget.renderHold?.removeListener(_onRenderHoldChanged);
     _liveTransformFor(widget)?.removeListener(_onLiveTransformChanged);
     _speculateTimer?.cancel();
@@ -675,6 +684,11 @@ class _PdfPageViewState extends State<PdfPageView> {
         scene != null && PdfPageRenderer.hasImageDraws(scene.commands);
     _sceneFromWorker = scene != null && fromWorker;
     _sceneIsVectorOnly = scene != null && vectorOnly;
+    // A vector-only scene may feed the tile path everywhere its absent image
+    // pixels can't corrupt a tile; a full scene has no veto.
+    _tileCanRasterize = scene != null && vectorOnly && _sceneHasImageDraws
+        ? (region) => !_imagesIntersectRegion(scene.commands, region)
+        : null;
     _slugPictureRejected = false;
     // a speculative bin's geometry was computed against the previous scene;
     // with the scene identity changed it is meaningless, so drop it (the
@@ -1800,13 +1814,27 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   /// Whether the [PdfPageView.tileStoreDetail] tile path drives deep-zoom
   /// detail for this page: the flag is on and the retained scene is
-  /// region-cullable (soft-mask/group spans and the vector-first progressive
-  /// scene keep the legacy single-patch path).
+  /// region-cullable (soft-mask/group spans keep the legacy single-patch
+  /// path).
+  ///
+  /// A vector-only progressive scene is eligible too - on the dense CAD pages
+  /// the pyramid targets, the full image-bearing record may never land during
+  /// a deep-zoom dwell, so excluding vector-only scenes meant 0 tiles exactly
+  /// where tiles matter most. Its absent image pixels are handled per tile:
+  /// [_tileCanRasterize] vetoes the regions an image draw intersects, which
+  /// keep the fallback/base raster and heal automatically if the full record
+  /// later replaces the scene.
   bool get _useTilePath {
     if (!PdfPageView.tileStoreDetail) return false;
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
-    return scene != null && !_sceneIsVectorOnly && scene.supportsRegionRaster;
+    return scene != null && scene.supportsRegionRaster;
   }
+
+  /// Per-tile veto for the tile store while the scene is vector-only: a tile
+  /// region an image draw intersects would bake the placeholder's missing
+  /// pixels into a cached tile. Bound to the scene at adoption ([_setScene])
+  /// so the painter's identity check doesn't see a fresh closure every build.
+  bool Function(Rect region)? _tileCanRasterize;
 
   /// Recomputes the tile layer's visible slice + desired ratio on a settle.
   /// Runs post-render (never during layout), so reading the render tree in
@@ -1857,6 +1885,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         visibleFraction: fraction,
         rasterize: (region, ratio) =>
             scene.rasterizeRegion(region, pixelRatio: ratio),
+        canRasterize: _tileCanRasterize,
       ),
     );
   }
@@ -2230,6 +2259,12 @@ class _PdfPageViewState extends State<PdfPageView> {
               final fraction = _detailFraction;
               final slugPicture = _slugPicture;
               final tileLayer = _tileLayerWidget(size);
+              // Publish this page's patch bounds for the thumbnail debug
+              // overlay (report coalesces its notify past this build).
+              if (pdfDebugPaintDetailBounds.value) {
+                PdfDebugDetailRegions.instance.report(widget.previewIndex,
+                    tileLayer == null && detail != null ? fraction : null);
+              }
               return Stack(
                 alignment: Alignment.topLeft,
                 fit: StackFit.expand,
@@ -2271,11 +2306,27 @@ class _PdfPageViewState extends State<PdfPageView> {
                       top: fraction.top * h,
                       width: fraction.width * w,
                       height: fraction.height * h,
-                      child: RawImage(
-                        key: const ValueKey('pdf-page-detail-image'),
-                        image: detail,
-                        fit: BoxFit.fill,
-                        filterQuality: FilterQuality.medium,
+                      // The debug border repaints on toggle without a page
+                      // rebuild (the flag is a ValueNotifier).
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: pdfDebugPaintDetailBounds,
+                        child: RawImage(
+                          key: const ValueKey('pdf-page-detail-image'),
+                          image: detail,
+                          fit: BoxFit.fill,
+                          filterQuality: FilterQuality.medium,
+                        ),
+                        builder: (context, debugBounds, child) => !debugBounds
+                            ? child!
+                            : DecoratedBox(
+                                position: DecorationPosition.foreground,
+                                decoration: BoxDecoration(
+                                  // purple: the legacy single detail patch
+                                  border: Border.all(
+                                      color: const Color(0xAAAA00FF)),
+                                ),
+                                child: child,
+                              ),
                       ),
                     ),
                 ],

@@ -171,7 +171,8 @@ extension PdfPadesSigning on PdfEditor {
     // --- B-B / B-T: the CAdES-baseline signature in the /Contents ---
     final revision = _emitSignatureRevision(
       subFilter: 'ETSI.CAdES.detached',
-      capacity: PdfSigning._cmsCapacity(certificates),
+      capacity: PdfSigning._cmsCapacity(certificates,
+          withTimestamp: level >= PdfPadesLevel.bT),
       fieldName: fieldName,
       signingTime: time,
       signerName: signerName,
@@ -241,7 +242,7 @@ extension PdfPadesSigning on PdfEditor {
     final editor = PdfEditor(PdfDocument.open(bytes));
     final revision = editor._emitSignatureRevision(
       subFilter: 'ETSI.RFC3161',
-      capacity: 16384,
+      capacity: PdfSigning._timestampTokenReserve,
       docTimeStamp: true,
     );
     final request = buildTimeStampRequest(

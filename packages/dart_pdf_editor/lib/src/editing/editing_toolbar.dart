@@ -377,6 +377,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               'Image - tap to place, or drag out a box'),
           _GroupTool.tool(PdfEditTool.signature, Icons.history_edu,
               'Signature - tap a page to place it'),
+          _GroupTool.tool(PdfEditTool.signatureBox, Icons.draw_outlined,
+              'Digital signature - drag a box to place and sign'),
         ],
         defaultTool: PdfEditTool.freeText),
     _ToolGroup('measure', 'Measure', Icons.straighten, [

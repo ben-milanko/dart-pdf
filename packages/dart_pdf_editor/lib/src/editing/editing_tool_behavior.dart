@@ -144,7 +144,7 @@ abstract class PdfEditToolBehavior {
   /// The persisted-style scope key - a stable slot name for the tool's
   /// remembered style, or null for the tools that create nothing styled
   /// (select, content, form, redact, signature, image, snapshot,
-  /// calibrate). See [PdfEditingController.preferences].
+  /// signatureBox, calibrate). See [PdfEditingController.preferences].
   String? get styleScopeKey => null;
 
   /// The style fields this tool remembers - mirrors the controls its toolbar
@@ -597,6 +597,7 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
     const _SimpleTool(PdfEditTool.form),
     const _SimpleTool(PdfEditTool.redact),
     const _SimpleTool(PdfEditTool.snapshot),
+    const _SimpleTool(PdfEditTool.signatureBox),
   ])
     b.tool: b,
 };

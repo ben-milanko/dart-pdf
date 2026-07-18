@@ -1,0 +1,74 @@
+# Manual Chrome scroll-perf run against the SYNTHETIC CAD corpus (the real
+# local CAD PDF cannot be committed). Builds the app/tool/perf harness,
+# drives headless Chrome through the full scroll sweep, and appends the
+# chrome-scroll envelope to the perf-data branch. workflow_dispatch only -
+# a web build + browser loop is too heavy per-PR and too noisy nightly.
+name: perf-web
+
+on:
+  workflow_dispatch:
+    inputs:
+      passes:
+        description: 'Scroll passes over the document'
+        default: '1'
+
+permissions:
+  contents: write
+
+jobs:
+  chrome-scroll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.4
+          channel: stable
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: flutter pub get
+
+      - name: Generate synthetic CAD corpus
+        run: |
+          dart packages/pdf_cos/tool/gen_cad_pdf.dart \
+            /tmp/perf-cad.pdf 138 6000 20260718
+
+      - name: Build perf harness
+        working-directory: app
+        run: tool/perf/build.sh
+
+      - name: Run Chrome scroll loop
+        working-directory: app/tool/perf
+        env:
+          PERF_PDF: /tmp/perf-cad.pdf
+          PERF_SCENARIO: cad-synthetic-scroll
+          PERF_CHROME: /usr/bin/google-chrome
+          PERF_RESULTS: /tmp/chrome-scroll.ndjson
+        run: |
+          npm install --no-save puppeteer-core
+          node driver.mjs
+
+      - name: Append to perf-data
+        run: |
+          git config user.name "perf-web"
+          git config user.email "perf-web@users.noreply.github.com"
+          git fetch origin perf-data:perf-data 2>/dev/null || true
+          if git rev-parse -q --verify perf-data >/dev/null; then
+            git worktree add ../perf-data perf-data
+          else
+            git worktree add --detach ../perf-data
+            (cd ../perf-data && git checkout --orphan perf-data && git rm -rf -q . || true)
+          fi
+          mkdir -p ../perf-data/history
+          cat /tmp/chrome-scroll.ndjson >> ../perf-data/history/chrome-scroll.ndjson
+          node tool/perf/report/build_report.mjs \
+            --history ../perf-data/history \
+            --targets tool/perf/targets.json \
+            --out ../perf-data/index.html
+          cd ../perf-data
+          git add -A
+          git commit -m "perf-web: $(date -u +%F)"
+          git push origin HEAD:perf-data

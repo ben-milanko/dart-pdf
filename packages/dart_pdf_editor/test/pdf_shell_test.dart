@@ -1680,5 +1680,31 @@ void main() {
             reason: '$key icon colour should match the others');
       }
     });
+
+    testWidgets('the overflow scroller never drag-scrolls, so its controls '
+        'stay tappable (macOS trackpad)', (tester) async {
+      await pump(
+          tester, PdfEditorView(bytes: buildMultiPagePdf(2), onSave: (_) {}));
+
+      // The header wraps its controls in a horizontal scroll view for narrow
+      // windows. If that scroller accepts pointer *drags* (Flutter's default
+      // dragDevices include the trackpad), a trackpad click - which carries a
+      // little motion - is claimed by the drag recognizer and the tap on the
+      // control underneath is swallowed, leaving the whole bar hover-only on
+      // macOS while every other bar works. It must scroll only on the wheel /
+      // trackpad scroll signal, i.e. with no drag devices at all.
+      final scroller = find
+          .ancestor(
+            of: find.byKey(const ValueKey('pdf-shell-panels')),
+            matching: find.byType(SingleChildScrollView),
+          )
+          .first;
+      final config = tester.widget<ScrollConfiguration>(
+        find
+            .ancestor(of: scroller, matching: find.byType(ScrollConfiguration))
+            .first,
+      );
+      expect(config.behavior.dragDevices, isEmpty);
+    });
   });
 }

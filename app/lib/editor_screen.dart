@@ -12,12 +12,16 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'devtools.dart';
+import 'devtools_panel.dart';
 import 'digital_signature.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
 import 'incoming_file.dart';
+import 'keyless_identity_cache.dart';
+import 'keyless_signing.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'pdf_cache.dart';
@@ -56,6 +60,8 @@ class EditorScreen extends StatefulWidget {
     this.autoCheckUpdates = false,
     this.printDocument,
     this.digitalSignatureOptionsProvider,
+    this.oidcTokenProvider,
+    this.oidcSilentTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
     this.imageClipboardWriter,
@@ -94,6 +100,19 @@ class EditorScreen extends StatefulWidget {
   /// hosts with an OS keychain or HSM can supply an identity without exposing
   /// it through the app's file picker.
   final DigitalSignatureOptionsProvider? digitalSignatureOptionsProvider;
+
+  /// Enables Sigstore/Fulcio **keyless** signing in the Digitally sign dialog.
+  /// A deployment supplies this to run its OAuth sign-in and return an OIDC
+  /// token; DartPDF then exchanges it with Fulcio (production HTTPS) and stamps
+  /// the signature with the default TSA. Null (the default) hides the keyless
+  /// option, since no OAuth client ships with the app.
+  final OidcTokenProvider? oidcTokenProvider;
+
+  /// A **silent** OIDC token source (returns a cached/refreshable token, or
+  /// null when a browser sign-in would be needed). When wired, the Digitally
+  /// sign dialog uses it to pre-select the keyless identity on open without
+  /// ever launching sign-in as a side effect of opening.
+  final OidcTokenProvider? oidcSilentTokenProvider;
 
   /// Overrides the Save As backend. Tests use this seam to assert that the
   /// active tab adopts the chosen file without opening platform dialogs.
@@ -169,6 +188,9 @@ class _EditorScreenState extends State<EditorScreen>
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
 
+  /// Whether the developer tools panel is docked over the editor (F12).
+  bool _devToolsOpen = false;
+
   DocumentTab? get _active =>
       _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
 
@@ -180,6 +202,9 @@ class _EditorScreenState extends State<EditorScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (kDevToolsEnabled) {
+      HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
+    }
     _recents.load().then((_) {
       if (mounted) _pruneRecentCache();
     });
@@ -269,6 +294,9 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (kDevToolsEnabled) {
+      HardwareKeyboard.instance.removeHandler(_onGlobalKeyEvent);
+    }
     _incomingSub?.cancel();
     _incoming.dispose();
     _ocr.dispose();
@@ -343,12 +371,15 @@ class _EditorScreenState extends State<EditorScreen>
       final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
+      // Reading the bytes already confirmed the file is still there (a gone
+      // file threw and dropped its placeholder above); defer the parse so a
+      // multi-document session doesn't open every file at once on launch. The
+      // active tab materializes as soon as it's shown (see _buildBody).
       final opened = _replaceLoadingTab(
         loading,
-        DocumentTab.document(
+        DocumentTab.deferred(
           title: doc.title,
           bytes: bytes,
-          preferences: _prefs,
           originPath: originPath,
           originBookmark: doc.bookmark,
           cachePath: doc.cachePath,
@@ -361,8 +392,10 @@ class _EditorScreenState extends State<EditorScreen>
             cachePath: doc.cachePath,
             bookmark: doc.bookmark);
       }
-    } catch (_) {
+    } catch (e) {
       // The file is gone (moved/deleted): drop the placeholder quietly.
+      AppDevTools.instance.addLog('deferred open failed (file moved?): $e',
+          level: DevLogLevel.error);
       if (mounted) await _closeTabs([loading]);
     }
   }
@@ -418,6 +451,8 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   void _openError(String title, String error) {
+    AppDevTools.instance
+        .addLog('open error: $title - $error', level: DevLogLevel.error);
     _addTab(DocumentTab.error(title: title, error: error));
   }
 
@@ -461,6 +496,7 @@ class _EditorScreenState extends State<EditorScreen>
     String? originPath,
     String? originBookmark,
     String? errorTitle,
+    bool defer = false,
   }) async {
     final loading = _openLoading(
       title,
@@ -473,13 +509,23 @@ class _EditorScreenState extends State<EditorScreen>
       // synchronously opens the PDF and can be noticeable for large files.
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
-      final tab = DocumentTab.document(
-        title: title,
-        bytes: bytes,
-        preferences: _prefs,
-        originPath: originPath,
-        originBookmark: originBookmark,
-      );
+      // A batch open ([defer]) parses only the tab the user lands on; the
+      // rest stay unparsed until first activated (see _materializeDeferred),
+      // so opening many large files no longer stalls on every one at once.
+      final tab = defer
+          ? DocumentTab.deferred(
+              title: title,
+              bytes: bytes,
+              originPath: originPath,
+              originBookmark: originBookmark,
+            )
+          : DocumentTab.document(
+              title: title,
+              bytes: bytes,
+              preferences: _prefs,
+              originPath: originPath,
+              originBookmark: originBookmark,
+            );
       final opened = _replaceLoadingTab(loading, tab);
       if (opened) {
         // With a reusable file origin (desktop) or no writable store (web),
@@ -524,10 +570,41 @@ class _EditorScreenState extends State<EditorScreen>
     unawaited(_persistSession());
   }
 
+  /// Builds the edit session for a [DocumentTab.deferred] tab the first time
+  /// it is shown, swapping it for a real document tab in place. The heavy
+  /// parse runs after the current frame paints the placeholder, so landing on
+  /// a deferred tab feels the same as opening a fresh document - and the tabs
+  /// the user never visits are never parsed.
+  void _materializeDeferred(DocumentTab tab) {
+    if (tab.materializing) return;
+    tab.materializing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final index = _tabs.indexOf(tab);
+      final bytes = tab.deferredBytes;
+      if (index == -1 || bytes == null) return;
+      final built = DocumentTab.document(
+        title: tab.title,
+        bytes: bytes,
+        preferences: _prefs,
+        originPath: tab.originPath,
+        originBookmark: tab.originBookmark,
+        cachePath: tab.cachePath,
+      );
+      setState(() => _tabs[index] = built);
+      tab.dispose();
+      unawaited(_persistSession());
+    });
+  }
+
   Future<void> _pickAndOpen() async {
     try {
       final files = await pickPdfFiles();
       if (files.isEmpty) return;
+      // Opening a batch: defer parsing every file but the one that ends up
+      // active, so the picker doesn't freeze while it opens all of them.
+      final defer = files.length > 1;
       for (final file in files) {
         if (!mounted) return;
         final path = originPathForPickedFile(file);
@@ -537,6 +614,7 @@ class _EditorScreenState extends State<EditorScreen>
           title: file.name,
           originPath: path,
           originBookmark: bookmark,
+          defer: defer,
         );
       }
     } catch (e) {
@@ -628,6 +706,9 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Opens each dropped [pdfs] item in its own tab.
   Future<void> _openDropped(List<DropItem> pdfs) async {
+    // Dropping a batch: parse only the tab that ends up active, deferring the
+    // rest until they're visited (see _materializeDeferred).
+    final defer = pdfs.length > 1;
     for (final item in pdfs) {
       // desktop_drop exposes a real path on desktop; on web it's a blob ref
       // we don't treat as a writable origin.
@@ -638,6 +719,7 @@ class _EditorScreenState extends State<EditorScreen>
         title: item.name,
         originPath: path,
         originBookmark: bookmark,
+        defer: defer,
       );
     }
   }
@@ -654,7 +736,9 @@ class _EditorScreenState extends State<EditorScreen>
         final bytes = await item.readAsBytes();
         session.insertPagesFromBytes(bytes);
         inserted++;
-      } catch (_) {
+      } catch (e) {
+        AppDevTools.instance
+            .addLog('insert failed: ${item.name} - $e', level: DevLogLevel.error);
         failed.add(item.name);
       }
     }
@@ -884,36 +968,43 @@ class _EditorScreenState extends State<EditorScreen>
         Offset.zero & overlay.size,
       ),
       items: [
+        // Match the app menu's tight rows on desktop (kMinInteractiveDimension
+        // stays on touch platforms) so every popup reads at one size.
         if (supportsOpenContainingFolder && tab.originPath != null) ...[
           PopupMenuItem(
             key: const ValueKey('tab-menu-open-folder'),
+            height: _appMenuItemHeight(),
             value: _TabMenuAction.openFolder,
             child: Text(openContainingFolderLabel),
           ),
           const PopupMenuDivider(),
         ],
-        const PopupMenuItem(
-          key: ValueKey('tab-menu-close'),
+        PopupMenuItem(
+          key: const ValueKey('tab-menu-close'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.close,
-          child: Text('Close'),
+          child: const Text('Close'),
         ),
         PopupMenuItem(
           key: const ValueKey('tab-menu-close-others'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.closeOthers,
           enabled: _tabs.length > 1,
           child: const Text('Close others'),
         ),
         PopupMenuItem(
           key: const ValueKey('tab-menu-close-right'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.closeRight,
           enabled: index < _tabs.length - 1,
           child: const Text('Close tabs to the right'),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem(
-          key: ValueKey('tab-menu-close-all'),
+        PopupMenuItem(
+          key: const ValueKey('tab-menu-close-all'),
+          height: _appMenuItemHeight(),
           value: _TabMenuAction.closeAll,
-          child: Text('Close all'),
+          child: const Text('Close all'),
         ),
       ],
     );
@@ -1014,22 +1105,78 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- printing ------------------------------------------------------------
 
-  Future<void> _digitallySign(DocumentTab tab) async {
+  /// Reuses a keyless (Sigstore/Fulcio) identity across signatures while its
+  /// short-lived certificate (~10 min) stays valid, so most boxes need no
+  /// fresh OIDC sign-in.
+  final _keylessCache = KeylessIdentityCache();
+
+  /// A keyless identity for signing: the cached one while its cert is valid,
+  /// else freshly minted via [tokenProvider] (interactive or silent).
+  Future<PdfSigningIdentity?> _obtainKeyless(
+          BuildContext context, OidcTokenProvider tokenProvider) =>
+      _keylessCache.obtain(
+          context,
+          (context) =>
+              keylessSigningIdentity(context, tokenProvider: tokenProvider));
+
+  /// Opens the digital-signature dialog and signs. When [placement] is set
+  /// (the signature-box tool drew a rectangle), the dialog offers the visible
+  /// appearance (hand-drawn mark, logo backdrop) and the signature is rendered
+  /// into that box; otherwise the signature is invisible.
+  Future<void> _digitallySign(DocumentTab tab,
+      {SignaturePlacement? placement}) async {
     final session = tab.session;
     if (session == null || _digitallySigning) return;
     setState(() => _digitallySigning = true);
     try {
+      final tokenProvider = widget.oidcTokenProvider;
+      final silentProvider = widget.oidcSilentTokenProvider;
       final options = await (widget.digitalSignatureOptionsProvider ??
-          showDigitalSigningDialog)(context);
+          (context) => showDigitalSigningDialog(
+                context,
+                createKeylessIdentity: tokenProvider == null
+                    ? null
+                    : (context) => _obtainKeyless(context, tokenProvider),
+                timestampClient:
+                    tokenProvider == null ? null : defaultTimestampClient,
+                // On the web the OAuth broker can't complete in a browser tab,
+                // so keyless is native-only; tell the user where to find it.
+                keylessUnavailable: kIsWeb,
+                // Pre-select keyless on open only via the silent provider, so
+                // opening the dialog never launches the browser. It reuses the
+                // cached Fulcio identity while its cert is valid (~10 min), so
+                // most boxes need no OIDC token at all.
+                autoCreateKeylessIdentity:
+                    (tokenProvider == null || silentProvider == null)
+                        ? null
+                        : (context) => _obtainKeyless(context, silentProvider),
+                placement: placement,
+                logoPicker: placement == null ? null : pickImageBytes,
+                pageCount: session.document.pageCount,
+              ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
+      final keyless = options.keylessIdentity;
       final selfSigned = options.selfSignedIdentity;
-      if (selfSigned != null) {
+      if (keyless != null) {
+        await session.addKeylessSignature(
+          keyless,
+          timestampClient: options.timestampClient!,
+          fieldName: options.fieldName,
+          reason: options.reason,
+          location: options.location,
+          contactInfo: options.contactInfo,
+          signingTime: options.signingTime,
+          appearance: options.appearance,
+        );
+      } else if (selfSigned != null) {
         await session.addSelfSignedSignature(
           selfSigned,
           fieldName: options.fieldName,
           reason: options.reason,
           location: options.location,
           contactInfo: options.contactInfo,
+          signingTime: options.signingTime,
+          appearance: options.appearance,
         );
       } else {
         await session.addDigitalSignature(
@@ -1038,6 +1185,8 @@ class _EditorScreenState extends State<EditorScreen>
           reason: options.reason,
           location: options.location,
           contactInfo: options.contactInfo,
+          signingTime: options.signingTime,
+          appearance: options.appearance,
         );
       }
       if (!mounted || !_tabs.contains(tab)) return;
@@ -1045,6 +1194,8 @@ class _EditorScreenState extends State<EditorScreen>
       // an existing origin is overwritten and an untitled document gets a
       // Save As destination. Cancelling Save As leaves the signed tab dirty.
       await _save(tab);
+      // Offer an immediate undo, in case the signature was placed by accident.
+      if (mounted && _tabs.contains(tab)) _offerSignatureUndo(tab);
     } on FormatException catch (error) {
       if (mounted) _toast('Could not digitally sign: ${error.message}');
     } catch (error) {
@@ -1052,6 +1203,36 @@ class _EditorScreenState extends State<EditorScreen>
     } finally {
       if (mounted) setState(() => _digitallySigning = false);
     }
+  }
+
+  /// Shows a snackbar offering to undo a signature just placed (its revision
+  /// sits on the undo stack), removing it and re-saving without it.
+  void _offerSignatureUndo(DocumentTab tab) {
+    final session = tab.session;
+    if (session == null || !session.canUndo) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: const Text('Document digitally signed'),
+        behavior: SnackBarBehavior.floating,
+        margin: pdfFloatingToastMargin(context),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => unawaited(_undoSignature(tab)),
+        ),
+      ));
+  }
+
+  /// Removes the just-placed signature (undoes its revision) and re-saves so
+  /// the file no longer carries it.
+  Future<void> _undoSignature(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null || !session.canUndo || !_tabs.contains(tab)) return;
+    session.undo();
+    if (!mounted || !_tabs.contains(tab)) return;
+    await _save(tab);
+    if (mounted) _toast('Signature removed');
   }
 
   /// Hands the active document to the OS print dialog (the `printing` plugin -
@@ -1238,6 +1419,9 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   void _toast(String message) {
+    // Toasts are transient; mirroring them into the devtools log keeps a
+    // history (and puts them in the exported snapshot).
+    AppDevTools.instance.addLog('toast: $message');
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
@@ -1380,10 +1564,17 @@ class _EditorScreenState extends State<EditorScreen>
               ),
             ],
           ],
-          child: _appMenuTile(
-            icon: Icons.history,
-            title: 'Open Recent',
-            trailing: trailing,
+          // The item carries no padding so the submenu button fills the whole
+          // row for hit-testing; inset the visible content by the stock menu
+          // padding so this row's icon/label line up with the plain items
+          // above it (New, Open…), which sit inside that default padding.
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: _appMenuTile(
+              icon: Icons.history,
+              title: 'Open Recent',
+              trailing: trailing,
+            ),
           ),
         ),
       ),
@@ -1502,6 +1693,7 @@ class _EditorScreenState extends State<EditorScreen>
             prefs: _prefs,
             recents: _recents,
             updates: _updates,
+            onOpenDevTools: kDevToolsEnabled ? _toggleDevTools : null,
           ),
           child: _appMenuTile(
             icon: Icons.settings_outlined,
@@ -1509,6 +1701,27 @@ class _EditorScreenState extends State<EditorScreen>
           ),
         ),
       ];
+
+  /// Shows/hides the developer tools panel (F12; every build mode unless
+  /// stripped with --dart-define=DEVTOOLS=false).
+  void _toggleDevTools() {
+    if (!kDevToolsEnabled) return;
+    setState(() => _devToolsOpen = !_devToolsOpen);
+  }
+
+  /// Global F12 hook (registered in initState): a devtools toggle must work
+  /// regardless of where focus sits - a CallbackShortcuts binding goes deaf
+  /// whenever the focused node leaves its subtree (e.g. after the panel
+  /// itself opens).
+  bool _onGlobalKeyEvent(KeyEvent event) {
+    if (kDevToolsEnabled &&
+        event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.f12) {
+      _toggleDevTools();
+      return true;
+    }
+    return false;
+  }
 
   // --- build ---------------------------------------------------------------
 
@@ -1559,7 +1772,21 @@ class _EditorScreenState extends State<EditorScreen>
           },
           child: Stack(
             children: [
-              Positioned.fill(child: _buildBody(tab)),
+              // The devtools panel docks beside the body (like the editor's
+              // own sidebars), so the viewer relays out narrower instead of
+              // being overlaid - zoom and scroll gestures keep their space.
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    Expanded(child: _buildBody(tab)),
+                    if (_devToolsOpen && kDevToolsEnabled)
+                      DevToolsPanel(
+                        onClose: _toggleDevTools,
+                        session: tab?.session,
+                      ),
+                  ],
+                ),
+              ),
               if (_dragging)
                 Positioned.fill(
                   child: _DropOverlay(
@@ -1581,6 +1808,12 @@ class _EditorScreenState extends State<EditorScreen>
         onOpen: _pickAndOpen,
         onOpenRecent: _openRecent,
       );
+    }
+    if (tab.isDeferred) {
+      // First time we show a deferred tab: parse it (after this frame) and
+      // show the same placeholder a fresh open uses meanwhile.
+      _materializeDeferred(tab);
+      return _OpeningDocument(title: tab.title);
     }
     if (tab.isLoading) {
       return _OpeningDocument(title: tab.title);
@@ -1641,6 +1874,10 @@ class _EditorScreenState extends State<EditorScreen>
               : 'Could not copy snapshot to clipboard');
         },
       ),
+      // The signature-box tool: drag a box, then pick an identity and
+      // appearance and cryptographically sign into that rectangle.
+      onPlaceSignature: (context, {required pageIndex, required pageRect}) =>
+          _digitallySign(tab, placement: (page: pageIndex, rect: pageRect)),
     );
   }
 
@@ -2135,14 +2372,18 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
 
     final origin = target.localToGlobal(Offset.zero, ancestor: overlayBox);
     final overlaySize = overlayBox.size;
-    final width = math.min(
-      _tabHoverPreviewWidth,
-      math.max(0.0, overlaySize.width - 16),
-    ).toDouble();
-    final height = math.min(
-      _tabHoverPreviewHeight,
-      math.max(0.0, overlaySize.height - 16),
-    ).toDouble();
+    final width = math
+        .min(
+          _tabHoverPreviewWidth,
+          math.max(0.0, overlaySize.width - 16),
+        )
+        .toDouble();
+    final height = math
+        .min(
+          _tabHoverPreviewHeight,
+          math.max(0.0, overlaySize.height - 16),
+        )
+        .toDouble();
     if (width <= 0 || height <= 0) return;
 
     final maxLeft = math.max(8.0, overlaySize.width - width - 8);

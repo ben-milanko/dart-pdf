@@ -33,6 +33,16 @@ abstract final class _CertOid {
 Uint8List ecdsaSignatureAlgorithm(crypto.Hash hash) =>
     derSequence([derOid(_ecdsaSignatureOid(hash))]);
 
+/// The DER `SubjectPublicKeyInfo` for an EC public key: an AlgorithmIdentifier
+/// of id-ecPublicKey + the named-curve OID, then the uncompressed SEC1 point in
+/// a BIT STRING. This is the structure an X.509 certificate carries and the
+/// body a PKIX `PUBLIC KEY` PEM block wraps - e.g. the public key a Fulcio
+/// `signingCert` request sends.
+Uint8List ecSubjectPublicKeyInfo(EcPublicKey key) => derSequence([
+      derSequence([derOid(_CertOid.ecPublicKey), derOid(key.curve.oid)]),
+      derBitString(key.sec1),
+    ]);
+
 String _ecdsaSignatureOid(crypto.Hash hash) {
   if (hash == crypto.sha256) return _CertOid.ecdsaWithSha256;
   if (hash == crypto.sha384) return _CertOid.ecdsaWithSha384;
@@ -199,10 +209,7 @@ Uint8List _assembleCertificate({
   required crypto.Hash hash,
 }) {
   final signatureAlgorithm = ecdsaSignatureAlgorithm(hash);
-  final spki = derSequence([
-    derSequence([derOid(_CertOid.ecPublicKey), derOid(subjectPublicKey.curve.oid)]),
-    derBitString(subjectPublicKey.sec1),
-  ]);
+  final spki = ecSubjectPublicKeyInfo(subjectPublicKey);
   final tbs = derSequence([
     derContext(0, derInteger(BigInt.two)), // version v3
     derInteger(serial),

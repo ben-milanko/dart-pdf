@@ -87,6 +87,21 @@ class PdfSnapshot {
 typedef PdfSnapshotHandler = Future<void> Function(
     BuildContext context, PdfSnapshot snapshot);
 
+/// Receives a signature box the user drew with the Signature-box tool
+/// ([PdfEditTool.signatureBox]) - Acrobat/Bluebeam-style placement. The host
+/// collects an identity and appearance (reason, location, a hand-drawn mark,
+/// a logo backdrop) and cryptographically signs into [pageRect] on [pageIndex]
+/// via [PdfEditingController.addKeylessSignature] / addSelfSignedSignature /
+/// addDigitalSignature with a `PdfSignatureAppearance(page: pageIndex,
+/// rect: pageRect, …)`. With no handler ([PdfViewer.onPlaceSignature]) the
+/// tool does nothing. [pageRect] is in PDF user space (points, origin
+/// bottom-left).
+typedef PdfSignaturePlacer = Future<void> Function(
+  BuildContext context, {
+  required int pageIndex,
+  required PdfRect pageRect,
+});
+
 /// Signature of the prompt the editing UI uses to ask for annotation text
 /// (free text, notes, stamps). Returns null when the user cancels.
 typedef PdfTextPrompt = Future<String?> Function(

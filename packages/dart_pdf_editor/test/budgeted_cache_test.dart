@@ -345,4 +345,123 @@ void main() {
       expect(c.length, 1, reason: 'pressure does not touch an unregistered cache');
     });
   });
+
+  group('coordinated ceiling (maxTotalWeight)', () {
+    tearDown(() => PdfCacheRegistry.instance.maxTotalWeight = 0);
+
+    PdfBudgetedCache<int, _Res> registered({List<int>? dropped}) {
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 1000,
+        clearsUnderMemoryPressure: true,
+        disposer: dropped == null ? null : (r) => dropped.add(r.id),
+      );
+      addTearDown(cache.dispose);
+      return cache;
+    }
+
+    test('trimToWeight evicts LRU-first and protects the MRU entry', () {
+      final dropped = <int>[];
+      final cache = registered(dropped: dropped);
+      for (var i = 0; i < 5; i++) {
+        cache.put(i, _Res(i, weight: 10));
+      }
+      cache.trimToWeight(25);
+      expect(cache.weight, 20);
+      expect(dropped, [0, 1, 2]);
+
+      cache.trimToWeight(0);
+      expect(cache.length, 1, reason: 'the MRU entry is never evicted');
+      expect(cache.containsKey(4), isTrue);
+    });
+
+    test('setting the ceiling trims registered caches proportionally', () {
+      final registry = PdfCacheRegistry.instance;
+      final a = registered();
+      final b = registered();
+      for (var i = 0; i < 30; i++) {
+        a.put(i, _Res(i, weight: 10)); // 300
+      }
+      for (var i = 0; i < 10; i++) {
+        b.put(i, _Res(i, weight: 10)); // 100
+      }
+      expect(registry.totalWeight, 400,
+          reason: 'no other weight-bearing cache should be live in this test');
+
+      registry.maxTotalWeight = 200;
+      expect(registry.totalWeight, lessThanOrEqualTo(200));
+      // Proportional: both keep ~half, so the hot cache is not wiped to
+      // protect the small one.
+      expect(a.weight, 150);
+      expect(b.weight, 50);
+    });
+
+    test('a put on a registered cache enforces the ceiling proactively', () {
+      final registry = PdfCacheRegistry.instance;
+      final cache = registered();
+      registry.maxTotalWeight = registry.totalWeight + 100;
+
+      for (var i = 0; i < 30; i++) {
+        cache.put(i, _Res(i, weight: 10)); // would retain 300 unchecked
+      }
+      expect(cache.weight, lessThanOrEqualTo(100),
+          reason: 'growth is trimmed as it happens, not on a later signal');
+    });
+
+    test('ceiling 0 (the default) never trims', () {
+      final cache = registered();
+      expect(PdfCacheRegistry.instance.maxTotalWeight, 0);
+      for (var i = 0; i < 30; i++) {
+        cache.put(i, _Res(i, weight: 10));
+      }
+      expect(cache.weight, 300, reason: 'only the per-cache budget applies');
+    });
+  });
+
+  group('PdfCacheRegistry.snapshot', () {
+    test('reports each registered cache label, count, weight, and budget', () {
+      final registry = PdfCacheRegistry.instance;
+      final images = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 500,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'images',
+      );
+      final records = PdfBudgetedCache<int, _Res>(
+        maxEntries: 4,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'records',
+      );
+      addTearDown(() {
+        images.dispose();
+        records.dispose();
+      });
+      images.put(0, _Res(0, weight: 40));
+      images.put(1, _Res(1, weight: 60));
+      records.put(0, _Res(0));
+
+      final rows = {for (final row in registry.snapshot()) row.label: row};
+      expect(rows['images']!.length, 2);
+      expect(rows['images']!.weight, 100);
+      expect(rows['images']!.maxWeight, 500);
+      // An entry-bounded cache has no weight budget: maxWeight is 0.
+      expect(rows['records']!.length, 1);
+      expect(rows['records']!.weight, 0);
+      expect(rows['records']!.maxWeight, 0);
+    });
+
+    test('a disposed cache drops out of the snapshot', () {
+      final registry = PdfCacheRegistry.instance;
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 100,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'ephemeral',
+      );
+      cache.put(0, _Res(0, weight: 10));
+      expect(registry.snapshot().any((r) => r.label == 'ephemeral'), isTrue);
+      cache.dispose();
+      expect(registry.snapshot().any((r) => r.label == 'ephemeral'), isFalse);
+    });
+  });
 }

@@ -16,6 +16,7 @@ export 'src/document.dart';
 export 'src/editor.dart';
 export 'src/font_embedder.dart';
 export 'src/form.dart';
+export 'src/fulcio.dart';
 export 'src/image.dart';
 export 'src/image_pdf.dart';
 export 'src/import_source.dart';

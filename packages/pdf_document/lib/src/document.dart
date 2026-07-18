@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 
 import 'page.dart';
 
@@ -93,8 +94,10 @@ class PdfDocument {
   List<CosDictionary>? _leafCache;
 
   List<CosDictionary> get _leaves => _leafCache ??= () {
+        final t0 = PdfPerf.begin();
         final out = <CosDictionary>[];
         _collectLeaves(_pagesRoot, out, <CosDictionary>{});
+        PdfPerf.end(PdfPerfPhase.pageTreeWalk, t0);
         return out;
       }();
 

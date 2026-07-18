@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter/widgets.dart';
 
+import 'debug_overlays.dart';
 import 'tile_store.dart';
 
 /// Draws a page's tile pyramid over its visible region.
@@ -27,6 +28,7 @@ class PdfTileLayer extends StatelessWidget {
     required this.desiredRatio,
     required this.visibleFraction,
     required this.rasterize,
+    this.canRasterize,
     this.filterQuality = FilterQuality.medium,
   });
 
@@ -48,6 +50,10 @@ class PdfTileLayer extends StatelessWidget {
   /// Rasterizes one tile from the page's retained scene.
   final PdfTileRasterizer rasterize;
 
+  /// Optional per-tile veto (see [PdfTileStore.viewFor]): a region this
+  /// returns false for is left to the fallback/base raster.
+  final bool Function(Rect region)? canRasterize;
+
   final FilterQuality filterQuality;
 
   @override
@@ -60,6 +66,7 @@ class PdfTileLayer extends StatelessWidget {
           desiredRatio: desiredRatio,
           visibleFraction: visibleFraction,
           rasterize: rasterize,
+          canRasterize: canRasterize,
           filterQuality: filterQuality,
         ),
       );
@@ -73,8 +80,11 @@ class _TilePagePainter extends CustomPainter {
     required this.desiredRatio,
     required this.visibleFraction,
     required this.rasterize,
+    required this.canRasterize,
     required this.filterQuality,
-  }) : super(repaint: store); // tick as sharper tiles land
+  }) : super(
+            // tick as sharper tiles land, and repaint on debug-border toggles
+            repaint: Listenable.merge([store, pdfDebugPaintDetailBounds]));
 
   final PdfTileStore store;
   final PdfTilePageIdentity identity;
@@ -82,6 +92,7 @@ class _TilePagePainter extends CustomPainter {
   final double desiredRatio;
   final Rect visibleFraction;
   final PdfTileRasterizer rasterize;
+  final bool Function(Rect region)? canRasterize;
   final FilterQuality filterQuality;
 
   @override
@@ -101,9 +112,23 @@ class _TilePagePainter extends CustomPainter {
       desiredRatio: desiredRatio,
       visiblePageRect: visiblePageRect,
       rasterize: rasterize,
+      canRasterize: canRasterize,
     );
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
+    final debugBounds = pdfDebugPaintDetailBounds.value;
+    final exactBorder = debugBounds
+        ? (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0xAA00C853)) // green: exact-bucket tile
+        : null;
+    final fallbackBorder = debugBounds
+        ? (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0xAAFF6D00)) // orange: upscaled fallback
+        : null;
     for (final placement in view.placements) {
       final dest = Rect.fromLTRB(
         placement.destFraction.left * size.width,
@@ -112,6 +137,10 @@ class _TilePagePainter extends CustomPainter {
         placement.destFraction.bottom * size.height,
       );
       canvas.drawImageRect(placement.image, placement.src, dest, paint);
+      if (debugBounds) {
+        canvas.drawRect(
+            dest, placement.isFallback ? fallbackBorder! : exactBorder!);
+      }
     }
   }
 
@@ -123,5 +152,6 @@ class _TilePagePainter extends CustomPainter {
       old.desiredRatio != desiredRatio ||
       old.visibleFraction != visibleFraction ||
       !identical(old.rasterize, rasterize) ||
+      !identical(old.canRasterize, canRasterize) ||
       old.filterQuality != filterQuality;
 }

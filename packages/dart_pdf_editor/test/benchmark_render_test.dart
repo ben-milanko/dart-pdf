@@ -75,7 +75,32 @@ void main() {
         print('  dart-render pass ${r + 1}/$repeat done (${files.length} files)');
       }
 
+      String git(List<String> a) {
+        final r = Process.runSync('git', a);
+        return r.exitCode == 0 ? (r.stdout as String).trim() : '';
+      }
+
       final payload = {
+        // Envelope fields (tool/perf/SCHEMA.md); the legacy fields below are
+        // unchanged so benchmark/compare.py keeps working.
+        'schema': 1,
+        'suite': 'flutter-render',
+        'scenario': null,
+        'rev': {
+          'sha': git(['rev-parse', 'HEAD']),
+          'branch': git(['rev-parse', '--abbrev-ref', 'HEAD']),
+          'dirty': git(['status', '--porcelain']).isNotEmpty,
+          'date': git(['show', '-s', '--format=%cI', 'HEAD']),
+        },
+        'env': {
+          'os': Platform.operatingSystem,
+          'cpus': Platform.numberOfProcessors,
+          'ci': Platform.environment['CI'] == 'true',
+          'runner': Platform.environment['RUNNER_OS'] != null
+              ? 'github-actions'
+              : 'local',
+        },
+        'ts': DateTime.now().toUtc().toIso8601String(),
         'tool': 'dart-pdf-render',
         'scale': scale,
         'maxPages': maxPages,

@@ -21,6 +21,8 @@
 //   PERF_RESULTS   ndjson output path                (default ./results.ndjson)
 import { createServer } from 'node:http';
 import { readFile, stat, appendFile } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
+import { cpus } from 'node:os';
 import { existsSync } from 'node:fs';
 import { join, extname, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -345,7 +347,29 @@ async function main() {
   }
 
   const elapsed = (Date.now() - t0) / 1000;
+  // Envelope fields (tool/perf/SCHEMA.md) wrap the legacy flat record; every
+  // pre-existing field keeps its place so report.mjs reads both vintages.
+  const git = (args) => {
+    try { return execSync(`git ${args}`, { encoding: 'utf8' }).trim(); }
+    catch { return ''; }
+  };
   const record = {
+    schema: 1,
+    suite: 'chrome-scroll',
+    scenario: process.env.PERF_SCENARIO ?? null,
+    rev: {
+      sha: git('rev-parse HEAD'),
+      branch: git('rev-parse --abbrev-ref HEAD'),
+      dirty: git('status --porcelain').length > 0,
+      date: git('show -s --format=%cI HEAD'),
+    },
+    env: {
+      os: `${process.platform}-${process.arch}`,
+      cpus: cpus().length,
+      node: process.version,
+      ci: process.env.CI === 'true',
+      runner: process.env.RUNNER_OS ? 'github-actions' : 'local',
+    },
     ts: new Date().toISOString(),
     elapsedS: Number(elapsed.toFixed(1)),
     headless: HEADLESS,
@@ -396,6 +420,19 @@ async function main() {
   const regressed = result && (result.interpret.plain > 0 || result.interpret.recorded > 0);
   record.ok = ok;
   record.regressed = !!regressed;
+  // Run-level aggregates for the dashboard (which reads only `metrics`).
+  if (result?.frames) {
+    record.metrics = {
+      pagesVisited,
+      jankCount: result.jankCount ?? 0,
+      buildP50: result.frames.buildP50,
+      buildP95: result.frames.buildP95,
+      buildMax: result.frames.buildMax,
+      buildOver50: result.frames.buildOver50,
+      workerWarmMaxMs: result.workerWarmMax ?? null,
+      agentMemoryBytes: result.memory?.agentBytes ?? null,
+    };
+  }
   console.log(ok ? (regressed ? '◐ PASS (with UI-thread interpret - see plain/recorded)' : '✓ PASS') : '✗ FAIL');
   console.log('──────────────────────────────────\n');
 

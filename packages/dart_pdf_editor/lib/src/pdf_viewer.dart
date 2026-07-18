@@ -719,6 +719,7 @@ class PdfViewer extends StatefulWidget {
     this.imagePicker,
     this.systemImagePasteProvider,
     this.onSnapshot,
+    this.onPlaceSignature,
     this.pageSpacing = 12,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
@@ -938,6 +939,12 @@ class PdfViewer extends StatefulWidget {
   /// ([PdfEditTool.snapshot]) - typically to copy it to the clipboard,
   /// save it, or share it. With none, the snapshot tool does nothing.
   final PdfSnapshotHandler? onSnapshot;
+
+  /// Receives the box drawn by the signature-box tool
+  /// ([PdfEditTool.signatureBox]) so the host can collect an identity and
+  /// appearance and cryptographically sign into it. With none, the
+  /// signature-box tool does nothing.
+  final PdfSignaturePlacer? onPlaceSignature;
 
   final double pageSpacing;
 
@@ -4938,6 +4945,7 @@ class _PdfViewerState extends State<PdfViewer>
                 formImagePicker: widget.formImagePicker,
                 imagePicker: widget.imagePicker,
                 onSnapshot: widget.onSnapshot,
+                onPlaceSignature: widget.onPlaceSignature,
                 onAnnotationTap: widget.onAnnotationTap,
                 interactionHost: PdfEditingInteractionHost(
                   panViewport: _touchGrabPanBy,
@@ -5589,6 +5597,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.formImagePicker,
     required this.imagePicker,
     required this.onSnapshot,
+    required this.onPlaceSignature,
     required this.onAnnotationTap,
     required this.interactionHost,
     required this.interactionSession,
@@ -5664,6 +5673,9 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [EditingPageOverlay.onSnapshot].
   final PdfSnapshotHandler? onSnapshot;
+
+  /// See [EditingPageOverlay.onPlaceSignature].
+  final PdfSignaturePlacer? onPlaceSignature;
   final PdfAnnotationTapHandler? onAnnotationTap;
 
   /// The one viewer/interaction bridge used by the editing overlay.
@@ -5881,6 +5893,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 formImagePicker: widget.formImagePicker,
                                 imagePicker: widget.imagePicker,
                                 onSnapshot: widget.onSnapshot,
+                                onPlaceSignature: widget.onPlaceSignature,
                                 pageColor: widget.pageColor,
                                 showAnnotations: widget.showAnnotations,
                                 interactionHost: widget.interactionHost,

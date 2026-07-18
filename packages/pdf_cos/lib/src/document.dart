@@ -7,6 +7,7 @@ import 'filters/filters.dart';
 import 'lexer.dart';
 import 'objects.dart';
 import 'parser.dart';
+import 'perf/perf.dart';
 import 'xref.dart';
 
 /// A parsed PDF file at the COS level: header, cross-reference machinery, and
@@ -63,25 +64,30 @@ class CosDocument {
   /// corrupt offsets, truncated tables), falls back to rebuilding the xref
   /// by scanning the file for object headers - see [_recover].
   static CosDocument open(Uint8List bytes, {String password = ''}) {
-    final shift = _findHeader(bytes);
+    final t0 = PdfPerf.begin();
     try {
-      final document = _openFromXref(bytes, shift);
-      document._initEncryption(password);
-      final root = document.resolve(document.trailer['Root']);
-      if (root is! CosDictionary) {
-        throw CosParseException('trailer /Root does not resolve');
+      final shift = _findHeader(bytes);
+      try {
+        final document = _openFromXref(bytes, shift);
+        document._initEncryption(password);
+        final root = document.resolve(document.trailer['Root']);
+        if (root is! CosDictionary) {
+          throw CosParseException('trailer /Root does not resolve');
+        }
+        return document;
+      } on CosPasswordException {
+        rethrow;
+      } on UnsupportedEncryptionException {
+        rethrow;
+      } on Exception {
+        // broken xref chain or trailer - fall through to recovery
+      } on RangeError {
+        // ditto: an xref offset pointing outside the file
       }
-      return document;
-    } on CosPasswordException {
-      rethrow;
-    } on UnsupportedEncryptionException {
-      rethrow;
-    } on Exception {
-      // broken xref chain or trailer - fall through to recovery
-    } on RangeError {
-      // ditto: an xref offset pointing outside the file
+      return _recover(bytes, shift, password);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.docOpen, t0);
     }
-    return _recover(bytes, shift, password);
   }
 
   /// Feeds an append-only incremental revision into this already-parsed
@@ -154,9 +160,14 @@ class CosDocument {
       openCosDocumentFromSource(source, password: password, options: options);
 
   static CosDocument _openFromXref(Uint8List bytes, int shift) {
-    final xref = CosXrefReader(bytes, shift: shift).read();
-    return CosDocument._(
-        bytes, shift, xref.entries, xref.trailer, xref.startXref);
+    final t0 = PdfPerf.begin();
+    try {
+      final xref = CosXrefReader(bytes, shift: shift).read();
+      return CosDocument._(
+          bytes, shift, xref.entries, xref.trailer, xref.startXref);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.xrefParse, t0);
+    }
   }
 
   /// Last-resort open for files whose cross-reference machinery is broken:
@@ -167,6 +178,18 @@ class CosDocument {
   /// object streams so compressed objects stay reachable, and - failing a
   /// recovered /Root - locates the catalog by its /Type.
   static CosDocument _recover(Uint8List bytes, int shift, String password) {
+    final t0 = PdfPerf.begin();
+    PdfPerf.add(PdfPerfCount.xrefRecovered);
+    PdfPerf.event(PdfPerfEvent.xrefRecoveryTriggered, 'bytes=${bytes.length}');
+    try {
+      return _recoverTimed(bytes, shift, password);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.xrefRecovery, t0);
+    }
+  }
+
+  static CosDocument _recoverTimed(
+      Uint8List bytes, int shift, String password) {
     final entries = _scanObjectHeaders(bytes, shift);
     if (entries.isEmpty) {
       throw CosParseException(
@@ -418,6 +441,8 @@ class CosDocument {
     // null without caching: the parser treats the junk length leniently
     // and scans for "endstream" instead.
     if (!_loadingObjects.add(objectNumber)) return CosNull.instance;
+    // Count only - this is the hottest path in the package; no clock reads.
+    PdfPerf.add(PdfPerfCount.objectsLoaded);
     final CosObject result;
     try {
       switch (entry.type) {
@@ -476,11 +501,16 @@ class CosDocument {
   /// Looks [objectNumber] up in the lazily built header scan (the same
   /// scan full recovery uses) - the rescue for xrefs whose offsets lie.
   CosIndirectObject? _parseScannedHeader(int objectNumber) {
+    if (_scannedHeaders == null) {
+      PdfPerf.event(PdfPerfEvent.objectRescueScanBuilt);
+    }
     final headers =
         _scannedHeaders ??= _scanObjectHeaders(bytes, _offsetShift);
     final entry = headers[objectNumber];
     if (entry == null || entry.type != CosXrefEntryType.inUse) return null;
-    return _parseIndirectAt(entry.offset, objectNumber);
+    final rescued = _parseIndirectAt(entry.offset, objectNumber);
+    if (rescued != null) PdfPerf.add(PdfPerfCount.xrefOffsetRescue);
+    return rescued;
   }
 
   /// Follows references until reaching a direct object. Null input and
@@ -505,10 +535,12 @@ class CosDocument {
     if (handler != null) {
       final owner = stream.sourceRef;
       if (owner != null && handler.streamPayloadIsEncrypted(stream, resolve)) {
+        final t0 = PdfPerf.begin();
         source = CosStream(
             stream.dictionary,
             handler.decryptStream(
                 stream.rawBytes, owner.objectNumber, owner.generation));
+        PdfPerf.end(PdfPerfPhase.streamDecrypt, t0);
       }
     }
     return decodeStream(source,
@@ -520,19 +552,25 @@ class CosDocument {
 
   _ObjectStream _objectStream(int streamObjectNumber) {
     return _objectStreams.putIfAbsent(streamObjectNumber, () {
-      final object = getObject(streamObjectNumber, 0);
-      if (object is! CosStream) {
-        throw CosParseException(
-            'object stream $streamObjectNumber is not a stream');
+      final t0 = PdfPerf.begin();
+      try {
+        final object = getObject(streamObjectNumber, 0);
+        if (object is! CosStream) {
+          throw CosParseException(
+              'object stream $streamObjectNumber is not a stream');
+        }
+        final data = decodeStreamData(object);
+        final count = resolve(object.dictionary['N']);
+        final first = resolve(object.dictionary['First']);
+        if (count is! CosInteger || first is! CosInteger) {
+          throw CosParseException(
+              'object stream $streamObjectNumber has invalid /N or /First');
+        }
+        PdfPerf.add(PdfPerfCount.objectStreamsLoaded);
+        return _ObjectStream(data, count.value, first.value);
+      } finally {
+        PdfPerf.end(PdfPerfPhase.objectStreamIndex, t0);
       }
-      final data = decodeStreamData(object);
-      final count = resolve(object.dictionary['N']);
-      final first = resolve(object.dictionary['First']);
-      if (count is! CosInteger || first is! CosInteger) {
-        throw CosParseException(
-            'object stream $streamObjectNumber has invalid /N or /First');
-      }
-      return _ObjectStream(data, count.value, first.value);
     });
   }
 

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:bidi/bidi.dart' as bidi;
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -440,8 +441,14 @@ class PdfReflowDocument {
 class PdfTextExtractor {
   PdfTextExtractor._();
 
-  static PdfPageText extract(PdfDocument document, int pageIndex) =>
-      _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+  static PdfPageText extract(PdfDocument document, int pageIndex) {
+    final t0 = PdfPerf.begin();
+    try {
+      return _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.textExtract, t0);
+    }
+  }
 
   static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
     final device = _ExtractionDevice();

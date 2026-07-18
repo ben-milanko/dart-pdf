@@ -11,6 +11,26 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 - `cd packages/<pkg> && fvm dart test` (pure-Dart packages)
 - `cd packages/dart_pdf_editor && fvm flutter test`
 
+## Performance tooling
+
+`tool/perf.sh` is the front door (sweep/render/web/compare-pdfium/gate/dce/
+diff/report). The zero-overhead instrumentation core is `PdfPerf`
+(`package:pdf_cos/perf.dart`, NOT exported from pdf_cos.dart): enum-indexed
+phases/counters, off by default (one branch when compiled in;
+`--dart-define=PDF_PERF=false` tree-shakes it — CI-verified by
+`tool/check_perf_dce.sh`). `PdfPerfLog.enabled = true` lights up the whole
+stack. Never allocate a Stopwatch in lib/ code - use
+`PdfPerf.begin()/end()`. Results use the envelope schema
+(`tool/perf/SCHEMA.md`); scenarios in `tool/perf/scenarios.json`; perf
+budget targets in `tool/perf/targets.json`. Per-PR CI runs the
+deterministic counter gate (`tool/perf.sh gate`, baseline
+`tool/perf/baselines/counters.json` — re-baseline deliberately with
+`--update-baseline`) and `perf_gate_test.dart`/`render_trace_gate_test.dart`.
+Nightly trends + dashboard live on the orphan `perf-data` branch
+(perf-nightly.yml). A/B a change: `tool/perf.sh diff <ref> [scenario]`.
+NEVER edit sources or run builds while a sweep/loop is measuring. See
+doc/dev-log/2026-07-18-perf-tooling-suite.md.
+
 ## Layering rules (strict)
 
 `pdf_cos` ← `pdf_document` ← `pdf_graphics` ← `dart_pdf_editor`
@@ -91,8 +111,27 @@ shared CA and validate via `PdfTrustStore.trusting([caDer])`. Flutter key
 storage + the "Create signing identity" UI are in dart_pdf_editor
 (`PdfIdentityStore`/`InMemoryIdentityStore`/`SecureIdentityStore` on
 flutter_secure_storage; `CreateSigningIdentityForm` /
-`showCreateSigningIdentityDialog`). Fulcio keyless (Tier 3) + Actalis
-import docs (Tier 4) remain the #322 follow-ups.
+`showCreateSigningIdentityDialog`). Sigstore/Fulcio keyless (Tier 3) is in
+`fulcio.dart` (pdf_document): `fulcioSigningIdentity({oidcToken, transport})`
+mints an ephemeral P-256 key, proves possession (`fulcioProofOfPossession` =
+ECDSA over `sha256(subject)`), POSTs the Fulcio v2 `signingCert` request
+(`buildFulcioSigningRequest` + `parseFulcioCertificateChain`, transport
+injected like the TSA - `PdfFulcioTransport`/`PdfFulcioAuthority`) and wraps
+the short-lived chain in a `PdfSigningIdentity` to sign B-T. `pdf_cos` gained
+`ecSubjectPublicKeyInfo` + `pemEncode`; in-process fake Fulcio in
+`pdf_test_fixtures` (`test_fulcio.dart`, verifies the proof, issues from a test
+CA). The tiers (self-signed, org CA, timestamps, keyless, Actalis import) are
+written up in `doc/signing-identities.md`. #322 is complete. Keyless is wired
+into the app's Digitally sign dialog and **on by default off-web**:
+`app/lib/keyless_signing.dart` (`fulcioHttpTransport`, DigiCert
+`defaultTimestampClient`, `keylessSigningIdentity`) +
+`PdfEditingController.addKeylessSignature` (B-T). Sign-in uses Sigstore's
+**public** OAuth broker (`oidc_signin.dart`/`oidc_pkce.dart` - Dex at
+oauth2.sigstore.dev, client `sigstore`, PKCE + loopback, like cosign), so no
+OAuth registration is needed; `EditorScreen.oidcTokenProvider` is the injected
+seam (`app.dart` wires it off-web; null hides the option, or pass your own for a
+custom IdP). Loopback needs `dart:io`, so web gets a stub via conditional
+import.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and

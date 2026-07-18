@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:pdf_cos/perf.dart';
 
 /// Lightweight, frame-gated performance log for diagnosing scroll/render
 /// hangs on heavy documents.
@@ -30,7 +31,30 @@ class PdfPerfLog {
 
   /// Master switch. Defaults to the `PDF_PERF_LOG` dart-define so it is
   /// inert unless explicitly turned on for a diagnostic run.
-  static bool enabled = const bool.fromEnvironment('PDF_PERF_LOG');
+  ///
+  /// Enabling also switches on the COS-layer [PdfPerf] facade (pdf_cos) and
+  /// points its event sink here, so one flag lights up the whole stack. The
+  /// dart-define path bridges lazily on the first [enabled] read - every
+  /// instrumented call site checks it, so that is effectively process start.
+  static bool get enabled {
+    final on = _enabled;
+    if (on && !_bridged) _bridge(true);
+    return on;
+  }
+
+  static set enabled(bool value) {
+    _enabled = value;
+    _bridge(value);
+  }
+
+  static bool _enabled = const bool.fromEnvironment('PDF_PERF_LOG');
+  static bool _bridged = false;
+
+  static void _bridge(bool on) {
+    _bridged = on;
+    PdfPerf.enabled = on;
+    if (on) PdfPerf.sink = log;
+  }
 
   static final Stopwatch _clock = Stopwatch()..start();
   static final List<String> _buf = <String>[];

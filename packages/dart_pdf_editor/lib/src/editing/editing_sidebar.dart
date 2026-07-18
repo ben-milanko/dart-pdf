@@ -353,10 +353,21 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     bool hostsThread,
     bool actionsVisible,
   ) {
+    // A signed signature field is deletable even though its widget isn't a
+    // normally selectable annotation (undo restores it).
+    final signature = _signatureFor(annotation);
     final actions = <Widget>[
       if (hostsThread)
         _threadMenu(context, pageIndex, index, annotation, thread),
-      if (editable)
+      if (signature != null)
+        IconButton(
+          key: ValueKey('pdf-signature-delete-$pageIndex-$index'),
+          icon: const Icon(Icons.delete_outline, size: 20),
+          tooltip: 'Delete signature',
+          onPressed: () =>
+              unawaited(_confirmRemoveSignature(context, signature)),
+        )
+      else if (editable)
         IconButton(
           key: ValueKey('pdf-annotation-delete-$pageIndex-$index'),
           icon: const Icon(Icons.delete_outline, size: 20),
@@ -373,6 +384,47 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       maintainState: true,
       child: Row(mainAxisSize: MainAxisSize.min, children: actions),
     );
+  }
+
+  /// The signed [PdfSignature] this tile's widget belongs to, or null when the
+  /// tile isn't a signed signature field.
+  PdfSignature? _signatureFor(PdfAnnotation annotation) {
+    if (annotation is! PdfWidgetAnnotation ||
+        annotation.fieldType != 'Sig' ||
+        annotation.fieldName == null) {
+      return null;
+    }
+    for (final signature in widget.controller.signatures) {
+      if (signature.field.name == annotation.fieldName) return signature;
+    }
+    return null;
+  }
+
+  Future<void> _confirmRemoveSignature(
+      BuildContext context, PdfSignature signature) async {
+    final name = signature.signerName;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove signature?'),
+        content: Text(name == null || name.isEmpty
+            ? 'This removes the digital signature from the document. You can '
+                'undo this.'
+            : 'This removes the digital signature by "$name" from the '
+                'document. You can undo this.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) widget.controller.removeSignature(signature);
   }
 
   /// The per-row "more" menu holding a markup annotation's thread actions:

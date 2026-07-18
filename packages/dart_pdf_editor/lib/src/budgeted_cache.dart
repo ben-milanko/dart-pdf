@@ -100,6 +100,25 @@ class PdfBudgetedCache<K, V> {
   /// The count cap, or null when the cache is unbounded by entry count.
   int? get maxEntries => _maxEntries;
 
+  /// Evicts least-recently-used weight-bearing entries until retained weight
+  /// is at or under [target] (floored at 0). Like the budget eviction in
+  /// [_trim], the most-recently-used entry is protected and weight-0 entries
+  /// are skipped (evicting them frees nothing). A no-op without a [weigher].
+  ///
+  /// This is the [PdfCacheRegistry.maxTotalWeight] rebalance hook: the
+  /// coordinated ceiling shrinks caches *below* their individual budgets, so
+  /// it needs a target other than [maxWeight].
+  void trimToWeight(int target) {
+    if (_disposed || _weigher == null) return;
+    final floor = math.max(0, target);
+    while (_weight > floor) {
+      final victim = _oldestEvictable(requireWeight: true);
+      if (victim == null) break;
+      _removeEntry(victim);
+      _evictions++;
+    }
+  }
+
   /// Total weight currently retained (occupancy, not a reservation).
   int get weight => _weight;
 
@@ -166,6 +185,9 @@ class PdfBudgetedCache<K, V> {
     _entries[key] = _Entry(value, weight);
     _weight += weight;
     _trim();
+    if (_clearsUnderMemoryPressure && weight > 0) {
+      PdfCacheRegistry.instance.enforceBudget();
+    }
     return value;
   }
 
@@ -212,6 +234,9 @@ class PdfBudgetedCache<K, V> {
     _entries[key] = _Entry(value, weight);
     _weight += weight;
     _trim();
+    if (_clearsUnderMemoryPressure && weight > 0) {
+      PdfCacheRegistry.instance.enforceBudget();
+    }
     return value;
   }
 
@@ -373,6 +398,62 @@ class PdfCacheRegistry {
   int get registrationCount {
     _pruneDead();
     return _caches.length;
+  }
+
+  /// Diagnostic snapshot of every live registered cache: its [PdfBudgetedCache
+  /// .debugLabel], entry count, retained weight, and weight budget (0 when the
+  /// cache is bounded by entries only). For devtools-style displays.
+  List<({String label, int length, int weight, int maxWeight})> snapshot() {
+    _pruneDead();
+    return [
+      for (final ref in _caches)
+        if (ref.target case final cache?)
+          (
+            label: cache.debugLabel,
+            length: cache.length,
+            weight: cache.weight,
+            maxWeight: cache.maxWeight,
+          ),
+    ];
+  }
+
+  int _maxTotalWeight = 0;
+  bool _enforcing = false;
+
+  /// A process-level ceiling across every registered cache, enforced
+  /// **proactively** as caches grow (from [PdfBudgetedCache.put]) instead of
+  /// only on the platform memory-pressure callback - which desktop OSes
+  /// deliver too late, if at all, letting the *sum* of individually-budgeted
+  /// caches sit at a multi-hundred-MB sticky baseline (the 2026-07-18 memory
+  /// audit). 0 (the default) disables the ceiling; setting a value enforces it
+  /// immediately.
+  int get maxTotalWeight => _maxTotalWeight;
+  set maxTotalWeight(int value) {
+    _maxTotalWeight = math.max(0, value);
+    enforceBudget();
+  }
+
+  /// Trims registered caches until [totalWeight] is at or under
+  /// [maxTotalWeight] (no-op when disabled or already under). Each cache is
+  /// trimmed **proportionally** - it keeps the same fraction of its weight -
+  /// so one hot large cache is not wiped to protect idle small ones, and no
+  /// cross-cache LRU clock is needed. Because each cache protects its
+  /// most-recently-used entry, the result can land slightly above the ceiling;
+  /// that residue is bounded by one entry per cache.
+  void enforceBudget() {
+    if (_maxTotalWeight <= 0 || _enforcing) return;
+    final total = totalWeight;
+    if (total <= _maxTotalWeight) return;
+    _enforcing = true;
+    try {
+      for (final ref in _caches.toList()) {
+        final cache = ref.target;
+        if (cache == null || cache.weight == 0) continue;
+        cache.trimToWeight(cache.weight * _maxTotalWeight ~/ total);
+      }
+    } finally {
+      _enforcing = false;
+    }
   }
 
   /// Clears every live registered cache. Wired to the platform

@@ -495,6 +495,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.formImagePicker,
     this.imagePicker,
     this.onSnapshot,
+    this.onPlaceSignature,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
@@ -518,6 +519,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// Receives a region captured by the snapshot tool
   /// ([PdfEditTool.snapshot]). With none, the snapshot tool does nothing.
   final PdfSnapshotHandler? onSnapshot;
+
+  /// Receives the box drawn by the signature-box tool
+  /// ([PdfEditTool.signatureBox]) so the host can sign into it. With none,
+  /// the signature-box tool does nothing.
+  final PdfSignaturePlacer? onPlaceSignature;
 
   /// The paper color the page is displayed with - the eyedropper's
   /// raster must match what's on screen.
@@ -2941,7 +2947,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.stamp ||
             PdfEditTool.image ||
             PdfEditTool.redact ||
-            PdfEditTool.snapshot:
+            PdfEditTool.snapshot ||
+            PdfEditTool.signatureBox:
         _beginInteraction(PdfEditingInteractionIntent.create, details.kind);
         setState(() {
           _dragStart = position;
@@ -3784,6 +3791,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _controller.newFormFieldKind, widget.pageIndex, rect);
       case PdfEditTool.redact:
         _controller.addRedaction(widget.pageIndex, rect);
+      case PdfEditTool.signatureBox:
+        final placer = widget.onPlaceSignature;
+        if (placer == null) return;
+        await placer(context, pageIndex: widget.pageIndex, pageRect: rect);
       case PdfEditTool.snapshot:
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
@@ -5877,8 +5888,9 @@ class _EditingPreviewPainter extends CustomPainter {
               ..strokeWidth = 1 * chromeScale);
       case PdfEditTool.redact:
         paintRedactionHatch(canvas, rect, chromeScale: chromeScale);
-      case PdfEditTool.snapshot:
-        // a selection marquee, like the region grab in a screenshot tool
+      case PdfEditTool.snapshot || PdfEditTool.signatureBox:
+        // a selection marquee: the region grab in a screenshot tool, and the
+        // "draw where the signature goes" box in Acrobat/Bluebeam
         canvas.drawRect(rect, Paint()..color = _chrome.withAlpha(0x1A));
         canvas.drawRect(
             rect,
