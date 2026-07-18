@@ -162,8 +162,13 @@ class PdfShellSessionLifecycle {
     // replaced the buffer): start a new worker generation.
     _worker?.dispose();
     final workerCount = performance.beginWorkerGeneration();
+    // The session's grow-only buffer is replaced on edit, never mutated in
+    // place, so the pool can seed from it directly - no defensive copy of a
+    // possibly-huge document (#359).
     _worker = startPdfRenderWorker(session.bytes,
-        pageCount: session.document.pageCount, workerCount: workerCount);
+        pageCount: session.document.pageCount,
+        workerCount: workerCount,
+        copySource: false);
     _workerDocument = session.document;
     _workerGenerations++;
     PdfPerfLog.log(performance.diagnostics.toString());

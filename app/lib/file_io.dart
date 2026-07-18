@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
@@ -7,6 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'pdf_bookmark_source.dart';
+import 'pdf_file_source.dart';
 
 const _macosFileAccessChannel =
     MethodChannel('dev.milanko.dartpdf/file_access');
@@ -231,6 +235,81 @@ Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
     }
   }
   return XFile(path).readAsBytes();
+}
+
+/// Whether opening [path] progressively (first paint from ranged reads, full
+/// bytes streamed in behind it) is worthwhile on this platform. Desktop only:
+/// the big cloud-synced documents this pays off for live behind a real file
+/// path, and web/mobile picks hand back bytes (or a throwaway sandbox copy)
+/// that are already fully in memory.
+bool progressiveOpenSupported(String? path) =>
+    supportsInPlaceSave && path != null && path.isNotEmpty;
+
+/// A ranged [PdfByteSource] for a local file, so the app can open it
+/// progressively via [PdfDocument.openSource] and stream the rest in behind the
+/// first paint. On sandboxed macOS a bookmarked reopen must reactivate its
+/// security scope, so it reads through the native runner
+/// ([PdfBookmarkFileByteSource]); every other desktop path reads directly with
+/// a `RandomAccessFile` ([PdfFileByteSource]).
+PdfByteSource pdfByteSourceForPath(
+  String path, {
+  String? bookmark,
+  PdfCancelToken? cancelToken,
+  void Function(int received, int? total)? onProgress,
+}) {
+  if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
+    return PdfBookmarkFileByteSource(
+      bookmark: bookmark,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+  }
+  return PdfFileByteSource(
+    path,
+    cancelToken: cancelToken,
+    onProgress: onProgress,
+  );
+}
+
+/// Reads a whole [source] into one contiguous buffer, reporting progress as it
+/// goes. Unlike the sparse buffer [PdfDocument.openSource] assembles (zeros in
+/// the free space the parser never reads), this is the complete file - what the
+/// edit session, signing, and the render workers need. Used for the background
+/// full read behind a progressive first paint.
+Future<Uint8List> readSourceFully(
+  PdfByteSource source, {
+  void Function(int received, int? total)? onProgress,
+  int chunk = 8 << 20,
+  PdfCancelToken? cancelToken,
+}) async {
+  final len = await source.length;
+  if (len != null && len >= 0) {
+    final out = Uint8List(len);
+    var pos = 0;
+    while (pos < len) {
+      cancelToken?.throwIfCancelled();
+      final end = pos + chunk < len ? pos + chunk : len;
+      final data = await source.readRange(pos, end);
+      if (data.isEmpty) break;
+      out.setRange(pos, pos + data.length, data);
+      pos += data.length;
+      onProgress?.call(pos, len);
+    }
+    return pos == len ? out : Uint8List.sublistView(out, 0, pos);
+  }
+  // Unknown length: chunk until a short read signals EOF.
+  final builder = BytesBuilder(copy: false);
+  var pos = 0;
+  while (true) {
+    cancelToken?.throwIfCancelled();
+    final data = await source.readRange(pos, pos + chunk);
+    if (data.isEmpty) break;
+    builder.add(data);
+    pos += data.length;
+    onProgress?.call(pos, null);
+    if (data.length < chunk) break;
+  }
+  return builder.toBytes();
 }
 
 /// Whether the current platform can open a local file's containing folder in

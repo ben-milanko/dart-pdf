@@ -1010,6 +1010,24 @@ void main() {
       expect(seeds, hasLength(3), reason: 'the urgent worker was spawned');
       expect(identical(seeds.last, workerSeed), isTrue);
     });
+
+    test('copySource: false seeds directly from the caller buffer, no copy',
+        () {
+      final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));
+      final seeds = <Uint8List>[];
+      final pool = PdfPooledRenderWorker.withSpawner(source, 3, (bytes) {
+        seeds.add(bytes);
+        return _SeedWorker(bytes);
+      }, copySource: false);
+      addTearDown(pool.dispose);
+
+      // Every worker is seeded from the caller's very buffer - no per-pool
+      // snapshot allocation (#359: skip a full-document copy on stable bytes).
+      expect(seeds, hasLength(3));
+      expect(identical(seeds[0], source), isTrue);
+      expect(identical(seeds[1], source), isTrue);
+      expect(identical(seeds[2], source), isTrue);
+    });
   });
 }
 
