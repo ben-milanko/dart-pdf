@@ -30,37 +30,69 @@ typedef DigitalSignatureCertificatePicker = Future<List<XFile>> Function();
 typedef SelfSignedIdentityCreator = Future<PdfSigningIdentity?> Function(
     BuildContext context, PdfIdentityStore store);
 
+/// Runs the Sigstore/Fulcio keyless flow (OIDC sign-in + short-lived
+/// certificate) and returns the resulting identity, or null if the user
+/// cancels. Injected; only offered when a deployment wires one in (DartPDF
+/// ships no default OAuth client).
+typedef KeylessIdentityCreator = Future<PdfSigningIdentity?> Function(
+    BuildContext context);
+
 /// Everything the app needs to add one approval signature. Exactly one of
-/// [identity] (a bring-your-own RSA key + chain) or [selfSignedIdentity] (a
-/// one-tap self-signed P-256 identity) is set. Either way the private key is
-/// only used in memory when signing; a self-signed identity may also be kept
-/// in the platform keychain via [SecureIdentityStore].
+/// [identity] (a bring-your-own RSA key + chain), [selfSignedIdentity] (a
+/// one-tap self-signed P-256 identity), or [keylessIdentity] (a
+/// Sigstore/Fulcio identity from an OIDC-verified email) is set. The private
+/// key is only used in memory when signing; a self-signed identity may also be
+/// kept in the platform keychain via [SecureIdentityStore].
+///
+/// A keyless signature must be timestamped (its certificate expires in
+/// minutes), so [timestampClient] is set alongside [keylessIdentity].
 class DigitalSignatureOptions {
   const DigitalSignatureOptions({
     this.identity,
     this.selfSignedIdentity,
+    this.keylessIdentity,
+    this.timestampClient,
     this.fieldName,
     this.reason,
     this.location,
     this.contactInfo,
-  }) : assert((identity == null) != (selfSignedIdentity == null),
-            'exactly one identity kind must be provided');
+    this.signingTime,
+  }) : assert(
+            (identity == null ? 0 : 1) +
+                    (selfSignedIdentity == null ? 0 : 1) +
+                    (keylessIdentity == null ? 0 : 1) ==
+                1,
+            'exactly one identity kind must be provided'),
+        assert(keylessIdentity == null || timestampClient != null,
+            'a keyless identity requires a timestampClient');
 
-  /// A bring-your-own RSA/X.509 identity from files, or null for a self-signed
-  /// signature.
+  /// A bring-your-own RSA/X.509 identity from files, or null.
   final PdfDigitalSignatureIdentity? identity;
 
-  /// A one-tap self-signed P-256 identity, or null for a file-based signature.
+  /// A one-tap self-signed P-256 identity, or null.
   final PdfSigningIdentity? selfSignedIdentity;
+
+  /// A short-lived Sigstore/Fulcio keyless identity, or null.
+  final PdfSigningIdentity? keylessIdentity;
+
+  /// The timestamp client used to stamp a keyless (B-T) signature. Set only
+  /// when [keylessIdentity] is.
+  final PdfTimestampClient? timestampClient;
 
   final String? fieldName;
   final String? reason;
   final String? location;
   final String? contactInfo;
 
+  /// An explicit signing time, or null to stamp the moment of signing. Set by
+  /// tests for determinism; production leaves it null.
+  final DateTime? signingTime;
+
   /// The signer name to show, regardless of which identity kind is set.
   String? get signerName =>
-      identity?.signerName ?? selfSignedIdentity?.name;
+      identity?.signerName ??
+      selfSignedIdentity?.name ??
+      keylessIdentity?.name;
 }
 
 Future<DigitalSignatureOptions?> showDigitalSigningDialog(
@@ -69,6 +101,8 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   DigitalSignatureCertificatePicker? certificatePicker,
   PdfIdentityStore? identityStore,
   SelfSignedIdentityCreator? createSelfSignedIdentity,
+  KeylessIdentityCreator? createKeylessIdentity,
+  PdfTimestampClient? timestampClient,
 }) =>
     showDialog<DigitalSignatureOptions>(
       context: context,
@@ -79,6 +113,8 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
         createSelfSignedIdentity: createSelfSignedIdentity ??
             (context, store) =>
                 showCreateSigningIdentityDialog(context, store: store),
+        createKeylessIdentity: createKeylessIdentity,
+        timestampClient: timestampClient,
       ),
     );
 
@@ -97,12 +133,21 @@ class DigitalSignatureDialog extends StatefulWidget {
     required this.certificatePicker,
     required this.identityStore,
     required this.createSelfSignedIdentity,
+    this.createKeylessIdentity,
+    this.timestampClient,
   });
 
   final DigitalSignaturePrivateKeyPicker privateKeyPicker;
   final DigitalSignatureCertificatePicker certificatePicker;
   final PdfIdentityStore identityStore;
   final SelfSignedIdentityCreator createSelfSignedIdentity;
+
+  /// When set, offers the Sigstore/Fulcio keyless option. Null hides it.
+  final KeylessIdentityCreator? createKeylessIdentity;
+
+  /// Timestamp client used for a keyless (B-T) signature. Required when
+  /// [createKeylessIdentity] is set.
+  final PdfTimestampClient? timestampClient;
 
   @override
   State<DigitalSignatureDialog> createState() => _DigitalSignatureDialogState();
@@ -120,6 +165,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   List<String> _certificateNames = const [];
   PdfDigitalSignatureIdentity? _identity;
   PdfSigningIdentity? _selfSigned;
+  PdfSigningIdentity? _keyless;
+  bool _keylessBusy = false;
   String? _error;
 
   @override
@@ -165,6 +212,41 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       _privateKeyName = null;
       _certificateNames = const [];
       _identity = null;
+      _keyless = null;
+      _error = null;
+    });
+  }
+
+  Future<void> _createKeylessIdentity() async {
+    final creator = widget.createKeylessIdentity;
+    if (creator == null || _keylessBusy) return;
+    setState(() {
+      _keylessBusy = true;
+      _error = null;
+    });
+    PdfSigningIdentity? identity;
+    Object? failure;
+    try {
+      identity = await creator(context);
+    } catch (error) {
+      failure = error;
+    }
+    if (!mounted) return;
+    setState(() {
+      _keylessBusy = false;
+      if (failure != null) {
+        _error = 'Keyless sign-in failed: $failure';
+        return;
+      }
+      if (identity == null) return; // cancelled
+      _keyless = identity;
+      // A keyless identity supersedes every other selection.
+      _privateKey = null;
+      _certificates = const [];
+      _privateKeyName = null;
+      _certificateNames = const [];
+      _identity = null;
+      _selfSigned = null;
       _error = null;
     });
   }
@@ -207,7 +289,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   void _rebuildIdentity() {
     _identity = null;
     _error = null;
-    _selfSigned = null; // an explicit file selection supersedes self-signed
+    // an explicit file selection supersedes self-signed / keyless
+    _selfSigned = null;
+    _keyless = null;
     final key = _privateKey;
     if (key == null || _certificates.isEmpty) return;
     try {
@@ -228,6 +312,18 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   }
 
   void _submit() {
+    final keyless = _keyless;
+    if (keyless != null) {
+      Navigator.of(context).pop(DigitalSignatureOptions(
+        keylessIdentity: keyless,
+        timestampClient: widget.timestampClient,
+        fieldName: _value(_fieldName),
+        reason: _value(_reason),
+        location: _value(_location),
+        contactInfo: _value(_contact),
+      ));
+      return;
+    }
     final selfSigned = _selfSigned;
     if (selfSigned != null) {
       Navigator.of(context).pop(DigitalSignatureOptions(
@@ -254,7 +350,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   Widget build(BuildContext context) {
     final identity = _identity;
     final selfSigned = _selfSigned;
-    final canSign = identity != null || selfSigned != null;
+    final keyless = _keyless;
+    final canSign = identity != null || selfSigned != null || keyless != null;
     final theme = Theme.of(context);
     return AlertDialog(
       title: const Row(children: [
@@ -320,6 +417,31 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                 'it is remembered in your device keychain.',
                 style: theme.textTheme.bodySmall,
               ),
+              if (widget.createKeylessIdentity != null) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  key: const ValueKey('digital-signature-keyless'),
+                  onPressed: _keylessBusy ? null : _createKeylessIdentity,
+                  icon: _keylessBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.mail_lock_outlined),
+                  label: Text(_keylessBusy
+                      ? 'Signing you in…'
+                      : 'Sign in with your email (keyless)…'),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Verifies your email through Sigstore and signs with a '
+                  'short-lived certificate plus a trusted timestamp. No key to '
+                  'manage; the email is real, but (like every free option) it '
+                  'reads as "validity unknown" in Acrobat.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
               if (_error != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -353,6 +475,18 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                     leading: const Icon(Icons.badge_outlined),
                     title: Text(selfSigned.name ?? 'Self-signed identity'),
                     subtitle: const Text('Self-signed · validity unknown'),
+                  ),
+                ),
+              ] else if (keyless != null) ...[
+                const SizedBox(height: 10),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    key: const ValueKey('digital-signature-keyless-identity'),
+                    leading: const Icon(Icons.mail_lock_outlined),
+                    title: Text(keyless.name ?? 'Keyless identity'),
+                    subtitle:
+                        const Text('Keyless · timestamped · validity unknown'),
                   ),
                 ),
               ],

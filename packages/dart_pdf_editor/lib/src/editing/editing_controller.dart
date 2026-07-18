@@ -665,6 +665,37 @@ class PdfEditingController extends ChangeNotifier {
     return _adoptDigitalSignature(signed, before: before);
   }
 
+  /// Signs with a **keyless** [PdfSigningIdentity] - a short-lived
+  /// Sigstore/Fulcio identity minted from an OIDC-verified email (see
+  /// `fulcioSigningIdentity`). Because that certificate expires within minutes,
+  /// this always produces a PAdES **B-T** signature: [timestampClient] fetches a
+  /// trusted RFC 3161 timestamp so the signing time is preserved after the
+  /// certificate lapses. Otherwise identical to [addSelfSignedSignature] -
+  /// same validation and undo integration.
+  Future<bool> addKeylessSignature(
+    PdfSigningIdentity identity, {
+    required PdfTimestampClient timestampClient,
+    String? fieldName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+  }) async {
+    final before = bytes;
+    final signed = await PdfEditor(PdfDocument.open(before, password: _password))
+        .saveSelfSignedPades(
+      identity: identity,
+      level: PdfPadesLevel.bT,
+      timestampClient: timestampClient,
+      fieldName: fieldName,
+      reason: reason,
+      location: location,
+      contactInfo: contactInfo,
+      signingTime: signingTime,
+    );
+    return _adoptDigitalSignature(signed, before: before);
+  }
+
   bool _adoptDigitalSignature(Uint8List signed, {required Uint8List before}) {
     if (signed.length <= before.length) {
       throw const FormatException(

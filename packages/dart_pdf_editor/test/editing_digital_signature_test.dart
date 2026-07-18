@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -5,6 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// An unsigned OIDC token carrying [claims] - enough for the keyless flow to
+/// read the identity from (Fulcio, not the client, verifies the signature).
+String _jwt(Map<String, Object?> claims) {
+  String seg(Object o) =>
+      base64Url.encode(utf8.encode(json.encode(o))).replaceAll('=', '');
+  return '${seg({'alg': 'RS256'})}.${seg(claims)}.';
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -75,5 +84,52 @@ void main() {
     signatures = PdfSignature.of(editing.document);
     expect(signatures, hasLength(1));
     expect(signatures.single.validate().intact, isTrue);
+  });
+
+  test('controller adds a timestamped keyless (B-T) signature', () async {
+    final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
+    final ca = TestFulcioCa.generate(notBefore: DateTime.utc(2026));
+
+    // Mint a keyless identity through the in-process Fulcio, exactly as the
+    // app's keylessSigningIdentity would but with the fake transport.
+    final keyless = await fulcioSigningIdentity(
+      oidcToken: _jwt({'email': 'dev@example.com'}),
+      transport: (request) async =>
+          buildTestFulcioResponse(request, ca: ca, notBefore: signedAt),
+    );
+
+    final editing = PdfEditingController(buildClassicPdf());
+    addTearDown(editing.dispose);
+    final original = Uint8List.fromList(editing.bytes);
+
+    expect(
+      await editing.addKeylessSignature(
+        keyless,
+        timestampClient: (request) async =>
+            buildTestTimeStampToken(request, genTime: signedAt),
+        reason: 'Approved',
+        signingTime: signedAt,
+      ),
+      isTrue,
+    );
+
+    expect(editing.bytes.sublist(0, original.length), original);
+    final signature = PdfSignature.of(editing.document).single;
+    expect(signature.signerName, 'dev@example.com');
+    expect(signature.subFilter, 'ETSI.CAdES.detached');
+
+    // intact + trusted against the Sigstore CA, with a signature timestamp.
+    final result = signature.validate(
+        trustStore: PdfTrustStore.trusting([ca.certificate]));
+    expect(result.intact, isTrue, reason: result.problems.join('; '));
+    expect(result.coversWholeDocument, isTrue);
+    expect(result.timestamp, isNotNull);
+    expect(result.chainTrusted, isTrue,
+        reason: result.chainProblems.join('; '));
+
+    // still an undoable revision
+    expect(editing.canUndo, isTrue);
+    editing.undo();
+    expect(PdfSignature.of(editing.document), isEmpty);
   });
 }

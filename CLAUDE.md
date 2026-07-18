@@ -101,7 +101,12 @@ the short-lived chain in a `PdfSigningIdentity` to sign B-T. `pdf_cos` gained
 `ecSubjectPublicKeyInfo` + `pemEncode`; in-process fake Fulcio in
 `pdf_test_fixtures` (`test_fulcio.dart`, verifies the proof, issues from a test
 CA). The tiers (self-signed, org CA, timestamps, keyless, Actalis import) are
-written up in `doc/signing-identities.md`. #322 is complete.
+written up in `doc/signing-identities.md`. #322 is complete. Keyless is wired
+into the app's Digitally sign dialog: `app/lib/keyless_signing.dart`
+(`fulcioHttpTransport`, DigiCert `defaultTimestampClient`, `keylessSigningIdentity`)
++ `PdfEditingController.addKeylessSignature` (B-T); the OAuth step is an
+injected `EditorScreen.oidcTokenProvider` seam (null hides the option, since no
+OAuth client ships).
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and

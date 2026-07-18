@@ -153,6 +153,27 @@ HTTPS POST; `fulcio.dart` builds the request, parses the response, and does the
 crypto. See `fulcioSigningIdentity`, `buildFulcioSigningRequest`,
 `fulcioProofOfPossession`, `parseFulcioCertificateChain`, and `oidcTokenSubject`.
 
+### In the DartPDF app
+
+The example app wires keyless signing into the **Digitally sign** dialog. It
+ships the network transports (`keyless_signing.dart`: `fulcioHttpTransport` to
+Fulcio and `defaultTimestampClient` to DigiCert) and the `addKeylessSignature`
+editor path (PAdES B-T). The one thing it can't ship is an OAuth client, since
+registration is deployment-specific — so keyless is off until a deployment
+supplies one:
+
+```dart
+EditorScreen(
+  // ...,
+  oidcTokenProvider: (context) async => mySignIn(context), // returns an id_token
+);
+```
+
+With a provider wired, the dialog shows **"Sign in with your email
+(keyless)…"**, mints a short-lived identity, and signs B-T with a DigiCert
+timestamp. Without one, the option is hidden and the file/self-signed paths are
+unchanged.
+
 ## Tier 4 — importing a free CA-issued certificate (Actalis)
 
 If you want a certificate that chains to a **publicly-trusted** root without

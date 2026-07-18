@@ -18,6 +18,7 @@ import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
 import 'incoming_file.dart';
+import 'keyless_signing.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'pdf_cache.dart';
@@ -56,6 +57,7 @@ class EditorScreen extends StatefulWidget {
     this.autoCheckUpdates = false,
     this.printDocument,
     this.digitalSignatureOptionsProvider,
+    this.oidcTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
     this.imageClipboardWriter,
@@ -92,6 +94,13 @@ class EditorScreen extends StatefulWidget {
   /// hosts with an OS keychain or HSM can supply an identity without exposing
   /// it through the app's file picker.
   final DigitalSignatureOptionsProvider? digitalSignatureOptionsProvider;
+
+  /// Enables Sigstore/Fulcio **keyless** signing in the Digitally sign dialog.
+  /// A deployment supplies this to run its OAuth sign-in and return an OIDC
+  /// token; DartPDF then exchanges it with Fulcio (production HTTPS) and stamps
+  /// the signature with the default TSA. Null (the default) hides the keyless
+  /// option, since no OAuth client ships with the app.
+  final OidcTokenProvider? oidcTokenProvider;
 
   /// Overrides the Save As backend. Tests use this seam to assert that the
   /// active tab adopts the chosen file without opening platform dialogs.
@@ -995,17 +1004,38 @@ class _EditorScreenState extends State<EditorScreen>
     if (session == null || _digitallySigning) return;
     setState(() => _digitallySigning = true);
     try {
+      final tokenProvider = widget.oidcTokenProvider;
       final options = await (widget.digitalSignatureOptionsProvider ??
-          showDigitalSigningDialog)(context);
+          (context) => showDigitalSigningDialog(
+                context,
+                createKeylessIdentity: tokenProvider == null
+                    ? null
+                    : (context) => keylessSigningIdentity(context,
+                        tokenProvider: tokenProvider),
+                timestampClient:
+                    tokenProvider == null ? null : defaultTimestampClient,
+              ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
+      final keyless = options.keylessIdentity;
       final selfSigned = options.selfSignedIdentity;
-      if (selfSigned != null) {
+      if (keyless != null) {
+        await session.addKeylessSignature(
+          keyless,
+          timestampClient: options.timestampClient!,
+          fieldName: options.fieldName,
+          reason: options.reason,
+          location: options.location,
+          contactInfo: options.contactInfo,
+          signingTime: options.signingTime,
+        );
+      } else if (selfSigned != null) {
         await session.addSelfSignedSignature(
           selfSigned,
           fieldName: options.fieldName,
           reason: options.reason,
           location: options.location,
           contactInfo: options.contactInfo,
+          signingTime: options.signingTime,
         );
       } else {
         await session.addDigitalSignature(
@@ -1014,6 +1044,7 @@ class _EditorScreenState extends State<EditorScreen>
           reason: options.reason,
           location: options.location,
           contactInfo: options.contactInfo,
+          signingTime: options.signingTime,
         );
       }
       if (!mounted || !_tabs.contains(tab)) return;
