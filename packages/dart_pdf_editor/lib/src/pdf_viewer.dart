@@ -1837,7 +1837,7 @@ class _PdfViewerState extends State<PdfViewer>
     var bestDistance = 1 << 30;
     var offset = 0.0;
     for (var i = 0; i < pages.length; i++) {
-      final height = _pageHeight(i) + _spacing;
+      final height = _pageHeight(i) + 2 * _pbMain + _spacing;
       final top = offset;
       offset += height;
       if (!allowNearViewport && top + height >= nearTop && top <= nearBottom) {
@@ -2416,18 +2416,23 @@ class _PdfViewerState extends State<PdfViewer>
   /// scales the whole list, gap included, so the proportion holds there too.
   double get _spacing => widget.pageSpacing * _layoutZoom;
 
+  /// The drawable pasteboard band along the *main* (scroll) axis - top and
+  /// bottom of every page - in on-screen pixels (0 when the pasteboard is
+  /// off). Matches the cross-axis band's on-screen size ([_pasteboardX]
+  /// scaled by the layout zoom, like the horizontal inset), so every page
+  /// is framed by a uniform drawable margin.
+  double get _pbMain => _pasteboardX * _layoutZoom;
+
   /// The page's inset along the cross axis: pages are centred on it (0 for
   /// the reference page at fit).
   double _crossInsetOf(int index) => (_crossView - _pageCross(index)) / 2;
 
-  /// The cumulative main-axis (scroll) offset at which page [index] begins.
-  double _mainOffsetOf(int index) {
-    var offset = 0.0;
-    for (var i = 0; i < index; i++) {
-      offset += _pageMain(i) + _spacing;
-    }
-    return offset;
-  }
+  /// The main-axis (scroll) offset at which page [index]'s *raster* begins -
+  /// past its slot's leading spacing and top pasteboard band. Search /
+  /// jump / viewport math adds a within-page fraction of [_pageMain] to this,
+  /// so folding the band in here keeps all of those correct.
+  double _mainOffsetOf(int index) =>
+      _slotStart(index) + (index == 0 ? 0 : _spacing) + _pbMain;
 
   /// The on-screen width of page [index] (logical pixels). Horizontal =
   /// main size, vertical = cross size.
@@ -2458,9 +2463,10 @@ class _PdfViewerState extends State<PdfViewer>
       _layoutZoom;
 
   /// A page's slot extent in the scroll list, mirroring [itemExtentBuilder]:
-  /// the leading [PdfViewer.pageSpacing] belongs to every page but the first.
+  /// the leading [PdfViewer.pageSpacing] belongs to every page but the first,
+  /// and the top+bottom pasteboard band ([_pbMain]) frames every page.
   double _scrollExtentOf(int index) =>
-      _pageMain(index) + (index == 0 ? 0 : _spacing);
+      _pageMain(index) + 2 * _pbMain + (index == 0 ? 0 : _spacing);
 
   /// The list-space offset at which page [index]'s slot begins.
   double _slotStart(int index) {
@@ -2549,7 +2555,7 @@ class _PdfViewerState extends State<PdfViewer>
             (scale.isFinite && scale > 0 ? scale : 1.0);
     var offset = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      offset += _pageMain(i) + _spacing;
+      offset += _pageMain(i) + 2 * _pbMain + _spacing;
       if (center < offset) {
         _controller._setCurrentPage(i);
         return;
@@ -2663,20 +2669,22 @@ class _PdfViewerState extends State<PdfViewer>
     var mainStart = 0.0;
     for (var i = 0; i < _pages.length; i++) {
       final pageMain = _pageMain(i);
-      if (viewMain < mainStart + pageMain + _spacing ||
+      if (viewMain < mainStart + pageMain + 2 * _pbMain + _spacing ||
           i == _pages.length - 1) {
         final pageCross = _pageCross(i);
         // fractions are layout-zoom independent: numerator and page size
-        // scale together
+        // scale together. The raster sits past the top pasteboard band, so
+        // a viewport parked in the band captures a negative top fraction.
+        final rasterTop = mainStart + _pbMain;
         return PdfViewport(
           page: i,
-          top: pageMain <= 0 ? 0 : (viewMain - mainStart) / pageMain,
+          top: pageMain <= 0 ? 0 : (viewMain - rasterTop) / pageMain,
           left:
               pageCross <= 0 ? 0 : (viewCross - _crossInsetOf(i)) / pageCross,
           zoom: _currentZoom,
         );
       }
-      mainStart += pageMain + _spacing;
+      mainStart += pageMain + 2 * _pbMain + _spacing;
     }
     return null;
   }
@@ -2921,10 +2929,11 @@ class _PdfViewerState extends State<PdfViewer>
     // list space: the scroll offset is only along the main axis
     final contentMain = _scroll.offset + _mainOf(local);
     final point = _axisOffset(contentMain, _crossOf(local));
-    var mainStart = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      final pageMain = _pageMain(i);
-      if (contentMain <= mainStart + pageMain || i == _pages.length - 1) {
+      // page i owns the main-axis span through its bottom pasteboard band;
+      // a point in a band maps to an off-page coordinate (past the crop box)
+      final regionEnd = _mainOffsetOf(i) + _pageMain(i) + _pbMain;
+      if (contentMain <= regionEnd || i == _pages.length - 1) {
         final box = _pages[i].cropBox;
         if (box.width <= 0 || box.height <= 0) return null;
         final geometry = PdfPageGeometry(
@@ -2936,7 +2945,6 @@ class _PdfViewerState extends State<PdfViewer>
             point - Offset(_pageContentX(i), _pageContentY(i)));
         return (i, x, y);
       }
-      mainStart += pageMain + _spacing;
     }
     return null;
   }
@@ -2952,16 +2960,14 @@ class _PdfViewerState extends State<PdfViewer>
     if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return false;
     final contentMain = _scroll.offset + _mainOf(local);
     final contentCross = _crossOf(local);
-    var mainStart = 0.0;
     for (var i = 0; i < _pages.length; i++) {
-      final pageMain = _pageMain(i);
-      if (contentMain < mainStart) return false; // the spacing before it
-      if (contentMain <= mainStart + pageMain) {
+      final top = _mainOffsetOf(i);
+      if (contentMain < top) return false; // in the spacing/band before it
+      if (contentMain <= top + _pageMain(i)) {
         final crossStart = _crossInsetOf(i);
         return contentCross >= crossStart &&
             contentCross <= crossStart + _pageCross(i);
       }
-      mainStart += pageMain + _spacing;
     }
     return false;
   }
@@ -4952,9 +4958,8 @@ class _PdfViewerState extends State<PdfViewer>
         // sliver still ESTIMATES it from the built children's average, which
         // oscillates on mixed-size documents and made the scrollbar thumb
         // jump (AMT-SP-101: 93k↔162k px between frames).
-        itemExtentBuilder: (index, dimensions) => index >= _pages.length
-            ? null
-            : _pageMain(index) + (index == 0 ? 0 : _spacing),
+        itemExtentBuilder: (index, dimensions) =>
+            index >= _pages.length ? null : _scrollExtentOf(index),
         itemCount: _pages.length,
         padding: _horizontal
             ? EdgeInsets.only(right: _spacing)
@@ -5844,10 +5849,11 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
             : null;
     return Stack(children: [
       // the page and its page-space layers (raster, annotation appearance,
-      // highlights, field wash) sit inset by the pasteboard band; the
-      // editing overlay below spans the full tile so the band is drawable
+      // highlights, field wash) sit inset by the pasteboard band on all four
+      // sides; the editing overlay below spans the full tile so the band -
+      // beside, above, and below the page - is drawable
       Padding(
-        padding: EdgeInsets.symmetric(horizontal: widget.pasteboard),
+        padding: EdgeInsets.all(widget.pasteboard),
         child: Stack(children: [
           PdfPageView(
             page: widget.page,
@@ -5930,16 +5936,16 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
           textSelection != null)
         Positioned.fill(
           child: LayoutBuilder(builder: (context, constraints) {
-            // the page occupies the tile inset by the pasteboard band on
-            // each side; view offsets in the band map (via the origin) to
+            // the page occupies the tile inset by the pasteboard band on all
+            // four sides; view offsets in the band map (via the origin) to
             // PDF coordinates outside the crop box - off-page authoring
             final full = constraints.biggest;
             final geometry = PdfPageGeometry(
               cropBox: widget.page.cropBox,
               rotation: widget.effectiveRotation,
-              viewSize: Size(
-                  full.width - 2 * widget.pasteboard, full.height),
-              origin: Offset(widget.pasteboard, 0),
+              viewSize: Size(full.width - 2 * widget.pasteboard,
+                  full.height - 2 * widget.pasteboard),
+              origin: Offset(widget.pasteboard, widget.pasteboard),
             );
             return Stack(children: [
               if (builder != null) ...builder(context, widget.index, geometry),

@@ -62,6 +62,33 @@ void main() {
         reason: 'the stroke starts left of the page (off-page x)');
   });
 
+  testWidgets('a pen stroke above the page authors an off-page annotation',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    final cropTop = editing.document.page(0).cropBox.top;
+    editing.tool = PdfEditTool.ink;
+    await tester.pump();
+
+    // y = 40 sits inside the 120px top pasteboard band - above the page.
+    // (x = 400 is horizontally within the page.) The stroke maps to a page
+    // y above the crop box top: PDF y grows upward, so above-page is larger.
+    final g = await tester.startGesture(const Offset(400, 40),
+        kind: PointerDeviceKind.stylus);
+    await g.moveBy(const Offset(0, 10));
+    await g.moveBy(const Offset(10, 10));
+    await g.up();
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final annotations = editing.document.page(0).annotations;
+    expect(annotations, hasLength(1),
+        reason: 'the stroke above the page committed an annotation');
+    expect(annotations.single.subtype, 'Ink');
+    final stroke = annotations.single.inkList!.single;
+    expect(stroke.first.$2, greaterThan(cropTop),
+        reason: 'the stroke starts above the page (off-page y)');
+  });
+
   testWidgets('off-page margin ink survives a save/reload round-trip',
       (tester) async {
     final editing = await pumpViewer(tester);
