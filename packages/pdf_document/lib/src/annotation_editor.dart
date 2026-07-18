@@ -3907,16 +3907,17 @@ extension PdfAnnotationEditing on PdfEditor {
     if (bbox == null) return;
     final cx = (bbox.left + bbox.right) / 2;
     final cy = (bbox.bottom + bbox.top) / 2;
-    final reflect = <double>[
+    final reflect = PdfMatrix(
       flipX ? -1.0 : 1.0,
       0.0,
       0.0,
       flipY ? -1.0 : 1.0,
       flipX ? 2 * cx : 0.0,
       flipY ? 2 * cy : 0.0,
-    ];
-    final matrix = _mulAffine(reflect, _formMatrix(form));
-    form.dictionary['Matrix'] = CosArray([for (final v in matrix) CosReal(v)]);
+    );
+    final matrix = reflect.concat(_formMatrix(form));
+    form.dictionary['Matrix'] =
+        CosArray([for (final v in matrix.toList()) CosReal(v)]);
     final formRef = document.cos.referenceTo(form);
     if (formRef != null) _updater.replaceObject(formRef.objectNumber, form);
   }
@@ -3956,22 +3957,23 @@ extension PdfAnnotationEditing on PdfEditor {
     final cosT = math.cos(theta), sinT = math.sin(theta);
     final cx = (rect.left + rect.right) / 2;
     final cy = (rect.bottom + rect.top) / 2;
-    final rotation = [
+    final rotation = PdfMatrix(
       cosT,
       sinT,
       -sinT,
       cosT,
       cx - (cx * cosT - cy * sinT),
       cy - (cx * sinT + cy * cosT),
-    ];
-    final matrix = _mulAffine(baked, rotation);
-    form.dictionary['Matrix'] = CosArray([for (final v in matrix) CosReal(v)]);
+    );
+    final matrix = baked.concat(rotation);
+    form.dictionary['Matrix'] =
+        CosArray([for (final v in matrix.toList()) CosReal(v)]);
 
     // /Rect: the BBox corners' bounds under the new matrix. The matrix
     // carries the whole rotation history, so this stays the tightest box
     // around the rotated artwork - two 45° turns land exactly where one
     // 90° turn does, instead of compounding loose bounding boxes.
-    annotation.dict['Rect'] = _rectArray(_bboxBounds(bbox, matrix));
+    annotation.dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
 
     (double, double) rotate(double x, double y) => (
           cx + (x - cx) * cosT - (y - cy) * sinT,
@@ -4107,22 +4109,18 @@ extension PdfAnnotationEditing on PdfEditor {
     final cosT = math.cos(theta), sinT = math.sin(theta);
     // page-space affine: into the local frame about the old center,
     // scale, back out, recenter - T(-c) · R(-θ) · S · R(θ) · T(c')
-    final local = _mulAffine(
-      _mulAffine(
-        _mulAffine([1, 0, 0, 1, -cx, -cy], [cosT, -sinT, sinT, cosT, 0, 0]),
-        [sx, 0, 0, sy, 0, 0],
-      ),
-      _mulAffine([cosT, sinT, -sinT, cosT, 0, 0], [1, 0, 0, 1, tcx, tcy]),
-    );
-    final matrix = _mulAffine(baked, local);
-    form.dictionary['Matrix'] = CosArray([for (final v in matrix) CosReal(v)]);
+    final local = PdfMatrix.translation(-cx, -cy)
+        .concat(PdfMatrix(cosT, -sinT, sinT, cosT, 0, 0))
+        .concat(PdfMatrix.scaled(sx, sy))
+        .concat(PdfMatrix(cosT, sinT, -sinT, cosT, 0, 0))
+        .concat(PdfMatrix.translation(tcx, tcy));
+    final matrix = baked.concat(local);
+    form.dictionary['Matrix'] =
+        CosArray([for (final v in matrix.toList()) CosReal(v)]);
     final bbox = pdfRectFrom(document.cos, form.dictionary['BBox']);
-    if (bbox != null) dict['Rect'] = _rectArray(_bboxBounds(bbox, matrix));
+    if (bbox != null) dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
 
-    (double, double) map(double x, double y) => (
-          local[0] * x + local[2] * y + local[4],
-          local[1] * x + local[3] * y + local[5],
-        );
+    (double, double) map(double x, double y) => local.apply(x, y);
     for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
       final mapped = _mapPointPairs(dict[key], map);
       if (mapped != null) dict[key] = mapped;
@@ -4825,54 +4823,14 @@ extension PdfAnnotationEditing on PdfEditor {
   /// explicit affine mapping BBox space onto [rect] exactly as a
   /// conforming viewer would. Null when the BBox is missing or its
   /// transformed bounds are degenerate.
-  List<double>? _bakedFormMatrix(CosStream form, PdfRect rect) {
+  PdfMatrix? _bakedFormMatrix(CosStream form, PdfRect rect) {
     final bbox = pdfRectFrom(document.cos, form.dictionary['BBox']);
     if (bbox == null) return null;
     final m = _formMatrix(form);
-    final bounds = _bboxBounds(bbox, m);
+    final bounds = boundsUnderMatrix(m, bbox);
     if (bounds.width < 1e-9 || bounds.height < 1e-9) return null;
-    final sx = rect.width / bounds.width;
-    final sy = rect.height / bounds.height;
-    return _mulAffine(m, [
-      sx,
-      0,
-      0,
-      sy,
-      rect.left - bounds.left * sx,
-      rect.bottom - bounds.bottom * sy,
-    ]);
+    return m.concat(fitFormToRect(bbox, m, rect));
   }
-
-  /// The bounds of [bbox]'s corners under the affine [m].
-  PdfRect _bboxBounds(PdfRect bbox, List<double> m) {
-    var minX = double.infinity, minY = double.infinity;
-    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
-    for (final (x, y) in [
-      (bbox.left, bbox.bottom),
-      (bbox.right, bbox.bottom),
-      (bbox.right, bbox.top),
-      (bbox.left, bbox.top),
-    ]) {
-      final tx = m[0] * x + m[2] * y + m[4];
-      final ty = m[1] * x + m[3] * y + m[5];
-      minX = math.min(minX, tx);
-      maxX = math.max(maxX, tx);
-      minY = math.min(minY, ty);
-      maxY = math.max(maxY, ty);
-    }
-    return PdfRect(minX, minY, maxX, maxY);
-  }
-
-  /// `first`, then `second` - the affine product in PDF's row-vector
-  /// convention, both as `[a b c d e f]`.
-  static List<double> _mulAffine(List<double> first, List<double> second) => [
-        first[0] * second[0] + first[1] * second[2],
-        first[0] * second[1] + first[1] * second[3],
-        first[2] * second[0] + first[3] * second[2],
-        first[2] * second[1] + first[3] * second[3],
-        first[4] * second[0] + first[5] * second[2] + second[4],
-        first[4] * second[1] + first[5] * second[3] + second[5],
-      ];
 
   /// An x y x y ... array translated by (dx, dy), or null if [raw] is not
   /// a numeric array.
@@ -4980,24 +4938,7 @@ extension PdfAnnotationEditing on PdfEditor {
       // §12.5.5 algorithm: transform the BBox corners by the form /Matrix,
       // then scale/translate the resulting bounds onto /Rect. The /Matrix
       // itself is applied by the Do operator, so only the fit goes in cm.
-      final m = _formMatrix(form);
-      var minX = double.infinity, minY = double.infinity;
-      var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
-      for (final (x, y) in [
-        (bbox.left, bbox.bottom),
-        (bbox.right, bbox.bottom),
-        (bbox.right, bbox.top),
-        (bbox.left, bbox.top),
-      ]) {
-        final tx = m[0] * x + m[2] * y + m[4];
-        final ty = m[1] * x + m[3] * y + m[5];
-        if (tx < minX) minX = tx;
-        if (tx > maxX) maxX = tx;
-        if (ty < minY) minY = ty;
-        if (ty > maxY) maxY = ty;
-      }
-      final sx = maxX - minX > 1e-9 ? rect.width / (maxX - minX) : 1.0;
-      final sy = maxY - minY > 1e-9 ? rect.height / (maxY - minY) : 1.0;
+      final fit = fitFormToRect(bbox, _formMatrix(form), rect);
 
       var name = 'FlatAnnot$index';
       while (xObjects.containsKey(name)) {
@@ -5007,14 +4948,7 @@ extension PdfAnnotationEditing on PdfEditor {
       xObjects[name] = cos.referenceTo(form) ?? _updater.addObject(form);
       w
         ..save()
-        ..concatMatrix(
-          sx,
-          0,
-          0,
-          sy,
-          rect.left - minX * sx,
-          rect.bottom - minY * sy,
-        )
+        ..concatMatrix(fit.a, fit.b, fit.c, fit.d, fit.e, fit.f)
         ..drawXObject(name)
         ..restore();
       flattened.add(annot.dict);
@@ -5062,7 +4996,7 @@ extension PdfAnnotationEditing on PdfEditor {
   // ---------------------------------------------------------------------
   // shared machinery
 
-  List<double> _formMatrix(CosStream form) {
+  PdfMatrix _formMatrix(CosStream form) {
     final raw = document.cos.resolve(form.dictionary['Matrix']);
     if (raw is CosArray && raw.length >= 6) {
       final values = <double>[];
@@ -5076,9 +5010,9 @@ extension PdfAnnotationEditing on PdfEditor {
                   : (i == 0 || i == 3 ? 1.0 : 0.0),
         );
       }
-      return values;
+      return PdfMatrix.row(values);
     }
-    return const [1, 0, 0, 1, 0, 0];
+    return PdfMatrix.identity;
   }
 
   CosStream _rawStream(String text) {

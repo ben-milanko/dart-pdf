@@ -12,7 +12,6 @@ import 'device.dart';
 import 'font_info.dart';
 import 'function.dart';
 import 'icc.dart';
-import 'matrix.dart';
 import 'path.dart';
 import 'shading.dart';
 
@@ -1880,60 +1879,63 @@ class PdfInterpreter {
   /// Executes a Type3 glyph procedure: a tiny content stream in glyph space,
   /// mapped through /FontMatrix and the text rendering matrix (§9.6.5).
   void _drawType3Glyph(PdfFontInfo font, int code, double penAdvance) {
-    if (!_contentVisible) return;
-    final proc = font.type3ProcFor(code);
-    if (proc == null || _currentFormDepth >= _maxFormDepth) return;
-    final List<ContentOperation> ops;
-    try {
-      ops = _patternOpsCache.putIfAbsent(
-          proc, () => ContentStreamParser.parse(cos.decodeStreamData(proc)));
-    } on Exception {
-      return;
-    }
-    if (ops.isEmpty) return;
-
-    final m = font.type3Matrix;
-    final glyphToText = PdfMatrix(m[0], m[1], m[2], m[3], m[4], m[5]);
+    if (!_contentVisible || _currentFormDepth >= _maxFormDepth) return;
     final size = _state.fontSize;
-    final ctm = glyphToText
-        .concat(PdfMatrix(
-            size * _state.horizontalScale, 0, 0, size, 0, _state.rise))
-        .concat(PdfMatrix.translation(penAdvance, 0))
-        .concat(_textMatrix)
-        .concat(_state.ctm);
+    // The font owns "a Type3 glyph is a content stream" (the CharProc lookup
+    // and its glyph-space /FontMatrix); the interpreter only supplies the
+    // parse cache and the re-entry into its own run loop.
+    font.renderGlyph(
+      code,
+      decode: (proc) {
+        try {
+          return _patternOpsCache.putIfAbsent(
+              proc, () => ContentStreamParser.parse(cos.decodeStreamData(proc)));
+        } on Exception {
+          return const [];
+        }
+      },
+      execute: (ops, resources, glyphToText) {
+        final ctm = glyphToText
+            .concat(PdfMatrix(
+                size * _state.horizontalScale, 0, 0, size, 0, _state.rise))
+            .concat(PdfMatrix.translation(penAdvance, 0))
+            .concat(_textMatrix)
+            .concat(_state.ctm);
 
-    final savedState = _state;
-    final savedStackDepth = _stateStack.length;
-    // A CharProc is its own content stream and usually opens its own BT..ET
-    // (this font draws each glyph with a nested text object). Save the outer
-    // text-object state so the inner BT/Tm/ET can't clobber the caller's text
-    // matrix - otherwise every glyph after the first lands at the wrong
-    // position (§9.6.5: the glyph description executes in glyph space and must
-    // not disturb the text object that invoked it).
-    final savedTextMatrix = _textMatrix;
-    final savedLineMatrix = _lineMatrix;
-    final savedClipPending = _textClipPending;
-    final savedClipSegments = List.of(_textClipSegments);
-    device.save();
-    try {
-      _state = _GraphicsState.from(savedState)
-        ..ctm = ctm
-        ..font = null
-        ..softMask = savedState.softMask;
-      _run(ops, font.type3Resources ?? CosDictionary(), _currentFormDepth + 1);
-    } finally {
-      while (_stateStack.length > savedStackDepth) {
-        _stateStack.removeLast();
-      }
-      _state = savedState;
-      _textMatrix = savedTextMatrix;
-      _lineMatrix = savedLineMatrix;
-      _textClipPending = savedClipPending;
-      _textClipSegments
-        ..clear()
-        ..addAll(savedClipSegments);
-      device.restore();
-    }
+        final savedState = _state;
+        final savedStackDepth = _stateStack.length;
+        // A CharProc is its own content stream and usually opens its own
+        // BT..ET (this font draws each glyph with a nested text object). Save
+        // the outer text-object state so the inner BT/Tm/ET can't clobber the
+        // caller's text matrix - otherwise every glyph after the first lands
+        // at the wrong position (§9.6.5: the glyph description executes in
+        // glyph space and must not disturb the text object that invoked it).
+        final savedTextMatrix = _textMatrix;
+        final savedLineMatrix = _lineMatrix;
+        final savedClipPending = _textClipPending;
+        final savedClipSegments = List.of(_textClipSegments);
+        device.save();
+        try {
+          _state = _GraphicsState.from(savedState)
+            ..ctm = ctm
+            ..font = null
+            ..softMask = savedState.softMask;
+          _run(ops, resources, _currentFormDepth + 1);
+        } finally {
+          while (_stateStack.length > savedStackDepth) {
+            _stateStack.removeLast();
+          }
+          _state = savedState;
+          _textMatrix = savedTextMatrix;
+          _lineMatrix = savedLineMatrix;
+          _textClipPending = savedClipPending;
+          _textClipSegments
+            ..clear()
+            ..addAll(savedClipSegments);
+          device.restore();
+        }
+      },
+    );
   }
 
   // ---------- patterns and shadings ----------

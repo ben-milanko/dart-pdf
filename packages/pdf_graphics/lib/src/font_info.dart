@@ -32,7 +32,7 @@ class PdfFontInfo {
     Map<int, String> encodingNames = const {},
     Map<int, int>? cffCodeToGid,
     Map<int, CosStream> type3Procs = const {},
-    this.type3Resources,
+    CosDictionary? type3Resources,
     List<double>? type3Matrix,
     this.isVertical = false,
     List<double> dw2 = const [880, -1000],
@@ -52,6 +52,7 @@ class PdfFontInfo {
         _encodingNames = encodingNames,
         _cffCodeToGid = cffCodeToGid,
         _type3Procs = type3Procs,
+        _type3Resources = type3Resources,
         _type3Matrix = type3Matrix;
 
   final String? baseFont;
@@ -100,16 +101,39 @@ class PdfFontInfo {
   /// streams - never by substitution (blank procs are intentional, e.g.
   /// invisible text layers).
   final Map<int, CosStream> _type3Procs;
-  final CosDictionary? type3Resources;
+  final CosDictionary? _type3Resources;
   final List<double>? _type3Matrix;
 
   bool get isType3 => _type3Matrix != null;
 
-  /// Glyph space → text space, for Type3 fonts (§9.6.5).
-  List<double> get type3Matrix =>
-      _type3Matrix ?? const [0.001, 0, 0, 0.001, 0, 0];
-
-  CosStream? type3ProcFor(int code) => _type3Procs[code];
+  /// Renders the Type3 glyph for [code] by handing its glyph description -
+  /// the decoded content-stream operations, the resources they draw against,
+  /// and the glyph-space → text-space /FontMatrix (§9.6.5) - to [execute].
+  ///
+  /// This keeps "a Type3 glyph *is* a content stream" (the CharProc lookup
+  /// and the /FontMatrix) inside the font module, so the interpreter no longer
+  /// reaches into Type3 internals to re-enter its own run loop. The caller
+  /// supplies [decode] (CharProc stream → operations) so the interpreter keeps
+  /// its own parse cache and COS access, and does the actual execution in
+  /// [execute]. A no-op when the font isn't Type3, [code] has no CharProc, or
+  /// the glyph description is empty (an intentionally blank glyph).
+  void renderGlyph(
+    int code, {
+    required List<ContentOperation> Function(CosStream proc) decode,
+    required void Function(
+      List<ContentOperation> ops,
+      CosDictionary resources,
+      PdfMatrix glyphToText,
+    ) execute,
+  }) {
+    final matrix = _type3Matrix;
+    if (matrix == null) return;
+    final proc = _type3Procs[code];
+    if (proc == null) return;
+    final ops = decode(proc);
+    if (ops.isEmpty) return;
+    execute(ops, _type3Resources ?? CosDictionary(), PdfMatrix.row(matrix));
+  }
 
   /// True when embedded glyph outlines are available.
   bool get hasOutlines =>

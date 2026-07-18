@@ -3,7 +3,6 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
 import 'image_pixels.dart';
-import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';

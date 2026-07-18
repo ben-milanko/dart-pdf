@@ -3945,7 +3945,7 @@ class _FontChip extends StatelessWidget {
     // an embedded/bundled/custom face shows its own name, not the base-14
     // family "Sans" - matching the style popup's font button
     if (font is! PdfStandardFont) {
-      return font is PdfEmbeddedFont ? font.familyName : font.resourceName;
+      return font is PdfEmbeddedFont ? font.displayName : font.resourceName;
     }
     final base = font.family.label;
     final suffix = switch ((font.isBold, font.isItalic)) {

@@ -8,7 +8,6 @@ import 'package:pdf_document/pdf_document.dart';
 import 'color.dart';
 import 'device.dart';
 import 'image_pixels.dart';
-import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
 import 'render_command.dart';
@@ -533,20 +532,23 @@ _CommandImage? _decodeImageForCommand(
       : _imageRegionPlan(
           document, request, imageDecodeRegion, maxImageRatio, budgetScale);
   if (regionPlan != null) {
-    var decoded = regionPlan.outside
+    // The façade decodes just the visible slice: the fast region decoder for
+    // single-filter Flate/CCITT streams, else a full decode cropped and
+    // downsampled to the region (so an Indexed-8/ICC/Lab/16-bit/SMask'd image
+    // re-sharpens on deep zoom instead of staying at the full-page cap).
+    // Images that need the platform JPEG codec decode null and ship
+    // un-decoded at native resolution, so they are already sharp. When we
+    // already hold decoded pixels, crop those directly.
+    final region = PdfImageRegion(regionPlan.sourceX, regionPlan.sourceY,
+        regionPlan.sourceWidth, regionPlan.sourceHeight);
+    final decoded = regionPlan.outside
         ? _transparentPixel
         : predecoded == null
-            ? decodePdfImagePixelsRegionScaled(
-                document,
-                request.stream,
-                regionPlan.sourceX,
-                regionPlan.sourceY,
-                regionPlan.sourceWidth,
-                regionPlan.sourceHeight,
-                regionPlan.targetWidth,
-                regionPlan.targetHeight,
-              )
-            : _cropDownsampleDecodedPixels(
+            ? decodePdfImage(document, request.stream,
+                region: region,
+                targetWidth: regionPlan.targetWidth,
+                targetHeight: regionPlan.targetHeight)
+            : cropDownsamplePdfDecodedPixels(
                 predecoded,
                 regionPlan.sourceX,
                 regionPlan.sourceY,
@@ -555,31 +557,6 @@ _CommandImage? _decodeImageForCommand(
                 regionPlan.targetWidth,
                 regionPlan.targetHeight,
               );
-    // The fast region decoder ([decodePdfImagePixelsRegionScaled]) only handles
-    // single-filter Flate RGB/gray/indexed streams; for any other image the
-    // general decoder handles - an Indexed 8-bit palette, an /SMask'd logo, an
-    // ICC/Lab/Separation colour space, 16-bit, a stacked filter - it returns
-    // null. Falling through from here would leave the visible slice at the
-    // full-page 2x cap, so those images stay soft under deep zoom while vector
-    // text sharpens - the exact asymmetry the detail patch exists to remove.
-    // Decode the whole image once and crop+downsample it to the visible region
-    // instead, so every decodable image type re-sharpens on zoom. (Images that
-    // need the platform JPEG codec still decode null here and ship un-decoded
-    // at native resolution, so they are already sharp.)
-    if (decoded == null && !regionPlan.outside && predecoded == null) {
-      final full = decodePdfImagePixels(document, request.stream);
-      if (full != null) {
-        decoded = _cropDownsampleDecodedPixels(
-          full,
-          regionPlan.sourceX,
-          regionPlan.sourceY,
-          regionPlan.sourceWidth,
-          regionPlan.sourceHeight,
-          regionPlan.targetWidth,
-          regionPlan.targetHeight,
-        );
-      }
-    }
     if (decoded != null) {
       final croppedRequest = _copyImageRequest(request,
           transform: regionPlan.transform, decoded: decoded);
@@ -598,8 +575,12 @@ _CommandImage? _decodeImageForCommand(
     final target =
         _targetDecodedSize(document, request, maxImageRatio, budgetScale);
     if (target != null) {
-      final scaled = decodePdfImagePixelsScaled(
-          document, request.stream, target.$1, target.$2);
+      // Decode straight to the display size: the scaled fast path when the
+      // stream supports it, else a full decode downsampled to the target
+      // (equivalent to a full decode through _capImageResolution, which caps
+      // to the same cappedImagePixelSize).
+      final scaled = decodePdfImage(document, request.stream,
+          targetWidth: target.$1, targetHeight: target.$2);
       if (scaled != null) {
         return _CommandImage(
             _copyImageRequest(request, decoded: scaled), scaled);
@@ -778,34 +759,6 @@ PdfImageRequest _copyImageRequest(
       isInline: request.isInline,
       decoded: decoded ?? request.decoded,
     );
-
-PdfDecodedPixels? _cropDownsampleDecodedPixels(
-  PdfDecodedPixels decoded,
-  int sourceX,
-  int sourceY,
-  int sourceWidth,
-  int sourceHeight,
-  int targetWidth,
-  int targetHeight,
-) {
-  if (sourceX < 0 ||
-      sourceY < 0 ||
-      sourceWidth <= 0 ||
-      sourceHeight <= 0 ||
-      sourceX + sourceWidth > decoded.width ||
-      sourceY + sourceHeight > decoded.height) {
-    return null;
-  }
-  final cropped = Uint8List(sourceWidth * sourceHeight * 4);
-  for (var y = 0; y < sourceHeight; y++) {
-    final srcOffset = ((sourceY + y) * decoded.width + sourceX) * 4;
-    final dstOffset = y * sourceWidth * 4;
-    cropped.setRange(
-        dstOffset, dstOffset + sourceWidth * 4, decoded.rgba, srcOffset);
-  }
-  final pixels = PdfDecodedPixels(cropped, sourceWidth, sourceHeight);
-  return downsamplePdfDecodedPixels(pixels, targetWidth, targetHeight);
-}
 
 CosStream _regionKeyStream(
   PdfImageRequest request,

@@ -166,13 +166,12 @@ extension PdfParagraphReflow on PdfEditor {
     var leading = 0.0;
     var charSpace = 0.0;
     var wordSpace = 0.0;
-    // text line matrix (a, b, c, d, e, f)
-    var a = 1.0, b = 0.0, c = 0.0, d = 1.0, e = 0.0, f = 0.0;
+    // text line matrix
+    var lm = PdfMatrix.identity;
     _ReflowBreak? pending;
 
     void translate(double tx, double ty) {
-      e = tx * a + ty * c + e;
-      f = tx * b + ty * d + f;
+      lm = PdfMatrix.translation(tx, ty).concat(lm);
     }
 
     for (var i = 0; i < ops.length; i++) {
@@ -181,12 +180,7 @@ extension PdfParagraphReflow on PdfEditor {
       switch (op.operator) {
         case 'BT':
           objId++;
-          a = 1;
-          b = 0;
-          c = 0;
-          d = 1;
-          e = 0;
-          f = 0;
+          lm = PdfMatrix.identity;
           pending = const _ReflowBreak('first', 0, 0);
         case 'Tf':
           if (operands.isNotEmpty && operands[0] is CosName) {
@@ -224,12 +218,14 @@ extension PdfParagraphReflow on PdfEditor {
           }
         case 'Tm':
           if (operands.length >= 6) {
-            a = PdfContentEditing._num(operands[0]);
-            b = PdfContentEditing._num(operands[1]);
-            c = PdfContentEditing._num(operands[2]);
-            d = PdfContentEditing._num(operands[3]);
-            e = PdfContentEditing._num(operands[4]);
-            f = PdfContentEditing._num(operands[5]);
+            lm = PdfMatrix(
+              PdfContentEditing._num(operands[0]),
+              PdfContentEditing._num(operands[1]),
+              PdfContentEditing._num(operands[2]),
+              PdfContentEditing._num(operands[3]),
+              PdfContentEditing._num(operands[4]),
+              PdfContentEditing._num(operands[5]),
+            );
             pending = const _ReflowBreak('Tm', 0, 0);
           }
         case 'T*':
@@ -247,12 +243,7 @@ extension PdfParagraphReflow on PdfEditor {
             leading,
             charSpace,
             wordSpace,
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
+            lm,
             const _ReflowBreak("'", 0, 0),
             textByOp,
           );
@@ -273,12 +264,7 @@ extension PdfParagraphReflow on PdfEditor {
             leading,
             charSpace,
             wordSpace,
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
+            lm,
             const _ReflowBreak('"', 0, 0),
             textByOp,
           );
@@ -295,12 +281,7 @@ extension PdfParagraphReflow on PdfEditor {
             leading,
             charSpace,
             wordSpace,
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
+            lm,
             pending ?? const _ReflowBreak('cont', 0, 0),
             textByOp,
           );
@@ -320,12 +301,7 @@ extension PdfParagraphReflow on PdfEditor {
     double leading,
     double charSpace,
     double wordSpace,
-    double a,
-    double b,
-    double c,
-    double d,
-    double e,
-    double f,
+    PdfMatrix matrix,
     _ReflowBreak brk,
     Map<int, String> textByOp,
   ) {
@@ -339,12 +315,7 @@ extension PdfParagraphReflow on PdfEditor {
         leading: leading,
         charSpace: charSpace,
         wordSpace: wordSpace,
-        a: a,
-        b: b,
-        c: c,
-        d: d,
-        originX: e,
-        baselineY: f,
+        matrix: matrix,
         brk: brk,
         text: textByOp[opIndex] ?? '',
       ),
@@ -553,12 +524,7 @@ class _ReflowLine {
     required this.leading,
     required this.charSpace,
     required this.wordSpace,
-    required this.a,
-    required this.b,
-    required this.c,
-    required this.d,
-    required this.originX,
-    required this.baselineY,
+    required this.matrix,
     required this.brk,
     required this.text,
   });
@@ -571,11 +537,20 @@ class _ReflowLine {
   final double leading;
   final double charSpace;
   final double wordSpace;
-  final double a, b, c, d;
-  final double originX;
-  final double baselineY;
+
+  /// The text line matrix at the start of this show operation.
+  final PdfMatrix matrix;
   final _ReflowBreak brk;
   final String text;
+
+  double get a => matrix.a;
+  double get b => matrix.b;
+  double get c => matrix.c;
+  double get d => matrix.d;
+
+  /// The line's origin x and baseline y - the translation part of [matrix].
+  double get originX => matrix.e;
+  double get baselineY => matrix.f;
 }
 
 /// How a line was reached from the previous one.

@@ -20,6 +20,7 @@ export 'src/document.dart';
 export 'src/exceptions.dart';
 export 'src/filters/filters.dart';
 export 'src/lexer.dart';
+export 'src/matrix.dart';
 export 'src/objects.dart';
 export 'src/parser.dart';
 export 'src/serializer.dart';

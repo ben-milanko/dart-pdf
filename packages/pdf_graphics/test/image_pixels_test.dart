@@ -674,4 +674,101 @@ void main() {
       expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
     });
   });
+
+  group('decodePdfImage façade', () {
+    // A 4x1 Flate DeviceRGB image the region/scaled fast paths support.
+    CosStream rgbStrip() => flateImage({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+        }, [
+          10, 11, 12, //
+          20, 21, 22, //
+          30, 31, 32, //
+          40, 41, 42,
+        ]);
+
+    test('no region or target decodes at native size, like decodePdfImagePixels',
+        () {
+      final stream = rgbStrip();
+      final facade = decodePdfImage(cos, stream)!;
+      final direct = decodePdfImagePixels(cos, stream)!;
+      expect(facade.width, direct.width);
+      expect(facade.height, direct.height);
+      expect(facade.rgba, direct.rgba);
+    });
+
+    test('a region crops to the requested slice', () {
+      final stream = rgbStrip();
+      final slice =
+          decodePdfImage(cos, stream, region: const PdfImageRegion(1, 0, 2, 1))!;
+      expect(slice.width, 2);
+      expect(slice.height, 1);
+      // premultiplied but fully opaque, so RGB is unchanged: pixels 1 and 2.
+      expect(slice.rgba, [20, 21, 22, 255, 30, 31, 32, 255]);
+    });
+
+    test('the fast region path and the full-decode fallback agree pixel-exactly',
+        () {
+      // The façade must return identical pixels whether the region fast path
+      // handled the stream or it fell back to a full decode + crop. Adding a
+      // Flate /SMask makes the region fast path bail (it only does
+      // single-filter, mask-free streams) while the full decoder still copes -
+      // so this compares the two façade paths for the same slice.
+      const region = PdfImageRegion(1, 0, 2, 1);
+      final plain = rgbStrip(); // fast region path
+      final masked = flateImage({
+        'Width': const CosInteger(4),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'SMask': flateImage({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+        }, [255, 255, 255, 255]), // fully opaque mask: pixels are unchanged
+      }, [
+        10, 11, 12, //
+        20, 21, 22, //
+        30, 31, 32, //
+        40, 41, 42,
+      ]);
+      final fast = decodePdfImage(cos, plain, region: region)!;
+      final fallback = decodePdfImage(cos, masked, region: region)!;
+      expect(fallback.width, fast.width);
+      expect(fallback.height, fast.height);
+      expect(fallback.rgba, fast.rgba);
+    });
+
+    test('a smaller target downsamples to that size', () {
+      final stream = rgbStrip();
+      final scaled = decodePdfImage(cos, stream, targetWidth: 2, targetHeight: 1)!;
+      expect(scaled.width, 2);
+      expect(scaled.height, 1);
+    });
+  });
+
+  group('cropDownsamplePdfDecodedPixels', () {
+    test('crops an in-bounds rectangle', () {
+      final full = PdfDecodedPixels(
+        Uint8List.fromList([
+          1, 1, 1, 255, 2, 2, 2, 255, //
+          3, 3, 3, 255, 4, 4, 4, 255,
+        ]),
+        2,
+        2,
+      );
+      final crop = cropDownsamplePdfDecodedPixels(full, 1, 0, 1, 2, 1, 2)!;
+      expect(crop.width, 1);
+      expect(crop.height, 2);
+      expect(crop.rgba, [2, 2, 2, 255, 4, 4, 4, 255]);
+    });
+
+    test('returns null when the rectangle falls outside the image', () {
+      final full = PdfDecodedPixels(Uint8List(16), 2, 2);
+      expect(cropDownsamplePdfDecodedPixels(full, 1, 1, 2, 2, 2, 2), isNull);
+    });
+  });
 }

@@ -5,7 +5,6 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'color.dart';
 import 'color_space.dart';
 import 'function.dart';
-import 'matrix.dart';
 import 'mesh.dart';
 
 /// A gradient ready for a device: stops pre-sampled from the shading's

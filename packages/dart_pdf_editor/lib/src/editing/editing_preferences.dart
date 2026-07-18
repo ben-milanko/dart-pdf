@@ -74,6 +74,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
   List<Color> _recentColors = const [];
+  List<String> _recentFonts = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
   bool _showAnnotations = true;
   bool _highlightFormFields = true;
@@ -203,6 +204,10 @@ class PdfEditingPreferences extends ChangeNotifier {
           for (final entry in recentColors)
             if (int.tryParse(entry) case final rgb?) Color(0xFF000000 | rgb),
         ]);
+      }
+      final recentFonts = store.getStringList('${_prefix}recentFonts');
+      if (recentFonts != null) {
+        _recentFonts = List.unmodifiable(recentFonts);
       }
       final pageColor = store.getInt('${_prefix}pageColor');
       if (pageColor != null) _pageColor = Color(pageColor);
@@ -803,6 +808,36 @@ class PdfEditingPreferences extends ChangeNotifier {
     _recentColors = List.unmodifiable(next);
     _write((s) => s.setStringList('${_prefix}recentColors',
         [for (final c in _recentColors) '${c.toARGB32() & 0xFFFFFF}']));
+    notifyListeners();
+  }
+
+  /// How many recently-picked fonts to remember (see [recentFonts]).
+  static const _maxRecentFonts = 6;
+
+  /// Opaque keys of the fonts most recently chosen in the font menu, newest
+  /// first - the menu's "Recently used" group. Each key identifies a menu
+  /// entry (a standard family, a bundled/platform font, or a document font)
+  /// rather than carrying font bytes, so the menu resolves it back to a live
+  /// choice; keys no longer present (e.g. a document font from a closed file)
+  /// are simply skipped. Persisted on the device.
+  List<String> get recentFonts => _recentFonts;
+
+  /// Records [key] as the most-recently-used font, moving it to the front
+  /// (deduplicated) and dropping the oldest past [_maxRecentFonts]. A no-op
+  /// when [key] is empty or already the newest entry.
+  void noteRecentFont(String key) {
+    if (key.isEmpty) return;
+    if (_recentFonts.isNotEmpty && _recentFonts.first == key) return;
+    final next = [
+      key,
+      for (final existing in _recentFonts)
+        if (existing != key) existing,
+    ];
+    if (next.length > _maxRecentFonts) {
+      next.removeRange(_maxRecentFonts, next.length);
+    }
+    _recentFonts = List.unmodifiable(next);
+    _write((s) => s.setStringList('${_prefix}recentFonts', _recentFonts));
     notifyListeners();
   }
 
