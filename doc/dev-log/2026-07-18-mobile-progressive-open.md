@@ -94,8 +94,10 @@ mobile pick (no reopenable origin yet) and added when the snapshot lands.
 hand SAF a **non-seekable** `ParcelFileDescriptor` (a pipe) — `statSize == -1`,
 `lseek` throws `ESPIPE`. `probeSeekable` detects exactly that (statSize check +
 a forward/back `lseek`) and returns false, so the app streams the reference
-whole instead of attempting random access. **Whether progressive actually wins
-on Android depends entirely on the provider and is unverified** — see below.
+whole instead of attempting random access. **Whether progressive wins on Android
+is provider-dependent** — OneDrive was confirmed seekable on-device (see
+Verification); other providers remain to be checked and a pipe-returning one
+degrades safely to whole-stream.
 
 ### iOS (`SceneDelegate.swift`)
 
@@ -120,16 +122,29 @@ on Android depends entirely on the provider and is unverified** — see below.
   channel. `mobile_progressive_open_test.dart` drives the whole pick → first
   paint → full-read swap end-to-end on an Android platform override with the
   native channel mocked to serve a real PDF by range. Full app suite green.
-- **On-device (pending — cannot be done from CI/desktop):** the native handlers
-  are unexercised. Per #364's acceptance criteria, still required:
-  1. **Android spike:** confirm `openFileDescriptor` yields a **seekable** FD for
-     a real OneDrive/Drive file on a device. If cloud providers return pipes
-     (likely for some), `probeSeekable` returns false and those picks stream
-     whole — correct, but no progressive win. If *no* mainstream provider is
-     seekable, Android progressive is not viable via SAF and should be scoped to
-     iOS only (the plumbing already degrades to the stream path automatically).
-  2. **iOS:** verify a coordinated ranged read paints a large iCloud/OneDrive
-     PDF before the whole file downloads.
+- **On-device (native handlers can't run in CI/desktop):** per #364's
+  acceptance criteria —
+  1. **Android + OneDrive — CONFIRMED (2026-07-19, release build, devtools
+     traces).** The de-risking gamble — does SAF's `openFileDescriptor` hand
+     back a **seekable** FD for a mainstream cloud provider? — is met for
+     OneDrive. Evidence, not inference: `rangeRequests` / `rangeBytesFetched`
+     are emitted only by the ranged source (0 on the old copy path), and were
+     non-zero on `platform: android`, so `PdfMobileByteSource` is the code path.
+     `rangeBytesFetched: 444 KB` across three OneDrive files of 58 / 21 / 36 MB
+     (`rangeRequests: 122`) — ~1% of a single 36 MB file, i.e. the sparse
+     seekable `_fetch` path; a non-seekable pipe would have streamed ~115 MB via
+     `_downloadFully`. Progressive swap confirmed per document (e.g. 107-page
+     first paint, then `full read complete — 36,383,879 bytes` ~636 ms later),
+     and `objectRescueScanBuilt: 1` shows xref recovery still works over the
+     ranged source. So Android progressive is viable — **not** iOS-only.
+  2. **iOS — pending:** verify a coordinated ranged read paints a large
+     iCloud/OneDrive PDF before the whole file downloads (not yet exercised).
+  3. **Other providers — pending:** only OneDrive confirmed; Google Drive /
+     iCloud outstanding. A pipe-returning provider degrades to whole-stream
+     (correct, no win) via `probeSeekable`.
+  4. **Speedup magnitude — pending:** the traces prove progressive *works* and
+     fetches ~1% for first paint, but not (no A/B yet) that first paint is
+     *faster* than the old copy path.
 
 The design is fail-safe by construction: a missing channel, a cancelled pick, a
 non-seekable provider, or any first-paint failure all fall back to a whole read
