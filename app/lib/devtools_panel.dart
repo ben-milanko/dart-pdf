@@ -137,7 +137,9 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   Future<void> _exportSnapshot() async {
     final frames = _tools.frameStats();
     final session = widget.session;
-    final store = PdfPageView.debugTileStoreOverride;
+    final store = PdfPageView.tileStoreDetail
+        ? (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
+        : PdfPageView.debugTileStoreOverride;
     final snapshot = <String, Object?>{
       'tool': 'dartpdf-devtools',
       'exportedAt': DateTime.now().toIso8601String(),
@@ -522,7 +524,9 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   void _persist() => unawaited(_tools.persistOptions());
 
   Widget _deepZoomSection(ThemeData theme) {
-    final store = PdfPageView.debugTileStoreOverride;
+    final store = PdfPageView.tileStoreDetail
+        ? (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
+        : PdfPageView.debugTileStoreOverride;
     return _section(theme, 'Deep-zoom detail (#314)', [
       RadioGroup<String>(
         groupValue: _deepZoomMode,
