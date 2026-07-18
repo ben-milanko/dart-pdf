@@ -5025,7 +5025,11 @@ class _PdfViewerState extends State<PdfViewer>
                 renderWorker: widget.renderWorker,
                 performance: widget.performance,
                 predictStrokes: widget.predictStrokes,
-                pasteboard: _pasteboardX,
+                // the tile scales with the layout zoom (_crossFactor), so the
+                // pasteboard inset must scale with it too - a constant inset
+                // leaves the raster short of its tile when zoomed out, which
+                // shows up as a growing gap between pages
+                pasteboard: _pasteboardX * _layoutZoom,
               ),
             ),
           ),
