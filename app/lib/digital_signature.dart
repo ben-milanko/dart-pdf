@@ -944,7 +944,22 @@ class _AppearancePreview extends StatelessWidget {
       'Date: ${MaterialLocalizations.of(context).formatFullDate(DateTime.now())}',
       if (reason != null && reason!.isNotEmpty) 'Reason: $reason',
     ];
+    // Wraps [child] to the panel width, then scales the whole block down to
+    // fit the panel height - mirroring the renderer, which wraps the text and
+    // shrinks the font so nothing overflows or is clipped (never an ellipsis).
+    Widget fitText(Widget child, Alignment alignment) => Padding(
+          padding: const EdgeInsets.all(5),
+          child: LayoutBuilder(
+            builder: (context, constraints) => FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: alignment,
+              child: SizedBox(width: constraints.maxWidth, child: child),
+            ),
+          ),
+        );
+
     final box = Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: const Color(0xFF2E5E86)),
@@ -958,36 +973,40 @@ class _AppearancePreview extends StatelessWidget {
       ),
       child: Row(children: [
         Expanded(
-          child: Center(
-            child: signaturePng != null
-                ? Padding(
-                    padding: const EdgeInsets.all(6),
-                    child: Image.memory(signaturePng!, fit: BoxFit.contain),
-                  )
-                : Text(
+          child: signaturePng != null
+              ? Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: Image.memory(signaturePng!, fit: BoxFit.contain),
+                )
+              // the signer name, centred and shrunk/wrapped to fit
+              : fitText(
+                  Text(
                     signerName ?? 'Signer',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         color: Color(0xFF1A1A1A),
-                        fontWeight: FontWeight.bold),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16),
                   ),
-          ),
+                  Alignment.center,
+                ),
         ),
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(6),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+          // the signing details, top-anchored, wrapped and shrunk to fit
+          child: fitText(
+            Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 for (final line in details)
                   Text(line,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontSize: 8, color: Color(0xFF1A1A1A))),
+                          fontSize: 9,
+                          height: 1.3,
+                          color: Color(0xFF1A1A1A))),
               ],
             ),
+            Alignment.topLeft,
           ),
         ),
       ]),
