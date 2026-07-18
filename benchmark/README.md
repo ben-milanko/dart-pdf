@@ -1,5 +1,10 @@
 # dart-pdf vs PDFium render benchmarks
 
+> **Front door:** `tool/perf.sh` at the repo root dispatches every perf
+> suite (this one included, as `tool/perf.sh compare-pdfium`), and all
+> suites now emit the shared envelope schema (`tool/perf/SCHEMA.md`) on top
+> of the JSON documented here - `compare.py` is unaffected.
+
 Performance harnesses that time dart-pdf rendering against **PDFium** (the
 C++ engine Chrome uses) over the same corpus of PDFs, and emit a side-by-side
 comparison table (ms/page, pages/s, speedup ratio).

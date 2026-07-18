@@ -3,7 +3,10 @@ import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
+
+import 'perf_log.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart'
     show StripPlan, StripPlanBinner, decodeStripPlan, encodeStripPlan;
@@ -169,8 +172,8 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     });
     final isolate = await Isolate.spawn(
       _workerMain,
-      _WorkerInit(
-          _fromWorker.sendPort, TransferableTypedData.fromList([bytes])),
+      _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes]),
+          perfEnabled: PdfPerfLog.enabled),
       debugName: 'pdf-render-worker',
       errorsAreFatal: false,
     );
@@ -592,19 +595,31 @@ class _PendingRequest {
 }
 
 class _WorkerInit {
-  _WorkerInit(this.reply, this.bytes);
+  _WorkerInit(this.reply, this.bytes, {this.perfEnabled = false});
 
   /// The port the worker sends its own command port (and every response) on.
   final SendPort reply;
 
   /// The whole document, transferred (zero-copy) at spawn.
   final TransferableTypedData bytes;
+
+  /// Switch on the worker isolate's own (isolate-local) PdfPerf facade.
+  final bool perfEnabled;
 }
 
 /// Isolate entrypoint: open the document once, then serve record and bin
 /// requests until the worker is killed. Uses the async walks so the event
 /// loop can receive cancel messages mid-job.
 void _workerMain(_WorkerInit init) {
+  // Statics are isolate-local: the worker's PdfPerf must be switched on here
+  // (mirroring the spawner's PdfPerfLog state). Rare structural events route
+  // to developer.log; accumulated stats stay in-isolate for future protocol
+  // messages to fetch.
+  if (init.perfEnabled) {
+    PdfPerf.enabled = true;
+    PdfPerf.sink = (line) =>
+        developer.log(line, name: 'dart_pdf_editor.render_worker');
+  }
   final requests = ReceivePort();
   final cancelPort = ReceivePort();
   init.reply.send([requests.sendPort, cancelPort.sendPort]);

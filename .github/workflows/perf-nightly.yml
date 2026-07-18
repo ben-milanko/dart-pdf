@@ -1,0 +1,92 @@
+# Nightly perf trend run (issue: Bluebeam-level performance push).
+#
+# Wall-time numbers from a shared runner are only comparable within one job,
+# so regressions are judged by the BASELINE-RERUN RATIO CHECK: the previous
+# nightly's commit is checked out into a worktree and re-measured on this
+# same runner, interleaved with the current tree (tool/perf/perf_diff.sh),
+# and the job fails on a >15% median regression - which emails the
+# maintainer. The absolute numbers still land on the perf-data branch for
+# the trend dashboard (GitHub Pages serves history/index.html from there;
+# one-time setup: repo Settings -> Pages -> deploy from perf-data branch).
+name: perf-nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: perf-nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the ratio check worktrees an older commit
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.4
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: pip install pypdfium2
+
+      - name: Fetch perf-data history branch
+        run: |
+          git fetch origin perf-data:perf-data 2>/dev/null || echo "no perf-data branch yet"
+
+      - name: Run CI-safe scenario sweeps
+        run: tool/perf/nightly.sh out/perf-history
+
+      - name: Baseline-rerun ratio check vs previous nightly
+        run: |
+          PREV_SHA=""
+          if git rev-parse -q --verify perf-data >/dev/null; then
+            PREV_SHA=$(git show perf-data:history/vm-sweep.ndjson 2>/dev/null |
+              tail -1 |
+              python3 -c 'import json,sys; line = sys.stdin.read().strip(); print(json.loads(line)["rev"]["sha"] if line else "")' || true)
+          fi
+          if [ -z "$PREV_SHA" ] || ! git cat-file -e "$PREV_SHA" 2>/dev/null; then
+            echo "no previous nightly sha - skipping ratio check (first run)"
+            exit 0
+          fi
+          if [ "$PREV_SHA" = "$(git rev-parse HEAD)" ]; then
+            echo "no new commits since last nightly - skipping ratio check"
+            exit 0
+          fi
+          echo "ratio check vs $PREV_SHA (same-runner, interleaved)"
+          tool/perf/perf_diff.sh "$PREV_SHA" save-incremental \
+            --iterations 2 --threshold 1.15 --clean
+          tool/perf/perf_diff.sh "$PREV_SHA" ghent-suite-open \
+            --iterations 2 --threshold 1.15 --clean
+
+      - name: Append history + rebuild dashboard on perf-data
+        run: |
+          git config user.name "perf-nightly"
+          git config user.email "perf-nightly@users.noreply.github.com"
+          if git rev-parse -q --verify perf-data >/dev/null; then
+            git worktree add ../perf-data perf-data
+          else
+            git worktree add --detach ../perf-data
+            (cd ../perf-data && git checkout --orphan perf-data && git rm -rf -q . || true)
+          fi
+          mkdir -p ../perf-data/history
+          for f in out/perf-history/*.ndjson; do
+            [ -e "$f" ] || continue
+            cat "$f" >> "../perf-data/history/$(basename "$f")"
+          done
+          node tool/perf/report/build_report.mjs \
+            --history ../perf-data/history \
+            --targets tool/perf/targets.json \
+            --out ../perf-data/index.html
+          cd ../perf-data
+          git add -A
+          git commit -m "perf-nightly: $(date -u +%F) @ $(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)"
+          git push origin HEAD:perf-data

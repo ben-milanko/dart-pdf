@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart'
     show helveticaWidths, helveticaBoldWidths, timesRomanWidths;
 
@@ -139,6 +140,17 @@ class PdfFontInfo {
       _trueType != null || _cff != null || _type1 != null;
 
   static PdfFontInfo load(CosDocument cos, CosDictionary font) {
+    final t0 = PdfPerf.begin();
+    try {
+      final info = _loadTimed(cos, font);
+      PdfPerf.add(PdfPerfCount.fontsParsed);
+      return info;
+    } finally {
+      PdfPerf.end(PdfPerfPhase.fontParse, t0);
+    }
+  }
+
+  static PdfFontInfo _loadTimed(CosDocument cos, CosDictionary font) {
     final subtype = font['Subtype'];
     final subtypeName = subtype is CosName ? subtype.value : '';
     final baseFontObj = cos.resolve(font['BaseFont']);
@@ -445,6 +457,7 @@ class PdfFontInfo {
         final parsed = TrueTypeFont.parse(cos.decodeStreamData(file));
         if (parsed != null) return parsed;
       } on Exception {
+        PdfPerf.add(PdfPerfCount.fontParseFailed);
         // fall through to substitution
       }
     }
@@ -460,6 +473,7 @@ class PdfFontInfo {
     try {
       return Type1Font.parse(cos.decodeStreamData(file));
     } on Exception {
+      PdfPerf.add(PdfPerfCount.fontParseFailed);
       return null;
     }
   }
@@ -479,6 +493,7 @@ class PdfFontInfo {
         final parsed = CffFont.parse(cos.decodeStreamData(file));
         if (parsed != null) return parsed;
       } on Exception {
+        PdfPerf.add(PdfPerfCount.fontParseFailed);
         // fall through to substitution
       }
     }

@@ -150,6 +150,7 @@ class _Type0RunEditor {
     _usedFallbacks.forEach((font, name) {
       final built = font.buildResource(updater.addObject).entries.values.first;
       _fontResources()[name] = updater.addObject(built);
+      PdfPerf.add(PdfPerfCount.fallbackFontEmbedded);
     });
   }
 
